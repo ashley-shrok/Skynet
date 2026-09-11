@@ -1340,7 +1340,7 @@ describe("NewSessionDialog: Phase 88 admin-gate + backend substitution", () => {
   });
 
   it("Phase 88 T4 (2026-09-11 fix): admin with blank Path → Create ENABLED (blank triggers backend workspace-default substitution)", async () => {
-    // Ashley 2026-09-11: the previous "blank Path → Create disabled + inline
+    // Alice 2026-09-11: the previous "blank Path → Create disabled + inline
     // error" behavior locked admins out of the Phase-96 workspace-default
     // substitution. Combined with useState default "~/", it meant admin-born
     // identities always carried a non-empty path on the wire, suppressing

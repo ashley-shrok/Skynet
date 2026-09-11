@@ -29,7 +29,7 @@ Confirmed the shape file's three technical assumptions against the codebase befo
 | B. Frontend polls a new endpoint | Birth SSE ends at Skynet's own completion. Frontend then polls a new `GET /identities/:name/session-alive?hostId=X` every couple seconds until success/timeout. Adds a new endpoint; decouples "Skynet's job" from "wait for supervisor". | |
 
 **User's choice:** A (backend-inside-SSE).
-**Notes:** Presented with my lean toward A. Ashley agreed. Rationale: single wire contract is cleaner from the modal's perspective; the connection-hold time isn't a real concern given typical fleet density.
+**Notes:** Presented with my lean toward A. Alice agreed. Rationale: single wire contract is cleaner from the modal's perspective; the connection-hold time isn't a real concern given typical fleet density.
 
 ---
 
@@ -47,7 +47,7 @@ Confirmed the shape file's three technical assumptions against the codebase befo
 
 ## Claude's Discretion
 
-Decisions where Ashley's earlier locked answers (from `/open`) fully covered scope, so no discuss-phase re-ask was needed:
+Decisions where Alice's earlier locked answers (from `/open`) fully covered scope, so no discuss-phase re-ask was needed:
 
 - **Failure surface = one generic `window.alert("agent creation failed")`.** Confirmed in `/open` grill.
 - **Failure classes not distinguished** (Skynet-side vs supervisor-wait timeout). Confirmed in `/open` grill.
@@ -71,5 +71,5 @@ Planner-level flexibility on:
 - **Chunk 4 dissolves under this shape.** Related bounty `newsessiondialog-ux-per-step-visible` should be marked done/dropped as part of closing this phase.
 - **Chunk 2's workspace-path fallback becomes vestigial after this phase.** Do NOT remove in this phase — still needed by shell-only branch. If ever removed, would be a separate cleanup phase.
 - **Clone-flow cleanup — should `identity-clone.ts` also stop calling `startHarnessOnIdentity`?** Same architectural question as this phase, but for clone. Would allow full deletion of `identity-harness-start.ts`. Out of scope for Chunk 3; separate phase if pursued.
-- **Downstream deployment (T800 / Stacy) pull-through** — batched for after all 3 chunks land, per Ashley's direction.
+- **Downstream deployment (T800 / Stacy) pull-through** — batched for after all 3 chunks land, per Alice's direction.
 - **Richer diagnostic surface for the failure log** (exposing it to the operator through some UI). Separate concern; own phase if pursued.

@@ -252,7 +252,7 @@ router.post(
     // fallback branch and lands in the workspace path.
     //
     // Path convention is Phase 96 D-04: `~/fleet/identities/<name>/workspace/`.
-    // Pre-Phase-96 this substituted `~/<name>/` (bug: caused Ashley's
+    // Pre-Phase-96 this substituted `~/<name>/` (bug: caused Alice's
     // onboarding-rehearsal on T800 test03-vm to birth aster at ~/aster/
     // instead of ~/fleet/identities/aster/workspace/, and the supervisor's
     // disk-scan cwd fallback specifically expects the new path — see

@@ -161,7 +161,7 @@ npx vitest run src/ui/sidebar/NewSessionDialog.role-dropdown.test.tsx …task-in
 
 ## Next Phase Readiness
 
-- **For the ship gate (D-22 orchestrator work):** Both touched test files pass under scoped vitest. Sibling role-dropdown + task-input tests unchanged and passing. Frontend build clean. Backend build clean (assuming 106-03 also lands its assertions cleanly — 106-03 is the Wave 2 sibling touching `identity-birth-orchestrator.test.ts`). The full-suite `npx vitest run` should now pass once 106-03 lands — Ashley's orchestrator can gate ship on that at their next tick.
+- **For the ship gate (D-22 orchestrator work):** Both touched test files pass under scoped vitest. Sibling role-dropdown + task-input tests unchanged and passing. Frontend build clean. Backend build clean (assuming 106-03 also lands its assertions cleanly — 106-03 is the Wave 2 sibling touching `identity-birth-orchestrator.test.ts`). The full-suite `npx vitest run` should now pass once 106-03 lands — Alice's orchestrator can gate ship on that at their next tick.
 - **For future NewSessionDialog UX phases:** Test 106A/B/C/D/E pin the current UX contract executably. Any future re-introduction of a per-step checklist would need to explicitly delete or rewrite these tests — the plan-time greps for `BirthProgress` / `Open tmux session` / `Launch Claude CLI` still work as regression guards.
 
 ## Verifier Notes / Things to Double-Check
