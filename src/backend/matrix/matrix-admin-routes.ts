@@ -315,4 +315,71 @@ router.post(
   },
 );
 
+// One-shot admin-gated reset for the two registry-room settings rows.
+// Existing `ensureRegistryRoomsExist` runs at boot only, and takes a
+// fast-path when both `agents_registry_room_id` + `humans_registry_room_id`
+// settings are present — pointing at rooms that may not exist on a
+// newly-swapped homeserver (e.g. after a relay-server migration). This
+// endpoint deletes both settings rows, forceSaves, then invokes
+// ensureRegistryRoomsExist inline so fresh rooms are created on the
+// current (already-swapped) homeserver in the same request — no container
+// restart needed. Idempotent: re-running against a homeserver where the
+// rows have already been recreated just recreates them again.
+router.post(
+  "/reset-registry-rooms",
+  requireAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const adminUserId = (req as AuthenticatedRequest).userId;
+    try {
+      // Dynamic imports mirror the other handlers in this file (see /creds
+      // and /migrate-cred-files above) — matrix-admin-routes is imported
+      // from server.ts very early and pulling db/schema/registry-rooms at
+      // top-level tangles the initialization graph.
+      const { db, saveMemoryDatabaseToFile } = await import(
+        "../database/db/index.js"
+      );
+      const {
+        SETTINGS_KEY_AGENTS_REGISTRY,
+        SETTINGS_KEY_HUMANS_REGISTRY,
+        ensureRegistryRoomsExist,
+      } = await import("../relay-sessions/registry-rooms.js");
+
+      db.$client
+        .prepare("DELETE FROM settings WHERE key IN (?, ?)")
+        .run(SETTINGS_KEY_AGENTS_REGISTRY, SETTINGS_KEY_HUMANS_REGISTRY);
+
+      await saveMemoryDatabaseToFile();
+
+      const ensured = await ensureRegistryRoomsExist();
+
+      authLogger.info("matrix-admin reset-registry-rooms completed", {
+        operation: "matrix_admin_reset_registry_rooms",
+        adminId: adminUserId,
+        ok: ensured.ok,
+      });
+
+      // === false narrowing (not `!ensured.ok`) — strict tsc doesn't
+      // narrow discriminated unions on the truthy `.ok` branch here, same
+      // pattern as identity-birth-orchestrator.ts fix pinpointed at commit
+      // 967ab598 and the migrate-cred-files handler above.
+      if (ensured.ok === false) {
+        res.status(503).json({
+          error: "reset_registry_rooms_failed",
+          reason: ensured.reason,
+        });
+        return;
+      }
+
+      res.json({
+        ok: true,
+        agentsRoomId: ensured.agentsRoomId,
+        humansRoomId: ensured.humansRoomId,
+      });
+    } catch (err) {
+      authLogger.error("Failed to reset registry rooms", err);
+      res.status(500).json({ error: "Failed to reset registry rooms" });
+    }
+  },
+);
+
 export default router;

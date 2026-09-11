@@ -73,7 +73,7 @@ vi.mock("./matrix-admin-creds-store.js", () => ({
   setMatrixAdminServerName: setMatrixAdminServerNameMock,
 }));
 
-const { saveMemoryDatabaseToFileMock, dbSelectMock } = vi.hoisted(() => ({
+const { saveMemoryDatabaseToFileMock, dbSelectMock, dbPrepareRunMock } = vi.hoisted(() => ({
   saveMemoryDatabaseToFileMock: vi.fn(),
   // Phase 79 Plan 08 — POST /migrate-cred-files iterates the users table
   // via db.select({name, mxid}).from(users). The route dynamic-imports
@@ -81,6 +81,10 @@ const { saveMemoryDatabaseToFileMock, dbSelectMock } = vi.hoisted(() => ({
   // circular-module problem at boot), so we mock both here and let the
   // per-test setup swap mockUserRows.
   dbSelectMock: vi.fn(),
+  // POST /reset-registry-rooms deletes the two settings rows via
+  // db.$client.prepare(...).run(...). Mock captures the run() call so
+  // tests can assert the DELETE was issued.
+  dbPrepareRunMock: vi.fn(),
 }));
 
 vi.mock("../database/db/index.js", () => ({
@@ -89,7 +93,24 @@ vi.mock("../database/db/index.js", () => ({
     select: () => ({
       from: () => Promise.resolve(dbSelectMock()),
     }),
+    $client: {
+      prepare: () => ({ run: dbPrepareRunMock }),
+    },
   },
+}));
+
+// POST /reset-registry-rooms dynamic-imports registry-rooms.js at handler
+// time (avoids the same circular-module problem the other endpoints work
+// around). Mock ensureRegistryRoomsExist + re-export the two settings-key
+// constants so tests can control the ensure result.
+const { ensureRegistryRoomsExistMock } = vi.hoisted(() => ({
+  ensureRegistryRoomsExistMock: vi.fn(),
+}));
+
+vi.mock("../relay-sessions/registry-rooms.js", () => ({
+  ensureRegistryRoomsExist: ensureRegistryRoomsExistMock,
+  SETTINGS_KEY_AGENTS_REGISTRY: "agents_registry_room_id",
+  SETTINGS_KEY_HUMANS_REGISTRY: "humans_registry_room_id",
 }));
 
 // The users symbol is only used as a column reference — return a bare
@@ -621,5 +642,112 @@ describe("POST /matrix-admin/migrate-cred-files", () => {
     expect(parsed.results).toEqual([]);
     expect(parsed.deletedCredFiles).toEqual([]);
     expect(mintAndWriteHumanTokenMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Relay-migration shape 6 — POST /matrix-admin/reset-registry-rooms tests
+// ---------------------------------------------------------------------------
+
+describe("POST /matrix-admin/reset-registry-rooms", () => {
+  let server: { port: number; close: () => Promise<void> };
+
+  beforeEach(async () => {
+    dbPrepareRunMock.mockReset().mockReturnValue({ changes: 2 });
+    saveMemoryDatabaseToFileMock.mockReset().mockResolvedValue(undefined);
+    ensureRegistryRoomsExistMock.mockReset();
+    mockIsAdmin = true;
+    server = await startServer();
+  });
+
+  afterEach(async () => {
+    await server.close();
+  });
+
+  it("401 when no auth token present", async () => {
+    mockIsAdmin = null;
+    const res = await request(server.port, "POST", "/matrix-admin/reset-registry-rooms");
+    expect(res.status).toBe(401);
+    expect(dbPrepareRunMock).not.toHaveBeenCalled();
+    expect(ensureRegistryRoomsExistMock).not.toHaveBeenCalled();
+  });
+
+  it("403 when caller is authenticated but not admin", async () => {
+    mockIsAdmin = false;
+    const res = await request(server.port, "POST", "/matrix-admin/reset-registry-rooms");
+    expect(res.status).toBe(403);
+    expect(dbPrepareRunMock).not.toHaveBeenCalled();
+    expect(ensureRegistryRoomsExistMock).not.toHaveBeenCalled();
+  });
+
+  it("200 happy path — clears settings, forceSaves, calls ensureRegistryRoomsExist, returns new room IDs", async () => {
+    ensureRegistryRoomsExistMock.mockResolvedValue({
+      ok: true,
+      agentsRoomId: "!newagents:t1000.taild9b663.ts.net",
+      humansRoomId: "!newhumans:t1000.taild9b663.ts.net",
+    });
+
+    const res = await request(server.port, "POST", "/matrix-admin/reset-registry-rooms");
+    expect(res.status).toBe(200);
+    const parsed = JSON.parse(res.body);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.agentsRoomId).toBe("!newagents:t1000.taild9b663.ts.net");
+    expect(parsed.humansRoomId).toBe("!newhumans:t1000.taild9b663.ts.net");
+
+    // DELETE must be issued with both settings keys bound in order
+    expect(dbPrepareRunMock).toHaveBeenCalledWith(
+      "agents_registry_room_id",
+      "humans_registry_room_id",
+    );
+    expect(saveMemoryDatabaseToFileMock).toHaveBeenCalledOnce();
+    expect(ensureRegistryRoomsExistMock).toHaveBeenCalledOnce();
+  });
+
+  it("503 when ensureRegistryRoomsExist returns {ok: false} — includes reason", async () => {
+    ensureRegistryRoomsExistMock.mockResolvedValue({
+      ok: false,
+      reason: "creds_missing",
+    });
+
+    const res = await request(server.port, "POST", "/matrix-admin/reset-registry-rooms");
+    expect(res.status).toBe(503);
+    const parsed = JSON.parse(res.body);
+    expect(parsed.error).toBe("reset_registry_rooms_failed");
+    expect(parsed.reason).toBe("creds_missing");
+
+    // Settings clear + save still fired — the reset half of the operation
+    // succeeded; only the ensure half failed.
+    expect(dbPrepareRunMock).toHaveBeenCalledOnce();
+    expect(saveMemoryDatabaseToFileMock).toHaveBeenCalledOnce();
+  });
+
+  it("500 when ensureRegistryRoomsExist throws — no room IDs leaked", async () => {
+    ensureRegistryRoomsExistMock.mockRejectedValue(
+      new Error("synapse_unreachable"),
+    );
+
+    const res = await request(server.port, "POST", "/matrix-admin/reset-registry-rooms");
+    expect(res.status).toBe(500);
+    const parsed = JSON.parse(res.body);
+    expect(parsed.error).toMatch(/reset registry rooms/i);
+    expect(parsed.agentsRoomId).toBeUndefined();
+    expect(parsed.humansRoomId).toBeUndefined();
+  });
+
+  it("200 idempotent — two consecutive calls both clear + recreate", async () => {
+    ensureRegistryRoomsExistMock.mockResolvedValue({
+      ok: true,
+      agentsRoomId: "!agents:t1000.taild9b663.ts.net",
+      humansRoomId: "!humans:t1000.taild9b663.ts.net",
+    });
+
+    const res1 = await request(server.port, "POST", "/matrix-admin/reset-registry-rooms");
+    const res2 = await request(server.port, "POST", "/matrix-admin/reset-registry-rooms");
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+
+    expect(dbPrepareRunMock).toHaveBeenCalledTimes(2);
+    expect(saveMemoryDatabaseToFileMock).toHaveBeenCalledTimes(2);
+    expect(ensureRegistryRoomsExistMock).toHaveBeenCalledTimes(2);
   });
 });
