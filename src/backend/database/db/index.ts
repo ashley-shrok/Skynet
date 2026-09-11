@@ -1676,6 +1676,19 @@ const migrateSchema = async () => {
   }
 
   try {
+    sqlite.prepare("SELECT host_side_base FROM matrix_admin_creds LIMIT 1").get();
+  } catch {
+    try {
+      sqlite.exec("ALTER TABLE matrix_admin_creds ADD COLUMN host_side_base TEXT");
+    } catch (alterError) {
+      databaseLogger.warn("Failed to add host_side_base column", {
+        operation: "schema_migration",
+        error: alterError,
+      });
+    }
+  }
+
+  try {
     sqlite.prepare("SELECT sudo_password FROM ssh_data LIMIT 1").get();
   } catch {
     try {
