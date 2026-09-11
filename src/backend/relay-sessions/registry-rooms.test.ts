@@ -71,6 +71,8 @@ vi.mock("../utils/logger.js", () => ({
 vi.mock("../matrix/matrix-admin-client.js", () => ({
   createRoom: vi.fn(),
   joinRoom: vi.fn(),
+  getRoomPowerLevels: vi.fn(),
+  putRoomPowerLevels: vi.fn(),
 }));
 
 vi.mock("../matrix/matrix-admin-creds-store.js", () => ({
@@ -94,16 +96,27 @@ import {
   getHumansRegistryRoomId,
   SETTINGS_KEY_AGENTS_REGISTRY,
   SETTINGS_KEY_HUMANS_REGISTRY,
+  buildLockdownPowerLevelsContent,
+  assertRegistryRoomLockdown,
 } from "./registry-rooms.js";
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
-import { createRoom, joinRoom } from "../matrix/matrix-admin-client.js";
+import {
+  createRoom,
+  joinRoom,
+  getRoomPowerLevels,
+  putRoomPowerLevels,
+} from "../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
 import { addAdminRoom, isAdminRoom } from "./admin-rooms-ignore-list.js";
 
 const forceSaveSpy = DatabaseSaveTrigger.forceSave as ReturnType<typeof vi.fn>;
 const createRoomSpy = createRoom as unknown as ReturnType<typeof vi.fn>;
 const joinRoomSpy = joinRoom as unknown as ReturnType<typeof vi.fn>;
+const getRoomPowerLevelsSpy =
+  getRoomPowerLevels as unknown as ReturnType<typeof vi.fn>;
+const putRoomPowerLevelsSpy =
+  putRoomPowerLevels as unknown as ReturnType<typeof vi.fn>;
 const getCredsSpy = getMatrixAdminCreds as unknown as ReturnType<typeof vi.fn>;
 const addAdminRoomSpy = addAdminRoom as unknown as ReturnType<typeof vi.fn>;
 const isAdminRoomSpy = isAdminRoom as unknown as ReturnType<typeof vi.fn>;
@@ -130,6 +143,28 @@ beforeEach(() => {
   forceSaveSpy.mockResolvedValue(undefined);
   createRoomSpy.mockReset();
   joinRoomSpy.mockReset();
+  getRoomPowerLevelsSpy.mockReset();
+  putRoomPowerLevelsSpy.mockReset();
+  // Default: lockdown-assertion primitives no-op. Existing pre-lockdown
+  // tests don't touch power_levels; return an "already locked" content so
+  // assertRegistryRoomLockdown sees needsPatch==false and does not call
+  // putRoomPowerLevels. Individual L-suite tests override per-role.
+  getRoomPowerLevelsSpy.mockResolvedValue({
+    ok: true,
+    content: {
+      events_default: 100,
+      state_default: 100,
+      redact: 100,
+      invite: 100,
+      kick: 100,
+      ban: 100,
+      historical: 100,
+      users: {
+        "@skynet-admin:thenasty.taild9b663.ts.net": 100,
+      },
+    },
+  });
+  putRoomPowerLevelsSpy.mockResolvedValue({ ok: true });
   getCredsSpy.mockReset();
   addAdminRoomSpy.mockReset();
   addAdminRoomSpy.mockResolvedValue(undefined);
@@ -461,5 +496,346 @@ describe("joinHumanToHumansRegistry", () => {
       error: "registry_room_not_configured",
     });
     expect(joinRoomSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// registry-rooms lockdown (quick 260911-n8a)
+//
+// Both registry rooms (agents + humans) come out of every boot pass with
+// their m.room.power_levels state event enforcing:
+//   events_default=100, state_default=100, redact=100, invite=100,
+//   kick=100, ban=100, historical=100, users[fleet-admin]=100.
+// PL 100 humans already in `users` are preserved; only ADDS fleet-admin
+// if missing; only RAISES defaults, never LOWERS.
+// ---------------------------------------------------------------------------
+
+// Well-known Matrix m.room.power_levels defaults (see shape doc L83-85 +
+// the spec) — the target invariants all sit at 100.
+const LOCKED_CONTENT_MIN = {
+  events_default: 100,
+  state_default: 100,
+  redact: 100,
+  invite: 100,
+  kick: 100,
+  ban: 100,
+  historical: 100,
+};
+
+describe("registry-rooms lockdown (quick 260911-n8a)", () => {
+  it("L1 (fresh install / birth-locked): createRoom called TWICE with initialState containing an m.room.power_levels event whose invariants are all 100 and users includes fleet-admin at 100; assertRegistryRoomLockdown runs post-create but no putRoomPowerLevels fires (already at target)", async () => {
+    // Fresh install — no settings rows.
+    createRoomSpy
+      .mockResolvedValueOnce({ ok: true, roomId: "!agents:server" })
+      .mockResolvedValueOnce({ ok: true, roomId: "!humans:server" });
+    // Post-create assert: return content matching target so needsPatch==false.
+    getRoomPowerLevelsSpy.mockResolvedValue({
+      ok: true,
+      content: {
+        ...LOCKED_CONTENT_MIN,
+        users: { [HAPPY_CREDS.userId]: 100 },
+      },
+    });
+
+    const result = await ensureRegistryRoomsExist();
+    expect(result).toEqual({
+      ok: true,
+      agentsRoomId: "!agents:server",
+      humansRoomId: "!humans:server",
+    });
+
+    expect(createRoomSpy).toHaveBeenCalledTimes(2);
+    // Both createRoom calls must carry an initialState with m.room.power_levels.
+    for (const call of createRoomSpy.mock.calls) {
+      const opts = call[0] as {
+        initialState?: Array<{ type: string; content: Record<string, unknown> }>;
+      };
+      expect(Array.isArray(opts.initialState)).toBe(true);
+      const pl = opts.initialState!.find(
+        (s) => s.type === "m.room.power_levels",
+      );
+      expect(pl).toBeDefined();
+      const c = pl!.content;
+      expect(c.events_default).toBe(100);
+      expect(c.state_default).toBe(100);
+      expect(c.redact).toBe(100);
+      expect(c.invite).toBe(100);
+      expect(c.kick).toBe(100);
+      expect(c.ban).toBe(100);
+      expect(c.historical).toBe(100);
+      const users = c.users as Record<string, number>;
+      expect(users[HAPPY_CREDS.userId]).toBe(100);
+    }
+
+    // Fresh install: post-create assertRegistryRoomLockdown fires, but its
+    // GET-then-diff sees the just-created content already at target — no
+    // putRoomPowerLevels call.
+    expect(putRoomPowerLevelsSpy).not.toHaveBeenCalled();
+  });
+
+  it("L2 (drift): both settings rows exist; getRoomPowerLevels shows drift on both rooms → putRoomPowerLevels fires for BOTH; agents preserves existing @skynet-admin at 100; humans PATCH preserves existing @nelly-admin AND adds fleet-admin", async () => {
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_AGENTS_REGISTRY, "!agents:server");
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_HUMANS_REGISTRY, "!humans:server");
+
+    getRoomPowerLevelsSpy.mockImplementation(async (roomId: string) => {
+      if (roomId === "!agents:server") {
+        return {
+          ok: true,
+          content: {
+            events_default: 0,
+            users: { [HAPPY_CREDS.userId]: 100 },
+          },
+        };
+      }
+      if (roomId === "!humans:server") {
+        return {
+          ok: true,
+          content: {
+            events_default: 50,
+            invite: 0,
+            users: { "@nelly-admin:server": 100 },
+          },
+        };
+      }
+      throw new Error(`unexpected roomId: ${roomId}`);
+    });
+
+    const result = await ensureRegistryRoomsExist();
+    expect(result).toEqual({
+      ok: true,
+      agentsRoomId: "!agents:server",
+      humansRoomId: "!humans:server",
+    });
+
+    expect(putRoomPowerLevelsSpy).toHaveBeenCalledTimes(2);
+    // Look up each call by roomId (order not guaranteed).
+    const agentsCall = putRoomPowerLevelsSpy.mock.calls.find(
+      (c) => c[0] === "!agents:server",
+    );
+    const humansCall = putRoomPowerLevelsSpy.mock.calls.find(
+      (c) => c[0] === "!humans:server",
+    );
+    expect(agentsCall).toBeDefined();
+    expect(humansCall).toBeDefined();
+
+    const agentsContent = agentsCall![1] as Record<string, unknown>;
+    expect(agentsContent.events_default).toBe(100);
+    const agentsUsers = agentsContent.users as Record<string, number>;
+    expect(agentsUsers[HAPPY_CREDS.userId]).toBe(100);
+
+    const humansContent = humansCall![1] as Record<string, unknown>;
+    expect(humansContent.events_default).toBe(100);
+    expect(humansContent.invite).toBe(100);
+    const humansUsers = humansContent.users as Record<string, number>;
+    expect(humansUsers["@nelly-admin:server"]).toBe(100);
+    expect(humansUsers[HAPPY_CREDS.userId]).toBe(100);
+  });
+
+  it("L3 (already-locked no-op): both settings rows exist; getRoomPowerLevels shows content already at all target levels including fleet-admin at 100 → putRoomPowerLevels NOT called for either room; info log operation='registry_rooms_lockdown_noop' fires", async () => {
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_AGENTS_REGISTRY, "!agents:server");
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_HUMANS_REGISTRY, "!humans:server");
+
+    getRoomPowerLevelsSpy.mockResolvedValue({
+      ok: true,
+      content: {
+        ...LOCKED_CONTENT_MIN,
+        users: { [HAPPY_CREDS.userId]: 100 },
+      },
+    });
+
+    await ensureRegistryRoomsExist();
+    expect(putRoomPowerLevelsSpy).not.toHaveBeenCalled();
+
+    const noopOps = loggerInfoSpy.mock.calls.filter(
+      (c) =>
+        c[1] &&
+        typeof c[1] === "object" &&
+        (c[1] as { operation?: string }).operation ===
+          "registry_rooms_lockdown_noop",
+    );
+    expect(noopOps.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("L4 (preserve-existing-humans-and-never-lower): existing kick=200 preserved (RAISE-only), invite=0 raised to 100, existing PL 100 humans preserved, fleet-admin added", async () => {
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_AGENTS_REGISTRY, "!agents:server");
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_HUMANS_REGISTRY, "!humans:server");
+
+    getRoomPowerLevelsSpy.mockResolvedValue({
+      ok: true,
+      content: {
+        kick: 200,
+        invite: 0,
+        users: {
+          "@human-admin:server": 100,
+          "@another-human:server": 100,
+        },
+      },
+    });
+
+    await ensureRegistryRoomsExist();
+
+    expect(putRoomPowerLevelsSpy).toHaveBeenCalledTimes(2);
+    for (const call of putRoomPowerLevelsSpy.mock.calls) {
+      const content = call[1] as Record<string, unknown>;
+      expect(content.kick).toBe(200); // RAISE-only — 200 preserved above 100
+      expect(content.invite).toBe(100); // raised from 0
+      const users = content.users as Record<string, number>;
+      expect(users["@human-admin:server"]).toBe(100);
+      expect(users["@another-human:server"]).toBe(100);
+      expect(users[HAPPY_CREDS.userId]).toBe(100);
+    }
+  });
+
+  it("L5 (failure log-and-continue on GET): agents getRoomPowerLevels 502; humans happy-drift → ensureRegistryRoomsExist STILL returns ok:true; warn log operation='registry_rooms_lockdown_get_failed' role='agents'; humans PATCH still fires", async () => {
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_AGENTS_REGISTRY, "!agents:server");
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_HUMANS_REGISTRY, "!humans:server");
+
+    getRoomPowerLevelsSpy.mockImplementation(async (roomId: string) => {
+      if (roomId === "!agents:server") {
+        return { ok: false, status: 502, error: "admin_api_proxy_error" };
+      }
+      // humans path — drift
+      return {
+        ok: true,
+        content: { events_default: 0, users: {} },
+      };
+    });
+
+    const result = await ensureRegistryRoomsExist();
+    expect(result).toEqual({
+      ok: true,
+      agentsRoomId: "!agents:server",
+      humansRoomId: "!humans:server",
+    });
+
+    // Agents lockdown failed at GET — warn logged with role='agents'.
+    const getFailedWarn = loggerWarnSpy.mock.calls.find(
+      (c) =>
+        c[1] &&
+        typeof c[1] === "object" &&
+        (c[1] as { operation?: string; role?: string }).operation ===
+          "registry_rooms_lockdown_get_failed" &&
+        (c[1] as { operation?: string; role?: string }).role === "agents",
+    );
+    expect(getFailedWarn).toBeDefined();
+
+    // Humans PATCH still fires normally.
+    const humansPut = putRoomPowerLevelsSpy.mock.calls.find(
+      (c) => c[0] === "!humans:server",
+    );
+    expect(humansPut).toBeDefined();
+    // Agents PATCH must NOT have fired (GET failed).
+    const agentsPut = putRoomPowerLevelsSpy.mock.calls.find(
+      (c) => c[0] === "!agents:server",
+    );
+    expect(agentsPut).toBeUndefined();
+  });
+
+  it("L6 (failure log-and-continue on PUT): putRoomPowerLevels returns 403 → boot completes ok:true; warn log operation='registry_rooms_lockdown_patch_failed'; no throw", async () => {
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_AGENTS_REGISTRY, "!agents:server");
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_HUMANS_REGISTRY, "!humans:server");
+
+    // Drift so PATCH fires.
+    getRoomPowerLevelsSpy.mockResolvedValue({
+      ok: true,
+      content: { events_default: 0, users: {} },
+    });
+    putRoomPowerLevelsSpy.mockResolvedValue({
+      ok: false,
+      status: 403,
+      error: "admin_api_non_2xx",
+    });
+
+    const result = await ensureRegistryRoomsExist();
+    expect(result.ok).toBe(true);
+
+    const patchFailedWarn = loggerWarnSpy.mock.calls.find(
+      (c) =>
+        c[1] &&
+        typeof c[1] === "object" &&
+        (c[1] as { operation?: string }).operation ===
+          "registry_rooms_lockdown_patch_failed",
+    );
+    expect(patchFailedWarn).toBeDefined();
+  });
+
+  it("L7a (buildLockdownPowerLevelsContent unit — null input): defaults raised to 100 + fleetAdmin at 100; needsPatch==true", () => {
+    const result = buildLockdownPowerLevelsContent(HAPPY_CREDS.userId, null);
+    expect(result.needsPatch).toBe(true);
+    expect(result.content.events_default).toBe(100);
+    expect(result.content.state_default).toBe(100);
+    expect(result.content.redact).toBe(100);
+    expect(result.content.invite).toBe(100);
+    expect(result.content.kick).toBe(100);
+    expect(result.content.ban).toBe(100);
+    expect(result.content.historical).toBe(100);
+    const users = result.content.users as Record<string, number>;
+    expect(users[HAPPY_CREDS.userId]).toBe(100);
+  });
+
+  it("L7b (buildLockdownPowerLevelsContent unit — exact match): needsPatch==false when input already at all targets", () => {
+    const result = buildLockdownPowerLevelsContent(HAPPY_CREDS.userId, {
+      ...LOCKED_CONTENT_MIN,
+      users: { [HAPPY_CREDS.userId]: 100 },
+    });
+    expect(result.needsPatch).toBe(false);
+  });
+
+  it("L7c (buildLockdownPowerLevelsContent unit — users_default passed through unchanged)", () => {
+    const result = buildLockdownPowerLevelsContent(HAPPY_CREDS.userId, {
+      ...LOCKED_CONTENT_MIN,
+      users_default: 5,
+      users: { [HAPPY_CREDS.userId]: 100 },
+    });
+    expect(result.content.users_default).toBe(5);
+  });
+
+  it("L7d (buildLockdownPowerLevelsContent unit — unrelated top-level fields pass through unchanged, e.g. `notifications`)", () => {
+    const notifications = { room: 50 };
+    const events = { "m.room.name": 50 };
+    const result = buildLockdownPowerLevelsContent(HAPPY_CREDS.userId, {
+      ...LOCKED_CONTENT_MIN,
+      notifications,
+      events,
+      users: { [HAPPY_CREDS.userId]: 100 },
+    });
+    expect(result.content.notifications).toEqual(notifications);
+    expect(result.content.events).toEqual(events);
+  });
+
+  it("L7e (assertRegistryRoomLockdown is exported & test-visible; direct invocation is a no-op on already-locked content)", async () => {
+    getRoomPowerLevelsSpy.mockResolvedValue({
+      ok: true,
+      content: {
+        ...LOCKED_CONTENT_MIN,
+        users: { [HAPPY_CREDS.userId]: 100 },
+      },
+    });
+    await assertRegistryRoomLockdown(
+      "agents",
+      "!direct:server",
+      HAPPY_CREDS.userId,
+    );
+    expect(putRoomPowerLevelsSpy).not.toHaveBeenCalled();
   });
 });

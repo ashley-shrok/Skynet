@@ -51,7 +51,12 @@
 import { db } from "../database/db/index.js";
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
-import { createRoom, joinRoom } from "../matrix/matrix-admin-client.js";
+import {
+  createRoom,
+  joinRoom,
+  getRoomPowerLevels,
+  putRoomPowerLevels,
+} from "../matrix/matrix-admin-client.js";
 import { assertNotOk } from "../matrix/matrix-admin-narrow.js";
 import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
 import { addAdminRoom, isAdminRoom } from "./admin-rooms-ignore-list.js";
@@ -169,6 +174,9 @@ export async function ensureRegistryRoomsExist(): Promise<EnsureRegistryRoomsRes
     // missing.
     await selfHealAdminRoomsMembership("agents", existingAgents);
     await selfHealAdminRoomsMembership("humans", existingHumans);
+    // Quick 260911-n8a — lockdown assertion on the fast path.
+    await assertRegistryRoomLockdown("agents", existingAgents, creds.userId);
+    await assertRegistryRoomLockdown("humans", existingHumans, creds.userId);
     return {
       ok: true,
       agentsRoomId: existingAgents,
@@ -182,9 +190,19 @@ export async function ensureRegistryRoomsExist(): Promise<EnsureRegistryRoomsRes
   const failures: string[] = [];
 
   if (agentsRoomId === null) {
-    const created = await createRegistryRoom("agents", AGENTS_ROOM_NAME, AGENTS_ROOM_ALIAS_LOCALPART);
+    const created = await createRegistryRoom(
+      "agents",
+      AGENTS_ROOM_NAME,
+      AGENTS_ROOM_ALIAS_LOCALPART,
+      creds.userId,
+    );
     if (created.ok) {
       agentsRoomId = created.roomId;
+      // Defensive: new rooms are birth-locked via createRoom's initial_state
+      // (no observable open-write window). Still run the assertion — it
+      // no-ops on well-locked content and repairs any drift on a room this
+      // boot happened to create.
+      await assertRegistryRoomLockdown("agents", agentsRoomId, creds.userId);
     } else {
       assertNotOk(created);
       failures.push(`agents: ${created.reason}`);
@@ -192,9 +210,15 @@ export async function ensureRegistryRoomsExist(): Promise<EnsureRegistryRoomsRes
   }
 
   if (humansRoomId === null) {
-    const created = await createRegistryRoom("humans", HUMANS_ROOM_NAME, HUMANS_ROOM_ALIAS_LOCALPART);
+    const created = await createRegistryRoom(
+      "humans",
+      HUMANS_ROOM_NAME,
+      HUMANS_ROOM_ALIAS_LOCALPART,
+      creds.userId,
+    );
     if (created.ok) {
       humansRoomId = created.roomId;
+      await assertRegistryRoomLockdown("humans", humansRoomId, creds.userId);
     } else {
       assertNotOk(created);
       failures.push(`humans: ${created.reason}`);
@@ -251,11 +275,20 @@ async function selfHealAdminRoomsMembership(
  * its room_id to the settings table, add it to the admin_rooms ignore-list
  * (D-13), and fire a labeled forceSave. Returns the roomId on success or a
  * failure reason string on any downstream failure.
+ *
+ * Quick 260911-n8a: birth-locked via createRoom's `initialState` — a single
+ * m.room.power_levels state event is set at room-creation time so there is
+ * NO observable open-write window. `fleetAdminMxid` is threaded from
+ * ensureRegistryRoomsExist's already-loaded creds.userId; a null passed to
+ * buildLockdownPowerLevelsContent means "assume Matrix defaults" (fresh
+ * room), which the builder raises to the target invariants + adds
+ * fleet-admin at 100.
  */
 async function createRegistryRoom(
   role: "agents" | "humans",
   name: string,
   roomAliasName: string,
+  fleetAdminMxid: string,
 ): Promise<{ ok: true; roomId: string } | { ok: false; reason: string }> {
   databaseLogger.info("registry rooms create fire", {
     operation: "registry_rooms_create_fire",
@@ -263,11 +296,21 @@ async function createRegistryRoom(
     name,
   });
 
+  const { content: birthLockedPl } = buildLockdownPowerLevelsContent(
+    fleetAdminMxid,
+    null,
+  );
   const created = await createRoom({
     name,
     preset: "private_chat",
     visibility: "private",
     roomAliasName,
+    initialState: [
+      {
+        type: "m.room.power_levels",
+        content: birthLockedPl,
+      },
+    ],
   });
   if (!created.ok) {
     assertNotOk(created);
@@ -392,4 +435,263 @@ export async function joinHumanToHumansRegistry(
     roomId,
   });
   return joinRoom(roomId, humanMxid);
+}
+
+// ---------------------------------------------------------------------------
+// Registry-room lockdown (quick 260911-n8a)
+// ---------------------------------------------------------------------------
+//
+// Both registry rooms (agents + humans) come out of every boot pass with
+// their m.room.power_levels state event enforcing:
+//   events_default=100, state_default=100, redact=100, invite=100,
+//   kick=100, ban=100, historical=100, users[fleet-admin]=100.
+//
+// Applied BOTH at createRoom time via initial_state (birth-locked — no
+// observable open-write window) AND via a boot-time idempotent
+// read-then-optionally-write PATCH on m.room.power_levels (repairs drift
+// on existing rooms).
+//
+// - Preserve any existing PL 100 humans in the users map.
+// - Only ADD fleet-admin if missing.
+// - Only RAISE defaults, never LOWER.
+// - Preserve any levels already ABOVE 100 (e.g. kick=200 set by operator).
+// - Preserve unrelated top-level fields (events, notifications, users_default).
+// - Log-and-continue on any Matrix failure — boot must not fail because
+//   the lockdown assertion couldn't reach Synapse. Retry happens next boot.
+//
+// Kills the 2026-09-11 failure mode where a misrouted forward landed in
+// the ~90-member agents-registry room and fanned out as a chat message.
+// Structural fix — the room itself refuses non-admin sends regardless of
+// what upstream callers do.
+// ---------------------------------------------------------------------------
+
+/**
+ * Well-known Matrix `m.room.power_levels` defaults, per the spec (see
+ * shape doc L83-85). Used as the fallback when the incoming content is
+ * null (state event unset) or when a field is missing from the incoming
+ * content. Never inline these magic numbers — the merge logic
+ * (RAISE-only rule) reads defaults from here.
+ */
+const PL_MATRIX_DEFAULTS: Readonly<{
+  events_default: number;
+  state_default: number;
+  users_default: number;
+  invite: number;
+  kick: number;
+  ban: number;
+  redact: number;
+  historical: number;
+}> = {
+  events_default: 0,
+  state_default: 50,
+  users_default: 0,
+  invite: 0,
+  kick: 50,
+  ban: 50,
+  redact: 50,
+  historical: 100,
+};
+
+/**
+ * Numeric-invariant target fields — each must sit at >= 100 in a locked
+ * registry room. The merge logic (buildLockdownPowerLevelsContent) walks
+ * this list, coerces each field to a number (defensively), and applies
+ * `Math.max(existing, 100)` — RAISE-only rule.
+ *
+ * users_default is deliberately NOT in this list — it's an existing-user
+ * default and is passed through unchanged.
+ */
+const PL_INVARIANT_FIELDS = [
+  "events_default",
+  "state_default",
+  "redact",
+  "invite",
+  "kick",
+  "ban",
+  "historical",
+] as const;
+
+/**
+ * Build the target `m.room.power_levels` content object enforcing all
+ * lockdown invariants at >= 100 + fleet-admin at PL 100 in `users`, while
+ * preserving every other field on the input content byte-identical.
+ *
+ * Rules:
+ *   - RAISE-only per invariant: `target[field] = Math.max(existing[field] ?? default, 100)`.
+ *     Never lowers.
+ *   - `users` merge: shallow-copy existing users map (narrowed to
+ *     `Record<string, number>` after per-entry `typeof` check); ADD
+ *     fleetAdminMxid at 100 if not already >= 100; NEVER remove or lower
+ *     an existing entry.
+ *   - Every other field on the incoming content passes through unchanged
+ *     (defensive against custom `events` / `notifications` / etc. that the
+ *     operator may have set).
+ *   - `needsPatch = false` iff every invariant is already at >= its
+ *     target AND fleetAdminMxid is already in users at >= 100. Otherwise
+ *     `needsPatch = true`.
+ *
+ * Pure function — no I/O, no logger. Tests unit it directly.
+ *
+ * @param fleetAdminMxid the admin account mxid that must sit at PL 100
+ *   in `users` (source: `getMatrixAdminCreds().userId` from the caller).
+ * @param existing the currently-fetched content, or `null` when the
+ *   state event is unset (Matrix returns 404 — caller maps to null =
+ *   "assume defaults").
+ */
+export function buildLockdownPowerLevelsContent(
+  fleetAdminMxid: string,
+  existing: Record<string, unknown> | null,
+): { content: Record<string, unknown>; needsPatch: boolean } {
+  // Copy every top-level field byte-identical (preserves `events`,
+  // `notifications`, `users_default`, any unknown custom keys).
+  const target: Record<string, unknown> =
+    existing !== null ? { ...existing } : {};
+
+  let needsPatch = false;
+
+  // RAISE-only merge on each numeric invariant.
+  for (const field of PL_INVARIANT_FIELDS) {
+    const rawExisting = existing !== null ? existing[field] : undefined;
+    const existingNum =
+      typeof rawExisting === "number"
+        ? rawExisting
+        : PL_MATRIX_DEFAULTS[field];
+    const targetNum = Math.max(existingNum, 100);
+    target[field] = targetNum;
+    if (targetNum !== existingNum) needsPatch = true;
+    // Additional needsPatch signal: even if existing was a number and
+    // already >= 100, if it was stored as a non-number typed value the
+    // above branch coerced to the default and comparison catches it. Also:
+    // if the existing top-level field was missing entirely (undefined),
+    // rawExisting is undefined → existingNum falls back to default → any
+    // default < 100 flips needsPatch.
+    if (rawExisting === undefined && targetNum >= 100 && targetNum !== PL_MATRIX_DEFAULTS[field]) {
+      needsPatch = true;
+    }
+  }
+
+  // Users map merge.
+  const existingUsersRaw =
+    existing !== null && existing.users !== undefined ? existing.users : null;
+  const existingUsers: Record<string, number> = {};
+  if (existingUsersRaw !== null && typeof existingUsersRaw === "object") {
+    for (const [k, v] of Object.entries(
+      existingUsersRaw as Record<string, unknown>,
+    )) {
+      if (typeof v === "number") {
+        existingUsers[k] = v;
+      }
+    }
+  }
+  const targetUsers: Record<string, number> = { ...existingUsers };
+  const existingFleetAdmin = targetUsers[fleetAdminMxid];
+  if (typeof existingFleetAdmin !== "number" || existingFleetAdmin < 100) {
+    targetUsers[fleetAdminMxid] = 100;
+    needsPatch = true;
+  }
+  target.users = targetUsers;
+
+  return { content: target, needsPatch };
+}
+
+/**
+ * Boot-time idempotent lockdown assertion for one registry room.
+ *
+ * Steps (all in try/catch — never throws; on any failure logs a
+ * structured warn with role + roomId + reason and returns):
+ *
+ *   1. GET m.room.power_levels via getRoomPowerLevels(roomId).
+ *      - AdminErr status:404 → treat as content=null (state event unset =
+ *        "assume Matrix defaults").
+ *      - AdminErr other → warn (operation="registry_rooms_lockdown_get_failed")
+ *        and return; boot continues.
+ *   2. buildLockdownPowerLevelsContent(fleetAdminMxid, contentOrNull).
+ *      - `needsPatch === false` → info
+ *        (operation="registry_rooms_lockdown_noop") and return. Zero-diff
+ *        = zero writes.
+ *   3. info (operation="registry_rooms_lockdown_patch_fire").
+ *      putRoomPowerLevels(roomId, target).
+ *      - AdminErr → warn (operation="registry_rooms_lockdown_patch_failed")
+ *        and return.
+ *      - Ok → info (operation="registry_rooms_lockdown_patched").
+ *
+ * Called from ensureRegistryRoomsExist on BOTH fast-path and slow-path
+ * for each registry room every boot. `fleetAdminMxid` is threaded from
+ * the caller's already-loaded creds.userId.
+ */
+export async function assertRegistryRoomLockdown(
+  role: "agents" | "humans",
+  roomId: string,
+  fleetAdminMxid: string,
+): Promise<void> {
+  try {
+    const got = await getRoomPowerLevels(roomId);
+    let existingContent: Record<string, unknown> | null;
+    if (got.ok) {
+      existingContent = got.content;
+    } else {
+      // Not-ok branch: narrow to AdminErr shape (status/error). 404 = state
+      // event unset → treat as null (assume Matrix defaults). Other non-ok
+      // = warn-and-return; boot continues.
+      assertNotOk(got);
+      if (got.status === 404) {
+        existingContent = null;
+      } else {
+        databaseLogger.warn("registry rooms lockdown GET failed", {
+          operation: "registry_rooms_lockdown_get_failed",
+          role,
+          roomId,
+          status: got.status,
+          error: got.error,
+        });
+        return;
+      }
+    }
+
+    const { content: target, needsPatch } = buildLockdownPowerLevelsContent(
+      fleetAdminMxid,
+      existingContent,
+    );
+
+    if (!needsPatch) {
+      databaseLogger.info("registry rooms lockdown no-op", {
+        operation: "registry_rooms_lockdown_noop",
+        role,
+        roomId,
+      });
+      return;
+    }
+
+    databaseLogger.info("registry rooms lockdown patch fire", {
+      operation: "registry_rooms_lockdown_patch_fire",
+      role,
+      roomId,
+    });
+
+    const put = await putRoomPowerLevels(roomId, target);
+    if (!put.ok) {
+      assertNotOk(put);
+      databaseLogger.warn("registry rooms lockdown PATCH failed", {
+        operation: "registry_rooms_lockdown_patch_failed",
+        role,
+        roomId,
+        status: put.status,
+        error: put.error,
+      });
+      return;
+    }
+
+    databaseLogger.info("registry rooms lockdown patched", {
+      operation: "registry_rooms_lockdown_patched",
+      role,
+      roomId,
+    });
+  } catch (err) {
+    databaseLogger.warn("registry rooms lockdown assertion threw", {
+      operation: "registry_rooms_lockdown_assert_failed",
+      role,
+      roomId,
+      reason: err instanceof Error ? err.message : "unknown",
+    });
+  }
 }
