@@ -615,13 +615,13 @@ describe("NewSessionDialog: Test A — path field visible in both modes (under i
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test B: path defaults to ~/
+// Test B: path defaults to empty (2026-09-11 fix — was "~/")
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test B — path defaults to ~/", () => {
-  it("Test B: initial render → path input value is '~/'", () => {
+describe("NewSessionDialog: Test B — path defaults to empty", () => {
+  it("Test B: initial render → path input value is empty (admin opts into backend workspace-default substitution by leaving blank)", () => {
     const { getByLabelText } = renderDialog();
     const pathInput = getByLabelText(/^path$/i) as HTMLInputElement;
-    expect(pathInput.value).toBe("~/");
+    expect(pathInput.value).toBe("");
   });
 });
 
@@ -1291,12 +1291,15 @@ describe("NewSessionDialog: Phase 88 admin-gate + backend substitution", () => {
     expect(queryByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE })).toBeNull();
   });
 
-  it("Phase 88 T2: isAdmin=true → Path input present with default value '~/' AND shell-only checkbox present unchecked", () => {
+  it("Phase 88 T2 (2026-09-11 fix): isAdmin=true → Path input present with default value EMPTY AND shell-only checkbox present unchecked", () => {
     const { getByLabelText, getByRole } = renderDialog({ isAdmin: true });
     const pathInput = getByLabelText(/^path$/i) as HTMLInputElement;
     expect(pathInput).toBeTruthy();
-    // Plan 88-02 Edit B inner JSX preserves useState("~/") default.
-    expect(pathInput.value).toBe("~/");
+    // 2026-09-11 fix: default flipped from "~/" to "" so admin submissions
+    // trigger backend workspace-default substitution to
+    // ~/fleet/identities/<name>/workspace/ (Phase-96 D-04) without the admin
+    // having to blank the field manually.
+    expect(pathInput.value).toBe("");
     const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
     expect(checkbox).toBeTruthy();
     // Plan 88-02 Edit D: local state var renamed identityMode → shellOnly,
@@ -1336,38 +1339,41 @@ describe("NewSessionDialog: Phase 88 admin-gate + backend substitution", () => {
     expect(payload.name).toBe("alicia");
   });
 
-  it("Phase 88 T4 (follow-up): admin with blank Path → Create disabled + inline error rendered", async () => {
-    // Phase 88 follow-up bounty (endorsed inline by Alice 2026-09-08 during
-    // /close): admin-side Path field must reject blank submits at the
-    // frontend so the belt-and-suspenders backend fallback stays as safety
-    // net rather than the primary defense.
-    //
-    // Non-admins vacuously pass validation (they don't see the field, path
-    // state stays at useState("~/") default). Admins visibly clearing the
-    // field to empty/whitespace-only → Create disabled + inline error.
+  it("Phase 88 T4 (2026-09-11 fix): admin with blank Path → Create ENABLED (blank triggers backend workspace-default substitution)", async () => {
+    // Ashley 2026-09-11: the previous "blank Path → Create disabled + inline
+    // error" behavior locked admins out of the Phase-96 workspace-default
+    // substitution. Combined with useState default "~/", it meant admin-born
+    // identities always carried a non-empty path on the wire, suppressing
+    // Chunk 2's identity-birth.ts server-side substitution to
+    // ~/fleet/identities/<name>/workspace/. Fix: blank path is now valid
+    // for admins too; backend handles the empty case per Phase 88 backend
+    // narrow. Admin who wants a specific path types one; admin who wants
+    // the Phase-96 default just leaves it blank (the new useState default).
     const utils = renderDialog({ isAdmin: true });
     await fillIdentityForm(utils);
     const pathInput = utils.getByLabelText(/^path$/i) as HTMLInputElement;
-    // Default state: Path = "~/", Create enabled (pathValid true).
+    // 2026-09-11 fix: default state now blank, Create enabled from the
+    // start (pathValid is unconditionally true).
+    expect(pathInput.value).toBe("");
     const createBtnBefore = utils.getByRole("button", {
       name: /^(open|create|creating)/i,
     }) as HTMLButtonElement;
     expect(createBtnBefore.disabled).toBe(false);
-    // Clear the Path field to empty — pathValid flips false.
+    // Explicitly clearing (or leaving blank) does NOT disable Create anymore.
     fireEvent.change(pathInput, { target: { value: "" } });
     const createBtnAfter = utils.getByRole("button", {
       name: /^(open|create|creating)/i,
     }) as HTMLButtonElement;
-    expect(createBtnAfter.disabled).toBe(true);
-    // Inline error surface (mirrors name-field affordance at L1006).
-    expect(pathInput.getAttribute("aria-invalid")).toBe("true");
-    expect(utils.getByText("Path is required.")).toBeTruthy();
-    // Whitespace-only ALSO rejected (path.trim() !== "" is the predicate).
+    expect(createBtnAfter.disabled).toBe(false);
+    // No inline error rendered for blank path.
+    expect(utils.queryByText("Path is required.")).toBeNull();
+    // Whitespace-only ALSO valid now (backend receives it and trim-checks
+    // its own way; frontend no longer gates).
     fireEvent.change(pathInput, { target: { value: "   " } });
     const createBtnWs = utils.getByRole("button", {
       name: /^(open|create|creating)/i,
     }) as HTMLButtonElement;
-    expect(createBtnWs.disabled).toBe(true);
+    expect(createBtnWs.disabled).toBe(false);
   });
 });
 

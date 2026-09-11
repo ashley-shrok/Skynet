@@ -263,10 +263,17 @@ export function NewSessionDialog({
   const [search, setSearch] = useState("");
 
   // Path field — visible in BOTH modes, placed below host+name and above identity-mode checkbox.
-  // Default "~/" (tilde-expanded server-side). Accepts "/" or "\" and normalizes to "/" on submit.
-  // Trailing slash is deliberate: typing after the default naturally produces "~/foo" rather than
-  // "~foo" (which POSIX reads as "home of user foo" and is almost never what's meant).
-  const [path, setPath] = useState("~/");
+  // 2026-09-11 fix: default is now empty string. Previously "~/" — which meant admin submissions
+  // always carried a non-empty path on the wire, suppressing Chunk 2's backend workspace-default
+  // substitution (Phase 88 backend narrow at identity-birth.ts substitutes `~/fleet/identities/
+  // <name>/workspace/` ONLY when body.path is empty). Result before: admin-born identities landed
+  // at `~/` instead of the Phase-96 workspace path, and admins had no ergonomic way to opt back
+  // into the default (had to manually delete the field value AND clear frontend validation).
+  // After: field starts blank with a placeholder describing the default; if admin leaves it blank,
+  // backend substitutes the Phase-96 workspace path; if admin types a specific path, that overrides.
+  // Non-admins never see the field and always submit empty per handleBirth's `isAdmin ? ... : ""`
+  // ternary at :615.
+  const [path, setPath] = useState("");
 
   // Phase 88 (88-CONTEXT.md §Identity-mode checkbox admin-gate + inversion):
   // local state variable renamed from `identityMode` to `shellOnly` to
@@ -717,12 +724,17 @@ export function NewSessionDialog({
     ? name.length > 0 && IDENTITY_NAME_PATTERN.test(name)
     : SESSION_NAME_PATTERN.test(sessionName);
 
-  // Phase 88 follow-up (post-/close, endorsed inline by Alice 2026-09-08):
-  // admin-side Path field must reject blank submits at the frontend so the
-  // belt-and-suspenders backend fallback at identity-birth.ts:228-232 stays
-  // as a safety net rather than the primary defense. Non-admins never see
-  // the field (isAdmin-gated at L1029) so they're vacuously valid.
-  const pathValid = !isAdmin || path.trim() !== "";
+  // 2026-09-11 fix: empty path is now the ADMIN-preferred submission shape —
+  // it triggers backend workspace-default substitution (Chunk 2's identity-
+  // birth.ts logic) so admin-born identities land at `~/fleet/identities/
+  // <name>/workspace/` per Phase-96 D-04 without the admin having to type
+  // anything. Previously this predicate rejected admin-blank submissions,
+  // which combined with the useState `"~/"` default meant admins could never
+  // opt into the default workspace path. Now: admin-blank is valid and takes
+  // the backend default; admin-typed overrides. Non-admins always send empty
+  // per handleBirth's `isAdmin ? normalizedPath : ""` ternary. Kept as a
+  // constant `true` for readability + so any future gate can hook here.
+  const pathValid = true;
 
   // Phase 88 code-review M2 (defense-in-depth consistency): the "shell only"
   // branch of the modal requires BOTH isAdmin AND shellOnly — a non-admin
@@ -953,24 +965,14 @@ export function NewSessionDialog({
                 aria-label="Path"
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
-                placeholder="~/"
+                placeholder="Blank = ~/fleet/identities/<name>/workspace/"
                 disabled={formDisabled}
-                aria-invalid={!pathValid || undefined}
-                aria-describedby={!pathValid ? "new-session-path-error" : undefined}
               />
-              {/* Phase 88 follow-up: inline error when admin has blanked the
-                  Path field. Backend fallback still catches it as belt-and-
-                  suspenders but Create is disabled here so blank never reaches
-                  the wire. Mirrors the name field's inline-error affordance. */}
-              {!pathValid && (
-                <span
-                  id="new-session-path-error"
-                  role="alert"
-                  className="text-[10px] text-red-500"
-                >
-                  Path is required.
-                </span>
-              )}
+              {/* 2026-09-11 fix: inline "Path is required" error retired.
+                  Empty is now the admin-preferred submission — it triggers
+                  backend workspace-default substitution to
+                  ~/fleet/identities/<name>/workspace/ (Phase-96 D-04). See
+                  pathValid comment above. */}
             </div>
           )}
 
