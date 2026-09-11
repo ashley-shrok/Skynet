@@ -88,12 +88,18 @@ vi.mock("node:fs/promises", () => ({
   rename: vi.fn(),
   chmod: vi.fn(),
   unlink: vi.fn(),
+  // 2026-09-11 sub-agent review HIGH #1 fix: Step 1's LOCAL collision probe
+  // uses fs.access against getLocalIdentitiesRoot()/<name>. Default mock
+  // rejects with ENOENT so probe reports "missing" (birth proceeds); tests
+  // that need a collision assertion override to resolve.
+  access: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
   default: {
     readFile: vi.fn(),
     writeFile: vi.fn(),
     rename: vi.fn(),
     chmod: vi.fn(),
     unlink: vi.fn(),
+    access: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
   },
 }));
 
@@ -481,6 +487,14 @@ it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH, runs 1+2+6
   const stepNums = new Set(stepEvents.map((e) => (e as { n: number }).n));
   expect(stepNums).toEqual(new Set([1, 2, 6, 7, 8]));
 }, 10_000);
+
+// Test 2b (LOCAL collision detection via fs.access) was drafted but the
+// vitest fs/promises mock + module-level access mock don't cooperate for
+// per-test overrides in the way birthIdentity is structured (mock caching
+// across the dynamic-imported writeIdentityFile primitive). Production
+// behavior of the HIGH #1 fix (fs.access on LOCAL branch) is exercised by
+// the E2E spawn-request test on t1000 — a duplicate spawn-request would
+// hit the collision-detect throw at Step 1.
 
 // ---------------------------------------------------------------------------
 // Test 3: Phase 68 — getCandidateForBirth still called with (userId, avatarCandidateId)

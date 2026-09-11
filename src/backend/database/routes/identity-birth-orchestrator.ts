@@ -41,6 +41,8 @@
  */
 
 import { randomBytes } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { Client as SSHClient } from "ssh2";
 import yaml from "js-yaml";
 import {
@@ -1224,18 +1226,38 @@ export async function birthIdentity(
       // else: birthCandidate stays null; Step 2.5 will skip the sibling
       // file write; buildIdentityFileBody will skip the `avatar:` key.
 
-      // On-disk collision probe. LOCAL + REMOTE both route through the
-      // exec() abstraction — the SHELL probe works for either branch (the
-      // command is a plain sh -c, execLocal runs it via child_process,
-      // deps.execCommand runs it via SSH).
+      // On-disk collision probe.
+      //   REMOTE: shell probe via SSH — `sh -c` on the target host expands
+      //           $HOME to the target host user's home, which IS where the
+      //           fleet dir lives.
+      //   LOCAL:  fs.access via getLocalIdentitiesRoot(). A shell probe on
+      //           LOCAL would expand $HOME to the Skynet container's node
+      //           user home (/home/node), NOT the /fleet bind mount — so
+      //           the probe would ALWAYS report "missing" regardless of
+      //           actual on-disk state, and Step 2.5 would silently
+      //           overwrite an existing identity's <name>.md + relay.json.
+      //           (2026-09-11 sub-agent review HIGH #1.)
       // opts.name is already gated by IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE so
       // it's safe to interpolate into the double-quoted path (matches the
       // same "validate-then-interpolate" pattern as identity-clone.ts:119).
-      const probeOut = await exec(
-        `if [ -d "$HOME/fleet/identities/${opts.name}" ]; then echo exists; else echo missing; fi`,
-      );
-      if (probeOut.trim() === "exists") {
-        throw new Error("identity already exists on this host");
+      if (useLocal) {
+        const probeDir = path.join(getLocalIdentitiesRoot(), opts.name);
+        try {
+          await fs.access(probeDir);
+          throw new Error("identity already exists on this host");
+        } catch (err) {
+          if (err instanceof Error && err.message === "identity already exists on this host") {
+            throw err;
+          }
+          // ENOENT / anything else — treat as missing (birth proceeds).
+        }
+      } else {
+        const probeOut = await exec(
+          `if [ -d "$HOME/fleet/identities/${opts.name}" ]; then echo exists; else echo missing; fi`,
+        );
+        if (probeOut.trim() === "exists") {
+          throw new Error("identity already exists on this host");
+        }
       }
     });
 
@@ -1288,9 +1310,11 @@ export async function birthIdentity(
       // writeMarkdownFileAtomic(null,...) + writeAvatarSiblingFile(null,...).
       // Both primitives take conn nullable — REMOTE passes the SSH client,
       // LOCAL passes null. Same $HOME-prefixed path shape either way; the
-      // primitive's LOCAL branch substitutes os.homedir() (the /fleet
-      // bind-mount from docker-compose.yml maps container-HOME/fleet →
-      // host /home/ubuntu/fleet).
+      // primitive's LOCAL branch substitutes $HOME/fleet →
+      // parent-of-IDENTITIES_HOST_DIR (i.e. the /fleet bind mount root
+      // inside the container), NOT os.homedir()/fleet (which would land at
+      // /home/node/fleet — ephemeral overlay storage the supervisor on
+      // the host can't see).
       // Defense in depth: HTTP handler validates opts.role, but re-check
       // here because role is shell-interpolated in the identity file body.
       if (!opts.role || !ROLE_NAME_PATTERN.test(opts.role)) {
