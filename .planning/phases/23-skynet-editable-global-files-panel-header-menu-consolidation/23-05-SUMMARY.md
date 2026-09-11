@@ -21,11 +21,11 @@
 **Task 3 (human checkpoint → applied) — seed written directly on skynet-ec2:**
 - Path: `/var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json`
 - Owner: `root:root`, mode `0644`, size 748 bytes
-- Content: 8 host entries (`thenasty`, `workstation`, `ashley-beelink`,
+- Content: 8 host entries (`thenasty`, `workstation`, `linux-beelink`,
   `ZoeyBattlestation`, `aither-cloud`, `aither-cloud2`, `aither-sftp`,
   `skynet-ec2`), each with `~/.claude/CLAUDE.md` at label `User CLAUDE.md`
 - Validated with `jq '.hosts | keys | length'` → 8
-- Windows hosts omitted per CONTEXT §GEFM-06 (`GIGAASHLEYPC` etc.)
+- Windows hosts omitted per CONTEXT §GEFM-06 (`WINDOWS-PC` etc.)
 
 ## Post-conditions
 

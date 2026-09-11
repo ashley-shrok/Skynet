@@ -137,7 +137,7 @@ describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)
 
   it("matches serve URL with mixed-case hostname (D-13 case preservation)", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://GIGAASHLEYPC-3000.serve.term.example.com";
+    const url = "https://WINDOWS-PC-3000.serve.term.example.com";
     const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
     expect(matches).not.toBeNull();
     expect(matches!.length).toBeGreaterThanOrEqual(1);

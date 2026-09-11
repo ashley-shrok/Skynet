@@ -135,9 +135,9 @@ UI-edit of the config file itself is deferred).
 ### GEFM-06: Config bootstrap + skynet-ec2 initial population
 - **Ship an example `global-files.json`** in the docker volume for skynet-ec2,
   pre-populated with `~/.claude/CLAUDE.md` for each of the current unix fleet hosts:
-  thenasty, workstation, ashley-beelink, ZoeyBattlestation, aither-cloud,
+  thenasty, workstation, linux-beelink, ZoeyBattlestation, aither-cloud,
   aither-cloud2, aither-sftp, skynet-ec2.
-- **Windows hosts** (GIGAASHLEYPC and others without `~/.claude/CLAUDE.md`)
+- **Windows hosts** (WINDOWS-PC and others without `~/.claude/CLAUDE.md`)
   are OMITTED from bootstrap — not left in with an error state.
 - **Document the SSH-edit workflow** in a doc — location TBD by planner
   (probably `.planning/phases/23-*/23-BOOTSTRAP.md` or an entry in `box-map.md`).

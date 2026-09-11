@@ -31,7 +31,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 // host_id and NULL tmux_session would BOTH be allowed, and the upsert
 // ON CONFLICT (user_id, host_id, tmux_session) DO UPDATE clause would
 // silently miss the match. To keep the upsert trivial and correct for
-// non-tmux hosts (Windows / GIGAASHLEYPC — no tmux, so the client
+// non-tmux hosts (Windows / WINDOWS-PC — no tmux, so the client
 // sends tmuxSession = null), the column is stored as `NOT NULL DEFAULT ''`
 // and the route layer coalesces null → '' at the storage boundary. The
 // client wire type stays nullable (`string | null`) — the coalesce is

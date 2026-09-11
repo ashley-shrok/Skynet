@@ -237,7 +237,7 @@ ROOM="!uvikqTjaoQkxtQjmrs:thenasty.taild9b663.ts.net"
 ROOM_ENC=$(python3 -c "import urllib.parse;print(urllib.parse.quote('$ROOM',safe=''))")
 TXN=$(date +%s%N)
 BODY=$(cat <<'EOF'
-Nelly — Ashley asked me to loop you in. GigaAshleyPC (100.80.122.111) is offline on tailscale ("last seen 2h ago, tx 11076 rx 0", ping times out, tcp/8000 unreachable). The faster-whisper STT on port 8000 is failing all requests: /voice/transcribe hits are returning 502 to her PWA after ~10.7s (undici ConnectTimeoutError at 10s). Ashley's voice-in workflow is dead until it's back.
+Nelly — Ashley asked me to loop you in. WindowsPc (100.80.122.111) is offline on tailscale ("last seen 2h ago, tx 11076 rx 0", ping times out, tcp/8000 unreachable). The faster-whisper STT on port 8000 is failing all requests: /voice/transcribe hits are returning 502 to her PWA after ~10.7s (undici ConnectTimeoutError at 10s). Ashley's voice-in workflow is dead until it's back.
 
 Can you dig into why the PC is unresponsive on the tailnet? Whether it's Windows sleep/power state, tailscale daemon crashed, whisper container crashed, or something else — she wants it back up. She's on iPhone PWA so she can't easily poke at the PC herself. Coordinate back here when you know.
 EOF
@@ -247,7 +247,7 @@ curl -sS -X PUT -H "Authorization: Bearer $TOK" -H "Content-Type: application/js
   -d "$MSG" \\
   "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" | python3 -m json.tool`,
     expectedBody:
-      "Nelly — Ashley asked me to loop you in. GigaAshleyPC (100.80.122.111) is offline on tailscale (\"last seen 2h ago, tx 11076 rx 0\", ping times out, tcp/8000 unreachable). The faster-whisper STT on port 8000 is failing all requests: /voice/transcribe hits are returning 502 to her PWA after ~10.7s (undici ConnectTimeoutError at 10s). Ashley's voice-in workflow is dead until it's back.\n\nCan you dig into why the PC is unresponsive on the tailnet? Whether it's Windows sleep/power state, tailscale daemon crashed, whisper container crashed, or something else — she wants it back up. She's on iPhone PWA so she can't easily poke at the PC herself. Coordinate back here when you know.",
+      "Nelly — Ashley asked me to loop you in. WindowsPc (100.80.122.111) is offline on tailscale (\"last seen 2h ago, tx 11076 rx 0\", ping times out, tcp/8000 unreachable). The faster-whisper STT on port 8000 is failing all requests: /voice/transcribe hits are returning 502 to her PWA after ~10.7s (undici ConnectTimeoutError at 10s). Ashley's voice-in workflow is dead until it's back.\n\nCan you dig into why the PC is unresponsive on the tailnet? Whether it's Windows sleep/power state, tailscale daemon crashed, whisper container crashed, or something else — she wants it back up. She's on iPhone PWA so she can't easily poke at the PC herself. Coordinate back here when you know.",
   },
 
   // -------------------------------------------------------------------------

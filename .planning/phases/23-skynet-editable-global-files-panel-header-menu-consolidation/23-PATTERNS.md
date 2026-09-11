@@ -760,7 +760,7 @@ try {
 
 | File | Role | Data Flow | Reason |
 |------|------|-----------|--------|
-| `.planning/phases/23-*/23-BOOTSTRAP.md` | doc | (docs) | Planner drafts the SSH-edit workflow doc fresh. Reference: CONTEXT §GEFM-06 lists the specific hosts to seed (thenasty, workstation, ashley-beelink, ZoeyBattlestation, aither-cloud, aither-cloud2, aither-sftp, skynet-ec2 — omit Windows GIGAASHLEYPC). |
+| `.planning/phases/23-*/23-BOOTSTRAP.md` | doc | (docs) | Planner drafts the SSH-edit workflow doc fresh. Reference: CONTEXT §GEFM-06 lists the specific hosts to seed (thenasty, workstation, linux-beelink, ZoeyBattlestation, aither-cloud, aither-cloud2, aither-sftp, skynet-ec2 — omit Windows WINDOWS-PC). |
 | Seed `global-files.json` (bootstrap data) | infra config data | (JSON seed) | Content is Ashley-specific (fleet host list × `~/.claude/CLAUDE.md`); no reusable template exists. Ship the file as an operator-authored asset (probably deployed by ssh-ing into skynet-ec2 and writing it into `/var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json`; no in-repo template needed since the config is per-Skynet-instance per CONTEXT §non-negotiables). |
 
 ## Metadata

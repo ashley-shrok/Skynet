@@ -597,8 +597,8 @@ Add a NEW validation rejecting hostnames ending in `-\d+` (which would collide w
 // (<hostname>-<port>.serve.term.<domain>) which splits on the LAST dash of
 // the leftmost label. Reject at registration time so the ambiguity never
 // enters the DB. Current fleet passes this check (thenasty, workstation,
-// ashley-beelink, aither-cloud, aither-cloud2, aither-sftp, t1000, t800,
-// GIGAASHLEYPC, ZoeyBattlestation).
+// linux-beelink, aither-cloud, aither-cloud2, aither-sftp, t1000, t800,
+// WINDOWS-PC, ZoeyBattlestation).
 if (typeof name === "string" && /-\d+$/.test(name)) {
   sshLogger.warn("[host-db] host-name-collision-with-serve-url-grammar", {
     operation: "host_create",

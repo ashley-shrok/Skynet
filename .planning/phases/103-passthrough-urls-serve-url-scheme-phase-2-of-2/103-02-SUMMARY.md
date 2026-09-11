@@ -94,7 +94,7 @@ if (typeof name === "string" && /-\d+$/.test(name)) {
 - **CREATE path only**: PUT handlers on `/db/host/:id` are unchanged — respects the host-record-trap warning that editing a host nulls its SSH key.
 - **Structured log**: `operation: "host_create"` + `userId` + `name` — auditable via T-103-11 mitigation.
 - **Info-leak invariant T-40-05**: message string doesn't interpolate userId bytes (only in structured context); error response returns a static classified sentence, not the user-supplied name.
-- **Fleet compatibility**: all 10 current hostnames pass (thenasty, workstation, ashley-beelink, aither-cloud, aither-cloud2, aither-sftp, t1000, t800, GIGAASHLEYPC, ZoeyBattlestation) — validated against the D-12 constraint at plan time.
+- **Fleet compatibility**: all 10 current hostnames pass (thenasty, workstation, linux-beelink, aither-cloud, aither-cloud2, aither-sftp, t1000, t800, WINDOWS-PC, ZoeyBattlestation) — validated against the D-12 constraint at plan time.
 
 ## Verification Results
 

@@ -35,7 +35,7 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 
 ### URL parse rules (from shape Q2)
 - **D-11:** Parse rule: split on the LAST dash of the leftmost DNS label; right side must be all-digits (port); everything left is the hostname. Reject on parse failure with a clear 400.
-- **D-12:** Enforce at host registration: no hostname may end in `-\d+`. Add validation to the host-add code path. Current fleet passes (thenasty, workstation, ashley-beelink, aither-cloud/cloud2/sftp, t1000, t800, GIGAASHLEYPC, ZoeyBattlestation).
+- **D-12:** Enforce at host registration: no hostname may end in `-\d+`. Add validation to the host-add code path. Current fleet passes (thenasty, workstation, linux-beelink, aither-cloud/cloud2/sftp, t1000, t800, WINDOWS-PC, ZoeyBattlestation).
 - **D-13:** Hostname lookup uses `LOWER(hostname) = LOWER($input)` — no schema migration for existing mixed-case rows. Display case preserved.
 
 ### Broken-serve UX + tunnel lifecycle (from shape Q3)

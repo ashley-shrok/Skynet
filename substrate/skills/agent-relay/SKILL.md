@@ -152,7 +152,7 @@ your identity name if you have one (see above); otherwise use the throwaway form
      #       strips: uppercase, dots, etc.) — chained `||` only fires on non-zero exit, so an empty
      #       success would leak through and you'd get the "@-deck-..." / "@-ashley-..." giveaway
      #       user_id with a blank host segment. Check for empty AFTER sanitizing, not just exit code.
-     # Also: Matrix localparts only allow [a-z0-9._=/+-] — an uppercase hostname like `GigaAshleyPC`
+     # Also: Matrix localparts only allow [a-z0-9._=/+-] — an uppercase hostname like `WindowsPc`
      # is rejected outright by the homeserver with M_INVALID_USERNAME. So lowercase + sanitize HERE,
      # before it ever reaches the registration body.
      HOST=

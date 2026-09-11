@@ -73,9 +73,9 @@ Rules (per plan 23-01's `global-files-config-loader.ts`):
 
 Ashley's fleet — 8 unix hosts with `~/.claude/CLAUDE.md`.
 
-**Windows hosts (GIGAASHLEYPC) are OMITTED** — no `~/.claude/CLAUDE.md`
+**Windows hosts (WINDOWS-PC) are OMITTED** — no `~/.claude/CLAUDE.md`
 to edit, and Windows SSH semantics are out of MVP scope per
-CONTEXT §GEFM-06 non-negotiable. GIGAASHLEYPC should NOT be added to
+CONTEXT §GEFM-06 non-negotiable. WINDOWS-PC should NOT be added to
 this config until Windows host support is designed in a future phase.
 
 ```json
@@ -83,7 +83,7 @@ this config until Windows host support is designed in a future phase.
   "hosts": {
     "thenasty":          [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
     "workstation":       [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
-    "ashley-beelink":    [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
+    "linux-beelink":    [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
     "ZoeyBattlestation": [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
     "aither-cloud":      [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
     "aither-cloud2":     [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" } ],
@@ -96,7 +96,7 @@ this config until Windows host support is designed in a future phase.
 Host name sanity-check (confirmed 2026-08-05 via `box-map.md`):
 - `thenasty` — 100.113.23.63 (tailnet)
 - `workstation` — 100.82.225.100 (tailnet, Ubuntu EC2)
-- `ashley-beelink` — 100.124.193.5 (tailnet, host id 18)
+- `linux-beelink` — 100.124.193.5 (tailnet, host id 18)
 - `ZoeyBattlestation` — 100.78.107.56 (tailnet)
 - `aither-cloud` — AWS aither production
 - `aither-cloud2` — AWS aither production (second instance)

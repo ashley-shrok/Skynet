@@ -31,7 +31,7 @@ Ashley 2026-08-13, on the original plan's assumption that the watcher would run 
 - **No per-box daemon.** No systemd user unit. No install script for a persistent process. No dynamic host-discovery daemon. Skynet backend already knows the identity-host list from its own DB.
 - **Delivery mechanism: 2s polling over the existing SSH pool** (poll over event-driven `inotifywait`; Ashley 2026-08-13 chose the polling path for zero-dep operation on any host with a shell). Uses whatever SSH primitives the backend already exposes for its tmux/pane plumbing. One channel per identity-hosting host, multiplexed.
 - **Stop hook install is a one-time remote file drop + settings-file edit over SSH**, NOT a persistent process. Drop the hook script into a well-known location on each identity-hosting box; append one entry to that box's `~/.claude/settings.json` `hooks.Stop[0]` array. Hook writes payloads to a well-known local file on the box; Skynet polls that file over the same SSH channel it polls the session-JSON files.
-- **Scope of hook install: identity-hosting boxes only.** NOT every managed host — RDP-only endpoints (ashley-beelink, GIGAASHLEYPC, aither Windows RDP boxes) don't run Claude Code so they need nothing.
+- **Scope of hook install: identity-hosting boxes only.** NOT every managed host — RDP-only endpoints (linux-beelink, WINDOWS-PC, aither Windows RDP boxes) don't run Claude Code so they need nothing.
 - **Fail-open on missing hook payload file** (Ashley 2026-08-13 verbatim: *"just make sure that it fails open if the file that the hook is supposed to generate isn't found"*). If the well-known Stop-hook payload file doesn't exist on a given host (hook never installed, freshly deleted, crashed before writing anything, or transient FS glitch), the watcher MUST NOT crash, log-spam, or mark the session as broken. Treat that host's background-task view as empty/unknown and continue relying on the session-JSON file for the main working signal. The dot may under-report background work on that host until the hook is (re-)installed, but the app stays functional. This applies to any host at any time — first-time provisioning is just the most common trigger, but the same code path also handles "hook file existed then vanished" and "hook file exists but is empty/corrupt."
 
 **What stays from the pre-pivot design (unchanged):**
@@ -143,7 +143,7 @@ The `waiting` state is a separate axis from `isWorking` — a session in `waitin
 - Claude Code version: 2.1.150 (per session-JSON files). Session-JSON schema stable since v2.1.119.
 
 ### Managed-hosts topology (deploy target)
-- `~/.claude/roles/box-maintainer/box-map.md` — inventory of managed boxes. Currently ~8: thenasty, workstation, ZoeyBattlestation, GIGAASHLEYPC, ashley-beelink, skynet-ec2, aither-cloud/cloud2/sftp. Fleet-status watcher deploys to each Claude-Code-hosting box (i.e. every box that hosts an identity — NOT every managed box; the beelink and Windows RDP-only boxes are not identity hosts).
+- `~/.claude/roles/box-maintainer/box-map.md` — inventory of managed boxes. Currently ~8: thenasty, workstation, ZoeyBattlestation, WINDOWS-PC, linux-beelink, skynet-ec2, aither-cloud/cloud2/sftp. Fleet-status watcher deploys to each Claude-Code-hosting box (i.e. every box that hosts an identity — NOT every managed box; the beelink and Windows RDP-only boxes are not identity hosts).
 
 ### Prior WS-drop iterations (context — DO NOT touch)
 - Patch #344 (iter 1 of hidden-pane-cost-mitigation, quick-260808-b74)

@@ -6,7 +6,7 @@
  *
  * Host-key format decision (planner-locked):
  *   Operator-authored JSON should use human-readable host NAMES (e.g. "thenasty",
- *   "workstation", "ashley-beelink") because Ashley SSH-edits the config by hand for
+ *   "workstation", "linux-beelink") because Ashley SSH-edits the config by hand for
  *   MVP (GEFM-02 non-negotiable) and staring at numeric IDs is user-hostile.
  *
  *   However, to survive a host rename without silent config loss, this loader

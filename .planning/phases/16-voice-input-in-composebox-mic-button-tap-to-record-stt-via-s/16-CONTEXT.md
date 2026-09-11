@@ -7,7 +7,7 @@
 <domain>
 ## Phase Boundary
 
-**What this phase delivers:** Voice input in the Skynet pretty-view ComposeBox. A mic-glyph button lives inside each ComposeBox textarea. Tapping it starts recording audio via `MediaRecorder`. While recording, the mic button is swapped OUT of that slot and three action buttons swap IN in its place: `cancel` (drop the clip, no changes), `end + append` (stop recording, transcribe, append the transcript to whatever is already in the textarea), `end + send` (stop recording, transcribe, append, send the full contents through the existing send path). The audio blob is POSTed to a NEW Skynet backend endpoint that reverse-proxies to the tailnet faster-whisper STT service on GigaAshleyPC, receives the transcript, and returns it to the client.
+**What this phase delivers:** Voice input in the Skynet pretty-view ComposeBox. A mic-glyph button lives inside each ComposeBox textarea. Tapping it starts recording audio via `MediaRecorder`. While recording, the mic button is swapped OUT of that slot and three action buttons swap IN in its place: `cancel` (drop the clip, no changes), `end + append` (stop recording, transcribe, append the transcript to whatever is already in the textarea), `end + send` (stop recording, transcribe, append, send the full contents through the existing send path). The audio blob is POSTed to a NEW Skynet backend endpoint that reverse-proxies to the tailnet faster-whisper STT service on WindowsPc, receives the transcript, and returns it to the client.
 
 **What this phase does NOT deliver:**
 - No changes to the existing send path (existing textarea send, thumbs-up, queue, reset all UNCHANGED).
@@ -41,7 +41,7 @@
 
 ### Locked STT contract (Nelly 2026-07-27, verified live)
 
-- **Service:** self-hosted faster-whisper on GigaAshleyPC, tailnet-only.
+- **Service:** self-hosted faster-whisper on WindowsPc, tailnet-only.
 - **URL:** `http://100.80.122.111:8000/v1/audio/transcriptions` — direct STT endpoint.
 - **Shape:** OpenAI-compatible. `POST` multipart/form-data with field name `file` (NOT `audio`); optional `model` param IGNORED by server, always uses `large-v3`.
 - **Accepted formats:** mp4/m4a/webm/mp3/wav/ogg via ffmpeg on the backend — iOS Safari's `audio/mp4` MediaRecorder output decodes fine. Chrome/Android `audio/webm` also fine.

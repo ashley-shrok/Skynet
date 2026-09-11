@@ -125,7 +125,7 @@ Post-R&D `/open` session on 2026-09-10 pressure-tested and locked the following 
 ### Q2 — URL parse rules
 
 - Grammar: `<host>-<port>.serve.term.<skynet-domain>`. Split on the LAST dash of the leftmost DNS label; right side must be all-digits (the port); everything left is the hostname.
-- **Registration constraint**: no hostname may end in `-\d+`. Enforced at host-add time. Current fleet hosts (thenasty, workstation, ashley-beelink, aither-cloud, aither-cloud2, aither-sftp, t1000, t800, GIGAASHLEYPC, ZoeyBattlestation) all pass the constraint.
+- **Registration constraint**: no hostname may end in `-\d+`. Enforced at host-add time. Current fleet hosts (thenasty, workstation, linux-beelink, aither-cloud, aither-cloud2, aither-sftp, t1000, t800, WINDOWS-PC, ZoeyBattlestation) all pass the constraint.
 - Case: keep display case in DB, lowercase for lookup (`LOWER(hostname) = LOWER($input)`) — no schema migration needed for existing mixed-case rows.
 
 ### Q3 — Broken-serve UX + tunnel lifecycle

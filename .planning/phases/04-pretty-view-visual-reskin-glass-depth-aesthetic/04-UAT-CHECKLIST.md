@@ -8,7 +8,7 @@
 - Have at least two identity-tagged tmux panes available in Skynet. Ideally:
   - One pane matched to an identity **with `colorHue` set** (e.g. tina at hue 35 = amber — verify via `curl -s -H "Authorization: Bearer <tmx_>" https://term.example.com/identities/ | jq '.[] | {identity_key, color_hue}'`).
   - One pane matched to a **different-colorHue identity** (e.g. bella if her colorHue is set to a distinct value — pink/hue 320 works if configured).
-- Have at least one non-identity pane available (e.g. a fresh `ssh` session on GIGAASHLEYPC or any host with no matching identity in the registry).
+- Have at least one non-identity pane available (e.g. a fresh `ssh` session on WINDOWS-PC or any host with no matching identity in the registry).
 - **Safety canary first** — before flipping any pane to pretty view, open a terminal tab (tmux mode, any host) and confirm the terminal-pane IdentityBadge (if identity-matched) appears in the top-right at the same size/position/style as pre-deploy. If the terminal-pane badge looks different, **STOP and revert** — this indicates the IdentityBadge `size="md"` default is not preserving patch #17/#38 behavior byte-identically.
 
 ---
@@ -49,7 +49,7 @@
 - [ ] Open pretty view on a pane matched to an identity **WITH `colorHue`** (e.g. tina → amber hue 35). Verify **user bubble accents** (bg gradient, border, outer glow), **context-bar fill** (< 80% path), **send-button gradient**, **focused-textarea border and outer glow**, and (in BackgroundedAgentsPanel if agents are running) the **subagentType tag pill** all read the same identity color.
 - [ ] Flip to a pane matched to a **different-colorHue identity** (e.g. bella at pink). The color chain shifts to that hue across ALL the same elements above. **This is the key cross-pane test.**
 - [ ] Open pretty view on a pane whose identity has **NO colorHue set**. Color chain falls back to a neutral warm amber (hue 35) — no visual break, no black rings, no missing accents.
-- [ ] Open pretty view on a pane with **NO matching identity** (e.g. fresh ssh session on GIGAASHLEYPC). Color chain uses the neutral warm amber fallback; the IdentityBadge simply doesn't render (matches terminal-pane semantic).
+- [ ] Open pretty view on a pane with **NO matching identity** (e.g. fresh ssh session on WINDOWS-PC). Color chain uses the neutral warm amber fallback; the IdentityBadge simply doesn't render (matches terminal-pane semantic).
 
 **Failure indicator**: identity-hue elements stay a fixed color regardless of pane, OR unmatched-identity panes render a broken/missing color chain, OR any element in the chain (bubble, context bar, send button, focus ring, tag pill) reads a different hue than the others on the same pane.
 

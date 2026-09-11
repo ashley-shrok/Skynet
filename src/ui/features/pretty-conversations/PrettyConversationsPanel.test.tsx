@@ -829,7 +829,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
 
   it("Test 19C (rewritten): middle + rdpGroup → NO host-divider chip; the rdp-divider IS present when rdpGroup is non-null", () => {
     const hostA = makeHost("h1", "hostA");
-    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    const rdpHost = makeHost("h2", "WINDOWS-PC", { enableRdp: true });
     setSnapshot({
       middle: [
         makeConversationRow({ id: "c1", label: "s1", host: hostA }),
@@ -840,7 +840,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
         rows: [
           makeConversationRow({
             id: "r1",
-            label: "GIGAASHLEYPC",
+            label: "WINDOWS-PC",
             host: rdpHost,
             rdpHostRow: true,
             targetTmuxSession: null,
@@ -1022,7 +1022,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
   });
 
   it("Test 20C: desktop RDP row renders NO deactivate-action EVEN when the RDP row's id is in the active-set", () => {
-    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    const rdpHost = makeHost("h2", "WINDOWS-PC", { enableRdp: true });
     setSnapshot({
       activeSet: [],
       pinned: [],
@@ -1033,7 +1033,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
           rows: [
             makeConversationRow({
               id: "rdp-host::h2",
-              label: "GIGAASHLEYPC",
+              label: "WINDOWS-PC",
               host: rdpHost,
               rdpHostRow: true,
               targetTmuxSession: null,
@@ -1221,7 +1221,7 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
 describe("PrettyConversationsPanel: RDP sentinel at bottom", () => {
   it('Test 4: __rdp__ group renders a "Remote desktop" divider and its row appears AFTER the identity-tmux row', () => {
     const hostA = makeHost("h1", "hostA");
-    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    const rdpHost = makeHost("h2", "WINDOWS-PC", { enableRdp: true });
     setSnapshot({
       pinned: [],
       grouped: [
@@ -1238,7 +1238,7 @@ describe("PrettyConversationsPanel: RDP sentinel at bottom", () => {
           rows: [
             makeConversationRow({
               id: "r1",
-              label: "GIGAASHLEYPC",
+              label: "WINDOWS-PC",
               host: rdpHost,
               rdpHostRow: true,
               targetTmuxSession: null,
@@ -1486,10 +1486,10 @@ describe("PrettyConversationsPanel: mobile gear removed (patch #133)", () => {
 
 describe("PrettyConversationsPanel: row-click routing (RDP)", () => {
   it("Test 12: clicking an RDP row calls onRdpRowClick and NOT selectConversation/onDetachedRowClick", () => {
-    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    const rdpHost = makeHost("h2", "WINDOWS-PC", { enableRdp: true });
     const rdpRow = makeConversationRow({
       id: "r1",
-      label: "GIGAASHLEYPC",
+      label: "WINDOWS-PC",
       host: rdpHost,
       rdpHostRow: true,
       targetTmuxSession: null,
@@ -1607,7 +1607,7 @@ describe("PrettyConversationsPanel: row-click routing (plain)", () => {
 describe("PrettyConversationsPanel: onConversationSelected after every branch", () => {
   it("Test 15: onConversationSelected fires for plain, fleet-only, and RDP row clicks", () => {
     const hostA = makeHost("h1", "hostA");
-    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    const rdpHost = makeHost("h2", "WINDOWS-PC", { enableRdp: true });
 
     const plainRow = makeConversationRow({
       id: "t1",
@@ -1623,7 +1623,7 @@ describe("PrettyConversationsPanel: onConversationSelected after every branch", 
     });
     const rdpRow = makeConversationRow({
       id: "r1",
-      label: "GIGAASHLEYPC",
+      label: "WINDOWS-PC",
       host: rdpHost,
       rdpHostRow: true,
       targetTmuxSession: null,
@@ -2944,7 +2944,7 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
     // retired unconditionally — absent both during filter and in the
     // three-zone view. The RDP divider stays.
     const hostA = makeHost("h1", "hostA");
-    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    const rdpHost = makeHost("h2", "WINDOWS-PC", { enableRdp: true });
     setSnapshot({
       pinned: [makeConversationRow({ id: "p1", label: "pinned-alpha", host: hostA })],
       middle: [makeConversationRow({ id: "m1", label: "middle-beta", host: hostA })],
@@ -2954,7 +2954,7 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
         rows: [
           makeConversationRow({
             id: "r1",
-            label: "GIGAASHLEYPC",
+            label: "WINDOWS-PC",
             host: rdpHost,
             rdpHostRow: true,
             targetTmuxSession: null,
@@ -3154,7 +3154,7 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
 
   it("Test J: clearing the query via the × button restores the three-zone render", () => {
     const hostA = makeHost("h1", "hostA");
-    const rdpHost = makeHost("h2", "GIGAASHLEYPC", { enableRdp: true });
+    const rdpHost = makeHost("h2", "WINDOWS-PC", { enableRdp: true });
     setSnapshot({
       pinned: [makeConversationRow({ id: "p1", label: "pinned-alpha", host: hostA })],
       middle: [makeConversationRow({ id: "m1", label: "middle-beta", host: hostA })],
@@ -3164,7 +3164,7 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
         rows: [
           makeConversationRow({
             id: "r1",
-            label: "GIGAASHLEYPC",
+            label: "WINDOWS-PC",
             host: rdpHost,
             rdpHostRow: true,
             targetTmuxSession: null,

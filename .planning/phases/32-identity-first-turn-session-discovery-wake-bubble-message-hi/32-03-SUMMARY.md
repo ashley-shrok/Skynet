@@ -62,7 +62,7 @@ Post-edit section headers preserved verbatim (grep `^## `):
 - L175 `## Operating`
 - L281 `## RDP + guacd notes`
 
-- L396 `## Windows hosts (GIGAASHLEYPC)`
+- L396 `## Windows hosts (WINDOWS-PC)`
 - L406 `## Cross-fleet pointer`
 
 (Line numbers shifted downward by ~35 lines vs pre-edit for headers after

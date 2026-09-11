@@ -27,7 +27,7 @@ ROOT=http://100.113.23.63:8008
 BASE=$ROOT/_matrix/client/v3
 REG="$DIR/registry.json"
 LOG="$DIR/bridge.log"
-STT=http://100.80.122.111:8000/v1/audio/transcriptions   # self-hosted Whisper (GigaAshleyPC, tailnet)
+STT=http://100.80.122.111:8000/v1/audio/transcriptions   # self-hosted Whisper (WindowsPc, tailnet)
 WORK="$DIR/work"; mkdir -p "$WORK"                        # scratch for in-flight media (NOT /tmp)
 
 log(){ printf '%s %s\n' "$(date +%H:%M:%S)" "$1" >> "$LOG"; }

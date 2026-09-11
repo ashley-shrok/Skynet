@@ -309,10 +309,10 @@ The watcher MUST implement the procStart liveness check. Do NOT assume `pid` not
 | thenasty | 100.113.23.63 | Ubuntu 24.04 | v22.22.1 | 3.12.3 | go 1.22.2 | systemd 255 | 2 live sessions |
 | workstation | 100.82.225.100 | Ubuntu 24.04 | v24.15.0 | 3.12.3 | — | systemd 255 | 1 live session |
 | ZoeyBattlestation | 100.78.107.56 | Bazzite (ublue-os) | unknown | unknown | unknown | unknown | unknown (unreachable at research time) |
-| GIGAASHLEYPC | 100.80.122.111 | Windows | N/A | N/A | N/A | N/A | **NOT an identity host** (no tmux) |
-| ashley-beelink | 100.124.193.5 | Ubuntu 24.04 | v22.23.1 | 3.12.3 | — | unknown | unknown (SSH key not available from this box) |
+| WINDOWS-PC | 100.80.122.111 | Windows | N/A | N/A | N/A | N/A | **NOT an identity host** (no tmux) |
+| linux-beelink | 100.124.193.5 | Ubuntu 24.04 | v22.23.1 | 3.12.3 | — | unknown | unknown (SSH key not available from this box) |
 
-**GIGAASHLEYPC is Windows and explicitly not an identity host** (no tmux, per box-map: "Do NOT set autoTmux:true for Windows hosts"). The watcher does NOT deploy there.
+**WINDOWS-PC is Windows and explicitly not an identity host** (no tmux, per box-map: "Do NOT set autoTmux:true for Windows hosts"). The watcher does NOT deploy there.
 
 **aither-cloud/cloud2/sftp** — RDP-only targets (Windows), NOT identity hosts.
 
@@ -335,7 +335,7 @@ Rationale:
 **Runtime language: Node.js (TypeScript)**
 
 Rationale:
-- Node v22+ is present on ALL confirmed identity hosts (skynet-ec2: v24.15.0, thenasty: v22.22.1, workstation: v24.15.0, ashley-beelink: v22.23.1)
+- Node v22+ is present on ALL confirmed identity hosts (skynet-ec2: v24.15.0, thenasty: v22.22.1, workstation: v24.15.0, linux-beelink: v22.23.1)
 - The project is already Node/TypeScript — the watcher can be compiled from the same build system
 - No new runtime to install or manage on any confirmed host
 - `fs.watch()` in Node uses inotify on Linux natively (no native addon needed)
@@ -482,8 +482,8 @@ The correlation chain is fully determined:
 **What's unclear:** Is the hook guaranteed to fire BEFORE or AFTER the session JSON `status` update? Or is it concurrent?
 **Recommendation:** Assume they're concurrent and design the watcher to merge both signals regardless of order. The session JSON gives authoritative `status`; the Stop hook gives `background_tasks[]`. Neither blocks the other.
 
-### OQ-4: ashley-beelink identity status (LOW RISK)
-**What we know:** ashley-beelink (Ubuntu 24.04) has Node v22.23.1 and Python 3.12 installed. SSH key is not in the standard path from this box.
+### OQ-4: linux-beelink identity status (LOW RISK)
+**What we know:** linux-beelink (Ubuntu 24.04) has Node v22.23.1 and Python 3.12 installed. SSH key is not in the standard path from this box.
 **What's unclear:** Does it currently host Claude Code identities?
 **Recommendation:** Same as OQ-1 — confirm before deploy step. If it does host identities, the watcher deploys normally (same systemd/Node stack as the other Ubuntu boxes).
 
