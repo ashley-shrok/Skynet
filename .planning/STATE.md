@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-10T15:20:40.457Z"
-last_activity: 2026-09-10 -- Phase 103 execution started
+last_updated: "2026-09-11T16:26:22.720Z"
+last_activity: "2026-09-10 — Completed quick task 260910-pf4: serve-url-login-return-honor (tabitha). Follow-up from Phase 103 UAT GAP 4. Frontend-only change: Skynet's `/login` now consumes the `return=` query param (both on-mount already-authed case and post-login success cases) so users who hit a serve URL like `https://<host>-<port>.serve.term.example.com/` while unauthed bounce back to the target after login instead of dropping on the app root. Open-redirect defense: HTTPS-only + leading-dot suffix match on hostname (defeats `eviltermexample.com` bypass) + rejects userinfo credentials (defeats `@evil.com` spoof) + rejects protocol-relative + rejects javascript/data/malformed URLs + FQDN trailing-dot normalization + IPv4-parent exact-match guard. Task 1 (`37dfc9f3`): new pure module `src/ui/auth/return-url.ts` exporting `parseReturnFromSearch(search)` + `validateReturnUrl(returnParam, parentDomain)`; 26 unit tests in `return-url.test.ts` covering A1-A5 accept cases + R1-R15 reject cases. Task 2 (`6e659385`): wired `validateReturnUrl` into Auth.tsx post-login handlers (login/register/TOTP/OIDC — 4 call sites via new `tryReturnUrlRedirect()` helper) + mount-time useEffect for already-authed case + `main.tsx` IIFE pre-render short-circuit (early-exit before `createRoot()` when already-authed & valid return= present, skips SPA boot); 13 structural + behavioral integration tests in `Auth.return-url.test.tsx`. Code-review pass (`gsd-code-reviewer`) surfaced 1 High + 2 Medium + 2 Low findings; all fixed inline in Task 3 (`76fbe14d`): H-01 main.tsx IIFE `return` only exited the IIFE (createRoot still fired → App mount + duplicate `location.assign` race) — converted to boolean-returning function, gated createRoot on return value; M-01 FQDN trailing-dot URLs falsely rejected — added `.replace(/\.+$/, "")` normalization + tests A6/A7/A8; M-02 IPv4-parent edge case allowed spurious subdomains — added IPv4-parent exact-match guard + tests R16/R17; L-02 B1 test promised "form not initially rendered" but never asserted it — added `expect(screen.queryByPlaceholderText(/username/i)).toBeNull()`. Design choice: uses `window.location.hostname` as parent-domain source-of-truth at runtime (guaranteed === SKYNET_COOKIE_DOMAIN because /login is served on the primary Skynet domain per Phase 103 D-14). Avoids new backend endpoint, new env var, new Vite build config. **Key design decision**: pure-function `validateReturnUrl` with `parentDomain` as parameter (zero React/window/document reads) → trivially testable; caller resolves parent at runtime. Post-review scoped tests: 44/44 pass (`npx vitest run src/ui/auth/`); full vitest suite 5531/0 pass; `npx tsc --noEmit` clean. Three atomic commits on `feat/tab-title-from-tmux`; HEAD LOCAL — NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule. Deploy needs frontend rebuild (touches SPA bundle) + `docker compose up --force-recreate skynet`. Closes bounty `serve-url-login-return-honor` (self-discovered from Phase 103 UAT session). SUMMARY at `.planning/quick/260910-pf4-serve-url-login-return-honor-make-skynet/260910-pf4-SUMMARY.md`. REVIEW at `.planning/quick/260910-pf4-serve-url-login-return-honor-make-skynet/260910-pf4-REVIEW.md`."
 progress:
-  total_phases: 101
-  completed_phases: 85
-  total_plans: 431
-  completed_plans: 419
-  percent: 84
+  total_phases: 108
+  completed_phases: 93
+  total_plans: 459
+  completed_plans: 450
+  percent: 86
 ---
 
 # Project State
@@ -615,6 +615,8 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 
 ### Roadmap Evolution
 
+- 2026-09-11: Phase 106 added (tina) — birth-flow rework Chunk 3: retire Skynet backend birth's tmux new-session + claude launch; agent-supervisor becomes sole spawner. Modal shape: five-tick checklist → single spinner replacing Create button label, fields+close disabled, auto-route into new agent's chat surface on success (detected via existing transcript-file-on-host signal), blocking JS alert on timeout with partial state left on disk (no rollback). Shell-only branch unchanged. Chunks 1 (`5f6efd29`) + 2 (`6cdff0ab`) already shipped; Chunk 4 dissolves under this shape. Shape file at `.planning/shapes/shape-birth-flow-supervisor-sole-spawner.md` (opened+locked 2026-09-11 via /build → /open, greenlit `thumbs up` same session). Sequential slot allocation (no collision). Bounty `birth-flow-supervisor-sole-spawner` in box-maintainer's shared pool. Vehicle: GSD phase → /gsd:discuss-phase → /gsd:plan-phase → /gsd:execute-phase → unbiased general-purpose subagent code review → /close. No worktrees. Push not authorized as part of phase execution — deploy motion is orchestrator-owned per fleet rule.
+
 - 2026-09-10: Phase 101 added (tina, **TRIPLE rescue-rebased this session — planned Phase 98 → 99 after tabitha P98 more-versatile-stt-tts-support origin-collision, then 99 → 100 after tanya coord-room heads-up her P99 spawn-request-watcher local-committed at `22279502`, then 100 → 101 after tabitha coord-room heads-up her P100 STT-chunked-parallel-streaming rescue-rebase (her post `$dAuIhDFqLKv6qAU7_Ydrz-pgGyvZx44OcHRu_TaLxvs` landed before mine per tiebreak-2). Coord-room heads-ups: `$9foy6oyaja1ds7kWYynnet3mmPiuquSQ3a91lWPVbc0` (P98→99), `$H_NqelrBkbYY0vkHquQTqukMT-rlqqgPOuGaCJzWvpI` (P99→100), `$Kmayzu5zqBmRuEaNuPefFdTbrwggNiTEZSZskREWRiM` (P100→101). No code overlap, pure slot collisions, ~37th + 38th + 39th known `gsd-sdk phase.add` cross-tree race**). Route all outbound SSH work through a per-host semaphore registry — aggregate per-host SSH concurrency policy per Alice 2026-09-10 verbatim: *"all connections through a single semaphore no matter what it's doing or where it comes from... otherwise we have potential of causing problems."* Introduce `src/backend/ssh/host-semaphore-registry.ts` (module-scope `Map<hostId, Semaphore(8)>` lazy-created). Migrate fleet-status + substrate to shared registry. Wrap 9 currently-uncapped SSH producers' ENTIRE work motion inside `sem.run(...)`. Add CI-grep guard. Prevents both `MaxSessions=10` and `MaxStartups=10:30:100` sshd caps on any managed host. Zero functional behavior change. **Bundles with** already-committed diagnostic slice `quick-260910-8dp` (event-loop lag sampler + per-auth-request timing middleware, local HEAD `9c60cdaa` post-rebase). Closes bounty `outbound-ssh-exec-semaphore-coverage-gaps`. Planner returned 6 plans in 4 waves (registry+tests → starter.ts migration → 3 parallel producer wraps → CI-grep + verify sweep) — all files renumbered 99 → 100 → 101 via sed on disk, phase folder renamed to `.planning/phases/101-route-all-outbound-ssh-work-through-a-per-host-semaphore-re/`. Vehicle: /gsd:execute-phase 101 (auto). No worktrees. Push not authorized as part of phase execution.
 - 2026-09-10: Phase 100 added (tabitha) — STT chunked parallel streaming. Follow-up to Phase 98: split incoming voice audio into ~8s overlapping chunks, dispatch parallel AWS Transcribe streaming sessions, stitch results via word-timestamp dedup. Backend-only refactor of `handleTranscribe`; `/voice/transcribe` endpoint contract unchanged (frontend untouched). Empirically-motivated: benchmark 2026-09-10 showed short Transcribe streams return faster-than-realtime (3s→0.8s, 8s→3.6s) while long streams throttle to ~1.7× realtime (15s→8.8s, 30s→17.8s). Chunking targets 5-10× speedup vs the current single-stream floor (30s clip → ~3.5s wall). Rescue-rebased 99 → 100 after tanya's coord-room claim on Phase 99 (spawn-request-watcher, event `$r2RqsbNkMnxZqPK49dRIzdzaxZXgcihOKnXTCX8Yhno`) per tiebreak-2. Vehicle: single GSD phase.
 
@@ -944,9 +946,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-10T13:59:04.519Z
+Last session: 2026-09-11T16:26:22.654Z
 Last session: 2026-09-10T07:47:17.370Z
-Stopped at: Phase 103 context gathered — /open + discuss-phase done for serve URL scheme (phase 2 of 2)
+Stopped at: Phase 106 context gathered
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
 Last session: 2026-09-06T12:17:07.176Z
@@ -958,6 +960,6 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: .planning/phases/103-passthrough-urls-serve-url-scheme-phase-2-of-2/103-CONTEXT.md
+Resume file: .planning/phases/106-birth-flow-rework-chunk-3-retire-skynet-tmux-claude-launch-s/106-CONTEXT.md
 
 - Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)
