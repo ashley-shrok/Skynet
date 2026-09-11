@@ -28,7 +28,7 @@ That is the outcome. **Zero code changes shipped. Zero speculative guards on any
 ### Deploy state during UAT
 - **Image:** `skynet-patched:local` ID `c45101c2ff96d582d8eb5b1064d46044dd7e524137a8ae3c3a831a017bb42565`
 - **Container:** `7649209ef924`, healthy T+8s
-- **HTTPS 200 verified** at `https://term.gigaashley.click/` before UAT started
+- **HTTPS 200 verified** at `https://term.example.com/` before UAT started
 - **AppShell chunk:** `AppShell-CZ8IKp3n.js` (fresh Phase 45 build; #465's crashing bundle was `BjR3_4Qj.js`, revert baseline was `wLv43V6G.js`)
 - **HEAD at build time:** `c9b74e43` (Plans 45-01 + 45-02 + 45-03 all landed)
 - **Rollback preserved:** `skynet-patched:rollback-20260819T0141` → image `25c50004d183` (Tiffany's #464 baseline)

@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-07-27
 **Status:** Ready for planning
-**Source:** Manual authorship by tina — prototype UAT already passed on iOS PWA (`~/.claude/identities/tina/bounties/add-voice-input/prototype.html` served at `https://gigaashley.click/tina-voice-prototype/prototype.html`). Ashley response: "holy shit that just worked 100%, in a add-to-home-screen PWA". Design pins locked in bounty; nelly-owned STT contract verified live. This CONTEXT.md replaces a discuss-phase round because the prototype IS the discussion.
+**Source:** Manual authorship by tina — prototype UAT already passed on iOS PWA (`~/.claude/identities/tina/bounties/add-voice-input/prototype.html` served at `https://example.com/tina-voice-prototype/prototype.html`). Ashley response: "holy shit that just worked 100%, in a add-to-home-screen PWA". Design pins locked in bounty; nelly-owned STT contract verified live. This CONTEXT.md replaces a discuss-phase round because the prototype IS the discussion.
 
 <domain>
 ## Phase Boundary
@@ -53,9 +53,9 @@
 
 ### Production audio path — cannot be client-direct
 
-Ashley's phone (and any browser) reaches Skynet over the **public internet** at `term.gigaashley.click`, NOT over the tailnet. The STT service is tailnet-only. Therefore the production path MUST be `PWA → Skynet backend → tailnet STT → transcript back → client`. The Skynet backend reverse-proxies the multipart body to the STT endpoint and returns the JSON.
+Ashley's phone (and any browser) reaches Skynet over the **public internet** at `term.example.com`, NOT over the tailnet. The STT service is tailnet-only. Therefore the production path MUST be `PWA → Skynet backend → tailnet STT → transcript back → client`. The Skynet backend reverse-proxies the multipart body to the STT endpoint and returns the JSON.
 
-**Do NOT try to have the client fetch the STT URL directly.** That worked in the prototype only because Nelly added a Caddy proxy on `https://gigaashley.click/stt/*` bypassing Authelia for tailnet clients — that path serves the prototype which is on the tailnet. Production Skynet users are NOT on the tailnet.
+**Do NOT try to have the client fetch the STT URL directly.** That worked in the prototype only because Nelly added a Caddy proxy on `https://example.com/stt/*` bypassing Authelia for tailnet clients — that path serves the prototype which is on the tailnet. Production Skynet users are NOT on the tailnet.
 
 **Backend endpoint contract (proposed — planner refines):**
 - `POST /voice/transcribe` (route path in the backend router; nginx.conf + nginx-https.conf must both proxy it).
@@ -184,7 +184,7 @@ Explicitly out of scope for Phase 16 — do NOT include:
 - **Auto-punctuation editing UI / TTS confirmation** — user reads the transcript in the textarea and edits by hand if needed.
 - **Reconnect / retry on transcribe error** — first version surfaces the error and lets the user retry manually. Auto-retry can layer on later if flakiness is observed in real use.
 - **Deploy** — planning ends at "code + tests + commit landed." Deploy is a separate Ashley-greenlit event (patch #35 rule).
-- **Retiring the prototype hosting** — the prototype at `https://gigaashley.click/tina-voice-prototype/prototype.html` and the `/stt/*` Caddy proxy on gigaashley.click stay up until the integrated version is deployed and UAT-verified. That retirement is a follow-up ping to Nelly, not a plan task.
+- **Retiring the prototype hosting** — the prototype at `https://example.com/tina-voice-prototype/prototype.html` and the `/stt/*` Caddy proxy on example.com stay up until the integrated version is deployed and UAT-verified. That retirement is a follow-up ping to Nelly, not a plan task.
 </deferred>
 
 ---

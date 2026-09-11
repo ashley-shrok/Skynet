@@ -230,7 +230,7 @@ Handoff to the planner:
   and both of Ashley's devices (phone and desktop) must read the same
   value — so it lives on the backend, not client-only.
 - Identity: this work happens under identity `tiffany`, box-maintainer of
-  the Skynet EC2 (`t1000`) at `term.gigaashley.click`. The container-mutation
+  the Skynet EC2 (`t1000`) at `term.example.com`. The container-mutation
   coordination protocol in the role file applies to every deploy motion
   (BEFORE announce in the box-maintainer coord room, ship, AFTER announce).
   The push→build→recreate greenlight-gate applies (deferred-authorization

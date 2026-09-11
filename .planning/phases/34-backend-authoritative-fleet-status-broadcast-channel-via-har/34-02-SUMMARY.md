@@ -296,7 +296,7 @@ TDD gate sequence: RED-then-GREEN pairs for each task, with the Task 3 GREEN com
 **Plan 04 (watcher-to-backend transport) must:**
 
 1. Import `WatcherInboundFrame` / `FRAME_SCHEMA_VERSION` from `src/backend/fleet-status/wire-protocol.ts` in the watcher-side WebSocket client
-2. Connect the watcher to `wss://term.gigaashley.click/fleet-status/watcher` (Tailscale-backed)
+2. Connect the watcher to `wss://term.example.com/fleet-status/watcher` (Tailscale-backed)
 3. Send `{schemaVersion:1, type:"hello", hostname}` as the FIRST frame after connection open
 4. Ensure the box's hostname (as reported to watcher) matches a Skynet DB `hosts.name` row (case-insensitive) — otherwise the connection is 1008-closed
 5. Add nginx `location` blocks for `/fleet-status/ws` AND `/fleet-status/watcher` in BOTH `docker/nginx.conf` and `docker/nginx-https.conf` (see § Nginx implications above)

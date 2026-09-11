@@ -2,7 +2,7 @@
 
 **Target:** Ashley
 **Timing:** After `docker compose up -d --force-recreate skynet` completes AND the HTTP2_PROTOCOL_ERROR first-hard-refresh known-issue (patch #232 discovery) has been cleared.
-**URL:** https://term.gigaashley.click
+**URL:** https://term.example.com
 **Estimated duration:** ~10 minutes (7 items + optional bonus mobile check)
 
 Each of the 7 items verifies exactly one LOCKED decision from `40-CONTEXT.md § Decisions` (D-01..D-07). If any item FAILS, escalate that decision's failure mode back to the executor rotation before proceeding to public shipment.
@@ -11,8 +11,8 @@ Each of the 7 items verifies exactly one LOCKED decision from `40-CONTEXT.md § 
 
 ## Preconditions
 
-- Skynet deployed to https://term.gigaashley.click via the maintainer's deploy motion (git pull --rebase → coord-room BEFORE announce → docker build → deadman-guarded docker compose up --force-recreate → HTTPS 200 verify).
-- Ashley's browser is at HEAD of `feat/tab-title-from-tmux` + Phase 40 patches are live (verify by loading https://term.gigaashley.click; hard-refresh once if the first-load HTTP2_PROTOCOL_ERROR appears).
+- Skynet deployed to https://term.example.com via the maintainer's deploy motion (git pull --rebase → coord-room BEFORE announce → docker build → deadman-guarded docker compose up --force-recreate → HTTPS 200 verify).
+- Ashley's browser is at HEAD of `feat/tab-title-from-tmux` + Phase 40 patches are live (verify by loading https://term.example.com; hard-refresh once if the first-load HTTP2_PROTOCOL_ERROR appears).
 - At least one fleet agent has served Ashley a tailnet URL via the id skill's `python3 -m http.server` serve pattern (see id-skill § "Sending files to the user"). If unsure whether one is available in a recent conversation, walk the **Ash-side prep** section below first.
 - No dev-tools / no `docker exec` / no shell required for any of the 7 items. Every check is UI-observable on the production Skynet PWA (desktop AND iPhone).
 

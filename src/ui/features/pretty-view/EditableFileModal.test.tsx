@@ -413,7 +413,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
 
   const FILE_URL_PROPS = {
     ...DEFAULT_PROPS,
-    url: "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md",
+    url: "https://term.example.com/file/thenasty/home/ubuntu/note.md",
     filename: "note.md",
   };
 

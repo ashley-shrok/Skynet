@@ -62,7 +62,7 @@ Test (n) added to the `PrettyConversationsPanel: Hide/Show wiring (quick-260731-
 - Vitest: 110/110 tests passed; Test (n) green, Test (f) (unhide-on-pin) green and untouched
 - Build: `npm run build` succeeded (36.28s)
 - Deploy: `sudo docker compose up -d --force-recreate skynet` — container recreated
-- Production: `curl -sSI https://term.gigaashley.click/ | head -1` → `HTTP/2 200`
+- Production: `curl -sSI https://term.example.com/ | head -1` → `HTTP/2 200`
 
 ## Deviations from Plan
 
@@ -81,4 +81,4 @@ None. No new network endpoints, auth paths, or schema changes introduced. Edit i
 - `d6282ceb` present in `git log --oneline`
 - Both modified files exist on disk
 - 110 tests green
-- HTTPS 200 on term.gigaashley.click
+- HTTPS 200 on term.example.com

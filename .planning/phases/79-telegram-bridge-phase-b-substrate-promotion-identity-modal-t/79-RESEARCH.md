@@ -391,7 +391,7 @@ SINCE="$NB"; printf '%s' "$SINCE" > "$SINCE_FILE"
 - **Anti-pattern: Direct browser fetch to `api.telegram.org`.** Leaks the bot token to Telegram-CORS and requires CSP whitelisting. **Do:** backend proxies `/getMe`, so the browser only ever posts `{token}` to Skynet, which validates and returns `{ok:true, botUsername:"..."}`.
 - **Anti-pattern: Storing Matrix passwords for humans (Nina's current `<human>.cred`).** Eliminated in Phase B. **Do:** `matrix-admin-client.loginAsUser(mxid)` mints tokens; bridge only ever reads `<human>.token`; if a token dies, Skynet re-mints via admin.
 - **Anti-pattern: Container writes JSON via `jq` in an execFile shell-out.** Container doesn't have `jq` (verified). **Do:** all JSON manipulation in Node using `JSON.parse`/`JSON.stringify`; fs.writeFileSync/fs.promises.writeFile for atomic writes.
-- **Anti-pattern: New backend route with only nginx.conf updated.** CLAUDE.md nginx caveat: routes need matching `location` blocks in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`, else the frontend crashes on `.map` requests. **Do:** every new route family gets two location blocks. Verify post-deploy with `curl -si https://term.gigaashley.click/telegram-bridge/xxx -X POST`. Expected: 401/403/404 (backend response), NOT 200 with `text/html`.
+- **Anti-pattern: New backend route with only nginx.conf updated.** CLAUDE.md nginx caveat: routes need matching `location` blocks in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`, else the frontend crashes on `.map` requests. **Do:** every new route family gets two location blocks. Verify post-deploy with `curl -si https://term.example.com/telegram-bridge/xxx -X POST`. Expected: 401/403/404 (backend response), NOT 200 with `text/html`.
 - **Anti-pattern: Bridge restart mid-tg-getUpdates long-poll.** Every restart interrupts `curl --max-time 40 .../getUpdates?timeout=25`. **Guard:** rely on `Restart=always` + `RestartSec=5` and cursor persistence; don't try to graceful-stop the pollers.
 - **Anti-pattern: Trying to bind-mount `/opt/skynet/tg-bridge/` when the locked path is `/var/lib/tg-bridge/`.** Path is locked in CONTEXT.md.
 
@@ -434,7 +434,7 @@ SINCE="$NB"; printf '%s' "$SINCE" > "$SINCE_FILE"
 
 **How to avoid:** Every new route family gets a `location ~ ^/telegram-bridge(/.*)?$` block in BOTH files, following the exact shape of the existing `/matrix-admin` block (`nginx.conf:153-162`).
 
-**Warning signs:** Post-deploy, frontend crashes on `.map` file loads (SPA fallback is serving `index.html` for something the browser expects to be JSON). Sanity check: `curl -si https://term.gigaashley.click/telegram-bridge/nonexistent -X POST` should return 401/404 (backend), NOT 200 text/html.
+**Warning signs:** Post-deploy, frontend crashes on `.map` file loads (SPA fallback is serving `index.html` for something the browser expects to be JSON). Sanity check: `curl -si https://term.example.com/telegram-bridge/nonexistent -X POST` should return 401/404 (backend), NOT 200 text/html.
 
 ### Pitfall 2: SYSTEM vs USER systemd unit mismatch with distributor
 

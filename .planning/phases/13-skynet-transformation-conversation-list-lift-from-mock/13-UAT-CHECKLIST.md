@@ -3,7 +3,7 @@
 **For:** Ashley
 **Post-deploy validation of patch #140 (Phase 13 — Ship-of-Theseus final slice: conversation-list row/panel-header/pin/chevron lifted verbatim from mock v4)**
 **Batch context:** Patch #140 is the FINAL Ship-of-Theseus slice. **DO NOT deploy standalone.** Batch with patch #138 (Phase 11 first slice — landing swap + AppRail retirement) + patch #139 (Phase 12 second slice — panel/dashboard/tab-bar deletion + PURGE-09 + locale strip) per the fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23) — see § Post-UAT deploy runbook at the bottom. When shipped, patches #138 + #139 + #140 together tell the "we deleted the Skynet client surfaces AND lifted the remaining conversation-list surface verbatim from the mock" story.
-**Deploy anchor:** term.gigaashley.click (production) — post-deploy, once Ashley greenlights the batch.
+**Deploy anchor:** term.example.com (production) — post-deploy, once Ashley greenlights the batch.
 **Design source-of-truth:** `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` (LOCKED mock v4, Ashley signed off 2026-07-23; Full-intensity + Normal density variant with active-set/ambient recession and single ready-for-attention dot is what ships) + `.planning/phases/13-skynet-transformation-conversation-list-lift-from-mock/13-CONTEXT.md` (LOCKED — no re-litigation) + `~/.claude/identities/tina/tina.md` § "Skynet direction — the app IS Telegram" (mental model).
 
 **Trace commits (Phase 13 on `feat/tab-title-from-tmux`):**
@@ -47,7 +47,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 
 ## Setup — one time
 
-1. Open https://term.gigaashley.click in **Chrome on a wide desktop window** (1400px+) AND in **Skynet on your iPhone** (PWA-installed after patch #125, or Mobile Safari fallback).
+1. Open https://term.example.com in **Chrome on a wide desktop window** (1400px+) AND in **Skynet on your iPhone** (PWA-installed after patch #125, or Mobile Safari fallback).
 2. Have at least 3 running tmux identity sessions on distinct hosts (different hues to verify hue propagation), plus at least one RDP-enabled host for items 8 + 18 walks, plus one fleet-only tmux session on a host you haven't attached to yet (for the fleet-derived row edge case in Cross-viewport item 25).
 3. Open the mock in a second browser tab side-by-side: `file://~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` — Full-intensity + Normal density variant selected. This is your visual parity comparator throughout the desktop walk.
 4. Clear session storage on desktop for a truly-fresh page-load (item 1): DevTools → Application → Session Storage → Clear. Alternatively use a fresh Chrome incognito window.
@@ -61,7 +61,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 
 > **Contract:** Panel header title is UPPERCASE "CONVERSATIONS" (not mixed-case "Conversations"), 12px font + 700 weight + 0.1em letter-spacing, in `--color-pv-fg` warm-cream. Pencil is 32x32, transparent background + transparent border, 8px border-radius, `--color-pv-fg-muted` icon color, with `rgba(220,225,245,0.06)` hover fill. NOT the retired Skynet filled-glass pill (34x34, `rounded-full`, `bg-white/[0.04]`, mixed-case 13px chunky title).
 
-- [ ] **Fresh page-load at `https://term.gigaashley.click/`** (no hash, session storage cleared per Setup 4). Look at the panel header at the top of the sidebar. Expected: title reads "CONVERSATIONS" in ALL CAPS, thin-ish 12px font with visible letter-spacing (looks tracked-out). Pencil icon on the right is a bare icon with no visible border/fill — hover over it and a subtle warm-tinted glass hover fill appears. Compare side-by-side against the mock's `.panel-header .title` + `.panel-header .pencil` treatment (Setup 3). If: title still mixed-case "Conversations" OR pencil is a filled 34x34 circle → route to Plan 13-02 Task 1 (`d165e02` — header rewrite didn't land).
+- [ ] **Fresh page-load at `https://term.example.com/`** (no hash, session storage cleared per Setup 4). Look at the panel header at the top of the sidebar. Expected: title reads "CONVERSATIONS" in ALL CAPS, thin-ish 12px font with visible letter-spacing (looks tracked-out). Pencil icon on the right is a bare icon with no visible border/fill — hover over it and a subtle warm-tinted glass hover fill appears. Compare side-by-side against the mock's `.panel-header .title` + `.panel-header .pencil` treatment (Setup 3). If: title still mixed-case "Conversations" OR pencil is a filled 34x34 circle → route to Plan 13-02 Task 1 (`d165e02` — header rewrite didn't land).
 
 ### 2. SHAPE-01: Row treatment (active-set full bubble) matches mock v4
 
@@ -189,7 +189,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 
 > **Contract:** Phase 10 patch #126 rebased the mobile safe-area seam to `#0a0b12`. Confirming no regression from Phase 13's changes.
 
-- [ ] **Remove Skynet from the iPhone home screen** (long-press → Remove App → Delete from Home Screen). Then in Mobile Safari, navigate to `https://term.gigaashley.click`, tap Share → Add to Home Screen. Reopen from the fresh install. Expected: top safe-area seam (above status bar) and bottom safe-area seam (above home indicator) render as `#0a0b12` gray — no white flash, no color mismatch. Phase 13 does NOT touch safe-area handling, but this is a paranoid cross-check.
+- [ ] **Remove Skynet from the iPhone home screen** (long-press → Remove App → Delete from Home Screen). Then in Mobile Safari, navigate to `https://term.example.com`, tap Share → Add to Home Screen. Reopen from the fresh install. Expected: top safe-area seam (above status bar) and bottom safe-area seam (above home indicator) render as `#0a0b12` gray — no white flash, no color mismatch. Phase 13 does NOT touch safe-area handling, but this is a paranoid cross-check.
 
 ---
 
@@ -217,7 +217,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 
 ### 26. Direct navigation to `#hosts`, `#admin`, `#snippets` still unreachable (Phase 11 preservation)
 
-- [ ] **Type `https://term.gigaashley.click/#hosts` in address bar → press Enter.** Expected: 404-equivalent OR PrettyLandingCard (per Phase 11 Plan 04 UAT item 9 outcome). NOT the HostManagerPanel. Repeat for `#admin` (NOT AdminSettingsPanel) and `#snippets` (NOT SnippetsPanel). If any dead-surface panel renders → Phase 11's PURGE-03 regressed somehow (should not happen — Phase 13 doesn't touch AppShell tab-content routing).
+- [ ] **Type `https://term.example.com/#hosts` in address bar → press Enter.** Expected: 404-equivalent OR PrettyLandingCard (per Phase 11 Plan 04 UAT item 9 outcome). NOT the HostManagerPanel. Repeat for `#admin` (NOT AdminSettingsPanel) and `#snippets` (NOT SnippetsPanel). If any dead-surface panel renders → Phase 11's PURGE-03 regressed somehow (should not happen — Phase 13 doesn't touch AppShell tab-content routing).
 
 ---
 

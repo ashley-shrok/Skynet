@@ -241,7 +241,7 @@ Ashley clarified after the verifier surfaced D-12 as a gap (verbatim: *"there's 
 ADMIN_JWT=<your-admin-jwt>
 curl -sS -X POST \
   -H "Authorization: Bearer $ADMIN_JWT" \
-  https://term.gigaashley.click/relay-room/backfill | jq .
+  https://term.example.com/relay-room/backfill | jq .
 ```
 
 Expected output (first run):
@@ -267,7 +267,7 @@ To force a re-run past the gate (rare — e.g. after schema changes):
 ```bash
 curl -sS -X POST \
   -H "Authorization: Bearer $ADMIN_JWT" \
-  "https://term.gigaashley.click/relay-room/backfill?force=true" | jq .
+  "https://term.example.com/relay-room/backfill?force=true" | jq .
 ```
 
 Verify humans landed in the humans registry room (Ashley, Zoey, Laura on t1000) via the admin API — or just check the frontend after ~10s (the observation-loop D-08/D-09 classifier will exclude the pre-existing DMs from re-materializing).

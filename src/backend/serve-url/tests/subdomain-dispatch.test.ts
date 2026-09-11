@@ -121,7 +121,7 @@ describe("subdomain-dispatch middleware", () => {
   const ORIGINAL_ENV = process.env.SKYNET_COOKIE_DOMAIN;
 
   beforeEach(() => {
-    process.env.SKYNET_COOKIE_DOMAIN = "term.gigaashley.click";
+    process.env.SKYNET_COOKIE_DOMAIN = "term.example.com";
     mocks.resolveHostByName.mockReset();
     mocks.canAccessHost.mockReset();
     mocks.createAuthMiddleware.mockReset();
@@ -168,7 +168,7 @@ describe("subdomain-dispatch middleware", () => {
   it("renders an interstitial when subdomain has no dash (parse failure)", async () => {
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({ subdomainHeader: "malformed.serve.term.gigaashley.click" });
+    const req = makeReq({ subdomainHeader: "malformed.serve.term.example.com" });
     const { res, statusCalls } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
@@ -181,7 +181,7 @@ describe("subdomain-dispatch middleware", () => {
   it("renders an interstitial when subdomain port is non-digit", async () => {
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({ subdomainHeader: "myhost-abc.serve.term.gigaashley.click" });
+    const req = makeReq({ subdomainHeader: "myhost-abc.serve.term.example.com" });
     const { res, statusCalls } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
@@ -192,7 +192,7 @@ describe("subdomain-dispatch middleware", () => {
   it("renders an interstitial when subdomain port is out of range", async () => {
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({ subdomainHeader: "myhost-99999.serve.term.gigaashley.click" });
+    const req = makeReq({ subdomainHeader: "myhost-99999.serve.term.example.com" });
     const { res, statusCalls } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
@@ -208,21 +208,21 @@ describe("subdomain-dispatch middleware", () => {
     );
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.gigaashley.click" });
+    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.example.com" });
     const { res, statusCalls, headers } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
     expect(next).not.toHaveBeenCalled();
     // auth_missing branch is a 302 redirect (per interstitial.ts)
     expect(statusCalls).toContain(302);
-    expect(headers["location"]).toMatch(/^https:\/\/term\.gigaashley\.click\/login/);
+    expect(headers["location"]).toMatch(/^https:\/\/term\.example\.com\/login/);
   });
 
   it("renders host_unreachable interstitial when resolveHostByName returns null", async () => {
     mocks.resolveHostByName.mockResolvedValue(null);
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.gigaashley.click" });
+    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.example.com" });
     const { res, statusCalls } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
@@ -240,7 +240,7 @@ describe("subdomain-dispatch middleware", () => {
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
     const req = makeReq({
-      subdomainHeader: "MyHost-3000.serve.term.gigaashley.click",
+      subdomainHeader: "MyHost-3000.serve.term.example.com",
     });
     const { res } = makeRes();
     const next = vi.fn();
@@ -259,7 +259,7 @@ describe("subdomain-dispatch middleware", () => {
     mocks.canAccessHost.mockResolvedValue({ hasAccess: false });
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.gigaashley.click" });
+    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.example.com" });
     const { res, statusCalls } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
@@ -280,7 +280,7 @@ describe("subdomain-dispatch middleware", () => {
     mocks.canAccessHost.mockResolvedValue({ hasAccess: true });
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
-    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.gigaashley.click" });
+    const req = makeReq({ subdomainHeader: "myhost-3000.serve.term.example.com" });
     const { res, statusCalls } = makeRes();
     const next = vi.fn();
     await middleware(req, res, next);
@@ -312,7 +312,7 @@ describe("subdomain-dispatch middleware", () => {
     const mod = await import("../subdomain-dispatch.js");
     const middleware = mod.createSubdomainDispatchMiddleware();
     const req = makeReq({
-      subdomainHeader: "foo-bar-3000.serve.term.gigaashley.click",
+      subdomainHeader: "foo-bar-3000.serve.term.example.com",
     });
     const { res } = makeRes();
     const next = vi.fn();

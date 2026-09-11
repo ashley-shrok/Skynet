@@ -99,7 +99,7 @@ describe("serveUrlHandler", () => {
   const ORIGINAL_ENV = process.env.SKYNET_COOKIE_DOMAIN;
 
   beforeEach(() => {
-    process.env.SKYNET_COOKIE_DOMAIN = "term.gigaashley.click";
+    process.env.SKYNET_COOKIE_DOMAIN = "term.example.com";
     mocks.getOrCreate.mockReset();
     mocks.getOrCreateProxyForTarget.mockReset();
     mocks.sshLogger.info.mockClear();

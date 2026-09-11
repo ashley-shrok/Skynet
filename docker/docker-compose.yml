@@ -74,28 +74,12 @@ services:
     networks:
       - skynet-net
 
-  filestash:
-    image: filestash-patched:local
-    container_name: filestash
-    restart: unless-stopped
-    expose:
-      - "8334"
-    environment:
-      APPLICATION_URL: "files.gigaashley.click"
-      CANARY: "true"
-    volumes:
-      - filestash-data:/app/data/state/
-      - ${SKYNET_HOST_DIR:-/opt/skynet}/keys:/keys:ro
-    networks:
-      - skynet-net
-
-  # Phase 103 D-19 — custom Caddy build (adds route53 DNS-01 plugin for
-  # wildcard TLS on *.serve.term.gigaashley.click). Cross-account AssumeRole
-  # to Ashley's personal AWS Route 53 zone (Z00583511HTO90JKK1MV7) via the
-  # `caddy` AWS profile — see R&D findings-summary L271-334 for the topology
-  # (Aither termix-ssm-role → personal caddy-route53-gigaashley). The
-  # ~/.aws/config bind mount + AWS_PROFILE + AWS_REGION env are the container
-  # side of that setup (R&D findings-summary L282-292).
+  # Custom Caddy build (adds route53 DNS-01 plugin for wildcard TLS on the
+  # deployment's wildcard subdomain). Uses cross-account AssumeRole against
+  # a Route 53 hosted zone via the `caddy` AWS profile. Per-deployment
+  # specifics (AWS account IDs, hosted zone ID, IAM role ARN) live in the
+  # host's ~/.aws/config (bind-mounted below), NOT this repo — different
+  # deployments plug in their own values.
   caddy:
     build:
       context: ..
@@ -110,11 +94,10 @@ services:
       - ${SKYNET_HOST_DIR:-/opt/skynet}/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
-      # Phase 103 D-19 — AWS SDK profile for cross-account Route 53 access.
-      # Host ~/.aws/config must contain a [profile caddy] block with
-      # role_arn=arn:aws:iam::984318380039:role/caddy-route53-gigaashley,
-      # credential_source=Ec2InstanceMetadata, region=us-east-1
-      # (R&D findings-summary L284-290).
+      # AWS SDK profile for cross-account Route 53 access.  Host
+      # ~/.aws/config must contain a [profile caddy] block with the
+      # appropriate role_arn / credential_source / region for the
+      # deployment's Route 53 zone.
       - ${HOME}/.aws/config:/root/.aws/config:ro
     environment:
       # List form (KEY=VALUE) matches the plan's grep gate expectations and
@@ -154,8 +137,6 @@ volumes:
   caddy-data:
     driver: local
   caddy-config:
-    driver: local
-  filestash-data:
     driver: local
   # Phase 79 Plan 06 — shared state volume for tg-bridge <-> skynet handshake.
   # Contents: config.env, registry.json, <human>.token, <human>.since,

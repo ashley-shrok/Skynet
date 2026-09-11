@@ -396,7 +396,7 @@ describe("runBootstrapForHost", () => {
     });
 
     it("(sp-1) BootstrapResult has skynetParentOk: boolean field", async () => {
-      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      process.env.SKYNET_PUBLIC_URL = "https://term.example.com";
       const { channel } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",
@@ -472,7 +472,7 @@ describe("runBootstrapForHost", () => {
     });
 
     it("(sp-4) valid https URL → shell command contains mkdir, NEW= assignment, content-diff, printf atomic write, sentinel", async () => {
-      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      process.env.SKYNET_PUBLIC_URL = "https://term.example.com";
       const { channel, exec } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",
@@ -492,7 +492,7 @@ describe("runBootstrapForHost", () => {
       expect(spCmd).toContain(`SP="$HOME/.claude/skynet-parent"`);
       expect(spCmd).toContain(`mkdir -p "$HOME/.claude"`);
       // Must define NEW as single-quoted URL literal
-      expect(spCmd).toContain(`NEW='https://term.gigaashley.click'`);
+      expect(spCmd).toContain(`NEW='https://term.example.com'`);
       // Must include content-diff idempotency guard (RESEARCH Pitfall 3)
       expect(spCmd).toContain(`[ -f "$SP" ]`);
       expect(spCmd).toContain(`[ "$(cat "$SP")" = "$NEW" ]`);
@@ -504,7 +504,7 @@ describe("runBootstrapForHost", () => {
     });
 
     it("(sp-5) sentinel present → skynetParentOk=true, hadError=false", async () => {
-      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      process.env.SKYNET_PUBLIC_URL = "https://term.example.com";
       const { channel } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",
@@ -521,7 +521,7 @@ describe("runBootstrapForHost", () => {
     });
 
     it("(sp-6) channel returns null on skynet-parent write → hadError=true, skynetParentOk=false, logBootstrapFailed called with 'channel returned null'", async () => {
-      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      process.env.SKYNET_PUBLIC_URL = "https://term.example.com";
       const { channel } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",
@@ -549,7 +549,7 @@ describe("runBootstrapForHost", () => {
     });
 
     it("(sp-7) missing sentinel → hadError=true, logBootstrapFailed called with trimmed output", async () => {
-      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      process.env.SKYNET_PUBLIC_URL = "https://term.example.com";
       const { channel } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",
@@ -578,7 +578,7 @@ describe("runBootstrapForHost", () => {
     });
 
     it("(sp-8) channel.exec throws during step 4 → hadError=true, function still resolves (NEVER-THROW)", async () => {
-      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      process.env.SKYNET_PUBLIC_URL = "https://term.example.com";
       const exec = vi.fn(async (cmd: string) => {
         if (cmd.includes("is-enabled")) return "enabled\nEXIT:0";
         if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
@@ -634,7 +634,7 @@ describe("runBootstrapForHost", () => {
     });
 
     it("(sp-10) logBootstrapResult payload includes skynetParentOk field", async () => {
-      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      process.env.SKYNET_PUBLIC_URL = "https://term.example.com";
       const { channel } = makeChannel({
         "is-enabled": "enabled\nEXIT:0",
         "daemon-reload": "__RELOAD_OK__",

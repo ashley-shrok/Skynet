@@ -20,7 +20,7 @@ Post-deploy walk-through for Ashley. Every UPLOAD-NN requirement gets an observa
 
 ## Setup — one time
 
-1. Open https://term.gigaashley.click in Chrome on desktop.
+1. Open https://term.example.com in Chrome on desktop.
 2. Open a pretty-view pane on a host where you can write to `~/pretty-view-uploads/` — `thenasty` is fine; the tmux session doesn't need to be Claude Code (UPLOAD-14 says works on any pane).
 3. Have a small test file ready on your local Desktop (e.g. `test.txt`, a few hundred bytes of content).
 4. Have a screenshot in your clipboard (or take one now with Cmd+Shift+4 → space → click a window).
@@ -102,7 +102,7 @@ Post-deploy walk-through for Ashley. Every UPLOAD-NN requirement gets an observa
 
 > **UPLOAD-08 contract:** *"Caption text inherits the existing message-queue-draft persistence model (patch #49) and survives tab close and reload; attachment bytes do NOT persist across tab close (user re-drags from the file still on their desktop) — no client-side blob storage"*
 
-- [ ] 🚨 **UPLOAD-08 caption persists** Type a caption in the compose textarea (do NOT attach anything). Close the tab. Reopen the pane at https://term.gigaashley.click. Verify the caption text is restored (patch #57 compose-drafts machinery — this is the same behavior you already had pre-Phase-05).
+- [ ] 🚨 **UPLOAD-08 caption persists** Type a caption in the compose textarea (do NOT attach anything). Close the tab. Reopen the pane at https://term.example.com. Verify the caption text is restored (patch #57 compose-drafts machinery — this is the same behavior you already had pre-Phase-05).
 - [ ] 🚨 **UPLOAD-08 asymmetry — attachment bytes do NOT persist** Type a caption AND attach a file (stage a chip). Close the tab. Reopen the pane. Verify:
     - Caption text IS restored ✓
     - Chip strip is EMPTY (attachment bytes are React-only by design — no localStorage, no IndexedDB, no sessionStorage of file bytes) ✓

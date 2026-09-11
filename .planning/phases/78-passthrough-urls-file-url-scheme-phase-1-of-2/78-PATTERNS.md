@@ -191,7 +191,7 @@ if (hostResults.length === 0) return null;   // 404 "unknown_host" — do NOT le
 ```typescript
 /**
  * D-01 URL shape (Phase 78): <skynet-domain>/file/<hostname>/<absolute-path>
- * Example: https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md
+ * Example: https://term.example.com/file/thenasty/home/ubuntu/note.md
  *
  * Grammar:
  *   - scheme: https:// only (agents on Skynet always run on HTTPS deployment)
@@ -598,7 +598,7 @@ function sftpReadFile(sftp: SftpLike, p: string): Promise<Buffer> {
 
 **None.** Every file in Phase 78 has a strong analog in the existing codebase. Phase 78 is explicitly a wiring phase over resident subsystems (RESEARCH § Summary: "90% wiring, 10% net-new code").
 
-The one operational addition — `SKYNET_PUBLIC_URL` env var in `/opt/skynet/skynet.env` + coord with Stacy for T800 — is not a code file and has no analog because Skynet has never before needed to know its own public URL (verified via RESEARCH Assumption A2: grepped `SKYNET_.*URL` / `PUBLIC_URL` / `BASE_URL` / `gigaashley` — no hits).
+The one operational addition — `SKYNET_PUBLIC_URL` env var in `/opt/skynet/skynet.env` + coord with Stacy for T800 — is not a code file and has no analog because Skynet has never before needed to know its own public URL (verified via RESEARCH Assumption A2: grepped `SKYNET_.*URL` / `PUBLIC_URL` / `BASE_URL` / `example` — no hits).
 
 ---
 

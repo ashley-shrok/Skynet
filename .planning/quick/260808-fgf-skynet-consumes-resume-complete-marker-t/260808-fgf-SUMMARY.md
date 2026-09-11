@@ -109,7 +109,7 @@ New tests: L (fresh-marker → dismiss+startActiveFlow), M (stale-marker → kee
 - **Build**: `docker build --no-cache -t skynet-patched:local -f docker/Dockerfile .` — EXIT 0
 - **Deploy**: `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`
 - **Container health**: Up + healthy (T+12s on second deploy)
-- **HTTPS 200**: `curl -sk -o /dev/null -w '%{http_code}\n' https://term.gigaashley.click/` → `200`
+- **HTTPS 200**: `curl -sk -o /dev/null -w '%{http_code}\n' https://term.example.com/` → `200`
 - **Deadman timer**: 15-min deadman armed before each build; both disarmed cleanly after HTTPS 200 confirmed (no rollback fired)
 - **Backend byte-verify**: `MARKER_FALLBACK|wakeTriggerTs` → 14; `resume-complete` → 7; `dormancy_marker_fallback` → 1
 - **Frontend byte-verify**: `This session is asleep|Waking up` in Terminal-CEeXZwdk.js → 1 (copy polish confirmed)

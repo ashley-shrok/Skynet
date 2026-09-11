@@ -3,7 +3,7 @@
 **For:** Ashley
 **Post-deploy validation of patch #128 (Phase 10 — presentation-only follow-up to Phase 6/7)**
 **Batch context:** Ships behind ONE build/deploy with patches #123 through #128 stacked on `feat/tab-title-from-tmux` (paperclip decouple + ThumbsUp rename + Skynet rebrand + PWA install + safe-area polish + this).
-**Deploy anchor:** term.gigaashley.click (production) — post-deploy.
+**Deploy anchor:** term.example.com (production) — post-deploy.
 **Design source-of-truth (locked, Ashley signed off 2026-07-22):**
 - Mobile: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/prototype.html` (v0.3)
 - Desktop: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/desktop.html` (v0.1)
@@ -40,7 +40,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 ## Setup — one time
 
-1. Open https://term.gigaashley.click in **Chrome on a wide desktop window** (1400px+) AND in **Skynet on your iPhone** (PWA-installed after patch #125, or Mobile Safari fallback).
+1. Open https://term.example.com in **Chrome on a wide desktop window** (1400px+) AND in **Skynet on your iPhone** (PWA-installed after patch #125, or Mobile Safari fallback).
 2. Have at least 3 identities configured with distinct `colorHue` values (any range — 3 well-spread hues let you eyeball item 20 easily).
 3. Have at least 2 running tmux identity sessions on distinct hosts, plus at least one RDP-enabled host (for the "RDP-can't-be-pinned" item 12 walk).
 4. Have at least one PINNED session and one UNPINNED session before starting — makes items 3, 9, and 20 fast to check.

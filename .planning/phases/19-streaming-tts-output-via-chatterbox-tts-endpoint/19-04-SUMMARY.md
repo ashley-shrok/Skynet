@@ -49,7 +49,7 @@ key-decisions:
   - "stop() calls onEnded/onError NEVER — external stop is the caller's own action, no callback needed"
   - "No auto-toast on streaming errors: accepted tradeoff per 19-CONTEXT.md § Error handling (streaming errors != database-unreachable)"
   - "ChatMessage.speak.test.tsx updated from postSpeak+HTMLAudioElement mocks to postSpeakStream+createWebAudioStreamPlayer mocks (Rule 1 auto-fix: test file was broken by the swap)"
-  - "Nelly's demo URL (https://gigaashley.click/tts-demo/) was auth-gated at execution time; RIFF/scheduling pattern was derived from the explicit specification in 19-CONTEXT.md § Frontend player which describes Nelly's approach verbatim"
+  - "Nelly's demo URL (https://example.com/tts-demo/) was auth-gated at execution time; RIFF/scheduling pattern was derived from the explicit specification in 19-CONTEXT.md § Frontend player which describes Nelly's approach verbatim"
 
 patterns-established:
   - "Web Audio streaming pattern: accumulate bytes until header complete, then schedule each PCM chunk into AudioBufferSourceNode on nextStartTime clock"
@@ -139,7 +139,7 @@ completed: 2026-07-31
 - **Committed in:** `5e08a4f` (Task 3 commit)
 
 **2. [Note] Nelly's demo URL was auth-gated**
-- `https://gigaashley.click/tts-demo/` returned a 302 redirect to auth during execution. The RIFF/scheduling pattern was derived from the explicit specification in 19-CONTEXT.md § Frontend player, which transcribes Nelly's approach verbatim (steps 1-5, including the streaming sentinel gotcha and the nextStartTime clock pattern). Implementation matches the spec exactly.
+- `https://example.com/tts-demo/` returned a 302 redirect to auth during execution. The RIFF/scheduling pattern was derived from the explicit specification in 19-CONTEXT.md § Frontend player, which transcribes Nelly's approach verbatim (steps 1-5, including the streaming sentinel gotcha and the nextStartTime clock pattern). Implementation matches the spec exactly.
 
 ---
 

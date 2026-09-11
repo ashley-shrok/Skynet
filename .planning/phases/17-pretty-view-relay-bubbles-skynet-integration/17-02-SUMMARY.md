@@ -199,7 +199,7 @@ docker run --rm -v "$(pwd)/docker/nginx-https.conf":/etc/nginx/nginx.conf:ro ngi
 Both must print `syntax is ok` and `test is successful`.
 
 ### End-to-end curl smoke
-Deferred to 17-04 deploy checkpoint. The live instance (term.gigaashley.click) is reachable but
+Deferred to 17-04 deploy checkpoint. The live instance (term.example.com) is reachable but
 the new nginx configs are NOT yet deployed (this is Wave 1 — deploy happens in 17-04). Pre-deploy
 curl currently returns HTTP 200 with index.html (SPA fallback — expected before deploy).
 
@@ -208,7 +208,7 @@ curl currently returns HTTP 200 with index.html (SPA fallback — expected befor
 Primary smoke:
 ```bash
 curl -sS -o /tmp/relay-smoke-body.txt -w '%{http_code}\n' \
-  'https://term.gigaashley.click/relay-pointer?hostId=1&path=/etc/passwd'
+  'https://term.example.com/relay-pointer?hostId=1&path=/etc/passwd'
 head -c 40 /tmp/relay-smoke-body.txt
 ```
 MUST print code in `{400, 401}` AND body NOT `<!DOCTYPE html>`.
@@ -218,7 +218,7 @@ MUST print code in `{400, 401}` AND body NOT `<!DOCTYPE html>`.
 
 Secondary smoke:
 ```bash
-curl -sS -o /dev/null -w '%{http_code}\n' 'https://term.gigaashley.click/relay-pointer'
+curl -sS -o /dev/null -w '%{http_code}\n' 'https://term.example.com/relay-pointer'
 ```
 MUST print `{400, 401}`, NOT `200`.
 

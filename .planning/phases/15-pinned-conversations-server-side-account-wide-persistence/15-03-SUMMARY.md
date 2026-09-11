@@ -143,7 +143,7 @@ The phase does NOT trigger a database migration on boot beyond what Wave 1 alrea
 
 ## UAT steps for Ashley (Task 2 human-verify — VERBATIM from plan)
 
-Verify in a running dev Skynet instance (localhost or ashley's dev environment — Ashley picks). The deploy to term.gigaashley.click is intentionally NOT part of this phase — deploy is a separate step batched into the pending f9v + BTW + gm3 deploy queue per CONTEXT.md § Bundle-mate discipline.
+Verify in a running dev Skynet instance (localhost or ashley's dev environment — Ashley picks). The deploy to term.example.com is intentionally NOT part of this phase — deploy is a separate step batched into the pending f9v + BTW + gm3 deploy queue per CONTEXT.md § Bundle-mate discipline.
 
 ### Step 1 — Backend contract check
 

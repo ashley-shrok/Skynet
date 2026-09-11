@@ -220,7 +220,7 @@ are fully committed and the working tree is clean.
 ## 9. Post-Deploy Smoke Commands
 
 **Context (from 17-02-SUMMARY.md):** The end-to-end curl smoke was deferred from 17-02
-because the live instance (term.gigaashley.click) had the OLD nginx configs deployed at
+because the live instance (term.example.com) had the OLD nginx configs deployed at
 Wave 1 time. Pre-deploy, `curl .../relay-pointer` correctly returns HTTP 200 with
 index.html (SPA fallback — nginx routes everything to React before the new blocks land).
 After `docker compose up -d --force-recreate skynet`, the new nginx blocks go live and
@@ -231,7 +231,7 @@ these smokes MUST be run.
 ### Primary smoke (path-rejection + auth-rejection):
 ```bash
 curl -sS -o /tmp/relay-smoke-body.txt -w '%{http_code}\n' \
-  'https://term.gigaashley.click/relay-pointer?hostId=1&path=/etc/passwd'
+  'https://term.example.com/relay-pointer?hostId=1&path=/etc/passwd'
 head -c 40 /tmp/relay-smoke-body.txt
 ```
 
@@ -247,7 +247,7 @@ head -c 40 /tmp/relay-smoke-body.txt
 
 ### Unauthenticated variant (no cookie):
 ```bash
-curl -sS -o /dev/null -w '%{http_code}\n' 'https://term.gigaashley.click/relay-pointer'
+curl -sS -o /dev/null -w '%{http_code}\n' 'https://term.example.com/relay-pointer'
 ```
 
 **Expected:** MUST print `{400, 401}`, NOT `200`.

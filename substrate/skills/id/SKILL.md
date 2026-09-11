@@ -766,10 +766,10 @@ Grammar:
 
     <skynet-parent>/file/<hostname>/<absolute-path>
 
-Concrete example (with the parent-Skynet at `https://term.gigaashley.click`, this
+Concrete example (with the parent-Skynet at `https://term.example.com`, this
 box named `thenasty`, and the file at `/home/ubuntu/note.md`):
 
-    https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md
+    https://term.example.com/file/thenasty/home/ubuntu/note.md
 
 Construct one like so — read the parent-Skynet domain from `~/.claude/skynet-parent`
 and the host segment from `~/.claude/skynet-hostname` (two single-line files the
@@ -842,10 +842,10 @@ Grammar:
 
 Where `<term-parent>` is derived from `~/.claude/skynet-parent`: strip the
 protocol, then the serve URL constructs as `<hostname>-<port>.serve.<the-rest>`.
-Concrete example (with the parent-Skynet at `https://term.gigaashley.click`,
+Concrete example (with the parent-Skynet at `https://term.example.com`,
 this box named `t1000`, and a dev server on port 3020):
 
-    https://t1000-3020.serve.term.gigaashley.click
+    https://t1000-3020.serve.term.example.com
 
 Construct one like so:
 
@@ -865,7 +865,7 @@ Construct one like so:
     # Strip https:// and split into first label + rest to insert the serve subdomain
     PARENT=${SKYNET#https://}
     FIRST_LABEL=${PARENT%%.*}            # e.g. "term"
-    REST=${PARENT#*.}                    # e.g. "gigaashley.click"
+    REST=${PARENT#*.}                    # e.g. "example.com"
     printf '[%s live](https://%s-%d.serve.%s.%s)\n' "$HOST" "$HOST" "$PORT" "$FIRST_LABEL" "$REST"
 
 **Round-trip semantics — Skynet is a passthrough only.** Any HTTP method + body
@@ -883,7 +883,7 @@ wildcard cert.
   an IP and not `$(hostname)`.** Same rule as the file URL — this box's DB
   record uses that exact string; anything else 404s at the interstitial.
 - **The port must be listening BEFORE you cite the URL.** If you cite
-  `t1000-3020.serve.term.gigaashley.click` and nothing is on 3020, she sees a
+  `t1000-3020.serve.term.example.com` and nothing is on 3020, she sees a
   Skynet-styled "port 3020 of t1000 isn't responding" interstitial. Polite, but
   still — don't cite dead URLs. Confirm the port is up (e.g. `ss -ltn | grep
   :3020`) before you hand her the link.

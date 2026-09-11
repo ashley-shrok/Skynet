@@ -87,7 +87,7 @@ The edit-in-bubble affordance's specific flow is worth calling out because it's 
 
 **R&D spike first (this session).** Because phase 2 has real infrastructure unknowns (origin-isolation via wildcard subdomain + TLS + DNS-provider integration, reverse-proxy behavior with WebSockets and modern frontends, SSH tunnel machinery patterns), focused R&D happens BEFORE either phase's plan lands. Ashley's direction: take runway, don't optimize for efficiency, pressure-test until things actually work under real conditions. Findings inform both phase plans and land in bounty `skynet-passthrough-urls-rd` under the box-maintainer role's bounty pool. Concrete questions to answer:
 
-1. **Wildcard TLS + subdomain routing end-to-end.** What DNS provider does `gigaashley.click` sit on? Does Caddy have a plugin for it? Can we issue a wildcard cert and route wildcards to Skynet's backend on a test subdomain without disrupting production? What secrets/config additions does the Caddy setup need?
+1. **Wildcard TLS + subdomain routing end-to-end.** What DNS provider does `example.com` sit on? Does Caddy have a plugin for it? Can we issue a wildcard cert and route wildcards to Skynet's backend on a test subdomain without disrupting production? What secrets/config additions does the Caddy setup need?
 2. **Reverse-proxy + WebSocket + real frontends.** Pick a Node reverse-proxy approach; stand up a POC; pressure-test with a Vite dev server (does hot-reload survive?), a WebSocket-heavy app, an SSE stream, a POST-heavy API, cookie flows, static assets served at absolute paths. Find the gotchas before phase 2 commits.
 3. **SSH tunnel machinery in Skynet's existing SSH stack.** How does the current SSH usage layer for tunnels vs terminal sessions? Persistent tunnels vs per-request? Connection pooling? Cleanup lifecycle? Any pattern to reuse.
 4. **Origin-isolation alternatives sanity check.** Confirm wildcard subdomain is the right approach vs any less-heavy alternative (path prefix with response rewriting, per-app base-path config, etc.) — not by argument but by trying the failure modes and confirming they're actually bad.
@@ -113,7 +113,7 @@ Post-R&D `/open` session on 2026-09-10 pressure-tested and locked the following 
 ### Q1 — Auth model
 
 - URL nesting: `<host>-<port>.serve.term.<skynet-domain>` (one label deeper than the primary domain, NOT directly under the registrable domain).
-- Widen Skynet's JWT session cookie to `Domain=term.<skynet-domain>` — precisely one label deeper, NOT the whole registrable domain. Covers `term.<skynet-domain>` + all `*.term.<skynet-domain>` subdomains and stops there. Siblings on the registrable domain (e.g. `files.gigaashley.click`) are untouched.
+- Widen Skynet's JWT session cookie to `Domain=term.<skynet-domain>` — precisely one label deeper, NOT the whole registrable domain. Covers `term.<skynet-domain>` + all `*.term.<skynet-domain>` subdomains and stops there. Siblings on the registrable domain (e.g. `files.example.com`) are untouched.
 - Serve-subdomain proxy validates JWT + per-user-per-host permission at the edge.
 - **Allowlist-strip** at the proxy before forwarding to upstream — everything is denied by default, only a small explicit set of headers passes (Host, Connection, Upgrade, `Sec-WebSocket-*`, Content-Type, Content-Length, method + body). NO cookies, NO `Authorization`, NO `X-Skynet-*`.
 - **CI integration test**: echo-server upstream, assert no `Cookie:` header (esp. `skynet_session=`) reaches upstream on any code path — GET, POST, WebSocket upgrade, SSE, streaming, uploads, redirects, everything. Belt.
@@ -149,11 +149,11 @@ Post-R&D `/open` session on 2026-09-10 pressure-tested and locked the following 
 
 ### Q6 — Domain layout
 
-- Wildcard cert: `*.serve.term.gigaashley.click` (single-level wildcard). Existing hosted zone `gigaashley.click` (Z00583511HTO90JKK1MV7); R&D-established cross-account AssumeRole path (Aither `termix-ssm-role` → personal `caddy-route53-gigaashley`) already covers this zone.
-- Same Caddy container as `term.gigaashley.click` and `files.gigaashley.click`; add a new site block for the wildcard. Requires custom Caddy build (two-line Dockerfile change: `caddy:2-builder` + `xcaddy build --with github.com/caddy-dns/route53`).
-- Bare `serve.term.gigaashley.click` (no host prefix) redirects to `term.gigaashley.click` — one-line redirect so typos land somewhere sensible.
+- Wildcard cert: `*.serve.term.example.com` (single-level wildcard). Existing hosted zone `example.com` (<personal-hosted-zone-id>); R&D-established cross-account AssumeRole path (Aither `termix-ssm-role` → personal `<caddy-route53-role>`) already covers this zone.
+- Same Caddy container as `term.example.com` and `files.example.com`; add a new site block for the wildcard. Requires custom Caddy build (two-line Dockerfile change: `caddy:2-builder` + `xcaddy build --with github.com/caddy-dns/route53`).
+- Bare `serve.term.example.com` (no host prefix) redirects to `term.example.com` — one-line redirect so typos land somewhere sensible.
 - ACME: **Let's Encrypt production** preferred (LE prod is more permissive than LE staging that R&D got tripped by on contact validation; ZeroSSL remains automatic fallback via Caddy's issuer chain).
-- HSTS: mirror whatever `term.gigaashley.click` currently sets (verify against existing Caddyfile during plan).
+- HSTS: mirror whatever `term.example.com` currently sets (verify against existing Caddyfile during plan).
 - T800 (Stacy's deployment): entirely her domain + Route53 (or whatever DNS provider Aither uses) + Caddy config — no shared infra. Ships as a Stacy-briefing patch under the fleet-substrate rule; no code Phase 2 needs to write handles T800 differently.
 
 ### Rollout sequence
@@ -161,5 +161,5 @@ Post-R&D `/open` session on 2026-09-10 pressure-tested and locked the following 
 1. Build custom Caddy image with route53 plugin.
 2. Update `/opt/skynet/Caddyfile` with the wildcard block + bare-redirect block.
 3. Deploy — first request against the wildcard subdomain issues the cert via DNS-01.
-4. Test with a single subdomain (e.g. `t1000-8899.serve.term.gigaashley.click`) pointed at a `python -m http.server` on t1000 to verify HTTPS + WS + proxy stack end-to-end.
+4. Test with a single subdomain (e.g. `t1000-8899.serve.term.example.com`) pointed at a `python -m http.server` on t1000 to verify HTTPS + WS + proxy stack end-to-end.
 5. Only after that verified, flip agent URL construction to use the new scheme + update id-skill.

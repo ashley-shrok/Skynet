@@ -3,7 +3,7 @@
 **For:** Ashley
 **Post-deploy validation of the aside subsystem (Phase 14 patches, bundled with queued #150 A + C).**
 **Batch context:** Phase 14 patches ship BUNDLED with the queued #150 A (pruner fleet-aware) + #150 C (URL-restore multi-tab glow) per CONTEXT.md § Phase Boundary — Ashley 2026-07-26 verbatim: "there's no point in deploying until we get it in." The three ship together in ONE deploy event on `feat/tab-title-from-tmux`. See § Post-UAT deploy runbook at the bottom.
-**Deploy anchor:** term.gigaashley.click (production) — post-deploy, once Ashley greenlights the batch.
+**Deploy anchor:** term.example.com (production) — post-deploy, once Ashley greenlights the batch.
 **Design source-of-truth:** `~/.claude/identities/tina/bounties/plain-language-translation-asides/bounty.json` (2026-07-26 design session with Ashley, full spec locked) + `~/.claude/identities/tina/bounties/plain-language-translation-asides/aside-visual-snippet.js` (DevTools recipe Ashley signed off on, defaults at 10px border + glow multiplier 1.0) + `.planning/phases/14-plain-language-translation-asides/14-CONTEXT.md` (LOCKED — no re-litigation).
 
 **Trace commits (Phase 14 on `feat/tab-title-from-tmux`):**
@@ -50,7 +50,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 
 ## Setup — one time
 
-1. Open https://term.gigaashley.click in **Chrome on a wide desktop window** (1400px+) AND in **Skynet on your iPhone** (PWA-installed, home-screen icon).
+1. Open https://term.example.com in **Chrome on a wide desktop window** (1400px+) AND in **Skynet on your iPhone** (PWA-installed, home-screen icon).
 2. Have at least 2 running fleet-identity tmux sessions on distinct hosts (different hues to verify hue propagation) — e.g. `tina@skynet-ec2` + one other identity. Both sessions should have Claude Code running interactively.
 3. Have at least 1 **anonymous** (non-`/id`) Claude Code session running in a random tmux window on some host — this is the negative-case verification for ASIDE-02 (identity gate).
 4. Ashley Prime — open pretty-view on one fleet-identity session in a fresh Chrome tab; the tab should show the session's normal conversation stream at the bottom.

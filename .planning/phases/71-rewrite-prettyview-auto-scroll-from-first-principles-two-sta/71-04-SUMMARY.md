@@ -136,7 +136,7 @@ remains in `src/` or `tests/`. The codebase is clean for ship.
 
 The plan closes Phase 71's code work. Orchestrator must:
 1. Run full test suite + docker build
-2. Deploy to production (term.gigaashley.click)
+2. Deploy to production (term.example.com)
 3. Ask Ashley to walk the 8 scenario groups (Task 2 `<how-to-verify>`)
 4. Return `approved` if all primary scenarios pass, or describe failures for 70-05
 

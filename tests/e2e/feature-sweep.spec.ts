@@ -11,7 +11,7 @@ import { readCreds, seedFullAuth } from "./helpers/auth";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://term.gigaashley.click";
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://term.example.com";
 
 const OUT = path.resolve(
   process.env.HOME ?? "",

@@ -607,7 +607,7 @@ Not applicable — Phase 39 introduces no new npm/PyPI/crates packages. All chan
 ```
                                                       ┌─────────────────┐
 Browser (Skynet UI) ── WSS ─────────────────────────► │ WS server       │
-  https://term.gigaashley.click/fleet-status/ws       │ port 30012      │
+  https://term.example.com/fleet-status/ws       │ port 30012      │
                                                       │ (fleet-status-  │
                                                       │  server.ts)     │
                                                       └────┬────┬───────┘
@@ -1026,7 +1026,7 @@ Not applicable — Phase 39 is a bugfix within an existing established pattern. 
 Skipped — `.planning/config.json` has `workflow.nyquist_validation: false`.
 
 Manual UAT per CONTEXT §Success shape from a real browser session:
-- Open a browser tab to https://term.gigaashley.click/
+- Open a browser tab to https://term.example.com/
 - fleet-status WS connects → backend logs `fleet_status_connect` + `fleet_status_frontend_subscribed`
 - Within ~2 seconds, SSH-poll starts → per-host `fleet_status_host_poll_started` events fire (new op — currently silent) → SSH handshake succeeds via `resolveHostById` decrypt path → per-host `fleet_status_host_poll_success` events fire
 - `SessionState` frames flow to the browser → `session-working-store` populates → convlist rows show ready-dots for idle sessions AND `<WipBubble />` renders in PrettyView for the working session

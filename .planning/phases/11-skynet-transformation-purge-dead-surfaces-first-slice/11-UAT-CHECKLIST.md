@@ -3,7 +3,7 @@
 **For:** Ashley
 **Post-deploy validation of patch #138 (Phase 11 — Ship-of-Theseus first slice: landing swap + AppRail retirement + SettingsRow retirement + rail-view state-machine strip)**
 **Batch context:** Patch #138 is the FIRST Phase 11 patch. **DO NOT deploy standalone.** Batch with subsequent Phase 12+ purge patches per the fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23) — see § Post-UAT deploy runbook at the bottom.
-**Deploy anchor:** term.gigaashley.click (production) — post-deploy, once Ashley greenlights the batch.
+**Deploy anchor:** term.example.com (production) — post-deploy, once Ashley greenlights the batch.
 **Design source-of-truth:** `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-CONTEXT.md` (LOCKED — no re-litigation) + `~/.claude/identities/tina/tina.md` § Skynet direction (Ship of Theseus).
 
 **Trace commits (Phase 11 on `feat/tab-title-from-tmux`):**
@@ -43,7 +43,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 ## Setup — one time
 
-1. Open https://term.gigaashley.click in **Chrome on a wide desktop window** (1400px+) AND in **Skynet on your iPhone** (PWA-installed after patch #125, or Mobile Safari fallback).
+1. Open https://term.example.com in **Chrome on a wide desktop window** (1400px+) AND in **Skynet on your iPhone** (PWA-installed after patch #125, or Mobile Safari fallback).
 2. Have at least 2 running tmux identity sessions on distinct hosts, plus at least one RDP-enabled host for item 6 + item 15 + item 20 walks.
 3. Clear session storage on desktop for a truly-fresh page-load (item 1): DevTools → Application → Session Storage → Clear. Alternatively use a fresh Chrome incognito window.
 4. On iPhone: fully close Skynet PWA (swipe up from app switcher) before item 11's fresh page-load.
@@ -56,7 +56,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 > **Contract:** Desktop fresh page-load with no URL hash-fragment and no persisted tab state → main pane renders the new warm-glass PrettyLandingCard empty-landing card. NOT the Skynet dashboard with host cards / stats bars / recent-sessions grid. Card contains no "Skynet" or "Dashboard" text.
 
-- [ ] 🚨 **Fresh page-load at `https://term.gigaashley.click/`** (no hash, session storage cleared per Setup 3). Wait ~2s for `/sessions/list` to resolve. Expected: main pane shows a warm-glass empty-landing card centered in its container — subtle `rgba(240, 235, 224, 0.9)` warm-cream text ("Select a conversation" or similar copy) on a `linear-gradient(160deg, rgba(45,55,80,0.55), rgba(28,35,55,0.6))` glass background with a `rgba(255, 220, 170, 0.10)` inset warm-glow highlight + 20px backdrop-blur. **NO** host cards. **NO** stats. **NO** recent-sessions grid. **NO** "Dashboard" heading. **NO** "Skynet" branding. **If: Skynet dashboard renders** → Plan 02 Task 2 (tabUtils.tsx case-body swap) didn't land — grep the compiled `dist/assets/AppShell-*.js` for `PrettyLandingCard` (should be present) and for `DashboardTab` (should be absent, except comment-preserved history annotations).
+- [ ] 🚨 **Fresh page-load at `https://term.example.com/`** (no hash, session storage cleared per Setup 3). Wait ~2s for `/sessions/list` to resolve. Expected: main pane shows a warm-glass empty-landing card centered in its container — subtle `rgba(240, 235, 224, 0.9)` warm-cream text ("Select a conversation" or similar copy) on a `linear-gradient(160deg, rgba(45,55,80,0.55), rgba(28,35,55,0.6))` glass background with a `rgba(255, 220, 170, 0.10)` inset warm-glow highlight + 20px backdrop-blur. **NO** host cards. **NO** stats. **NO** recent-sessions grid. **NO** "Dashboard" heading. **NO** "Skynet" branding. **If: Skynet dashboard renders** → Plan 02 Task 2 (tabUtils.tsx case-body swap) didn't land — grep the compiled `dist/assets/AppShell-*.js` for `PrettyLandingCard` (should be present) and for `DashboardTab` (should be absent, except comment-preserved history annotations).
 
 ### 2. AppRail is gone
 
@@ -108,10 +108,10 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 Walk each of the four direct-hash-fragment probes below. For each: type the URL into the browser address bar, press Enter, wait ~2s for any async state to settle. Observe the main pane content + the sidebar content + browser DevTools console for warnings.
 
-- [ ] 🚨 **`https://term.gigaashley.click/#hosts`** — expected: 404-equivalent (blank main pane, or error card, or fallback) OR PrettyLandingCard warm-glass empty card. **NOT** the HostManagerPanel (host list, add-host CTA, edit-host modal chrome, credentials editor, etc.). If HostManagerPanel renders → **route back to Plan 03 Task 2**: a `railView === "hosts"` handler survived the strip in `sidebarPanelContent` or a `case "hosts"` block survived in the tab-content router.
-- [ ] 🚨 **`https://term.gigaashley.click/#admin`** — expected: 404-equivalent OR PrettyLandingCard. **NOT** the AdminSettingsPanel (user list, permissions matrix, system-config editor, etc.). If AdminSettingsPanel renders → **route back to Plan 03 Task 2** (surviving `railView === "admin-settings"` handler).
-- [ ] 🚨 **`https://term.gigaashley.click/#snippets`** — expected: 404-equivalent OR PrettyLandingCard. **NOT** the SnippetsPanel (snippet list, editor, tag manager). If SnippetsPanel renders → **route back to Plan 03 Task 2** (surviving `railView === "snippets"` handler).
-- [ ] 🚨 **`https://term.gigaashley.click/#dashboard`** — expected: PrettyLandingCard warm-glass empty card (this is the intended outcome — the `"dashboard"` TabType identifier is preserved as a load-bearing fallback per Plan 02 decision, but its render path now returns `<PrettyLandingCard/>` instead of `<DashboardTab>`). **NOT** the Skynet DashboardTab with host cards, stats bars, recent-sessions grid. If DashboardTab renders → **route back to Plan 02 Task 2** (`22b5cfb` `case "dashboard"` swap didn't land).
+- [ ] 🚨 **`https://term.example.com/#hosts`** — expected: 404-equivalent (blank main pane, or error card, or fallback) OR PrettyLandingCard warm-glass empty card. **NOT** the HostManagerPanel (host list, add-host CTA, edit-host modal chrome, credentials editor, etc.). If HostManagerPanel renders → **route back to Plan 03 Task 2**: a `railView === "hosts"` handler survived the strip in `sidebarPanelContent` or a `case "hosts"` block survived in the tab-content router.
+- [ ] 🚨 **`https://term.example.com/#admin`** — expected: 404-equivalent OR PrettyLandingCard. **NOT** the AdminSettingsPanel (user list, permissions matrix, system-config editor, etc.). If AdminSettingsPanel renders → **route back to Plan 03 Task 2** (surviving `railView === "admin-settings"` handler).
+- [ ] 🚨 **`https://term.example.com/#snippets`** — expected: 404-equivalent OR PrettyLandingCard. **NOT** the SnippetsPanel (snippet list, editor, tag manager). If SnippetsPanel renders → **route back to Plan 03 Task 2** (surviving `railView === "snippets"` handler).
+- [ ] 🚨 **`https://term.example.com/#dashboard`** — expected: PrettyLandingCard warm-glass empty card (this is the intended outcome — the `"dashboard"` TabType identifier is preserved as a load-bearing fallback per Plan 02 decision, but its render path now returns `<PrettyLandingCard/>` instead of `<DashboardTab>`). **NOT** the Skynet DashboardTab with host cards, stats bars, recent-sessions grid. If DashboardTab renders → **route back to Plan 02 Task 2** (`22b5cfb` `case "dashboard"` swap didn't land).
 
 **Acceptance framing:** for each of the four probes, both possible outcomes (404-equivalent OR PrettyLandingCard) are acceptable — the requirement is that the CORRESPONDING DEAD-SURFACE PANEL must not render. This dual-outcome acceptance exists because the URL-fragment router is not modified in Phase 11 (that's a Phase 12+ scope item — deleting the router branches that handle these fragments), and the fallback behavior at each unhandled fragment is code-path-specific (some fragments may fall through to the initial-tab-seed which now uses PrettyLandingCard; others may hit the closeTab fallback which also uses PrettyLandingCard; others may render an empty tab tree with no active tab). All three fall-through outcomes prove the same thing: the dead-surface panels are unreachable from any UI path.
 
@@ -159,7 +159,7 @@ Walk each of the four direct-hash-fragment probes below. For each: type the URL 
 
 > **Contract:** Phase 10 patch #126 rebased the mobile safe-area seam to `#0a0b12`. Confirming no regression from Phase 11's changes.
 
-- [ ] 🚨 **Remove Skynet from the iPhone home screen** (long-press → Remove App → Delete from Home Screen). Then in Mobile Safari, navigate to `https://term.gigaashley.click`, tap Share → Add to Home Screen. Reopen from the fresh install. Expected: the top safe-area seam (above the status bar) and the bottom safe-area seam (above the home indicator) render as `#0a0b12` gray — no white flash, no color mismatch. Phase 11 does NOT touch safe-area handling, but this is a paranoid cross-check that the AppShell surgery didn't accidentally regress patch #126.
+- [ ] 🚨 **Remove Skynet from the iPhone home screen** (long-press → Remove App → Delete from Home Screen). Then in Mobile Safari, navigate to `https://term.example.com`, tap Share → Add to Home Screen. Reopen from the fresh install. Expected: the top safe-area seam (above the status bar) and the bottom safe-area seam (above the home indicator) render as `#0a0b12` gray — no white flash, no color mismatch. Phase 11 does NOT touch safe-area handling, but this is a paranoid cross-check that the AppShell surgery didn't accidentally regress patch #126.
 
 ---
 

@@ -362,7 +362,7 @@ of bug the Phase 25 mocked tests missed.
     no new backend routes, only response-shape additions to existing routes).
 
     Post-deploy verification (do this AFTER shipping):
-    - Hit `https://term.gigaashley.click/sessions/list` as tina admin and confirm every
+    - Hit `https://term.example.com/sessions/list` as tina admin and confirm every
       session-owning identity comes back with a non-null `role` (poppy, patricia, pixie,
       nicole, vicky should all have their real role names now, not null).
     - Open the conversation panel and confirm rows within a host tier cluster by role

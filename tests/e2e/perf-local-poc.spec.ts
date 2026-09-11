@@ -1,7 +1,7 @@
 /**
  * Local-POC perf spec — points at http://127.0.0.1:4173 (locally-served dist)
  * for static assets, but proxies /users/*, /api/*, /host/*, /identities,
- * /debug/*, /branding/* to production (term.gigaashley.click) so the app can
+ * /debug/*, /branding/* to production (term.example.com) so the app can
  * render its actual state. This isolates the "shipped bundle change" from
  * "backend behavior change" — API responses are identical, only frontend
  * assets differ.
@@ -24,7 +24,7 @@ const BOUNTY_DIR = path.resolve(
 const REPORT_DIR = path.join(BOUNTY_DIR, "reports");
 
 const LOCAL_BASE = process.env.PLAYWRIGHT_LOCAL_BASE ?? "http://127.0.0.1:4173";
-const PROD_BASE = "https://term.gigaashley.click";
+const PROD_BASE = "https://term.example.com";
 
 // Same PerformanceObserver init as the baseline spec — inline to keep the
 // spec self-contained.

@@ -239,7 +239,7 @@ Handoff to the planner:
   spacing halve. Aesthetic-adjacent to this work but functionally
   separate; no interaction to design around.
 - Identity: this work happens under this identity (tina, box-maintainer
-  of the Skynet EC2 that hosts the app at term.gigaashley.click). The
+  of the Skynet EC2 that hosts the app at term.example.com). The
   container-mutation coordination protocol in the role file applies to
   every deploy motion (BEFORE announce in the box-maintainer coord room,
   ship, AFTER announce).

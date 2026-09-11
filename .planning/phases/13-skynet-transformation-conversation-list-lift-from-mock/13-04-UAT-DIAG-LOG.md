@@ -658,7 +658,7 @@ either.**
 
 ### 2.0 Deployment preflight (Ashley checks BEFORE UAT)
 
-- [ ] Waves 1-3 shipped to term.gigaashley.click (or local `npm run dev` if
+- [ ] Waves 1-3 shipped to term.example.com (or local `npm run dev` if
       running against a workstation build)
 - [ ] Ashley freshly reloads the page (Cmd+R desktop / iOS reload PWA) to
       clear stale sessionStorage / activeSet from prior sessions

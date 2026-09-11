@@ -7,10 +7,10 @@
  * Security note — leading-dot rule:
  *   We use `hostname === parent || hostname.endsWith("." + parent)` to
  *   avoid the plain-suffix bypass. Without the leading dot,
- *   "eviltermgigaashley.click".endsWith("termgigaashley.click") is TRUE
- *   even though the attacker controls "eviltermgigaashley.click" entirely.
- *   The leading dot forces the hostname boundary: "eviltermgigaashley.click"
- *   does NOT end with ".term.gigaashley.click".
+ *   "eviltermexample.com".endsWith("termexample.com") is TRUE
+ *   even though the attacker controls "eviltermexample.com" entirely.
+ *   The leading dot forces the hostname boundary: "eviltermexample.com"
+ *   does NOT end with ".term.example.com".
  *
  * Pure functions — no React, no window/document reads; parentDomain is
  * passed in as a parameter for trivial testability.
@@ -44,7 +44,7 @@ export function parseReturnFromSearch(search: string): string | null {
  *   - parentDomain that is empty, contains "/" or ":" (defensive)
  *
  * @param returnParam - The raw return URL string (or null).
- * @param parentDomain - The canonical parent domain (e.g. "term.gigaashley.click").
+ * @param parentDomain - The canonical parent domain (e.g. "term.example.com").
  *   At runtime, pass window.location.hostname — guaranteed === SKYNET_COOKIE_DOMAIN
  *   because /login is served on the primary domain (Phase 103 D-14).
  * @returns The normalized URL string (via URL constructor) if valid, otherwise null.
@@ -66,11 +66,11 @@ export function validateReturnUrl(returnParam: string | null, parentDomain: stri
   // Only HTTPS — rejects http, javascript, data, ftp, file, etc.
   if (parsed.protocol !== "https:") return null;
 
-  // No embedded credentials — defeats https://term.gigaashley.click:9999@evil.com/.
+  // No embedded credentials — defeats https://term.example.com:9999@evil.com/.
   if (parsed.username !== "" || parsed.password !== "") return null;
 
   // Hostname check with leading-dot suffix rule + FQDN trailing-dot normalization.
-  // URL.hostname preserves trailing dots on FQDN inputs ("term.gigaashley.click."),
+  // URL.hostname preserves trailing dots on FQDN inputs ("term.example.com."),
   // so strip them here to keep the comparison canonical (M-01 code-review fix).
   const host = parsed.hostname.toLowerCase().replace(/\.+$/, "");
   const parent = parentDomain.toLowerCase().replace(/\.+$/, "");

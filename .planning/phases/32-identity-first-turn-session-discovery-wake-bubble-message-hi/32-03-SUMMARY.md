@@ -61,7 +61,7 @@ Post-edit section headers preserved verbatim (grep `^## `):
 - L148 `## Managed hosts (inside Skynet)`
 - L175 `## Operating`
 - L281 `## RDP + guacd notes`
-- L339 `## Filestash (file UI at files.gigaashley.click)`
+
 - L396 `## Windows hosts (GIGAASHLEYPC)`
 - L406 `## Cross-fleet pointer`
 
@@ -73,7 +73,7 @@ re-ordered.)
 
 ```
 # From /home/ubuntu/skynet-tiffany after `npm run build` + `docker cp`:
-SERVED=$(curl -sS https://term.gigaashley.click/ | grep -oE 'assets/index-[^"]+\.js' | head -1)
+SERVED=$(curl -sS https://term.example.com/ | grep -oE 'assets/index-[^"]+\.js' | head -1)
 LOCAL=$(grep -oE 'assets/index-[^"]+\.js' dist/index.html | head -1)
 [ "$SERVED" = "$LOCAL" ] && echo "OK: served=$SERVED local=$LOCAL" || echo "MISMATCH: served=$SERVED local=$LOCAL"
 ```
@@ -172,7 +172,7 @@ sources — this is a pure documentation edit on an external file.
 
 None. The plan touched only a local runbook file; introduced no new
 network endpoints, auth paths, file-access patterns, or trust-boundary
-schema changes. The public URL (`term.gigaashley.click`) cited in the
+schema changes. The public URL (`term.example.com`) cited in the
 hash-match snippet is already documented earlier in box-map.md (Caddy
 edge section) — no new information disclosure.
 

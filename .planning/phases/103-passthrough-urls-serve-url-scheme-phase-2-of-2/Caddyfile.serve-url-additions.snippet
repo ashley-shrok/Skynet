@@ -1,5 +1,5 @@
 # Phase 103 D-19, D-20, D-21, D-22 — Caddyfile additions for the serve URL
-# wildcard subdomain (*.serve.term.gigaashley.click).
+# wildcard subdomain (*.serve.term.example.com).
 #
 # DEPLOY-TIME ARTIFACT (D-24 single-deploy motion): Ashley appends this
 # snippet to /opt/skynet/Caddyfile during the Phase 103 ship. NOT loaded
@@ -7,7 +7,7 @@
 # this snippet exists here for the human-verified append step.
 #
 # HSTS: mirror the exact `header Strict-Transport-Security ...` (or
-# equivalent header directive) from the existing term.gigaashley.click
+# equivalent header directive) from the existing term.example.com
 # site block in /opt/skynet/Caddyfile when appending this snippet. Per
 # D-22, Phase 103 does NOT diverge from the primary domain's HSTS
 # posture; both subdomain families ship the same policy.
@@ -22,7 +22,7 @@
 # (Task 2). No credentials appear in this Caddyfile.
 
 # -----------------------------------------------------------------------
-# D-01, D-19 — wildcard site: <hostname>-<port>.serve.term.gigaashley.click
+# D-01, D-19 — wildcard site: <hostname>-<port>.serve.term.example.com
 # -----------------------------------------------------------------------
 # Wildcard subdomain fronting Skynet's backend on port 8080. Caddy
 # terminates TLS via Route 53 DNS-01 challenges, then reverse-proxies to
@@ -39,7 +39,7 @@
 # behind serve URLs (Vite HMR, jupyter, RSC streams, etc.). Per R&D
 # findings-summary L99-100 verified with POC 6.
 
-*.serve.term.gigaashley.click {
+*.serve.term.example.com {
     tls {
         dns route53
     }
@@ -64,13 +64,13 @@
 }
 
 # -----------------------------------------------------------------------
-# D-20 — bare serve.term.gigaashley.click redirect
+# D-20 — bare serve.term.example.com redirect
 # -----------------------------------------------------------------------
 # The bare subdomain (no <hostname>-<port> prefix) is not a legitimate
 # serve URL. Redirect any hits to the primary Skynet UI so users who
-# accidentally paste or type just "serve.term.gigaashley.click" land
+# accidentally paste or type just "serve.term.example.com" land
 # somewhere useful instead of a 404 or default Caddy welcome page.
 
-serve.term.gigaashley.click {
-    redir https://term.gigaashley.click{uri} permanent
+serve.term.example.com {
+    redir https://term.example.com{uri} permanent
 }

@@ -52,7 +52,7 @@ describe("multipartOriginGuard middleware", () => {
   });
 
   it("rejects request from *.serve.term.<domain> with 403 + classified error", () => {
-    const req = mkReq("https://foo-8080.serve.term.gigaashley.click");
+    const req = mkReq("https://foo-8080.serve.term.example.com");
     const res = mkRes();
     multipartOriginGuard(req, res, next);
     expect(res._status).toBe(403);
@@ -69,7 +69,7 @@ describe("multipartOriginGuard middleware", () => {
   });
 
   it("passes through request with primary origin https://term.<domain>", () => {
-    const req = mkReq("https://term.gigaashley.click");
+    const req = mkReq("https://term.example.com");
     const res = mkRes();
     multipartOriginGuard(req, res, next);
     expect(res._status).toBeUndefined();
@@ -86,7 +86,7 @@ describe("multipartOriginGuard middleware", () => {
 
   it("passes through request whose Origin is an array (defensive — anomalous shape falls through)", () => {
     const req = mkReq([
-      "https://foo-8080.serve.term.gigaashley.click",
+      "https://foo-8080.serve.term.example.com",
     ] as unknown as string);
     const res = mkRes();
     multipartOriginGuard(req, res, next);
@@ -95,8 +95,8 @@ describe("multipartOriginGuard middleware", () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it("passes through sibling origin https://files.gigaashley.click", () => {
-    const req = mkReq("https://files.gigaashley.click");
+  it("passes through sibling origin https://files.example.com", () => {
+    const req = mkReq("https://files.example.com");
     const res = mkRes();
     multipartOriginGuard(req, res, next);
     expect(res._status).toBeUndefined();
@@ -110,7 +110,7 @@ describe("assertNotServeSubdomainOrigin", () => {
   });
 
   it("throws a 403-tagged Error when Origin matches serve subdomain", () => {
-    const req = mkReq("https://foo-8080.serve.term.gigaashley.click");
+    const req = mkReq("https://foo-8080.serve.term.example.com");
     expect(() => assertNotServeSubdomainOrigin(req)).toThrow(
       "Origin not permitted for this endpoint",
     );
@@ -122,7 +122,7 @@ describe("assertNotServeSubdomainOrigin", () => {
   });
 
   it("does not throw when Origin is primary term.<domain>", () => {
-    const req = mkReq("https://term.gigaashley.click");
+    const req = mkReq("https://term.example.com");
     expect(() => assertNotServeSubdomainOrigin(req)).not.toThrow();
   });
 
@@ -133,7 +133,7 @@ describe("assertNotServeSubdomainOrigin", () => {
 
   it("does not throw when Origin is an array (defensive)", () => {
     const req = mkReq([
-      "https://foo-8080.serve.term.gigaashley.click",
+      "https://foo-8080.serve.term.example.com",
     ] as unknown as string);
     expect(() => assertNotServeSubdomainOrigin(req)).not.toThrow();
   });

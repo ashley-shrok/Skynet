@@ -100,14 +100,14 @@ Option (a) is preferred.
 
 **File:** `src/ui/auth/return-url.ts:73–75`
 
-**Issue:** RFC 1034 and browsers allow fully-qualified domain names with a trailing dot (`term.gigaashley.click.`). Node.js and Chrome's `URL` constructor preserve the trailing dot in `.hostname`:
+**Issue:** RFC 1034 and browsers allow fully-qualified domain names with a trailing dot (`term.example.com.`). Node.js and Chrome's `URL` constructor preserve the trailing dot in `.hostname`:
 
 ```
-new URL('https://term.gigaashley.click./').hostname
-// → 'term.gigaashley.click.'   (trailing dot retained)
+new URL('https://term.example.com./').hostname
+// → 'term.example.com.'   (trailing dot retained)
 ```
 
-The validator compares `host` (`'term.gigaashley.click.'`) against `parent` (`'term.gigaashley.click'`) and `host.endsWith('.' + parent)` (`'.term.gigaashley.click'`). Both comparisons fail. Any return URL in FQDN notation — even a perfectly valid same-domain one — is silently rejected, and the user is dropped at app root after login.
+The validator compares `host` (`'term.example.com.'`) against `parent` (`'term.example.com'`) and `host.endsWith('.' + parent)` (`'.term.example.com'`). Both comparisons fail. Any return URL in FQDN notation — even a perfectly valid same-domain one — is silently rejected, and the user is dropped at app root after login.
 
 This is not a security bypass (the trailing dot deflects, not bypasses), but it is a functional regression against users whose HTTP clients normalise URLs to FQDN form (some curl defaults, some CDN redirect responses, some corporate proxies). It also has no test coverage.
 
@@ -122,8 +122,8 @@ if (host !== parent && !host.endsWith("." + parent)) return null;
 
 Add a test:
 ```typescript
-["A6 FQDN trailing dot (same domain)", "https://term.gigaashley.click./"],
-["A7 FQDN trailing dot (subdomain)", "https://sub.term.gigaashley.click./"],
+["A6 FQDN trailing dot (same domain)", "https://term.example.com./"],
+["A7 FQDN trailing dot (subdomain)", "https://sub.term.example.com./"],
 ```
 
 ### M-02: IPv4 `parentDomain` allows arbitrary subdomains — untested and colon-check does not block IPv4
@@ -207,11 +207,11 @@ expect(screen.queryByPlaceholderText("username")).toBeNull();
 
 **File:** `src/ui/auth/return-url.test.ts`
 
-**Issue:** Test A5 covers an uppercase **subdomain** (`https://FOO.TERM.gigaashley.click/`) but not an uppercase exact match (`https://TERM.GIGAASHLEY.CLICK/`). The mechanism is identical (`.toLowerCase()` on both sides), so coverage is effectively present, but a symmetric accept-case for the root domain would make the test matrix complete.
+**Issue:** Test A5 covers an uppercase **subdomain** (`https://FOO.TERM.example.com/`) but not an uppercase exact match (`https://TERM.EXAMPLE.COM/`). The mechanism is identical (`.toLowerCase()` on both sides), so coverage is effectively present, but a symmetric accept-case for the root domain would make the test matrix complete.
 
 **Fix:** Add one accept case:
 ```typescript
-["A6 uppercase exact-match parent domain", "https://TERM.GIGAASHLEY.CLICK/"],
+["A6 uppercase exact-match parent domain", "https://TERM.EXAMPLE.COM/"],
 ```
 
 ### N-02: Duplicate redirects are idempotent but architecturally redundant
@@ -230,7 +230,7 @@ This is architectural waste rather than a bug — browsers handle duplicate `ass
 
 **Issue:** The warn log emits:
 ```
-[auth] rejecting invalid return url { returnParam: '<raw user input>', parentDomain: 'term.gigaashley.click' }
+[auth] rejecting invalid return url { returnParam: '<raw user input>', parentDomain: 'term.example.com' }
 ```
 
 `parentDomain` in the log reveals `SKYNET_COOKIE_DOMAIN` — the internal subdomain structure. This is low-risk since the information is visible in the URL bar and network tab anyway, but it slightly increases the information density available to an attacker probing reject conditions.
@@ -248,9 +248,9 @@ console.warn("[auth] rejecting invalid return url", {
 
 | Bypass class | Tested? | Status |
 |---|---|---|
-| Leading-dot suffix (`eviltermgigaashley.click`) | R3 | BLOCKED |
-| Domain-suffix-in-path (`term.gigaashley.click.evil.com`) | R4 | BLOCKED |
-| Parent-of-parent (`gigaashley.click`) | R5 | BLOCKED |
+| Leading-dot suffix (`eviltermexample.com`) | R3 | BLOCKED |
+| Domain-suffix-in-path (`term.example.com.evil.com`) | R4 | BLOCKED |
+| Parent-of-parent (`example.com`) | R5 | BLOCKED |
 | `http://` protocol | R6 | BLOCKED |
 | `javascript:` scheme | R7 | BLOCKED |
 | `data:` scheme | R8 | BLOCKED |

@@ -38,7 +38,7 @@ armed 15-min deadman, `docker compose up -d --force-recreate skynet`.
 **Smoke sequence outcome:**
 - Backend port 30011 listener: ✓ present after boot
 - Nginx routes to backend cleanly: `curl -sI` to
-  `https://term.gigaashley.click/claude-session/websocket/` returned
+  `https://term.example.com/claude-session/websocket/` returned
   `HTTP/2 426 Upgrade Required` with `content-type: text/plain` — backend
   rejecting an unauthenticated WS handshake. NOT the trap signature
   (`200 text/html` = SPA fallback ate it).

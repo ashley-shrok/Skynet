@@ -174,7 +174,7 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
     });
 
     await fetchHostFileUrl(
-      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md",
+      "https://term.example.com/file/thenasty/home/ubuntu/note.md",
     );
 
     expect(authApi.post).toHaveBeenCalledTimes(1);
@@ -198,7 +198,7 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
     });
 
     await fetchHostFileUrl(
-      "https://term.gigaashley.click:8080/file/thenasty/etc/hostname",
+      "https://term.example.com:8080/file/thenasty/etc/hostname",
     );
 
     expect(authApi.post).toHaveBeenCalledWith(
@@ -231,7 +231,7 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
     // suite requires this).
     await expect(
       fetchHostFileUrl(
-        "https://term.gigaashley.click/file/thenasty/nope.md",
+        "https://term.example.com/file/thenasty/nope.md",
       ),
     ).rejects.toThrow("not_found");
   });
@@ -251,7 +251,7 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
     });
 
     const result = await fetchHostFileUrl(
-      "https://term.gigaashley.click/file/thenasty/tmp/greeting.md",
+      "https://term.example.com/file/thenasty/tmp/greeting.md",
     );
 
     expect(result).toEqual(fixture);

@@ -2,7 +2,7 @@
 
 **Coverage:** D-01 through D-16 (every decision in `46-CONTEXT.md`).
 **Audience:** Ashley, iPhone-primary PWA + desktop browser.
-**Ship-target URLs:** `https://gigaashley.click` (primary) and `https://skynet-ec2.ashleycook.com` (secondary).
+**Ship-target URLs:** `https://example.com` (primary) and `https://skynet-ec2.ashleycook.com` (secondary).
 
 Walk these steps on production Skynet after the box-maintainer's build + deploy has landed and the 15-minute deadman timer has cancelled cleanly. Sign off each step with the Pass/Fail checkbox + a short note. Any `Fail` routes back to a new planning cycle; a fail on the destructive paths (Steps 9, 10) or the path-safety step (Step 13) means an immediate rollback discussion with the maintainer.
 

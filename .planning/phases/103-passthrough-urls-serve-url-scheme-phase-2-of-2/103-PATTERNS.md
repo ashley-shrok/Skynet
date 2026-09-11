@@ -323,7 +323,7 @@ const forceSaveFn = vi.fn<[string], Promise<void>>().mockResolvedValue(undefined
 1. Stand up an echo-server upstream (Node http.createServer) that records EVERY inbound request's headers to a shared array.
 2. Stand up the serve-url dispatch middleware + proxy-factory pointing at the echo server (via mocked SSH tunnel that returns a plain TCP socket to the echo server's localhost port).
 3. Cases to enumerate (each an `it(...)` block):
-   - `it("no Cookie header on GET")` — send GET with `Cookie: skynet_session=abc; Domain=term.gigaashley.click`; assert echo-recorded headers have NO `cookie`.
+   - `it("no Cookie header on GET")` — send GET with `Cookie: skynet_session=abc; Domain=term.example.com`; assert echo-recorded headers have NO `cookie`.
    - `it("no Cookie header on POST")` — same, POST with JSON body.
    - `it("no Cookie header on WebSocket upgrade")` — upgrade a WS with cookie; assert echo-recorded upgrade headers have NO `cookie`.
    - `it("no Cookie header on SSE stream")` — GET with `Accept: text/event-stream`; assert throughout stream lifetime.
@@ -368,7 +368,7 @@ Change to `build: { context: ., dockerfile: docker/Caddy.Dockerfile }` OR keep i
 **AWS SDK config (per R&D findings-summary L282-292):** Additional volume mount `~/.aws/config:/root/.aws/config:ro` and env `AWS_PROFILE=caddy`, `AWS_REGION=us-east-1`. Ashley-side host `.aws/config` contents:
 ```
 [profile caddy]
-role_arn = arn:aws:iam::984318380039:role/caddy-route53-gigaashley
+role_arn = arn:aws:iam::<personal-aws-account>:role/<caddy-route53-role>
 credential_source = Ec2InstanceMetadata
 region = us-east-1
 ```
@@ -408,7 +408,7 @@ modal Skynet renders around it). Grammar:
 - Add a NEW serve-URL sub-section paralleling the file-URL one:
   - Grammar: `<hostname>-<port>.serve.<term-parent>` where `<term-parent>` is derived from `~/.claude/skynet-parent` (strip protocol, then prepend `<hostname>-<port>.serve.`).
   - Bash recipe: construct URL from `~/.claude/skynet-parent` + `~/.claude/skynet-hostname` + agent-chosen port.
-  - Example: `https://t1000-3020.serve.term.gigaashley.click`
+  - Example: `https://t1000-3020.serve.term.example.com`
 - Retain the L922-932 "Why we replaced tailnet HTTP-server" reasoning but expand to cover both URL schemes.
 - NO auto-serve heuristics guidance per D-28 (agents-aren't-lied-to).
 
@@ -500,7 +500,7 @@ getSecureCookieOptions(
   req: RequestWithHeaders,
   maxAge: number = 24 * 60 * 60 * 1000,
 ) {
-  const skynetDomain = process.env.SKYNET_COOKIE_DOMAIN; // e.g. "term.gigaashley.click"
+  const skynetDomain = process.env.SKYNET_COOKIE_DOMAIN; // e.g. "term.example.com"
   return {
     httpOnly: true,
     secure: req.secure || req.headers["x-forwarded-proto"] === "https",
@@ -514,7 +514,7 @@ getSecureCookieOptions(
 
 **Corresponding `getClearCookieOptions` at L722-729** also needs the same `domain` addition — otherwise clearing the cookie leaves the widened-domain version in place. Same modification pattern.
 
-**Env-var vs hardcoded:** use `process.env.SKYNET_COOKIE_DOMAIN` so t1000 vs T800 vs future customer VMs can each set their own value (per D-23 T800 handles its own config; per D-19 t1000 sets `term.gigaashley.click`). The env-var goes into `/opt/skynet/skynet.env` on t1000 during the same deploy motion (D-24 "Single deploy — Caddy image rebuild + cookie widen + subdomain routing + agent URL construction all live in one atomic ship motion").
+**Env-var vs hardcoded:** use `process.env.SKYNET_COOKIE_DOMAIN` so t1000 vs T800 vs future customer VMs can each set their own value (per D-23 T800 handles its own config; per D-19 t1000 sets `term.example.com`). The env-var goes into `/opt/skynet/skynet.env` on t1000 during the same deploy motion (D-24 "Single deploy — Caddy image rebuild + cookie widen + subdomain routing + agent URL construction all live in one atomic ship motion").
 
 ---
 
@@ -565,7 +565,7 @@ origin: (origin, callback) => {
 }
 ```
 
-**⚠️ Regex order-of-operations invariant:** the reject MUST fire before the `getRequestOrigin(req)` same-origin check — otherwise if a request from `foo-3000.serve.term.gigaashley.click` somehow shares the same host header the same-origin path could accidentally accept it. Explicit deny always wins.
+**⚠️ Regex order-of-operations invariant:** the reject MUST fire before the `getRequestOrigin(req)` same-origin check — otherwise if a request from `foo-3000.serve.term.example.com` somehow shares the same host header the same-origin path could accidentally accept it. Explicit deny always wins.
 
 ---
 

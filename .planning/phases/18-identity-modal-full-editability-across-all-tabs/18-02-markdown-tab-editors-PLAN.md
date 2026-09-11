@@ -279,7 +279,7 @@ Do NOT invalidateBountyCount (irrelevant for markdown edits). Do NOT touch exist
 
     REMOTE branch UAT (IDMEDIT-05):
 
-    7. From Ashley's phone, connect to term.gigaashley.click. Navigate to a Nelly Claude Code session (Nelly runs on thenasty, a remote box — hostId is NOT in IDENTITIES_LOCAL_HOST_IDS).
+    7. From Ashley's phone, connect to term.example.com. Navigate to a Nelly Claude Code session (Nelly runs on thenasty, a remote box — hostId is NOT in IDENTITIES_LOCAL_HOST_IDS).
     8. Open the identity modal on Nelly. Click Identity tab. Click Edit. Add "phone test line " + timestamp. Click Save. Confirm the edit round-trips within ~1-3 seconds (SFTP is fast on tailnet), the ReactMarkdown preview re-renders with the new content, no error.
     9. From a shell on thenasty (via a separate SSH), run `cat ~/.claude/identities/nelly/nelly.md | tail -3` and confirm the phone-added line is present on disk on the remote box.
     10. Repeat step 7-9 for History and Handoff tabs on Nelly.

@@ -7,7 +7,7 @@
  * finishes (~30ms TTFB per Chatterbox streaming endpoint).
  *
  * Scheduling recipe: "nextStartTime running clock" pattern lifted from Nelly's
- * streaming Chatterbox demo (https://gigaashley.click/tts-demo/ view-source,
+ * streaming Chatterbox demo (https://example.com/tts-demo/ view-source,
  * Nelly's permission to lift wholesale). Each source is scheduled at
  * nextStartTime; nextStartTime advances by buffer.duration after each schedule.
  *

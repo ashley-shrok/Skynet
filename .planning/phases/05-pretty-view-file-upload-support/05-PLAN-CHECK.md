@@ -77,7 +77,7 @@ No HARD LOCK / LOCKED decision violations detected.
 
 CONTEXT.md `<scope_fence>` was audited against every plan's `files_modified`. No violations:
 
-- ✅ Terminal tab bar, RDP/VNC panes, message queue drawer chrome, session-file tail / WS bridge, identity registry, host records, Filestash, Caddy — none touched by any plan
+- ✅ Terminal tab bar, RDP/VNC panes, message queue drawer chrome, session-file tail / WS bridge, identity registry, host records, Caddy — none touched by any plan
 - ✅ SSH connection lifecycle / authentication — untouched (uploads ride existing authenticated per-pane WS)
 - ✅ No new HTTP endpoint or new WebSocket (three new WS *message types* on the existing WS; distinct from a new WS)
 - ✅ No auto-cleanup policy (Plan 01 orchestrator has none)

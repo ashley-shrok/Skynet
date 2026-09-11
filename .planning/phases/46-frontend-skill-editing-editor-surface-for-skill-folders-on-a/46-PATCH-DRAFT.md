@@ -91,7 +91,7 @@ Every user-supplied path or skill name runs a four-layer defense before any I/O:
    TOKEN=$(cat ~/.claude/skynet-token-for-testing || echo "SET-ME")
    HOST_ID=<pick-a-real-hostId-from-Ashley's-fleet>
    curl -sS -H "Authorization: Bearer $TOKEN" \
-     "https://gigaashley.click/skills-editor/skills?hostId=$HOST_ID" | jq
+     "https://example.com/skills-editor/skills?hostId=$HOST_ID" | jq
    # Expect: {"skills": [...]}  — NOT the frontend index.html payload.
    ```
    If the response is HTML instead of JSON, the nginx block is missing or misordered — ABORT and let the deadman fire.

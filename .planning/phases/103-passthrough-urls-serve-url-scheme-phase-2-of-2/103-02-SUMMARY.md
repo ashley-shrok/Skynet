@@ -49,7 +49,7 @@ Env-driven domain widening for the JWT session cookie (`getSecureCookieOptions` 
 
 Modified `getSecureCookieOptions` (L709) and `getClearCookieOptions` (L722) — both now read `const skynetDomain = process.env.SKYNET_COOKIE_DOMAIN;` at the top of the method and conditionally spread `...(skynetDomain ? { domain: skynetDomain } : {})` into the returned options object.
 
-- **Env-driven per D-23**: t1000 sets `SKYNET_COOKIE_DOMAIN=term.gigaashley.click` in its `/opt/skynet/skynet.env`; T800 sets its own value independently.
+- **Env-driven per D-23**: t1000 sets `SKYNET_COOKIE_DOMAIN=term.example.com` in its `/opt/skynet/skynet.env`; T800 sets its own value independently.
 - **Backwards-compatible per D-24**: when env unset (dev, tests, unconfigured envs), the `domain` key is absent from the returned object → today's behavior preserved.
 - **Clear-path mirror is load-bearing**: without matching the set-path's `domain`, clearing the cookie would leave the widened-domain instance in place (a stale wider-scope cookie the browser would still send).
 - All other fields (`httpOnly`, `secure`, `sameSite`, `maxAge`, `path`) untouched.
@@ -123,7 +123,7 @@ Tasks 1 & 2 were `tdd="true"` in the plan but the plan's `<action>` blocks did n
 
 | Threat | Mitigation shipped |
 |---|---|
-| T-103-06 (EoP: cookie scope) | Cookie widens to exactly `term.<domain>` via env — siblings on registrable domain (`files.gigaashley.click`) untouched |
+| T-103-06 (EoP: cookie scope) | Cookie widens to exactly `term.<domain>` via env — siblings on registrable domain (`files.example.com`) untouched |
 | T-103-07 (CSRF from serve subdomains) | `SERVE_SUBDOMAIN_RE` reject in CORS middleware blocks any preflight-triggering cross-origin request from `*.serve.term.<domain>` at browser layer |
 | T-103-10 (Tampering: hostname collision) | POST /db/host rejects `-\d+$` hostnames at 400 with structured warn log — collision with serve URL grammar (`<host>-<port>.serve.term.<domain>` per D-11) prevented at DB write boundary |
 | T-103-11 (Repudiation: silent hostname rejects) | sshLogger.warn emits `[host-db] host-name-collision-with-serve-url-grammar` with operation/userId/name — auditable |

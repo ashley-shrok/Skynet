@@ -27,7 +27,7 @@ must_haves:
     - "Tag-along diag fix: pretty-view snapshot in diag registry emits isVisible: <boolean> instead of isVisible: null (per bounty TAG-ALONG §)."
     - "Patch #345's dormantInFlight check in the ACTIVE poll cycle is kept AS-IS (belt-and-suspenders); rationale documented in PLAN + patch #346 entry: cheap + defensive + catches supervisor race where sentinel reappears mid-active (dead code in the common path but not removed to preserve invariant coverage)."
     - "Full npm test (npx vitest run) is green: baseline 1580+ pass / 6 skip after patch #345 is preserved; new dormant-poll-inactive-branch tests added and pass."
-    - "Skynet ships via docker compose up -d --force-recreate skynet under the 15-min deadman with HTTPS 200 confirmed on term.gigaashley.click AND container health sustained."
+    - "Skynet ships via docker compose up -d --force-recreate skynet under the 15-min deadman with HTTPS 200 confirmed on term.example.com AND container health sustained."
     - "Patch #346 entry appended to /home/ubuntu/.claude/roles/box-maintainer/skynet-patches.md in the same numbered format as #345."
   artifacts:
     - path: "src/backend/claude-session/claude-session-server.ts"
@@ -280,13 +280,13 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
     STEP D — Ship via docker compose recreate under 15-min deadman.
     Follow the project's standard ship protocol per CLAUDE.md §Deploy safety: `docker compose up -d --force-recreate skynet` under the 15-min deadman rollback timer. NO EXCEPTIONS per Ashley 2026-07-03. After the recreate:
     - Confirm container status Up + healthy sustained (poll `docker compose ps skynet` for at least 30s past healthcheck window).
-    - Confirm HTTPS 200 on term.gigaashley.click via `curl -sI https://term.gigaashley.click/ | head -5` — expect HTTP/2 200.
+    - Confirm HTTPS 200 on term.example.com via `curl -sI https://term.example.com/ | head -5` — expect HTTP/2 200.
     - Byte-verify frontend bundle contains the two frontend changes: grep the built terminal JS for `!dormant` gate + confirm `isVisible: null` is GONE from the pretty-view snapshot (search for the diag emit shape).
     - If any check fails within the 15-min window, roll back per standard deadman procedure.
   </action>
 
   <verify>
-    <automated>bash -lc 'cd /home/ubuntu/skynet && npx vitest run 2>&1 | tail -20 && echo --- && npm run build 2>&1 | tail -20 && echo --- && curl -sI https://term.gigaashley.click/ | head -5 && echo --- && docker compose ps skynet 2>&1 | tail -5'</automated>
+    <automated>bash -lc 'cd /home/ubuntu/skynet && npx vitest run 2>&1 | tail -20 && echo --- && npm run build 2>&1 | tail -20 && echo --- && curl -sI https://term.example.com/ | head -5 && echo --- && docker compose ps skynet 2>&1 | tail -5'</automated>
   </verify>
 
   <done>
@@ -294,7 +294,7 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
     - `npm run build` exits 0.
     - Shipped image byte-verified to contain startActiveSessionFlow + dormant-poll symbols + `!dormant` gate + non-null isVisible in pretty-view diag snapshot.
     - Container status: Up + healthy sustained past the healthcheck grace window.
-    - `curl -sI https://term.gigaashley.click/` returns HTTP/2 200.
+    - `curl -sI https://term.example.com/` returns HTTP/2 200.
     - No deadman rollback fired.
   </done>
 </task>
@@ -311,7 +311,7 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
     - **Why**: Ashley UAT on Tiffany at 2026-08-08T09:44:25Z — DormancyOverlay never appeared; PrettyView rendered "no active Claude session" instead. Root cause: discoverClaudeSession returns inactive/not_claude for a dormant pane, backend emits the inactive frame and tears SSH down, so the piggybacked dormancy stat check never runs.
     - **What changed**: enumerate the four sub-artifacts — (1) extracted startActiveSessionFlow helper in claude-session-server.ts, (2) inactive-branch dormancy probe + dormant-poll loop, (3) PrettyView belt-and-suspenders `!dormant` gate on the inactive fallback, (4) PrettyView diag snapshot `isVisible: null` → `isVisible` shorthand. Include the note about keeping patch #345's active-poll `dormantInFlight` piggyback AS-IS as defensive (rationale: catches supervisor race where .dormant reappears mid-active).
     - **Verification**: test count (baseline 1580+ pass / 6 skip → ~1585+ pass / 6 skip after G-K land); `tsc --noEmit` clean; `npm run build` clean.
-    - **Ship**: image sha (paste from Task 3 build output), container health-sustained timestamp, HTTPS 200 confirmation on term.gigaashley.click, byte-verified symbols in shipped bundle (startActiveSessionFlow + dormantPollTimer + `!dormant` + non-null isVisible).
+    - **Ship**: image sha (paste from Task 3 build output), container health-sustained timestamp, HTTPS 200 confirmation on term.example.com, byte-verified symbols in shipped bundle (startActiveSessionFlow + dormantPollTimer + `!dormant` + non-null isVisible).
     - **Commits**: list the atomic commit hashes created for the backend restructure + tests + frontend two-liner + patch-doc.
     - **Rebase risk**: NIL — fork severed 2026-07-24, no upstream to rebase against (same disposition as patches #344 and #345).
 
@@ -335,12 +335,12 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
   <what-built>
     Backend inactive-branch dormancy probe + dormant-poll loop + extracted active-flow helper.
     Frontend belt-and-suspenders `!dormant` gate + diag `isVisible` tag-along.
-    Shipped to term.gigaashley.click under 15-min deadman + HTTPS 200 confirmed.
+    Shipped to term.example.com under 15-min deadman + HTTPS 200 confirmed.
     Patch #346 entry in skynet-patches.md.
   </what-built>
   <how-to-verify>
     1. Confirm Tiffany's identity is currently dormant on T1000: `ssh tailnet-of-t1000 'ls ~/.claude/identities/tiffany/.dormant && tmux ls | grep tiffany'` — sentinel present, tmux session alive at bare shell prompt. (If not dormant, either wait for supervisor to reconcile OR force it: `kill <claude-pid> && touch ~/.claude/identities/tiffany/.dormant`.)
-    2. Open Ashley's PWA at term.gigaashley.click; navigate to Tiffany's pretty-view pane.
+    2. Open Ashley's PWA at term.example.com; navigate to Tiffany's pretty-view pane.
     3. EXPECT: DormancyOverlay appears with "session is asleep" text + Wake button. Static moon glyph (NO spin). ComposeBox disabled (Send/Reset/ThumbsUp/Recap/QueuedRow-Send all disabled; textarea + mic + attach still usable). The old "no active Claude session" text MUST NOT appear.
     4. Tap Wake. EXPECT: overlay transitions to "waking…" state; after ~15s the "this can take up to 60s" hint appears if wake hasn't completed. Within ~60s (30s supervisor CHECK_INTERVAL + 30s claude launch + /id run), overlay auto-dismisses and ComposeBox re-enables.
     5. Confirm normal chat works after wake.
@@ -359,7 +359,7 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
 - Byte-verify (backend bundle): grep for `startActiveSessionFlow` OR the chosen helper name, `dormantPollTimer`, `claude_session_dormant_entered`.
 - Byte-verify (frontend bundle): grep the built Terminal JS for `!dormant` gate + confirm `isVisible: null` is GONE from the pretty-view snapshot emit.
 - Container health: `docker compose ps skynet` shows Up + healthy sustained past the healthcheck grace window; no deadman rollback fired.
-- HTTPS: `curl -sI https://term.gigaashley.click/` returns HTTP/2 200.
+- HTTPS: `curl -sI https://term.example.com/` returns HTTP/2 200.
 - Patches doc: `### Patch #346` heading present exactly once in skynet-patches.md.
 - Ashley UAT (blocking human checkpoint): DormancyOverlay appears on Tiffany's pane, Wake round-trips, overlay auto-dismisses on live-frame resume.
 </verification>

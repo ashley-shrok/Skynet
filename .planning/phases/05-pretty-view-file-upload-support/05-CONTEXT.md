@@ -14,7 +14,7 @@ This phase adds a "cognitively-free" file-attachment affordance to pretty view w
 3. **Receiving-side landing convention.** Backend service on Skynet EC2 orchestrates writing bytes to `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>` on the receiving box via SSH (SFTP or `cat > file` — planner's call, see decisions below). The receiving user is whoever the SSH channel is authenticated as — no assumption about identity loading on the box.
 4. **Injected user turn.** Once all files land, an injected message (caption + per-file metadata block) is sent through the SAME split-send path patch #100 fixed — inheriting Enter-drop reliability for free.
 
-Phase 5 does NOT touch: terminal tab bar, RDP/VNC panes, message queue drawer chrome, session-file tail / WS bridge, identity registry, host records, Filestash, Caddy. If the planner surfaces tasks in those areas, that is a scope violation — file transfer rides existing infrastructure, does not build new.
+Phase 5 does NOT touch: terminal tab bar, RDP/VNC panes, message queue drawer chrome, session-file tail / WS bridge, identity registry, host records, Caddy. If the planner surfaces tasks in those areas, that is a scope violation — file transfer rides existing infrastructure, does not build new.
 
 </domain>
 
@@ -110,7 +110,7 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 - Two viable shapes:
   - **(a) SFTP subsystem** over the existing SSH connection. Cleaner, atomic (rename-on-complete), well-supported. Requires the receiving box to have the SFTP subsystem enabled (all managed boxes do).
   - **(b) `cat > temp_file && mv temp_file final_path` via SSH exec.** Simpler wire, no SFTP dependency; slightly less clean (need explicit temp+rename). Works on any box with a shell.
-- Planner picks (a) if the codebase already uses ssh2's SFTP client; picks (b) if it's exec-only. Filestash uses SFTP so the SFTP client should already be available in the dep tree.
+- Planner picks (a) if the codebase already uses ssh2's SFTP client; picks (b) if it's exec-only.
 - Either way: write to a temp filename first (`.<final>.partial` or similar), rename on complete. This is how atomicity manifests at the filesystem layer.
 
 ### Injected metadata block format (Claude's Discretion, with fences)
@@ -177,7 +177,7 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 ## Specific Ideas
 
 ### Reference SSH transport in fork
-- ssh2 npm client is already in the dep tree (used for the terminal WS backend AND for Filestash SFTP). SFTP subsystem is accessible via `ssh2.Client.sftp((err, sftp) => sftp.createWriteStream(path))`. This is the natural implementation for the receiving-side write.
+- ssh2 npm client is already in the dep tree (used for the terminal WS backend AND). SFTP subsystem is accessible via `ssh2.Client.sftp((err, sftp) => sftp.createWriteStream(path))`. This is the natural implementation for the receiving-side write.
 
 ### Reference chunked-upload analog
 - No prior fork patch does chunked-upload over the terminal WS. Patch #43's session-file WS bridge tails a file (read); this is the write direction. The wire-protocol design is fresh work in this phase; the transport layer is not.
@@ -211,14 +211,14 @@ Explicitly out of scope for this phase (per shape's "Deferred — revisit if the
 
 Things the planner MUST NOT plan tasks for. If tasks appear in these areas, that's a scope violation caught at plan-check time:
 
-- Any change to terminal tab bar, RDP/VNC panes, message queue drawer chrome, session-file tail / WS bridge, identity registry, host records, Filestash, Caddy.
+- Any change to terminal tab bar, RDP/VNC panes, message queue drawer chrome, session-file tail / WS bridge, identity registry, host records, Caddy.
 - Any change to the SSH connection lifecycle or authentication (uploads ride the existing connection).
 - Any new HTTP endpoint or new WebSocket (uploads ride the existing per-pane WS).
 - Any implementation of "smart" attachment behaviors (auto-inline, thumbnails, per-file caption, agent-download-direction).
 - Any auto-cleanup policy on the receiving side.
 - Any client-side persistence of attachment BYTES across tab close (caption only).
 - Any inclusion of the source machine in the injected metadata (only filename + size + mimetype + timestamp + landing path).
-- Any UI surface for uploads other than the pretty-view compose area (no dashboard uploads, no host-records uploads, no Filestash integration).
+- Any UI surface for uploads other than the pretty-view compose area (no dashboard uploads, no host-records uploads, no external file-manager integration).
 - Any change to file uploads landing outside `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>` — no configurable landing paths in this phase.
 
 </scope_fence>

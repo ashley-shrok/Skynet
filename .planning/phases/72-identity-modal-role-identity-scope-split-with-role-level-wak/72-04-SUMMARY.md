@@ -176,7 +176,7 @@ Task 2 is a `checkpoint:human-verify` — no code changes fire during it. The pl
 
 1. **Wait for orchestrator ship** — this checkpoint fires BEFORE deploy but AFTER all code is committed. The box-maintainer directive says executors don't do deploys; the orchestrator handles push/build/deploy. Ashley walks through against the DEV build first (or the newly-deployed staging/prod URL if orchestrator has already run the pre-checkpoint deploy).
 
-2. **Open Skynet in browser at https://term.gigaashley.click** (or the dev/staging URL if not yet shipped to prod).
+2. **Open Skynet in browser at https://term.example.com** (or the dev/staging URL if not yet shipped to prod).
 
 3. **Actor identity walk-through (use "tina" or any actor):**
    - Tap Tina's badge in a chat to open the modal.

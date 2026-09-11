@@ -449,7 +449,7 @@ Phase 77 is additive — not a rename or refactor — but it introduces new runt
 
 If the planner adds a *new* base path (e.g., `/matrix-admin/retry` for the failure-mode retry surface), THAT would need new location blocks in both files. Recommendation: **mount the retry route under `/users/:id/relay-retry` or `/identities/:key/relay-retry`** to inherit existing nginx coverage. Both base paths (`/users`, `/identities`) already have proxy blocks in both nginx confs.
 
-**Warning signs:** Frontend crash on the very first `.map` request after deploy; `curl -si https://term.gigaashley.click/newroute/foo | head -1` returns `200 OK` with `text/html` when the backend was supposed to answer.
+**Warning signs:** Frontend crash on the very first `.map` request after deploy; `curl -si https://term.example.com/newroute/foo | head -1` returns `200 OK` with `text/html` when the backend was supposed to answer.
 
 ### Pitfall 2: `mxid` regex validation must precede any interpolation
 
@@ -729,7 +729,7 @@ router.post("/:id/mxid", async (req, res) => {
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | The nginx `location ~ ^/users(/.*)?$` block will correctly proxy `POST /users/:id/mxid` to Express port 30001. | Pitfall 1 | Frontend crashes on `.map` requests after deploy. Mitigation: `curl -si https://term.gigaashley.click/users/xxx/mxid -X POST` sanity check post-deploy — expect 401/403/404 (backend response), NOT 200 with `text/html`. |
+| A1 | The nginx `location ~ ^/users(/.*)?$` block will correctly proxy `POST /users/:id/mxid` to Express port 30001. | Pitfall 1 | Frontend crashes on `.map` requests after deploy. Mitigation: `curl -si https://term.example.com/users/xxx/mxid -X POST` sanity check post-deploy — expect 401/403/404 (backend response), NOT 200 with `text/html`. |
 | A2 | Skynet backend container's locale is UTF-8 (so Node's fetch handles multi-byte cleanly). Not directly verified this session, but the docker/nginx.conf serves the branding template middleware which handles em-dashes fine per its purpose, implying UTF-8 is set. | Pitfall 4 | Room / user names with em-dashes / smart quotes may mangle. Very low risk (mxids are ASCII-only per regex; agent passwords are hex; nothing UTF-8 goes to the admin API). |
 | A3 | `saveMemoryDatabaseToFile()` (imported dynamically in user-admin-routes.ts:187-188) is the correct persist function for the mxid write. It IS what the existing make-admin handler uses. | Example 5 | If naming is stale, fallback to `DatabaseSaveTrigger.triggerSave("mxid_register")` — same effect. |
 | A4 | The birth orchestrator's step-numbering (currently 5 steps: 1-5, per BirthEvent type at identity-birth-orchestrator.ts:102-104) can be extended with steps 6-8 for the relay-account work without breaking the frontend BirthProgress checklist. This is a Phase 20 UI concern. | Diagram | Frontend UI won't render new steps until updated — but Phase A has no frontend UI in scope, so this is a Phase B concern. For Phase A, the new steps can piggyback on the existing 5-step SSE stream by extending the `n` type union or emitting extra events. Planner call. |

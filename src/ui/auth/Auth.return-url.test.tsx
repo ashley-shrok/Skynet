@@ -211,8 +211,8 @@ describe("Behavioral: mount-time redirect (B1-B3)", () => {
 
   it("B1 already-authed + valid same-parent-domain return= → window.location.assign called on mount with validated URL, form not initially rendered", async () => {
     setupLocation(
-      "term.gigaashley.click",
-      "?return=https%3A%2F%2Ffoo-8899.serve.term.gigaashley.click%2F",
+      "term.example.com",
+      "?return=https%3A%2F%2Ffoo-8899.serve.term.example.com%2F",
     );
     localStorage.setItem("skynet_auth", JSON.stringify({ loggedIn: true, username: "ashley" }));
 
@@ -221,7 +221,7 @@ describe("Behavioral: mount-time redirect (B1-B3)", () => {
 
     // assign must have been called with the validated URL
     expect(window.location.assign).toHaveBeenCalledWith(
-      "https://foo-8899.serve.term.gigaashley.click/"
+      "https://foo-8899.serve.term.example.com/"
     );
     // L-02 code-review: fulfill the test name's "form not initially rendered" guarantee.
     // The redirect fires synchronously in the mount effect, so no login form should be visible.
@@ -230,7 +230,7 @@ describe("Behavioral: mount-time redirect (B1-B3)", () => {
 
   it("B2 already-authed + invalid cross-domain return= → assign NOT called, console.warn IS called", async () => {
     setupLocation(
-      "term.gigaashley.click",
+      "term.example.com",
       "?return=https%3A%2F%2Fevil.com%2F",
     );
     localStorage.setItem("skynet_auth", JSON.stringify({ loggedIn: true, username: "ashley" }));
@@ -248,7 +248,7 @@ describe("Behavioral: mount-time redirect (B1-B3)", () => {
   });
 
   it("B3 already-authed + no return= → window.location.assign NOT called (regression guard)", async () => {
-    setupLocation("term.gigaashley.click", "");
+    setupLocation("term.example.com", "");
     localStorage.setItem("skynet_auth", JSON.stringify({ loggedIn: true, username: "ashley" }));
 
     const { Auth } = await import("./Auth");

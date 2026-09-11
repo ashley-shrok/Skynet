@@ -17,7 +17,7 @@ protected the flow through the DB-row lookup path. Not a blocker for ship
 because the LOCAL branch would need a bind-mount attack surface and the REMOTE
 branch is partially caught by `writeIdentityFile`'s inner guard, but it should
 be closed with a two-line handler-side check before this reaches
-term.gigaashley.click. Two INFO items round it out.
+term.example.com. Two INFO items round it out.
 
 ## Findings
 
@@ -171,4 +171,4 @@ None.
 
 **Verdict:** minor concerns — one WARNING-level security fix (add
 `IDENTITY_KEY_RE.test` gate at PUT handler entry, ~2 lines) before ship
-to term.gigaashley.click. Everything else is clean and shape-conformant.
+to term.example.com. Everything else is clean and shape-conformant.

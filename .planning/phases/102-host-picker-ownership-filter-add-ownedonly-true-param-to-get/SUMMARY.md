@@ -29,12 +29,12 @@ Manual smoke test via curl after deploy (no unit test — see "Test rig gap" bel
 ```bash
 # Owned-only should return 3 rows for Ashley (thenasty, workstation, ZoeyBattlestation — her own).
 curl -sk -b /tmp/tina-skynet-cookie.txt \
-  "https://term.gigaashley.click/host/db/host?ownedOnly=true" \
+  "https://term.example.com/host/db/host?ownedOnly=true" \
   | jq 'length'  # expect 3
 
 # Default (no param) should still return 6 rows (unchanged behavior — admin cross-user visibility preserved).
 curl -sk -b /tmp/tina-skynet-cookie.txt \
-  "https://term.gigaashley.click/host/db/host" \
+  "https://term.example.com/host/db/host" \
   | jq 'length'  # expect 6 (Ashley's 3 + joe's workstation + zoey's thenasty + ZoeyBattlestation)
 ```
 

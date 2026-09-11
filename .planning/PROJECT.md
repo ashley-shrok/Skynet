@@ -6,7 +6,7 @@ A maintained fork of Skynet (self-hosted browser SSH/RDP manager) that adds 42
 numbered patches on top of upstream v2.3.x to fit Ashley's specific workflow:
 many parallel Claude Code sessions on many machines, coordinated via
 identity-aware terminal panes with per-pane message queues. Runs in production
-at term.gigaashley.click as the central access point for her fleet.
+at term.example.com as the central access point for her fleet.
 
 ## Core Value
 

@@ -67,7 +67,7 @@ completed: 2026-09-10
 - File URL sub-section retained with the Phase 78 bash recipe verbatim (L865-884 of the pre-rewrite section)
 - New `### Serve URL — active content, live proxy` sub-section paralleling the file-URL shape:
   - Grammar: `https://<hostname>-<port>.serve.<term-parent>`
-  - Concrete example: `https://t1000-3020.serve.term.gigaashley.click`
+  - Concrete example: `https://t1000-3020.serve.term.example.com`
   - Bash construction recipe reading `~/.claude/skynet-parent` + `~/.claude/skynet-hostname` (same distributor-written per-box config files Phase 78 established)
   - Analog missing-config user-facing error handling
   - Round-trip semantics paragraph (passthrough only; allowlist-strip; wildcard cert = per-origin isolation for modern frontends)
@@ -124,7 +124,7 @@ Section subheaders (in reading order):
 4. `### Serve URL — active content, live proxy`
 5. `### Why we replaced the old tailnet HTTP-server recipe (both URL schemes)`
 
-Concrete serve URL example present: `https://t1000-3020.serve.term.gigaashley.click`.
+Concrete serve URL example present: `https://t1000-3020.serve.term.example.com`.
 Rule-of-thumb sentence present verbatim per D-26: *"Do you need something running on the other end for the user to have the right experience?"*.
 
 ## Issues Encountered

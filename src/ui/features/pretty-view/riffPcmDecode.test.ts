@@ -2,7 +2,7 @@
  * Unit tests for riffPcmDecode.ts — pure RIFF/WAV header parser and PCM decoder.
  *
  * Reference: Nelly's streaming Chatterbox demo pattern
- * (https://gigaashley.click/tts-demo/ view-source) lifted per her permission.
+ * (https://example.com/tts-demo/ view-source) lifted per her permission.
  * See 19-CONTEXT.md § Frontend player and § Nelly's endpoint spec.
  *
  * Phase 19, Plan 04 (patch #237).

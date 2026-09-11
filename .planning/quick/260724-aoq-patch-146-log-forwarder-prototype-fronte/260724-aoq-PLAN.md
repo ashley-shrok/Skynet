@@ -316,7 +316,7 @@ End-to-end phase check (Tina reviews before flagging for Ashley's next batch gre
 </verification>
 
 <success_criteria>
-- Ashley (or Tina via docker-exec) can `sudo docker exec skynet cat /tmp/skynet-console-forward.log | tail` and see JSON lines of frontend console output after visiting term.gigaashley.click and doing anything that logs
+- Ashley (or Tina via docker-exec) can `sudo docker exec skynet cat /tmp/skynet-console-forward.log | tail` and see JSON lines of frontend console output after visiting term.example.com and doing anything that logs
 - iPhone PWA close/background scenario: last batch of logs before backgrounding shows up in the file (sendBeacon delivery)
 - Terminal WS remains unaffected — no shared code path
 - All 5 tasks complete, all verify gates green, single atomic commit on current branch, ~200 lines net

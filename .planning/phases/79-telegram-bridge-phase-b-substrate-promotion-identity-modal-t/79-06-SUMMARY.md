@@ -48,17 +48,16 @@ metrics:
 |---------|-----------|-----------------|
 | `skynet` | preserved | + `- tg-bridge-state:/state` mount added inside the volumes block (right after the branding bind-mount); host-varying paths swapped to `${SKYNET_HOST_DIR:-/opt/skynet}` (3 sites: `console-forward-logs`, `stt-recordings`, branding `source:`, `skynet.env` env_file) |
 | `guacd` | preserved | (none — no host-varying paths) |
-| `filestash` | preserved | `keys` bind-mount source swapped to `${SKYNET_HOST_DIR:-/opt/skynet}/keys` |
+|  | preserved | `keys` bind-mount source swapped to `${SKYNET_HOST_DIR:-/opt/skynet}/keys` |
 | `caddy` | preserved | `Caddyfile` bind-mount source swapped to `${SKYNET_HOST_DIR:-/opt/skynet}/Caddyfile` |
 | `tg-bridge` | **NEW** | Full block: builds `../substrate/services/tg-bridge/Dockerfile.tg-bridge` (Plan 05 owns), `image: tg-bridge:local`, `container_name: tg-bridge`, `restart: always`, mounts `tg-bridge-state:/state`, `depends_on: [skynet]`, joins `skynet-net` |
 
-### Volume layout (5 total)
+### Volume layout (4 total)
 
 | Volume | Existing? | Purpose |
 |--------|-----------|---------|
 | `skynet-data` | preserved | Encrypted SQLite root |
 | `caddy-data` / `caddy-config` | preserved | Caddy runtime state |
-| `filestash-data` | preserved | Filestash session/state |
 | `tg-bridge-state` | **NEW** | Shared handshake surface — Skynet writes `config.env` + `registry.json` + `<human>.token` + `<identityKey>.bottoken`; bridge writes `<human>.since` cursors + `.token-dead` sentinels |
 
 ### Network layout (unchanged)
@@ -87,7 +86,7 @@ Six sites, one per host-varying path, all with a `/opt/skynet` default so `docke
 | 2 | 23 | `${SKYNET_HOST_DIR:-/opt/skynet}/stt-recordings` | `/app/stt-recordings` |
 | 3 | 33 | `${SKYNET_HOST_DIR:-/opt/skynet}/branding` | `/etc/skynet/branding` (RO, bind block) |
 | 4 | 46 | `${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env` | env_file source |
-| 5 | 73 | `${SKYNET_HOST_DIR:-/opt/skynet}/keys` | `/keys` (RO, filestash) |
+| 5 | 73 | `${SKYNET_HOST_DIR:-/opt/skynet}/keys` | `/keys` (RO) |
 | 6 | 85 | `${SKYNET_HOST_DIR:-/opt/skynet}/Caddyfile` | `/etc/caddy/Caddyfile` (RO, caddy) |
 
 ## Grep Gate Results (Full Acceptance-Criteria Matrix)
@@ -97,8 +96,8 @@ All 12 gates green:
 | # | Gate | Expected | Actual | Result |
 |---|------|----------|--------|--------|
 | 1 | `test -f docker/docker-compose.yml` | file exists | file exists | PASS |
-| 2 | Service-entry count (skynet/guacd/filestash/caddy/tg-bridge) | 5 | 5 | PASS |
-| 3 | Volume-entry count (skynet-data/caddy-data/caddy-config/filestash-data/tg-bridge-state) | 5 | 5 | PASS |
+| 2 | Service-entry count (skynet/guacd/caddy/tg-bridge) | 5 | 5 | PASS |
+| 3 | Volume-entry count (skynet-data/caddy-data/caddy-config-data/tg-bridge-state) | 5 | 5 | PASS |
 | 4 | `tg-bridge-state:/state` mount count (skynet + tg-bridge) | 2 | 2 | PASS |
 | 5 | `context: ../substrate/services/tg-bridge` count | 1 | 1 | PASS |
 | 6 | `dockerfile: Dockerfile.tg-bridge` count | 1 | 1 | PASS |

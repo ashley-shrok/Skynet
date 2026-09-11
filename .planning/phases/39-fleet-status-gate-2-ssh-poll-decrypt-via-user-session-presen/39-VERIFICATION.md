@@ -29,7 +29,7 @@ Goal step → satisfying plan(s) → satisfying commit(s) → code evidence in t
 
 | # | Goal Step (from bounty + Ashley 2026-08-13 LOCK) | Satisfying Plan | Commit(s) | Code Evidence | Status |
 | - | ------------------------------------------------ | --------------- | --------- | ------------- | ------ |
-| 1 | Browser opens https://term.gigaashley.click/ → session establishes | (nginx routing) | Patch #439 (pre-Phase-39) | Out of scope for Phase 39 — Gate 1 already fixed | UAT (requires deploy) |
+| 1 | Browser opens https://term.example.com/ → session establishes | (nginx routing) | Patch #439 (pre-Phase-39) | Out of scope for Phase 39 — Gate 1 already fixed | UAT (requires deploy) |
 | 2 | Fleet-status WS connects → backend logs `fleet_status_connect` + frontend-subscribed op | 39-02 | 5ff0bb40, 105e3aae | fleet-status-server.ts:94 emits `fleet_status_connect`; :233 emits `fleet_status_subscribed` (naming diff from goal spec — see Gaps §1); :242 threads `{ userId: userId! }` as ctx into `registry.subscribe` | VERIFIED (with naming note) |
 | 3 | Within ~2s, SSH-poll starts (first-subscriber trigger) → per-host `resolveHostById(hostId, userId)` decrypt succeeds → SessionState frames flow | 39-01 + 39-02 | 014b10be, c0b8b235, 105e3aae | subscription-registry.ts:213-218 exposes `onFirstSubscriber`; starter.ts:478-493 wires it to `currentSubscriberUserId = userId; orchestrator.start()`; starter.ts:308-320 rewrites `listIdentityHostingHosts` to call `resolveHostById(row.id, userId)` for every enrolled host; `_connDetails` cast at :317 passes DECRYPTED SSHHost to `connectOneShot` at :390-393 | VERIFIED |
 | 4 | session-working-store populates → convlist ready-dots + WipBubble + WaitingBubble | (frontend, out of scope) | pre-Phase-39 | Phase 39 CONTEXT §Out-of-scope: "no change to session-working-store.ts / session-waiting-store.ts / PrettyConversationsPanel / WipBubble / WaitingBubble — they're correct; they just have no data." | UAT (requires live SessionState frames from step 3) |
@@ -133,7 +133,7 @@ Not verifiable from static code alone — must be exercised against a running co
 
 ### UAT-1: Browser-driven end-to-end signal chain
 
-- **Test:** Open browser to `https://term.gigaashley.click/`, wait 5 seconds.
+- **Test:** Open browser to `https://term.example.com/`, wait 5 seconds.
 - **Expected in `console-forward.log`:**
   1. `fleet_status_connect` on the WS upgrade for `/fleet-status/ws`
   2. `fleet_status_subscribed` (goal spec name: `fleet_status_frontend_subscribed`) with the JWT userId in `user:...`

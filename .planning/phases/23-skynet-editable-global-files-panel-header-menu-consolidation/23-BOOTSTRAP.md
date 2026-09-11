@@ -202,7 +202,7 @@ Bootstrap for a new instance:
 
 After writing `global-files.json`:
 
-1. Open Skynet in a browser (`https://term.gigaashley.click`), log in.
+1. Open Skynet in a browser (`https://term.example.com`), log in.
 2. Click the MoreVertical menu button in the pretty-conversations
    panel header (top-right of the sidebar — the three-dot overflow button
    added in GEFM-01 wave 1).

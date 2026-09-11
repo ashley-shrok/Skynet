@@ -42,7 +42,7 @@ Work through top-to-bottom. Each item has an action + expected result + "if this
 
 ## Setup — one time
 
-1. Open https://term.gigaashley.click in **Chrome on desktop** AND **on your phone** (or use DevTools "Toggle device toolbar" with a mobile viewport + `pointer: coarse` emulation).
+1. Open https://term.example.com in **Chrome on desktop** AND **on your phone** (or use DevTools "Toggle device toolbar" with a mobile viewport + `pointer: coarse` emulation).
 2. Have at least 3 hosts configured in Skynet (any mix of SSH/RDP is fine; **at least one host must have `enableRdp: true`** for the TG-15 walk).
 3. Have at least 2 running tmux sessions active on distinct hosts before starting (one identity-attached Claude session, one plain shell). Kill nothing prior — Phase 7's whole point is discovering these sessions.
 4. Open **DevTools → Network tab** on desktop, filter by "sessions/list" — you'll use this for the TG-17 no-polling check.

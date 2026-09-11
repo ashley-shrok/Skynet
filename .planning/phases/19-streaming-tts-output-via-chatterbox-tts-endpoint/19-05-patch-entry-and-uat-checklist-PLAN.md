@@ -242,7 +242,7 @@ Non-negotiables (from 19-CONTEXT.md § Deploy discipline + CLAUDE.md § Deploy s
 
     ## Patch #237 — Streaming TTS output via Chatterbox /tts endpoint (Phase 19; pretty-view bubble speak-button; buffered /voice/speak route + IdentityModal voice-preview preserved byte-for-byte)
 
-    * **Motivation** (Ashley 2026-07-31, direct scope-lock session): Nelly's streaming Chatterbox demo (https://gigaashley.click/tts-demo/) starts playing audio within ~30ms of clicking; Skynet's current buffered TTS path (patch #223) waits for the entire WAV synthesis to complete before starting playback. On a long assistant message, that's the difference between "instant" and "seconds of dead air." Ashley heard the demo and said "night and day" vs the buffered path. Same-day iOS Safari Web Audio spike on her iPhone PWA passed — no iOS-specific workaround needed.
+    * **Motivation** (Ashley 2026-07-31, direct scope-lock session): Nelly's streaming Chatterbox demo (https://example.com/tts-demo/) starts playing audio within ~30ms of clicking; Skynet's current buffered TTS path (patch #223) waits for the entire WAV synthesis to complete before starting playback. On a long assistant message, that's the difference between "instant" and "seconds of dead air." Ashley heard the demo and said "night and day" vs the buffered path. Same-day iOS Safari Web Audio spike on her iPhone PWA passed — no iOS-specific workaround needed.
 
     * **Root cause vs previous approach**: Patch #223 (`handleSpeak` in `src/backend/database/routes/voice.ts`) does `Buffer.from(await response.arrayBuffer())` on the Chatterbox response, then `res.end(buf)`. Server-side full-buffer + client-side `URL.createObjectURL(blob)` + `new Audio(url).play()`. Chatterbox's `/tts` endpoint (NOT the OpenAI-compat `/v1/audio/speech` — different endpoint, different body schema; `stream:true` only works on `/tts`) supports chunked-transfer streaming with a `0xFFFFFFFF` sentinel in the RIFF file-size field. Piping the response through server-side and progressively decoding chunks on the client via Web Audio API preserves the streaming property end-to-end.
 
@@ -334,14 +334,14 @@ Non-negotiables (from 19-CONTEXT.md § Deploy discipline + CLAUDE.md § Deploy s
 
     **Target:** Ashley
     **Timing:** After `docker compose up -d --force-recreate skynet` completes AND the HTTP2_PROTOCOL_ERROR first-hard-refresh known-issue (patch #232 discovery) has been cleared.
-    **URL:** https://term.gigaashley.click
+    **URL:** https://term.example.com
     **Estimated duration:** ~5 minutes
 
     ---
 
     ## Prep
 
-    - [ ] Skynet container recreated successfully; term.gigaashley.click loads without a 502.
+    - [ ] Skynet container recreated successfully; term.example.com loads without a 502.
     - [ ] Hard-refresh once to clear the HTTP2 known-issue if it appears.
     - [ ] Have a live tmux pane with a Claude Code session open in pretty view mode (Ctrl+Shift+O to flip from tmux to pretty). Any identity is fine — the streaming route is identity-agnostic; identity determines voice but not streaming behavior.
     - [ ] Confirm the identity's `voice` field is set (or absent — default is Elena.wav either way). If unsure, IdentityModal → check the voice preview surface works before starting.
@@ -417,7 +417,7 @@ Non-negotiables (from 19-CONTEXT.md § Deploy discipline + CLAUDE.md § Deploy s
     **What to do:**
     1. From a terminal (Skynet's terminal pane or a local terminal), run:
        ```
-       curl -N -X POST https://term.gigaashley.click/voice/speak-stream \
+       curl -N -X POST https://term.example.com/voice/speak-stream \
             -H "Authorization: Bearer $(cat ~/.jwt || echo REPLACE_ME)" \
             -H "Content-Type: application/json" \
             -d '{"text":"Testing streaming from curl.","voice":"Elena.wav"}' \

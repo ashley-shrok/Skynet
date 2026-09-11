@@ -58,7 +58,7 @@ completed: 2026-09-10
 
 # Phase 103 Plan 05: Subdomain-dispatch + serveUrlHandler + database.ts mount Summary
 
-**Composes the serve URL request path end-to-end: (1) subdomain-dispatch middleware runs the four-stage gate (parse per D-11 → JWT auth → resolveHostByName per D-13/D-17 → canAccessHost per D-03) and either attaches ServeTarget or renders a classified interstitial; (2) serveUrlHandler composes tunnelCache + proxy-factory + error-taxonomy classification with a res.on('finish') success log and NO auth re-invocation; (3) database.ts mounts both after cookieParser and before bodyParser per http-proxy-middleware v4 raw-body streaming semantics (D-24). Fails loud (throws) at module load / factory invocation if SKYNET_COOKIE_DOMAIN unset — no hardcoded 'term.gigaashley.click' fallback anywhere in serve-url source (W4/D-23).**
+**Composes the serve URL request path end-to-end: (1) subdomain-dispatch middleware runs the four-stage gate (parse per D-11 → JWT auth → resolveHostByName per D-13/D-17 → canAccessHost per D-03) and either attaches ServeTarget or renders a classified interstitial; (2) serveUrlHandler composes tunnelCache + proxy-factory + error-taxonomy classification with a res.on('finish') success log and NO auth re-invocation; (3) database.ts mounts both after cookieParser and before bodyParser per http-proxy-middleware v4 raw-body streaming semantics (D-24). Fails loud (throws) at module load / factory invocation if SKYNET_COOKIE_DOMAIN unset — no hardcoded 'term.example.com' fallback anywhere in serve-url source (W4/D-23).**
 
 ## Performance
 
@@ -74,7 +74,7 @@ completed: 2026-09-10
 
 - **Sealed the serve URL end-to-end request path.** Plan 03a's data primitives (types + tunnel-cache + interstitial) and Plan 03b's behavior primitives (proxy-factory + header-audit-sampler) were isolated components until now; this plan wires them into an Express middleware chain that turns `*.serve.term.<domain>` HTTP requests into (a) SSH-tunneled reverse-proxy dispatches, (b) classified Skynet-styled interstitials on failure, or (c) 302 redirects to `/login` on missing auth.
 - **Made the mount order deterministic and documented the rationale inline.** http-proxy-middleware v4 streams the raw request body to upstream — bodyParser consumption upstream of the proxy would truncate POST bodies to zero. The mount now runs cookieParser (header-only, safe) → dispatch → serve-route → bodyParser, with a code-comment explaining WHY so a future maintainer doesn't "clean up" the order.
-- **Enforced W4 fail-loud env-check structurally.** Both new files throw at import/factory-invocation if SKYNET_COOKIE_DOMAIN is unset — Skynet cannot boot cleanly with a wrong default. Zero literal `term.gigaashley.click` strings in either new source file (grep-gate clean).
+- **Enforced W4 fail-loud env-check structurally.** Both new files throw at import/factory-invocation if SKYNET_COOKIE_DOMAIN is unset — Skynet cannot boot cleanly with a wrong default. Zero literal `term.example.com` strings in either new source file (grep-gate clean).
 - **Preserved info-leak invariant T-40-05 in the error path.** The tunnel-error classifier uses ONLY structured fields (err.code / err.level / err.name), NEVER the Error body text or stack. Response bodies (interstitials) contain only the classified sentence + hostname + port. Logs carry `{ operation, target, errorClass, duration }` — never raw Error text.
 - **Delivered 19 test cases across two spec files that cover every branch of both new modules.** RED verified failing on missing modules; GREEN verified passing after implementation. No integration-test scope creep — Plan 04's no-cookie-egress test covers the wire-level cookie-strip; Plan 10 UAT covers the end-to-end path.
 
@@ -128,25 +128,25 @@ _Note: No STATE.md / ROADMAP.md commit produced per orchestrator instructions ("
 - **Fall-through defense in serve-route.ts on missing serveTarget.** If subdomain-dispatch chose not to attach (unknown/missing subdomain header) OR the mount order is misconfigured, serveUrlHandler calls `next()` instead of erroring. Belt-and-braces: primary Skynet frontend remains reachable even under middleware-config bugs.
 - **res.on('finish') registered BEFORE tunnelCache.getOrCreate.** Order matters — if registered after the await, a fast-path already-cached tunnel hit could dispatch the proxy synchronously and race the finish listener into the past. Registered first, then any code path (success + all interstitial branches) triggers finish exactly once.
 - **cookieParser MOVED UP (not duplicated).** Adding a second cookieParser would double-parse Cookie headers and produce duplicate req.cookies entries. Safer to relocate the single existing instance.
-- **Bundled doc-reword cleanups into Task 3 commit.** Tasks 1 and 2 had acceptance criteria `! grep -q 'term.gigaashley.click' ...` — my initial docstrings contained the literal string as illustration ("t1000 sets term.gigaashley.click, T800 sets its own value"). The grep-gate fires on doc mentions, not just runtime fallbacks. Reworded to "hardcoded primary-domain fallback — t1000 sets its own value, T800 sets its own value" and folded into Task 3's mount commit rather than amending prior commits or making 4 separate one-line fix commits. Zero behavior change.
+- **Bundled doc-reword cleanups into Task 3 commit.** Tasks 1 and 2 had acceptance criteria `! grep -q 'term.example.com' ...` — my initial docstrings contained the literal string as illustration ("t1000 sets term.example.com, T800 sets its own value"). The grep-gate fires on doc mentions, not just runtime fallbacks. Reworded to "hardcoded primary-domain fallback — t1000 sets its own value, T800 sets its own value" and folded into Task 3's mount commit rather than amending prior commits or making 4 separate one-line fix commits. Zero behavior change.
 
 ## Deviations from Plan
 
 ### Auto-fixed Issues
 
-**1. [Rule 3 — Blocking / Verification] Reworded three docstrings in subdomain-dispatch.ts to remove literal 'term.gigaashley.click'**
+**1. [Rule 3 — Blocking / Verification] Reworded three docstrings in subdomain-dispatch.ts to remove literal 'term.example.com'**
 - **Found during:** Task 3 verification pass (after Task 1 + Task 2 were already committed)
-- **Issue:** Task 1's acceptance criterion `! grep -q 'term\.gigaashley\.click' src/backend/serve-url/subdomain-dispatch.ts` initially failed because 3 docstring lines contained the literal string as illustration:
-  1. Docblock header: "NO hardcoded `term.gigaashley.click` fallback — t1000 sets its own value..."
-  2. Factory-scope docblock: "no silent-wrong hardcoded 'term.gigaashley.click' fallback"
-  3. Throw error message: "(per D-23; t1000 sets term.gigaashley.click, T800 sets its own value)"
+- **Issue:** Task 1's acceptance criterion `! grep -q 'term\.example\.com' src/backend/serve-url/subdomain-dispatch.ts` initially failed because 3 docstring lines contained the literal string as illustration:
+  1. Docblock header: "NO hardcoded `term.example.com` fallback — t1000 sets its own value..."
+  2. Factory-scope docblock: "no silent-wrong hardcoded 'term.example.com' fallback"
+  3. Throw error message: "(per D-23; t1000 sets term.example.com, T800 sets its own value)"
 - **Fix:** Reworded to "hardcoded primary-domain fallback", "hardcoded primary-domain fallback", and "(per D-23; each Skynet host sets its own value; no hardcoded fallback)" respectively. Zero behavior change; grep-gate now clean.
 - **Files modified:** `src/backend/serve-url/subdomain-dispatch.ts`
 - **Committed in:** `5a375177` (Task 3 commit — bundled with mount changes)
 
-**2. [Rule 3 — Blocking / Verification] Reworded one docstring in serve-route.ts to remove literal 'term.gigaashley.click'**
+**2. [Rule 3 — Blocking / Verification] Reworded one docstring in serve-route.ts to remove literal 'term.example.com'**
 - **Found during:** Task 3 verification pass
-- **Issue:** Task 2's acceptance criterion `grep -c 'term\.gigaashley\.click' src/backend/serve-url/serve-route.ts` returned 1 (docblock line: "NO hardcoded 'term.gigaashley.click' fallback — t1000 sets its own").
+- **Issue:** Task 2's acceptance criterion `grep -c 'term\.example\.com' src/backend/serve-url/serve-route.ts` returned 1 (docblock line: "NO hardcoded 'term.example.com' fallback — t1000 sets its own").
 - **Fix:** Reworded to "NO hardcoded primary-domain fallback — t1000 sets its own value, T800 sets its own value". Zero behavior change.
 - **Files modified:** `src/backend/serve-url/serve-route.ts`
 - **Committed in:** `5a375177` (Task 3 commit — bundled with mount changes)
@@ -158,9 +158,9 @@ _Note: No STATE.md / ROADMAP.md commit produced per orchestrator instructions ("
 - **Files modified:** `src/backend/serve-url/subdomain-dispatch.ts`, `src/backend/serve-url/serve-route.ts`
 - **Committed in:** `d228451f` (subdomain-dispatch initial cleanup), `19c36170` (serve-route initial cleanup), `5a375177` (bundled remaining cleanups)
 
-**4. [Documentation — Non-Rule] Kept interstitial.ts's `term.gigaashley.click` docstring reference (scope boundary)**
+**4. [Documentation — Non-Rule] Kept interstitial.ts's `term.example.com` docstring reference (scope boundary)**
 - **Found during:** Task 3 W4 grep-gate scan
-- **Issue:** `interstitial.ts` (created by Plan 03a) has ONE docstring reference: "`@param primaryDomain  The primary Skynet domain (e.g. \"term.gigaashley.click\") ...`" — a parameter documentation example, not a runtime fallback. The W4 rule from box-maintainer says "0 matches for literal 'term.gigaashley.click' under `src/backend/serve-url/`" but this plan's acceptance criteria explicitly greps only the two NEW files (subdomain-dispatch.ts, serve-route.ts).
+- **Issue:** `interstitial.ts` (created by Plan 03a) has ONE docstring reference: "`@param primaryDomain  The primary Skynet domain (e.g. \"term.example.com\") ...`" — a parameter documentation example, not a runtime fallback. The W4 rule from box-maintainer says "0 matches for literal 'term.example.com' under `src/backend/serve-url/`" but this plan's acceptance criteria explicitly greps only the two NEW files (subdomain-dispatch.ts, serve-route.ts).
 - **Decision:** DEFERRED to Plan 03a cleanup or a follow-up doc pass — modifying interstitial.ts here would violate the scope-boundary rule (only auto-fix issues caused by current task's changes). Interstitial.ts's reference is a documentation example predating this plan.
 - **Not a Rule 1/2/3 deviation** — this is a scope-boundary decision surfaced during Task 3 verification.
 
@@ -198,8 +198,8 @@ Realizes the following threats from the plan's `<threat_model>`:
 
 - `npx tsc --noEmit`: **exit 0** (no output)
 - `npx vitest run src/backend/serve-url/ --exclude='**/*.integration.test.ts'`: **19/19 pass** (11 subdomain-dispatch + 8 serve-route)
-- `grep -c 'term\.gigaashley\.click' src/backend/serve-url/subdomain-dispatch.ts`: **0**
-- `grep -c 'term\.gigaashley\.click' src/backend/serve-url/serve-route.ts`: **0**
+- `grep -c 'term\.example\.com' src/backend/serve-url/subdomain-dispatch.ts`: **0**
+- `grep -c 'term\.example\.com' src/backend/serve-url/serve-route.ts`: **0**
 - `grep -cE 'err\.message|error\.message|\.stack' src/backend/serve-url/subdomain-dispatch.ts`: **0**
 - `grep -cE 'err\.message|error\.message' src/backend/serve-url/serve-route.ts`: **0**
 - `grep -c 'AuthManager\|PermissionManager' src/backend/serve-url/serve-route.ts`: **0**
@@ -225,8 +225,8 @@ Realizes the following threats from the plan's `<threat_model>`:
 ## Next Phase Readiness
 
 - **Plan 10 (end-of-phase UAT)** — READY. The full serve URL request path is now assembled end-to-end:
-  1. Browser hits `https://<host>-<port>.serve.term.gigaashley.click/<path>`
-  2. Caddy sets `X-Skynet-Serve-Subdomain: <host>-<port>.serve.term.gigaashley.click` (Plan 01)
+  1. Browser hits `https://<host>-<port>.serve.term.example.com/<path>`
+  2. Caddy sets `X-Skynet-Serve-Subdomain: <host>-<port>.serve.term.example.com` (Plan 01)
   3. Skynet backend's cookieParser parses the JWT cookie (widened per Plan 02)
   4. subdomain-dispatch parses hostname/port (Task 1), runs JWT + resolve + canAccessHost gates, attaches ServeTarget
   5. serveUrlHandler (Task 2) calls tunnelCache.getOrCreate → getOrCreateProxyForTarget → proxy dispatch

@@ -2,7 +2,7 @@
  * Pure RIFF/WAV header parser and PCM chunk decoder.
  *
  * Reference implementation: Nelly's streaming Chatterbox demo
- * (https://gigaashley.click/tts-demo/ — view-source, lifted wholesale per
+ * (https://example.com/tts-demo/ — view-source, lifted wholesale per
  * Nelly's permission). See 19-CONTEXT.md § Frontend player and
  * § Nelly's endpoint spec for the streaming-WAV specifics.
  *
@@ -44,7 +44,7 @@ export interface RiffHeader {
  * @throws Error if input is < 44 bytes, if "RIFF" magic is missing at bytes
  *   0-3, or if "WAVE" magic is missing at bytes 8-11.
  *
- * Reference: https://gigaashley.click/tts-demo/ (Nelly's Chatterbox streaming demo)
+ * Reference: https://example.com/tts-demo/ (Nelly's Chatterbox streaming demo)
  * and .planning/phases/19-streaming-tts-output-via-chatterbox-tts-endpoint/19-CONTEXT.md
  * § Frontend player.
  */
@@ -110,7 +110,7 @@ export function parseRiffHeader(bytes: Uint8Array): RiffHeader {
  * @throws Error for unsupported bit depths (only 16-bit PCM is implemented;
  *   Chatterbox streaming output is always 16-bit).
  *
- * Reference: https://gigaashley.click/tts-demo/ (Nelly's Chatterbox streaming demo)
+ * Reference: https://example.com/tts-demo/ (Nelly's Chatterbox streaming demo)
  * and .planning/phases/19-streaming-tts-output-via-chatterbox-tts-endpoint/19-CONTEXT.md
  * § Frontend player.
  */

@@ -357,7 +357,7 @@ The Stop hook (registered in `~/.claude/settings.json`) writes to a well-known s
 
 **Watcher → Skynet Skynet transport: WebSocket**
 
-The watcher opens one WebSocket connection to the Skynet backend (ws://localhost:PORT or wss://term.gigaashley.click/fleet-status/ws). It reports all sessions on its box. The Skynet backend is already running and accessible from each box via Tailscale. This is symmetric with the existing per-pane WS pattern.
+The watcher opens one WebSocket connection to the Skynet backend (ws://localhost:PORT or wss://term.example.com/fleet-status/ws). It reports all sessions on its box. The Skynet backend is already running and accessible from each box via Tailscale. This is symmetric with the existing per-pane WS pattern.
 
 **Log destination:** On each box, watcher logs to `~/.local/var/log/fleet-status-watcher.log` (or `/var/log/fleet-status-watcher.log` for system-level). Journald captures systemd unit output automatically.
 

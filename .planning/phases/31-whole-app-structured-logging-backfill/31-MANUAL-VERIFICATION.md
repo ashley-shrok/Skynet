@@ -22,7 +22,7 @@ Phase 31 cannot diagnose or fix the root causes — it can only confirm the log 
 ## 2. Prerequisites
 
 - Skynet deployed with all Phase 31 commits on the server (plans 31-01 through 31-09 merged; box-maintainer "Subagents don't do deploys" directive applies — deploy is orchestrator-only, not part of this plan).
-- iPhone PWA opened at `term.gigaashley.click`.
+- iPhone PWA opened at `term.example.com`.
 - Cellular connection active (WiFi disabled on iPhone) — this matches the 08:03-08:07 UTC 2026-08-11 empirical baseline where both symptoms were observed.
 - SSH access to skynet-ec2 for tailing the log file in a terminal session.
 

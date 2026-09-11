@@ -22,24 +22,24 @@ describe("SERVE_SUBDOMAIN_ORIGIN_RE", () => {
 });
 
 describe("isServeSubdomainOrigin", () => {
-  it("returns true for https://foo-8080.serve.term.gigaashley.click", () => {
+  it("returns true for https://foo-8080.serve.term.example.com", () => {
     expect(
-      isServeSubdomainOrigin("https://foo-8080.serve.term.gigaashley.click"),
+      isServeSubdomainOrigin("https://foo-8080.serve.term.example.com"),
     ).toBe(true);
   });
 
   it("returns true for http:// scheme (dev/preview)", () => {
     expect(
-      isServeSubdomainOrigin("http://foo-8080.serve.term.gigaashley.click"),
+      isServeSubdomainOrigin("http://foo-8080.serve.term.example.com"),
     ).toBe(true);
   });
 
-  it("returns false for primary origin https://term.gigaashley.click", () => {
-    expect(isServeSubdomainOrigin("https://term.gigaashley.click")).toBe(false);
+  it("returns false for primary origin https://term.example.com", () => {
+    expect(isServeSubdomainOrigin("https://term.example.com")).toBe(false);
   });
 
-  it("returns false for sibling origin https://files.gigaashley.click", () => {
-    expect(isServeSubdomainOrigin("https://files.gigaashley.click")).toBe(
+  it("returns false for sibling origin https://files.example.com", () => {
+    expect(isServeSubdomainOrigin("https://files.example.com")).toBe(
       false,
     );
   });
@@ -60,7 +60,7 @@ describe("isServeSubdomainOrigin", () => {
     // Regex requires a subdomain segment BEFORE `.serve.term.`, so bare
     // is naturally excluded — Plan 01 redirects it away anyway; this is
     // extra safety.
-    expect(isServeSubdomainOrigin("https://serve.term.gigaashley.click")).toBe(
+    expect(isServeSubdomainOrigin("https://serve.term.example.com")).toBe(
       false,
     );
   });
@@ -70,7 +70,7 @@ describe("rejectServeSubdomain", () => {
   it("returns true when request Origin matches serve subdomain", () => {
     expect(
       rejectServeSubdomain({
-        headers: { origin: "https://foo-8080.serve.term.gigaashley.click" },
+        headers: { origin: "https://foo-8080.serve.term.example.com" },
       }),
     ).toBe(true);
   });
@@ -78,7 +78,7 @@ describe("rejectServeSubdomain", () => {
   it("returns false for a request with primary-domain Origin", () => {
     expect(
       rejectServeSubdomain({
-        headers: { origin: "https://term.gigaashley.click" },
+        headers: { origin: "https://term.example.com" },
       }),
     ).toBe(false);
   });
@@ -92,7 +92,7 @@ describe("rejectServeSubdomain", () => {
       rejectServeSubdomain({
         headers: {
           origin: [
-            "https://foo-8080.serve.term.gigaashley.click",
+            "https://foo-8080.serve.term.example.com",
           ] as unknown as string,
         },
       }),

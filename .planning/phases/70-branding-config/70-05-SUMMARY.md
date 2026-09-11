@@ -22,8 +22,8 @@ When the AI+ MVP chain ships to t1000:
    - Conversation list header shows Skynet icon + wordmark (visually identical)
    - Login screen shows Skynet icon + wordmark (visually identical)
    - PWA install (Add to Home Screen on iPhone) shows "Skynet"
-2. **Backend routes reachable through nginx** — from inside t1000: `curl -s https://term.gigaashley.click/api/branding | jq .appName` returns `"Skynet"`; `curl -sI https://term.gigaashley.click/manifest.webmanifest` returns 200 + `Content-Type: application/manifest+json`; `curl -sI https://term.gigaashley.click/branding/icon.png` returns 200
-3. **Path traversal blocked** — `curl -s -o /dev/null -w '%{http_code}' 'https://term.gigaashley.click/branding/../database.ts'` returns 400
+2. **Backend routes reachable through nginx** — from inside t1000: `curl -s https://term.example.com/api/branding | jq .appName` returns `"Skynet"`; `curl -sI https://term.example.com/manifest.webmanifest` returns 200 + `Content-Type: application/manifest+json`; `curl -sI https://term.example.com/branding/icon.png` returns 200
+3. **Path traversal blocked** — `curl -s -o /dev/null -w '%{http_code}' 'https://term.example.com/branding/../database.ts'` returns 400
 4. **Container boot with no host config** — after `docker compose up -d --build`, container is Up and healthy; `docker exec skynet ls /etc/skynet/` may be empty (per bind-mount `create_host_path: true` semantics — should not prevent boot); backend logs show no branding-config errors
 
 ## Files created

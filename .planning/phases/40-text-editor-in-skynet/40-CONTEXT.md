@@ -102,7 +102,7 @@ Areas the shape doc leaves to the implementer to figure out from patterns + judg
 ## Deferred Ideas
 
 **Explicitly out of scope for this phase (per shape doc):**
-- Any general file browser for hosts — this is NOT a mini-Filestash inside Skynet.
+- Any general file browser for hosts — this is NOT a mini file-manager inside Skynet.
 - Any editor for files NOT offered by an agent in a chat message (no "open arbitrary file" surface).
 - Any agent-side primitive (agents keep doing what they already do — no new "request edits" convention).
 - Multi-file editor tabs.

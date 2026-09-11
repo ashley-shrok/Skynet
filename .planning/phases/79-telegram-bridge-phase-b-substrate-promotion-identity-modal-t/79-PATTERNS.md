@@ -805,7 +805,7 @@ location ~ ^/telegram(/.*)?$ {
 }
 ```
 
-**Verification post-deploy** (per RESEARCH.md Pitfall 1): `curl -si https://term.gigaashley.click/telegram/nonexistent -X POST` should return 401/404 (backend), NOT 200 text/html.
+**Verification post-deploy** (per RESEARCH.md Pitfall 1): `curl -si https://term.example.com/telegram/nonexistent -X POST` should return 401/404 (backend), NOT 200 text/html.
 
 ---
 

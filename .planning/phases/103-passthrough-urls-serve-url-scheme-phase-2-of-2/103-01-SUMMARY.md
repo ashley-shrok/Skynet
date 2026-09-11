@@ -40,7 +40,7 @@ metrics:
 
 ## One-liner
 
-Ships the wildcard-TLS reverse-proxy substrate that turns `*.serve.term.gigaashley.click` into an HTTPS-terminating front for the serve URL scheme — custom Caddy binary with the route53 DNS-01 plugin, docker-compose wired to build it with the cross-account AWS profile mount, and a Caddyfile snippet with the wildcard site block (`header_up X-Skynet-Serve-Subdomain {host}` + 5m WS/SSE timeouts) plus a bare-redirect block.
+Ships the wildcard-TLS reverse-proxy substrate that turns `*.serve.term.example.com` into an HTTPS-terminating front for the serve URL scheme — custom Caddy binary with the route53 DNS-01 plugin, docker-compose wired to build it with the cross-account AWS profile mount, and a Caddyfile snippet with the wildcard site block (`header_up X-Skynet-Serve-Subdomain {host}` + 5m WS/SSE timeouts) plus a bare-redirect block.
 
 ## What Shipped
 
@@ -50,7 +50,7 @@ Two-stage build verbatim from R&D findings-summary L82-87:
 1. `FROM caddy:2-builder AS builder` — `RUN xcaddy build --with github.com/caddy-dns/route53`
 2. `FROM caddy:2` — `COPY --from=builder /usr/bin/caddy /usr/bin/caddy`
 
-Provenance-comment header cites D-19, the cross-account AssumeRole topology (t1000 `termix-ssm-role` in Aither → personal `caddy-route53-gigaashley` in Ashley's AWS), and the R&D verification checkpoint (`caddy list-modules | grep dns.providers.route53` — verified 2026-09-05).
+Provenance-comment header cites D-19, the cross-account AssumeRole topology (t1000 `termix-ssm-role` in Aither → personal `<caddy-route53-role>` in Ashley's AWS), and the R&D verification checkpoint (`caddy list-modules | grep dns.providers.route53` — verified 2026-09-05).
 
 ### Task 2 — `docker/docker-compose.yml` caddy service (commit `85daa4d5`)
 
@@ -60,19 +60,19 @@ Replaced `image: caddy:2` with:
 - New volume: `${HOME}/.aws/config:/root/.aws/config:ro`
 - New env (list form): `- AWS_PROFILE=caddy`, `- AWS_REGION=us-east-1`
 
-Existing `${SKYNET_HOST_DIR:-/opt/skynet}/Caddyfile:/etc/caddy/Caddyfile:ro` mount preserved verbatim. Other services (skynet, guacd, filestash, tg-bridge), volumes, and networks blocks untouched — `git diff` confirms diff is localized to the caddy service block.
+Existing `${SKYNET_HOST_DIR:-/opt/skynet}/Caddyfile:/etc/caddy/Caddyfile:ro` mount preserved verbatim. Other services (skynet, guacd, tg-bridge), volumes, and networks blocks untouched — `git diff` confirms diff is localized to the caddy service block.
 
 ### Task 3 — `Caddyfile.serve-url-additions.snippet` (commit `b8435e8a`)
 
 Deploy-time artifact under `.planning/phases/103-…/`. Two site blocks:
 
-1. **`*.serve.term.gigaashley.click`** — wildcard, `tls { dns route53 }` (no explicit issuer pin, uses Caddy default chain: LE prod primary, ZeroSSL fallback per D-21), `reverse_proxy skynet:8080 { header_up X-Skynet-Serve-Subdomain {host}; transport http { response_header_timeout 5m; read_timeout 5m } }` — 5m timeouts accommodate long-lived WS + SSE streams (R&D findings-summary L99-100).
+1. **`*.serve.term.example.com`** — wildcard, `tls { dns route53 }` (no explicit issuer pin, uses Caddy default chain: LE prod primary, ZeroSSL fallback per D-21), `reverse_proxy skynet:8080 { header_up X-Skynet-Serve-Subdomain {host}; transport http { response_header_timeout 5m; read_timeout 5m } }` — 5m timeouts accommodate long-lived WS + SSE streams (R&D findings-summary L99-100).
 
-2. **`serve.term.gigaashley.click`** — bare subdomain, `redir https://term.gigaashley.click{uri} permanent` (D-20 accidental-paste UX).
+2. **`serve.term.example.com`** — bare subdomain, `redir https://term.example.com{uri} permanent` (D-20 accidental-paste UX).
 
 Leading comment documents:
 - D-24 single-deploy motion + on-host append instruction (Ashley appends this to `/opt/skynet/Caddyfile` at ship time — deployed Caddyfile lives on-host, not in-repo)
-- D-22 HSTS mirror requirement (mirror the exact directive from the existing `term.gigaashley.click` block when appending)
+- D-22 HSTS mirror requirement (mirror the exact directive from the existing `term.example.com` block when appending)
 - D-21 intentional absence of ACME-CA pin
 
 ## Verification Results
@@ -91,12 +91,12 @@ Leading comment documents:
 | Task 2 — `docker compose -f docker/docker-compose.yml config --quiet` | PASS (exit 0) |
 | Task 2 — diff localized to caddy service block | PASS (git diff review) |
 | Task 3 — snippet file exists at phase path | PASS |
-| Task 3 — wildcard site block present starting with `*.serve.term.gigaashley.click {` | PASS (grep) |
+| Task 3 — wildcard site block present starting with `*.serve.term.example.com {` | PASS (grep) |
 | Task 3 — contains `tls {` + `dns route53` | PASS (grep) |
 | Task 3 — contains exact `header_up X-Skynet-Serve-Subdomain {host}` | PASS (grep) |
 | Task 3 — contains `reverse_proxy skynet:8080 {` | PASS (grep) |
 | Task 3 — contains `response_header_timeout 5m` + `read_timeout 5m` | PASS (grep) |
-| Task 3 — bare `serve.term.gigaashley.click` site block with redir | PASS (grep) |
+| Task 3 — bare `serve.term.example.com` site block with redir | PASS (grep) |
 | Task 3 — leading `# HSTS` comment documents D-22 mirror | PASS (grep) |
 | Task 3 — no `acme_ca` directive | PASS (grep after Deviation #2 reword) |
 | Task 3 — leading comment mentions D-24 + `/opt/skynet/Caddyfile` append instruction | PASS (grep) |
@@ -108,7 +108,7 @@ Leading comment documents:
 
 - **Found during:** Task 1 verify step
 - **Issue:** The plan's `<verify>` block calls for `docker build -f docker/Caddy.Dockerfile -t skynet-caddy:local . && docker run --rm --entrypoint /usr/bin/caddy skynet-caddy:local list-modules | grep -q '^dns.providers.route53'`. The `ubuntu` user in this executor sandbox is not in the `docker` group (`ls -la /var/run/docker.sock` → `root:docker`; `groups` → no `docker`), so `docker build` fails with `permission denied while trying to connect to the docker API`.
-- **Why acceptable:** R&D findings-summary L108-113 already end-to-end verified this exact 4-line recipe on 2026-09-05 — `caddy list-modules | grep route53 → dns.providers.route53 present`, Caddy v2.11.4 confirmed, sample Caddyfile with the wildcard block validated cleanly, wildcard cert issued end-to-end for `*.test-scratch.gigaashley.click` via DNS-01. The Dockerfile is byte-identical to the R&D-verified recipe.
+- **Why acceptable:** R&D findings-summary L108-113 already end-to-end verified this exact 4-line recipe on 2026-09-05 — `caddy list-modules | grep route53 → dns.providers.route53 present`, Caddy v2.11.4 confirmed, sample Caddyfile with the wildcard block validated cleanly, wildcard cert issued end-to-end for `*.test-scratch.example.com` via DNS-01. The Dockerfile is byte-identical to the R&D-verified recipe.
 - **Files modified:** none (verification only — Dockerfile content unchanged from planned shape)
 - **Follow-up:** Ship-time docker build (Ashley's `docker compose up -d --build caddy` motion during the D-24 deploy) will re-verify the module list. Not blocking for plan completion — the static acceptance criteria all pass, and the R&D proof stands.
 - **Commit:** N/A (verification deferral only)
@@ -140,7 +140,7 @@ Per Phase 103-01 plan `<threat_model>`:
 | T-103-02 (xcaddy plugin supply chain — caddy-dns/route53) | accept | Dockerfile pulls plugin from `github.com/caddy-dns/route53` — Caddy project official org. Accepted per plan. |
 | T-103-03 (AWS IAM creds on host) | mitigate | Task 2 mount is READ-ONLY (`:ro`); `~/.aws/config` uses `credential_source = Ec2InstanceMetadata` (no static creds on disk). |
 | T-103-04 (ACME rate limits) | accept | LE production 50-cert/domain/week limit; wildcard cert rotates every 60 days, orders of magnitude under limit. ZeroSSL is fallback. |
-| T-103-05 (Route 53 IAM overly broad) | mitigate | Out of executor scope — IAM policy already provisioned per R&D findings-summary L306-332 (scoped to `Z00583511HTO90JKK1MV7`). This plan only wires the container to use it. |
+| T-103-05 (Route 53 IAM overly broad) | mitigate | Out of executor scope — IAM policy already provisioned per R&D findings-summary L306-332 (scoped to `<personal-hosted-zone-id>`). This plan only wires the container to use it. |
 | T-103-SC (xcaddy build supply chain) | mitigate | Only Caddy project official artifacts pulled — caddy:2-builder base image + xcaddy tool + caddy-dns/route53 plugin all under github.com/caddy-dns or caddyserver orgs. No third-party registries. |
 
 No new security-relevant surface introduced beyond what's in the threat register.

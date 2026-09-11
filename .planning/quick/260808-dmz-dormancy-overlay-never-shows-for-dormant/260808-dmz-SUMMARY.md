@@ -96,7 +96,7 @@ New tests: G (probe emits+no-teardown), H (sentinel-disappearance+rediscovery), 
 - **Build**: `docker build -t skynet-patched:local -f docker/Dockerfile .` — EXIT 0
 - **Deploy**: `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`
 - **Container health**: Up + healthy at T+9s
-- **HTTPS 200**: `curl -sk -o /dev/null -w '%{http_code}\n' https://term.gigaashley.click/` → `200`
+- **HTTPS 200**: `curl -sk -o /dev/null -w '%{http_code}\n' https://term.example.com/` → `200`
 - **Deadman timer**: 15-min deadman spawned; killed after HTTPS 200 confirmed
 - **Byte-verified (backend)**: `grep -c "startActiveSessionFlow|dormantPollTimer|claude_session_dormant_entered" /app/dist/backend/backend/claude-session/claude-session-server.js` → `19`
 - **Byte-verified (frontend)**: `grep -c "Session is asleep|dormant|wake_result" /app/html/assets/Terminal-96UG-f6O.js` → `2`; minified `!dormant` gate found as `p===\`inactive\`&&!P&&`; `isVisible:null` absent
@@ -122,7 +122,7 @@ The `startActiveSessionFlow` is declared as a connection-scoped `let` (before `w
 
 PENDING — Task 5 is the human verify checkpoint. Ashley needs to:
 1. Confirm Tiffany's identity is dormant on T1000 (`ls ~/.claude/identities/tiffany/.dormant`)
-2. Open Tiffany's pretty-view pane in the PWA at term.gigaashley.click
+2. Open Tiffany's pretty-view pane in the PWA at term.example.com
 3. Confirm DormancyOverlay appears ("session is asleep" + Wake button, NOT "no active Claude session")
 4. Tap Wake → confirm overlay transitions to "waking…" → auto-dismisses when Claude relaunches
 5. Confirm normal chat works after wake

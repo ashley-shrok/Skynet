@@ -118,7 +118,7 @@ Per fleet rule: NO `isolation: "worktree"` on any Agent spawn. All work happens 
 ## Specific Ideas
 
 ### Success shape from a real browser session
-- Open a browser tab to `https://term.gigaashley.click/`
+- Open a browser tab to `https://term.example.com/`
 - fleet-status WS connects → backend logs `fleet_status_connect` + `fleet_status_frontend_subscribed`
 - Within ~2 seconds, SSH-poll starts → per-host `fleet_status_host_poll_started` events fire (new op — currently silent) → SSH handshake succeeds via `resolveHostById` decrypt path → per-host `fleet_status_host_poll_success` events fire
 - `SessionState` frames flow to the browser → `session-working-store` populates → convlist rows show ready-dots for idle sessions AND `<WipBubble />` renders in PrettyView for the working session

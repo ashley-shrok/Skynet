@@ -16,7 +16,7 @@ import { test, expect } from "@playwright/test";
 import { readCreds, seedFullAuth } from "./helpers/auth";
 
 const BASE_URL =
-  process.env.PLAYWRIGHT_BASE_URL ?? "https://term.gigaashley.click";
+  process.env.PLAYWRIGHT_BASE_URL ?? "https://term.example.com";
 
 test.use({ trace: "retain-on-failure" });
 

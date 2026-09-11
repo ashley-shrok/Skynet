@@ -83,7 +83,7 @@ Output:
 6. `src/ui/features/pretty-view/ChatMessage.test.tsx` — Phase 05 tests preserved; add 3-4 new tests for speak state machine (mocked player).
 
 Non-negotiables (from 19-CONTEXT.md § Frontend player + § Cross-bubble Stop + § Error handling + § Testing, and TTSSTR-05/06):
-- Reference the ~50 lines of JS at view-source of https://gigaashley.click/tts-demo/ (Nelly's demo) for the RIFF-parse + AudioBufferSourceNode scheduling recipe. Executor MUST fetch this URL during Task 2 to lift the reference implementation. Nelly explicitly permitted lift-wholesale.
+- Reference the ~50 lines of JS at view-source of https://example.com/tts-demo/ (Nelly's demo) for the RIFF-parse + AudioBufferSourceNode scheduling recipe. Executor MUST fetch this URL during Task 2 to lift the reference implementation. Nelly explicitly permitted lift-wholesale.
 - Preserve observable behavior of the speakState state machine (icon transitions look identical to pre-Phase-19).
 - Preserve the cross-bubble preempt + Stop semantics (module-level singleton pattern).
 - IdentityModal.tsx:783 continues to call `postSpeak` — do NOT swap it to `postSpeakStream`.
@@ -115,7 +115,7 @@ Non-negotiables (from 19-CONTEXT.md § Frontend player + § Cross-bubble Stop + 
 
   <read_first>
     - `.planning/phases/19-streaming-tts-output-via-chatterbox-tts-endpoint/19-CONTEXT.md` § Frontend player (steps 3-4 describe the parse+decode contract).
-    - Nelly's demo view-source at `https://gigaashley.click/tts-demo/` — fetch this URL. Execute one of: (a) `curl -s https://gigaashley.click/tts-demo/ | grep -A 500 '<script>' | head -600`, or (b) use the WebFetch tool with the prompt "extract the JavaScript that parses the RIFF/WAV header from the first bytes of a streamed response and the JavaScript that decodes each PCM chunk into an AudioBuffer for AudioBufferSourceNode scheduling — copy the code verbatim". You MUST see the reference implementation before writing your own — Nelly's version handles the streaming WAV's `0xFFFFFFFF` unknown-length sentinel (per CONTEXT.md § Nelly's endpoint spec) which a naive parser would trip on.
+    - Nelly's demo view-source at `https://example.com/tts-demo/` — fetch this URL. Execute one of: (a) `curl -s https://example.com/tts-demo/ | grep -A 500 '<script>' | head -600`, or (b) use the WebFetch tool with the prompt "extract the JavaScript that parses the RIFF/WAV header from the first bytes of a streamed response and the JavaScript that decodes each PCM chunk into an AudioBuffer for AudioBufferSourceNode scheduling — copy the code verbatim". You MUST see the reference implementation before writing your own — Nelly's version handles the streaming WAV's `0xFFFFFFFF` unknown-length sentinel (per CONTEXT.md § Nelly's endpoint spec) which a naive parser would trip on.
     - RIFF-WAV format primer (if unfamiliar): the first 44 bytes are the "RIFF" chunk header (12 bytes) + "fmt " subchunk (24 bytes: format code, channels @ offset 22, sample rate @ offset 24, byte rate, block align, bits-per-sample @ offset 34) + "data" subchunk header (8 bytes: "data" magic + size, `0xFFFFFFFF` sentinel for streaming). PCM samples start at byte 44 for the standard header. Little-endian encoding throughout.
     - No existing files in `src/ui/features/pretty-view/` named `riffPcmDecode*` — this is a greenfield module.
   </read_first>
@@ -226,7 +226,7 @@ Non-negotiables (from 19-CONTEXT.md § Frontend player + § Cross-bubble Stop + 
 
   <read_first>
     - `src/ui/features/pretty-view/riffPcmDecode.ts` (created in Task 1) — use `parseRiffHeader` and `decodePcmChunk` verbatim; do NOT reimplement.
-    - Nelly's demo view-source at `https://gigaashley.click/tts-demo/` — re-fetch if not cached from Task 1. Focus specifically on the `nextStartTime` scheduling clock pattern (initialized to `AudioContext.currentTime + smallEpsilon`; advanced by `buffer.duration` after each `sourceNode.start(nextStartTime)` call). Lift the scheduling recipe wholesale per Nelly's permission.
+    - Nelly's demo view-source at `https://example.com/tts-demo/` — re-fetch if not cached from Task 1. Focus specifically on the `nextStartTime` scheduling clock pattern (initialized to `AudioContext.currentTime + smallEpsilon`; advanced by `buffer.duration` after each `sourceNode.start(nextStartTime)` call). Lift the scheduling recipe wholesale per Nelly's permission.
     - `.planning/phases/19-streaming-tts-output-via-chatterbox-tts-endpoint/19-CONTEXT.md` § Frontend player (steps 1-5), § Cross-bubble Stop / new-bubble-preempt semantics, § Error handling.
     - `src/ui/features/pretty-view/ChatMessage.tsx:60-70` (existing cleanup useEffect) — the singleton teardown pattern that this player object must fit into via its `.stop()` method (called from ChatMessage's unmount/click-preempt).
     - Web Audio API primer (if unfamiliar): `AudioContext.createBuffer(channels, frames, sampleRate)` creates an AudioBuffer; `buffer.getChannelData(ch).set(float32Array)` fills it; `AudioBufferSourceNode` from `audioContext.createBufferSource()` connects to `audioContext.destination` and plays at `sourceNode.start(when)` on the AudioContext's own clock (`audioContext.currentTime`). Each source node is single-use — call `.start()` once, `.onended` fires when done.

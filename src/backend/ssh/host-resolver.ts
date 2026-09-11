@@ -383,7 +383,7 @@ export async function resolveHostByName(
   // D-13 promise ("display case preserved on the returned host row") — every
   // serve URL to a mixed-case host returned unknown_host + host_unreachable
   // interstitial. Discovered 2026-09-10 when tina served a prototype from
-  // `Skynet-8891.serve.term.gigaashley.click` and Ashley hit the interstitial.
+  // `Skynet-8891.serve.term.example.com` and Ashley hit the interstitial.
   // Fix: LOWER(hosts.name) = name so the WHERE matches regardless of stored
   // case. Cross-user isolation invariant (§ Pitfall 7) is preserved by the
   // unchanged userId equality.

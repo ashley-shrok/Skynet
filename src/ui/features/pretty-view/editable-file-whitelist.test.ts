@@ -31,7 +31,7 @@ describe("SKYNET_FILE_URL_RE_CLIENT — file-URL client regex (Phase 75 D-01)", 
   it("Test 1: matches a bare https file URL with .md extension", () => {
     SKYNET_FILE_URL_RE_CLIENT.lastIndex = 0;
     const url =
-      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md";
+      "https://term.example.com/file/thenasty/home/ubuntu/note.md";
     const matches = url.match(SKYNET_FILE_URL_RE_CLIENT);
     expect(matches).not.toBeNull();
     expect(matches).toContain(url);
@@ -40,30 +40,30 @@ describe("SKYNET_FILE_URL_RE_CLIENT — file-URL client regex (Phase 75 D-01)", 
   it("Test 2: extracts exactly the URL out of surrounding prose (no trailing text)", () => {
     SKYNET_FILE_URL_RE_CLIENT.lastIndex = 0;
     const body =
-      "body text https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md more text";
+      "body text https://term.example.com/file/thenasty/home/ubuntu/note.md more text";
     const matches = body.match(SKYNET_FILE_URL_RE_CLIENT);
     expect(matches).toEqual([
-      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md",
+      "https://term.example.com/file/thenasty/home/ubuntu/note.md",
     ]);
   });
 
   it("Test 3: matches a URL with an explicit port on the Skynet domain", () => {
     SKYNET_FILE_URL_RE_CLIENT.lastIndex = 0;
     const url =
-      "https://term.gigaashley.click:8080/file/thenasty/etc/hostname";
+      "https://term.example.com:8080/file/thenasty/etc/hostname";
     const matches = url.match(SKYNET_FILE_URL_RE_CLIENT);
     expect(matches).toContain(url);
   });
 
   it("Test 4: markdown-link surrounding paren is stripped by stripTrailingPunct (composes cleanly)", () => {
     SKYNET_FILE_URL_RE_CLIENT.lastIndex = 0;
-    const raw = "(https://term.gigaashley.click/file/thenasty/foo.md)";
+    const raw = "(https://term.example.com/file/thenasty/foo.md)";
     const matches = raw.match(SKYNET_FILE_URL_RE_CLIENT);
     // The regex terminator [^\s)?#]+ stops at the closing paren, so the
     // match is the URL without the trailing `)`.
     expect(matches).not.toBeNull();
     expect(matches![0]).toBe(
-      "https://term.gigaashley.click/file/thenasty/foo.md",
+      "https://term.example.com/file/thenasty/foo.md",
     );
     // stripTrailingPunct then handles prose-end punctuation the same way it
     // does for TAILNET_URL_RE_CLIENT — passing a clean URL through leaves it
@@ -71,14 +71,14 @@ describe("SKYNET_FILE_URL_RE_CLIENT — file-URL client regex (Phase 75 D-01)", 
     expect(stripTrailingPunct(matches![0])).toBe(matches![0]);
     expect(
       stripTrailingPunct(
-        "https://term.gigaashley.click/file/thenasty/foo.md.",
+        "https://term.example.com/file/thenasty/foo.md.",
       ),
-    ).toBe("https://term.gigaashley.click/file/thenasty/foo.md");
+    ).toBe("https://term.example.com/file/thenasty/foo.md");
   });
 
   it("Test 5: does NOT match http:// scheme (Skynet is HTTPS-only)", () => {
     SKYNET_FILE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "http://term.gigaashley.click/file/thenasty/foo.md";
+    const url = "http://term.example.com/file/thenasty/foo.md";
     const matches = url.match(SKYNET_FILE_URL_RE_CLIENT);
     expect(matches).toBeNull();
   });
@@ -102,7 +102,7 @@ describe("SKYNET_FILE_URL_RE_CLIENT — file-URL client regex (Phase 75 D-01)", 
     // And still does NOT match the new file-URL shape (regexes are disjoint).
     TAILNET_URL_RE_CLIENT.lastIndex = 0;
     const fileUrl =
-      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md";
+      "https://term.example.com/file/thenasty/home/ubuntu/note.md";
     expect(fileUrl.match(TAILNET_URL_RE_CLIENT)).toBeNull();
   });
 });
@@ -110,7 +110,7 @@ describe("SKYNET_FILE_URL_RE_CLIENT — file-URL client regex (Phase 75 D-01)", 
 describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)", () => {
   it("matches basic serve URL (host + port + no path)", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://t1000-3020.serve.term.gigaashley.click";
+    const url = "https://t1000-3020.serve.term.example.com";
     const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
     expect(matches).not.toBeNull();
     expect(matches!.length).toBeGreaterThanOrEqual(1);
@@ -120,7 +120,7 @@ describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)
   it("matches serve URL with path", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
     const url =
-      "https://t1000-3020.serve.term.gigaashley.click/foo/bar";
+      "https://t1000-3020.serve.term.example.com/foo/bar";
     const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
     expect(matches).not.toBeNull();
     expect(matches!.length).toBeGreaterThanOrEqual(1);
@@ -129,7 +129,7 @@ describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)
 
   it("matches serve URL with different hostname + port (thenasty-8080)", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://thenasty-8080.serve.term.gigaashley.click";
+    const url = "https://thenasty-8080.serve.term.example.com";
     const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
     expect(matches).not.toBeNull();
     expect(matches!.length).toBeGreaterThanOrEqual(1);
@@ -137,7 +137,7 @@ describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)
 
   it("matches serve URL with mixed-case hostname (D-13 case preservation)", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://GIGAASHLEYPC-3000.serve.term.gigaashley.click";
+    const url = "https://GIGAASHLEYPC-3000.serve.term.example.com";
     const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
     expect(matches).not.toBeNull();
     expect(matches!.length).toBeGreaterThanOrEqual(1);
@@ -145,14 +145,14 @@ describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)
 
   it("rejects URL without a digit port (foo-bar has no numeric suffix)", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://foo-bar.serve.term.gigaashley.click";
+    const url = "https://foo-bar.serve.term.example.com";
     const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
     expect(matches).toBeNull();
   });
 
   it("rejects a file URL (belongs to SKYNET_FILE_URL_RE_CLIENT)", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "https://term.gigaashley.click/file/host/path";
+    const url = "https://term.example.com/file/host/path";
     const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
     expect(matches).toBeNull();
   });
@@ -173,7 +173,7 @@ describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)
 
   it("rejects http:// scheme (serve URLs are HTTPS-only)", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
-    const url = "http://t1000-3020.serve.term.gigaashley.click";
+    const url = "http://t1000-3020.serve.term.example.com";
     const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
     expect(matches).toBeNull();
   });
@@ -195,7 +195,7 @@ describe("non-overlap invariants — three sibling URL regexes are disjoint", ()
     /^http:\/\/100\.(?:6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\.\d{1,3}\.\d{1,3}:\d{1,5}\/[^\s)]+$/;
 
   it("serve URL does NOT match SKYNET_FILE_URL_RE_CLIENT (fresh regex)", () => {
-    const serveUrl = "https://t1000-3020.serve.term.gigaashley.click/app";
+    const serveUrl = "https://t1000-3020.serve.term.example.com/app";
     expect(FILE_RE_NO_G.test(serveUrl)).toBe(false);
     // Also verify with the /g regex via .match() (stateless per MDN).
     SKYNET_FILE_URL_RE_CLIENT.lastIndex = 0;
@@ -203,7 +203,7 @@ describe("non-overlap invariants — three sibling URL regexes are disjoint", ()
   });
 
   it("serve URL does NOT match TAILNET_URL_RE_CLIENT (fresh regex)", () => {
-    const serveUrl = "https://t1000-3020.serve.term.gigaashley.click/app";
+    const serveUrl = "https://t1000-3020.serve.term.example.com/app";
     expect(TAILNET_RE_NO_G.test(serveUrl)).toBe(false);
     TAILNET_URL_RE_CLIENT.lastIndex = 0;
     expect(serveUrl.match(TAILNET_URL_RE_CLIENT)).toBeNull();
@@ -211,7 +211,7 @@ describe("non-overlap invariants — three sibling URL regexes are disjoint", ()
 
   it("file URL does NOT match SKYNET_SERVE_URL_RE_CLIENT (reciprocal)", () => {
     const fileUrl =
-      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md";
+      "https://term.example.com/file/thenasty/home/ubuntu/note.md";
     expect(SERVE_RE_NO_G.test(fileUrl)).toBe(false);
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
     expect(fileUrl.match(SKYNET_SERVE_URL_RE_CLIENT)).toBeNull();

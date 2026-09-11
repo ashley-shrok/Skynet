@@ -344,7 +344,7 @@ describe("useEditableFileEligibility — per-message tailnet-URL eligibility sca
 
   it("Test 6 (file URL with .md — sync whitelist hit, no fetch): includes the file URL in the eligibility Set", async () => {
     const url =
-      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md";
+      "https://term.example.com/file/thenasty/home/ubuntu/note.md";
     const body = `check ${url}`;
 
     const { result } = renderHook(() =>
@@ -362,7 +362,7 @@ describe("useEditableFileEligibility — per-message tailnet-URL eligibility sca
   it("Test 7 (mixed tailnet + file URL — both in the Set): dedupes via Set + stripTrailingPunct", async () => {
     const tailnet = "http://100.64.0.1:8000/notes.md";
     const file =
-      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md";
+      "https://term.example.com/file/thenasty/home/ubuntu/note.md";
     const body = `see ${tailnet} and ${file} for details`;
 
     const { result } = renderHook(() =>
@@ -395,7 +395,7 @@ describe("useEditableFileEligibility — per-message tailnet-URL eligibility sca
 
     const tailnet = "http://100.64.0.1:8000/myscript";
     const file =
-      "https://term.gigaashley.click/file/thenasty/home/ubuntu/myscript";
+      "https://term.example.com/file/thenasty/home/ubuntu/myscript";
     const body = `${tailnet}\n${file}`;
 
     renderHook(() => useEditableFileEligibility("e1", body));
@@ -426,7 +426,7 @@ describe("useEditableFileEligibility — per-message tailnet-URL eligibility sca
     });
 
     const file =
-      "https://term.gigaashley.click/file/thenasty/home/ubuntu/myscript";
+      "https://term.example.com/file/thenasty/home/ubuntu/myscript";
 
     const { result } = renderHook(() =>
       useEditableFileEligibility("e1", file),
@@ -459,7 +459,7 @@ describe("useEditableFileEligibility — per-message tailnet-URL eligibility sca
     mockFetch.mockResolvedValue({ ...BASE_RESPONSE, isTextByBytes: false });
 
     const file =
-      "https://term.gigaashley.click/file/thenasty/home/ubuntu/myscript";
+      "https://term.example.com/file/thenasty/home/ubuntu/myscript";
     const { unmount, result } = renderHook(() =>
       useEditableFileEligibility("e1", file),
     );

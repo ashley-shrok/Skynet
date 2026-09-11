@@ -98,7 +98,7 @@ export const TAILNET_URL_RE_CLIENT =
 
 /**
  * Phase 75 D-01 URL shape: <skynet-domain>[:port]/file/<hostname>/<abs-path>
- * Example: https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md
+ * Example: https://term.example.com/file/thenasty/home/ubuntu/note.md
  *
  * Grammar (locked in Phase 75 D-01):
  *   - scheme:      https:// only (agents on Skynet always run on the HTTPS
@@ -145,7 +145,7 @@ export const SKYNET_FILE_URL_RE_CLIENT =
 
 /**
  * Phase 103 D-29 URL shape: <hostname>-<port>.serve.term.<domain>[/path]
- * Example: https://t1000-3020.serve.term.gigaashley.click/foo/bar
+ * Example: https://t1000-3020.serve.term.example.com/foo/bar
  *
  * Grammar (locked in Phase 103 D-01 + D-11 + D-12):
  *   - scheme:      https:// only (Caddy edge terminates TLS; agents on the
@@ -159,7 +159,7 @@ export const SKYNET_FILE_URL_RE_CLIENT =
  *   - port:        \d{1,5} — the agent's port on the target host.
  *   - literal:     .serve.term.
  *   - domain:      [a-zA-Z0-9.-]+ — any DNS-legal parent domain (currently
- *                  gigaashley.click; T800 will have its own per D-23).
+ *                  example.com; T800 will have its own per D-23).
  *   - opt port:    (?::\d{1,5})? — rare on serve URLs (Caddy terminates on
  *                  443) but included for symmetry with SKYNET_FILE_URL_RE_CLIENT.
  *   - opt path:    (?:\/[^\s)?#]*)? — same terminator style as the sibling

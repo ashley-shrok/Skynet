@@ -2,14 +2,14 @@
 
 **Target:** Ashley
 **Timing:** After `docker compose up -d --force-recreate skynet` completes AND the HTTP2_PROTOCOL_ERROR first-hard-refresh known-issue (patch #232 discovery) has been cleared.
-**URL:** https://term.gigaashley.click
+**URL:** https://term.example.com
 **Estimated duration:** ~5 minutes
 
 ---
 
 ## Prep
 
-- [ ] Skynet container recreated successfully; term.gigaashley.click loads without a 502.
+- [ ] Skynet container recreated successfully; term.example.com loads without a 502.
 - [ ] Hard-refresh once to clear the HTTP2 known-issue if it appears.
 - [ ] Have a live tmux pane with a Claude Code session open in pretty view mode (Ctrl+Shift+O to flip from tmux to pretty). Any identity is fine — the streaming route is identity-agnostic; identity determines voice but not streaming behavior.
 - [ ] Confirm the identity's `voice` field is set (or absent — default is Elena.wav either way). If unsure, IdentityModal → check the voice preview surface works before starting.
@@ -95,13 +95,13 @@
 **What to do:**
 1. From a terminal (Skynet's terminal pane or a local terminal), run:
    ```
-   curl -N -X POST https://term.gigaashley.click/voice/speak-stream \
+   curl -N -X POST https://term.example.com/voice/speak-stream \
         -H "Authorization: Bearer <YOUR_JWT>" \
         -H "Content-Type: application/json" \
         -d '{"text":"Testing streaming from curl.","voice":"Elena.wav"}' \
         --output /tmp/stream-test.wav
    ```
-   (Grab your JWT from browser devtools: `localStorage.getItem("jwt")` in the devtools console at term.gigaashley.click.)
+   (Grab your JWT from browser devtools: `localStorage.getItem("jwt")` in the devtools console at term.example.com.)
 2. Watch the curl progress bar. Bytes should arrive over a period of ~1-3 seconds (not batched at the very end).
 3. Play the output: `afplay /tmp/stream-test.wav` (macOS) or `aplay /tmp/stream-test.wav` (Linux).
 
@@ -122,7 +122,7 @@
 **What to do:**
 1. Run the same curl as Item 5 but WITHOUT the Authorization header:
    ```
-   curl -N -X POST https://term.gigaashley.click/voice/speak-stream \
+   curl -N -X POST https://term.example.com/voice/speak-stream \
         -H "Content-Type: application/json" \
         -d '{"text":"Testing without auth.","voice":"Elena.wav"}'
    ```

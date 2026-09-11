@@ -7,7 +7,7 @@
 <domain>
 ## Phase Boundary
 
-Replace the buffered TTS path on the pretty-view bubble speak-button with a progressive Web Audio player, so audio starts within ~30ms of clicking (before synthesis completes) instead of after the whole WAV is done. Ashley heard Nelly's streaming Chatterbox demo (https://gigaashley.click/tts-demo/) 2026-07-31 and said "night and day" vs the buffered path. iOS Safari Web Audio verified working on her iPhone PWA via same-day spike — no iOS-specific workaround required.
+Replace the buffered TTS path on the pretty-view bubble speak-button with a progressive Web Audio player, so audio starts within ~30ms of clicking (before synthesis completes) instead of after the whole WAV is done. Ashley heard Nelly's streaming Chatterbox demo (https://example.com/tts-demo/) 2026-07-31 and said "night and day" vs the buffered path. iOS Safari Web Audio verified working on her iPhone PWA via same-day spike — no iOS-specific workaround required.
 
 **In scope** (the bubble speak-button, one caller):
 - `src/backend/database/routes/voice.ts` — new `handleSpeakStream` route + `POST /voice/speak-stream` wiring on port 30001
@@ -79,7 +79,7 @@ Reuses existing `VOICE_FILENAME_RE` (`/^[A-Z][A-Za-z]+\.wav$/`) and `SPEAK_TEXT_
   ```
   Exact directives to match the existing `/voice/speak` block header handling (see current `docker/nginx.conf` for the pattern).
 - **Existing `/voice/speak` block untouched.**
-- **Caddy edge:** streams chunked-transfer by default. Verify with `curl -N https://term.gigaashley.click/voice/speak-stream ...` post-deploy — chunks should arrive as they synthesize, not batched.
+- **Caddy edge:** streams chunked-transfer by default. Verify with `curl -N https://term.example.com/voice/speak-stream ...` post-deploy — chunks should arrive as they synthesize, not batched.
 
 ### Frontend API helper
 - **NEW `postSpeakStream(text, voice?)` in `voice-api.ts`.**
@@ -90,7 +90,7 @@ Reuses existing `VOICE_FILENAME_RE` (`/^[A-Z][A-Za-z]+\.wav$/`) and `SPEAK_TEXT_
 
 ### Frontend player — Web Audio API progressive decode
 - **Replaces the entire speak-button handler body** in `ChatMessage.tsx:97-124` (currently `postSpeak → URL.createObjectURL(blob) → new Audio(url).play()`).
-- **Pattern (reference: view-source at https://gigaashley.click/tts-demo/ — Nelly said lift wholesale):**
+- **Pattern (reference: view-source at https://example.com/tts-demo/ — Nelly said lift wholesale):**
   1. `const response = await postSpeakStream(text, voice)` — throws if response.ok is false, surface as toast.
   2. `const reader = response.body.getReader()`
   3. Accumulate `Uint8Array` chunks until the first 44 bytes are collected — parse RIFF/WAV header (sample rate, channels, bit depth, sample format).
@@ -157,8 +157,8 @@ Reuses existing `VOICE_FILENAME_RE` (`/^[A-Z][A-Za-z]+\.wav$/`) and `SPEAK_TEXT_
 - `src/ui/features/pretty-view/ChatMessage.tsx:80-124` — current speak-handler body, module-level `currentAudio` singleton, `speakState` state machine, error handling pattern.
 
 ### Reference documentation (external)
-- Nelly's streaming Chatterbox demo — https://gigaashley.click/tts-demo/ (view-source has the ~50-line JS reference for RIFF parse + AudioBufferSourceNode scheduling; Nelly explicitly said lift wholesale).
-- Chatterbox voice list — `GET https://gigaashley.click/tts-api/v1/audio/voices` (28 predefined voices; not needed for this phase since default stays Elena, but noted for future voice-picker work).
+- Nelly's streaming Chatterbox demo — https://example.com/tts-demo/ (view-source has the ~50-line JS reference for RIFF parse + AudioBufferSourceNode scheduling; Nelly explicitly said lift wholesale).
+- Chatterbox voice list — `GET https://example.com/tts-api/v1/audio/voices` (28 predefined voices; not needed for this phase since default stays Elena, but noted for future voice-picker work).
 
 ### Nginx / CLAUDE.md conventions
 - `docker/nginx.conf` — existing `location /voice/speak` block (find via grep for `speak`); new streaming block matches its shape + adds `proxy_buffering off; proxy_request_buffering off; chunked_transfer_encoding on;`.
@@ -196,7 +196,7 @@ Concretely:
 See bounty `stream-tts-output-via-chatterbox/bounty.json § premise` for the full DM text. Load-bearing extract:
 
 > Endpoint (HTTPS via my proxy, mixed-content safe from a browser page):
->   POST https://gigaashley.click/tts-api/tts
+>   POST https://example.com/tts-api/tts
 > Body (JSON):
 >   {"text":"...", "voice_mode":"predefined", "predefined_voice_id":"Adrian.wav",
 >    "stream":true, "split_text":true, "chunk_size":80}
@@ -207,7 +207,7 @@ See bounty `stream-tts-output-via-chatterbox/bounty.json § premise` for the ful
 > 1. Different endpoint, different body schema. stream:true only works on /tts. The OpenAI-compat /v1/audio/speech has no stream flag.
 > 2. output_format is ignored when streaming — you get WAV, period (not mp3/opus). Fine for <audio> or a raw pipe; for progressive in-browser playback use Web Audio API — parse RIFF header from first bytes, decode each incoming PCM chunk into an AudioBuffer, schedule back-to-back via AudioBufferSourceNode so audio starts on the first samples not on stream end.
 
-**Tina uses the tailnet IP directly for the backend proxy** (`http://100.80.122.111:8001/tts`, not `https://gigaashley.click/tts-api/tts`) because the backend already sits inside Skynet's docker network with tailnet access. The public HTTPS URL is only relevant for the client-side / view-source reference.
+**Tina uses the tailnet IP directly for the backend proxy** (`http://100.80.122.111:8001/tts`, not `https://example.com/tts-api/tts`) because the backend already sits inside Skynet's docker network with tailnet access. The public HTTPS URL is only relevant for the client-side / view-source reference.
 
 ### Deploy discipline
 - **Do not push / rebuild / recreate without Ashley's explicit ship word.** Deploy queue #198→#236 (~57 commits) is held; this patch #237 will ride the same bundle whenever she greenlights.

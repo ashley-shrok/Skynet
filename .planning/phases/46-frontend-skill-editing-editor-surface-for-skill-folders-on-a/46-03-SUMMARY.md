@@ -231,7 +231,7 @@ Executor scope ends here. Orchestrator owns:
 1. **skynet-patches.md PIN** — copy `46-PATCH-DRAFT.md` into `~/.claude/roles/box-maintainer/skynet-patches.md` with a real patch number claimed (replacing `#TBD`). Do NOT let the executor touch skynet-patches.md.
 2. **Docker build + container recreate** — `docker compose build skynet && docker compose up -d --force-recreate skynet` (twin nginx blocks require full rebuild, NOT css fast-path).
 3. **15-min deadman timer** — `/opt/skynet/.tmp-revert.sh 15m` BEFORE recreate completes.
-4. **HTTPS 200 verify** — live-fire `curl -sS -H "Authorization: Bearer $TOKEN" "https://gigaashley.click/skills-editor/skills?hostId=<n>" | jq` and confirm JSON payload shape (NOT the frontend index.html — that would mean the nginx block is missing).
+4. **HTTPS 200 verify** — live-fire `curl -sS -H "Authorization: Bearer $TOKEN" "https://example.com/skills-editor/skills?hostId=<n>" | jq` and confirm JSON payload shape (NOT the frontend index.html — that would mean the nginx block is missing).
 5. **Verify-in-bundle byte checks** — grep the deployed bundle for `"Edit skills…"`, `"skills-editor/skills"`, and either `"SkillsEditorModal"` (unminified) or `"Edit skills"` fallback.
 6. **Cancel the deadman** — only after Steps 4-5 pass.
 7. **Coord-room announcement** — post that patch #<claimed> landed with the UAT-CHECKLIST.md link for Ashley to walk when she's ready.

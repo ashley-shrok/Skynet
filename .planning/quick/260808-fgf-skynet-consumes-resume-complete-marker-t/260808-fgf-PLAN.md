@@ -19,7 +19,7 @@ must_haves:
     - "If .resume-complete never appears within 90s of wake_trigger_ts, backend falls back to dismissing on sentinel-gone alone AND logs a dormancy_marker_fallback info-level entry so we can spot old-supervisor boxes during rollout."
     - "Frontend's existing first-live-frame auto-dismiss (patch #345, PrettyView.tsx lines 707-722) is preserved unchanged as a belt-and-suspenders strict-safety fallback. This patch is additive."
     - "Full npx vitest run reports 1589 pass / 6 skip / 0 fail (baseline 1585 pass / 6 skip from post-06bcb4d run, plus 4 new marker-consumption tests)."
-    - "Ship completes under the 15-min deadman. docker compose up -d --force-recreate skynet plus container healthy sustained plus HTTPS 200 on term.gigaashley.click."
+    - "Ship completes under the 15-min deadman. docker compose up -d --force-recreate skynet plus container healthy sustained plus HTTPS 200 on term.example.com."
     - "Two patch entries appended to /home/ubuntu/.claude/roles/box-maintainer/skynet-patches.md. #347 (copy polish 06bcb4d, riding along) and #348 (marker consumption)."
   artifacts:
     - path: "src/backend/claude-session/claude-session-server.ts"
@@ -163,13 +163,13 @@ Output.
 
     STEP B. Commit the code changes as ONE atomic commit before deploy. Use commit message. feat(quick-260808-fgf-01) backend consume .resume-complete marker with freshness check plus 90s fallback plus tests L M N O. Include the two changed source files (claude-session-server.ts and dormant-poll.test.ts). This lands on top of 06bcb4d (the copy polish already committed) so both ride the same deploy.
 
-    STEP C. Deploy under 15-min deadman per PROJECT constraint. cd /home/ubuntu/skynet && follow the standard ship dance from prior quick summaries (260808-dmz-SUMMARY.md is the reference). docker compose up -d --force-recreate skynet. Immediately arm the 15-min deadman rollback timer per Ashley 2026-07-03 constraint. Poll container health until healthy sustained. Curl HTTPS to https://term.gigaashley.click and confirm 200 response. If any of container-unhealthy, HTTPS non-200, or 15-min elapsed fires, roll back. If all three succeed, disarm the deadman.
+    STEP C. Deploy under 15-min deadman per PROJECT constraint. cd /home/ubuntu/skynet && follow the standard ship dance from prior quick summaries (260808-dmz-SUMMARY.md is the reference). docker compose up -d --force-recreate skynet. Immediately arm the 15-min deadman rollback timer per Ashley 2026-07-03 constraint. Poll container health until healthy sustained. Curl HTTPS to https://term.example.com and confirm 200 response. If any of container-unhealthy, HTTPS non-200, or 15-min elapsed fires, roll back. If all three succeed, disarm the deadman.
 
     STEP D. After successful deploy, append TWO patch entries to /home/ubuntu/.claude/roles/box-maintainer/skynet-patches.md. Use the exact format of the existing patch #345 and patch #346 entries (H2 heading with patch number and title and bounty slug in brackets, followed by root-cause and changes sections and verification section with test counts and image sha and byte-verify note, followed by commits list and rebase-risk line).
 
     Patch #347 entry (small standalone). H2 title. Patch #347 DormancyOverlay copy polish sentence-case plus friendlier wording [ad-hoc]. One-paragraph body. Reference commit 06bcb4d. Note the four copy changes verbatim from the commit body (session is asleep to This session is asleep. waking ellipsis to Waking up ellipsis. wake failed dash err to Couldn't wake dash err. this can take up to 60s to This can take up to a minute period.). Note that aria-labels and the Wake button label are unchanged. Verification. Tests updated in DormancyOverlay.test.tsx and PrettyView.test.tsx already covered by the same commit. Rebase risk NIL.
 
-    Patch #348 entry (marker consumption, full entry). H2 title. Patch #348 Skynet consumes .resume-complete supervisor-hands-off marker for DormancyOverlay dismissal [quick-260808-fgf]. Body sections. Root cause (verbatim from bounty premise. Patch #345 dismisses on first live Claude frame which fires DURING the supervisor Ctrl-C train plus bracketed-paste plus nudge Enter, leaving a typing-interleave window). Nelly's contract (the six bullets from the bounty timeline. path, contents, write, remove, freshness check, belt-and-suspenders). Backend changes (list Task 1 STEPS A through E in prose. wakeTriggerTs closure state. wake handler records on success. seam signature extended. sentinel-gone branch gated on markerFresh with freshness plus fallback plus dormancy_marker_fallback log). Test additions (L M N O described briefly). Rationale for preserving frontend live-frame auto-dismiss (strict-safety fallback, additive not replacement). Verification (tsc exit 0, npm run build exit 0, full npx vitest run 1589 pass 6 skip 0 fail baseline 1585 plus 4 new, image sha to be filled in from deploy output, container Up and healthy T+Ns, HTTPS 200 confirmed on term.gigaashley.click, byte-verify note for wakeTriggerTs and resume-complete tokens in the backend bundle). Commits list (the single commit from STEP B above). Rebase risk NIL.
+    Patch #348 entry (marker consumption, full entry). H2 title. Patch #348 Skynet consumes .resume-complete supervisor-hands-off marker for DormancyOverlay dismissal [quick-260808-fgf]. Body sections. Root cause (verbatim from bounty premise. Patch #345 dismisses on first live Claude frame which fires DURING the supervisor Ctrl-C train plus bracketed-paste plus nudge Enter, leaving a typing-interleave window). Nelly's contract (the six bullets from the bounty timeline. path, contents, write, remove, freshness check, belt-and-suspenders). Backend changes (list Task 1 STEPS A through E in prose. wakeTriggerTs closure state. wake handler records on success. seam signature extended. sentinel-gone branch gated on markerFresh with freshness plus fallback plus dormancy_marker_fallback log). Test additions (L M N O described briefly). Rationale for preserving frontend live-frame auto-dismiss (strict-safety fallback, additive not replacement). Verification (tsc exit 0, npm run build exit 0, full npx vitest run 1589 pass 6 skip 0 fail baseline 1585 plus 4 new, image sha to be filled in from deploy output, container Up and healthy T+Ns, HTTPS 200 confirmed on term.example.com, byte-verify note for wakeTriggerTs and resume-complete tokens in the backend bundle). Commits list (the single commit from STEP B above). Rebase risk NIL.
 
     STEP E. Commit the docs update. docs(quick-260808-fgf) patch #347 copy polish plus patch #348 marker consumption entries in skynet-patches.md.
 
@@ -178,11 +178,11 @@ Output.
   <verify>
     <human-check>
       1. docker compose ps skynet shows Up and healthy sustained for at least 60 seconds.
-      2. curl -s -o /dev/null -w "%{http_code}" https://term.gigaashley.click returns 200.
+      2. curl -s -o /dev/null -w "%{http_code}" https://term.example.com returns 200.
       3. /home/ubuntu/.claude/roles/box-maintainer/skynet-patches.md contains a Patch #347 heading and a Patch #348 heading (grep -c "^## Patch #34[78]" returns 2).
       4. git log --oneline -5 shows both the feat commit and the docs commit landed on top of 06bcb4d.
     </human-check>
-    <automated>docker compose -f /home/ubuntu/skynet/docker-compose.yml ps skynet 2>&1 | tail -5 && echo "---HTTP---" && curl -s -o /dev/null -w "%{http_code}\n" https://term.gigaashley.click && echo "---PATCHES---" && grep -c "^## Patch #34[78]" /home/ubuntu/.claude/roles/box-maintainer/skynet-patches.md</automated>
+    <automated>docker compose -f /home/ubuntu/skynet/docker-compose.yml ps skynet 2>&1 | tail -5 && echo "---HTTP---" && curl -s -o /dev/null -w "%{http_code}\n" https://term.example.com && echo "---PATCHES---" && grep -c "^## Patch #34[78]" /home/ubuntu/.claude/roles/box-maintainer/skynet-patches.md</automated>
   </verify>
   <done>Container Up healthy. HTTPS returns 200. Patches file has both #347 and #348 headings. Feat commit plus docs commit both present on branch on top of 06bcb4d. 15-min deadman disarmed cleanly (no rollback fired). Ashley UAT pending per usual quick-task handoff.</done>
 </task>
@@ -207,7 +207,7 @@ Objective is achieved when.
 
 - Full npx vitest run reports 1589 pass / 6 skip / 0 fail (baseline 1585 plus 4 new marker tests).
 - npx tsc --noEmit exits 0. npm run build exits 0.
-- Container skynet is Up and healthy on the box after docker compose up -d --force-recreate skynet. HTTPS 200 on term.gigaashley.click sustained.
+- Container skynet is Up and healthy on the box after docker compose up -d --force-recreate skynet. HTTPS 200 on term.example.com sustained.
 - 15-min deadman timer disarmed cleanly (no rollback fired).
 - skynet-patches.md updated with both patch #347 and #348 entries.
 - Ashley can UAT. Open Tiffany's PWA pane while dormant. Click Wake. Overlay stays up through the entire ~10s Ctrl-C train (Nelly reduced from 20s per her concern-1 ship) plus bracketed-paste plus final Enter. Overlay dismisses ONLY after Nelly's marker appears with a fresh ISO-UTC ts (or after 90s fallback if the target box is running the pre-marker supervisor). Typing during the wait window is safe (no interleave with supervisor paste).

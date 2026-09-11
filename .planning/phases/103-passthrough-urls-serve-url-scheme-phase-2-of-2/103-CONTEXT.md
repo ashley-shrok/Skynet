@@ -21,7 +21,7 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 
 ### Auth (from shape Q1)
 - **D-01:** URL grammar: `<host>-<port>.serve.term.<skynet-domain>` (one label deeper than the primary domain, NOT directly under registrable domain).
-- **D-02:** Widen JWT session cookie to `Domain=term.<skynet-domain>` (in `src/backend/utils/auth-manager.ts:709` `getSecureCookieOptions`). Covers `term.<skynet-domain>` + all `*.term.<skynet-domain>` subdomains only. Siblings on the registrable domain (`files.gigaashley.click`) untouched.
+- **D-02:** Widen JWT session cookie to `Domain=term.<skynet-domain>` (in `src/backend/utils/auth-manager.ts:709` `getSecureCookieOptions`). Covers `term.<skynet-domain>` + all `*.term.<skynet-domain>` subdomains only. Siblings on the registrable domain (`files.example.com`) untouched.
 - **D-03:** Serve-subdomain proxy validates JWT + per-user-per-host permission at the edge before forwarding.
 - **D-04:** **Allowlist-strip** at the proxy before forwarding to upstream — everything denied by default, only Host, Connection, Upgrade, `Sec-WebSocket-*`, Content-Type, Content-Length, method, body pass. NO cookies, NO `Authorization`, NO `X-Skynet-*`. Test-enforced.
 - **D-05:** CI integration test: echo-server upstream, assert no `Cookie: skynet_session=` (or any auth cookie) reaches upstream across GET / POST / WebSocket upgrade / SSE / streaming / uploads / redirects. Test lives with the phase 103 code, MUST pass to merge.
@@ -47,11 +47,11 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 - **D-17:** Backend serve URL routing calls existing `resolveHostByName(name, userId)` from `src/backend/ssh/host-resolver.ts:373` — **owned-only**, matches Phase 78 file URL precedent. Grants (`hostAccess` table) deliberately out of scope for name resolution. Works uniformly on t1000 (single-tenant) and T800 (multi-user).
 
 ### Domain layout + rollout (from shape Q6 + discuss-phase Q1)
-- **D-18:** Wildcard cert: `*.serve.term.gigaashley.click`. Existing hosted zone `gigaashley.click` (Z00583511HTO90JKK1MV7). R&D-established cross-account AssumeRole path (Aither `termix-ssm-role` → personal `caddy-route53-gigaashley`) covers this zone.
-- **D-19:** Same Caddy container as `term.gigaashley.click` and `files.gigaashley.click`. Custom Caddy build (two-line Dockerfile change: `caddy:2-builder` + `xcaddy build --with github.com/caddy-dns/route53`). New wildcard site block added to `/opt/skynet/Caddyfile`.
-- **D-20:** Bare `serve.term.gigaashley.click` (no host prefix) redirects to `term.gigaashley.click`.
+- **D-18:** Wildcard cert: `*.serve.term.example.com`. Existing hosted zone `example.com` (<personal-hosted-zone-id>). R&D-established cross-account AssumeRole path (Aither `termix-ssm-role` → personal `<caddy-route53-role>`) covers this zone.
+- **D-19:** Same Caddy container as `term.example.com` and `files.example.com`. Custom Caddy build (two-line Dockerfile change: `caddy:2-builder` + `xcaddy build --with github.com/caddy-dns/route53`). New wildcard site block added to `/opt/skynet/Caddyfile`.
+- **D-20:** Bare `serve.term.example.com` (no host prefix) redirects to `term.example.com`.
 - **D-21:** ACME issuer: **Let's Encrypt production** preferred; ZeroSSL remains automatic fallback via Caddy's default issuer chain.
-- **D-22:** HSTS: mirror whatever `term.gigaashley.click` currently sets (verify against existing Caddyfile during plan).
+- **D-22:** HSTS: mirror whatever `term.example.com` currently sets (verify against existing Caddyfile during plan).
 - **D-23:** T800 (Stacy): entirely her domain + DNS + Caddy config. No code Phase 103 writes handles T800 differently. Ships as a Stacy-briefing patch under the fleet-substrate rule after Phase 103 lands on t1000.
 - **D-24:** **Single deploy** — Caddy image rebuild + cookie widen + subdomain routing + agent URL construction all live in one atomic ship motion. No feature flag, no dark-first infra deploy.
 
@@ -144,7 +144,7 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 
 - **Interstitial "try again" button** must NOT auto-refresh (per D-14). User decides to retry — auto-refresh masks legitimate ongoing outages.
 - **Interstitial pages MUST be Skynet-styled**, not bare 502s. User sees "port 3020 of nexthost isn't responding" not "Bad Gateway."
-- **Test with `python -m http.server` on t1000** as the first end-to-end verification per shape file rollout step 4. Concrete: agent construct `t1000-8899.serve.term.gigaashley.click` pointing at a python http.server serving a folder with a few files including one HTML that references a sibling image (proves origin isolation works). Manual UAT is fine; automated verification is Claude's discretion.
+- **Test with `python -m http.server` on t1000** as the first end-to-end verification per shape file rollout step 4. Concrete: agent construct `t1000-8899.serve.term.example.com` pointing at a python http.server serving a folder with a few files including one HTML that references a sibling image (proves origin isolation works). Manual UAT is fine; automated verification is Claude's discretion.
 - **Vite HMR test** — POC 2 already proved the `sec-websocket-extensions: ""` fix on `proxyReqWs` works for Vite's `vite-hmr` subprotocol. Phase 103 code MUST include this fix from day one (per R&D GOTCHA 1) — bake into the proxy factory, not left as a follow-up.
 - **CSRF audit output** should produce a checklist (route path, state-changing yes/no, preflight-triggering yes/no, remediation applied, verified). Attach to phase artifacts (SUMMARY.md or a dedicated CSRF-AUDIT.md) so future audits can start from this baseline instead of re-doing the classification.
 

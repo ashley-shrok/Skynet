@@ -5,7 +5,7 @@ import { afterEach, vi } from "vitest";
 // care about the value (integration tests that mock at a lower level)
 // can still import those modules. Individual tests that DO care set
 // or delete this env explicitly and are unaffected by the ??=.
-process.env.SKYNET_COOKIE_DOMAIN ??= "test.gigaashley.click";
+process.env.SKYNET_COOKIE_DOMAIN ??= "test.example.com";
 
 // jsdom does not implement matchMedia; provide a minimal stub so hooks that
 // read media queries (e.g. useIsMobile) can run. Individual tests override

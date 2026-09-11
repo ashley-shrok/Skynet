@@ -54,7 +54,7 @@ Phase 78 is not enumerated in `.planning/REQUIREMENTS.md` (which covers patch #4
 
 Phase 78 is a **surgical extension** of two existing subsystems: (1) Phase 40's editable-file affordance stack (whitelist + regex + eligibility hook + modal + affordance) and (2) the fleet-substrate distributor (Phase 72). Every load-bearing mechanic already exists — nothing greenfield. The R&D bounty at `~/.claude/roles/box-maintainer/bounties/skynet-passthrough-urls-rd/findings-summary.md` already confirmed viability; this research adds the specific file-level trace and identifies one implementation gap.
 
-The **single non-obvious gap** is that Skynet has no in-band knowledge of its own public URL (`term.gigaashley.click`). The domain is declared at the Caddy layer (`/opt/skynet/Caddyfile`) but never surfaces to Skynet's own env, so the distributor cannot construct the `~/.claude/skynet-parent` file value without a new declared source of truth. The plan must add this — most naturally a new env var (`SKYNET_PUBLIC_URL`) in `/opt/skynet/skynet.env`, read at backend init and passed to the distributor sweep.
+The **single non-obvious gap** is that Skynet has no in-band knowledge of its own public URL (`term.example.com`). The domain is declared at the Caddy layer (`/opt/skynet/Caddyfile`) but never surfaces to Skynet's own env, so the distributor cannot construct the `~/.claude/skynet-parent` file value without a new declared source of truth. The plan must add this — most naturally a new env var (`SKYNET_PUBLIC_URL`) in `/opt/skynet/skynet.env`, read at backend init and passed to the distributor sweep.
 
 Backend read mechanic reuses `plan-file-fetch.ts`'s exact SFTP idiom (open once, `sftp.stat` first, then `sftp.readFile` capped, UTF-8-safe cutoff). Auth reuses `PermissionManager.canAccessHost(userId, hostId, "read")`. Host resolution needs a **new** helper `resolveHostByName(name, userId)` — the codebase currently only exposes `resolveHostById`, but `hosts.name` is a real column and the lookup pattern is trivial. SSH connection lifecycle uses `withConnection(key, factory, fn)` from `ssh-connection-pool.ts`, which handles the connect+release cycle correctly and shares connections with the rest of Skynet's SSH usage (max 3 conns per host, cleanup every 2 min).
 
@@ -121,8 +121,8 @@ No new packages installed by this phase. All work uses resident dependencies (`s
 ```
                        Agent on managed box (e.g. thenasty)
                        │
-                       │  reads $(cat ~/.claude/skynet-parent) = "https://term.gigaashley.click"
-                       │  writes URL into a chat message: [note](https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md)
+                       │  reads $(cat ~/.claude/skynet-parent) = "https://term.example.com"
+                       │  writes URL into a chat message: [note](https://term.example.com/file/thenasty/home/ubuntu/note.md)
                        ▼
                        Message JSONL file on the agent's box
                        │
@@ -232,7 +232,7 @@ src/backend/starter.ts (or wherever backend init lives)
 └── PIPE process.env.SKYNET_PUBLIC_URL into the distributor deps  # planner locates entry point
 
 /opt/skynet/
-├── skynet.env                                 # HOST-SIDE — add SKYNET_PUBLIC_URL=https://term.gigaashley.click
+├── skynet.env                                 # HOST-SIDE — add SKYNET_PUBLIC_URL=https://term.example.com
 └── docker-compose.yml                         # HOST-SIDE — verify env_file picks it up (should be automatic)
 ```
 
@@ -398,7 +398,7 @@ function sftpReadFile(sftp: SftpLike, p: string) {
 
 /**
  * D-01 URL shape: <skynet-domain>/file/<hostname>/<absolute-path>
- * Example: https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md
+ * Example: https://term.example.com/file/thenasty/home/ubuntu/note.md
  *
  * Grammar:
  *   - scheme: https:// only (agents on Skynet always run on HTTPS deployment)
@@ -474,7 +474,7 @@ fetchPromise
 
 // deps signature adds skynetPublicUrl:
 export interface BootstrapDeps {
-  skynetPublicUrl: string;   // e.g. "https://term.gigaashley.click"
+  skynetPublicUrl: string;   // e.g. "https://term.example.com"
 }
 
 // Inside runBootstrapForHost, after step 3 (gsd-context-monitor cleanup):
@@ -596,7 +596,7 @@ Phase 78 is a feature-add, not a rename/refactor. However, it introduces new per
 
 **How to avoid:**
 1. At backend init, if `process.env.SKYNET_PUBLIC_URL` is missing OR doesn't start with `https://`, log a startup warning and SKIP the bootstrap step 4 entirely (don't write a broken file). Idempotency: skipping means the file stays at whatever value it had (which for a fresh box = missing, which agents already handle per D-03).
-2. Ship-time: add `SKYNET_PUBLIC_URL=https://term.gigaashley.click` to `/opt/skynet/skynet.env` BEFORE container recreate. Coord with Stacy to add the T800 equivalent (`https://skynet.aithercloud.com`) before her next deploy.
+2. Ship-time: add `SKYNET_PUBLIC_URL=https://term.example.com` to `/opt/skynet/skynet.env` BEFORE container recreate. Coord with Stacy to add the T800 equivalent (`https://skynet.aithercloud.com`) before her next deploy.
 3. Add a startup log line: `Skynet public URL configured as <url>` so operators can grep for it after deploy.
 
 **Warning signs:** `~/.claude/skynet-parent` on some managed hosts is empty or contains stale value; agent messages show broken URLs the user can't click.
@@ -706,7 +706,7 @@ export const SKYNET_FILE_URL_RE_CLIENT =
 
 SP="$HOME/.claude/skynet-parent"
 mkdir -p "$HOME/.claude"
-NEW='https://term.gigaashley.click'
+NEW='https://term.example.com'
 if [ -f "$SP" ] && [ "$(cat "$SP")" = "$NEW" ]; then
   :  # idempotent no-op
 else
@@ -745,7 +745,7 @@ Construct it and emit as a clickable Markdown link:
     FILE=/home/ubuntu/notes/thing.md
     printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$PARENT" "$HOST" "$FILE"
 
-That renders as `[thing.md](https://term.gigaashley.click/file/thenasty/home/ubuntu/notes/thing.md)` — Ashley clicks and gets a modal to view / edit / send-back the file. When she saves the edit, it lands as an attachment in her next message to you — the file at the original path is NEVER overwritten by Skynet; every write goes through her explicit re-share.
+That renders as `[thing.md](https://term.example.com/file/thenasty/home/ubuntu/notes/thing.md)` — Ashley clicks and gets a modal to view / edit / send-back the file. When she saves the edit, it lands as an attachment in her next message to you — the file at the original path is NEVER overwritten by Skynet; every write goes through her explicit re-share.
 
 **If `~/.claude/skynet-parent` is missing:** tell the user "I can't share files right now — my parent-Skynet config is missing. Ask the box-maintainer role to check the distributor sweep." Do NOT guess or fall back to serving your own HTTP server.
 
@@ -776,9 +776,9 @@ That renders as `[thing.md](https://term.gigaashley.click/file/thenasty/home/ubu
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
 | A1 | `hosts.name` column values are DNS-legal (`[a-zA-Z0-9._-]+`) so the URL regex hostname component covers all real host names | Standard Stack / Code Examples | If any user has a host with `.name = "my host"` (space) or "host!@#" (punctuation), the regex won't match and agents can't reference it. Verified `hosts.name` is a plain text column with no schema constraint — any character allowed. Empirically the fleet uses simple names (`thenasty`, `workstation`, `t1000`, `ashley-beelink`), but customer VMs might violate this. Mitigation: (a) planner adds a hostname-legality check at DB write time or (b) SKYNET_FILE_URL_RE_CLIENT is relaxed to accept any URL-safe character except `/` — recommend (b) since it doesn't require a data migration. |
-| A2 | Skynet has no existing `SKYNET_PUBLIC_URL` or equivalent env var; the domain is only declared at the Caddy layer | Runtime State Inventory / Pitfall 4 | Verified: grepped `src/backend/` for `SKYNET_.*URL`, `PUBLIC_URL`, `EXTERNAL_URL`, `APP_URL`, `BASE_URL`, `gigaashley` — no hits. `/opt/skynet/skynet.env` contents (redacted) don't include a URL variable. Confirmed. |
+| A2 | Skynet has no existing `SKYNET_PUBLIC_URL` or equivalent env var; the domain is only declared at the Caddy layer | Runtime State Inventory / Pitfall 4 | Verified: grepped `src/backend/` for `SKYNET_.*URL`, `PUBLIC_URL`, `EXTERNAL_URL`, `APP_URL`, `BASE_URL`, `example` — no hits. `/opt/skynet/skynet.env` contents (redacted) don't include a URL variable. Confirmed. |
 | A3 | The mount pattern `app.use("/pretty-view", prettyViewFetchHostFileRoutes)` will work identically to the existing `/pretty-view/fetch-tailnet-url` mount | Architecture Patterns Pattern 1 | Grepped `database.ts:1871` — mount is a plain `app.use()` on the Express app. New route mounts the same way. Confirmed. |
-| A4 | The Caddy `term.gigaashley.click { reverse_proxy skynet:8080 }` block doesn't do path rewriting, so a request to `https://term.gigaashley.click/file/thenasty/xyz` reaches Skynet's Express as `/file/thenasty/xyz` verbatim | Architecture Patterns — verbatim `/file/:host/*` route option | Read `/opt/skynet/Caddyfile`; the reverse_proxy block has no `handle_path` or `uri` directives, so paths pass through unchanged. Confirmed. Recommend: mount the new route at BOTH `/file/:host/*` (for verbatim agent-cited URLs) AND `/pretty-view/fetch-host-file` (for the frontend's JSON POST). Two routers, same handler function factored out. |
+| A4 | The Caddy `term.example.com { reverse_proxy skynet:8080 }` block doesn't do path rewriting, so a request to `https://term.example.com/file/thenasty/xyz` reaches Skynet's Express as `/file/thenasty/xyz` verbatim | Architecture Patterns — verbatim `/file/:host/*` route option | Read `/opt/skynet/Caddyfile`; the reverse_proxy block has no `handle_path` or `uri` directives, so paths pass through unchanged. Confirmed. Recommend: mount the new route at BOTH `/file/:host/*` (for verbatim agent-cited URLs) AND `/pretty-view/fetch-host-file` (for the frontend's JSON POST). Two routers, same handler function factored out. |
 | A5 | `resolveHostByName(name, userId)` doesn't exist today and must be added | Architecture Patterns Pattern 1 | Grepped `host-resolver.ts` — only `resolveHostById(hostId, userId)` and `checkHostAccess(hostId, userId, ...)` exist. Confirmed. |
 | A6 | The distributor's `runBootstrapForHost` deps interface currently accepts no bootstrap-specific deps (it's called with just `channel, host`); adding a `skynetPublicUrl` field requires an interface change threaded through `run-sweep.ts` → `ssh-poll-orchestrator.ts` → the starter | Architecture Patterns Pattern 5 | Read `run-bootstrap.ts` signature: `runBootstrapForHost(channel, host)` — no deps. To pass `SKYNET_PUBLIC_URL` in, the signature must extend to accept a third arg OR read from process.env directly inside the function. Recommend: read from process.env directly at function top with a startup-warn if missing — sidesteps the multi-layer plumbing change. |
 | A7 | The frontend `fetchTailnetUrl` axios helper can be extended (or a sibling `fetchHostFileUrl` added) without touching the axios interceptor auth flow | Standard Stack | Read `editable-file-api.ts:61-73`: uses `authApi.post(...)` from `main-axios.ts`; JWT is auto-attached by the axios request interceptor. Adding a sibling helper works identically. Confirmed. |

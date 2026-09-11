@@ -102,7 +102,7 @@ Cross-referenced against prior plan SUMMARYs + verified live against the current
 ## Deploy artifacts already produced this session (from 45-04)
 
 - **Image:** `skynet-patched:local` ID `c45101c2ff96d582d8eb5b1064d46044dd7e524137a8ae3c3a831a017bb42565`
-- **Container:** `7649209ef924` (healthy T+8s at deploy time, HTTPS 200 verified at `https://term.gigaashley.click/`)
+- **Container:** `7649209ef924` (healthy T+8s at deploy time, HTTPS 200 verified at `https://term.example.com/`)
 - **AppShell chunk (deployed):** `AppShell-CZ8IKp3n.js` (Phase 45 fresh build; #465's crashing bundle was `BjR3_4Qj.js`, revert baseline was `wLv43V6G.js`)
 - **HEAD at build time:** `c9b74e43` (Plans 45-01 + 45-02 + 45-03 all landed; 45-04 was zero-code-changes; 45-05 vitest.config.ts change is post-deploy dev-only)
 - **Rollback preserved:** `skynet-patched:rollback-20260819T0141` → image `25c50004d183` (Tiffany's #464 baseline)

@@ -145,7 +145,7 @@ None. This plan introduces zero source diffs — zero new attack surface, zero n
 Per `.planning/config.json:22` (`human_verify_mode: end-of-phase`), the phase is not complete until Ashley:
 
 1. The maintainer (Tiffany) performs the deploy motion (`git pull --rebase` → coord-room BEFORE announce → `docker build` → deadman-guarded `docker compose up -d --force-recreate skynet` → HTTPS 200 verify → coord-room AFTER announce → `git push` → pastes `40-PATCHES-MD-ENTRY.md` content into `~/.claude/roles/box-maintainer/skynet-patches.md` with the ordinal-count update).
-2. Ashley walks the 7-item UAT checklist on production Skynet (https://term.gigaashley.click), signs off on each item.
+2. Ashley walks the 7-item UAT checklist on production Skynet (https://term.example.com), signs off on each item.
 3. Ashley returns one of:
    - **"APPROVED — hand off to maintainer"** (or equivalent) → Phase 40 executor rotation work is COMPLETE; STATE.md + ROADMAP.md flip to Complete; no further Phase 40 plans fire.
    - **"REVISION — [notes]"** → executor rotation loops back to the appropriate plan (40-01/02/03/04 for source fixes, or 40-05 for docs revisions) to apply.

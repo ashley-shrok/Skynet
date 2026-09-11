@@ -186,7 +186,7 @@ Repeated from the plan's `<output>` block for the orchestrator's post-merge run:
 
 1. Coord-room BEFORE post
 2. SSH to t1000
-3. Add `SKYNET_PUBLIC_URL=https://term.gigaashley.click` to `/opt/skynet/skynet.env` (create the line if absent)
+3. Add `SKYNET_PUBLIC_URL=https://term.example.com` to `/opt/skynet/skynet.env` (create the line if absent)
 4. `docker compose up --force-recreate skynet` (behind the mandatory 15-min deadman timer per PROJECT.md)
 5. Verify: `docker exec skynet-container printenv SKYNET_PUBLIC_URL`
 6. Wait one sweep interval (~2s)

@@ -152,7 +152,7 @@ function renderHtmlPage(params: {
  *                       for the "Try again" anchor href and for the
  *                       auth_missing redirect's `?return=...` param.
  * @param primaryDomain  The primary Skynet domain (e.g.
- *                       "term.gigaashley.click") — used ONLY for the
+ *                       "term.example.com") — used ONLY for the
  *                       auth_missing 302 Location header. HTML branches
  *                       do not include it (interstitials render on the
  *                       serve subdomain itself per D-14).

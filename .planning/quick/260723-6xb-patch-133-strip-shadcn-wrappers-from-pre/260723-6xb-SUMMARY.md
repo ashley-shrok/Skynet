@@ -61,7 +61,7 @@ NOT deployed. NOT pushed. Ashley owns the deploy timing and bundles this with:
 
 iOS caches PWA manifest theme_color + background_color at install time. Ashley WILL NOT see the safe-area seam disappearance (Skynet-gray top/bottom bars instead of black) until she:
 1. Removes the current Skynet PWA from her home screen
-2. Loads term.gigaashley.click in Safari after deploy
+2. Loads term.example.com in Safari after deploy
 3. Re-adds to Home Screen ("Share → Add to Home Screen")
 4. Launches the reinstalled PWA
 

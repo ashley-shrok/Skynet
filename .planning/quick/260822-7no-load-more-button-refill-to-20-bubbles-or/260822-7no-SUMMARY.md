@@ -209,7 +209,7 @@ git diff --stat src/ui/features/pretty-view/PrettyView.load-more.test.tsx     �
 Plan's Python-sim numbers: click 1 previously returned 3 bubbles (v1);
 under v2 the refill loop should return 20. Executor did not run the backend
 against Sally's live JSONL — deferred to tina's post-deploy verification
-via a live click on `term.gigaashley.click` with browser devtools console
+via a live click on `term.example.com` with browser devtools console
 open, filtering for `[pv-load-more]` and `[fetch-older-range]`.
 
 ## Tests added / rewritten
@@ -256,7 +256,7 @@ npm run build          → green (frontend built, exit 0)
   - `src/ui/features/pretty-view/PrettyView.tsx` (+39/-0)
 - Deploy motion pending (not run by executor per fleet rule Ashley 2026-08-08).
 - Post-deploy verification: click load-more on Sally's session at
-  `term.gigaashley.click`, filter browser devtools console for
+  `term.example.com`, filter browser devtools console for
   `[pv-load-more]` and `[fetch-older-range]`. Expected sequence:
   1 `req`, N `slice` (N ≥ 1, ≤ ~30 for the 657-line file), 1 `emit`, then
   1 `[pv-load-more] response ok=true …` with `messagesLen=20`. Sally's file

@@ -6,7 +6,7 @@
 
 - Confirm the fresh build is running: `sudo docker exec skynet cat /app/dist/backend/backend/starter.js | head -3` (any nonempty output means the container is up on the current patch).
 - Have at least two identity-tagged tmux panes available in Skynet. Ideally:
-  - One pane matched to an identity **with `colorHue` set** (e.g. tina at hue 35 = amber — verify via `curl -s -H "Authorization: Bearer <tmx_>" https://term.gigaashley.click/identities/ | jq '.[] | {identity_key, color_hue}'`).
+  - One pane matched to an identity **with `colorHue` set** (e.g. tina at hue 35 = amber — verify via `curl -s -H "Authorization: Bearer <tmx_>" https://term.example.com/identities/ | jq '.[] | {identity_key, color_hue}'`).
   - One pane matched to a **different-colorHue identity** (e.g. bella if her colorHue is set to a distinct value — pink/hue 320 works if configured).
 - Have at least one non-identity pane available (e.g. a fresh `ssh` session on GIGAASHLEYPC or any host with no matching identity in the registry).
 - **Safety canary first** — before flipping any pane to pretty view, open a terminal tab (tmux mode, any host) and confirm the terminal-pane IdentityBadge (if identity-matched) appears in the top-right at the same size/position/style as pre-deploy. If the terminal-pane badge looks different, **STOP and revert** — this indicates the IdentityBadge `size="md"` default is not preserving patch #17/#38 behavior byte-identically.
@@ -21,7 +21,7 @@
 - [ ] Session tint on the pane (patch #26) is unchanged — still a subtle static wash of hash-derived or identity hue.
 - [ ] Open an RDP tab (e.g. thenasty-RDP or workstation-RDP). Guacamole canvas fills its container; IdentityBadge (if applicable) styled identically to pre-deploy.
 - [ ] Open a VNC tab if any host is configured for VNC. Chrome unchanged.
-- [ ] Open the file manager (Filestash). Chrome unchanged.
+- [ ] Open the file manager. Chrome unchanged.
 - [ ] Open the dashboard tab. Session list, remote-host chips, new-session chips — all unchanged.
 - [ ] Sidebar (AppRail + expanded panels) unchanged: HostsPanel, SessionsPanel, HistoryPanel, SnippetsPanel, UserProfilePanel, AdminIdentitiesSection all render as pre-deploy.
 - [ ] TabBar unchanged: identity tint + avatar carry-through (patch #32) still works, tab hover states, drag-to-reorder, right-click menu, overflow dropdown.

@@ -36,7 +36,7 @@ Pure ES-built-ins module (zero imports) exporting two functions:
 - `parseReturnFromSearch(search)` — URLSearchParams decode of `?return=`, null on absent/empty/whitespace
 - `validateReturnUrl(returnParam, parentDomain)` — leading-dot hostname check + https-only + no credentials; returns normalized URL or null
 
-Header comment cites bounty ID `260910-pf4`, GAP 4 from 103-10-SUMMARY.md, and the concrete `eviltermgigaashley.click` plain-suffix bypass example.
+Header comment cites bounty ID `260910-pf4`, GAP 4 from 103-10-SUMMARY.md, and the concrete `eviltermexample.com` plain-suffix bypass example.
 
 ### Created: `src/ui/auth/return-url.test.ts`
 26 vitest unit tests (T1-T6 parseReturnFromSearch, A1-A5 accept, R1-R15 reject). All threat-model cases covered: T-pf4-01 (leading-dot bypass R3), T-pf4-02 (protocol checks R6-R8), T-pf4-03 (userinfo R11-R12), parentDomain-poison R13-R15.

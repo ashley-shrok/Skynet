@@ -189,7 +189,7 @@ None. No new packages, no config, no env vars, no nginx changes. The POST rides 
 
 - **Phase 85 whole-loop closure:** with this plan landed, the store WRITE path is live. Combined with 85-04 (WS-live orchestrator READ swap) + 85-05 (/sessions/list initial-seed READ swap), the middle-zone recency signal now flows end-to-end through the Skynet-side send-log store on every send-attempt.
 - **Manual sanity check (orchestrator scope, post-deploy):**
-  1. Open Skynet at term.gigaashley.click on desktop. Type into a compose box for an identity that has not been sent to in a while (e.g. "lulabelle"). Press Enter.
+  1. Open Skynet at term.example.com on desktop. Type into a compose box for an identity that has not been sent to in a while (e.g. "lulabelle"). Press Enter.
   2. Observe: lulabelle's row jumps instantly to top-of-middle-zone (D-06 optimistic client stamp).
   3. Open Skynet on phone. Within one fleet-status frame (~2s), lulabelle is at top-of-middle-zone there too (D-10 multi-device).
   4. Repeat with reset button, thumbs-up, recap — each should produce the same jump.

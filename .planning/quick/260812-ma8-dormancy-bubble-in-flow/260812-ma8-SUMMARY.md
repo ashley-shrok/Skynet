@@ -112,7 +112,7 @@ None. Pure UI refactor, no network or supervisor round-trips.
 2. Container: `sudo docker ps --filter 'ancestor=skynet-patched:local' ...` → container ID **`76c8ed0a8fcc`** (skynet, Up 4 hours, healthy).
 3. `sudo docker cp /home/ubuntu/skynet-tiffany/dist/. 76c8ed0a8fcc:/app/dist/` — exit 0.
 4. In-container verify: new `AppShell-h9FAqtV9.js` (133,600 bytes) landed at 16:23 UTC; `"This session is asleep"` copy present in `Terminal-By5inzT_.js`.
-5. **HTTPS smoke test:** `curl -sS -o /dev/null -w "%{http_code} %{time_total}s\n" https://term.gigaashley.click` → **`200 0.412783s`** (green, <1s per spec).
+5. **HTTPS smoke test:** `curl -sS -o /dev/null -w "%{http_code} %{time_total}s\n" https://term.example.com` → **`200 0.412783s`** (green, <1s per spec).
 
 No reload command needed — Express serves the `/app/dist/` static tree directly, so the next request picks up the new hashed bundle names via the served index.html.
 

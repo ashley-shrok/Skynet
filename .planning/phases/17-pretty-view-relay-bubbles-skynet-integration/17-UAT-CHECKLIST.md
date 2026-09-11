@@ -2,7 +2,7 @@
 
 **For:** Ashley
 **Post-deploy validation of the Phase 17 relay bubble subsystem.**
-**Deploy anchor:** term.gigaashley.click (production) — post-deploy once Ashley greenlights the batch.
+**Deploy anchor:** term.example.com (production) — post-deploy once Ashley greenlights the batch.
 **Design source-of-truth:** `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/prototype.html` (6/6 acceptance battery passed with Ashley 2026-07-28) + `.planning/phases/17-pretty-view-relay-bubbles-skynet-integration/17-UI-SPEC.md` (LOCKED).
 
 **Trace commits (Phase 17 on `feat/tab-title-from-tmux`):**
@@ -36,7 +36,7 @@
 ```bash
 # Primary smoke
 curl -sS -o /tmp/relay-smoke-body.txt -w '%{http_code}\n' \
-  'https://term.gigaashley.click/relay-pointer?hostId=1&path=/etc/passwd'
+  'https://term.example.com/relay-pointer?hostId=1&path=/etc/passwd'
 head -c 40 /tmp/relay-smoke-body.txt
 ```
 
@@ -44,7 +44,7 @@ MUST return HTTP `{400, 401}` AND body MUST NOT start with `<!DOCTYPE html>`.
 
 ```bash
 # Unauthenticated variant
-curl -sS -o /dev/null -w '%{http_code}\n' 'https://term.gigaashley.click/relay-pointer'
+curl -sS -o /dev/null -w '%{http_code}\n' 'https://term.example.com/relay-pointer'
 ```
 
 MUST return `{400, 401}`, NOT `200`.
@@ -55,7 +55,7 @@ If either returns `200` with HTML: **STOP** — nginx SPA fallback is active. Ro
 
 ## Setup
 
-1. Open https://term.gigaashley.click in **Chrome on a desktop window** (1400px+) AND on your **iPhone PWA** (home-screen icon).
+1. Open https://term.example.com in **Chrome on a desktop window** (1400px+) AND on your **iPhone PWA** (home-screen icon).
 2. Have a fleet-connected tmux session with **a real Matrix relay send ready** — either a `curl -X PUT` to a room pre-staged in history, or trigger one live (Ashley's standard `relay-send.sh` or equivalent).
 3. Have the **same room** open in Element on another device so you can send an inbound relay message (the "banana banana banana" test from the prototype acceptance battery).
 4. Open DevTools Network tab on the desktop — you'll check it for RELAYBUB-04 (file-pointer fetch).

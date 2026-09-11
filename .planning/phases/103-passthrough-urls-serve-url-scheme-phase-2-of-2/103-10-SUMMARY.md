@@ -64,8 +64,8 @@ Post-deploy manual UAT protocol proving the full serve URL stack (Caddy wildcard
 - [ ] Ashley has greenlit the atomic ship motion for Phase 103 at `git push`.
 - [ ] Orchestrator has pushed HEAD, run the full-suite ship gate (`npx vitest run` + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium`), completed `docker build` + `docker compose up --force-recreate` for both `caddy` and `skynet` services.
 - [ ] `docker logs skynet` and `docker logs caddy` post-recreate show clean startup — every warn/error line understood, expected subsystem-startup lines present (Fleet-substrate orchestrator started, Fleet-substrate sweep completed, Fleet-status poll start), per standing directive "After any container restart, tail the docker logs and understand every line."
-- [ ] DNS wildcard `*.serve.term.gigaashley.click` resolves (Route 53 record propagated).
-- [ ] Wildcard cert for `*.serve.term.gigaashley.click` issued by Let's Encrypt (or ZeroSSL fallback per D-21) — verify via `docker logs caddy | grep -i certificate`.
+- [ ] DNS wildcard `*.serve.term.example.com` resolves (Route 53 record propagated).
+- [ ] Wildcard cert for `*.serve.term.example.com` issued by Let's Encrypt (or ZeroSSL fallback per D-21) — verify via `docker logs caddy | grep -i certificate`.
 
 ## UAT procedure — 4 independent check gates
 
@@ -88,7 +88,7 @@ cat > index.html <<'EOF'
 <body>
   <h1>serve URL UAT — origin isolation proof</h1>
   <p>If the image below loads, absolute-path assets resolve back through the serve subdomain (origin isolation works).</p>
-  <img src="/image.png" alt="test image — MUST load via serve subdomain, not term.gigaashley.click">
+  <img src="/image.png" alt="test image — MUST load via serve subdomain, not term.example.com">
 </body></html>
 EOF
 # Any small PNG works — grab a favicon or a system icon
@@ -105,7 +105,7 @@ python3 -m http.server 8899
 
 **D. Open a FRESH browser window** (Firefox or Chrome, **incognito/private mode**) — ensures clean cookie state so the fresh-sign-in below issues a genuinely new widened JWT.
 
-**E. Sign into Skynet at `https://term.gigaashley.click`** with Ashley's admin credentials. After sign-in, open devtools → Storage → Cookies and locate `skynet_session`. **Verify the `Domain` field reads `term.gigaashley.click`** (NOT blank, NOT `.term.gigaashley.click` without the leading dot handled properly — check that the cookie will match on all `*.term.gigaashley.click` subdomains per D-02). This validates Plan 02's widened cookie shipped.
+**E. Sign into Skynet at `https://term.example.com`** with Ashley's admin credentials. After sign-in, open devtools → Storage → Cookies and locate `skynet_session`. **Verify the `Domain` field reads `term.example.com`** (NOT blank, NOT `.term.example.com` without the leading dot handled properly — check that the cookie will match on all `*.term.example.com` subdomains per D-02). This validates Plan 02's widened cookie shipped.
 
 **Transcript — Setup:**
 
@@ -113,7 +113,7 @@ python3 -m http.server 8899
 Timestamp (local time on t1000): [FILL IN — YYYY-MM-DD HH:MM TZ]
 Browser + version:               [FILL IN — e.g., "Firefox 129.0 (incognito)"]
 python http.server started at:   [FILL IN — timestamp of first stdout log line]
-skynet_session cookie Domain:    [FILL IN — should read "term.gigaashley.click"]
+skynet_session cookie Domain:    [FILL IN — should read "term.example.com"]
 Preconditions all green?         [YES / NO — if NO, ABORT and report to orchestrator]
 ```
 
@@ -124,7 +124,7 @@ Preconditions all green?         [YES / NO — if NO, ABORT and report to orches
 **Action:** In the signed-in browser tab from Setup step D, visit:
 
 ```
-https://t1000-8899.serve.term.gigaashley.click/
+https://t1000-8899.serve.term.example.com/
 ```
 
 **Expected:**
@@ -156,8 +156,8 @@ CHECK 1 RESULT:                      [PASS / FAIL — if FAIL, note reason and S
 
 **Expected:**
 
-- Image request URL is exactly `https://t1000-8899.serve.term.gigaashley.click/image.png`.
-- Image request URL is **NOT** `https://term.gigaashley.click/image.png` (which would prove browser resolved absolute path to the PRIMARY domain — origin isolation broken).
+- Image request URL is exactly `https://t1000-8899.serve.term.example.com/image.png`.
+- Image request URL is **NOT** `https://term.example.com/image.png` (which would prove browser resolved absolute path to the PRIMARY domain — origin isolation broken).
 - Image request URL is **NOT** to any other subdomain.
 
 **Cross-check the python http.server terminal from Setup step C.** You should see TWO log lines from Skynet's edge IP (which appears as `127.0.0.1` because Skynet dials the SSH tunnel to your local port; the tunnel makes the connection appear as loopback from python's perspective):
@@ -170,7 +170,7 @@ CHECK 1 RESULT:                      [PASS / FAIL — if FAIL, note reason and S
 **Transcript — Check 2:**
 
 ```
-/image.png full request URL (from Network tab): [FILL IN — MUST be t1000-8899.serve.term.gigaashley.click]
+/image.png full request URL (from Network tab): [FILL IN — MUST be t1000-8899.serve.term.example.com]
 python http.server log lines (paste verbatim):
 [FILL IN — two "GET" lines with timestamps]
 Origin isolation proven?                        [YES / NO]
@@ -181,15 +181,15 @@ CHECK 2 RESULT:                                 [PASS / FAIL — if FAIL, D-01 d
 
 ### CHECK 3 — Auth wall (unauthenticated request redirects to login per D-14 auth_missing interstitial)
 
-**Action:** Open a **DIFFERENT browser** (or the SAME browser after clearing cookies for `term.gigaashley.click` — devtools → Application → Storage → Clear site data). Do NOT sign in. Visit:
+**Action:** Open a **DIFFERENT browser** (or the SAME browser after clearing cookies for `term.example.com` — devtools → Application → Storage → Clear site data). Do NOT sign in. Visit:
 
 ```
-https://t1000-8899.serve.term.gigaashley.click/
+https://t1000-8899.serve.term.example.com/
 ```
 
 **Expected:**
 
-- Response is a 302 redirect to `https://term.gigaashley.click/login?return=<encoded-serve-url>` per D-14 `auth_missing` failure class + Plan 03a `interstitial.ts` + Plan 05 dispatch.
+- Response is a 302 redirect to `https://term.example.com/login?return=<encoded-serve-url>` per D-14 `auth_missing` failure class + Plan 03a `interstitial.ts` + Plan 05 dispatch.
 - The `return` query parameter contains the URL-encoded original serve URL so post-login the browser can bounce back.
 - Browser lands on Skynet's login page (NOT on a bare 401, NOT on the target upstream content).
 
@@ -197,7 +197,7 @@ https://t1000-8899.serve.term.gigaashley.click/
 
 ```
 HTTP response status (from Network tab, un-following redirects if possible): [FILL IN — should be 302]
-Location header value:                                                        [FILL IN — should be https://term.gigaashley.click/login?return=...]
+Location header value:                                                        [FILL IN — should be https://term.example.com/login?return=...]
 Final rendered page:                                                          [FILL IN — should be Skynet login page]
 Screenshot of login page (or Network tab redirect chain):                     [FILL IN — attach path]
 CHECK 3 RESULT:                                                               [PASS / FAIL]
@@ -210,7 +210,7 @@ CHECK 3 RESULT:                                                               [P
 **Action:**
 
 1. Return to the terminal running `python3 -m http.server 8899` from Setup step C. **Kill it (Ctrl-C).**
-2. Return to the SIGNED-IN browser tab from Checks 1+2. **Refresh** `https://t1000-8899.serve.term.gigaashley.click/`.
+2. Return to the SIGNED-IN browser tab from Checks 1+2. **Refresh** `https://t1000-8899.serve.term.example.com/`.
 
 **Expected:**
 
@@ -266,7 +266,7 @@ If Check N failed, capture at minimum:
 - **Full screenshot** of the browser state at failure.
 - **`docker logs skynet --since 5m 2>&1`** (Skynet backend logs around the failing request time — look for structured logs from subdomain-dispatch, tunnel-cache, proxy-factory, interstitial renderer).
 - **`docker logs caddy --since 5m 2>&1`** (Caddy edge logs — look for TLS handshake issues, upstream errors, missing X-Skynet-Serve-Subdomain header).
-- **`curl -vv -o /dev/null https://t1000-8899.serve.term.gigaashley.click/`** (raw HTTP transcript with headers).
+- **`curl -vv -o /dev/null https://t1000-8899.serve.term.example.com/`** (raw HTTP transcript with headers).
 - **Which plan's surface owns the failure** (best guess, for orchestrator gap-closure targeting):
   - Cert / TLS issue → Plan 01 (Caddy image + Caddyfile)
   - Cookie not reaching subdomain → Plan 02 (cookie widen)
@@ -290,7 +290,7 @@ If Check N failed, capture at minimum:
 Executor step: none — skeleton written and committed as designed.
 
 **UAT execution (2026-09-10, post-deploy on t1000):**
-- **Target host**: used `thenasty-8899.serve.term.gigaashley.click` instead of `t1000-8899` because this box is registered in Skynet's host DB under the name `Skynet` (id=6), NOT `t1000`. Using thenasty had the added value of proving cross-host reverse-proxy (SSH tunnel to a genuinely-remote box), not self-loopback. Future UAT runs should either register a `t1000` alias or continue with a remote target.
+- **Target host**: used `thenasty-8899.serve.term.example.com` instead of `t1000-8899` because this box is registered in Skynet's host DB under the name `Skynet` (id=6), NOT `t1000`. Using thenasty had the added value of proving cross-host reverse-proxy (SSH tunnel to a genuinely-remote box), not self-loopback. Future UAT runs should either register a `t1000` alias or continue with a remote target.
 - **http.server location**: moved from t1000 to thenasty for the same reason.
 
 ---
@@ -300,17 +300,17 @@ Executor step: none — skeleton written and committed as designed.
 **Setup:**
 - HEAD deployed: `139467d0` initial, then iterative fix commits `840a9fe1` (backend TS), `34ab44c8` (Caddyfile snippet), `500763d3` (on.error interstitial), `e6e33f54` (ECONNRESET classification).
 - Deploy-time prereqs surfaced live and fixed (see § UAT-discovered gaps below).
-- Cert issuer: Let's Encrypt Production (via DNS-01 route53). Wildcard `*.serve.term.gigaashley.click` obtained clean.
+- Cert issuer: Let's Encrypt Production (via DNS-01 route53). Wildcard `*.serve.term.example.com` obtained clean.
 - Ashley used her existing signed-in browser session. Cookie migration required deleting the `jwt` cookie once (pre-widen cookie was host-scoped) and re-logging in.
 
 **CHECK 1 — Positive load: PASS**
-- After cookie re-login, `https://thenasty-8899.serve.term.gigaashley.click/` rendered the UAT page from thenasty's python http.server. Sibling image.png loaded as a 1x1 red pixel dot (correct — Ashley confirmed).
+- After cookie re-login, `https://thenasty-8899.serve.term.example.com/` rendered the UAT page from thenasty's python http.server. Sibling image.png loaded as a 1x1 red pixel dot (correct — Ashley confirmed).
 
 **CHECK 2 — Origin isolation: PASS**
 - Sibling `<img src="image.png">` resolved to the same subdomain (curl verified: `content-type: image/png`, `server: SimpleHTTP/0.6 Python/3.12.3` — proving the fetch reached the target http.server via SSH tunnel, not primary Skynet).
 
 **CHECK 3 — Auth wall: PASS**
-- Ashley's incognito window hit the URL → redirected to `https://term.gigaashley.click/login?return=...`. D-14 auth_missing flow verified.
+- Ashley's incognito window hit the URL → redirected to `https://term.example.com/login?return=...`. D-14 auth_missing flow verified.
 
 **CHECK 4 — Port-not-listening interstitial: PASS**
 - Killed thenasty:8899, Ashley refreshed. Skynet-styled interstitial rendered with heading "port not responding", body "Port 8899 of thenasty isn't responding. The agent may have stopped whatever was serving there.", Try Again link, "skynet serve URL" footer. Backend log confirmed `errorClass:port_not_listening, errCode:ECONNRESET`.
@@ -328,10 +328,10 @@ scheme, phase 2 of 2) is shipped and verified.
 ## UAT-discovered gaps (fixed in-flight)
 
 **GAP 1 — Deploy-time prereqs missing from ship runbook** (fixed at deploy, capture in box-map or ship runbook for next time):
-- `SKYNET_COOKIE_DOMAIN=term.gigaashley.click` must be added to `/opt/skynet/skynet.env` BEFORE first `up -d` — otherwise Skynet crash-loops with fail-loud D-23 throw. Backend module-load throw is correct fail-loud; ship runbook needed to prompt.
+- `SKYNET_COOKIE_DOMAIN=term.example.com` must be added to `/opt/skynet/skynet.env` BEFORE first `up -d` — otherwise Skynet crash-loops with fail-loud D-23 throw. Backend module-load throw is correct fail-loud; ship runbook needed to prompt.
 - `sudo HOME=/home/ubuntu docker compose ...` — the `${HOME}/.aws/config` bind mount in docker-compose.yml expands `$HOME` at parse time; under plain `sudo` (no `-E`) HOME=/root, mount target doesn't exist, docker auto-creates an empty directory at `/root/.aws/config`, caddy's route53 plugin fails to load AWS SDK config.
-- DNS A records for `*.serve.term.gigaashley.click` + `serve.term.gigaashley.click` didn't exist pre-deploy. Added via caddy AWS profile (Route53 write scope was broad enough — verified working end-to-end).
-- Bare `serve.term.gigaashley.click` block was missing `tls { dns route53 }` clause; Caddy attempted HTTP-01 and got NXDOMAIN + rate-limited. Fixed the Caddyfile snippet to include DNS-01 on both wildcard and bare.
+- DNS A records for `*.serve.term.example.com` + `serve.term.example.com` didn't exist pre-deploy. Added via caddy AWS profile (Route53 write scope was broad enough — verified working end-to-end).
+- Bare `serve.term.example.com` block was missing `tls { dns route53 }` clause; Caddy attempted HTTP-01 and got NXDOMAIN + rate-limited. Fixed the Caddyfile snippet to include DNS-01 on both wildcard and bare.
 
 **GAP 2 — nginx short-circuits static-asset requests on serve subdomain** (real Phase 103 bug, fixed at `34ab44c8`):
 - Skynet's nginx-https.conf L121-129 has `location ~* \.(js|css|png|jpg|...)$` that serves static assets from `/app/html` and returns nginx 404 for anything not present. On the serve subdomain, this short-circuits ALL image/js/css asset requests BEFORE Skynet's serve-url dispatch middleware fires — meaning `<img src="image.png">` and every JS/CSS import in an agent's served page would 404.
@@ -360,7 +360,7 @@ This SUMMARY.md was written by the Plan 10 executor on the main tree (`~/skynet-
 
 The executor did **NOT**:
 
-- Attempt to execute the UAT itself (would fail — `t1000-8899.serve.term.gigaashley.click` doesn't resolve pre-deploy).
+- Attempt to execute the UAT itself (would fail — `t1000-8899.serve.term.example.com` doesn't resolve pre-deploy).
 - Attempt to deploy anything (per standing directive: subagents don't do deploys).
 - Push, build, or run tests (per Plan 10 scope: pure UAT documentation).
 

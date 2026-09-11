@@ -22,7 +22,7 @@ Post-deploy walk-through for Ashley. Every TG-01..TG-11 requirement gets an obse
 
 ## Setup — one time
 
-1. Open https://term.gigaashley.click in Chrome on desktop AND on your phone.
+1. Open https://term.example.com in Chrome on desktop AND on your phone.
 2. Have at least 3 hosts configured in Skynet (any mix of SSH/RDP is fine).
 3. Have at least 2 sessions active on distinct hosts before starting (one identity-attached Claude session in a tmux window, one plain shell — this covers TG-04 "unchanged internals" for both pretty view and plain terminal).
 4. Note the URL fragment after opening a specific conversation — you'll compare this against the post-restore URL later (patch #25 regression check + TG-06 mobile-URL survival).
@@ -81,7 +81,7 @@ Post-deploy walk-through for Ashley. Every TG-01..TG-11 requirement gets an obse
 Plan 06-02 Task 2's persistence smoke test landed programmatic guards for Tests 1-3 (DOM node identity, mount-count invariant, visibility toggle) via a MountManager scaffold. Tests 4-6 (URL-sync, document.title effect, stale-id no-op end-to-end) were deferred to this UAT walk because full-AppShell mocking would have been fragile:
 
 - [ ] 🚨 **Test 4 (document.title)** Select conversation A (label "thenasty-claude"). Verify: browser tab title becomes `thenasty-claude` (or whatever A's label is). Select B. Verify: browser tab title becomes B's label. This proves the AppShell store→AppShell mirror effect (Plan 06-02) correctly propagates `selectedConversationId` into `activeTabId` and the existing document-title effect fires.
-- [ ] 🚨 **Test 5 (stale-id no-op end-to-end)** Manually load a URL fragment that references a nonexistent tab id (e.g. paste `https://term.gigaashley.click/#tab=terminal:nonexistent-host&active=0` into a fresh tab). Verify: the app loads without crashing; the URL fragment is either coerced to a valid one on next state change or the empty-view fallback renders. No console error, no white screen.
+- [ ] 🚨 **Test 5 (stale-id no-op end-to-end)** Manually load a URL fragment that references a nonexistent tab id (e.g. paste `https://term.example.com/#tab=terminal:nonexistent-host&active=0` into a fresh tab). Verify: the app loads without crashing; the URL fragment is either coerced to a valid one on next state change or the empty-view fallback renders. No console error, no white screen.
 - [ ] 🚨 **Test 6 (URL fragment updates on select)** Open conversation A. Note the URL fragment shows `#tab=terminal:hostA:sessionA&active=0` (or similar). Select conversation B (which is currently at index 1 in the tabs array). Verify: the URL fragment updates to reflect B's index (`&active=1` or the new active pointer). This is the patch #25 `#tab=` scheme continuing to work under Phase 6 selection semantics.
 
 ## Mobile flow (TG-06, TG-07) — requires touch device

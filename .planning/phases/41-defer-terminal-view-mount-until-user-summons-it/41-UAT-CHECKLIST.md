@@ -2,7 +2,7 @@
 
 **Target:** Ashley
 **Timing:** After `docker compose up -d --force-recreate skynet` completes, HTTPS 200 verified, PWA hard-refreshed.
-**URL:** https://term.gigaashley.click
+**URL:** https://term.example.com
 **Estimated duration:** ~15 minutes (10 items, items 1-8 fast, items 9-10 involve a send + console check).
 **Prerequisite:** Have at least one identity conversation visible in the conversation list (e.g. tanya or any registered fleet agent).
 

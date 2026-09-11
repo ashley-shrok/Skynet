@@ -171,7 +171,7 @@ None. This plan modifies one client-side render function to add a fragment-gated
 
 ## Next Plan
 
-Plan 01-05 adds the nginx `location ~ ^/claude-session/(websocket/|debug/)?` block to both `docker/nginx.conf` and `docker/nginx-https.conf` so the port-30003 WebSocket that `PrettyView` opens is reachable through the production edge. That plan also runs the first end-to-end browser smoke — loading `https://term.gigaashley.click/#…pretty=1` on a Claude-active tmux session and confirming chat bubbles render (checkpoint deferred from this plan).
+Plan 01-05 adds the nginx `location ~ ^/claude-session/(websocket/|debug/)?` block to both `docker/nginx.conf` and `docker/nginx-https.conf` so the port-30003 WebSocket that `PrettyView` opens is reachable through the production edge. That plan also runs the first end-to-end browser smoke — loading `https://term.example.com/#…pretty=1` on a Claude-active tmux session and confirming chat bubbles render (checkpoint deferred from this plan).
 
 ---
 *Phase: 01-live-session-stream-to-browser-read-only-pretty-view*

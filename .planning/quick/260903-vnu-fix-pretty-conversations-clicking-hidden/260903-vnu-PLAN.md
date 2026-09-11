@@ -37,7 +37,7 @@ Root cause: two lines inside `handleRowSelect` at src/ui/features/pretty-convers
 
 Purpose: honor Ashley 2026-09-03: hidden means hidden. Clicking a hidden row opens the session without changing hidden status. Kills both symptoms (wrong semantic + click-race navigation failure) with one edit.
 
-Output: 2 files modified (source + test), one atomic commit, deployed to term.gigaashley.click with HTTPS 200 verification.
+Output: 2 files modified (source + test), one atomic commit, deployed to term.example.com with HTTPS 200 verification.
 </objective>
 
 <execution_context>
@@ -113,8 +113,8 @@ Output: 2 files modified (source + test), one atomic commit, deployed to term.gi
     STEP 4 — Ship (fleet-critical, per CLAUDE.md — Docker requires sudo on this box):
     - `npm run build` (or the project's build script)
     - `sudo docker compose up -d --force-recreate` (from repo root)
-    - Verify: `curl -sSI https://term.gigaashley.click/ | head -1` returns `HTTP/2 200` (or the equivalent — nginx caveat: this route is served by `/` so no new location block is required; source-only + test-only edits, no new backend routes).
-    - Manual smoke (optional but recommended given fleet-critical blast radius): log into term.gigaashley.click, expand Hidden section, click a hidden row → session opens in the tab area, row stays in Hidden section.
+    - Verify: `curl -sSI https://term.example.com/ | head -1` returns `HTTP/2 200` (or the equivalent — nginx caveat: this route is served by `/` so no new location block is required; source-only + test-only edits, no new backend routes).
+    - Manual smoke (optional but recommended given fleet-critical blast radius): log into term.example.com, expand Hidden section, click a hidden row → session opens in the tab area, row stays in Hidden section.
 
     STEP 5 — Commit (single atomic per constraints):
     - `git add src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx`
@@ -128,7 +128,7 @@ Output: 2 files modified (source + test), one atomic commit, deployed to term.gi
     - `handleTogglePin` at ~line 1188 STILL contains `if (hiddenIds.has(row.id)) unhideConversation(row.id);` — grep confirms `grep -c "if (hiddenIds.has(row.id)) unhideConversation(row.id);" src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx` returns `1` (down from 2).
     - Test (n) exists in PrettyConversationsPanel.test.tsx inside the Hide/Show wiring describe block. `grep -c "Test (n)" src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx` returns at least 1.
     - Vitest run of `PrettyConversationsPanel.test.tsx` is fully green. Test (n) passes. Test (f) (unhide-before-pin) still passes untouched.
-    - Deployed: `curl -sSI https://term.gigaashley.click/ | head -1` returns HTTP 200.
+    - Deployed: `curl -sSI https://term.example.com/ | head -1` returns HTTP 200.
     - One atomic commit exists with the specified commit message; git log shows it as HEAD (or one behind if a follow-up commit is added, but the fix is a single commit per the constraint).
   </done>
 </task>
@@ -156,7 +156,7 @@ Output: 2 files modified (source + test), one atomic commit, deployed to term.gi
 <verification>
 - Vitest suite for PrettyConversationsPanel.test.tsx runs clean; Test (n) present and passing; Test (f) present and passing.
 - `grep` gates in <done> above prove: (a) old auto-unhide-on-click line is gone from handleRowSelect, (b) unhide-on-pin line is still present exactly once, (c) Ashley 2026-09-03 comment landed in the file, (d) Test (n) is present.
-- Production HTTPS on term.gigaashley.click returns 200 after docker compose recreate.
+- Production HTTPS on term.example.com returns 200 after docker compose recreate.
 - Manual smoke on production: clicking a hidden row opens the session and leaves the row in the Hidden section (Ashley visual confirmation, not gate-blocking).
 </verification>
 
@@ -165,7 +165,7 @@ Output: 2 files modified (source + test), one atomic commit, deployed to term.gi
 - Clicking a hidden row does NOT mutate hiddenIds; the row remains in the Hidden section.
 - The context-menu Hide / Unhide / Pin actions all still work identically to before (handleToggleHide and handleTogglePin untouched).
 - No new "sometimes navigation fails" reports — the click race is gone because the pre-routing state mutation is gone.
-- One atomic commit with the specified message. Deployed and HTTPS 200 verified on term.gigaashley.click.
+- One atomic commit with the specified message. Deployed and HTTPS 200 verified on term.example.com.
 </success_criteria>
 
 <output>

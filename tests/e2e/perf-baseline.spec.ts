@@ -13,7 +13,7 @@ const BOUNTY_DIR =
 const TRACE_DIR = path.join(BOUNTY_DIR, "traces");
 const REPORT_DIR = path.join(BOUNTY_DIR, "reports");
 
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://term.gigaashley.click";
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "https://term.example.com";
 
 // Init script installed in the browser context BEFORE navigation begins.
 // It sets up PerformanceObservers so LCP, long-tasks, layout-shifts, and
