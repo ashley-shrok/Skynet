@@ -728,6 +728,18 @@ export const matrixAdminCreds = sqliteTable("matrix_admin_creds", {
   // the tailnet FQDN) while the server_name a Synapse deployment identifies
   // itself with is a hostname. Populated via PATCH /matrix-admin/creds/server-name.
   serverName: text("server_name"),
+  // 2026-09-11: Nullable override for the host-reachable URL written into
+  // per-identity relay.json's `base` field. When null, consumers fall back
+  // to homeserver_base (preserves the pre-split single-URL behavior).
+  //
+  // Split into its own column because homeserverBase is the URL Skynet uses
+  // to reach synapse from INSIDE its container — which may be a docker-internal
+  // alias like `http://synapse:8008` that hosts cannot reach — while
+  // relay.json is consumed by recv.sh on the identity's host (and by the
+  // pending ~/.claude/skynet-relay-homeserver distributor per the distributor
+  // bounty) which MUST receive a host-reachable URL. Populated via
+  // PATCH /matrix-admin/creds/host-side-base.
+  hostSideBase: text("host_side_base"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),

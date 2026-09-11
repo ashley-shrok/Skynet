@@ -61,7 +61,8 @@ vi.mock("../utils/database-save-trigger.js", () => ({
 // The migration SQL for matrix_admin_creds — mirrors the exact shape added
 // to db/index.ts in Task 1, plus the nullable server_name column added
 // alongside the setMatrixAdminServerName + PATCH /matrix-admin/creds/server-name
-// change.
+// change, plus the 2026-09-11 nullable host_side_base column added alongside
+// setMatrixAdminHostSideBase + PATCH /matrix-admin/creds/host-side-base.
 const MATRIX_ADMIN_CREDS_CREATE_SQL = `
   CREATE TABLE IF NOT EXISTS matrix_admin_creds (
     id INTEGER PRIMARY KEY,
@@ -70,6 +71,7 @@ const MATRIX_ADMIN_CREDS_CREATE_SQL = `
     access_token TEXT NOT NULL,
     password TEXT NOT NULL,
     server_name TEXT,
+    host_side_base TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -100,7 +102,10 @@ describe("matrix-admin-creds-store", () => {
     expect(readBack).not.toBeNull();
     // serverName is nullable and defaults to null on a fresh row (an operator
     // seeds it separately via PATCH /matrix-admin/creds/server-name).
-    expect(readBack).toEqual({ ...creds, serverName: null });
+    // hostSideBase (2026-09-11) is also nullable with the same seeded-later
+    // discipline via PATCH /matrix-admin/creds/host-side-base.
+    expect(readBack).toEqual({ ...creds, serverName: null, hostSideBase: null });
+    expect(readBack!.hostSideBase).toBeNull();
   });
 
   it("Test 2: After setMatrixAdminCreds, raw access_token + password columns are FieldCrypto JSON (not plaintext)", async () => {
@@ -221,6 +226,7 @@ describe("matrix-admin-creds-store", () => {
       accessToken: "syt_new_token",
       password: "new-password",
       serverName: null,
+      hostSideBase: null,
     });
   });
 
@@ -246,6 +252,7 @@ describe("matrix-admin-creds-store", () => {
       accessToken: "syt_original_token",
       password: "original-password",
       serverName: "thenasty.taild9b663.ts.net",
+      hostSideBase: null,
     });
   });
 
@@ -306,5 +313,85 @@ describe("matrix-admin-creds-store", () => {
     expect(readBack?.accessToken).toBe("syt_rotated_token");
     expect(readBack?.password).toBe("rotated-password");
     expect(readBack?.serverName).toBe("thenasty.taild9b663.ts.net");
+  });
+
+  it("Test 9: setMatrixAdminHostSideBase round-trips through getMatrixAdminCreds; other fields unchanged", async () => {
+    const { setMatrixAdminCreds, setMatrixAdminServerName, setMatrixAdminHostSideBase, getMatrixAdminCreds } = await import(
+      "./matrix-admin-creds-store.js"
+    );
+
+    await setMatrixAdminCreds({
+      homeserverBase: "http://synapse:8008",
+      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      accessToken: "syt_original_token",
+      password: "original-password",
+    });
+    // Seed serverName first so we can prove the hostSideBase setter does NOT
+    // clobber it — sibling independence invariant.
+    await setMatrixAdminServerName("thenasty.taild9b663.ts.net");
+
+    const applied = await setMatrixAdminHostSideBase("http://100.99.149.8:8008");
+    expect(applied).toBe(true);
+
+    const readBack = await getMatrixAdminCreds();
+    expect(readBack).toEqual({
+      homeserverBase: "http://synapse:8008",
+      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      accessToken: "syt_original_token",
+      password: "original-password",
+      serverName: "thenasty.taild9b663.ts.net",
+      hostSideBase: "http://100.99.149.8:8008",
+    });
+  });
+
+  it("Test 10: setMatrixAdminHostSideBase with null clears the override", async () => {
+    const { setMatrixAdminCreds, setMatrixAdminHostSideBase, getMatrixAdminCreds } = await import(
+      "./matrix-admin-creds-store.js"
+    );
+
+    await setMatrixAdminCreds({
+      homeserverBase: "http://synapse:8008",
+      userId: "@skynet-admin:example.com",
+      accessToken: "syt_x",
+      password: "p",
+    });
+    await setMatrixAdminHostSideBase("http://100.99.149.8:8008");
+    expect((await getMatrixAdminCreds())?.hostSideBase).toBe(
+      "http://100.99.149.8:8008",
+    );
+
+    const cleared = await setMatrixAdminHostSideBase(null);
+    expect(cleared).toBe(true);
+    expect((await getMatrixAdminCreds())?.hostSideBase).toBeNull();
+  });
+
+  it("Test 11: setMatrixAdminHostSideBase returns false when no singleton row exists", async () => {
+    const { setMatrixAdminHostSideBase, getMatrixAdminCreds } = await import(
+      "./matrix-admin-creds-store.js"
+    );
+
+    // No setMatrixAdminCreds() call — the row doesn't exist yet.
+    const applied = await setMatrixAdminHostSideBase("http://100.99.149.8:8008");
+    expect(applied).toBe(false);
+    expect(await getMatrixAdminCreds()).toBeNull();
+  });
+
+  it("Test 12: setMatrixAdminServerName does NOT clobber a previously-set hostSideBase (siblings independent)", async () => {
+    const { setMatrixAdminCreds, setMatrixAdminServerName, setMatrixAdminHostSideBase, getMatrixAdminCreds } = await import(
+      "./matrix-admin-creds-store.js"
+    );
+
+    await setMatrixAdminCreds({
+      homeserverBase: "http://synapse:8008",
+      userId: "@skynet-admin:example.com",
+      accessToken: "syt_x",
+      password: "p",
+    });
+    await setMatrixAdminHostSideBase("http://100.99.149.8:8008");
+    await setMatrixAdminServerName("thenasty.taild9b663.ts.net");
+
+    const readBack = await getMatrixAdminCreds();
+    expect(readBack?.serverName).toBe("thenasty.taild9b663.ts.net");
+    expect(readBack?.hostSideBase).toBe("http://100.99.149.8:8008");
   });
 });

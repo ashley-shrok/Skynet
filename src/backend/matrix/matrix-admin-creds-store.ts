@@ -45,6 +45,15 @@ export interface MatrixAdminCreds {
   // container-DNS reachability while the mxid server_name is a hostname Synapse
   // recognizes. Populated via PATCH /matrix-admin/creds/server-name.
   serverName: string | null;
+  // 2026-09-11: Optional override for the host-reachable URL written into
+  // per-identity relay.json's `base` field. null on legacy rows (consumers
+  // fall back to homeserverBase). Split into its own column because
+  // homeserverBase is the URL Skynet uses to reach synapse from INSIDE its
+  // container (possibly a docker-internal alias like `http://synapse:8008`)
+  // while relay.json is consumed by recv.sh on the identity's host, which
+  // may require a different (tailnet-reachable) URL. Populated via
+  // PATCH /matrix-admin/creds/host-side-base.
+  hostSideBase: string | null;
 }
 
 /**
@@ -100,6 +109,7 @@ export async function getMatrixAdminCreds(): Promise<MatrixAdminCreds | null> {
     accessToken,
     password,
     serverName: row.serverName ?? null,
+    hostSideBase: row.hostSideBase ?? null,
   };
 }
 
@@ -151,6 +161,55 @@ export async function setMatrixAdminServerName(
 }
 
 /**
+ * 2026-09-11: Update only the `host_side_base` override column on the
+ * singleton row without touching the encrypted secrets. Returns true when
+ * the singleton row exists and the update applied, false when no row is
+ * present yet (caller must ingest full creds first via setMatrixAdminCreds).
+ *
+ * Split from setMatrixAdminCreds — same discipline as setMatrixAdminServerName
+ * — so an operator can rotate the host-reachable relay.json base URL without
+ * re-supplying the accessToken/password. The whole point of this split is
+ * that homeserverBase (container-internal, used for Skynet's admin API) and
+ * hostSideBase (host-external, written into per-identity relay.json) are
+ * decoupled and either can move without disturbing the other.
+ */
+export async function setMatrixAdminHostSideBase(
+  hostSideBase: string | null,
+): Promise<boolean> {
+  const existing = await db
+    .select({ id: matrixAdminCreds.id })
+    .from(matrixAdminCreds)
+    .where(eq(matrixAdminCreds.id, SINGLETON_ID))
+    .limit(1);
+
+  if (!existing || existing.length === 0) {
+    return false;
+  }
+
+  await db
+    .update(matrixAdminCreds)
+    .set({
+      hostSideBase,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(matrixAdminCreds.id, SINGLETON_ID));
+
+  try {
+    await DatabaseSaveTrigger.triggerSave("matrix_admin_creds_host_side_base_save");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "matrix_admin_creds host_side_base triggerSave failed (non-fatal — write is in RAM, next save fires it)",
+      {
+        operation: "matrix_admin_creds_host_side_base_save_failed",
+        error: saveError,
+      },
+    );
+  }
+
+  return true;
+}
+
+/**
  * Persist the @skynet-admin credentials, eagerly encrypting the two secret
  * columns BEFORE the INSERT/UPDATE so no plaintext window exists on disk.
  *
@@ -165,7 +224,7 @@ export async function setMatrixAdminServerName(
  * later (or if a subsequent write's debounced save fires first).
  */
 export async function setMatrixAdminCreds(
-  creds: Omit<MatrixAdminCreds, "serverName">,
+  creds: Omit<MatrixAdminCreds, "serverName" | "hostSideBase">,
 ): Promise<void> {
   const masterKey = await SystemCrypto.getInstance().getEncryptionKey();
 
