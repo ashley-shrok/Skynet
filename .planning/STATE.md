@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-11T16:54:21.817Z"
+last_updated: "2026-09-11T16:59:06.135Z"
 last_activity: 2026-09-11
 progress:
   total_phases: 108
   completed_phases: 93
   total_plans: 463
-  completed_plans: 451
+  completed_plans: 452
   percent: 86
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 103 (passthrough-urls-serve-url-scheme-phase-2-of-2) — EXECUTING
-Plan: 2 of 11
+Plan: 3 of 11
 
 Last activity (prior): 2026-09-10 -- Phase 103 execution started
 Last activity (prior): 2026-09-10 — Completed Phase 98 more-versatile-stt-tts-support (Amazon Polly + Amazon Transcribe swap for Chatterbox). All 5 waves shipped: Wave 1 (98-01 ffmpeg+SDK install, 98-02 kernels, 98-03 frontend catalog, 98-09 deploy doc), Wave 2 (98-04 AWS adapters, 98-05 migration one-shot + inline Dirent type fix), Wave 3 (98-06 voice.ts rewrite, 98-07 validator flip + inline roles-create followon fix), Wave 4 (98-08 tg-bridge rewire to Skynet /voice/transcribe), Wave 5 (98-10 Chatterbox kill, media-endpoints.ts deleted). Unbiased code review clean (1 HIGH + 3 MED + 2 LOW applied; 3 LOW deferred). Both backend + frontend tsc exit 0 across the full delta. Every plan has SUMMARY.md committed. All Chatterbox integration paths removed cleanly (no dual-provider seam). Ambient IMDS creds via Iris's `SkynetPollyTranscribeAccess` inline policy on `termix-ssm-role`. Voice-migration one-shot wipes existing identity voice values on boot (users re-pick from 7-voice Polly generative catalog). tg-bridge routes through Skynet `/voice/transcribe` (provider-agnostic). Held at push boundary per greenlight-at-push rule; ship in flight.
@@ -379,6 +379,7 @@ Progress: [██████████] 100%
 | Phase 95 P04 | 40m | 3 tasks | 6 files |
 | Phase 95 P05 | 20m | 2 tasks | 2 files |
 | Phase 106-birth-flow-rework-chunk-3-retire-skynet-tmux-claude-launch-s P02 | 6m 17s | 1 tasks | 1 files |
+| Phase 106 P106-01 | 35min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -608,6 +609,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Plan 106-02: Cancel button rendered-always with disabled={birthing} (not hidden) to avoid visual jump-vanish during birth spin — Dialog onOpenChange is the actual close-lock gate
 - [Phase ?]: Plan 106-02: Loader2 spinner sized size-4 (Button default text line-height affordance) replaces Create button text label during birthing per D-14
 - [Phase ?]: Plan 106-02: abortControllerRef + unmount cleanup effect PRESERVED intact despite modal-close-lock — page navigation still cancels SSE stream gracefully
+- [Phase ?]: sanitizeError exported from identity-birth-orchestrator.ts so identity-birth.ts can call it directly for wire-parity across birth+retry failure emits
+- [Phase ?]: Local-branch (isLocalHostId=true) wait-for-supervisor block skipped and emits ended:ok:true directly per D-06/action step 7 (Phase A UAT scope is remote fleet hosts only)
+- [Phase ?]: POST /-route safety-net ended:false emit widened to include reason:sanitizeError(err) alongside the retry-route fix — Rule 2 extension for wire-parity completeness
 
 ### Pending Todos
 
@@ -950,7 +954,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T16:54:21.758Z
+Last session: 2026-09-11T16:58:45.968Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed 106-02-PLAN.md
 Last session: 2026-09-08T03:58:11.814Z
