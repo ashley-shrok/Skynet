@@ -2418,3 +2418,16 @@ Plans:
 - [x] 105-04-PLAN.md — Wave 4 (depends 105-03): frontend rewire — retire `getPinnedIds()` from user-preferences-api; new `deriveDiskPinnedIds(identityHosts)` selector in identities-store projects each identity's `pinned: boolean` into the `fleet::hostId::sessionName` id space (D-04); `putPinnedIds([...], identityHosts)` signature extended for the backend fanout; panel hydrate effect swaps source; pin/unpin UI feel unchanged (D-06); `hydratePinnedIdsFromServer` preserved as the reconciliation seam
 
 **Note on numbering:** rescue-rebased from local Phase 92 (id-skill-revamp campaign Shape 1) to Phase 105 during campaign squash-merge — resolves phase-number collision with tina's Phase 92 (fleet-status-poller batch sweep) which shipped first. Content unchanged; disk-side plan filenames renumbered to `105-01-PLAN.md` etc. and the phase folder is at `.planning/phases/105-pin-sentinel-migration-...`. The `forceSave(phase-92-pin-sentinel-migration)` label inside the migration code retains its original name (that's the label the code was committed with; renaming it would rewrite history).
+
+### Phase 106: birth-flow rework Chunk 3: retire Skynet tmux+claude launch, supervisor becomes sole spawner
+
+**Goal:** After merge, the identity-creation modal shows a spinner in the Create button while Skynet writes the identity to disk + mints Matrix, then invisibly waits for the supervisor to bring the agent alive (bounded 120s poll on the transcript-file signal), then closes the modal and deposits the user directly into the new agent's chat surface — Skynet never opens tmux or launches claude itself; failure surface is a single browser blocking alert with partial state left on disk.
+**Requirements**: D-01..D-22 (see 106-CONTEXT.md — CONTEXT-locked decisions serve as the acceptance surface; no numbered requirement IDs)
+**Depends on:** Phase 105
+**Plans:** 4 plans
+
+Plans:
+- [ ] 106-01-PLAN.md — Backend orchestrator refactor: retire tmux + harness, add wait-for-supervisor poll + ended.reason field + SSE keepalive (Wave 1)
+- [ ] 106-02-PLAN.md — Frontend modal rework: delete BirthProgress; add spinner-in-Create-button + modal-lock + alert-on-failure (Wave 1, parallel with 106-01)
+- [ ] 106-03-PLAN.md — Backend test updates: remove step:3/4/5 assertions; add wait-poll success/timeout/error tests (Wave 2, depends on 106-01)
+- [ ] 106-04-PLAN.md — Frontend test updates: remove BirthProgress assertions; add spinner + close-lock + alert assertions (Wave 2, depends on 106-02)
