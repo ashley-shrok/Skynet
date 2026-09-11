@@ -21,6 +21,7 @@ import {
   setMatrixAdminCreds,
   getMatrixAdminCreds,
   setMatrixAdminServerName,
+  setMatrixAdminHostSideBase,
 } from "./matrix-admin-creds-store.js";
 import { mintAndWriteHumanToken } from "../telegram/human-token-writer.js";
 import { TG_BRIDGE_STATE_DIR } from "../telegram/shared-volume.js";
@@ -120,6 +121,7 @@ router.get(
         mxid: creds.userId,
         homeserverBase: creds.homeserverBase,
         serverName: creds.serverName,
+        hostSideBase: creds.hostSideBase,
       });
     } catch (err) {
       authLogger.error("Failed to read matrix-admin creds metadata", err);
@@ -192,6 +194,69 @@ router.patch(
       res
         .status(500)
         .json({ error: "Failed to patch matrix-admin server_name" });
+    }
+  },
+);
+
+// 2026-09-11: PATCH the host_side_base override on the singleton
+// matrix_admin_creds row without touching the encrypted accessToken/password
+// columns. Decouples the URL Skynet uses to reach synapse (homeserverBase —
+// possibly `http://synapse:8008` from inside its container) from the URL
+// written into per-identity relay.json's `base` field, which is consumed by
+// recv.sh on the identity's HOST and must be reachable from there.
+//
+// Body: `{ hostSideBase: string | null }`. A null (or explicit null) clears
+// the override; consumers then fall back to homeserverBase. Non-string /
+// non-null values return 400. String values must match `^https?://[^\s]+$`
+// (same regex used by POST /creds's homeserverBase validation at line ~49).
+// URL is not a secret — safe to log in the info line below.
+router.patch(
+  "/creds/host-side-base",
+  express.json(),
+  requireAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const adminUserId = (req as AuthenticatedRequest).userId;
+    const { hostSideBase } = (req.body ?? {}) as Record<string, unknown>;
+
+    if (hostSideBase !== null && typeof hostSideBase !== "string") {
+      res
+        .status(400)
+        .json({ error: "hostSideBase must be a string or null" });
+      return;
+    }
+    if (typeof hostSideBase === "string") {
+      if (!/^https?:\/\/[^\s]+$/.test(hostSideBase)) {
+        res
+          .status(400)
+          .json({ error: "hostSideBase must be an http(s) URL or null" });
+        return;
+      }
+    }
+
+    try {
+      const applied = await setMatrixAdminHostSideBase(
+        hostSideBase as string | null,
+      );
+      if (!applied) {
+        res.status(409).json({
+          error:
+            "matrix_admin_creds not yet ingested — POST /matrix-admin/creds first",
+        });
+        return;
+      }
+
+      authLogger.info("matrix-admin host_side_base patched", {
+        operation: "matrix_admin_creds_host_side_base_patch",
+        adminId: adminUserId,
+        hostSideBase,
+      });
+
+      res.json({ ok: true, hostSideBase });
+    } catch (err) {
+      authLogger.error("Failed to patch matrix-admin host_side_base", err);
+      res
+        .status(500)
+        .json({ error: "Failed to patch matrix-admin host_side_base" });
     }
   },
 );

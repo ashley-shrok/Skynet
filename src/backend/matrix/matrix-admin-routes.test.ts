@@ -61,16 +61,18 @@ vi.mock("../utils/auth-manager.js", () => {
 // Mock the creds store + saveMemoryDatabaseToFile
 // ---------------------------------------------------------------------------
 
-const { setMatrixAdminCredsMock, getMatrixAdminCredsMock, setMatrixAdminServerNameMock } = vi.hoisted(() => ({
+const { setMatrixAdminCredsMock, getMatrixAdminCredsMock, setMatrixAdminServerNameMock, setMatrixAdminHostSideBaseMock } = vi.hoisted(() => ({
   setMatrixAdminCredsMock: vi.fn(),
   getMatrixAdminCredsMock: vi.fn(),
   setMatrixAdminServerNameMock: vi.fn(),
+  setMatrixAdminHostSideBaseMock: vi.fn(),
 }));
 
 vi.mock("./matrix-admin-creds-store.js", () => ({
   setMatrixAdminCreds: setMatrixAdminCredsMock,
   getMatrixAdminCreds: getMatrixAdminCredsMock,
   setMatrixAdminServerName: setMatrixAdminServerNameMock,
+  setMatrixAdminHostSideBase: setMatrixAdminHostSideBaseMock,
 }));
 
 const { saveMemoryDatabaseToFileMock, dbSelectMock, dbPrepareRunMock } = vi.hoisted(() => ({
@@ -328,6 +330,7 @@ describe("GET /matrix-admin/creds", () => {
       password: "SECRET-DO-NOT-LEAK",
       accessToken: "SECRET-TOKEN-DO-NOT-LEAK",
       serverName: "thenasty.taild9b663.ts.net",
+      hostSideBase: null,
     });
     const res = await request(server.port, "GET", "/matrix-admin/creds");
     expect(res.status).toBe(200);
@@ -337,6 +340,7 @@ describe("GET /matrix-admin/creds", () => {
       mxid: "@skynet-admin:thenasty.taild9b663.ts.net",
       homeserverBase: "http://100.113.23.63:8008",
       serverName: "thenasty.taild9b663.ts.net",
+      hostSideBase: null,
     });
     expect(res.body).not.toMatch(/SECRET/);
   });
@@ -348,10 +352,41 @@ describe("GET /matrix-admin/creds", () => {
       password: "p",
       accessToken: "t",
       serverName: null,
+      hostSideBase: null,
     });
     const res = await request(server.port, "GET", "/matrix-admin/creds");
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body).serverName).toBeNull();
+  });
+
+  it("surfaces hostSideBase when set", async () => {
+    getMatrixAdminCredsMock.mockResolvedValue({
+      homeserverBase: "http://synapse:8008",
+      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      password: "p",
+      accessToken: "t",
+      serverName: "thenasty.taild9b663.ts.net",
+      hostSideBase: "http://100.99.149.8:8008",
+    });
+    const res = await request(server.port, "GET", "/matrix-admin/creds");
+    expect(res.status).toBe(200);
+    const parsed = JSON.parse(res.body);
+    expect(parsed.hostSideBase).toBe("http://100.99.149.8:8008");
+    expect(parsed.homeserverBase).toBe("http://synapse:8008");
+  });
+
+  it("surfaces hostSideBase:null when the override has not been patched", async () => {
+    getMatrixAdminCredsMock.mockResolvedValue({
+      homeserverBase: "http://synapse:8008",
+      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      password: "p",
+      accessToken: "t",
+      serverName: null,
+      hostSideBase: null,
+    });
+    const res = await request(server.port, "GET", "/matrix-admin/creds");
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body).hostSideBase).toBeNull();
   });
 });
 
@@ -467,6 +502,146 @@ describe("PATCH /matrix-admin/creds/server-name", () => {
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ ok: true, serverName: null });
     expect(setMatrixAdminServerNameMock).toHaveBeenCalledWith(null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-09-11: PATCH /matrix-admin/creds/host-side-base — mirrors the
+// server-name PATCH describe above; same admin-gate, 400/409/500 shape.
+// ---------------------------------------------------------------------------
+
+describe("PATCH /matrix-admin/creds/host-side-base", () => {
+  let server: { port: number; close: () => Promise<void> };
+
+  beforeEach(async () => {
+    setMatrixAdminHostSideBaseMock.mockReset();
+    mockIsAdmin = true;
+    server = await startServer();
+  });
+
+  afterEach(async () => {
+    await server.close();
+  });
+
+  it("401 when no auth token present", async () => {
+    mockIsAdmin = null;
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/host-side-base",
+      { hostSideBase: "http://100.99.149.8:8008" },
+    );
+    expect(res.status).toBe(401);
+    expect(setMatrixAdminHostSideBaseMock).not.toHaveBeenCalled();
+  });
+
+  it("403 when caller is authenticated but not admin", async () => {
+    mockIsAdmin = false;
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/host-side-base",
+      { hostSideBase: "http://100.99.149.8:8008" },
+    );
+    expect(res.status).toBe(403);
+    expect(setMatrixAdminHostSideBaseMock).not.toHaveBeenCalled();
+  });
+
+  it("400 when hostSideBase is neither string nor null", async () => {
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/host-side-base",
+      { hostSideBase: 42 },
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body).error).toMatch(/hostSideBase/);
+    expect(setMatrixAdminHostSideBaseMock).not.toHaveBeenCalled();
+  });
+
+  it("400 when hostSideBase is an empty string", async () => {
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/host-side-base",
+      { hostSideBase: "" },
+    );
+    expect(res.status).toBe(400);
+    expect(setMatrixAdminHostSideBaseMock).not.toHaveBeenCalled();
+  });
+
+  it("400 when hostSideBase is not an http(s) URL", async () => {
+    for (const bad of ["not-a-url", "ftp://x", "//no-scheme", "http:/onlyone"]) {
+      const res = await request(
+        server.port,
+        "PATCH",
+        "/matrix-admin/creds/host-side-base",
+        { hostSideBase: bad },
+      );
+      expect(res.status).toBe(400);
+    }
+    expect(setMatrixAdminHostSideBaseMock).not.toHaveBeenCalled();
+  });
+
+  it("409 when singleton row has not been ingested yet", async () => {
+    setMatrixAdminHostSideBaseMock.mockResolvedValue(false);
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/host-side-base",
+      { hostSideBase: "http://100.99.149.8:8008" },
+    );
+    expect(res.status).toBe(409);
+    expect(JSON.parse(res.body).error).toMatch(/POST \/matrix-admin\/creds/);
+  });
+
+  it("200 on successful patch (http URL) — calls setMatrixAdminHostSideBase with the value", async () => {
+    setMatrixAdminHostSideBaseMock.mockResolvedValue(true);
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/host-side-base",
+      { hostSideBase: "http://100.99.149.8:8008" },
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      hostSideBase: "http://100.99.149.8:8008",
+    });
+    expect(setMatrixAdminHostSideBaseMock).toHaveBeenCalledWith(
+      "http://100.99.149.8:8008",
+    );
+  });
+
+  it("200 on successful patch (https URL) — calls setMatrixAdminHostSideBase with the value", async () => {
+    setMatrixAdminHostSideBaseMock.mockResolvedValue(true);
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/host-side-base",
+      { hostSideBase: "https://matrix.example.com" },
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      hostSideBase: "https://matrix.example.com",
+    });
+    expect(setMatrixAdminHostSideBaseMock).toHaveBeenCalledWith(
+      "https://matrix.example.com",
+    );
+  });
+
+  it("200 on null clear — calls setMatrixAdminHostSideBase(null)", async () => {
+    setMatrixAdminHostSideBaseMock.mockResolvedValue(true);
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/host-side-base",
+      { hostSideBase: null },
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ ok: true, hostSideBase: null });
+    expect(setMatrixAdminHostSideBaseMock).toHaveBeenCalledWith(null);
   });
 });
 
