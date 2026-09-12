@@ -1212,6 +1212,19 @@ export function createSshPollOrchestrator(
    */
   const SWEEP_EXEC_TIMEOUT_MS = 8000;
 
+  /**
+   * Legacy-path poll wall-time cap. The legacy branch (pollOneHostLegacy +
+   * scanSpawnRequests) runs ~9-11 execs per PID plus fan-out; on a healthy
+   * host it lands in <5s, but any un-timed `channel.exec` inside it can wedge
+   * indefinitely (execCommand awaits `stream.on("close")` forever if the SSH
+   * stream never emits close — e.g. a container-to-self loopback whose
+   * underlying TCP is half-broken but the OS hasn't detected it). Without a
+   * bound, `pollOneHost`'s `inFlight` guard skips every subsequent tick
+   * forever. 30s is well above normal legacy runtime and far below the
+   * "stuck forever" threshold operators observe (~130s+).
+   */
+  const LEGACY_POLL_TIMEOUT_MS = 30000;
+
 // ---------------------------------------------------------------------------
 // Phase 99 — spawn-request scan helpers (D-01, D-02, D-03, D-17)
 //
@@ -1314,10 +1327,43 @@ export function createSshPollOrchestrator(
       }
     }
 
-    await pollOneHostLegacy(hostState);
-
-    // Phase 99 — spawn-request scan (D-01+D-02).
-    const spawnBatch = await scanSpawnRequests(host, channel);
+    // Wrap the legacy branch in a wall-time bound so a wedged `channel.exec`
+    // (execCommand is unbounded — see LEGACY_POLL_TIMEOUT_MS comment) doesn't
+    // freeze the inFlight guard for host permanently. On timeout we tear down
+    // the SSH client via releaseSshChannel so the next tick reconnects fresh,
+    // which is the only way to reclaim any semaphore slots the stuck execs are
+    // still holding.
+    let spawnBatch: PendingBirth[] = [];
+    try {
+      await Promise.race([
+        (async () => {
+          await pollOneHostLegacy(hostState);
+          spawnBatch = await scanSpawnRequests(host, channel);
+        })(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `pollOneHostLegacy timeout after ${LEGACY_POLL_TIMEOUT_MS}ms`,
+                ),
+              ),
+            LEGACY_POLL_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+    } catch (err) {
+      systemLogger.warn("Fleet-status: legacy-path wall-time exceeded", {
+        operation: "fleet_status_legacy_poll_timeout",
+        fleetHostId: host.id,
+        error: err instanceof Error ? err.message : "unknown",
+      });
+      try {
+        deps.releaseSshChannel(host, hostState.channel);
+      } catch {
+        // best-effort teardown — mirrors the eviction path
+      }
+    }
     for (const item of spawnBatch) {
       deps.enqueueSpawnRequest?.(item);
     }

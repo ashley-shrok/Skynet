@@ -3552,14 +3552,20 @@ describe("quick-260820-tm0 — per-host in-flight guard on pollOneHost", () => {
     const orchestrator = createSshPollOrchestrator(deps);
     await orchestrator.start(); // initial poll: ls -1 throws → catch → finally releases
 
-    // The existing fleet_status_poll_error warn should have fired.
+    // A failure warn should have fired. Legacy-path throws are now caught
+    // inside pollOneHost by the wall-time-cap wrapper (logs
+    // fleet_status_legacy_poll_timeout); either operation counts as observed.
     const warnCalls = (systemLogger.warn as unknown as MockInstance).mock.calls;
     const pollErrorCount = warnCalls.filter(
       (c: unknown[]) =>
         typeof c[1] === "object" &&
         c[1] !== null &&
-        (c[1] as Record<string, unknown>).operation ===
+        [
           "fleet_status_poll_error",
+          "fleet_status_legacy_poll_timeout",
+        ].includes(
+          (c[1] as Record<string, unknown>).operation as string,
+        ),
     ).length;
     expect(pollErrorCount).toBeGreaterThan(0);
 
