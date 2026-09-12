@@ -217,6 +217,11 @@ export function publicIdentity(
 
   return {
     identityKey,
+    // quick-260912-0t4: surface hostId as a top-level field so the frontend
+    // can key its `byHostKey` composite map (`${hostId}::${identityKey}`)
+    // without having to reverse-parse avatarUrl. Fixes cross-host cosmetics
+    // collision when two identities share a name on different fleet hosts.
+    hostId,
     displayName:
       typeof cosmetics.displayName === "string" && cosmetics.displayName.length > 0
         ? cosmetics.displayName
@@ -288,8 +293,10 @@ function parseIdentityHosts(raw: unknown): Record<string, number> {
 }
 
 // Phase 68 disk-fanout enumeration. No DB SELECT. Fans out to unique hostIds
-// from identityHosts map; per-host silent-swallow on error; first-host-wins
-// on cross-host identityKey collision (explicitly deferred per CONTEXT.md § Scope edges).
+// from identityHosts map; per-host silent-swallow on error. Cross-host name
+// collisions surface as SEPARATE rows (one per (hostId, identityKey) tuple);
+// the frontend's `byHostKey` composite key disambiguates on the render side
+// (per quick-260912-0t4).
 router.get("/", authenticateJWT, async (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
   try {
@@ -426,18 +433,11 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
       }),
     );
 
-    // 5. Flatten per-host arrays into a single merged list.
-    const flatList = perHostResults.flat();
-
-    // 6. Dedupe on identityKey (first-host-wins by iteration order per T-68-02-05).
-    const seen = new Set<string>();
-    const merged: ReturnType<typeof publicIdentity>[] = [];
-    for (const identity of flatList) {
-      if (!seen.has(identity.identityKey)) {
-        seen.add(identity.identityKey);
-        merged.push(identity);
-      }
-    }
+    // 5. Flatten per-host arrays into a single merged list. Cross-host
+    // identityKey collisions surface as separate rows (one per (hostId,
+    // identityKey) tuple); the frontend disambiguates via byHostKey (per
+    // quick-260912-0t4).
+    const merged = perHostResults.flat();
 
     return res.json(merged);
   } catch (e) {

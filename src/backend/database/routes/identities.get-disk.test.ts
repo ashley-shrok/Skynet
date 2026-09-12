@@ -10,7 +10,9 @@
  *   - readIdentityFile(conn, key) per key to read cosmetics.
  *   - extractCosmeticsFromFrontmatter + extractRoleFromMarkdown → publicIdentity().
  *   - Per-host silent-swallow on error (no 5xx, no crash).
- *   - First-host-wins on cross-host identityKey collision.
+ *   - Cross-host identityKey collisions surface as SEPARATE rows (one per
+ *     (hostId, identityKey) tuple; per quick-260912-0t4). Frontend
+ *     disambiguates via byHostKey composite key.
  *   - Empty identityHosts → [].
  *
  * ─── publicIdentity() shape (Phase 68) ──────────────────────────────────────
@@ -28,7 +30,7 @@
  *   Fanout (a)  single host, 2 identities on disk → 2 in response, hostId baked in avatarUrl
  *   Fanout (b)  two hosts, 3+2 identities → 5 in response, correct hostId per identity
  *   Fanout (c)  unreachable host (listIdentityKeysOnHost throws) → that host absent, survivor present
- *   Fanout (d)  cross-host collision on identityKey "tina" → first-host-wins
+ *   Fanout (d)  cross-host collision on identityKey "tina" → BOTH rows surface (one per hostId)
  *   Fanout (e)  empty identityHosts map → []
  *   Fanout (f)  host reachable but empty folder (listIdentityKeysOnHost returns []) → 0 identities
  *
@@ -528,9 +530,11 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
   });
 
   // -------------------------------------------------------------------------
-  // Fanout (d): cross-host collision → first-host-wins
+  // Fanout (d): cross-host collision → BOTH rows surface (one per hostId)
+  // Post quick-260912-0t4: the first-host-wins dedup was removed. Both rows
+  // are returned to the wire; frontend disambiguates via byHostKey.
   // -------------------------------------------------------------------------
-  it("Fanout-d: cross-host identityKey collision on 'tina' → first-host-wins (host 1)", async () => {
+  it("Fanout-d: cross-host identityKey collision on 'tina' → BOTH rows surface (one per hostId)", async () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
 
     // Both host 1 and host 2 have "tina"
@@ -562,19 +566,27 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
     // We need uniqueHostIds to include both 1 and 2.
     // Use: { tina: 1, poppy: 2 } so uniqueHostIds = [1, 2].
     // Host 1 returns ["tina"]; host 2 ALSO returns ["tina"].
-    // First-host-wins: tina from host 1.
+    // Post quick-260912-0t4: BOTH tinas surface (one per hostId).
     const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1, poppy: 2 }));
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
 
     expect(res.status).toBe(200);
     const rows = res.body as Array<Record<string, unknown>>;
 
-    // Only ONE tina in the merged result (first-host-wins dedup)
+    // BOTH tina rows in the merged result (one per hostId; dedup removed)
     const tinaRows = rows.filter((r) => r.identityKey === "tina");
-    expect(tinaRows).toHaveLength(1);
-    // displayName from host 1 (LOCAL) since host 1 is enumerated first in uniqueHostIds
-    expect(tinaRows[0].displayName).toBe("Tina-Host1");
-    expect(tinaRows[0].avatarUrl).toBe("/identities/tina/avatar?hostId=1");
+    expect(tinaRows).toHaveLength(2);
+
+    const tinaHost1 = tinaRows.find((r) => r.hostId === 1);
+    const tinaHost2 = tinaRows.find((r) => r.hostId === 2);
+
+    expect(tinaHost1).toBeDefined();
+    expect(tinaHost1?.displayName).toBe("Tina-Host1");
+    expect(tinaHost1?.avatarUrl).toBe("/identities/tina/avatar?hostId=1");
+
+    expect(tinaHost2).toBeDefined();
+    expect(tinaHost2?.displayName).toBe("Tina-Host2");
+    expect(tinaHost2?.avatarUrl).toBe("/identities/tina/avatar?hostId=2");
   });
 
   // -------------------------------------------------------------------------

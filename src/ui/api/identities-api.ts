@@ -2,6 +2,13 @@ import { authApi, handleApiError } from "@/main-axios";
 
 export interface Identity {
   identityKey: string;
+  /** quick-260912-0t4: hostId surfaced as a top-level wire field so the
+   *  frontend can key its byHostKey composite map (`${hostId}::${identityKey}`)
+   *  without reverse-parsing avatarUrl. Populated by publicIdentity() at
+   *  request time from the per-host fanout. Optional in the type only so
+   *  pre-quick-260912-0t4 test fixtures keep compiling; production responses
+   *  always include it. */
+  hostId?: number;
   displayName: string;
   title: string | null;
   colorHue: number | null;
