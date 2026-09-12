@@ -185,3 +185,87 @@ describe("Phase 92 Plan 04 Task 1 — user-preferences-api pin surface", () => {
     warnSpy.mockRestore();
   });
 });
+
+// ─── Phase 107 Plan 04 Task 1 — API-107-* tests for the hidden slice ─────────
+//
+// Mirrors the API-92-* structure above but for putHiddenIds (hidden slice).
+// getHiddenIds is RETIRED — no export should exist. putHiddenIds gains the
+// identityHosts second arg mirroring putPinnedIds. The existing toBareIdentityKey
+// helper is REUSED — not duplicated.
+
+describe("Phase 107 Plan 04 Task 1 — user-preferences-api hidden surface", () => {
+  beforeEach(() => {
+    vi.mocked(authApi.put).mockReset();
+    vi.mocked(authApi.get).mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // ─── API-107-01 — putHiddenIds new signature: identityHosts in the body ────
+  it("API-107-01: putHiddenIds(ids, identityHosts) issues PUT /user-preferences with body {hiddenConversationIds: bareIds, identityHosts}", async () => {
+    vi.mocked(authApi.put).mockResolvedValueOnce({
+      data: { hiddenConversationIds: ["tina"] },
+    });
+
+    const { putHiddenIds } = await import("@/api/user-preferences-api");
+    const result = await putHiddenIds(["fleet::1::tina"], { tina: 1 });
+
+    // Wire shape: PUT /user-preferences with BOTH hiddenConversationIds (bare)
+    // and identityHosts. The fleet::1::tina composite id strips to bare "tina"
+    // via the shared toBareIdentityKey helper — NOT duplicated.
+    expect(authApi.put).toHaveBeenCalledTimes(1);
+    expect(authApi.put).toHaveBeenCalledWith("/user-preferences", {
+      hiddenConversationIds: ["tina"],
+      identityHosts: { tina: 1 },
+    });
+    expect(result).toEqual(["tina"]);
+  });
+
+  // ─── API-107-02 — empty identityHosts permitted for unhide-all ───────────
+  it("API-107-02: putHiddenIds([], {}) works — backend handles zero-writes gracefully", async () => {
+    vi.mocked(authApi.put).mockResolvedValueOnce({
+      data: { hiddenConversationIds: [] },
+    });
+
+    const { putHiddenIds } = await import("@/api/user-preferences-api");
+    const result = await putHiddenIds([], {});
+
+    expect(authApi.put).toHaveBeenCalledWith("/user-preferences", {
+      hiddenConversationIds: [],
+      identityHosts: {},
+    });
+    expect(result).toEqual([]);
+  });
+
+  // ─── API-107-03 — getHiddenIds is REMOVED from export surface ────────────
+  it("API-107-03: getHiddenIds is not exported from @/api/user-preferences-api", async () => {
+    // The module's getHiddenIds export must be absent. The projection over
+    // identity metadata replaces the dedicated fetch.
+    const module = await import("@/api/user-preferences-api");
+    const surface = module as Record<string, unknown>;
+    expect(surface.getHiddenIds).toBeUndefined();
+  });
+
+  // ─── API-107-04 — server echo comparison + divergence warn ───────────────
+  it("API-107-04: putHiddenIds echoes server response; console.warn fires on divergence", async () => {
+    // Echo behavior (D-06 truth-first): backend re-derives hiddenConversationIds
+    // from disk after fanout and echoes that. putHiddenIds returns echoed value.
+    vi.mocked(authApi.put).mockResolvedValueOnce({
+      data: { hiddenConversationIds: ["alice", "bob"] },
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { putHiddenIds } = await import("@/api/user-preferences-api");
+    const result = await putHiddenIds(["fleet::1::tina"], { tina: 1 });
+
+    // Server echo differs from sent (sent: ["tina"], echoed: ["alice", "bob"])
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[hide-persistence] server echo mismatch",
+      expect.objectContaining({ sent: ["tina"], echoed: ["alice", "bob"] }),
+    );
+    expect(result).toEqual(["alice", "bob"]);
+    warnSpy.mockRestore();
+  });
+});

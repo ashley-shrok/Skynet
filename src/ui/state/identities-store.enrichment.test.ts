@@ -16,8 +16,8 @@ vi.mock("@/api/identities-api", () => ({
 
 vi.mock("@/api/user-preferences-api", () => ({
   // Phase 92 Plan 04: getPinnedIds retired.
+  // Phase 107 Plan 04: getHiddenIds retired.
   putPinnedIds: vi.fn().mockResolvedValue([]),
-  getHiddenIds: vi.fn().mockResolvedValue([]),
   putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
 
@@ -26,6 +26,7 @@ import {
   refreshIdentities,
   __resetIdentitiesStoreForTest,
   deriveDiskPinnedIds,
+  deriveDiskHiddenIds,
 } from "./identities-store.js";
 import * as IdentitiesStore from "./identities-store.js";
 import * as IdentitiesApi from "@/api/identities-api";
@@ -248,5 +249,101 @@ describe("Phase 92 Plan 04 — deriveDiskPinnedIds projection", () => {
     // Empty identityHosts → no rows to project onto → empty result. Matches
     // the pre-fleet-loaded transition window.
     expect(deriveDiskPinnedIds({})).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 107 Plan 04 Task 1 — SEL-107-* tests for deriveDiskHiddenIds
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// deriveDiskHiddenIds mirrors deriveDiskPinnedIds exactly — same projection
+// algorithm, same fail-closed contract, same H2 reuse of buildIdentityHostsFromFleet
+// as argument. Only the field changes: `identity.pinned` → `identity.hidden`.
+//
+// H2 invariant: identityHosts argument MUST be built by buildIdentityHostsFromFleet.
+// SEL-107-04 locks the export shape so a naive rewrite trips loudly.
+
+function makeIdentityWithHidden(
+  identityKey: string,
+  opts: { pinned?: boolean; hidden?: boolean },
+): Identity {
+  const base: Identity = {
+    identityKey,
+    displayName: identityKey,
+    title: null,
+    colorHue: null,
+    voice: null,
+    role: null,
+    avatarMime: "",
+    avatarUrl: "",
+    avatarEtag: "",
+    coordinator: false,
+    task: null,
+  };
+  if (opts.pinned !== undefined) {
+    (base as Identity & { pinned?: boolean }).pinned = opts.pinned;
+  }
+  if (opts.hidden !== undefined) {
+    (base as Identity & { hidden?: boolean }).hidden = opts.hidden;
+  }
+  return base;
+}
+
+describe("Phase 107 Plan 04 — deriveDiskHiddenIds projection", () => {
+  it("SEL-107-01 (happy path): projects hidden identities into fleet::<hostId>::<key> shape", async () => {
+    await seedIdentities([
+      makeIdentityWithHidden("tina", { hidden: true }),
+      makeIdentityWithHidden("alice", { hidden: false }),
+      makeIdentityWithHidden("bob", { hidden: true }),
+    ]);
+    const identityHosts = { tina: 1, alice: 2, bob: 2 };
+    const result = deriveDiskHiddenIds(identityHosts);
+    // order-agnostic — sort both sides to compare
+    expect([...result].sort()).toEqual(
+      ["fleet::1::tina", "fleet::2::bob"].sort(),
+    );
+  });
+
+  it("SEL-107-02 (fail-closed on missing hidden field): treats absent `hidden` as false", async () => {
+    // Identity without `hidden` key at all — must be treated as unhidden per
+    // D-01 fail-closed contract. Backend Plan-02 fail-closed contract mirrors.
+    await seedIdentities([
+      makeIdentityWithHidden("tina", {}),       // no hidden field
+      makeIdentityWithHidden("bob", { hidden: true }),
+    ]);
+    const result = deriveDiskHiddenIds({ tina: 1, bob: 2 });
+    expect(result).toEqual(["fleet::2::bob"]);
+  });
+
+  it("SEL-107-03 (missing host mapping filters identity out): identity absent from identityHosts is dropped", async () => {
+    await seedIdentities([
+      makeIdentityWithHidden("tina", { hidden: true }),
+      makeIdentityWithHidden("bob", { hidden: true }),
+    ]);
+    // Only tina has a host mapping — bob is hidden but has no host, so it
+    // cannot render as a hidden row and must be excluded.
+    const result = deriveDiskHiddenIds({ tina: 1 });
+    expect(result).toEqual(["fleet::1::tina"]);
+  });
+
+  it("SEL-107-04 (H2 lock): both buildIdentityHostsFromFleet AND deriveDiskHiddenIds are exported from identities-store", () => {
+    // Both exports live on the same module. Anyone rewriting the hidden path
+    // must reuse buildIdentityHostsFromFleet (identities-store.ts:111-122)
+    // rather than a parallel local helper — SEL-107-04 is the regression trap.
+    expect(typeof IdentitiesStore.buildIdentityHostsFromFleet).toBe("function");
+    expect(typeof IdentitiesStore.deriveDiskHiddenIds).toBe("function");
+  });
+
+  it("SEL-107-05 (pin/hidden independence): deriveDiskPinnedIds and deriveDiskHiddenIds are independent axes", async () => {
+    // Both can return non-empty simultaneously — they are not mutually exclusive.
+    await seedIdentities([
+      makeIdentityWithHidden("tina", { pinned: true, hidden: false }),
+      makeIdentityWithHidden("alice", { pinned: false, hidden: true }),
+    ]);
+    const identityHosts = { tina: 1, alice: 2 };
+    const pinnedResult = deriveDiskPinnedIds(identityHosts);
+    const hiddenResult = deriveDiskHiddenIds(identityHosts);
+    expect([...pinnedResult].sort()).toEqual(["fleet::1::tina"]);
+    expect([...hiddenResult].sort()).toEqual(["fleet::2::alice"]);
   });
 });
