@@ -912,6 +912,28 @@ export function runPinColumnDrop(sqliteDb: Database.Database): void {
   dropColumnIfExists(sqliteDb, "user_preferences", "pinned_conversation_ids");
 }
 
+/**
+ * Phase 107 D-02 — drop the `hidden_conversation_ids` column from
+ * `user_preferences`. Hide state lives on disk as `~/fleet/identities/
+ * <name>/.hidden` post-Phase-107 (matches `.no-dormancy` / `.recycle-
+ * requested` / `.pinned` presence-is-meaning convention). Plan 02
+ * already retired every reader/writer of this column in src/ — this
+ * drop retires the dead storage.
+ *
+ * Idempotent via dropColumnIfExists (probes SELECT; ALTER TABLE DROP
+ * COLUMN on hit; silent no-op on miss). Byte-mirror of runPinColumnDrop
+ * at L910-913 — the only difference is the column name.
+ *
+ * Exported so index.migration.test.ts can exercise Test P107-01 (OLD
+ * schema drop) + Test P107-02 (NEW schema idempotent no-op) against
+ * test-owned in-memory databases — parallel to runPinColumnDrop /
+ * runIdentitiesCosmeticDrops export pattern.
+ */
+export function runHiddenColumnDrop(sqliteDb: Database.Database): void {
+  assertSqliteSupportsDropColumn(sqliteDb);
+  dropColumnIfExists(sqliteDb, "user_preferences", "hidden_conversation_ids");
+}
+
 const migrateSchema = async () => {
   // Phase 66 Plan 04: drop the cosmetic columns from identities (now live on
   // disk per shape file). Preflight asserts SQLite >= 3.35 (native DROP
@@ -986,31 +1008,56 @@ const migrateSchema = async () => {
     throw preflightErr;
   }
 
+  // Phase 107 Plan 03 (D-02): drop the hidden_conversation_ids column from
+  // user_preferences. Hidden state now lives on disk as `.hidden` sentinels
+  // per identity (Plan 107-01 primitive + Plan 107-02 read/write rewire).
+  // Runs BEFORE the addColumnIfNotExists sweep below — same ordering
+  // rationale as runPinColumnDrop above (drops before adds so a stale
+  // install cannot briefly re-add the column in the same boot cycle).
+  //
+  // Preflight throw is fatal — mirrors L903-913 precedent (T-66-04-04:
+  // "boot aborts before schema corruption"). The labeled forceSave that
+  // persists the schema mutation lives after the addColumnIfNotExists
+  // sweep below, batching this drop + all the adds in one atomic file write.
+  try {
+    runHiddenColumnDrop(sqlite);
+  } catch (preflightErr) {
+    databaseLogger.error(
+      "Phase 107 hidden-column drop preflight failed",
+      preflightErr,
+      { operation: "schema_migration_preflight" },
+    );
+    throw preflightErr;
+  }
+
   addColumnIfNotExists("user_preferences", "theme", "TEXT");
   addColumnIfNotExists("user_preferences", "font_size", "TEXT");
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
   addColumnIfNotExists("user_preferences", "language", "TEXT");
-  addColumnIfNotExists("user_preferences", "hidden_conversation_ids", "TEXT");
 
-  // Phase 92 Plan 03 — persist the pinned_conversation_ids DROP (via
-  // runPinColumnDrop above) to the encrypted SQLite file. Direct .exec()
-  // writes only reach RAM per CLAUDE.md § "In-memory SQLite pattern";
-  // without an explicit forceSave the drop lives only in memory until an
-  // unrelated write fires the debounced save trigger — a restart in that
-  // window would lose the schema mutation and re-run the drop on next
-  // boot. Wrapped in try/catch with a non-fatal warn: dropColumnIfExists
-  // is idempotent, so a save failure retries on the next boot cycle.
-  // Mirrors the L928-939 (phase-68) / L995-1006 (phase-75) precedent —
-  // same shape, same reason, same tolerance for uninitialized-trigger
-  // races on the first-ever boot.
+  // Phase 107 Plan 03 — persist BOTH the pinned_conversation_ids DROP
+  // (runPinColumnDrop above) AND the hidden_conversation_ids DROP
+  // (runHiddenColumnDrop above) to the encrypted SQLite file in one
+  // atomic file write. Direct .exec() writes only reach RAM per CLAUDE.md
+  // § "In-memory SQLite pattern"; without an explicit forceSave the drops
+  // live only in memory until an unrelated write fires the debounced save
+  // trigger — a restart in that window would lose the schema mutation and
+  // re-run the drop on next boot. Wrapped in try/catch with a non-fatal
+  // warn: dropColumnIfExists is idempotent, so a save failure retries on
+  // the next boot cycle. The label is always the LATEST migration touching
+  // this file — per Phase 92 Plan 03 precedent, one forceSave batches all
+  // prior mutations (both drops + the user_preferences addColumnIfNotExists
+  // sweep) in a single atomic write. Mirrors the L928-939 (phase-68) /
+  // L995-1006 (phase-75) precedent — same shape, same reason, same
+  // tolerance for uninitialized-trigger races on the first-ever boot.
   try {
-    await DatabaseSaveTrigger.forceSave("phase-92-pin-sentinel-migration");
+    await DatabaseSaveTrigger.forceSave("phase-107-hidden-sentinel-migration");
   } catch (saveError) {
     databaseLogger.warn(
-      "[phase-92] forceSave failed post-drop (non-fatal — dropColumnIfExists is idempotent, next boot retries)",
+      "[phase-107] forceSave failed post-drop (non-fatal — dropColumnIfExists is idempotent, next boot retries)",
       {
         operation: "schema_migration_force_save_post_drop",
-        reason: "phase-92-pin-sentinel-migration",
+        reason: "phase-107-hidden-sentinel-migration",
         error: saveError,
       },
     );
