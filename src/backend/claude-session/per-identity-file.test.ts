@@ -348,18 +348,21 @@ describe("writeIdentityFile — REMOTE branch", () => {
     expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
     expect(sftp.rename).not.toHaveBeenCalled();
 
-    // Byte-shape invariant (matches pre-refactor identity-birth-orchestrator
-    // L862 literal): $HOME is passed to SFTP as a literal, NOT resolved.
+    // Byte-shape invariant (Phase 107 hotfix — 2026-09-12): SFTP path is
+    // RELATIVE (no leading `/`, no `$HOME/` prefix). SFTP resolves relative
+    // paths against the SSH user's home directory automatically. The prior
+    // `$HOME/...` literal shape silently ENOENT'd because SFTP does not
+    // expand `$HOME` as a shell variable.
     expect(renameCalls).toHaveLength(1);
     expect(renameCalls[0].to).toBe(
-      "$HOME/fleet/identities/tina/.pinned",
+      "fleet/identities/tina/.pinned",
     );
 
     // sftp.writeFile invoked with the .tmp target BEFORE the rename
     expect(sftp.writeFile).toHaveBeenCalledTimes(1);
     const writeArgs = sftp.writeFile.mock.calls[0];
     expect(writeArgs[0]).toBe(
-      "$HOME/fleet/identities/tina/.pinned.tmp",
+      "fleet/identities/tina/.pinned.tmp",
     );
     // Empty contents threaded through unchanged (D-01: presence is meaning)
     const writtenBuf = writeArgs[1] as Buffer;
@@ -428,7 +431,7 @@ describe("removeIdentityFile — REMOTE branch", () => {
 
     expect(sftp.unlink).toHaveBeenCalledTimes(1);
     expect(sftp.unlink.mock.calls[0][0]).toBe(
-      "$HOME/fleet/identities/tina/.pinned",
+      "fleet/identities/tina/.pinned",
     );
   });
 
@@ -533,11 +536,12 @@ describe("writeIdentityFile — byte-shape regression trap", () => {
       chmod: 0o600,
     });
 
-    // Phase 96 fleet-tree target: `$HOME/fleet/identities/${opts.name}/relay.json`
-    // — $HOME is a LITERAL string passed to SFTP, not resolved via `echo $HOME`.
+    // Phase 96 fleet-tree target under $HOME. Phase 107 hotfix (2026-09-12)
+    // dropped the `$HOME/` literal prefix — SFTP resolves the bare relative
+    // path against the SSH user's home directory automatically.
     expect(renameCalls).toHaveLength(1);
     expect(renameCalls[0].to).toBe(
-      "$HOME/fleet/identities/tina/relay.json",
+      "fleet/identities/tina/relay.json",
     );
 
     // Contents threaded through unchanged (verbatim body-pass invariant)
@@ -674,7 +678,7 @@ describe("H1 lock — primitive IDENTITY_KEY_RE parity with identity-artifact-re
 //   H-01: whitelist admission (write/remove/exists accept ".hidden")
 //   H-02: whitelist still bounded (".hidden.old", "hidden" without dot still rejected)
 //   H-03: LOCAL write of ".hidden" preserves zero-byte body (presence-is-meaning)
-//   H-04: REMOTE write of ".hidden" delegates to writeMarkdownFileAtomic with $HOME literal + empty body
+//   H-04: REMOTE write of ".hidden" delegates to writeMarkdownFileAtomic with relative-path (home-resolved) + empty body
 //   H-05: LOCAL remove of ".hidden" — idempotent ENOENT swallow
 //   H-06: REMOTE remove of ".hidden" — idempotent SSH_FX_NO_SUCH_FILE swallow
 //   H-07: LOCAL identityFileExists — true/false + fail-closed
@@ -779,9 +783,9 @@ describe("Phase 107 Plan 107-01: .hidden sentinel primitive coverage", () => {
     expect(renameMock.mock.calls[0][1]).toBe(expectedFinal);
   });
 
-  // ── H-04: REMOTE write — writeMarkdownFileAtomic + $HOME literal + empty body ──
+  // ── H-04: REMOTE write — writeMarkdownFileAtomic + relative-path (home-resolved) + empty body ──
 
-  it("H-04: REMOTE write of '.hidden' delegates to writeMarkdownFileAtomic with $HOME literal path and empty body (byte-shape parity)", async () => {
+  it("H-04: REMOTE write of '.hidden' delegates to writeMarkdownFileAtomic with relative-path (home-resolved) path and empty body (byte-shape parity)", async () => {
     const { conn, sftp, renameCalls } = buildMockConn();
 
     await writeIdentityFile("tina", ".hidden", "", {
@@ -793,14 +797,15 @@ describe("Phase 107 Plan 107-01: .hidden sentinel primitive coverage", () => {
     expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
     expect(sftp.rename).not.toHaveBeenCalled();
 
-    // Byte-shape invariant: $HOME is a literal, NOT resolved via echo
+    // Byte-shape invariant (Phase 107 hotfix): SFTP path is RELATIVE (home-resolved
+    // by SFTP), not `$HOME/...` literal.
     expect(renameCalls).toHaveLength(1);
-    expect(renameCalls[0].to).toBe("$HOME/fleet/identities/tina/.hidden");
+    expect(renameCalls[0].to).toBe("fleet/identities/tina/.hidden");
 
     // sftp.writeFile invoked with the .tmp target BEFORE the rename
     expect(sftp.writeFile).toHaveBeenCalledTimes(1);
     const writeArgs = sftp.writeFile.mock.calls[0];
-    expect(writeArgs[0]).toBe("$HOME/fleet/identities/tina/.hidden.tmp");
+    expect(writeArgs[0]).toBe("fleet/identities/tina/.hidden.tmp");
     // Empty contents threaded through (presence-is-meaning — zero-byte)
     const writtenBuf = writeArgs[1] as Buffer;
     expect(Buffer.isBuffer(writtenBuf)).toBe(true);

@@ -1285,7 +1285,7 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
       (c: unknown[]) => typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
     );
     expect(relayJsonWrite).toBeDefined();
-    expect(relayJsonWrite![1]).toContain("$HOME/fleet/identities/agent1/relay.json");
+    expect(relayJsonWrite![1]).toContain("fleet/identities/agent1/relay.json");
 
     // chmod 600 was called on the relay.json path — S-1 lock proof
     const chmodCalls = mockExecCommand.mock.calls.filter(
@@ -1869,8 +1869,8 @@ describe("Phase 89-02 Task 3: agents-registry join hook in Step 6", () => {
 // ---------------------------------------------------------------------------
 
 describe("Phase 92-01 Task 2: Step 8 refactor byte-shape parity", () => {
-  // ---- T1: relay.json target path unchanged ($HOME/fleet/identities/<name>/relay.json)
-  it("T1: relay.json REMOTE target path matches pre-refactor L862 literal `$HOME/fleet/identities/<name>/relay.json`", async () => {
+  // ---- T1: relay.json target path is home-relative (SFTP resolves against SSH user's $HOME)
+  it("T1: relay.json REMOTE target path is relative `fleet/identities/<name>/relay.json` (Phase 107 hotfix — SFTP home-resolves; prior `$HOME/...` literal silently ENOENT'd)", async () => {
     mockIsLocalHostId.mockReturnValue(false);
 
     const mockCreateOrUpdate = vi
@@ -1900,9 +1900,11 @@ describe("Phase 92-01 Task 2: Step 8 refactor byte-shape parity", () => {
           typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
       );
     expect(relayJsonWrites).toHaveLength(1);
-    // Byte-shape lock: $HOME is a LITERAL string, not resolved.
+    // Byte-shape lock (Phase 107 hotfix): relative path — SFTP resolves against
+    // the SSH user's home directory. Previously `$HOME/...` literal which does NOT
+    // work because SFTP does not expand $HOME.
     expect(relayJsonWrites[0][1]).toBe(
-      "$HOME/fleet/identities/agent92/relay.json",
+      "fleet/identities/agent92/relay.json",
     );
   }, 30_000);
 
@@ -2113,7 +2115,9 @@ describe("Phase 92-01 Task 2: Step 8 refactor byte-shape parity", () => {
         `identity key ${JSON.stringify(key)} failed to reach Step 8 completed`,
       ).toBeDefined();
 
-      // relay.json write path is exactly `$HOME/fleet/identities/<key>/relay.json`
+      // relay.json write path is exactly `fleet/identities/<key>/relay.json`
+      // (Phase 107 hotfix — SFTP home-resolves relative paths; prior `$HOME/...`
+      // literal silently ENOENT'd because SFTP does not expand $HOME).
       const relayJsonWrite =
         mockWriteMarkdownFileAtomicModule.mock.calls.find(
           (c: unknown[]) =>
@@ -2121,7 +2125,7 @@ describe("Phase 92-01 Task 2: Step 8 refactor byte-shape parity", () => {
         );
       expect(relayJsonWrite).toBeDefined();
       expect(relayJsonWrite![1]).toBe(
-        `$HOME/fleet/identities/${key}/relay.json`,
+        `fleet/identities/${key}/relay.json`,
       );
     }
   }, 60_000);

@@ -115,21 +115,30 @@ function localTargetPath(name: string, relPath: string): string {
 }
 
 /**
- * Remote path to the target file under $HOME.
+ * Remote path to the target file, relative to the SSH user's $HOME.
  *
- * PATH SHAPE: `$HOME/fleet/identities/${name}/${relPath}` — the
- * `$HOME` prefix is passed to the SFTP layer as a literal string, NOT
- * resolved via `echo $HOME`. Phase 96 migrated this from the legacy
- * hidden-dot-claude tree to the fleet tree (D-01).
+ * PATH SHAPE: `fleet/identities/${name}/${relPath}` — a RELATIVE path (no
+ * leading `/`, no `$HOME/` prefix). SFTP's `open`/`stat` resolve relative
+ * paths against the SSH user's home directory automatically, so a bare
+ * relative path is exactly what we want and needs no shell expansion.
+ *
+ * ⚠️ Previously returned `$HOME/fleet/identities/...` as a LITERAL string.
+ * SFTP does NOT expand `$HOME` — it treats it as a directory literally named
+ * `$HOME` at the filesystem root, causing every write/probe to ENOENT
+ * silently. Bug shipped with the Phase-92 (folder 105) pin-sentinel
+ * migration and lay dormant because pin QA only exercised LOCAL identities.
+ * Surfaced live 2026-09-12 when the first REMOTE identity pin was attempted
+ * post-phase-107 (aqua on workstation). Fixed by dropping the `$HOME/`
+ * prefix — SFTP's own home-relative behavior is the correct mechanism.
  *
  * Note: identity-artifact-reader's OTHER writers (writeIdentityFile at :2604,
- * writeAvatarSiblingFile at :2084) DO resolve $HOME via execCommand — a
- * different design choice for a different set of files. This primitive
- * matches Phase 77 Step 8's literal-$HOME shape because THAT is the wire
- * being generalized.
+ * writeAvatarSiblingFile at :2084) resolve $HOME via `execCommand("echo $HOME")`
+ * first and hand SFTP an absolute path. That's an alternative design that also
+ * works; we prefer the relative-path form here because it avoids an extra
+ * SSH round-trip per operation.
  */
 function remoteTargetPath(name: string, relPath: string): string {
-  return `$HOME/fleet/identities/${name}/${relPath}`;
+  return `fleet/identities/${name}/${relPath}`;
 }
 
 // ---------------------------------------------------------------------------
