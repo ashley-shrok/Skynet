@@ -377,6 +377,60 @@ describe("spawn-request worker", () => {
       }
     });
 
+    it("Test 108-W1: Phase 108 — birthIdentity ended{ok:false, failedStep:1, reason:'role not found on target host: bogus'} → .failure.json body {reason:'role_unknown'}", async () => {
+      // Phase 108 processBirth-level integration test (D-14): mocks the
+      // birth orchestrator's real emit sequence when its Step 1 role-folder
+      // probe throws. The mock emits step:1:failed FIRST (so the worker's
+      // step-tracking captures lastStepFailReason — see worker.ts near
+      // mapEndedEventToReason), then ended{ok:false, failedStep:1}. The
+      // worker's mapEndedEventToReason then regex-matches the captured
+      // reason via /role.*not found/i → FailureReason "role_unknown",
+      // which writeResponseFile drops as {reason:"role_unknown"} in the
+      // .failure.json body.
+      //
+      // Distinct from Test 10b (mapEndedEventToReason unit-level regex): W1
+      // exercises the full processBirth → writeMarkdownFileAtomic pipeline
+      // end-to-end at worker scope, closing the gap ivory's e2e test
+      // surfaced on 2026-09-12 (bogus-role identity birth producing durable
+      // Matrix + disk side effects).
+      const deps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(
+          async (_opts, emit: (e: BirthEvent) => void) => {
+            // step:1:failed emit FIRST — this is what the worker captures
+            // as lastStepFailReason for the mapEndedEventToReason regex.
+            emit({
+              type: "step",
+              n: 1,
+              phase: "failed",
+              reason: "role not found on target host: bogus",
+            });
+            // Then ended{ok:false, failedStep:1}.
+            emit({ type: "ended", ok: false, failedStep: 1 });
+          },
+        ),
+      });
+      const item = makePendingBirth({ role: "bogus" });
+
+      await processBirth(item, deps);
+
+      // Failure file written.
+      expect(deps.writeMarkdownFileAtomic).toHaveBeenCalled();
+      const [_conn, path, body] = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(path).toMatch(/\.failure\.json$/);
+      expect(path).toContain(item.uuid);
+
+      // Body has {reason:"role_unknown"} — NOT "birth_failed", NOT any
+      // other FailureReason enum value. This is the exact wire signal
+      // ivory's e2e test expected for a bogus-role spawn-request.
+      const parsed = JSON.parse(body as string);
+      expect(parsed.reason).toBe("role_unknown");
+      // message: absent OR terse (per D-09 + types.ts:89 convention that
+      // message is only descriptive for reason==="malformed").
+      if ("message" in parsed) {
+        expect(String(parsed.message).length).toBeLessThan(200);
+      }
+    });
+
     it("Test 13: malformed request → .failure.json + {reason:'malformed', message non-empty}", async () => {
       const deps = buildTestDeps();
       // Use a PendingBirth with invalid role so parseRequestBody fails when

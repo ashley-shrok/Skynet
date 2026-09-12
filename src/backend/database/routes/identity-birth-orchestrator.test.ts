@@ -52,6 +52,11 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   // os.homedir()/fleet/identities). Stub returns a stable test path so
   // Step 2.5 can compose identityDir + identityFilePath without failing.
   getLocalIdentitiesRoot: vi.fn().mockReturnValue("/tmp/test-fleet/identities"),
+  // Phase 108: orchestrator runStep(1) LOCAL branch role-folder probe uses
+  // this helper to resolve ~/fleet/roles. Stable test path so the probe's
+  // fs.access target has a predictable "/roles/" segment for the default
+  // fs mock's discriminating impl to match on.
+  getLocalRolesRoot: vi.fn().mockReturnValue("/tmp/test-fleet/roles"),
   // Phase 92 Plan 92-01 Task 2: per-identity-file.ts imports IDENTITY_KEY_RE
   // from identity-artifact-reader (H1 write⇔read parity lock). The primitive
   // is transitively imported by identity-birth-orchestrator's Step 8, so
@@ -82,6 +87,27 @@ vi.mock("../../relay-sessions/registry-rooms.js", () => ({
   }),
 }));
 
+// Phase 108: Step 1 has TWO fs.access probes on the LOCAL branch —
+//   (a) role-folder probe at getLocalRolesRoot()/<role>/<role>.md — MUST
+//       resolve for birth to proceed (missing role = throw "role not found").
+//   (b) identity-collision probe at getLocalIdentitiesRoot()/<name> — MUST
+//       reject with ENOENT for birth to proceed (present folder = throw
+//       "identity already exists").
+// Default mock discriminates by path segment so pre-Phase-108 tests that
+// expected the happy-path both branches (role exists, identity missing)
+// continue to pass without per-test override. Tests that need to exercise
+// the failure branch (role missing OR identity present) override
+// per-test with a path-discriminating mockImplementation.
+function defaultAccessImpl(p: unknown): Promise<void> {
+  const s = typeof p === "string" ? p : String(p);
+  if (s.includes("/roles/")) {
+    // Role probe: default = role exists on target host (birth proceeds).
+    return Promise.resolve();
+  }
+  // Identity collision probe (and anything else): default = missing.
+  return Promise.reject(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+}
+
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
@@ -89,17 +115,18 @@ vi.mock("node:fs/promises", () => ({
   chmod: vi.fn(),
   unlink: vi.fn(),
   // 2026-09-11 sub-agent review HIGH #1 fix: Step 1's LOCAL collision probe
-  // uses fs.access against getLocalIdentitiesRoot()/<name>. Default mock
-  // rejects with ENOENT so probe reports "missing" (birth proceeds); tests
-  // that need a collision assertion override to resolve.
-  access: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
+  // uses fs.access against getLocalIdentitiesRoot()/<name>.
+  // Phase 108: default now ALSO handles the LOCAL role-folder probe at
+  // getLocalRolesRoot()/<role>/<role>.md — resolves for /roles/ paths,
+  // rejects (ENOENT) otherwise. Per-test overrides remain supported.
+  access: vi.fn().mockImplementation(defaultAccessImpl),
   default: {
     readFile: vi.fn(),
     writeFile: vi.fn(),
     rename: vi.fn(),
     chmod: vi.fn(),
     unlink: vi.fn(),
-    access: vi.fn().mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" })),
+    access: vi.fn().mockImplementation(defaultAccessImpl),
   },
 }));
 
@@ -295,9 +322,17 @@ beforeEach(() => {
   mockConnectOneShot.mockResolvedValue(mockConn);
   // Default: execCommand succeeds — Phase 22 SRIC-02 requires `echo $HOME`
   // to resolve during Step 2.5, so make that return a plausible path.
+  // Phase 108: Step 1's role-folder probe (REMOTE branch) needs the default
+  // execCommand to return "exists" for the `fleet/roles/` probe so
+  // pre-Phase-108 tests continue to pass without per-test override. Tests
+  // asserting the role-miss path (e.g. Tests 108-A / 108-E) explicitly
+  // override with mockImplementation returning "missing".
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
+    }
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
     }
     return Promise.resolve("");
   });
@@ -370,6 +405,10 @@ it("Test 1: happy path, remote host, emits steps 1/2/6/7/8 in order (Phase 106)"
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
+    }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
     }
     return Promise.resolve("");
   });
@@ -512,6 +551,10 @@ it("Test 3: Phase 68 — getCandidateForBirth called; no DB createIdentityRecord
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
     }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
+    }
     return Promise.resolve("");
   });
 
@@ -558,6 +601,10 @@ it("Test 4: Phase 68 — on-disk collision probe: existing folder returns step f
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
     }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
+    }
     // Collision probe returns "exists"
     if (typeof cmd === "string" && cmd.includes("identities") && cmd.includes("testkey") && cmd.includes("if [ -d")) {
       return Promise.resolve("exists");
@@ -596,6 +643,10 @@ it("Test 5: Phase 68 — ended event identityId carries opts.name (not a nanoid)
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
     }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
+    }
     return Promise.resolve("");
   });
 
@@ -628,6 +679,10 @@ it("Test 6: Phase 106 — Step 2 exec does NOT contain `tmux new-session` (retir
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
+    }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
     }
     return Promise.resolve("");
   });
@@ -672,6 +727,10 @@ it("Test 6b: Step 2 identity-tree mkdir creates both wakeups/ and workspace/ sub
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
+    }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
     }
     return Promise.resolve("");
   });
@@ -721,6 +780,10 @@ it("Test A (Phase 106): emits ended:ok:true after discoverIdentitySessionFile re
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
+    }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
     }
     return Promise.resolve("");
   });
@@ -787,6 +850,10 @@ it("Test B (Phase 106): emits ended:ok:false reason:supervisor_wait_timeout afte
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
+    }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
     }
     return Promise.resolve("");
   });
@@ -868,6 +935,10 @@ it("Test C (Phase 106): SSH-error-during-poll — discoverIdentitySessionFile re
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
     }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
+    }
     return Promise.resolve("");
   });
 
@@ -913,6 +984,10 @@ it("Test D (Phase 106 / D-12 forensics): step:6/step:7/step:8 breadcrumbs still 
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
+    }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
     }
     return Promise.resolve("");
   });
@@ -1054,6 +1129,10 @@ it("Test 18: path normalization — backslashes → forward slashes; tilde → $
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
     }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
+    }
     return Promise.resolve("");
   });
 
@@ -1084,6 +1163,10 @@ it("Test 18: path normalization — backslashes → forward slashes; tilde → $
     allCmds.push(cmd as string);
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
+    }
+    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
     }
     return Promise.resolve("");
   });
@@ -1206,6 +1289,10 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
       if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
         return Promise.resolve("/home/ubuntu\n");
       }
+      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("exists");
+      }
       return Promise.resolve("");
     });
 
@@ -1304,6 +1391,10 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
       if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
         return Promise.resolve("/home/ubuntu\n");
       }
+      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("exists");
+      }
       return Promise.resolve("");
     });
 
@@ -1358,6 +1449,10 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
       if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
         return Promise.resolve("/home/ubuntu\n");
       }
+      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("exists");
+      }
       return Promise.resolve("");
     });
 
@@ -1407,6 +1502,10 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
     mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
       if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
         return Promise.resolve("/home/ubuntu\n");
+      }
+      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("exists");
       }
       return Promise.resolve("");
     });
@@ -1486,6 +1585,10 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
     mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
       if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
         return Promise.resolve("/home/ubuntu\n");
+      }
+      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("exists");
       }
       if (typeof cmd === "string" && /chmod\s+600/.test(cmd)) {
         return Promise.reject(new Error("chmod: permission denied"));
@@ -1684,6 +1787,10 @@ describe("Phase 89-02 Task 3: agents-registry join hook in Step 6", () => {
       if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
         return Promise.resolve("/home/ubuntu\n");
       }
+      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("exists");
+      }
       return Promise.resolve("");
     });
 
@@ -1751,6 +1858,10 @@ describe("Phase 89-02 Task 3: agents-registry join hook in Step 6", () => {
       if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
         return Promise.resolve("/home/ubuntu\n");
       }
+      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("exists");
+      }
       return Promise.resolve("");
     });
 
@@ -1813,6 +1924,10 @@ describe("Phase 89-02 Task 3: agents-registry join hook in Step 6", () => {
     mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
       if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
         return Promise.resolve("/home/ubuntu\n");
+      }
+      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("exists");
       }
       return Promise.resolve("");
     });
@@ -1900,9 +2015,7 @@ describe("Phase 92-01 Task 2: Step 8 refactor byte-shape parity", () => {
           typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
       );
     expect(relayJsonWrites).toHaveLength(1);
-    // Byte-shape lock (Phase 107 hotfix): relative path — SFTP resolves against
-    // the SSH user's home directory. Previously `$HOME/...` literal which does NOT
-    // work because SFTP does not expand $HOME.
+    // Byte-shape lock: $HOME is a LITERAL string, not resolved.
     expect(relayJsonWrites[0][1]).toBe(
       "fleet/identities/agent92/relay.json",
     );
@@ -2129,5 +2242,281 @@ describe("Phase 92-01 Task 2: Step 8 refactor byte-shape parity", () => {
       );
     }
   }, 60_000);
+});
+
+// ===========================================================================
+// Phase 108: role-folder existence probe (D-13 A-E)
+//
+// Coverage matrix (see .planning/phases/108-.../108-CONTEXT.md §D-13):
+//   A  REMOTE role folder MISSING → step 1 failed, zero Step 2+ side effects
+//   B  REMOTE role folder PRESENT + identity missing → Step 1 completes
+//   C  LOCAL  role folder MISSING → step 1 failed
+//   D  LOCAL  role folder PRESENT + identity missing → Step 1 completes
+//   E  Ordering — remote role missing + avatarCandidateId set →
+//      deps.getCandidateForBirth called ZERO times (proves role probe runs
+//      BEFORE avatar-candidate lookup per D-11).
+//
+// Import the mocked fs.access handle so LOCAL tests can override per-path.
+// The orchestrator uses `import fs from "node:fs/promises"` (default import),
+// so `fs.access` at runtime calls `mockedModule.default.access` — which is
+// a DIFFERENT vi.fn() than the named `access` export. Reach through the
+// default sub-object to control the exact mock the orchestrator sees.
+// ===========================================================================
+import mockFsDefault from "node:fs/promises";
+const mockFsAccessMock = mockFsDefault.access as unknown as Mock;
+
+describe("Phase 108: role-folder existence probe (D-13 A-E)", () => {
+  // Reset fs.access to the module-default discriminating impl before each
+  // test in this block. Individual tests then override for the failure or
+  // path-specific behavior they exercise. This isolates Phase 108 tests
+  // from any lingering mockImplementation set by prior tests in the file.
+  beforeEach(() => {
+    mockFsAccessMock.mockImplementation((p: unknown) => {
+      const s = typeof p === "string" ? p : String(p);
+      if (s.includes("/roles/")) return Promise.resolve();
+      return Promise.reject(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
+    });
+  });
+
+  it("Test 108-A: Phase 108 — role folder missing on target host (remote) → step:1:failed, zero Step 2+ side effects", async () => {
+    // REMOTE branch: role probe returns "missing" for `fleet/roles/` cmd.
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      // Phase 108 role probe: MISSING — this is the failure branch.
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("missing");
+      }
+      return Promise.resolve("");
+    });
+
+    const deps = makeDeps();
+    const opts = makeOpts({ role: "bogus-role" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // step:1:failed with the exact throw string.
+    const failedEvent = events.find(
+      (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
+    );
+    expect(failedEvent).toBeDefined();
+    const reason = (failedEvent as { reason?: string }).reason ?? "";
+    expect(reason).toMatch(/role not found on target host/);
+    expect(reason).toContain("bogus-role");
+
+    // ended{ok:false, failedStep:1}.
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect(endedEvent).toBeDefined();
+    expect((endedEvent as { ok: boolean }).ok).toBe(false);
+    expect((endedEvent as { failedStep?: number }).failedStep).toBe(1);
+
+    // Zero Step 2+ side effects on the injected deps:
+    //   - writeMarkdownFileAtomic (Step 2.5 identity file write)
+    //   - writeAvatarSiblingFile (Step 2.5 avatar sibling)
+    //   - matrixCreateOrUpdateUser (Step 6 admin mint)
+    //   - matrixLoginAsUser (Step 6 login)
+    //   - buildRelayJsonBody (Step 7)
+    // Any non-zero call count means a durable side effect landed on a bogus
+    // role — the exact bug this phase closes.
+    expect((deps.writeMarkdownFileAtomic as Mock).mock.calls.length).toBe(0);
+    expect((deps.writeAvatarSiblingFile as Mock).mock.calls.length).toBe(0);
+    expect((deps.matrixCreateOrUpdateUser as Mock).mock.calls.length).toBe(0);
+    expect((deps.matrixLoginAsUser as Mock).mock.calls.length).toBe(0);
+    expect((deps.buildRelayJsonBody as Mock).mock.calls.length).toBe(0);
+  });
+
+  it("Test 108-B: Phase 108 — role folder present on target host (remote) → Step 1 completes past role probe", async () => {
+    // Complementary happy-path for the remote-miss case. Same probe path — but the
+    // remote host reports the role .md file exists, so the orchestrator
+    // does NOT throw "role not found on target host: <role>" and Step 1
+    // proceeds to the avatar-candidate + identity-collision sub-checks.
+    // REMOTE branch: role probe "exists", identity collision "missing".
+    // Discriminate by substring: role probe cmd contains `fleet/roles/`,
+    // identity collision probe cmd contains `fleet/identities/`.
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+    let step2MkdirCalled = false;
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("exists");
+      }
+      if (typeof cmd === "string" && cmd.includes("fleet/identities/")) {
+        return Promise.resolve("missing");
+      }
+      // Step 2's mkdir -p is how we know flow reached Step 2 past Step 1.
+      if (typeof cmd === "string" && cmd.startsWith("mkdir -p ")) {
+        step2MkdirCalled = true;
+      }
+      return Promise.resolve("");
+    });
+
+    const deps = makeDeps();
+    const opts = makeOpts({ role: "box-maintainer", name: "testkey" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // No step:1:failed event (Step 1 completed cleanly).
+    const failedEvent = events.find(
+      (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
+    );
+    expect(failedEvent).toBeUndefined();
+
+    // Step 1 completed.
+    const step1Completed = events.find(
+      (e) => e.type === "step" && e.n === 1 && e.phase === "completed",
+    );
+    expect(step1Completed).toBeDefined();
+
+    // Flow reached Step 2 (mkdir was invoked).
+    expect(step2MkdirCalled).toBe(true);
+  });
+
+  it("Test 108-C: Phase 108 — role folder missing on target host (local self-birth) → step:1:failed", async () => {
+    // LOCAL branch: fs.access rejects with ENOENT for the roles path
+    // (path contains "roles/bogus-role/bogus-role.md").
+    mockIsLocalHostId.mockReturnValue(true);
+    mockFsAccessMock.mockImplementation((p: unknown) => {
+      const s = typeof p === "string" ? p : String(p);
+      if (s.includes("roles/bogus-role/bogus-role.md")) {
+        return Promise.reject(
+          Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+        );
+      }
+      // Any other fs.access call (identity collision probe) — reject too
+      // so the flow doesn't accidentally hit an unrelated success path.
+      return Promise.reject(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
+    });
+
+    const deps = makeDeps();
+    const opts = makeOpts({ role: "bogus-role", hostId: 5 });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    const failedEvent = events.find(
+      (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
+    );
+    expect(failedEvent).toBeDefined();
+    const reason = (failedEvent as { reason?: string }).reason ?? "";
+    expect(reason).toMatch(/role not found on target host/);
+    expect(reason).toContain("bogus-role");
+
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect((endedEvent as { ok: boolean }).ok).toBe(false);
+    expect((endedEvent as { failedStep?: number }).failedStep).toBe(1);
+
+    // Zero Step 2+ side effects (same guardrail as Test A).
+    expect((deps.writeMarkdownFileAtomic as Mock).mock.calls.length).toBe(0);
+    expect((deps.matrixCreateOrUpdateUser as Mock).mock.calls.length).toBe(0);
+  });
+
+  it("Test 108-D: Phase 108 — role folder present on target host (local self-birth) → Step 1 completes past role probe", async () => {
+    // Complementary happy-path for the local-miss case. On a self-birth host where
+    // the role .md file is readable via fs.access, the orchestrator does
+    // NOT throw "role not found on target host: <role>" and Step 1
+    // completes cleanly.
+    // LOCAL branch: fs.access resolves for the roles/<role>/<role>.md path;
+    // rejects (ENOENT) for the identity-collision path so birth proceeds.
+    mockIsLocalHostId.mockReturnValue(true);
+    mockFsAccessMock.mockImplementation((p: unknown) => {
+      const s = typeof p === "string" ? p : String(p);
+      if (s.includes("/roles/")) {
+        return Promise.resolve();
+      }
+      // Identity collision probe (or anything else) — missing → proceed.
+      return Promise.reject(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
+    });
+
+    const deps = makeDeps();
+    const opts = makeOpts({ role: "box-maintainer", hostId: 5 });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // No step:1:failed (Step 1 got past the role probe AND the collision
+    // probe — role file present, identity folder missing).
+    const failedEvent = events.find(
+      (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
+    );
+    expect(failedEvent).toBeUndefined();
+
+    const step1Completed = events.find(
+      (e) => e.type === "step" && e.n === 1 && e.phase === "completed",
+    );
+    expect(step1Completed).toBeDefined();
+  });
+
+  it("Test 108-E: Phase 108 — role probe runs BEFORE avatar-candidate lookup (D-11 ordering)", async () => {
+    // REMOTE branch: role probe returns "missing"; opts.avatarCandidateId
+    // is non-empty. If ordering is correct, deps.getCandidateForBirth is
+    // NEVER called — the role probe throws first, aborting Step 1 before
+    // the avatar-candidate lookup runs.
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+        return Promise.resolve("missing");
+      }
+      return Promise.resolve("");
+    });
+
+    const mockGetCandidate = vi.fn().mockReturnValue({
+      bytes: Buffer.from("fakepng"),
+      mime: "image/png",
+    });
+    const deps = makeDeps({ getCandidateForBirth: mockGetCandidate });
+    const opts = makeOpts({
+      role: "bogus-role",
+      avatarCandidateId: "cand-xyz-nonempty",
+    });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // Ordering assertion (D-11): role probe fires first, avatar-candidate
+    // lookup never runs. If the probe was reordered to fire AFTER the avatar
+    // check, this assertion trips.
+    expect(mockGetCandidate.mock.calls.length).toBe(0);
+    expect(mockGetCandidate).toHaveBeenCalledTimes(0);
+
+    // Sanity: the step:1 failure still happens (test isn't tautological).
+    const failedEvent = events.find(
+      (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
+    );
+    expect(failedEvent).toBeDefined();
+    expect((failedEvent as { reason?: string }).reason).toMatch(
+      /role not found on target host/,
+    );
+  });
 });
 

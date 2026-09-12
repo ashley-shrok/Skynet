@@ -182,6 +182,12 @@ beforeEach(() => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
     }
+    // Phase 108: role-folder existence probe default — treat as present so
+    // pre-Phase-108 tests continue to pass. The probe command shape is
+    // `if [ -f "$HOME/fleet/roles/<role>/<role>.md" ]; then echo exists ...`.
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
+    }
     return Promise.resolve("");
   });
 });

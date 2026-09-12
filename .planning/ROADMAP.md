@@ -2441,3 +2441,13 @@ Plans:
 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 107 to break down)
+
+### Phase 108: birth-pipeline-role-folder-existence-check — insert a pre-Step-1 target-host probe in identity-birth-orchestrator that verifies ~/fleet/roles/<role>/<role>.md exists on the target host before any durable side effect (Matrix registration, MXID composition, identity folder mkdir, identity file write). On miss, fail with a clean role_folder_not_found reason propagated through the existing response-file failure channel (mirror `identity already exists on this host` shape). Rescue-rebased from Phase 107 → 108 after peer vega P107 hide-identity-rows shipped first (pure slot collision, disjoint source files). Adjacent to Phase 106 (birth-flow Chunk 3) but orthogonal — fail-fast validation, not tmux/harness retirement.
+
+**Goal:** No bogus-role spawn produces durable side-effects; role-folder existence is probed as the FIRST substantive check inside runStep(1, ...) on both local and remote branches, and a miss surfaces to the operator as FailureResponse.reason='role_unknown' before Step 2 / Matrix mint / identity file write.
+**Requirements**: D-01..D-16 (see 108-CONTEXT.md — CONTEXT-locked decisions serve as the acceptance surface; no numbered requirement IDs)
+**Depends on:** Phase 107
+**Plans:** 1 plan
+
+Plans:
+- [ ] 108-01-PLAN.md — Insert role-folder probe into runStep(1) (local + remote branches), add 5 orchestrator tests + 1 worker processBirth test, update stale worker.ts comment, run D-15 scoped vitest gate (Wave 1)

@@ -207,6 +207,11 @@ beforeEach(() => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
     }
+    // Phase 108: role-folder probe default — treat as present so pre-Phase-108
+    // tests continue passing. Probe shape: `if [ -f "$HOME/fleet/roles/<role>/<role>.md" ]...`.
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
+    }
     return Promise.resolve("");
   });
 });
@@ -327,6 +332,10 @@ it("Test 13: Step 2.5 execs mkdir wakeups + touch handoff.md via execCommand", a
     if ((cmd as string).trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
     }
+    // Phase 108: role-folder probe default — treat as present.
+    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
+    }
     return Promise.resolve("");
   });
 
@@ -445,6 +454,10 @@ it("Test 16: call ordering (Phase 106) — path-mkdir → wakeups-mkdir + touch 
     const s = String(cmd);
     if (s.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
+    }
+    // Phase 108: role-folder probe default — treat as present.
+    if (s.includes("fleet/roles/")) {
+      return Promise.resolve("exists");
     }
     // Retired paths — kept as bookkeeping so a regression that resurrects
     // them gets flagged by the "must not be present" assertions below.
@@ -885,6 +898,8 @@ it("Test 24b: mkdir+touch fired ONCE + writeMarkdownFileAtomic fired ONCE before
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     const s = String(cmd);
     if (s.trim() === "echo $HOME") return Promise.resolve("/home/ubuntu\n");
+    // Phase 108: role-folder probe default — treat as present.
+    if (s.includes("fleet/roles/")) return Promise.resolve("exists");
     if (
       s.includes("mkdir -p") &&
       s.includes("wakeups") &&

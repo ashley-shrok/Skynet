@@ -91,7 +91,7 @@ export function mapEndedEventToReason(
     return "homeserver_unreachable";
   }
 
-  // Role folder not found on target host (Step 2.5 check in orchestrator)
+  // Role folder not found on target host (Step 1 check in orchestrator — Phase 108)
   if (/role.*not found|role.*does not exist|unknown role|invalid role/i.test(reason)) {
     return "role_unknown";
   }

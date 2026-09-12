@@ -9,7 +9,7 @@
  *
  * Step sequence (post-Phase-106 sole-spawner reshape — see
  * .planning/shapes/shape-birth-flow-supervisor-sole-spawner.md):
- *   Step 1: On-disk collision probe + avatar candidate check (Phase 68 rewire)
+ *   Step 1: Role-folder existence probe (Phase 108) + avatar candidate check + on-disk collision probe (Phase 68 rewire)
  *   Step 2: mkdir -p target path + Step 2.5 identity file / avatar sibling
  *           pre-write on the target host (SSH or local). Post-Phase-106 the
  *           per-session tmux invocation is retired — agent-supervisor.sh's
@@ -49,6 +49,7 @@ import {
   MIME_TO_AVATAR_EXT,
   type AvatarExt,
   getLocalIdentitiesRoot,
+  getLocalRolesRoot,
 } from "../../claude-session/identity-artifact-reader.js";
 // Phase 92 Plan 92-01 Task 2 — per-identity file-touch primitive.
 // Step 8's relay.json write routes through this primitive (D-05 wire
@@ -1219,8 +1220,15 @@ export async function birthIdentity(
     }
 
     // -----------------------------------------------------------------------
-    // Step 1: On-disk collision probe + avatar candidate check
-    //         (Phase 68 rewire — no DB INSERT or GET-verify)
+    // Step 1: Role-folder existence probe (Phase 108) + avatar candidate check
+    //         + on-disk collision probe (Phase 68 rewire — no DB INSERT
+    //         or GET-verify)
+    //
+    //   Role-folder probe (Phase 108, FIRST substantive check inside Step 1):
+    //     For remote: SSH exec `test -f "$HOME/fleet/roles/<role>/<role>.md"`
+    //     For local:  fs.access on getLocalRolesRoot()/<role>/<role>.md
+    //     On miss:    throw "role not found on target host: <role>" — matches
+    //                 worker.ts:95 regex → FailureResponse{reason:"role_unknown"}.
     //
     //   For remote: SSH exec `if [ -d ~/fleet/identities/<name> ]`
     //   For local: relies on Step 2's mkdir being idempotent (local branch
@@ -1230,6 +1238,44 @@ export async function birthIdentity(
     // any state mutation (mirrors the pre-Phase-68 early-abort discipline).
     // -----------------------------------------------------------------------
     await runStep(1, async () => {
+      // Phase 108: role-folder existence probe — MUST run FIRST inside
+      // runStep(1) so a bogus role fails BEFORE any durable side effect
+      // (avatar-cache mutation, identity folder mkdir, identity file write,
+      // Matrix admin-mint with role baked into MXID localpart, relay creds
+      // mint, relay.json SFTP write). Throw string matches worker.ts:95
+      // regex `/role.*not found/i` → FailureResponse{reason:"role_unknown"}
+      // via mapEndedEventToReason. opts.role is validated upstream by
+      // ROLE_NAME_PATTERN so interpolation is safe (same
+      // validate-then-interpolate discipline as the collision probe below).
+      if (useLocal) {
+        // LOCAL branch — a shell probe would expand $HOME to the Skynet
+        // container's node user home, NOT the /fleet bind mount. Use
+        // fs.access on the resolved roles root instead (same rationale as
+        // the LOCAL-branch collision probe below).
+        const roleMdPath = path.join(
+          getLocalRolesRoot(),
+          opts.role,
+          opts.role + ".md",
+        );
+        try {
+          await fs.access(roleMdPath);
+        } catch {
+          // ANY error (ENOENT, EACCES, etc.) — a role file that cannot be
+          // confirmed readable is functionally missing. Fail closed.
+          throw new Error("role not found on target host: " + opts.role);
+        }
+      } else {
+        // REMOTE branch — reuse the exec() closure (no new SSH connection;
+        // conn is guaranteed non-null because SSH connect completed above
+        // before entering runStep(1)).
+        const roleProbeOut = await exec(
+          `if [ -f "$HOME/fleet/roles/${opts.role}/${opts.role}.md" ]; then echo exists; else echo missing; fi`,
+        );
+        if (roleProbeOut.trim() !== "exists") {
+          throw new Error("role not found on target host: " + opts.role);
+        }
+      }
+
       // Phase 86 Plan 86-04 (D-CTX-86-inherit): the avatar candidate lookup
       // is now gated on opts.avatarCandidateId being non-empty. Identities
       // born without an explicit candidate inherit the role's avatar via
