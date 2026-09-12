@@ -183,6 +183,13 @@ export async function handlePutPreferences(
   if (accentColor !== undefined) updates.accentColor = accentColor;
   if (language !== undefined) updates.language = language;
 
+  // Function-scope scratch for the disk-authoritative echo the response emits
+  // for each fanout slice. Populated inside the try block by whichever fanout
+  // ran. (Phase 107 code-review M2 — replaces earlier res._echoPinned /
+  // res._echoHidden stash pattern.)
+  let echoPinnedFinal: string[] | undefined;
+  let echoHiddenFinal: string[] | undefined;
+
   // -------------------------------------------------------------------------
   // Phase 92 Plan 92-02 + Phase 107 Plan 107-02: pin + hidden sentinel fan-outs
   // -------------------------------------------------------------------------
@@ -389,9 +396,7 @@ export async function handlePutPreferences(
         identityHostsKeys.forEach((k, i) => {
           if (postStates[i]) echoPinned.push(k);
         });
-
-        // Stash for response echo (read after DB write block).
-        (res as unknown as { _echoPinned: string[] })._echoPinned = echoPinned;
+        echoPinnedFinal = echoPinned;
       }
 
       // -----------------------------------------------------------------------
@@ -502,9 +507,7 @@ export async function handlePutPreferences(
         identityHostsKeys.forEach((k, i) => {
           if (postStates[i]) echoHidden.push(k);
         });
-
-        // Stash for response echo.
-        (res as unknown as { _echoHidden: string[] })._echoHidden = echoHidden;
+        echoHiddenFinal = echoHidden;
       }
     } catch (e) {
       databaseLogger.error("Sentinel fan-out failed", e, {
@@ -582,30 +585,29 @@ export async function handlePutPreferences(
     }
 
     // Read the row back through pickPreferences so the response body shape is
-    // the same source of truth as the GET handler. Phase 92-02: pin state
-    // does NOT surface via pickPreferences — instead, the disk-derived echo
-    // (previously stashed on res._echoPinned) attaches as pinnedConversationIds.
+    // the same source of truth as the GET handler. Phase 92-02: pin state does
+    // NOT surface via pickPreferences — instead, the disk-derived echo held in
+    // echoPinnedFinal (populated inside the try block by the pin fanout)
+    // attaches as pinnedConversationIds. Same for hidden.
     const row = db
       .select()
       .from(userPreferences)
       .where(eq(userPreferences.userId, userId))
       .all()[0];
 
-    const echoPinned = (res as unknown as { _echoPinned?: string[] })._echoPinned;
-    const echoHidden = (res as unknown as { _echoHidden?: string[] })._echoHidden;
     const responseBody: Record<string, unknown> = {
       success: true,
       ...pickPreferences(row),
     };
-    if (echoPinned !== undefined) {
+    if (echoPinnedFinal !== undefined) {
       // D-06 UI-invariance: PUT still echoes pinnedConversationIds as an array
       // so the frontend's putPinnedIds()-await site gets the shape it expects.
-      responseBody.pinnedConversationIds = echoPinned;
+      responseBody.pinnedConversationIds = echoPinnedFinal;
     }
-    if (echoHidden !== undefined) {
+    if (echoHiddenFinal !== undefined) {
       // Phase 107 Plan 107-02: PUT echoes hiddenConversationIds as the
       // disk-authoritative post-fanout set (D-06 truth-first invariant).
-      responseBody.hiddenConversationIds = echoHidden;
+      responseBody.hiddenConversationIds = echoHiddenFinal;
     }
     return res.json(responseBody);
   } catch (e) {
@@ -634,10 +636,6 @@ export async function handlePutPreferences(
  *               properties:
  *                 reopenTabsOnLogin:
  *                   type: boolean
- *                 hiddenConversationIds:
- *                   type: array
- *                   items:
- *                     type: string
  */
 router.get("/", authenticateJWT, (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
@@ -674,6 +672,7 @@ router.get("/", authenticateJWT, (req: Request, res: Response) => {
  *                 type: array
  *                 items:
  *                   type: string
+ *                 description: "Phase 107-02: writes fan out to per-identity `.hidden` sentinels. Requires identityHosts body field."
  *     responses:
  *       200:
  *         description: Preferences updated successfully.

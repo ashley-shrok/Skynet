@@ -1584,12 +1584,12 @@ export function pinConversation(id: string): void {
   // with an inline `fleetSessions.map(s => [s.sessionName.toLowerCase(),
   // s.hostId])` pattern — that crashes on the undefined sessionName case.
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
-  try {
-    void putPinnedIds([...nextPinnedIds], identityHosts);
-  } catch {
-    // Silent — do not block state update on network failure.
-    // Optimistic update stands; retry on next mount or next pin/unpin.
-  }
+  // Fire-and-forget with async-rejection swallow. `void`d + try/catch would only
+  // catch synchronous throws; putPinnedIds is async so rejections propagate as
+  // unhandled promise rejections. Optimistic update stands; retry on next mount
+  // or next pin/unpin. (Phase 107 code-review M3, fixed symmetrically on both
+  // pin and hidden sides in the same commit.)
+  putPinnedIds([...nextPinnedIds], identityHosts).catch(() => {});
   state = { ...state, pinnedIds: nextPinnedIds };
   notify();
 }
@@ -1598,20 +1598,13 @@ export function unpinConversation(id: string): void {
   if (!state.pinnedIds.has(id)) return; // not pinned — no-op
   const nextPinnedIds = new Set(state.pinnedIds);
   nextPinnedIds.delete(id);
-  // Phase 15: fire-and-forget server write. Failures leave the optimistic
-  // unpin in place; the next pin/unpin OR next panel mount reconciles from
-  // server. Mirrors addToActiveSet's silent-catch pattern at L713-722.
-  //
   // Phase 92 Plan 04 (H2 identityHosts lock): same helper as pinConversation
   // above — buildIdentityHostsFromFleet is the SINGLE fleetSessions →
-  // identityHosts derivation site (identities-store.ts:74-85). Do not fork.
+  // identityHosts derivation site. Do not fork.
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
-  try {
-    void putPinnedIds([...nextPinnedIds], identityHosts);
-  } catch {
-    // Silent — do not block state update on network failure.
-    // Optimistic update stands; retry on next mount or next pin/unpin.
-  }
+  // Fire-and-forget with async-rejection swallow (see pinConversation comment
+  // above — Phase 107 code-review M3).
+  putPinnedIds([...nextPinnedIds], identityHosts).catch(() => {});
   state = { ...state, pinnedIds: nextPinnedIds };
   notify();
 }
@@ -1638,11 +1631,9 @@ export function hideConversation(id: string): void {
   // with an inline `fleetSessions.map(s => [s.sessionName.toLowerCase(),
   // s.hostId])` pattern — that crashes on the undefined sessionName case.
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
-  try {
-    void putHiddenIds([...nextHiddenIds], identityHosts);
-  } catch {
-    // Silent — do not block state update on network failure.
-  }
+  // Fire-and-forget with async-rejection swallow (Phase 107 code-review M3 —
+  // pattern-mirror of pin-side fix in pinConversation/unpinConversation).
+  putHiddenIds([...nextHiddenIds], identityHosts).catch(() => {});
   state = { ...state, hiddenIds: nextHiddenIds };
   notify();
 }
@@ -1653,13 +1644,10 @@ export function unhideConversation(id: string): void {
   nextHiddenIds.delete(id);
   // Phase 107 Plan 04 (H2 identityHosts lock): same helper as hideConversation
   // above — buildIdentityHostsFromFleet is the SINGLE fleetSessions →
-  // identityHosts derivation site (identities-store.ts:74-85). Do not fork.
+  // identityHosts derivation site. Do not fork.
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
-  try {
-    void putHiddenIds([...nextHiddenIds], identityHosts);
-  } catch {
-    // Silent — do not block state update on network failure.
-  }
+  // Fire-and-forget with async-rejection swallow (Phase 107 code-review M3).
+  putHiddenIds([...nextHiddenIds], identityHosts).catch(() => {});
   state = { ...state, hiddenIds: nextHiddenIds };
   notify();
 }
