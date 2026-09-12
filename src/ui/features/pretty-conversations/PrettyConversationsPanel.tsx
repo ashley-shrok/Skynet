@@ -214,7 +214,7 @@ function sessionWorkingKey(row: ConversationRowShape): string | null {
 // Phase 107 Plan 04 (D-06 — affordance narrowing): gate discriminator for
 // the Hide/Show button. Only fleet-synthetic identity rows (fleet:: id,
 // non-relay-room, non-RDP-host-sentinel) show the button; RDP rows, relay-
-// room rows, and dev-tab / harness rows lose the affordance per Ashley
+// room rows, and dev-tab / harness rows lose the affordance per Alice
 // 2026-09-12 "disappear" directive.
 //
 // Invariant: row.id.startsWith("fleet::") catches synthetic rows and excludes

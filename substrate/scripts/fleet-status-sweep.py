@@ -395,7 +395,7 @@ def _is_real_user_turn(raw_line):
 def _parse_iso_to_unix_ms(iso_str):
     """Parse an ISO-8601 timestamp string to unix ms int, or None on failure.
 
-    Mirrors JS Date.parse semantics closely enough for the isAshley predicate
+    Mirrors JS Date.parse semantics closely enough for the isAlice predicate
     (we only use the truthy/falsy return, not the exact ms value — the JS
     return is used for lastMessageAt elsewhere but here it's just a gate).
     Handles the `Z` suffix and `±HH:MM` offsets, plus fractional seconds.
@@ -462,7 +462,7 @@ def scan_tail_for_layer1_recycling_signal(tail_contents):
         try:
             parsed = json.loads(line)
         except Exception:
-            # Belt-and-suspenders — isAshley would already have failed here.
+            # Belt-and-suspenders — isAlice would already have failed here.
             continue
         last_result = _detect_id_reset(parsed)
     return last_result

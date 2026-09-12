@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-12
 **Status:** Ready for planning
-**Source:** Shape file at `.planning/shapes/shape-hidden-identity-rows-via-sentinel.md` (written directly by vega — /open grill skipped per Ashley's explicit greenlight upfront: *"you already know shape: hide identity rows via sentinel, that's it"*). This CONTEXT.md is seeded from that shape file; do NOT re-elicit decisions already captured there. Discuss-phase should surface only NEW gray areas that emerged post-shape or that the shape didn't lock.
+**Source:** Shape file at `.planning/shapes/shape-hidden-identity-rows-via-sentinel.md` (written directly by vega — /open grill skipped per Alice's explicit greenlight upfront: *"you already know shape: hide identity rows via sentinel, that's it"*). This CONTEXT.md is seeded from that shape file; do NOT re-elicit decisions already captured there. Discuss-phase should surface only NEW gray areas that emerged post-shape or that the shape didn't lock.
 
 <domain>
 ## Phase Boundary
@@ -11,7 +11,7 @@ Migrate the hidden-conversation-ids slice of `user_preferences` from a DB column
 
 **Reference implementation: Phase 92 (all plans).** Read Phase 92 SUMMARY files first. Same primitive layer (per-identity-file.ts ALLOWED_REL_PATHS), same backend fanout shape, same drop-column migration pattern, same both-loaded hydrate gate (which just landed for pinned in quick-260912-5q2 this session — this phase extends it to cover hidden too, not touches it structurally).
 
-Trigger: 2026-09-12, Ashley reported "my pins don't work in the sidebar ever since we moved to them being sentinels in the identities folder" — vega diagnosed as a hydration-timing race in the panel effect (fixed via quick-260912-5q2). Follow-up conversation surfaced that hidden was left DB-backed in Phase 92 (`D-02 out-of-scope`), and Ashley asked to migrate it too, accepting the "hide affordance narrows to identity rows only" tradeoff that Phase 92 had deferred.
+Trigger: 2026-09-12, Alice reported "my pins don't work in the sidebar ever since we moved to them being sentinels in the identities folder" — vega diagnosed as a hydration-timing race in the panel effect (fixed via quick-260912-5q2). Follow-up conversation surfaced that hidden was left DB-backed in Phase 92 (`D-02 out-of-scope`), and Alice asked to migrate it too, accepting the "hide affordance narrows to identity rows only" tradeoff that Phase 92 had deferred.
 
 </domain>
 
@@ -36,7 +36,7 @@ Trigger: 2026-09-12, Ashley reported "my pins don't work in the sidebar ever sin
 - **Wrapped in try/catch with non-fatal warn** — same as phase-68 / phase-92 precedent (dropColumnIfExists is idempotent, next boot retries; first-boot uninitialized-trigger race is tolerated).
 - **Preflight throw is fatal** — mirrors L903-913 precedent (T-66-04-04 "boot aborts before schema corruption").
 - **Ordering** — runs BEFORE the `addColumnIfNotExists` sweep, matching the phase-92 ordering exactly. A single forceSave batches this drop with all the sweep adds.
-- **NO data migration** — Phase 92 dropped the pinned column without migrating existing DB pins to sentinels; same call here for hidden. Users' existing hidden lists in the DB are lost on migration. Ashley aware (implicit — this mirrors the phase-92 precedent and she didn't call for a data-migration on that either).
+- **NO data migration** — Phase 92 dropped the pinned column without migrating existing DB pins to sentinels; same call here for hidden. Users' existing hidden lists in the DB are lost on migration. Alice aware (implicit — this mirrors the phase-92 precedent and she didn't call for a data-migration on that either).
 
 ### Frontend API
 - **`putHiddenIds(ids, identityHosts)` signature widened** in `src/ui/api/user-preferences-api.ts` — second `identityHosts` arg mirroring `putPinnedIds`. Reuse the existing `toBareIdentityKey(id)` helper for the wire-boundary composite-id-strip; do NOT duplicate the helper.
@@ -48,12 +48,12 @@ Trigger: 2026-09-12, Ashley reported "my pins don't work in the sidebar ever sin
 - **Feed `identityHosts` from `buildIdentityHostsFromFleet(state.fleetSessions)`** into `hideConversation` and `unhideConversation` in `src/ui/state/conversation-store.ts`. Same H2-lock helper used by pin — do NOT introduce a second identityHosts derivation site.
 
 ### Affordance narrowing
-- **Hide button DISAPPEARS from non-identity rows** — RDP synthetic rows, dev-created openTab rows (`<hostname>-terminal-<Date.now()>-<counter>`), relay-room rows. Ashley 2026-09-12 verbatim: *"disappear."*
+- **Hide button DISAPPEARS from non-identity rows** — RDP synthetic rows, dev-created openTab rows (`<hostname>-terminal-<Date.now()>-<counter>`), relay-room rows. Alice 2026-09-12 verbatim: *"disappear."*
 - **Implementation touch site** — `src/ui/features/pretty-conversations/PrettyConversationRow.tsx` (or wherever the row's Hide button lives — planner confirms). Add a row-shape gate: render Hide only if `row.id` starts with `fleet::`. If a cleaner discriminator exists (e.g. row.type === "terminal" && row.fleetOnly), planner chooses.
 - **Panel handler `handleToggleHide` at `PrettyConversationsPanel.tsx:1355`** — defensive check preserved (no-op on non-identity row.id if it ever reaches it), but the primary gate is at the render site so the button doesn't render at all.
 
 ### Acknowledged tradeoff — identity-scoped, not user-scoped
-- Ashley 2026-09-12 verbatim: *"i realize that means that one user hiding them would hide them for everyone else. i'm okay with that right now."*
+- Alice 2026-09-12 verbatim: *"i realize that means that one user hiding them would hide them for everyone else. i'm okay with that right now."*
 - `.hidden` sentinel is identity-scoped — mirrors `.pinned` scoping.
 - Multi-user re-scoping is EXPLICITLY NOT this phase's scope. Future separate phase would migrate both pinned + hidden together to per-user sentinels (e.g. `.hidden-by-<userid>`).
 
@@ -102,7 +102,7 @@ Trigger: 2026-09-12, Ashley reported "my pins don't work in the sidebar ever sin
 <specifics>
 ## Specific Ideas
 
-None beyond the shape file — this phase is a direct pattern mirror, not new territory. Every design call is either "copy Phase 92 verbatim" or "apply the affordance-narrowing decision Ashley already made." The interesting judgment calls are Claude's-discretion planner-picks (plan slicing, affordance render site) — none is a load-bearing decision that would change the shape.
+None beyond the shape file — this phase is a direct pattern mirror, not new territory. Every design call is either "copy Phase 92 verbatim" or "apply the affordance-narrowing decision Alice already made." The interesting judgment calls are Claude's-discretion planner-picks (plan slicing, affordance render site) — none is a load-bearing decision that would change the shape.
 
 </specifics>
 

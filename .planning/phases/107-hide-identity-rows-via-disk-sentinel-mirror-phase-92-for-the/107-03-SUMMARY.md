@@ -141,7 +141,7 @@ This Plan ships BEFORE Plan 04 (frontend rewire). Between deploy of Plan 03 and 
 - The disk sentinels are authoritative (Plan 02)
 - A pre-Plan-04 frontend tab still calling `putHiddenIds` without `identityHosts` receives a 400 (Plan 02's `HID-107-PUT-07d` validation)
 
-This is the expected single-user window — Ashley's deploy motion is quick; a mid-deploy tab-open surfaces as a browser console 400, not data loss. Next remount post-Plan-04 wires the correct call signature.
+This is the expected single-user window — Alice's deploy motion is quick; a mid-deploy tab-open surfaces as a browser console 400, not data loss. Next remount post-Plan-04 wires the correct call signature.
 
 ## Grep-Hygiene Snapshot
 

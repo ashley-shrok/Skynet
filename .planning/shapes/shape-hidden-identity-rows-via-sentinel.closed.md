@@ -1,8 +1,8 @@
 # Shape: hide identity rows via disk sentinel
 
 **Slug:** `hidden-identity-rows-via-sentinel`
-**Opened:** 2026-09-12 (Ashley + vega, /build)
-**Status:** Agreed — /open grill skipped per Ashley's explicit direction ("you already know shape: hide identity rows via sentinel, that's it")
+**Opened:** 2026-09-12 (Alice + vega, /build)
+**Status:** Agreed — /open grill skipped per Alice's explicit direction ("you already know shape: hide identity rows via sentinel, that's it")
 **Reference implementation:** Phase 92 (all plans) — same primitive layer, same fanout shape, same drop-column migration pattern, same both-loaded hydrate gate (added for pinned in quick-260912-5q2 this session)
 
 ## Why
@@ -33,13 +33,13 @@ The reason Phase 92 deferred hidden: hide accepts any row id (fleet-synthetic, o
 - (a) Narrow: only fleet-synthetic rows stay hideable — non-identity hide affordance goes away
 - (b) Hybrid: identity-shaped ids → sentinel; everything else → DB column stays. Two write paths, two hydrate paths, two truth sources
 
-Ashley chose (a) 2026-09-12: *"yeah i'm okay with only hiding identity rows for now."* Sub-decision on the affordance (2026-09-12): *"disappear"* — a button that silently loses its effect on next reload is worse UX than no button. So the Hide button is rendered ONLY on fleet-synthetic rows going forward; RDP / dev-tab / relay-room rows lose the affordance entirely.
+Alice chose (a) 2026-09-12: *"yeah i'm okay with only hiding identity rows for now."* Sub-decision on the affordance (2026-09-12): *"disappear"* — a button that silently loses its effect on next reload is worse UX than no button. So the Hide button is rendered ONLY on fleet-synthetic rows going forward; RDP / dev-tab / relay-room rows lose the affordance entirely.
 
 ## Acknowledged tradeoff — identity-scoped, not user-scoped
 
-Ashley 2026-09-12 verbatim: *"i realize that means that one user hiding them would hide them for everyone else. i'm okay with that right now."*
+Alice 2026-09-12 verbatim: *"i realize that means that one user hiding them would hide them for everyone else. i'm okay with that right now."*
 
-The `.hidden` sentinel is identity-scoped (`~/fleet/identities/<name>/.hidden`), not user-scoped, so if one user of this Skynet instance hides an identity row, it's hidden for every user. Mirrors the existing `.pinned` sentinel scoping — same tradeoff, same rationale. Ashley aware, greenlit.
+The `.hidden` sentinel is identity-scoped (`~/fleet/identities/<name>/.hidden`), not user-scoped, so if one user of this Skynet instance hides an identity row, it's hidden for every user. Mirrors the existing `.pinned` sentinel scoping — same tradeoff, same rationale. Alice aware, greenlit.
 
 An eventual multi-user re-scoping would be a separate phase, and both pinned + hidden would migrate together (likely to per-user sentinel paths like `~/fleet/identities/<name>/.hidden-by-<userid>` or a user-scoped file location). Explicitly NOT this phase's scope.
 
