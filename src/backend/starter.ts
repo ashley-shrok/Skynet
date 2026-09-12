@@ -431,7 +431,8 @@ if (process.env.VITEST !== "true") {
     const dbServer = await import("./database/database.js");
     await (dbServer as unknown as { serverReady: Promise<void> }).serverReady;
     await import("./ssh/terminal.js");
-    await import("./claude-session/claude-session-server.js");
+    const claudeSessionServerModule = await import("./claude-session/claude-session-server.js");
+    claudeSessionServerModule.startClaudeSessionServer();
     // Phase 90 Plan 04 — relay-room-stream WebSocket server (port 30015).
     // Self-starts on import (see relay-room-stream-server.ts L1342-1344 —
     // guarded to skip in vitest/test env). Was never imported anywhere in

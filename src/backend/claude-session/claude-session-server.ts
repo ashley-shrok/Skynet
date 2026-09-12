@@ -4076,6 +4076,13 @@ async function dispatchUploadMessage(
  */
 export const __dispatchUploadMessageForTests = dispatchUploadMessage;
 
+// Server start extracted from module-load side effect (Ashley 2026-09-12) so
+// vitest workers importing this module for its exports don't collide on
+// port 30011. Called explicitly from starter.ts in production; test files
+// never invoke it. The function body below is intentionally left at
+// column 0 to keep the refactor diff small — indentation is stylistic
+// only in JS/TS and reindenting 4500 lines would obscure the actual change.
+export function startClaudeSessionServer() {
 const wss = new WebSocketServer({ port: 30011 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
@@ -8531,3 +8538,4 @@ sshLogger.info("Claude session WebSocket server listening", {
   operation: "claude_session_ws_boot",
   port: CLAUDE_SESSION_WS_PORT,
 });
+}  // end startClaudeSessionServer
