@@ -1,3 +1,27 @@
+// quick-260912-0t4 follow-on bounty (documented, not fixed here):
+//   IdentityModal receives its `identity` prop upstream-resolved by
+//   IdentitySessionPane (see src/ui/shell/IdentitySessionPane.tsx L457, L461),
+//   which uses bare-name `identitiesByKey.get(identityKey)!` — the pre-
+//   quick-260912-0t4 lookup shape. IdentitySessionPane is OUT of the
+//   quick-260912-0t4 fix_scope (its scope-widening changes multiple files
+//   and threads hostId through IdentityBadge / tabUtils call chains).
+//
+//   Residual risk: if the box has two identities sharing a name across
+//   different fleet hosts (Alice's original willow-on-workstation-vs-t1000
+//   report), the badge-click that opens THIS modal from the terminal-mode
+//   identity pane resolves the identity via IdentitySessionPane's bare-name
+//   byKey lookup, which can pick the WRONG host's identity object even
+//   though the pane itself knows its own host.id. The modal renders
+//   whatever it's handed.
+//
+//   Follow-on fix (two-line): swap IdentitySessionPane.tsx L457/L461 to
+//   `identitiesByHostKey.get(`${parseInt(host.id,10)}::${identityKey}`)` and
+//   destructure byHostKey from useIdentities(). Batch with any future phase
+//   that touches IdentitySessionPane.
+//
+//   The pretty-view badge-click path (PrettyView → IdentityModal via the
+//   sidebar row) IS covered by quick-260912-0t4 because PrettyView threads
+//   its own `hostId` prop through useSessionIdentity(name, hostId).
 import { useCallback, useEffect, useRef, useState } from "react";
 // Phase 86 Plan 86-05: type-only React import for ReactNode in the inherit-
 // override render helpers below (renderInheritedBadge / renderRevertButton).

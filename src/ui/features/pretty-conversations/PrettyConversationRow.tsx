@@ -137,6 +137,9 @@ import { Pin, GitPullRequestDraft } from "lucide-react";
 import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { useIdentities } from "@/state/identities-store";
+// quick-260912-0t4: type-only import for the byHostKey → byKey fallback IIFE
+// return-type annotation (see identity-resolution block below).
+import type { Identity } from "@/api/identities-api";
 // Phase 68 Plan 04: avatarUrlWithHost DELETED — backend bakes hostId into identity.avatarUrl.
 // Phase 104 Plan 02: per-identity trapped-work indicator (D-05, D-06, D-07).
 import { useTrappedWork } from "@/state/trapped-work-store";
@@ -313,17 +316,38 @@ export function PrettyConversationRow({
   subtitleMode?: "hostname" | "identityTitle";
 }) {
   // ─── Identity resolution ───────────────────────────────────────────────────
-  // Same shape as ConversationRow.tsx lines 41-47 (production baseline).
-  const { byKey: identitiesByKey } = useIdentities();
+  // quick-260912-0t4: scope identity lookup by hostId so two identities sharing
+  // a name across different fleet hosts (e.g. willow on workstation vs t1000)
+  // don't collide on `byKey.get("willow")` — each row picks the RIGHT identity
+  // for its pane's host. Relay-room rows (`row.host === undefined`) can't have
+  // an identity anyway, so hostId=NaN → identity=null.
+  //
+  // Backwards-compat fallback: try byHostKey first; when it misses (either
+  // because the row lacks a host, or because a test fixture only seeds byKey,
+  // or because the wire response predates the hostId field), fall back to
+  // bare-name byKey. In production the backend surfaces hostId on every row
+  // (per publicIdentity() + Task 1 dedup removal) so byHostKey hits first;
+  // the fallback exists solely to preserve legacy test fixtures and to
+  // survive the ms-window before the first fleet-populated fetch resolves.
+  const { byHostKey: identitiesByHostKey, byKey: identitiesByKey } = useIdentities();
   const key = sessionMatchKey(row.targetTmuxSession);
-  const identity = key ? (identitiesByKey.get(key) ?? null) : null;
-  const hue: number | null = identity?.colorHue ?? null;
   const isRdp = row.rdpHostRow === true;
 
   // Host.id is a string in the fork's ui-types; we convert with parseInt
-  // (same shape AppShell uses at openTab hostId derivation). Kept because
-  // useTrappedWork below consumes it.
+  // (same shape AppShell uses at openTab hostId derivation). Hoisted above
+  // the identity lookup so the byHostKey composite key can use it; also
+  // consumed by useTrappedWork below.
   const rowHostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
+
+  const identity: Identity | null = (() => {
+    if (!key) return null;
+    if (Number.isFinite(rowHostIdNum)) {
+      const scoped = identitiesByHostKey?.get(`${rowHostIdNum}::${key}`);
+      if (scoped) return scoped;
+    }
+    return identitiesByKey?.get(key) ?? null;
+  })();
+  const hue: number | null = identity?.colorHue ?? null;
 
   // Phase 104 Plan 02 (D-05, D-06, D-07): per-identity trapped-work snapshot.
   // Hook short-circuits to undefined when identityKey is null. Both undefined

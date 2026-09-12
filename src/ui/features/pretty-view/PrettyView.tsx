@@ -1778,7 +1778,12 @@ export function PrettyView({
   // at all. NOTE: this differs from the terminal pane (patch #26)
   // which uses hueFromSessionName as a hash-based fallback — pretty
   // view is deliberately more restrained per CONTEXT.md § Decisions 2.
-  const { identity: pvIdentity, identityHue: pvIdentityHue } = useSessionIdentity(tmuxSession);
+  // quick-260912-0t4: pass hostId so cross-host name collisions (e.g. two
+  // identities named "willow" on different fleet hosts) resolve to the RIGHT
+  // identity for this pane's host. `hostId` is a prop of PrettyView (see the
+  // Props declaration around L244) and is already threaded through the pane
+  // for context-pct, waiting-key, paneKey, etc.
+  const { identity: pvIdentity, identityHue: pvIdentityHue } = useSessionIdentity(tmuxSession, hostId);
   const pvIdentityKey = sessionMatchKey(tmuxSession);
   const pvHue = pvIdentityHue ?? 35;
 

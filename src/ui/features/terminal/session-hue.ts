@@ -43,10 +43,16 @@ export function useSessionIdentity(
   const key = sessionMatchKey(name);
   let identity: Identity | null = null;
   if (key) {
+    // quick-260912-0t4: try hostId-scoped composite first when caller supplied
+    // a valid hostId; fall back to bare-name byKey if the composite misses.
+    // The fallback preserves compat with test fixtures that seed byKey only
+    // (no hostId on identity objects) and with pre-populated wire state that
+    // predates the hostId-on-row surface.
     if (typeof hostId === "number" && Number.isFinite(hostId)) {
-      identity = byHostKey.get(`${hostId}::${key}`) ?? null;
-    } else {
-      identity = byKey.get(key) ?? null;
+      identity = byHostKey?.get(`${hostId}::${key}`) ?? null;
+    }
+    if (!identity) {
+      identity = byKey?.get(key) ?? null;
     }
   }
   const identityHue = identity?.colorHue ?? null;

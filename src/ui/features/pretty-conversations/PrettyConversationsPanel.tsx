@@ -436,7 +436,15 @@ export function PrettyConversationsPanel({
   // callback. Same hook the row uses to resolve identity — subscribing at
   // the panel level lets the poller enumerate every visible row's identity
   // without a second per-row identities-store subscription.
-  const { byKey: identitiesByKey } = useIdentities();
+  //
+  // quick-260912-0t4: destructure BOTH byHostKey and byKey — cosmetics
+  // consumers below try the hostId-scoped composite key first (fixes
+  // cross-host name collisions) and fall back to bare-name byKey when the
+  // composite misses. The fallback preserves compat with test fixtures that
+  // seed only byKey and with any transitional wire state where the row has
+  // no hostId yet. See identities-store.ts byHostKey JSDoc for the
+  // additive-vs-rename rationale.
+  const { byHostKey: identitiesByHostKey, byKey: identitiesByKey } = useIdentities();
   // Patch #137: hoisted once so all row-level activeSet.has(row.id) reads
   // hit a stable ReadonlySet reference (Set identity flips only on real
   // additions; consumers get a memoized reference across no-ops).
@@ -545,17 +553,26 @@ export function PrettyConversationsPanel({
   // `groupedRef`; `rdpGroupRef` is new. Both stay bumped on every render.
   const middleRef = useRef(middle);
   const rdpGroupRef = useRef(rdpGroup);
+  // quick-260912-0t4: ref mirrors of BOTH maps — poller uses byHostKey with
+  // byKey fallback to survive test fixtures that only seed the bare-name map.
+  const identitiesByHostKeyRef = useRef(identitiesByHostKey);
   const identitiesByKeyRef = useRef(identitiesByKey);
   pinnedRowsRef.current = pinned;
   middleRef.current = middle;
   rdpGroupRef.current = rdpGroup;
+  identitiesByHostKeyRef.current = identitiesByHostKey;
   identitiesByKeyRef.current = identitiesByKey;
 
   // Phase 104 Plan 02: trapped-work poller mount (D-08 cadence: 60_000 ms +
   // window.focus refresh). getTargets walks pinned + middle + rdpGroup,
-  // resolves identities via the identitiesByKeyRef, dedupes by composite key.
-  // Per Pitfall #5 in RESEARCH.md, this MUST cover dormant identities (the
-  // whole rescue-oriented signal breaks if we gate on activeSet).
+  // resolves identities via the identitiesByHostKeyRef, dedupes by composite
+  // key. Per Pitfall #5 in RESEARCH.md, this MUST cover dormant identities
+  // (the whole rescue-oriented signal breaks if we gate on activeSet).
+  //
+  // quick-260912-0t4: identity resolution now uses the hostId-scoped
+  // byHostKey map (`${hostIdNum}::${matchKey}`) so two identities sharing a
+  // name across different hosts resolve to their per-host row rather than
+  // collapsing on the bare-name byKey lookup.
   useEffect(() => {
     const getTargets = () => {
       const idsSeen = new Set<string>();
@@ -563,8 +580,6 @@ export function PrettyConversationsPanel({
       const collect = (row: ConversationRowShape) => {
         const matchKey = sessionMatchKey(row.targetTmuxSession);
         if (!matchKey) return;
-        const ident = identitiesByKeyRef.current.get(matchKey);
-        if (!ident) return;
         // Phase 104 code-review finding #3: match the WS handler's coercion.
         // Server side (claude-session-server.ts:1211-1216) treats hostIdRaw > 0
         // as remote, everything else as local (null). If we let 0 or negative
@@ -572,9 +587,19 @@ export function PrettyConversationsPanel({
         // response echoes hostId=null → row lookup misses. hostIds come from
         // SQLite auto-increment starting at 1, so 0 is effectively "not a
         // valid hostId" and should route local. Client + server now agree.
+        // Hoisted above the identity lookup for quick-260912-0t4 — the same
+        // hostIdNum drives both the byHostKey composite and the target hostId.
         const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
         const hostId =
           Number.isFinite(hostIdNum) && hostIdNum > 0 ? hostIdNum : null;
+        // quick-260912-0t4: try hostId-scoped composite first, fall back to
+        // bare-name byKey when the composite misses (test-fixture compat +
+        // pre-quick-260912-0t4 wire responses that omit hostId on the row).
+        let ident = Number.isFinite(hostIdNum)
+          ? identitiesByHostKeyRef.current?.get(`${hostIdNum}::${matchKey}`)
+          : undefined;
+        if (!ident) ident = identitiesByKeyRef.current?.get(matchKey);
+        if (!ident) return;
         const composite = `${ident.identityKey}:${hostId ?? "local"}`;
         if (idsSeen.has(composite)) return;
         idsSeen.add(composite);
@@ -810,16 +835,24 @@ export function PrettyConversationsPanel({
   //   matchesFilterForRow(row) = !readyOnly || (rowState defined && !isWorking && !isDormant)
   // Rows with no resolvable identity → false (filtered out when the toggle is
   // on). Wrapped in useMemo so the helper identity is stable across renders
-  // that don't change identitiesByKey, readyOnly, or rowSessionStates.
+  // that don't change identitiesByHostKey, readyOnly, or rowSessionStates.
   //
   // Phase 104 Plan 03: the pinned + needs-desk filter branches (and their
   // store dependencies) were retired alongside their data source. Only the
   // Ready predicate remains.
+  //
+  // quick-260912-0t4: identity resolution uses the hostId-scoped byHostKey
+  // composite key so cross-host name collisions don't collapse on lookup.
   const matchesFilterForRow = useMemo(() => {
     return (row: ConversationRowShape): boolean => {
       const matchKey = sessionMatchKey(row.targetTmuxSession);
       if (!matchKey) return false;
-      const ident = identitiesByKey.get(matchKey);
+      const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
+      // quick-260912-0t4: byHostKey first, byKey fallback for compat.
+      let ident = Number.isFinite(hostIdNum)
+        ? identitiesByHostKey?.get(`${hostIdNum}::${matchKey}`)
+        : undefined;
+      if (!ident) ident = identitiesByKey?.get(matchKey);
       if (!ident) return false;
       // Phase 52 Plan 03 — Ready predicate: !isWorking && !isDormant per CONTEXT.md § decisions § Filter semantic.
       // Row's session state is looked up from the pre-computed rowSessionStates map keyed by matchKey.
@@ -832,7 +865,7 @@ export function PrettyConversationsPanel({
       const readyOk = !readyOnly || (rowState !== undefined && !rowState.isWorking && !rowState.isDormant);
       return readyOk;
     };
-  }, [identitiesByKey, readyOnly, rowSessionStates]);
+  }, [identitiesByHostKey, identitiesByKey, readyOnly, rowSessionStates]);
 
   // Phase 26 D-02 (as amended by Phase 41 Plan 01, Phase 42 UAT amendment
   // 2026-08-17): apply the AND-intersect filter to each render collection when
@@ -953,8 +986,13 @@ export function PrettyConversationsPanel({
   //   - Empty query is a defensive no-op that returns true.
   //
   // NOTE: matchesSearch is called from the searchMatches useMemo below when
-  // searchQuery.trim() !== "". Passing identitiesByKey through so the
+  // searchQuery.trim() !== "". Passing identitiesByHostKey through so the
   // predicate stays pure.
+  //
+  // quick-260912-0t4: identity resolution uses the hostId-scoped byHostKey
+  // composite key so search hits pull the RIGHT displayName/title for the
+  // row's host (cross-host name collisions previously read the wrong row's
+  // metadata into the sublabel).
   const matchesSearch = useCallback(
     (row: ConversationRowShape, query: string): boolean => {
       if (query === "") return true;
@@ -964,7 +1002,13 @@ export function PrettyConversationsPanel({
       // Title" — so identity resolution wins when available; RDP rows use
       // subtitleMode="hostname" so hostname is the sublabel).
       const matchKey = sessionMatchKey(row.targetTmuxSession);
-      const identity = matchKey ? identitiesByKey.get(matchKey) : undefined;
+      const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
+      // quick-260912-0t4: byHostKey first, byKey fallback for compat.
+      let identity =
+        matchKey && Number.isFinite(hostIdNum)
+          ? identitiesByHostKey?.get(`${hostIdNum}::${matchKey}`)
+          : undefined;
+      if (!identity && matchKey) identity = identitiesByKey?.get(matchKey);
       const isRdp = row.rdpHostRow === true;
 
       let primary: string;
@@ -982,7 +1026,7 @@ export function PrettyConversationsPanel({
 
       return primary.toLowerCase().includes(q) || sublabel.toLowerCase().includes(q);
     },
-    [identitiesByKey],
+    [identitiesByHostKey, identitiesByKey],
   );
 
   // Phase 41 Plan 02: flat match list when the search query is non-empty.
@@ -1331,12 +1375,19 @@ export function PrettyConversationsPanel({
   const handleRowClone = (row: ConversationRowShape) => {
     const matchKey = sessionMatchKey(row.targetTmuxSession);
     if (!matchKey) return;
-    const identity = identitiesByKey.get(matchKey);
-    if (!identity) return;
-    if (!identity.role) return;
+    // quick-260912-0t4: resolve identity via hostId-scoped byHostKey so a
+    // clone action fired from row X on host A doesn't pick up identity Y on
+    // host B (which shares the identityKey name). row.host is guarded below
+    // for the setChainPrefill path — hoist the hostIdNum computation ABOVE
+    // the identity lookup so both use the same value. Falls back to bare-name
+    // byKey when the composite misses (test-fixture compat).
     if (!row.host) return;
     const hostIdNum = parseInt(row.host.id, 10);
     if (!Number.isFinite(hostIdNum)) return;
+    let identity = identitiesByHostKey?.get(`${hostIdNum}::${matchKey}`);
+    if (!identity) identity = identitiesByKey?.get(matchKey);
+    if (!identity) return;
+    if (!identity.role) return;
     // Seed the chain-hook state with initialHost + initialRole ONLY.
     // description is omitted → NewSessionDialog receives initialBrief=null
     // (see mount site below) → brief field stays empty.
