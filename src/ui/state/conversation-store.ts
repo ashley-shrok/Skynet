@@ -58,7 +58,7 @@ import { sessionMatchKey } from "@/features/terminal/session-hue";
 // pattern crashes on the relay-room `sessionName === undefined` case (see
 // L710-731 relay-room branch) and diverges from the semantics the
 // identities-store fetch already uses.
-import { buildIdentityHostsFromFleet } from "./identities-store";
+import { buildIdentityHostsFromFleet, refreshIdentities } from "./identities-store";
 // Phase 41 Plan 03 — bridge to the working-store cache for the wire-side
 // lastMessageAt signal + a subscribe hook so a working-store publish invalidates
 // our memoized snapshot (row derivation re-runs and re-picks up fresh recency).
@@ -1589,7 +1589,7 @@ export function pinConversation(id: string): void {
   // unhandled promise rejections. Optimistic update stands; retry on next mount
   // or next pin/unpin. (Phase 107 code-review M3, fixed symmetrically on both
   // pin and hidden sides in the same commit.)
-  putPinnedIds([...nextPinnedIds], identityHosts).catch(() => {});
+  putPinnedIds([...nextPinnedIds], identityHosts).catch(() => refreshIdentities().catch(() => {}));
   state = { ...state, pinnedIds: nextPinnedIds };
   notify();
 }
@@ -1604,7 +1604,7 @@ export function unpinConversation(id: string): void {
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
   // Fire-and-forget with async-rejection swallow (see pinConversation comment
   // above — Phase 107 code-review M3).
-  putPinnedIds([...nextPinnedIds], identityHosts).catch(() => {});
+  putPinnedIds([...nextPinnedIds], identityHosts).catch(() => refreshIdentities().catch(() => {}));
   state = { ...state, pinnedIds: nextPinnedIds };
   notify();
 }
@@ -1633,7 +1633,7 @@ export function hideConversation(id: string): void {
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
   // Fire-and-forget with async-rejection swallow (Phase 107 code-review M3 —
   // pattern-mirror of pin-side fix in pinConversation/unpinConversation).
-  putHiddenIds([...nextHiddenIds], identityHosts).catch(() => {});
+  putHiddenIds([...nextHiddenIds], identityHosts).catch(() => refreshIdentities().catch(() => {}));
   state = { ...state, hiddenIds: nextHiddenIds };
   notify();
 }
@@ -1647,7 +1647,7 @@ export function unhideConversation(id: string): void {
   // identityHosts derivation site. Do not fork.
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
   // Fire-and-forget with async-rejection swallow (Phase 107 code-review M3).
-  putHiddenIds([...nextHiddenIds], identityHosts).catch(() => {});
+  putHiddenIds([...nextHiddenIds], identityHosts).catch(() => refreshIdentities().catch(() => {}));
   state = { ...state, hiddenIds: nextHiddenIds };
   notify();
 }
