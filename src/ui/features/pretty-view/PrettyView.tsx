@@ -3170,6 +3170,17 @@ export function PrettyView({
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
+      // Bounty t800-frontend-websocket-leak-on-container-recreate: detach
+      // handler property refs BEFORE close() so the retention cycle
+      // (ws → ws.onopen closure → ws via ws.send at L2094) is broken. Without
+      // this, each cleanup (retryKey bump or unmount) leaves a dead WS pinned
+      // by its own handlers, and container-recreate storms compound the count
+      // against nginx worker_connections (T800 saturated at ~8k with 2 pretty
+      // views after 3 recreates = 13x baseline).
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
       try {
         ws.close();
       } catch {

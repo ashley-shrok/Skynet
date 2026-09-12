@@ -359,7 +359,20 @@ export function createFleetStatusClient(
 
     ws.onclose = (evt: CloseEvent) => {
       if (disposed) return;
+      // Bounty t800-frontend-websocket-leak-on-container-recreate:
+      // detach handler property refs on the just-closed WS BEFORE nulling the
+      // module ref + scheduling replacement connect(). Without this, the dead
+      // WS instance retains its own handlers (which close over `ws.send`) and
+      // stays pinned across reconnect ladders — container-recreate storms then
+      // compound the count against nginx worker_connections.
+      const deadWs = ws;
       ws = null;
+      if (deadWs !== null) {
+        deadWs.onopen = null;
+        deadWs.onmessage = null;
+        deadWs.onerror = null;
+        deadWs.onclose = null;
+      }
 
       console.info({
         operation: "fleet_status_client_close",
@@ -487,6 +500,13 @@ export function createFleetStatusClient(
       }
 
       if (ws !== null) {
+        // Bounty t800-frontend-websocket-leak-on-container-recreate: detach
+        // handler property refs before close so the disposed WS is not
+        // retained by its own handler closures beyond this call.
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
         try {
           ws.close();
         } catch {
