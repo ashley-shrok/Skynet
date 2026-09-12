@@ -73,16 +73,19 @@ services:
       # Opt-in shape: set SKYNET_FLEET_MOUNT_SRC in shell env at compose
       # invocation (typically via .env file at /opt/skynet/.env),
       # AND set IDENTITIES_LOCAL_HOST_IDS + IDENTITIES_HOST_DIR +
-      # ROLES_HOST_DIR in skynet.env.  When SKYNET_FLEET_MOUNT_SRC is
-      # unset (opt-out), falls back to /tmp — harmless because Skynet
-      # only touches /fleet/* when IDENTITIES_LOCAL_HOST_IDS is set,
-      # which activates the LOCAL branch for the listed hostIds.  Every
-      # deployment that leaves the env vars unset gets the pre-existing
-      # REMOTE (SSH) branch for every host, byte-identical to today.
+      # ROLES_HOST_DIR in skynet.env.
       # Mounted RW (2026-09-11): LOCAL-branch identity-birth writes
       # <name>.md / avatar / relay.json here, and spawn-request worker
       # writes the response file here. Read-only defeats those paths.
-      - ${SKYNET_FLEET_MOUNT_SRC:-/tmp}:/fleet
+      #
+      # HARD-FAIL if SKYNET_FLEET_MOUNT_SRC is unset (2026-09-12 Ashley):
+      # the prior `:-/tmp` fallback silently mounted /tmp into /fleet when
+      # the env var didn't reach compose interpolation (sudo-env-strip
+      # issue with `--env-file`), producing invisible-scanner + lost
+      # spawn-requests. Fail-loud beats fail-quiet. If this errors on
+      # `docker compose up`, symlink docker/.env → the deployment's env
+      # file (canonical on t1000: /opt/skynet/.env).
+      - ${SKYNET_FLEET_MOUNT_SRC:?SKYNET_FLEET_MOUNT_SRC must be set — see docker/.env (symlink docker/.env → /opt/skynet/.env on t1000)}:/fleet
     env_file:
       - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
     environment:
