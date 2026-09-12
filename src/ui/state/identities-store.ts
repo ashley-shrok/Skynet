@@ -15,10 +15,25 @@ import {
 type State = {
   identities: Identity[];
   byKey: Map<string, Identity>;
+  /** quick-260912-0t4: hostId-scoped composite-key map. Key format
+   *  `${hostId}::${identityKey.toLowerCase()}`. Cosmetics consumers that
+   *  render a row/pane belonging to a specific host MUST read from here so
+   *  cross-host name collisions (e.g. two identities named "willow" on
+   *  different fleet hosts) don't collide on lookup. `byKey` above is
+   *  preserved additively for existence-check consumers whose semantics are
+   *  "is there ANY identity by this name?" (AppShell pane discriminator,
+   *  IdentityBadge, tabUtils, IdentitySessionPane, conversation-store role
+   *  fallback, relay-mxid-resolve) — see quick-260912-0t4 rationale. */
+  byHostKey: Map<string, Identity>;
   loaded: boolean;
 };
 
-let state: State = { identities: [], byKey: new Map(), loaded: false };
+let state: State = {
+  identities: [],
+  byKey: new Map(),
+  byHostKey: new Map(),
+  loaded: false,
+};
 let inflight: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
@@ -48,9 +63,31 @@ function withDisplayCap(i: Identity): Identity {
 
 function setIdentities(list: Identity[]) {
   const normalized = list.map(withDisplayCap);
+  // byKey is bare-name — retained additively for existence-check consumers
+  // (AppShell pane discriminator, IdentityBadge, tabUtils, IdentitySessionPane,
+  // conversation-store role fallback, relay-mxid-resolve). With the backend
+  // now returning multiple rows for the same name across hosts, byKey.set
+  // collides on name — last wire-order wins for the bare-name map, which is
+  // fine because those consumers only ask `.has(name)` / `.get(name)` to
+  // check "does ANY identity by this name exist?". Cosmetics consumers MUST
+  // use byHostKey — see quick-260912-0t4 rationale.
+  const byKey = new Map<string, Identity>();
+  const byHostKey = new Map<string, Identity>();
+  for (const i of normalized) {
+    const nameLc = i.identityKey.toLowerCase();
+    byKey.set(nameLc, i);
+    // Only index rows that carry a hostId — pre-quick-260912-0t4 fixtures
+    // (test mocks) may omit it; skip those in the composite map rather than
+    // seeding a `undefined::name` bucket that would silently mis-serve
+    // production lookups.
+    if (typeof i.hostId === "number" && Number.isFinite(i.hostId)) {
+      byHostKey.set(`${i.hostId}::${nameLc}`, i);
+    }
+  }
   state = {
     identities: normalized,
-    byKey: new Map(normalized.map((i) => [i.identityKey.toLowerCase(), i])),
+    byKey,
+    byHostKey,
     loaded: true,
   };
   notify();
@@ -244,14 +281,46 @@ export function refreshIdentities(): Promise<void> {
 export function applyIdentityChange(
   next: Identity | null,
   removedKey?: string,
+  /** quick-260912-0t4: optional hostId scoping for the remove/update path. When
+   *  provided, the match narrows to the ROW whose (hostId, identityKey) tuple
+   *  matches — necessary now that the backend returns per-(hostId, identityKey)
+   *  rows and two identities can share a name across hosts. Absent → falls
+   *  back to bare-name match (pre-quick-260912-0t4 semantics; matches first
+   *  row in list — a caveat for existing callers that don't yet thread hostId
+   *  through delete flows, but not a regression). */
+  removedHostId?: number,
 ): void {
   let list = state.identities.slice();
   if (removedKey) {
     const removedKeyLc = removedKey.toLowerCase();
-    list = list.filter((i) => i.identityKey.toLowerCase() !== removedKeyLc);
+    if (typeof removedHostId === "number" && Number.isFinite(removedHostId)) {
+      list = list.filter(
+        (i) =>
+          !(
+            i.identityKey.toLowerCase() === removedKeyLc &&
+            i.hostId === removedHostId
+          ),
+      );
+    } else {
+      // Bare-name filter — pre-existing behavior. When two identities share a
+      // name across hosts, this removes ALL of them; when only one exists, it
+      // removes that one. Caller should thread removedHostId once available.
+      list = list.filter((i) => i.identityKey.toLowerCase() !== removedKeyLc);
+    }
   } else if (next) {
     const nextKeyLc = next.identityKey.toLowerCase();
-    const idx = list.findIndex((i) => i.identityKey.toLowerCase() === nextKeyLc);
+    // Widen the match to (hostId, identityKey) when both sides have hostId so
+    // the correct per-host row is replaced on cross-host name collisions.
+    // Falls back to bare-name findIndex when next.hostId is absent
+    // (pre-quick-260912-0t4 test fixtures).
+    const idx =
+      typeof next.hostId === "number" && Number.isFinite(next.hostId)
+        ? list.findIndex(
+            (i) =>
+              i.identityKey.toLowerCase() === nextKeyLc &&
+              i.hostId === next.hostId,
+          )
+        : list.findIndex((i) => i.identityKey.toLowerCase() === nextKeyLc);
     if (idx >= 0) list[idx] = next;
     else list.push(next);
   }
@@ -261,6 +330,10 @@ export function applyIdentityChange(
 export function useIdentities(): {
   identities: Identity[];
   byKey: Map<string, Identity>;
+  /** quick-260912-0t4: hostId-scoped composite-key map for cosmetics consumers.
+   *  Key: `${hostId}::${identityKey.toLowerCase()}`. See State.byHostKey JSDoc
+   *  for the additive-vs-rename rationale. */
+  byHostKey: Map<string, Identity>;
   loaded: boolean;
   refresh: () => Promise<void>;
 } {
@@ -276,6 +349,7 @@ export function useIdentities(): {
   return {
     identities: state.identities,
     byKey: state.byKey,
+    byHostKey: state.byHostKey,
     loaded: state.loaded,
     refresh: refreshIdentities,
   };
@@ -287,7 +361,12 @@ export function useIdentities(): {
 // enrichment tests. Not part of the public API; keeps prior test's state from
 // leaking into the next test in the same vitest worker.
 export function __resetIdentitiesStoreForTest(): void {
-  state = { identities: [], byKey: new Map(), loaded: false };
+  state = {
+    identities: [],
+    byKey: new Map(),
+    byHostKey: new Map(),
+    loaded: false,
+  };
   inflight = null;
   hasRefreshedAfterFleetLoad = false;
   notify();
