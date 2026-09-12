@@ -38,7 +38,7 @@ import { spawnSync } from "child_process";
 import type { Client as SSHClientType } from "ssh2";
 type SFTPWrapper = import("ssh2").SFTPWrapper;
 import yaml from "js-yaml";
-import { sshLogger } from "../utils/logger.js";
+import { sshLogger, systemLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 // Phase 85 Plan 85-01 Task 1: role-name gate for readRoleFileByName +
 // readAvatarSiblingFileByRole. Same pattern roles-create.ts imports at L87
@@ -285,7 +285,27 @@ export function extractRoleFromMarkdown(markdown: string): string | null {
     if (parsed === null || typeof parsed !== "object") return null;
     const role = parsed.role;
     return typeof role === "string" && role.length > 0 ? role : null;
-  } catch {
+  } catch (err) {
+    // Frontmatter YAML parse failure — treat role as null (fail-open, per the
+    // original silent-catch contract), but LOG the error loudly so bad writes
+    // are visible in the docker forensic trail instead of silently degrading
+    // the identity's frontend display. The 200-char snippet is bounded so
+    // it doesn't spam and is enough to identify the offending file in every
+    // real case (`role: <name>` or `title: <name>` at the top identifies it).
+    //
+    // Root cause the bounty
+    // `fleet-status-orchestrator-coupling-with-spawn-request-scanning` e2e
+    // test surfaced (2026-09-12): a hand-authored identity file whose
+    // `task:` value contained a bare `: ` (colon-space) inside a plain YAML
+    // scalar tripped the parser silently — visible only as "no title/color/
+    // avatar all at once for one identity" in the frontend UI. This log
+    // closes the "silent" half.
+    systemLogger.warn("Identity/role frontmatter YAML parse failed — treating as no role", {
+      operation: "frontmatter_yaml_parse_failed",
+      site: "extractRoleFromMarkdown",
+      error: err instanceof Error ? err.message : String(err),
+      snippet: match[1].slice(0, 200),
+    });
     return null;
   }
 }
@@ -2353,7 +2373,18 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
   let parsed: unknown;
   try {
     parsed = yaml.load(match[1]);
-  } catch {
+  } catch (err) {
+    // Frontmatter YAML parse failure — return {} (fail-open, per the original
+    // silent-catch contract), but LOG loudly. Silent {} manifests as "all
+    // cosmetics missing simultaneously" in the frontend (no displayName, no
+    // title, no colorHue, no avatar) — hard to diagnose from the UI alone.
+    // See extractRoleFromMarkdown for the incident this warn closes.
+    systemLogger.warn("Identity/role frontmatter YAML parse failed — treating as no cosmetics", {
+      operation: "frontmatter_yaml_parse_failed",
+      site: "extractCosmeticsFromFrontmatter",
+      error: err instanceof Error ? err.message : String(err),
+      snippet: match[1].slice(0, 200),
+    });
     return {};
   }
   if (parsed === null || typeof parsed !== "object") return {};

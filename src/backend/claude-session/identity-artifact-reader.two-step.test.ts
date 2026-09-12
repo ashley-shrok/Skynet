@@ -47,9 +47,31 @@ vi.mock("../ssh/tmux-helper.js", () => ({
   execCommand: vi.fn(),
 }));
 
+// Mock the logger so the malformed-YAML tests can assert the WARN fires.
+// The systemLogger reference in identity-artifact-reader flows through this
+// mock; sshLogger stays covered too since we mock the whole module.
+vi.mock("../utils/logger.js", () => ({
+  sshLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  systemLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
+
 import { execCommand } from "../ssh/tmux-helper.js";
+import { systemLogger } from "../utils/logger.js";
 import {
   extractRoleFromMarkdown,
+  extractCosmeticsFromFrontmatter,
   resolveRoleForIdentity,
   getLocalRolesRoot,
   readIdentityBounties,
@@ -88,6 +110,66 @@ describe("extractRoleFromMarkdown", () => {
   it("test 5: handles CRLF line endings in frontmatter delimiters", () => {
     const md = "---\r\nrole: box-maintainer\r\n---\r\n\r\n# body";
     expect(extractRoleFromMarkdown(md)).toBe("box-maintainer");
+  });
+
+  // Regression coverage for the bounty
+  // `fleet-status-orchestrator-coupling-with-spawn-request-scanning` e2e-test
+  // incident: a hand-authored identity file with a bare `: ` (colon-space)
+  // inside a plain YAML scalar in the `task:` value silently broke both the
+  // role extraction AND the cosmetics extraction — identity showed up on the
+  // frontend with no title, no colorHue, no avatar simultaneously, and there
+  // was NO log line to point at the offending file. These tests lock in that
+  // both extract functions now emit a WARN via systemLogger before returning
+  // the fail-open value, so the failure is visible in the docker forensic
+  // trail.
+  it("test 5b: logs a WARN and returns null when YAML fails to parse (bare `: ` inside plain scalar)", () => {
+    vi.mocked(systemLogger.warn).mockClear();
+    const md =
+      "---\nrole: box-maintainer\ntask: broken Evidence: extra colon-space here\n---\n\n# body";
+    expect(extractRoleFromMarkdown(md)).toBeNull();
+    expect(vi.mocked(systemLogger.warn)).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(systemLogger.warn).mock.calls[0];
+    expect(call[0]).toMatch(/frontmatter yaml parse failed/i);
+    const context = call[1] as { operation?: string; site?: string; snippet?: string; error?: string };
+    expect(context.operation).toBe("frontmatter_yaml_parse_failed");
+    expect(context.site).toBe("extractRoleFromMarkdown");
+    expect(typeof context.error).toBe("string");
+    expect(context.snippet).toContain("role: box-maintainer");
+    expect((context.snippet ?? "").length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("extractCosmeticsFromFrontmatter (malformed-YAML logging — regression for bounty fleet-status-orchestrator-coupling-with-spawn-request-scanning)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("test 5c: logs a WARN and returns {} when YAML fails to parse (bare `: ` inside plain scalar)", () => {
+    const md =
+      "---\nrole: box-maintainer\ndisplayName: Odin\ntask: bad Evidence: extra colon inside plain scalar\n---\n\n# body";
+    expect(extractCosmeticsFromFrontmatter(md)).toEqual({});
+    expect(vi.mocked(systemLogger.warn)).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(systemLogger.warn).mock.calls[0];
+    expect(call[0]).toMatch(/frontmatter yaml parse failed/i);
+    const context = call[1] as { operation?: string; site?: string; snippet?: string; error?: string };
+    expect(context.operation).toBe("frontmatter_yaml_parse_failed");
+    expect(context.site).toBe("extractCosmeticsFromFrontmatter");
+    expect(typeof context.error).toBe("string");
+    expect(context.snippet).toContain("role: box-maintainer");
+    expect((context.snippet ?? "").length).toBeLessThanOrEqual(200);
+  });
+
+  it("test 5d: does NOT log on well-formed frontmatter (log is scoped to parse failures)", () => {
+    const md = "---\nrole: box-maintainer\ndisplayName: Odin\n---\n\n# body";
+    const out = extractCosmeticsFromFrontmatter(md);
+    expect(out.displayName).toBe("Odin");
+    expect(vi.mocked(systemLogger.warn)).not.toHaveBeenCalled();
+  });
+
+  it("test 5e: does NOT log when frontmatter is absent (missing `---` delimiters — different path than parse-failure)", () => {
+    const md = "# no frontmatter here\n";
+    expect(extractCosmeticsFromFrontmatter(md)).toEqual({});
+    expect(vi.mocked(systemLogger.warn)).not.toHaveBeenCalled();
   });
 });
 
