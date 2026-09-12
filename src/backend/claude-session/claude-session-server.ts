@@ -3619,9 +3619,15 @@ export async function __applyInterruptMessageForTests(deps: {
   const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
   if (!sshConn || !currentTmuxSession) return;
   try {
-    // C-c is a tmux key name for Ctrl-C — no -l flag (it's a key name, not literal bytes),
-    // no shellQuote around C-c (it's a fixed constant from our code, not user input).
-    await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} C-c`);
+    // Escape (not C-c): Claude Code treats Ctrl-C at its idle prompt as
+    // "start exit flow" — the first press renders a "Press Ctrl+C again
+    // to exit" confirmation and a second press terminates the harness.
+    // Interrupt must never be a path to close the harness, so we send
+    // Escape, which Claude Code interprets as "interrupt current work"
+    // mid-turn and as a benign no-op at idle. Escape is a tmux key name —
+    // no -l flag (it's a key name, not literal bytes) and no shellQuote
+    // around Escape (it's a fixed constant from our code, not user input).
+    await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} Escape`);
   } catch (err) {
     sshLogger.warn("interrupt send failed", {
       operation: "interrupt_send_error",

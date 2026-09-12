@@ -171,6 +171,13 @@ function getBatchFailureUserMessage(reason: BatchFailureReasonForCompose): strin
   }
 }
 
+// Interrupt-button throttle window. See interruptLastFireRef declaration
+// for the full rationale (double-Escape opens Claude Code's rewind menu,
+// pretty-view users can't dismiss it). 1s comfortably exceeds any human
+// panic-double-tap (~150–300ms) while keeping a legitimate "did it work?
+// try again" retry feeling immediate.
+const INTERRUPT_THROTTLE_MS = 1000;
+
 export interface ComposeBoxProps {
   // Called when the user presses Enter (no shift) with non-empty text.
   // The caller collapses newlines to spaces before calling onSend, so
@@ -240,10 +247,18 @@ export interface ComposeBoxProps {
   onGoodToGo?: () => void;
   // Patch #120: optional interrupt callback. When provided, renders a
   // Square-icon "stop" button to the left of the ThumbsUp button that
-  // sends Ctrl-C into the attached tmux session via a new WS
-  // `interrupt` message (backend fires `tmux send-keys ... C-c`, with a
-  // raw `\x03`-byte PTY fallback for non-tmux panes). When omitted the
-  // button does not render — read-only PrettyView callers stay clean.
+  // sends Escape into the attached tmux session via a WS `interrupt`
+  // message (backend fires `tmux send-keys ... Escape`). Escape is used
+  // instead of Ctrl-C because Ctrl-C at Claude Code's idle prompt starts
+  // the exit flow (first press → "Press Ctrl+C again to exit"; second
+  // press → terminates the harness), and this control must never be a
+  // path to close the harness. Escape interrupts mid-turn work and is a
+  // benign no-op at idle. The button also throttles onClick to at most
+  // one fire per INTERRUPT_THROTTLE_MS (see interruptLastFireRef) so a
+  // double-tap cannot send Escape twice — a double-Escape at empty
+  // prompt would open Claude Code's rewind menu, which pretty-view
+  // users have no way to dismiss. When omitted the button does not
+  // render — read-only PrettyView callers stay clean.
   onInterrupt?: () => void;
   // When false, Enter is still accepted for typing (textarea not disabled)
   // but Send button is visually disabled. The send attempt will fail and
@@ -595,6 +610,17 @@ export function ComposeBox({
   // file to be re-picked later — some browsers otherwise no-op a repeat
   // selection because the "value hasn't changed."
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Interrupt-button double-tap guard. The interrupt button sends a WS
+  // `interrupt` message that translates to a single `Escape` keystroke
+  // into the tmux pane. Pretty-view users don't see the Claude Code TUI
+  // directly, so if a fast double-tap sends Escape twice, the second
+  // Escape at an empty prompt opens Claude Code's rewind menu — which
+  // pretty-view users have no way to dismiss (no visible TUI to click
+  // in, no way to escape the menu from the bubble surface). This ref
+  // holds the last-fire timestamp; onClick silently no-ops any tap
+  // within INTERRUPT_THROTTLE_MS of the previous fire. Button stays
+  // visually clickable so it still feels responsive to a panic tap.
+  const interruptLastFireRef = useRef<number>(0);
   // Quick 260803-05i: records which target owns the currently-open file picker.
   // The main-composebox paperclip sets this to "primary" on click; each queued
   // slot's paperclip sets this to `queued:${slot.id}`. handleFileInputChange
@@ -2560,7 +2586,15 @@ export function ComposeBox({
             <Button
               size="icon-sm"
               variant="secondary"
-              onClick={() => onInterrupt?.()}
+              onClick={() => {
+                const now = Date.now();
+                if (now - interruptLastFireRef.current < INTERRUPT_THROTTLE_MS) {
+                  // Silent no-op — double-tap guard.
+                  return;
+                }
+                interruptLastFireRef.current = now;
+                onInterrupt?.();
+              }}
               aria-label="Interrupt"
               title="Interrupt"
               className={cn(

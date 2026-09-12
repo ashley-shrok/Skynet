@@ -464,7 +464,7 @@ describe("__applyInterruptMessageForTests", () => {
     expect(exec).not.toHaveBeenCalled();
   });
 
-  it("interrupt: happy path → exactly ONE execCommand with C-c; no -l flag; no Enter", async () => {
+  it("interrupt: happy path → exactly ONE execCommand with Escape; no -l flag; no Enter", async () => {
     const exec = vi.fn().mockResolvedValue("");
     await __applyInterruptMessageForTests({
       sshConn: fakeConn,
@@ -475,12 +475,27 @@ describe("__applyInterruptMessageForTests", () => {
     expect(exec).toHaveBeenCalledTimes(1);
     const cmd = exec.mock.calls[0][1] as string;
     expect(cmd).toContain("send-keys");
-    // C-c is a tmux key name — no -l literal flag
+    // Escape is a tmux key name — no -l literal flag
     expect(cmd).not.toContain("-l");
     expect(cmd).toContain("-t 'legit-session'");
-    expect(cmd).toContain("C-c");
+    expect(cmd).toContain("Escape");
     // Must NOT have Enter (that would be a different command)
     expect(cmd).not.toMatch(/\sEnter\s*$/);
+  });
+
+  it("interrupt: regression guard — MUST NOT send C-c (Ctrl-C at Claude Code idle prompt starts exit flow — can close the harness)", async () => {
+    const exec = vi.fn().mockResolvedValue("");
+    await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+    });
+    expect(exec).toHaveBeenCalledTimes(1);
+    const cmd = exec.mock.calls[0][1] as string;
+    // The interrupt button must never send a key sequence that Claude Code
+    // interprets as "start closing the harness". Ctrl-C at idle prompt does.
+    expect(cmd).not.toContain("C-c");
   });
 
   it("interrupt: execCommand throws → caught; no rethrow; sshLogger.warn called with operation interrupt_send_error", async () => {
