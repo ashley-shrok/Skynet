@@ -767,9 +767,9 @@ Grammar:
     <skynet-parent>/file/<hostname>/<absolute-path>
 
 Concrete example (with the parent-Skynet at `https://term.example.com`, this
-box named `thenasty`, and the file at `/home/ubuntu/note.md`):
+box named `t1000`, and the file at `/home/ubuntu/note.md`):
 
-    https://term.example.com/file/thenasty/home/ubuntu/note.md
+    https://term.example.com/file/t1000/home/ubuntu/note.md
 
 Construct one like so — read the parent-Skynet domain from `~/.claude/skynet-parent`
 and the host segment from `~/.claude/skynet-hostname` (two single-line files the

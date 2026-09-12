@@ -73,7 +73,7 @@ Contents:
       "tmux_session":   "fleet-auth-setup-172344",
       "step":           "awaiting-code",         // or "awaiting-token-capture"
       "box_hostname":   "aither-mgmt",
-      "user_room_id":   "!xxxxx:thenasty.taild9b663.ts.net",
+      "user_room_id":   "!xxxxx:t1000.taild9b663.ts.net",
       "url_sent_at":    "2026-09-04T03:45:05Z"
     }
 
