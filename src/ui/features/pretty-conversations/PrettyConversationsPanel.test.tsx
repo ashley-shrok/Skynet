@@ -2798,6 +2798,69 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     expect(deactivateOrder).toBeLessThan(hideOrder);
   });
 
+  // (k) bounty 260912 — openTab-shaped id for a currently-open identity
+  // harness row gets Hide, and the store call uses the canonical fleet
+  // id (fleet::<hostId>::<sessionName>), not the tab-XXX id shape. Before
+  // this bounty the Hide item was gated on row.id.startsWith("fleet::"),
+  // which excluded currently-open rows entirely because the store's
+  // openTabs-entry-wins dedup swaps the fleet-synthetic row for the
+  // openTab-derived row (id === tab.id === "tab-XXX") whenever an openTab
+  // exists for that identity. Now the affordance appears on both shapes,
+  // and both write the same canonical id to hiddenIds — which is what
+  // deriveDiskHiddenIds emits, so the hide survives a reload regardless
+  // of which shape the sidebar happened to be rendering at hide-time.
+  it("Test (k) [bounty 260912]: openTab-shaped currently-open identity row gets Hide + hides via canonical fleet id", async () => {
+    // host.id must parseInt cleanly for canonicalHideIdForRow's fleetRowId
+    // call to construct a well-formed fleet id. The describe-scope hostA
+    // uses "h1" (parseInts to NaN) which doesn't exercise the openTab path.
+    const numericIdHost = makeHost("1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      middle: [
+        makeConversationRow({
+          id: "tab-abc123",
+          label: "tina",
+          host: numericIdHost,
+          targetTmuxSession: "tina",
+        }),
+      ],
+      hiddenIds: new Set(),
+    });
+    mockActiveSet = new Set(["tab-abc123"]);
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const rowEl = container.querySelector('[data-conversation-id="tab-abc123"]') as HTMLElement;
+    const body = rowEl.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+
+    await waitFor(() => {
+      expect(screen.getByRole("menu")).toBeTruthy();
+    });
+
+    // Hide item MUST be present on the currently-open row (this is the primary
+    // regression this test locks in).
+    const hideItem = within(screen.getByRole("menu")).queryByRole("menuitem", {
+      name: /^hide$/i,
+    });
+    expect(hideItem).toBeTruthy();
+
+    fireEvent.click(hideItem!);
+
+    await waitFor(() => {
+      // Store call uses the canonical fleet id, NOT the tab-XXX id. This is
+      // what makes the hide roundtrip through deriveDiskHiddenIds on reload.
+      expect(hideConversationSpy).toHaveBeenCalledWith("fleet::1::tina");
+    });
+    // Deactivate-first composition preserved (row is in active-set).
+    expect(removeFromActiveSetSpy).toHaveBeenCalled();
+    const deactivateOrder = removeFromActiveSetSpy.mock.invocationCallOrder[0];
+    const hideOrder = hideConversationSpy.mock.invocationCallOrder[0];
+    expect(deactivateOrder).toBeLessThan(hideOrder);
+  });
+
   // Test (n) [Alice 2026-09-03 — inverts quick-260731-tgg]: clicking a
   // hidden row opens the session but leaves hiddenIds untouched. The prior
   // quick-260731-tgg auto-unhide-on-click both violated the "hidden means

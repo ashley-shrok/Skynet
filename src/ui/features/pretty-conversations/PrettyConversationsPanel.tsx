@@ -212,22 +212,37 @@ function sessionWorkingKey(row: ConversationRowShape): string | null {
 }
 
 // Phase 107 Plan 04 (D-06 — affordance narrowing): gate discriminator for
-// the Hide/Show button. Only fleet-synthetic identity rows (fleet:: id,
-// non-relay-room, non-RDP-host-sentinel) show the button; RDP rows, relay-
-// room rows, and dev-tab / harness rows lose the affordance per Alice
-// 2026-09-12 "disappear" directive.
+// the Hide/Show button. Returns the canonical fleet-synthetic id used for
+// hide state IF this row represents an identity harness session, else null.
+// A null return means the row is not hide-eligible (dev tab without a
+// backing identity, relay-room, RDP host sentinel).
 //
-// Invariant: row.id.startsWith("fleet::") catches synthetic rows and excludes
-// openTab-sourced rows (which carry tab-type ids). row.kind !== "relay-room"
-// excludes relay-room synthetics (which lack a backing identity). rdpHostRow
-// !== true excludes the per-host RDP sentinel rows that share the fleet::
-// prefix but are rendered in the RDP zone with no identity backing.
-function isFleetIdentityRow(row: ConversationRowShape): boolean {
-  return (
-    row.id.startsWith("fleet::") &&
-    row.kind !== "relay-room" &&
-    row.rdpHostRow !== true
-  );
+// Two accepted shapes:
+//   1. Fleet-synthetic rows (row.id starts with "fleet::") — return row.id
+//      verbatim. These are the pre-click state: no openTab exists yet.
+//   2. openTab-sourced rows for identity harness sessions (row.host +
+//      row.targetTmuxSession present, not RDP, not relay-room) — return the
+//      derived fleet-synthetic id via fleetRowId(). These are the currently-
+//      open state: an openTab entry exists, so the store's openTabs-entry-
+//      wins dedup skipped the fleet-synthetic row in favor of the openTab-
+//      derived row whose id is `tab-XXX`.
+//
+// Prior to bounty 260912 this gate was `row.id.startsWith("fleet::")` — a
+// strict id-shape check that excluded case 2 entirely, so the Hide menu
+// item disappeared the moment a user opened an identity's chat. Now the
+// canonical id resolver runs on both shapes; downstream (handleToggleHide
+// + the `hidden` prop feed) uses the returned id so hiddenIds membership +
+// hideConversation writes use the fleet-synthetic form that
+// deriveDiskHiddenIds emits, giving reload-durability regardless of which
+// shape the sidebar happens to be rendering the row as at hide-time.
+function canonicalHideIdForRow(row: ConversationRowShape): string | null {
+  if (row.kind === "relay-room") return null;
+  if (row.rdpHostRow === true) return null;
+  if (row.id.startsWith("fleet::")) return row.id;
+  if (row.host && row.targetTmuxSession) {
+    return fleetRowId(parseInt(row.host.id, 10), row.targetTmuxSession);
+  }
+  return null;
 }
 
 // Patch #137: micro-wrapper that reads the row's live isWorking state from
@@ -1372,15 +1387,26 @@ export function PrettyConversationsPanel({
   // - If already hidden (Show button): unhide only.
   // - If in active-set: deactivate FIRST (closes tab), then hide.
   // - Otherwise: hide directly.
+  //
+  // bounty 260912: canonicalize the id used for hiddenIds membership +
+  // hideConversation/unhideConversation. For fleet-synthetic rows this is
+  // row.id verbatim (pre-click state); for openTab-sourced identity harness
+  // rows (currently-open state) this is the derived `fleet::HID::name`
+  // shape. deriveDiskHiddenIds emits the fleet-synthetic form, so writing
+  // that form is what makes the hide survive a reload. row.id is still used
+  // for the activeSet check + handleRowDeactivate arg because activeSet may
+  // hold either shape and handleRowDeactivate purges both.
   const handleToggleHide = (row: ConversationRowShape) => {
-    if (hiddenIds.has(row.id)) {
-      unhideConversation(row.id);
+    const canonicalId = canonicalHideIdForRow(row);
+    if (canonicalId === null) return; // gate mismatch — no-op
+    if (hiddenIds.has(canonicalId)) {
+      unhideConversation(canonicalId);
       return;
     }
     if (activeSet.has(row.id)) {
       handleRowDeactivate(row);
     }
-    hideConversation(row.id);
+    hideConversation(canonicalId);
   };
 
   // Phase 80 (Landmine 11 — reuse, don't build new): panel-level clone
@@ -1868,7 +1894,7 @@ export function PrettyConversationsPanel({
                 row={row}
                 selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                 pinned={isRowPinned(row)}
-                hidden={hiddenIds.has(row.id)}
+                hidden={hiddenIds.has(canonicalHideIdForRow(row) ?? row.id)}
                 variant={variant}
                 onSelect={() => handleRowSelect(row)}
                 onTogglePin={
@@ -1876,7 +1902,7 @@ export function PrettyConversationsPanel({
                 }
                 onDeactivate={() => handleRowDeactivate(row)}
                 onToggleHide={
-                  isFleetIdentityRow(row) ? () => handleToggleHide(row) : undefined
+                  canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
                 }
                 onClone={row.rdpHostRow === true ? undefined : () => handleRowClone(row)}
                 onKill={() => handleRowKill(row)}
@@ -1904,13 +1930,13 @@ export function PrettyConversationsPanel({
                   row={row}
                   selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                   pinned={true}
-                  hidden={hiddenIds.has(row.id)}
+                  hidden={hiddenIds.has(canonicalHideIdForRow(row) ?? row.id)}
                   variant={variant}
                   onSelect={() => handleRowSelect(row)}
                   onTogglePin={() => handleTogglePin(row)}
                   onDeactivate={() => handleRowDeactivate(row)}
                   onToggleHide={
-                    isFleetIdentityRow(row) ? () => handleToggleHide(row) : undefined
+                    canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
                   }
                   onClone={() => handleRowClone(row)}
                   onKill={() => handleRowKill(row)}
@@ -1935,13 +1961,13 @@ export function PrettyConversationsPanel({
                     row={row}
                     selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                     pinned={isRowPinned(row)}
-                    hidden={hiddenIds.has(row.id)}
+                    hidden={hiddenIds.has(canonicalHideIdForRow(row) ?? row.id)}
                     variant={variant}
                     onSelect={() => handleRowSelect(row)}
                     onTogglePin={() => handleTogglePin(row)}
                     onDeactivate={() => handleRowDeactivate(row)}
                     onToggleHide={
-                      isFleetIdentityRow(row) ? () => handleToggleHide(row) : undefined
+                      canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
                     }
                     onClone={() => handleRowClone(row)}
                     onKill={() => handleRowKill(row)}
@@ -2052,7 +2078,7 @@ export function PrettyConversationsPanel({
                       onSelect={() => handleRowSelect(row)}
                       onTogglePin={() => handleTogglePin(row)}
                       onToggleHide={
-                        isFleetIdentityRow(row) ? () => handleToggleHide(row) : undefined
+                        canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
                       }
                       onClone={() => handleRowClone(row)}
                       onKill={() => handleRowKill(row)}
