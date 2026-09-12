@@ -417,10 +417,11 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     // Let microtasks settle so listIdentityKeysOnHost + per-key fanout dispatch.
     await new Promise((r) => setTimeout(r, 30));
 
-    // With readIdentityFile still pending, the pin probe MUST have already
-    // been called for each identity — proving the fanout kicks the probe off
+    // With readIdentityFile still pending, BOTH pin AND hidden probes MUST have
+    // already been called for each identity — proving the fanout kicks them off
     // in the SAME Promise.all wave as readIdentityFile, not after it resolves.
-    expect(identityFileExistsMock.mock.calls.length).toBe(2);
+    // Phase 107 Plan 107-02: 2 identities × 2 probes (.pinned + .hidden) = 4.
+    expect(identityFileExistsMock.mock.calls.length).toBe(4);
     // Sanity check: readIdentityFile has been called too (both are in-flight).
     expect(readIdentityFileMock.mock.calls.length).toBe(2);
 
@@ -444,9 +445,11 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
 
     expect(res.status).toBe(200);
-    // Three identities → three probes (unlike role-cosmetics which shares across
-    // identities via the per-host memo).
-    expect(identityFileExistsMock).toHaveBeenCalledTimes(3);
+    // Three identities × two probes (.pinned + .hidden) = 6 total calls.
+    // Phase 107 Plan 107-02: adding .hidden probe doubles the call count vs
+    // the pre-107 shape (was 3; now 6). Unlike role-cosmetics (per-host memo),
+    // both sentinel probes are per-identity with no deduplication.
+    expect(identityFileExistsMock).toHaveBeenCalledTimes(6);
   });
 
   it("PUB-92-06: H3 lock — identityKey passed VERBATIM to identityFileExists byte-for-byte (no case coercion, no reconstruction)", async () => {
@@ -468,28 +471,32 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
     expect(res.status).toBe(200);
 
-    // Collect every identityFileExists call's first arg (the identityKey).
-    const receivedKeys = identityFileExistsMock.mock.calls.map(
-      (c) => c[0] as string,
+    // Collect every identityFileExists call's first arg (the identityKey)
+    // for .pinned calls specifically.
+    const pinnedCalls = identityFileExistsMock.mock.calls.filter(
+      (c) => c[1] === ".pinned",
     );
+    const receivedPinnedKeys = pinnedCalls.map((c) => c[0] as string);
 
     // Every folder name enumerated by listIdentityKeysOnHost MUST appear in
-    // identityFileExists calls — verbatim, byte-for-byte.
+    // .pinned identityFileExists calls — verbatim, byte-for-byte.
     for (const expected of folderNames) {
-      expect(receivedKeys).toContain(expected);
+      expect(receivedPinnedKeys).toContain(expected);
     }
 
     // Positive-shape lock: no uppercase-containing identityKey argument ever
     // reaches the primitive from this handler (the reader regex forbids
     // uppercase folder names; the fanout must not re-introduce them via
     // displayName substitution or any other cosmetic derivation).
-    for (const k of receivedKeys) {
-      expect(k).toBe(k.toLowerCase());
+    // Apply to ALL calls (both .pinned and .hidden).
+    for (const call of identityFileExistsMock.mock.calls) {
+      expect(call[0] as string).toBe((call[0] as string).toLowerCase());
     }
 
-    // Every call also uses the ".pinned" relPath verbatim.
+    // Phase 107 Plan 107-02: fanout now emits BOTH .pinned AND .hidden calls.
+    // Verify that all relPaths are either ".pinned" or ".hidden" (no other values).
     for (const call of identityFileExistsMock.mock.calls) {
-      expect(call[1]).toBe(".pinned");
+      expect([".pinned", ".hidden"]).toContain(call[1]);
     }
   });
 });
