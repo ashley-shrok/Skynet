@@ -50,7 +50,7 @@ describe("registry-writer.buildRegistryFromRows", () => {
     const humansByUserId = new Map([
       [
         "user-uuid-1",
-        { name: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+        { name: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
       ],
     ]);
     const agentsByIdentityKey = new Map([
@@ -76,7 +76,7 @@ describe("registry-writer.buildRegistryFromRows", () => {
     expect(agent.humans).toHaveLength(1);
     expect(agent.humans[0]).toEqual({
       name: "alice",
-      mxid: "@ashley:thenasty.taild9b663.ts.net",
+      mxid: "@ashley:t1000.taild9b663.ts.net",
       chat_id: "-100123",
       room: null,
       token: "alice.token",

@@ -694,7 +694,7 @@ describe("POST /matrix-admin/migrate-cred-files", () => {
 
   it("200 — mints for humans-with-mxid, reports skipped-no-mxid for Laura-like row", async () => {
     dbSelectMock.mockReturnValue([
-      { name: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+      { name: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
       { name: "laura", mxid: null },
     ]);
     mintAndWriteHumanTokenMock.mockResolvedValue({ ok: true });
@@ -713,12 +713,12 @@ describe("POST /matrix-admin/migrate-cred-files", () => {
     );
 
     expect(alice.status).toBe("minted");
-    expect(alice.mxid).toBe("@ashley:thenasty.taild9b663.ts.net");
+    expect(alice.mxid).toBe("@ashley:t1000.taild9b663.ts.net");
     expect(laura.status).toBe("skipped-no-mxid");
     expect(laura.mxid).toBeNull();
 
     expect(mintAndWriteHumanTokenMock).toHaveBeenCalledWith(
-      "@ashley:thenasty.taild9b663.ts.net",
+      "@ashley:t1000.taild9b663.ts.net",
       "alice",
     );
     expect(mintAndWriteHumanTokenMock).toHaveBeenCalledTimes(1);
@@ -726,7 +726,7 @@ describe("POST /matrix-admin/migrate-cred-files", () => {
 
   it("200 — reports status:failed when mintAndWriteHumanToken rejects for one user; other users continue", async () => {
     dbSelectMock.mockReturnValue([
-      { name: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+      { name: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
       { name: "zoey", mxid: "@zoey:thenasty.taild9b663.ts.net" },
     ]);
     mintAndWriteHumanTokenMock.mockImplementation(
@@ -757,7 +757,7 @@ describe("POST /matrix-admin/migrate-cred-files", () => {
 
   it("200 — deletes stale .cred files under TG_BRIDGE_STATE_DIR and reports them", async () => {
     dbSelectMock.mockReturnValue([
-      { name: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+      { name: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
     ]);
     mintAndWriteHumanTokenMock.mockResolvedValue({ ok: true });
 
@@ -784,7 +784,7 @@ describe("POST /matrix-admin/migrate-cred-files", () => {
 
   it("200 — idempotent: two consecutive calls both succeed with same response shape", async () => {
     dbSelectMock.mockReturnValue([
-      { name: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+      { name: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
     ]);
     mintAndWriteHumanTokenMock.mockResolvedValue({ ok: true });
 

@@ -288,7 +288,7 @@ export function registerUserAdminRoutes(
    *                 description: |
    *                   Matrix user id shaped `@localpart:server_name`.
    *                   Localpart must be lowercase per Matrix spec.
-   *                 example: "@ashley:thenasty.taild9b663.ts.net"
+   *                 example: "@ashley:t1000.taild9b663.ts.net"
    *     responses:
    *       200:
    *         description: mxid registered. `{ ok: true }`.

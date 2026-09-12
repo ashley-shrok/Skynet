@@ -454,7 +454,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       },
     ]);
     await stubUsersQuery([
-      { id: "u1", username: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+      { id: "u1", username: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
     ]);
 
     const { syncAllBotTokenFiles } = await import(
@@ -593,7 +593,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       {
         id: "u1",
         username: "alice",
-        mxid: "@ashley:thenasty.taild9b663.ts.net",
+        mxid: "@ashley:t1000.taild9b663.ts.net",
       },
       {
         id: "u2",
@@ -619,7 +619,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     );
     vi.mocked(getSharedDMRoom).mockImplementation(
       async (_agent: string, human: string) => {
-        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!user-room";
+        if (human === "@ashley:t1000.taild9b663.ts.net") return "!user-room";
         if (human === "@zoey:thenasty.taild9b663.ts.net") return "!zoey-room";
         return null;
       },
@@ -646,7 +646,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       callArgSets.some(
         (s) =>
           s.has("@alexander:thenasty.taild9b663.ts.net") &&
-          s.has("@ashley:thenasty.taild9b663.ts.net"),
+          s.has("@ashley:t1000.taild9b663.ts.net"),
       ),
     ).toBe(true);
     expect(
@@ -666,7 +666,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     expect(roomMap!.size).toBe(2);
     expect(
       roomMap!.get(
-        "@alexander:thenasty.taild9b663.ts.net\t@ashley:thenasty.taild9b663.ts.net",
+        "@alexander:thenasty.taild9b663.ts.net\t@ashley:t1000.taild9b663.ts.net",
       ),
     ).toBe("!user-room");
     expect(
@@ -709,7 +709,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       {
         id: "u1",
         username: "alice",
-        mxid: "@ashley:thenasty.taild9b663.ts.net",
+        mxid: "@ashley:t1000.taild9b663.ts.net",
       },
       {
         id: "u2",
@@ -735,7 +735,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     );
     vi.mocked(getSharedDMRoom).mockImplementation(
       async (_agent: string, human: string) => {
-        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!user-room";
+        if (human === "@ashley:t1000.taild9b663.ts.net") return "!user-room";
         return null; // zoey: no shared DM room discovered
       },
     );
@@ -758,7 +758,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     expect(roomMap).toBeInstanceOf(Map);
     expect(
       roomMap!.get(
-        "@alexander:thenasty.taild9b663.ts.net\t@ashley:thenasty.taild9b663.ts.net",
+        "@alexander:thenasty.taild9b663.ts.net\t@ashley:t1000.taild9b663.ts.net",
       ),
     ).toBe("!user-room");
     // Zoey key present but value is null (not undefined).
@@ -807,7 +807,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       {
         id: "u1",
         username: "alice",
-        mxid: "@ashley:thenasty.taild9b663.ts.net",
+        mxid: "@ashley:t1000.taild9b663.ts.net",
       },
       {
         id: "u2",
@@ -833,7 +833,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     );
     vi.mocked(getSharedDMRoom).mockImplementation(
       async (_agent: string, human: string) => {
-        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!user-room";
+        if (human === "@ashley:t1000.taild9b663.ts.net") return "!user-room";
         throw new Error("simulated admin API failure for zoey");
       },
     );
@@ -856,7 +856,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       | undefined;
     expect(
       roomMap!.get(
-        "@alexander:thenasty.taild9b663.ts.net\t@ashley:thenasty.taild9b663.ts.net",
+        "@alexander:thenasty.taild9b663.ts.net\t@ashley:t1000.taild9b663.ts.net",
       ),
     ).toBe("!user-room");
     expect(

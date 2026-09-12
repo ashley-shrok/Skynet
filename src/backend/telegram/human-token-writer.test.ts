@@ -70,13 +70,13 @@ describe("human-token-writer", () => {
     const { mintAndWriteHumanToken } = await import("./human-token-writer.js");
 
     const result = await mintAndWriteHumanToken(
-      "@ashley:thenasty.taild9b663.ts.net",
+      "@ashley:t1000.taild9b663.ts.net",
       "alice",
     );
 
     expect(result).toEqual({ ok: true });
     expect(loginAsUser).toHaveBeenCalledWith(
-      "@ashley:thenasty.taild9b663.ts.net",
+      "@ashley:t1000.taild9b663.ts.net",
     );
 
     const tokenFile = path.join(tempDir, "alice.token");
@@ -105,7 +105,7 @@ describe("human-token-writer", () => {
     const { mintAndWriteHumanToken } = await import("./human-token-writer.js");
 
     const result = await mintAndWriteHumanToken(
-      "@ashley:thenasty.taild9b663.ts.net",
+      "@ashley:t1000.taild9b663.ts.net",
       "alice",
     );
 
@@ -147,7 +147,7 @@ describe("human-token-writer", () => {
     const { mintAndWriteHumanToken } = await import("./human-token-writer.js");
 
     await mintAndWriteHumanToken(
-      "@ashley:thenasty.taild9b663.ts.net",
+      "@ashley:t1000.taild9b663.ts.net",
       "alice",
     );
 
