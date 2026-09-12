@@ -444,7 +444,7 @@ export function PrettyConversationsPanel({
   // seed only byKey and with any transitional wire state where the row has
   // no hostId yet. See identities-store.ts byHostKey JSDoc for the
   // additive-vs-rename rationale.
-  const { byHostKey: identitiesByHostKey, byKey: identitiesByKey } = useIdentities();
+  const { byHostKey: identitiesByHostKey, byKey: identitiesByKey, loaded: identitiesLoaded } = useIdentities();
   // Patch #137: hoisted once so all row-level activeSet.has(row.id) reads
   // hit a stable ReadonlySet reference (Set identity flips only on real
   // additions; consumers get a memoized reference across no-ops).
@@ -501,6 +501,14 @@ export function PrettyConversationsPanel({
   //       [fleetSessionsLoaded] not [] so the body reruns when the flag flips.
   useEffect(() => {
     if (!fleetSessionsLoaded) return;
+    // quick-260912-5q2: gate on identities-store loaded — the GET /identities
+    // fanout that populates per-identity `pinned: boolean` starts on the SAME
+    // fleetSessionsLoaded flip event. Without this guard, deriveDiskPinnedIds
+    // reads an empty state.identities, returns [], and hydratePinnedIdsFromServer([])
+    // wipes pinnedIds. Because hydratedRef prevents re-fire, every cold reload
+    // loses pins. Waiting for identitiesLoaded=true ensures the fanout has landed
+    // before we project — the dep-array addition below is the trigger.
+    if (!identitiesLoaded) return;
     if (hydratedRef.current) return;
     hydratedRef.current = true;
     let cancelled = false;
@@ -539,7 +547,7 @@ export function PrettyConversationsPanel({
     return () => {
       cancelled = true;
     };
-  }, [fleetSessionsLoaded]);
+  }, [fleetSessionsLoaded, identitiesLoaded]);
 
   // Phase 42 UAT amendment 2026-08-17: `activeSetRowsRef` retired alongside
   // the Tier 1 active-set render tier — the store's snapshot.activeSet is now
