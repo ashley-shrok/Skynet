@@ -1870,7 +1870,7 @@ describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hy
 // ─────────────────────────────────────────────────────────────────────────────
 // quick-260912-5q2 — mount hydration race: identities-store loaded gate
 // ─────────────────────────────────────────────────────────────────────────────
-// Regression trap for the cold-reload pin-loss race Ashley reproduced on
+// Regression trap for the cold-reload pin-loss race Alice reproduced on
 // t1000: the hydrate effect fired on the fleetSessionsLoaded false→true flip
 // BEFORE the identities-store's GET /identities fanout resolved, causing
 // deriveDiskPinnedIds to read an empty state.identities and return [].

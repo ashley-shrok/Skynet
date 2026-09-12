@@ -161,7 +161,7 @@ export { ROLE_NAME_PATTERN };
  *     file path — those refs could change.
  *   - Speak in plain terms.
  *
- * REVISION 2026-09-12 (Ashley): the birth flow (Steps 6-8: admin-mint +
+ * REVISION 2026-09-12 (Alice): the birth flow (Steps 6-8: admin-mint +
  * login-as-user + SFTP-write relay.json) creates the Matrix account BEFORE
  * the identity's first wake, so the seed comment was factually stale by
  * the time any agent read it. Constant deleted; emitted identity file

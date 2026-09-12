@@ -557,7 +557,7 @@ describe("POST /identities/clone", () => {
     expect(stubBody).toContain("avatar: tina-2.png"); // ext from candidate mime
     // colorHue is absent when the request body omits it (Test 8 doesn't send)
     expect(stubBody).not.toContain("colorHue:");
-    // (b) Seed comment REMOVED (REVISION 2026-09-12 Ashley): clone flow now
+    // (b) Seed comment REMOVED (REVISION 2026-09-12 Alice): clone flow now
     // mints Matrix account server-side before first wake, so the stale
     // "register a Matrix relay account" instruction is no longer emitted.
     expect(stubBody).not.toContain("This identity has no relay account yet");

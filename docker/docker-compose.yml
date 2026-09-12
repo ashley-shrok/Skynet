@@ -78,7 +78,7 @@ services:
       # <name>.md / avatar / relay.json here, and spawn-request worker
       # writes the response file here. Read-only defeats those paths.
       #
-      # HARD-FAIL if SKYNET_FLEET_MOUNT_SRC is unset (2026-09-12 Ashley):
+      # HARD-FAIL if SKYNET_FLEET_MOUNT_SRC is unset (2026-09-12 Alice):
       # the prior `:-/tmp` fallback silently mounted /tmp into /fleet when
       # the env var didn't reach compose interpolation (sudo-env-strip
       # issue with `--env-file`), producing invisible-scanner + lost
