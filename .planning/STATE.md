@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-11T17:10:42.600Z"
-last_activity: 2026-09-11
+last_updated: "2026-09-12T14:39:27.514Z"
+last_activity: 2026-09-12
 progress:
   total_phases: 108
-  completed_phases: 93
-  total_plans: 463
-  completed_plans: 453
-  percent: 86
+  completed_phases: 90
+  total_plans: 459
+  completed_plans: 449
+  percent: 83
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 103 (passthrough-urls-serve-url-scheme-phase-2-of-2) — EXECUTING
-Plan: 4 of 11
+Plan: 5 of 11
 
 Last activity (prior): 2026-09-10 -- Phase 103 execution started
 Last activity (prior): 2026-09-10 — Completed Phase 98 more-versatile-stt-tts-support (Amazon Polly + Amazon Transcribe swap for Chatterbox). All 5 waves shipped: Wave 1 (98-01 ffmpeg+SDK install, 98-02 kernels, 98-03 frontend catalog, 98-09 deploy doc), Wave 2 (98-04 AWS adapters, 98-05 migration one-shot + inline Dirent type fix), Wave 3 (98-06 voice.ts rewrite, 98-07 validator flip + inline roles-create followon fix), Wave 4 (98-08 tg-bridge rewire to Skynet /voice/transcribe), Wave 5 (98-10 Chatterbox kill, media-endpoints.ts deleted). Unbiased code review clean (1 HIGH + 3 MED + 2 LOW applied; 3 LOW deferred). Both backend + frontend tsc exit 0 across the full delta. Every plan has SUMMARY.md committed. All Chatterbox integration paths removed cleanly (no dual-provider seam). Ambient IMDS creds via Iris's `SkynetPollyTranscribeAccess` inline policy on `termix-ssm-role`. Voice-migration one-shot wipes existing identity voice values on boot (users re-pick from 7-voice Polly generative catalog). tg-bridge routes through Skynet `/voice/transcribe` (provider-agnostic). Held at push boundary per greenlight-at-push rule; ship in flight.
-Last activity: 2026-09-12 — Completed quick task 260912-5q2: fix sidebar pin-hydration race in PrettyConversationsPanel. Vega diagnosed a cold-reload race — the panel's mount-hydrate effect fired the moment `fleetSessionsLoaded` flipped true, synchronously called `deriveDiskPinnedIds(...)` against an empty `state.identities` (identities-store's `GET /identities?identityHosts=...` fetch was still in-flight on the SAME event), got `[]`, and `hydratePinnedIdsFromServer([])` cleared `state.pinnedIds`. `hydratedRef.current` one-shot guard meant no re-derivation once identities finally populated → every cold reload lost pins; fresh pin toggles stuck optimistically only until next remount. Ivory's `.pinned` sentinel on disk + `GET /identities?identityHosts={ivory:6,...}` returning `pinned:True` confirmed write + backend-read paths were fine — the bug was frontend hydration timing. Fix in `src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx`: (a) L447 destructure widened to pull `loaded: identitiesLoaded` from the existing `useIdentities()` call; (b) L504 added `if (!identitiesLoaded) return;` early-return alongside the existing `fleetSessionsLoaded` gate; (c) L550 dep array extended `[fleetSessionsLoaded]` → `[fleetSessionsLoaded, identitiesLoaded]`. `hydratedRef` one-shot preserved — effect still fires exactly once, just at the correct moment (both gates true). Regression test in `PrettyConversationsPanel.test.tsx`: new `mockIdentitiesLoaded` module-scope flag (default true — preserves every existing test's implicit assumption), reset in `beforeEach`; new describe block flips `false→true` between renders and asserts pre-flip zero hydrate calls / post-flip one call with `["fleet::6::ivory"]` / third-render still exactly one call (hydratedRef holds). Two atomic commits on `feat/tab-title-from-tmux`: `4fc657bd` (RED regression test) + `3c22b70f` (GREEN gate fix). Scoped verify `npx vitest run src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx` = 113/113 pass; `npx tsc --noEmit` clean. HEAD `3c22b70f` LOCAL — NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule. Zero backend touched; frontend-only. Fix diagnosed + shipped from vega's fresh identity checkout at `~/skynet-vega` (birth-v5 collision-probe identity — first real work session).
+Last activity: 2026-09-12
 Last activity (prior): 2026-09-12 — Completed quick task 260912-0t4: hostId-scope identity lookup fixes cross-host cosmetics collision. Backend `identities.ts` first-host-wins dedup dropped; frontend `identities-store.ts` gained additive `byHostKey` map keyed `${hostId}::${identityKey.toLowerCase()}` alongside preserved `byKey`. Five consumer sites rewired (PrettyConversationRow + PrettyView + PrettyConversationsPanel×4 + IdentitySessionPane). `useSessionIdentity` widened to `(name, hostId?)` with byKey fallback. Four atomic code commits (`15112ca9`+`8c3c45f4`+`f0a31679`+`9d69753a`) plus docs. Ships in this batch.
 Last activity (prior): 2026-09-11 — Completed quick task 260911-wd1: add nullable `host_side_base` sibling column to `matrix_admin_creds` (Skynet DB), mirroring the existing `server_name` split pattern. Purpose: give Skynet fleets where the container-internal Matrix homeserver URL isn't reachable from managed hosts (e.g. aithercloud's setup — verified with Stacy via DM on `skynet.aithercloud.com` before deciding) a way to specify a separate host-reachable URL that gets written into per-identity `relay.json` files at birth. When null, consumers fall back to `homeserverBase` (preserves current behavior for fleets like t1000 where a single URL works everywhere). Three atomic commits on `feat/tab-title-from-tmux`: `eed58fb6` (schema column + store type widening + `setMatrixAdminHostSideBase` setter + store tests including sibling-independence invariant), `7f0545be` (`PATCH /matrix-admin/creds/host-side-base` admin-gated endpoint with http(s) validator + `GET /matrix-admin/creds` now surfaces `hostSideBase`), `0205f171` (new `relayJsonHomeserverBase` BirthDep wired at the three BirthDeps callers — identity-birth.ts primary + retry blocks + `spawn-requests/worker.ts` (3rd caller found during executor tsc pass) — plus deps-shape assertions in three orchestrator test helper files, all with `creds.hostSideBase ?? creds.homeserverBase` fallback discipline). Coalesce is surgical: `matrixHomeserver: creds.homeserverBase` STAYS unchanged at both identity-birth.ts sites — it feeds `extractServerName(deps.matrixHomeserver)` at orchestrator L864 which must stay bound to the URL used inside the container. Scoped verify 82/82 pass across three targeted test files (12 store + 43 routes + 27 identity-birth). `npm run build:backend` exit 0. HEAD `0205f171` LOCAL, NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule; data migration on t1000 (`PATCH /matrix-admin/creds/host-side-base` with `http://100.99.149.8:8008`) queued for post-deploy. Design flow: originally raised as broken `base: http://matrix:8008/_matrix/client/v3` in freshly-birthed aster's relay.json (Tanya's diagnosis) → three candidate designs analyzed → Alice reframed with the architectural observation that deploy-time service-endpoint config belongs in env vars, not DB → pragmatic call to land the column now to unblock LOCAL-branch birth reachability + bounty the env-var refactor for later (bounty `move-matrix-admin-config-to-env-vars` opened in role pool at `~/fleet/roles/box-maintainer/bounties/`). Stacy consulted on `skynet.aithercloud.com` DM: confirmed her setup structurally needs a second URL value regardless (container hairpin through Caddy vs public FQDN from managed hosts), agreed the column pattern works though flagged env-var preference for future (captured in the bounty). SUMMARY at `.planning/quick/260911-wd1-host-side-base-column/260911-wd1-SUMMARY.md`.
 Last activity (prior): 2026-09-10 -- Phase 103 execution started
@@ -383,6 +383,7 @@ Progress: [██████████] 100%
 | Phase 106-birth-flow-rework-chunk-3-retire-skynet-tmux-claude-launch-s P02 | 6m 17s | 1 tasks | 1 files |
 | Phase 106 P106-01 | 35min | 2 tasks | 3 files |
 | Phase 106 P106-04 | 13m 30s | 2 tasks | 2 files |
+| Phase 107 P01 | 217 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -964,7 +965,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-11T17:10:33.678Z
+Last session: 2026-09-12T14:39:27.452Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed 106-02-PLAN.md
 Last session: 2026-09-08T03:58:11.814Z
