@@ -43,8 +43,10 @@ actors directly (they don't have Telegram bots). You are her only channel to the
 only channel to her. This means the coordinator is a **bidirectional live proxy** for the
 duration of the conversation, not a fire-and-forget router.
 
-**Detection:** the DM's sender mxid has localpart `alice` (any homeserver — she may reach
-you from any bridge). If ever ambiguous, ask her once at the start of the exchange.
+**Detection:** the DM's sender mxid localpart matches the user's name — which you know
+from the user-wide file (`~/.claude/CLAUDE.md`) automatically loaded at every session
+start. Any homeserver counts (they may reach you from any bridge). If ever ambiguous,
+ask them once at the start of the exchange.
 
 **Flow:**
 0. **Classify the body — dispatch or status query?** If the DM reads as a request for a
@@ -58,8 +60,9 @@ you from any bridge). If ever ambiguous, ask her once at the start of the exchan
    `<INCOMING_ITEM>`.
 2. DM the picked actor with this preamble prepended to the verbatim message body:
 
-       [Forwarded by @<your-name> (coordinator for <role>) — original from @alice via
-       Telegram-Matrix bridge. Reply to me in this room and I'll relay back to her.]
+       [Forwarded by @<your-name> (coordinator for <role>) — original from
+       @<user-mxid-localpart> via Telegram-Matrix bridge. Reply to me in this room and
+       I'll relay back to them.]
 
 3. Wait for the actor's reply.
 4. When the actor replies to you, relay their reply verbatim back to the user in her DM
@@ -76,8 +79,9 @@ you from any bridge). If ever ambiguous, ask her once at the start of the exchan
 External agents CAN DM the destination actor directly (unlike the user), so you don't need to
 proxy. Hand off, then drop out of the thread.
 
-**Detection:** the DM's sender is any mxid whose localpart is not `alice` AND not one of
-your own role's actors (see § Actor-originated DMs below for that case).
+**Detection:** the DM's sender is any mxid whose localpart does NOT match the user's
+name (per the user-wide file, same source as Type A detection) AND is not one of your
+own role's actors (see § Actor-originated DMs below for that case).
 
 **Flow:**
 1. Invoke the picker with the incoming item.

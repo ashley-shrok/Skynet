@@ -536,9 +536,7 @@ That sentinel tells the agent-supervisor to recycle you: it kills the current se
 and re-drives a fresh `claude + /id <name>` into the same tmux session, so you come back
 with your identity + bounties reloaded clean. Your relay cursor (`SINCE_FILE`) means the
 fresh session catches any messages that arrived during the ~seconds of restart — nothing
-is missed. At **~95%** (which shouldn't happen if you heeded the nudge) it prints a
-LOUD line telling you to ping @alice on the relay and save + drop the sentinel
-immediately — the human backstop.
+is missed.
 
 Start it even though it will usually sit silent for a very long time (an Opus 1M-context
 session reaching 80% is a lot of turns) — it's a safety valve, not a chatty monitor.
@@ -1174,7 +1172,7 @@ pick a name that's still meaningful in three months.
   "priority": "unprioritized" | "low" | "medium" | "high" | "urgent",
   "keywords": ["..."],
   "source_links": ["https://github.com/..."],
-  "requested_by": "alice" | "self-discovered" | "<other-identity>",
+  "requested_by": "user" | "self-discovered" | "<other-identity>",
   "created_at": "<ISO-Z>",
   "updated_at": "<ISO-Z>",
   "timeline": ["<ISO-prefix> created", "<ISO-prefix> ..."],
