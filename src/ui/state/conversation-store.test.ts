@@ -12,8 +12,8 @@ vi.mock("@/api/user-preferences-api", () => ({
   // that still references UserPreferencesApi.getPinnedIds surfaces as a
   // TypeError, which is the intended tripwire.
   putPinnedIds: vi.fn().mockResolvedValue([]),
-  // hiddenConversationIds slice is UNTOUCHED (D-02 out-of-scope per shape file).
-  getHiddenIds: vi.fn().mockResolvedValue([]),
+  // Phase 107 Plan 04: getHiddenIds is RETIRED. putHiddenIds signature widened
+  // to accept identityHosts second arg (mirrors putPinnedIds widening in Phase 92).
   putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
 
@@ -30,6 +30,8 @@ import {
   unpinConversation,
   togglePinConversation,
   hydratePinnedIdsFromServer,
+  hideConversation,
+  unhideConversation,
   addToActiveSet,
   removeFromActiveSet,
   fleetRowId,
@@ -2415,6 +2417,139 @@ describe("Phase 92 Plan 04 — pin toggle passes identityHosts via buildIdentity
     // derived from the relay-room session.
     expect(actualIdentityHosts).toEqual({ tina: 1, alice: 2 });
     // Anti-crash lock: no "undefined" key, no `undefined` value.
+    expect(Object.keys(actualIdentityHosts)).not.toContain("undefined");
+    for (const v of Object.values(actualIdentityHosts)) {
+      expect(v).not.toBeUndefined();
+      expect(typeof v).toBe("number");
+    }
+    // H2 byte-for-byte equality with the helper's own output.
+    expect(actualIdentityHosts).toEqual(
+      buildIdentityHostsFromFleet(fleet),
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 107 Plan 04 Task 2 — STORE-107-* tests: identityHosts fanout for hide
+// ─────────────────────────────────────────────────────────────────────────────
+// Locks the H2 identityHosts derivation invariant at the hide toggle callsites.
+// The single source of truth for the fleetSessions → identityHosts map is
+// buildIdentityHostsFromFleet (identities-store.ts:111-122). hideConversation /
+// unhideConversation build the map via that helper and thread it into
+// putHiddenIds so the backend fanout (Plan 107-02) can route each .hidden
+// sentinel write to the correct host.
+//
+// Mirror of STORE-92-01..04, substituting hide for pin.
+
+describe("Phase 107 Plan 04 — hide toggle passes identityHosts via buildIdentityHostsFromFleet", () => {
+  it("STORE-107-01: hideConversation passes identityHosts derived from state.fleetSessions", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
+      updateFleetSessions([
+        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      ]);
+    });
+
+    const putHiddenSpy = vi.mocked(UserPreferencesApi.putHiddenIds);
+    putHiddenSpy.mockClear();
+
+    act(() => hideConversation("fleet::1::tina"));
+
+    expect(putHiddenSpy).toHaveBeenCalledTimes(1);
+    // Second arg carries the identityHosts map — { tina: 1 }.
+    expect(putHiddenSpy).toHaveBeenCalledWith(
+      ["fleet::1::tina"],
+      { tina: 1 },
+    );
+  });
+
+  it("STORE-107-02: unhideConversation passes identityHosts derived from state.fleetSessions", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
+      updateFleetSessions([
+        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      ]);
+    });
+
+    // Hide first so unhide has something to remove; clear spy to isolate the unhide.
+    act(() => hideConversation("fleet::1::tina"));
+    const putHiddenSpy = vi.mocked(UserPreferencesApi.putHiddenIds);
+    putHiddenSpy.mockClear();
+
+    act(() => unhideConversation("fleet::1::tina"));
+
+    expect(putHiddenSpy).toHaveBeenCalledTimes(1);
+    expect(putHiddenSpy).toHaveBeenCalledWith([], { tina: 1 });
+  });
+
+  it("STORE-107-03: identityHosts derivation matches buildIdentityHostsFromFleet(state.fleetSessions) byte-for-byte", () => {
+    const hostA = makeHost("hA", "alpha");
+    const hostB = makeHost("hB", "beta");
+    const fleet: FleetSession[] = [
+      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      { hostId: 2, hostName: "beta", sessionName: "alice", created: 200, role: null },
+    ];
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA, hostB] });
+      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
+      updateFleetSessions(fleet);
+    });
+
+    const putHiddenSpy = vi.mocked(UserPreferencesApi.putHiddenIds);
+    putHiddenSpy.mockClear();
+
+    act(() => hideConversation("fleet::1::tina"));
+
+    // Compare against the SAME helper the identities-store uses. If the hide
+    // toggle callsite ever forks its derivation, this equality trips.
+    const expected = buildIdentityHostsFromFleet(fleet);
+    expect(expected).toEqual({ tina: 1, alice: 2 });
+    expect(putHiddenSpy).toHaveBeenCalledWith(
+      ["fleet::1::tina"],
+      expected,
+    );
+  });
+
+  it("STORE-107-04 (H2 lock): relay-room sessions are skipped by sessionMatchKey; no crash on undefined sessionName in hide toggle", () => {
+    const hostA = makeHost("hA", "alpha");
+    // Mix of harness + relay-room. The relay-room entry has
+    // `sessionName === undefined` — a naive helper doing
+    // `sessionName.toLowerCase()` would crash here. buildIdentityHostsFromFleet
+    // uses sessionMatchKey which returns null on empty/undefined → skipped.
+    const fleet: FleetSession[] = [
+      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      {
+        kind: "relay-room",
+        id: "relay::!abc:matrix.org",
+        roomId: "!abc:matrix.org",
+        roomTitle: "Test Room",
+        lastActivityAt: null,
+      } as unknown as FleetSession,
+      { hostId: 2, hostName: "beta", sessionName: "alice", created: 300, role: null },
+    ];
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
+      updateFleetSessions(fleet);
+    });
+
+    const putHiddenSpy = vi.mocked(UserPreferencesApi.putHiddenIds);
+    putHiddenSpy.mockClear();
+
+    // MUST NOT throw during derivation. The H2-forbidden pattern
+    // `session.sessionName.toLowerCase()` would crash on the relay-room entry.
+    expect(() => act(() => hideConversation("fleet::1::tina"))).not.toThrow();
+
+    expect(putHiddenSpy).toHaveBeenCalledTimes(1);
+    const [, actualIdentityHosts] = putHiddenSpy.mock.calls[0]!;
+
+    // Positive shape lock: map has the two harness entries + omits relay-room.
+    expect(actualIdentityHosts).toEqual({ tina: 1, alice: 2 });
+    // Anti-crash lock: no "undefined" key, no undefined value.
     expect(Object.keys(actualIdentityHosts)).not.toContain("undefined");
     for (const v of Object.values(actualIdentityHosts)) {
       expect(v).not.toBeUndefined();

@@ -62,8 +62,10 @@ vi.mock("@/state/identities-store", () => ({
   }),
   // Phase 92 Plan 04: panel hydrate effect imports both. Stubbed to empty
   // projections — this test file exercises relay-room row rendering, not
-  // the pin hydrate path.
+  // the pin/hide hydrate path.
+  // Phase 107 Plan 04: deriveDiskHiddenIds added alongside deriveDiskPinnedIds.
   deriveDiskPinnedIds: () => [],
+  deriveDiskHiddenIds: () => [],
   buildIdentityHostsFromFleet: () => ({}),
 }));
 
@@ -173,9 +175,9 @@ vi.mock("@/state/conversation-store", () => ({
 }));
 
 vi.mock("@/api/user-preferences-api", () => ({
-  // Phase 92 Plan 04: getPinnedIds retired — no export.
+  // Phase 92 Plan 04: getPinnedIds retired.
+  // Phase 107 Plan 04: getHiddenIds retired — hidden hydrate now via deriveDiskHiddenIds.
   putPinnedIds: vi.fn().mockResolvedValue([]),
-  getHiddenIds: vi.fn().mockResolvedValue([]),
   putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
 
