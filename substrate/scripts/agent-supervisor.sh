@@ -1197,7 +1197,7 @@ idle_check() {
 # Returns 0 = clear to kill, non-zero = something pending.
 pending_check() {
   local name="$1"
-  # matrix_peek intentionally NOT called here (Ashley 2026-09-12). A LIVE identity's receiver
+  # matrix_peek intentionally NOT called here (Alice 2026-09-12). A LIVE identity's receiver
   # is already processing messages — supervisor doesn't need to double-check the relay to
   # decide whether to sweep to dormant. If a message races the sweep, the dormant-branch peek
   # catches it on the next tick (~30s) and wakes the identity. Dropping this call also kills
@@ -1273,7 +1273,7 @@ _matrix_peek_one() {
   # Count wake signals: new MESSAGE events (m.room.message / m.room.encrypted) in JOINED
   # rooms from senders != self. State events (m.room.member, m.room.name, m.room.topic,
   # etc.) do NOT wake — e.g. registry-room membership churn from other identity mints is
-  # background noise, not a message for me (Ashley 2026-09-12). Invites also do NOT wake:
+  # background noise, not a message for me (Alice 2026-09-12). Invites also do NOT wake:
   # recv.sh auto-accepts them silently on the next real wake, which comes from the first
   # actual message in the room, not the bare invite (see recv.sh L236 comment block).
   local ec
