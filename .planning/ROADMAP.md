@@ -2431,3 +2431,13 @@ Plans:
 - [x] 106-02-PLAN.md — Frontend modal rework: delete BirthProgress; add spinner-in-Create-button + modal-lock + alert-on-failure (Wave 1, parallel with 106-01)
 - [ ] 106-03-PLAN.md — Backend test updates: remove step:3/4/5 assertions; add wait-poll success/timeout/error tests (Wave 2, depends on 106-01)
 - [x] 106-04-PLAN.md — Frontend test updates: remove BirthProgress assertions; add spinner + close-lock + alert assertions (Wave 2, depends on 106-02)
+
+### Phase 107: hide identity rows via disk sentinel — mirror Phase 92 for the hidden slice
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 106
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 107 to break down)
