@@ -42,6 +42,16 @@ export interface Identity {
    *  deriveDiskPinnedIds (identities-store.ts) — Plan 92-04's replacement for
    *  the retired getPinnedIds() /user-preferences fetch. */
   pinned?: boolean;
+  /** Phase 107 Plan 107-04 (D-03/D-04): presence of `~/fleet/identities/<key>/.hidden`
+   *  sentinel on the identity's home host, populated by the backend
+   *  publicIdentity fanout via identityFileExists in the same Promise.all wave
+   *  as readIdentityFile and the .pinned probe (Plan 107-02 parallel-probe
+   *  pattern). Optional to preserve fixture compat and match the backend's
+   *  fail-closed default (Plan 107-02 publicIdentity seventh arg defaults to
+   *  false). The panel's hydrate effect projects this field into state.hiddenIds
+   *  via deriveDiskHiddenIds (identities-store.ts) — Plan 107-04's replacement
+   *  for the retired getHiddenIds() /user-preferences fetch. */
+  hidden?: boolean;
   /** Phase 85 Plan 85-01 Task 2: role-cosmetic defaults surfaced separately
    *  from the resolved values. Populated per D-CTX-85-inherit merge on the
    *  backend so IdentityModal (Plan 85-05) can render inherit-vs-override

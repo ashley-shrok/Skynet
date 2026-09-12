@@ -1,7 +1,7 @@
 import { authApi, handleApiError } from "@/main-axios";
 
-// Phase 15 (Wave 2) → Phase 92 Plan 04 (D-04) — thin wrappers around
-// PUT /user-preferences for the pinnedConversationIds slice.
+// Phase 15 (Wave 2) → Phase 92 Plan 04 (D-04) → Phase 107 Plan 04 (D-04) —
+// thin wrappers around PUT /user-preferences for pinned + hidden slices.
 //
 // Phase 92 changes:
 // - getPinnedIds() is RETIRED. The hydrate path no longer routes through
@@ -15,10 +15,20 @@ import { authApi, handleApiError } from "@/main-axios";
 //   (identities-store.ts L74-85) supplies both the read-side selector's arg
 //   AND this write-side field (H2 lock — single derivation site invariant).
 //
-// SC6 rollout scaffold preserved: putPinnedIds still compares the server-
-// echoed array to the input and console.warn's on any divergence. The echoed
-// value is the AUTHORITATIVE post-fanout disk state (Plan 92-02 re-derives
-// pinnedConversationIds from disk after the fanout completes).
+// Phase 107 Plan 04 changes:
+// - getHiddenIds() is RETIRED. The hidden hydrate path no longer routes through
+//   GET /user-preferences. The panel derives hiddenIds by projecting each
+//   identity's `hidden: boolean` field (populated on-demand from disk by the
+//   backend per Plan 107-02) via deriveDiskHiddenIds(identityHosts) exported
+//   from identities-store.ts — in the SAME both-loaded-gated pass as pinned.
+// - putHiddenIds now takes a SECOND argument `identityHosts: Record<key, hostId>`
+//   that the backend fanout (Plan 107-02 Task 2) uses to route each .hidden
+//   sentinel write to the correct host. SAME `toBareIdentityKey` helper
+//   already used by putPinnedIds — NOT duplicated (H2 reuse discipline).
+//
+// SC6 rollout scaffold preserved: putPinnedIds + putHiddenIds both compare the
+// server-echoed array to the input and console.warn on any divergence. The echoed
+// value is the AUTHORITATIVE post-fanout disk state.
 
 // Composite row ids from the conversation store take the shape
 // `fleet::<hostId>::<identityKey>` (deriveDiskPinnedIds in identities-store.ts
@@ -74,40 +84,46 @@ export async function putPinnedIds(
   }
 }
 
-// quick-260731-tgg — thin wrappers around GET/PUT /user-preferences for the
-// hiddenConversationIds slice. Structural mirrors of getPinnedIds / putPinnedIds
-// above — do NOT extract a shared helper; mirror inline to keep the diff atomic.
+// Phase 107 Plan 04 — putHiddenIds: mirrors putPinnedIds above with the hidden
+// slice. getHiddenIds is RETIRED — the hidden hydrate path now derives from the
+// identities-store's per-identity `hidden: boolean` field (Plan 107-02 disk-read
+// path) via deriveDiskHiddenIds(identityHosts) in identities-store.ts, in the
+// SAME both-loaded-gated pass as pinned (PrettyConversationsPanel.tsx hydrate
+// effect). No GET /user-preferences fetch for hidden anymore.
+//
+// Wire boundary: composite `fleet::<hostId>::<identityKey>` ids strip to bare
+// identityKeys via the SHARED `toBareIdentityKey` helper (L35-39 above) —
+// NOT duplicated here. Same pattern as putPinnedIds. The backend fanout at
+// user-preferences.ts gates on `if (!(key in identityHosts))` where
+// identityHosts is keyed by bare identityKey; composite ids 400 on every
+// real hide toggle without this strip.
 
-export async function getHiddenIds(): Promise<string[]> {
+export async function putHiddenIds(
+  ids: string[],
+  identityHosts: Record<string, number>,
+): Promise<string[]> {
   try {
-    const response = await authApi.get("/user-preferences");
-    const raw = response.data?.hiddenConversationIds;
-    if (Array.isArray(raw) && raw.every((v) => typeof v === "string")) {
-      return raw;
-    }
-    return [];
-  } catch (error) {
-    throw new Error(handleApiError(error));
-  }
-}
-
-export async function putHiddenIds(ids: string[]): Promise<string[]> {
-  try {
+    const bareIds = ids.map(toBareIdentityKey);
     const response = await authApi.put("/user-preferences", {
-      hiddenConversationIds: ids,
+      hiddenConversationIds: bareIds,
+      identityHosts,
     });
     const raw = response.data?.hiddenConversationIds;
     const echoed: string[] =
       Array.isArray(raw) && raw.every((v) => typeof v === "string")
         ? raw
-        : ids;
-    // SC6 rollout scaffold: deep-compare input vs echoed on every put.
+        : bareIds;
+    // SC6 rollout scaffold: deep-compare bare-sent vs echoed on every put.
+    // Both sides are bare identityKeys post-strip (backend echoes bare from
+    // its post-fanout disk re-derive; we send bare after the strip above),
+    // so the comparison is honest. Divergence is the JSON-endpoint equivalent
+    // of a silent-200 no-op. Log but do not throw; server is authoritative.
     const diverged =
-      ids.length !== echoed.length ||
-      ids.some((v, i) => v !== echoed[i]);
+      bareIds.length !== echoed.length ||
+      bareIds.some((v, i) => v !== echoed[i]);
     if (diverged) {
       console.warn("[hide-persistence] server echo mismatch", {
-        sent: ids,
+        sent: bareIds,
         echoed,
       });
     }

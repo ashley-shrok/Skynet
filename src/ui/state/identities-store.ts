@@ -176,6 +176,50 @@ export function deriveDiskPinnedIds(
   return out;
 }
 
+/**
+ * Phase 107 Plan 107-04 (D-04, SC-6) — project each identity's `hidden: boolean`
+ * field (populated from disk by the backend at request time per Plan 107-02
+ * Task 1) into the conversation-row id space (`fleet::<hostId>::<sessionName>`).
+ * Called by the panel's hydrate effect (PrettyConversationsPanel.tsx L502+)
+ * as the replacement for the retired getHiddenIds() /user-preferences fetch.
+ *
+ * H2 invariant: the identityHosts argument MUST be constructed via the
+ * existing buildIdentityHostsFromFleet(fleetSessions) helper exported from
+ * this same module (L111-122). Same constraint deriveDiskPinnedIds carries.
+ *
+ * Fail-closed on missing `hidden` field: an identity object without the
+ * field is treated as unhidden (matches backend Plan 107-02 fail-closed
+ * contract where identityFileExists throws → hidden:false).
+ *
+ * Identity keys not present in identityHosts are filtered out — an identity
+ * we don't have a host mapping for cannot render as a hidden row anyway
+ * (no row to render), so including it in state.hiddenIds would produce an
+ * inert entry.
+ *
+ * H3 invariant (from Plan 107-02): identity.identityKey is emitted verbatim
+ * from listIdentityKeysOnHost's raw folder-name output — ALREADY lowercase
+ * because identity-artifact-reader.ts IDENTITY_KEY_RE forbids uppercase.
+ * The `.toLowerCase()` below is defense-in-depth belt-and-suspenders. The
+ * emitted `fleet::${hostId}::${lookupKey}` shape uses the lowercased key
+ * deliberately: it matches conversation-store.ts:594 fleetRowId shape.
+ */
+export function deriveDiskHiddenIds(
+  identityHosts: Record<string, number>,
+): string[] {
+  const out: string[] = [];
+  for (const identity of state.identities) {
+    // Fail-closed: `hidden !== true` treats undefined / false / any non-
+    // true value as unhidden. Matches the backend's fail-closed contract
+    // at identities.ts hidden probe .catch(() => false).
+    if (identity.hidden !== true) continue;
+    const lookupKey = identity.identityKey.toLowerCase();
+    const hostId = identityHosts[lookupKey];
+    if (typeof hostId !== "number") continue;
+    out.push(`fleet::${hostId}::${lookupKey}`);
+  }
+  return out;
+}
+
 // One-shot re-fetch after the first fleetSessions load. Fires ONCE per module
 // lifetime (guarded by hasRefreshedAfterFleetLoad). The subscription itself
 // is also installed lazily inside fetchOnce so a test that imports the module
