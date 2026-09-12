@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-12T14:55:32.735Z"
+last_updated: "2026-09-12T15:02:12.768Z"
 last_activity: 2026-09-12
 progress:
   total_phases: 108
   completed_phases: 90
   total_plans: 459
-  completed_plans: 450
+  completed_plans: 451
   percent: 83
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 103 (passthrough-urls-serve-url-scheme-phase-2-of-2) — EXECUTING
-Plan: 6 of 11
+Plan: 7 of 11
 
 Last activity (prior): 2026-09-10 -- Phase 103 execution started
 Last activity (prior): 2026-09-10 — Completed Phase 98 more-versatile-stt-tts-support (Amazon Polly + Amazon Transcribe swap for Chatterbox). All 5 waves shipped: Wave 1 (98-01 ffmpeg+SDK install, 98-02 kernels, 98-03 frontend catalog, 98-09 deploy doc), Wave 2 (98-04 AWS adapters, 98-05 migration one-shot + inline Dirent type fix), Wave 3 (98-06 voice.ts rewrite, 98-07 validator flip + inline roles-create followon fix), Wave 4 (98-08 tg-bridge rewire to Skynet /voice/transcribe), Wave 5 (98-10 Chatterbox kill, media-endpoints.ts deleted). Unbiased code review clean (1 HIGH + 3 MED + 2 LOW applied; 3 LOW deferred). Both backend + frontend tsc exit 0 across the full delta. Every plan has SUMMARY.md committed. All Chatterbox integration paths removed cleanly (no dual-provider seam). Ambient IMDS creds via Iris's `SkynetPollyTranscribeAccess` inline policy on `termix-ssm-role`. Voice-migration one-shot wipes existing identity voice values on boot (users re-pick from 7-voice Polly generative catalog). tg-bridge routes through Skynet `/voice/transcribe` (provider-agnostic). Held at push boundary per greenlight-at-push rule; ship in flight.
@@ -385,6 +385,7 @@ Progress: [██████████] 100%
 | Phase 106 P106-04 | 13m 30s | 2 tasks | 2 files |
 | Phase 107 P01 | 217 | 1 tasks | 2 files |
 | Phase 107 P02 | 740 | 2 tasks | 4 files |
+| Phase 107 P03 | 196 | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -966,7 +967,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-12T14:55:32.682Z
+Last session: 2026-09-12T15:02:12.692Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed 106-02-PLAN.md
 Last session: 2026-09-08T03:58:11.814Z
