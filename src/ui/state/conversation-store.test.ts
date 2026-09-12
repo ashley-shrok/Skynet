@@ -46,6 +46,7 @@ import {
   __getFleetOnlyRowsForTest,
   __resetActiveSetForTest,
   __resetPinnedIdsForTest,
+  __resetHiddenIdsForTest,
   __resetFleetSessionsForTest,
   // Phase 41 Plan 01: test-only injection API for row.lastMessageAt.
   __setLastMessageAtForTest,
@@ -143,6 +144,10 @@ beforeEach(() => {
   // per-test toHaveBeenCalledTimes assertions start from zero.
   __resetPinnedIdsForTest();
   vi.mocked(UserPreferencesApi.putPinnedIds).mockClear();
+  // Phase 107 Plan 04: reset the hiddenIds slice so a prior test's
+  // hideConversation writes don't leak forward (mirrors the pin reset above).
+  __resetHiddenIdsForTest();
+  vi.mocked(UserPreferencesApi.putHiddenIds).mockClear();
   updateOpenTabs([]);
   selectConversation(null);
   updateHostTree(null);

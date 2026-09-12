@@ -1631,8 +1631,15 @@ export function hideConversation(id: string): void {
   if (state.hiddenIds.has(id)) return; // already hidden — no-op
   const nextHiddenIds = new Set(state.hiddenIds);
   nextHiddenIds.add(id);
+  // Phase 107 Plan 04 (H2 identityHosts lock): identityHosts is sourced from
+  // buildIdentityHostsFromFleet (identities-store.ts:74-85) which uses
+  // sessionMatchKey — correctly skips relay-room sessions (sessionName ===
+  // undefined) and any future non-identity harness sessions. Do NOT replace
+  // with an inline `fleetSessions.map(s => [s.sessionName.toLowerCase(),
+  // s.hostId])` pattern — that crashes on the undefined sessionName case.
+  const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
   try {
-    void putHiddenIds([...nextHiddenIds]);
+    void putHiddenIds([...nextHiddenIds], identityHosts);
   } catch {
     // Silent — do not block state update on network failure.
   }
@@ -1644,8 +1651,12 @@ export function unhideConversation(id: string): void {
   if (!state.hiddenIds.has(id)) return; // not hidden — no-op
   const nextHiddenIds = new Set(state.hiddenIds);
   nextHiddenIds.delete(id);
+  // Phase 107 Plan 04 (H2 identityHosts lock): same helper as hideConversation
+  // above — buildIdentityHostsFromFleet is the SINGLE fleetSessions →
+  // identityHosts derivation site (identities-store.ts:74-85). Do not fork.
+  const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
   try {
-    void putHiddenIds([...nextHiddenIds]);
+    void putHiddenIds([...nextHiddenIds], identityHosts);
   } catch {
     // Silent — do not block state update on network failure.
   }

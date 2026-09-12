@@ -128,6 +128,7 @@ import {
   useIdentities,
   buildIdentityHostsFromFleet,
   deriveDiskPinnedIds,
+  deriveDiskHiddenIds,
 } from "@/state/identities-store";
 import { startTrappedWorkPoller } from "@/state/trapped-work-store";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
@@ -147,9 +148,11 @@ import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 // spawn describes its own why).
 // Phase 92 Plan 04: getPinnedIds is retired. The panel projects the pin state
 // from the identities-store's `pinned: boolean` field via deriveDiskPinnedIds
-// (imported above). getHiddenIds is UNCHANGED — the hidden slice is out of
-// scope per D-02 and still fetches from GET /user-preferences.
-import { getHiddenIds } from "@/api/user-preferences-api";
+// (imported above).
+// Phase 107 Plan 04: getHiddenIds is ALSO retired. The hidden slice now
+// derives from the disk-sentinel model via deriveDiskHiddenIds (imported
+// above) — same both-loaded-gated hydrate effect, same identityHosts, same
+// hydratedRef one-shot guard.
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
@@ -206,6 +209,25 @@ const EMPTY_VISIBLE_SET: ReadonlySet<string> = new Set();
 function sessionWorkingKey(row: ConversationRowShape): string | null {
   if (!row.host) return null;
   return `${row.host.id}:${row.targetTmuxSession ?? ""}`;
+}
+
+// Phase 107 Plan 04 (D-06 — affordance narrowing): gate discriminator for
+// the Hide/Show button. Only fleet-synthetic identity rows (fleet:: id,
+// non-relay-room, non-RDP-host-sentinel) show the button; RDP rows, relay-
+// room rows, and dev-tab / harness rows lose the affordance per Ashley
+// 2026-09-12 "disappear" directive.
+//
+// Invariant: row.id.startsWith("fleet::") catches synthetic rows and excludes
+// openTab-sourced rows (which carry tab-type ids). row.kind !== "relay-room"
+// excludes relay-room synthetics (which lack a backing identity). rdpHostRow
+// !== true excludes the per-host RDP sentinel rows that share the fleet::
+// prefix but are rendered in the RDP zone with no identity backing.
+function isFleetIdentityRow(row: ConversationRowShape): boolean {
+  return (
+    row.id.startsWith("fleet::") &&
+    row.kind !== "relay-room" &&
+    row.rdpHostRow !== true
+  );
 }
 
 // Patch #137: micro-wrapper that reads the row's live isWorking state from
@@ -533,16 +555,14 @@ export function PrettyConversationsPanel({
       if (cancelled) return;
       hydratePinnedIdsFromServer(pinnedIds);
 
-      // Phase 92 D-02 out-of-scope: hiddenConversationIds still fetches from
-      // GET /user-preferences. The hidden slice is untouched by Phase 92 —
-      // only pinned migrates to the disk-sentinel model.
-      try {
-        const hiddenIds = await getHiddenIds();
-        if (cancelled) return;
-        hydrateHiddenIdsFromServer(hiddenIds);
-      } catch {
-        // Silent — same policy as pre-Phase-92 hidden path.
-      }
+      // Phase 107 Plan 04 (D-03): hiddenConversationIds now also derives from
+      // the disk-sentinel model — same pass, same identityHosts, same
+      // hydratedRef guard. getHiddenIds (GET /user-preferences) is retired.
+      // deriveDiskHiddenIds mirrors deriveDiskPinnedIds: walks identities-
+      // store, filters identity.hidden === true, projects into fleet:: space.
+      const hiddenIds = deriveDiskHiddenIds(identityHosts);
+      if (cancelled) return;
+      hydrateHiddenIdsFromServer(hiddenIds);
     })();
     return () => {
       cancelled = true;
@@ -1856,7 +1876,7 @@ export function PrettyConversationsPanel({
                 }
                 onDeactivate={() => handleRowDeactivate(row)}
                 onToggleHide={
-                  row.rdpHostRow === true ? undefined : () => handleToggleHide(row)
+                  isFleetIdentityRow(row) ? () => handleToggleHide(row) : undefined
                 }
                 onClone={row.rdpHostRow === true ? undefined : () => handleRowClone(row)}
                 onKill={() => handleRowKill(row)}
@@ -1889,7 +1909,9 @@ export function PrettyConversationsPanel({
                   onSelect={() => handleRowSelect(row)}
                   onTogglePin={() => handleTogglePin(row)}
                   onDeactivate={() => handleRowDeactivate(row)}
-                  onToggleHide={() => handleToggleHide(row)}
+                  onToggleHide={
+                    isFleetIdentityRow(row) ? () => handleToggleHide(row) : undefined
+                  }
                   onClone={() => handleRowClone(row)}
                   onKill={() => handleRowKill(row)}
                   inActiveSet={activeSet.has(row.id)}
@@ -1918,7 +1940,9 @@ export function PrettyConversationsPanel({
                     onSelect={() => handleRowSelect(row)}
                     onTogglePin={() => handleTogglePin(row)}
                     onDeactivate={() => handleRowDeactivate(row)}
-                    onToggleHide={() => handleToggleHide(row)}
+                    onToggleHide={
+                      isFleetIdentityRow(row) ? () => handleToggleHide(row) : undefined
+                    }
                     onClone={() => handleRowClone(row)}
                     onKill={() => handleRowKill(row)}
                     inActiveSet={activeSet.has(row.id)}
@@ -2027,7 +2051,9 @@ export function PrettyConversationsPanel({
                       variant={variant}
                       onSelect={() => handleRowSelect(row)}
                       onTogglePin={() => handleTogglePin(row)}
-                      onToggleHide={() => handleToggleHide(row)}
+                      onToggleHide={
+                        isFleetIdentityRow(row) ? () => handleToggleHide(row) : undefined
+                      }
                       onClone={() => handleRowClone(row)}
                       onKill={() => handleRowKill(row)}
                       inActiveSet={activeSet.has(row.id)}

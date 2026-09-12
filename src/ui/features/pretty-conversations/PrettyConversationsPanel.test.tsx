@@ -2662,20 +2662,23 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     // Alice 2026-08-17 follow-up: Deactivate menu item removed entirely;
     // menu order is now Pin, Hide, Open-in-new-window (create-new-agent-under-this-role hidden — row
     // has no identity).
+    // Phase 107 Plan 04: row id must start with "fleet::" to pass isFleetIdentityRow
+    // (affordance-narrowing gate added in this plan). Non-fleet:: ids lose the Hide
+    // button; fleet:: harness ids keep it. Use fleet:: id here.
     setSnapshot({
       activeSet: [],
       middle: [
-        makeConversationRow({ id: "active-row-g", label: "active-g", host: hostA }),
+        makeConversationRow({ id: "fleet::1::active-row-g", label: "active-g", host: hostA }),
       ],
       hiddenIds: new Set(),
     });
-    mockActiveSet = new Set(["active-row-g"]);
+    mockActiveSet = new Set(["fleet::1::active-row-g"]);
 
     const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    const rowEl = container.querySelector('[data-conversation-id="active-row-g"]') as HTMLElement;
+    const rowEl = container.querySelector('[data-conversation-id="fleet::1::active-row-g"]') as HTMLElement;
     const body = rowEl.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
@@ -2698,18 +2701,19 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
 
   // (h) Context menu on a hidden row shows Unhide in the same slot
   it("Test (h): context menu on a hidden row shows 'Unhide' instead of 'Hide'", async () => {
+    // Phase 107 Plan 04: fleet:: id required for isFleetIdentityRow gate.
     setSnapshot({
       grouped: [
-        { hostId: "h1", hostName: "hostA", rows: [makeConversationRow({ id: "hidden-row-h", label: "hidden-h", host: hostA })] },
+        { hostId: "h1", hostName: "hostA", rows: [makeConversationRow({ id: "fleet::1::hidden-row-h", label: "hidden-h", host: hostA })] },
       ],
-      hiddenIds: new Set(["hidden-row-h"]),
+      hiddenIds: new Set(["fleet::1::hidden-row-h"]),
     });
 
     const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    const rowEl = container.querySelector('[data-conversation-id="hidden-row-h"]') as HTMLElement;
+    const rowEl = container.querySelector('[data-conversation-id="fleet::1::hidden-row-h"]') as HTMLElement;
     const body = rowEl.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
@@ -2725,9 +2729,10 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
 
   // (i) Clicking Hide from context menu on an ambient row calls hideConversation only (no deactivate)
   it("Test (i): clicking Hide from context menu on an ambient row calls hideConversation (no deactivate)", async () => {
+    // Phase 107 Plan 04: fleet:: id required for isFleetIdentityRow gate.
     setSnapshot({
       grouped: [
-        { hostId: "h1", hostName: "hostA", rows: [makeConversationRow({ id: "ambient-row-i", label: "ambient-i", host: hostA })] },
+        { hostId: "h1", hostName: "hostA", rows: [makeConversationRow({ id: "fleet::1::ambient-row-i", label: "ambient-i", host: hostA })] },
       ],
       hiddenIds: new Set(),
     });
@@ -2737,7 +2742,7 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    const rowEl = container.querySelector('[data-conversation-id="ambient-row-i"]') as HTMLElement;
+    const rowEl = container.querySelector('[data-conversation-id="fleet::1::ambient-row-i"]') as HTMLElement;
     const body = rowEl.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
@@ -2748,7 +2753,7 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /^hide$/i }));
 
     await waitFor(() => {
-      expect(hideConversationSpy).toHaveBeenCalledWith("ambient-row-i");
+      expect(hideConversationSpy).toHaveBeenCalledWith("fleet::1::ambient-row-i");
     });
     // Deactivate must NOT have been called (ambient rows can't deactivate)
     expect(removeFromActiveSetSpy).not.toHaveBeenCalled();
@@ -2758,20 +2763,21 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
   it("Test (j): clicking Hide on an active-set row calls removeFromActiveSet BEFORE hideConversation (deactivate-first composition)", async () => {
     // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
     // row into `middle` and mark active-in-set via `mockActiveSet`.
+    // Phase 107 Plan 04: fleet:: id required for isFleetIdentityRow gate.
     setSnapshot({
       activeSet: [],
       middle: [
-        makeConversationRow({ id: "active-row-j", label: "active-j", host: hostA }),
+        makeConversationRow({ id: "fleet::1::active-row-j", label: "active-j", host: hostA }),
       ],
       hiddenIds: new Set(),
     });
-    mockActiveSet = new Set(["active-row-j"]);
+    mockActiveSet = new Set(["fleet::1::active-row-j"]);
 
     const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    const rowEl = container.querySelector('[data-conversation-id="active-row-j"]') as HTMLElement;
+    const rowEl = container.querySelector('[data-conversation-id="fleet::1::active-row-j"]') as HTMLElement;
     const body = rowEl.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
@@ -2783,7 +2789,7 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
 
     await waitFor(() => {
       expect(removeFromActiveSetSpy).toHaveBeenCalled();
-      expect(hideConversationSpy).toHaveBeenCalledWith("active-row-j");
+      expect(hideConversationSpy).toHaveBeenCalledWith("fleet::1::active-row-j");
     });
 
     // Assert call ORDER: removeFromActiveSet (deactivate path) must come before hideConversation
