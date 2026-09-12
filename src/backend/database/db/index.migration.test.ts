@@ -23,6 +23,7 @@ import {
   runIdentitiesCosmeticDrops,
   runIdentitiesTableDrop,
   runPinColumnDrop,
+  runHiddenColumnDrop,
 } from "./index.js";
 import { hosts } from "./schema.js";
 import { FieldCrypto } from "../../utils/field-crypto.js";
@@ -1005,5 +1006,144 @@ describe("Phase 92 migration — drop pinned_conversation_ids from user_preferen
     const postCols = columnNames(db, "user_preferences").sort();
     expect(postCols).toEqual(preCols);
     expect(postCols).toContain("hidden_conversation_ids");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 107 migration — drop hidden_conversation_ids from user_preferences
+// ---------------------------------------------------------------------------
+// Mirror of Phase 92 Plan 03 test block. The hidden slice now lives on disk
+// as `.hidden` sentinels per identity (Phase 107 Plans 01+02). Plan 03 drops
+// the dead DB column to close the two-sources-of-truth window.
+//
+// Two `it(...)` bodies, each opens its own in-memory DB (no shared state):
+//
+//   P107-01: OLD schema (has hidden_conversation_ids, no pinned_conversation_ids
+//     since Phase 92 already dropped that) → runHiddenColumnDrop → column
+//     absent; sibling values (theme, language) byte-for-byte preserved; post-
+//     drop SELECT throws. Inline P107-03 (VALUE preservation) + P107-04
+//     (post-drop SELECT throws) regression traps.
+//   P107-02: NEW schema (both pin and hidden columns absent, i.e. post-Phase-107
+//     shape) → runHiddenColumnDrop → idempotent no-op; shape unchanged.
+// ---------------------------------------------------------------------------
+
+// The OLD user_preferences CREATE TABLE — post-Phase-92 shape: pinned column
+// already gone (Phase 92 Plan 03 dropped it), hidden_conversation_ids still
+// present (it's the column being dropped in THIS plan). This is the "live
+// legacy install" shape that runHiddenColumnDrop must handle on first boot.
+const OLD_USER_PREFERENCES_WITH_HIDDEN_CREATE_SQL = `
+  CREATE TABLE user_preferences (
+    user_id TEXT PRIMARY KEY,
+    reopen_tabs_on_login INTEGER NOT NULL DEFAULT 0,
+    theme TEXT,
+    font_size TEXT,
+    accent_color TEXT,
+    language TEXT,
+    hidden_conversation_ids TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+// The NEW user_preferences CREATE TABLE — post-Phase-107 shape: both
+// pinned_conversation_ids (Phase 92) and hidden_conversation_ids (Phase 107)
+// are absent. Fresh installs will have this shape; this const tests the
+// idempotent no-op path.
+const NEW_USER_PREFERENCES_POST_HIDDEN_DROP_CREATE_SQL = `
+  CREATE TABLE user_preferences (
+    user_id TEXT PRIMARY KEY,
+    reopen_tabs_on_login INTEGER NOT NULL DEFAULT 0,
+    theme TEXT,
+    font_size TEXT,
+    accent_color TEXT,
+    language TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+describe("Phase 107 migration — drop hidden_conversation_ids from user_preferences", () => {
+  it("Test P107-01: OLD schema → drop → hidden_conversation_ids absent, sibling values preserved, post-drop SELECT throws", () => {
+    const db = new Database(":memory:");
+    db.exec(OLD_USER_PREFERENCES_WITH_HIDDEN_CREATE_SQL);
+
+    // Seed one row with real values — theme and language survive the drop;
+    // hidden_conversation_ids is the column being dropped.
+    db.prepare(
+      `INSERT INTO user_preferences
+       (user_id, reopen_tabs_on_login, theme, font_size, accent_color, language,
+        hidden_conversation_ids, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "u1",
+      0,
+      "dark",
+      null,
+      null,
+      "en",
+      '["fleet::1::alice","fleet::2::bob"]',
+      "2026-01-01T00:00:00.000Z",
+    );
+
+    // Sanity: hidden_conversation_ids present pre-migration.
+    const preCols = columnNames(db, "user_preferences");
+    expect(preCols).toContain("hidden_conversation_ids");
+
+    // Run the drop against this test db handle (not the module singleton).
+    runHiddenColumnDrop(db);
+
+    // Post-migration: hidden_conversation_ids gone.
+    const postCols = columnNames(db, "user_preferences");
+    expect(postCols).not.toContain("hidden_conversation_ids");
+
+    // Sibling columns still present (D-02 preservation invariant).
+    expect(postCols).toContain("theme");
+    expect(postCols).toContain("language");
+    expect(postCols).toContain("updated_at");
+    expect(postCols).toContain("reopen_tabs_on_login");
+    expect(postCols).toContain("user_id");
+    expect(postCols).toContain("font_size");
+    expect(postCols).toContain("accent_color");
+
+    // Test P107-03 inline — surviving row data intact; the drop did NOT
+    // shred the non-hidden columns. Byte-for-byte value preservation.
+    const row = db
+      .prepare(
+        "SELECT theme, language FROM user_preferences WHERE user_id = ?",
+      )
+      .get("u1") as
+      | { theme: string | null; language: string | null }
+      | undefined;
+    expect(row).toBeDefined();
+    expect(row!.theme).toBe("dark");
+    expect(row!.language).toBe("en");
+
+    // Test P107-04 inline — post-drop SELECT throws. Proves the column is
+    // physically absent, not just hidden from PRAGMA output.
+    expect(() =>
+      db.prepare("SELECT hidden_conversation_ids FROM user_preferences").get(),
+    ).toThrow();
+  });
+
+  it("Test P107-02: NEW schema (hidden_conversation_ids already absent) → migrate is idempotent no-op", () => {
+    const db = new Database(":memory:");
+    db.exec(NEW_USER_PREFERENCES_POST_HIDDEN_DROP_CREATE_SQL);
+
+    // Sanity: neither conversation-ids column is present (both already dropped).
+    const preCols = columnNames(db, "user_preferences").sort();
+    expect(preCols).not.toContain("hidden_conversation_ids");
+    expect(preCols).not.toContain("pinned_conversation_ids");
+
+    // Idempotent — must not throw even though drop target is absent.
+    expect(() => runHiddenColumnDrop(db)).not.toThrow();
+
+    // Table shape unchanged — all sibling columns still present.
+    const postCols = columnNames(db, "user_preferences").sort();
+    expect(postCols).toEqual(preCols);
+    expect(postCols).toContain("theme");
+    expect(postCols).toContain("language");
+    expect(postCols).toContain("font_size");
+    expect(postCols).toContain("accent_color");
+    expect(postCols).toContain("reopen_tabs_on_login");
+    expect(postCols).toContain("user_id");
+    expect(postCols).toContain("updated_at");
   });
 });
