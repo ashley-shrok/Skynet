@@ -1477,4 +1477,55 @@ describe("Admin cross-user WRITE extensions (A7-A10) — quick 260910-67z", () =
     expect(res._status).not.toBe(400);
     expect(res._status).not.toBe(403);
   });
+
+  it("A11: admin cross-user PUT response-select uses admin's own userId (not target owner) as decrypt key", async () => {
+    // Cosmetic-404 regression: previously the response-side SimpleDBOps.select
+    // used ownerId (=target user) as the decrypt key. Target user data key is
+    // not in memory on cross-user paths, so getUserDataKey returned null and
+    // select returned [] → 404 "Host not found after update" despite the write
+    // persisting. Fix routes admin cross-user response-decrypt through the
+    // admin's own userId; foreign sensitive fields fall through to empty via
+    // LazyFieldEncryption (same pattern as admin GET endpoints).
+    await mockDbSelectForAdmin(true, "other-user");
+
+    (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 1,
+        userId: "other-user",
+        ip: "1.1.1.1",
+        port: 22,
+        name: "fleet-host",
+        connectionType: "ssh",
+        runsFleetSubstrate: true,
+        credentialId: 42,
+        authType: "credential",
+      },
+    ]);
+
+    const req = makePutReq("1", {
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: true,
+      credentialId: 42,
+      authType: "credential",
+      targetUserId: "other-user",
+    }, ADMIN_ID);
+    const res = makeMockRes();
+
+    await putHandler!(req, res);
+
+    expect(res._status).toBe(200);
+    // The response-side select is for tableName "ssh_data" (the host row).
+    // A separate SimpleDBOps.select call happens inside resolveHostCredentials
+    // for "ssh_credentials" and correctly uses ownerId for that lookup — filter
+    // to the ssh_data call only.
+    const ssh_dataSelects = (
+      SimpleDBOps.select as ReturnType<typeof vi.fn>
+    ).mock.calls.filter((c) => c[1] === "ssh_data");
+    expect(ssh_dataSelects.length).toBeGreaterThan(0);
+    for (const call of ssh_dataSelects) {
+      expect(call[2]).toBe(ADMIN_ID);
+      expect(call[2]).not.toBe("other-user");
+    }
+  });
 });

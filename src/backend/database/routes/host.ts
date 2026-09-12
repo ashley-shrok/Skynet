@@ -1340,13 +1340,21 @@ router.put(
         });
       }
 
+      // Response decrypt key: on the admin cross-user path, target user's data
+      // key is not in memory — decrypting with ownerId (=target user) returns
+      // [] and the endpoint would 404 cosmetically despite the write persisting.
+      // Use the admin's own userId instead; LazyFieldEncryption returns empty
+      // strings for foreign sensitive fields (mirrors admin GET-endpoint pattern
+      // established in quick-260910-439).
+      const responseDecryptUserId =
+        isAdminForUpdate && effectiveUpdateUserId !== userId ? userId : ownerId;
       const updatedHosts = await SimpleDBOps.select(
         db
           .select()
           .from(hosts)
           .where(eq(hosts.id, Number(hostId))),
         "ssh_data",
-        ownerId,
+        responseDecryptUserId,
       );
 
       if (updatedHosts.length === 0) {
