@@ -768,12 +768,14 @@ if (process.env.VITEST !== "true") {
         staleSweepIntervalMs: 30000,
         hookPayloadPath: "~/.claude/fleet-status/last-stop-payload.json",
         hookPayloadWarnCooldownMs: 60000,
-        // Phase 99 (D-01 + D-17): wire the fleet-status sweep's atomic
-        // spawn-request scan step to the in-memory queue's enqueue function.
-        // Each claimed request file becomes a PendingBirth item that the
-        // serialized worker (wired above via setSpawnRequestProcessBirth) will
-        // drain into a birthIdentity call.
-        enqueueSpawnRequest,
+        // Spawn-request scan is NO LONGER bundled into this orchestrator.
+        // See bounty fleet-status-orchestrator-coupling-with-spawn-request-
+        // scanning: the fleet-status orchestrator is gated on WS subscribers
+        // (start on first, stop on last), which meant scanning stopped when
+        // no browser was subscribed and coord-dropped requests sat unclaimed.
+        // A dedicated always-on `createSpawnScanOrchestrator` runs at
+        // container boot (wired below, alongside the substrate orchestrator)
+        // and owns spawn-request scanning independently of browser presence.
       });
 
       // ---------------------------------------------------------------------
@@ -1034,6 +1036,149 @@ if (process.env.VITEST !== "true") {
         // substrateHostSemaphores.clear() removed (Phase 101 Plan 02, D-04):
         // semaphores now live in the shared registry; registry lifecycle is
         // process-scoped and does not need SIGTERM cleanup.
+      });
+    }
+
+    // =========================================================================
+    // Spawn-request scan orchestrator (bounty
+    // fleet-status-orchestrator-coupling-with-spawn-request-scanning)
+    //
+    // Decouples spawn-request scanning from the fleet-status orchestrator's
+    // WS-subscriber-gated lifecycle. Pre-fix: scan piggybacked on the
+    // 2s fleet-status poll and stopped when the last browser unsubscribed,
+    // leaving coord-dropped requests unclaimed. Post-fix: this always-on
+    // scanner starts at container boot, uses the same session-less CSKEK
+    // enumeration as the substrate orchestrator (listSubstrateHosts), and
+    // runs independently of browser presence.
+    //
+    // PLACEMENT: After the substrate block — same DB-readiness precondition,
+    // same session-less enumeration primitive, isolated SSH-client pool.
+    // =========================================================================
+    {
+      const { createSpawnScanOrchestrator } = await import(
+        "./spawn-requests/scan-orchestrator.js"
+      );
+      const { listSubstrateHosts: listSubstrateHostsForScan } = await import(
+        "./distributor/list-substrate-hosts.js"
+      );
+      const { connectOneShot: connectOneShotSpawn } = await import(
+        "./ssh/ssh-one-shot.js"
+      );
+      const { execCommand: execCommandSpawn, execCommandWithStdin: execCommandWithStdinSpawn } = await import(
+        "./ssh/tmux-helper.js"
+      );
+      const { getDb: getDbForSpawnScan } = await import(
+        "./database/db/index.js"
+      );
+
+      // Own per-host ssh2 Client pool — independent of fleet-status +
+      // substrate host-clients maps so the three lifecycles never
+      // contaminate each other.
+      const spawnScanHostClients = new Map<string, import("ssh2").Client>();
+
+      async function spawnScanAcquireChannel(host: {
+        id: string;
+        name: string;
+        _connDetails: Record<string, unknown>;
+      }) {
+        try {
+          let client = spawnScanHostClients.get(host.id);
+          if (!client) {
+            client = await connectOneShotSpawn(
+              host._connDetails as Parameters<typeof connectOneShotSpawn>[0],
+              10000,
+            );
+            spawnScanHostClients.set(host.id, client);
+            client.on("end", () => spawnScanHostClients.delete(host.id));
+            client.on("close", () => spawnScanHostClients.delete(host.id));
+            client.on("error", () => spawnScanHostClients.delete(host.id));
+          }
+
+          // Shared registry semaphore — same 8-slot pool as fleet-status +
+          // substrate on this hostId (bounty b31a5c8e Phase 101 D-04).
+          const sem = getHostSemaphore(host.id);
+          const capturedClient = client;
+          const capturedSem = sem;
+          return {
+            exec: async (cmd: string, stdinBody?: Buffer): Promise<string | null> => {
+              try {
+                return await capturedSem.run(async () =>
+                  stdinBody === undefined
+                    ? execCommandSpawn(capturedClient, cmd)
+                    : execCommandWithStdinSpawn(capturedClient, cmd, stdinBody),
+                );
+              } catch {
+                return null;
+              }
+            },
+          };
+        } catch (err) {
+          systemLogger.warn(
+            "Spawn-scan: SSH channel acquire failed",
+            {
+              operation: "spawn_scan_channel_acquire_failed",
+              fleetHostId: host.id,
+              hostName: host.name,
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
+          return null;
+        }
+      }
+
+      function spawnScanReleaseChannel(
+        _host: { id: string; name: string },
+        _channel: unknown,
+      ): void {
+        // no-op — underlying ssh2 Client is reused across ticks for the
+        // container lifetime. Cleanup happens on SIGTERM.
+      }
+
+      const spawnScanOrch = createSpawnScanOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHostsForScan({ getDb: getDbForSpawnScan }),
+        acquireChannel: spawnScanAcquireChannel,
+        releaseChannel: spawnScanReleaseChannel,
+        enqueue: enqueueSpawnRequest,
+        setInterval,
+        clearInterval,
+        now: () => Date.now(),
+        scanIntervalMs: 10000,
+      });
+
+      // Fire-and-forget start() — matches the substrate orchestrator's
+      // rationale: the initial pass may await SSH connects across all
+      // substrate hosts (potentially minutes on an unreachable VM), and
+      // boot must not block on that. The scan orchestrator's start()
+      // never rejects in normal operation.
+      spawnScanOrch.start().catch((err) => {
+        systemLogger.warn(
+          "Spawn-scan orchestrator start() rejected (unexpected)",
+          {
+            operation: "spawn_scan_orchestrator_start_failed",
+            error: err instanceof Error ? err.message : "unknown",
+          },
+        );
+      });
+
+      systemLogger.info("Spawn-scan orchestrator started", {
+        operation: "spawn_scan_orchestrator_started_at_boot",
+        scanIntervalMs: 10000,
+      });
+
+      process.once("SIGTERM", () => {
+        systemLogger.info("Spawn-scan orchestrator stopping on SIGTERM", {
+          operation: "spawn_scan_orchestrator_lifecycle",
+        });
+        spawnScanOrch.stop();
+        for (const [, client] of spawnScanHostClients) {
+          try {
+            client.end();
+          } catch {
+            /* best-effort — client may already be dead */
+          }
+        }
+        spawnScanHostClients.clear();
       });
     }
 

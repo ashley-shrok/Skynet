@@ -24,6 +24,7 @@ import {
   type OrchestratorDeps,
   __scanTailForNewestMessageAtForTests,
   parseSpawnRequestBatch,
+  scanSpawnRequests,
 } from "./ssh-poll-orchestrator.js";
 import type { PendingBirth } from "../spawn-requests/types.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
@@ -393,12 +394,12 @@ function buildDeps(
   channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0TMUX=/tmp/tmux\0");
   channel.setResponse("tmux display-message", "tina");
   channel.setResponse("cat ~/.claude/fleet-status/last-stop-payload.json", makeValidPayload());
-  // Phase 99: default empty response for the atomic spawn-request scan exec.
-  // This is the critical backward-compat change: every existing test that doesn't
-  // override the spawn-requests response gets a benign empty stdout (missing folder
-  // or empty folder — both non-errors per D-03). Without this, every existing test
-  // tick would get a null response for the scan and log a spurious SSH-error warn.
-  channel.setResponse("fleet/spawn-requests", "");
+  // Note: the pre-fix "default empty response for the atomic spawn-request
+  // scan exec" is unnecessary now — pollOneHost no longer issues that exec
+  // (piggyback removed; see bounty fleet-status-orchestrator-coupling-with-
+  // spawn-request-scanning). The scanSpawnRequests helper is still exported
+  // and covered by the direct-call tests below; the always-on scanner lives
+  // in scan-orchestrator.ts and is tested separately.
 
   let currentTime = 0;
 
@@ -7918,82 +7919,23 @@ describe("Phase 92 — batch sweep dispatch", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 99 — spawn-request scan tests
+// Spawn-request scan helpers (parseSpawnRequestBatch + scanSpawnRequests)
+//
+// These helpers stay defined in ssh-poll-orchestrator.ts and are exported for
+// reuse by the always-on `../spawn-requests/scan-orchestrator.ts` — the
+// pre-fix "piggybacked scan inside pollOneHost" wiring is gone (see bounty
+// fleet-status-orchestrator-coupling-with-spawn-request-scanning). Tests
+// here target the helpers directly; lifecycle-integration tests for the
+// always-on orchestrator live in scan-orchestrator.test.ts.
 // ---------------------------------------------------------------------------
 
-describe("spawn-request scan (Phase 99)", () => {
+describe("spawn-request scan helpers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  // Test 1: atomic scan exec issued per tick
-  it("issues atomic scan exec on each poll tick", async () => {
-    const deps = buildDeps();
-    // Default already has "fleet/spawn-requests" → ""
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    const calls = deps.channel.getCalls();
-    const callCommands = calls.map((c) => c.command);
-    expect(callCommands.some((c) => c.includes("fleet/spawn-requests"))).toBe(true);
-  });
-
-  // Test 2: null channel response → empty batch, no enqueue call
-  it("null channel response → empty batch, no enqueue call", async () => {
-    const enqueueSpawnRequest = vi.fn();
-    const deps = buildDeps({ enqueueSpawnRequest });
-    // Override: spawn-requests scan returns null (SSH error)
-    deps.channel.setResponse("fleet/spawn-requests", null);
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(enqueueSpawnRequest).not.toHaveBeenCalled();
-  });
-
-  // Test 3: missing folder (empty stdout) → empty batch, no enqueue call
-  it("missing folder (empty stdout) → empty batch, no enqueue call", async () => {
-    const enqueueSpawnRequest = vi.fn();
-    const deps = buildDeps({ enqueueSpawnRequest });
-    // Default already sets "fleet/spawn-requests" → ""; override to be explicit
-    deps.channel.setResponse("fleet/spawn-requests", "");
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(enqueueSpawnRequest).not.toHaveBeenCalled();
-  });
-
-  // Test 4: valid request file → enqueues correct PendingBirth item
-  it("valid request file → enqueues correct PendingBirth item", async () => {
-    const enqueueSpawnRequest = vi.fn();
-    const deps = buildDeps({ enqueueSpawnRequest });
-
-    const uuid = "12345678-1234-1234-1234-1234567890ab";
-    const body = JSON.stringify({
-      role: "coordinator",
-      task: "test task",
-      requested_at: "2026-09-10T00:00:00Z",
-    });
-    deps.channel.setResponse("fleet/spawn-requests", `${uuid}.json\t${body}\n`);
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(enqueueSpawnRequest).toHaveBeenCalledTimes(1);
-    const item = enqueueSpawnRequest.mock.calls[0][0] as PendingBirth;
-    expect(item.uuid).toBe(uuid);
-    expect(item.role).toBe("coordinator");
-    expect(item.task).toBe("test task");
-    expect(item.requested_at).toBe("2026-09-10T00:00:00Z");
-    expect(typeof item.hostIdNum).toBe("number");
-    // host-1 → parseInt("host-1", 10) → NaN is acceptable here; the worker
-    // re-fetches via getHostOwnerUserId at drain time (Plan 99-01 contract)
-    expect(item.userId).toBe(""); // worker refetches
-  });
-
-  // Test 5: UUID-shape filter defense-in-depth — direct parseSpawnRequestBatch call
-  it("UUID-shape filter: rejects non-UUID basenames (e.g. response filenames)", () => {
+  // parseSpawnRequestBatch — UUID-shape filter defense-in-depth
+  it("parseSpawnRequestBatch rejects non-UUID basenames (e.g. response filenames)", () => {
     // Not a UUID
     const result1 = parseSpawnRequestBatch("not-a-uuid.json\t{}\n", "host-1");
     expect(result1).toHaveLength(0);
@@ -8011,23 +7953,60 @@ describe("spawn-request scan (Phase 99)", () => {
     expect(result3[0].uuid).toBe(uuid);
   });
 
-  // Test 6: malformed JSON body → enqueued with malformedReason set
-  // (Post-code-review M2/M3: prior behavior silently dropped malformed requests,
-  // stranding coord until its safety timeout. New behavior enqueues a PendingBirth
-  // with `malformedReason` so the worker drops a `{reason:"malformed", message}`
-  // failure file — coord sees the failure and can potentially iterate.)
-  it("malformed JSON body → enqueued with malformedReason (worker drops failure file)", async () => {
-    const enqueueSpawnRequest = vi.fn();
-    const deps = buildDeps({ enqueueSpawnRequest });
+  // scanSpawnRequests — null channel response → empty batch (fail-open)
+  it("scanSpawnRequests null channel response → empty batch (fail-open on SSH error)", async () => {
+    const channel = new MockSshChannel();
+    channel.setResponse("fleet/spawn-requests", null);
+    const host: HostRecord = { id: "host-1", name: "testhost" };
 
+    const result = await scanSpawnRequests(host, channel);
+    expect(result).toEqual([]);
+  });
+
+  // scanSpawnRequests — missing folder / empty stdout → empty batch (D-03)
+  it("scanSpawnRequests missing folder (empty stdout) → empty batch", async () => {
+    const channel = new MockSshChannel();
+    channel.setResponse("fleet/spawn-requests", "");
+    const host: HostRecord = { id: "host-1", name: "testhost" };
+
+    const result = await scanSpawnRequests(host, channel);
+    expect(result).toEqual([]);
+  });
+
+  // scanSpawnRequests — valid request file → PendingBirth item
+  it("scanSpawnRequests valid request file → PendingBirth item with role/task/requested_at", async () => {
+    const channel = new MockSshChannel();
     const uuid = "12345678-1234-1234-1234-1234567890ab";
-    deps.channel.setResponse("fleet/spawn-requests", `${uuid}.json\t{not-json}\n`);
+    const body = JSON.stringify({
+      role: "coordinator",
+      task: "test task",
+      requested_at: "2026-09-10T00:00:00Z",
+    });
+    channel.setResponse("fleet/spawn-requests", `${uuid}.json\t${body}\n`);
+    const host: HostRecord = { id: "host-1", name: "testhost" };
 
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
+    const result = await scanSpawnRequests(host, channel);
+    expect(result).toHaveLength(1);
+    const item = result[0] as PendingBirth;
+    expect(item.uuid).toBe(uuid);
+    expect(item.role).toBe("coordinator");
+    expect(item.task).toBe("test task");
+    expect(item.requested_at).toBe("2026-09-10T00:00:00Z");
+    expect(item.userId).toBe(""); // worker refetches via getHostOwnerUserId
+  });
 
-    expect(enqueueSpawnRequest).toHaveBeenCalledTimes(1);
-    const item = enqueueSpawnRequest.mock.calls[0][0];
+  // scanSpawnRequests — malformed JSON body → enqueued with malformedReason
+  // (M2/M3 code-review guard: malformed body is not silently dropped; worker
+  // still gets a PendingBirth with malformedReason so coord sees the failure.)
+  it("scanSpawnRequests malformed JSON body → PendingBirth with malformedReason set", async () => {
+    const channel = new MockSshChannel();
+    const uuid = "12345678-1234-1234-1234-1234567890ab";
+    channel.setResponse("fleet/spawn-requests", `${uuid}.json\t{not-json}\n`);
+    const host: HostRecord = { id: "host-1", name: "testhost" };
+
+    const result = await scanSpawnRequests(host, channel);
+    expect(result).toHaveLength(1);
+    const item = result[0] as PendingBirth;
     expect(item.uuid).toBe(uuid);
     expect(item.malformedReason).toBeDefined();
     expect(String(item.malformedReason)).toMatch(/JSON/i);
@@ -8035,68 +8014,59 @@ describe("spawn-request scan (Phase 99)", () => {
     expect(item.task).toBeNull();
   });
 
-  // Test 6b: role failing ROLE_NAME_PATTERN → enqueued with malformedReason
-  // (Post-code-review M2/M3: full parseRequestBody validation at sweep time
-  // means role-shape violations become malformed failures, not birth_failed.)
-  it("role failing ROLE_NAME_PATTERN → enqueued with malformedReason (role_unknown → malformed via sweep-side validation)", async () => {
-    const enqueueSpawnRequest = vi.fn();
-    const deps = buildDeps({ enqueueSpawnRequest });
-
+  // scanSpawnRequests — role failing ROLE_NAME_PATTERN → malformedReason
+  it("scanSpawnRequests role failing ROLE_NAME_PATTERN → PendingBirth with malformedReason (role field)", async () => {
+    const channel = new MockSshChannel();
     const uuid = "12345678-1234-1234-1234-1234567890ab";
     const body = JSON.stringify({
       role: "INVALID ROLE WITH SPACES",
       task: "test",
       requested_at: "2026-09-10T00:00:00Z",
     });
-    deps.channel.setResponse("fleet/spawn-requests", `${uuid}.json\t${body}\n`);
+    channel.setResponse("fleet/spawn-requests", `${uuid}.json\t${body}\n`);
+    const host: HostRecord = { id: "host-1", name: "testhost" };
 
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(enqueueSpawnRequest).toHaveBeenCalledTimes(1);
-    const item = enqueueSpawnRequest.mock.calls[0][0];
+    const result = await scanSpawnRequests(host, channel);
+    expect(result).toHaveLength(1);
+    const item = result[0] as PendingBirth;
     expect(item.uuid).toBe(uuid);
     expect(item.malformedReason).toBeDefined();
     expect(String(item.malformedReason)).toMatch(/role/i);
   });
 
-  // Test 7: multiple valid request files in one tick → all enqueued
-  it("multiple valid request files in one tick → all enqueued", async () => {
-    const enqueueSpawnRequest = vi.fn();
-    const deps = buildDeps({ enqueueSpawnRequest });
-
+  // scanSpawnRequests — multiple valid request files in one scan → all parsed
+  it("scanSpawnRequests multiple valid request files in one batch → all parsed", async () => {
+    const channel = new MockSshChannel();
     const uuid1 = "12345678-1234-1234-1234-1234567890ab";
     const uuid2 = "abcdef12-abcd-abcd-abcd-abcdef123456";
     const body1 = JSON.stringify({ role: "coordinator", task: "task one", requested_at: "2026-09-10T00:00:00Z" });
     const body2 = JSON.stringify({ role: "executor", task: "task two", requested_at: "2026-09-10T00:01:00Z" });
-    deps.channel.setResponse(
+    channel.setResponse(
       "fleet/spawn-requests",
       `${uuid1}.json\t${body1}\n${uuid2}.json\t${body2}\n`,
     );
+    const host: HostRecord = { id: "host-1", name: "testhost" };
 
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(enqueueSpawnRequest).toHaveBeenCalledTimes(2);
-    const uuids = enqueueSpawnRequest.mock.calls.map((call: [PendingBirth]) => call[0].uuid);
+    const result = await scanSpawnRequests(host, channel);
+    expect(result).toHaveLength(2);
+    const uuids = result.map((r) => r.uuid);
     expect(uuids).toContain(uuid1);
     expect(uuids).toContain(uuid2);
   });
 
-  // Test 8: backward-compat regression guard — buildDeps without enqueueSpawnRequest still works
-  it("buildDeps without enqueueSpawnRequest override compiles and runs without crash", async () => {
-    // No enqueueSpawnRequest in deps — scan still runs, results silently discarded
-    const deps = buildDeps({});
+  // Regression guard for the decoupling: pollOneHost NO LONGER issues the
+  // spawn-request scan exec. The `fleet/spawn-requests` command must not
+  // appear in the SSH channel's call log after orchestrator.start(). If it
+  // reappears, someone reintroduced the piggyback — the coupling bug this
+  // module was written to fix (see bounty
+  // fleet-status-orchestrator-coupling-with-spawn-request-scanning).
+  it("pollOneHost no longer issues the spawn-request scan exec (piggyback removed)", async () => {
+    const deps = buildDeps();
     const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
 
-    // A valid request file is in the channel — scan will parse it but nobody receives it
-    const uuid = "12345678-1234-1234-1234-1234567890ab";
-    deps.channel.setResponse(
-      "fleet/spawn-requests",
-      `${uuid}.json\t${JSON.stringify({ role: "coordinator", task: null, requested_at: "2026-09-10T00:00:00Z" })}\n`,
-    );
-
-    // Must not throw
-    await expect(orchestrator.start()).resolves.not.toThrow();
+    const calls = deps.channel.getCalls();
+    const callCommands = calls.map((c) => c.command);
+    expect(callCommands.some((c) => c.includes("fleet/spawn-requests"))).toBe(false);
   });
 });

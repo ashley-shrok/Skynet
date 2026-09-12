@@ -124,14 +124,6 @@ export interface OrchestratorDeps {
   staleSweepIntervalMs?: number;
   hookPayloadPath?: string;
   hookPayloadWarnCooldownMs?: number;
-
-  /**
-   * Phase 99: enqueue a claimed spawn-request for async birth-worker processing.
-   * Optional — when absent, spawn-request scan results are discarded (backward-
-   * compat for tests that don't exercise the spawn-request path). Wired in
-   * starter.ts to the spawn-requests/queue.ts enqueue function.
-   */
-  enqueueSpawnRequest?: (item: PendingBirth) => void;
 }
 
 export interface SshPollOrchestrator {
@@ -1115,8 +1107,8 @@ export function parseSpawnRequestBatch(stdout: string, hostId: string): PendingB
 export async function scanSpawnRequests(host: HostRecord, channel: SshChannel): Promise<PendingBirth[]> {
   const stdout = await channel.exec(SPAWN_REQUESTS_SCAN_CMD);
   if (stdout === null) {
-    systemLogger.warn("Fleet-status: spawn-request scan returned null (SSH error)", {
-      operation: "fleet_status_spawn_scan_ssh_error",
+    systemLogger.warn("Spawn-scan: exec returned null (SSH error)", {
+      operation: "spawn_scan_exec_ssh_error",
       fleetHostId: host.id,
     });
     return [];
@@ -1126,8 +1118,8 @@ export async function scanSpawnRequests(host: HostRecord, channel: SshChannel): 
     return [];
   }
   const results = parseSpawnRequestBatch(stdout, host.id);
-  systemLogger.info("Fleet-status: spawn-request scan complete", {
-    operation: "spawn_request_scan_complete",
+  systemLogger.info("Spawn-scan: exec complete", {
+    operation: "spawn_scan_exec_complete",
     fleetHostId: host.id,
     claimed: results.length,
   });
@@ -1283,12 +1275,11 @@ export function createSshPollOrchestrator(
     ) {
       const result = await pollOneHostBatch(hostState);
       if (result.ok) {
-        // Phase 99 — spawn-request scan (D-01+D-02). Runs on every completed poll
-        // regardless of path so any claimed request files get enqueued.
-        const spawnBatch = await scanSpawnRequests(host, channel);
-        for (const item of spawnBatch) {
-          deps.enqueueSpawnRequest?.(item);
-        }
+        // Spawn-request scan is NO LONGER piggybacked here — a dedicated
+        // always-on `createSpawnScanOrchestrator` in `../spawn-requests/
+        // scan-orchestrator.ts` runs at container boot and owns scanning
+        // independently of WS-subscriber lifecycle. See bounty
+        // fleet-status-orchestrator-coupling-with-spawn-request-scanning.
         systemLogger.info("Fleet-status poll end (batch)", {
           operation: "fleet_status_poll_end",
           fleetHostId: host.id,
@@ -1296,7 +1287,6 @@ export function createSshPollOrchestrator(
           path: "batch",
           identityCount: result.identityCount,
           pidCount: result.pidCount,
-          spawnClaimed: spawnBatch.length,
         });
         return;
       }
@@ -1333,13 +1323,14 @@ export function createSshPollOrchestrator(
     // the SSH client via releaseSshChannel so the next tick reconnects fresh,
     // which is the only way to reclaim any semaphore slots the stuck execs are
     // still holding.
-    let spawnBatch: PendingBirth[] = [];
+    //
+    // Spawn-request scan is NO LONGER piggybacked inside this bound — see
+    // bounty fleet-status-orchestrator-coupling-with-spawn-request-scanning.
+    // A dedicated always-on scanner lives in `../spawn-requests/scan-
+    // orchestrator.ts`, wired at container boot.
     try {
       await Promise.race([
-        (async () => {
-          await pollOneHostLegacy(hostState);
-          spawnBatch = await scanSpawnRequests(host, channel);
-        })(),
+        pollOneHostLegacy(hostState),
         new Promise<never>((_, reject) =>
           setTimeout(
             () =>
@@ -1364,16 +1355,12 @@ export function createSshPollOrchestrator(
         // best-effort teardown — mirrors the eviction path
       }
     }
-    for (const item of spawnBatch) {
-      deps.enqueueSpawnRequest?.(item);
-    }
 
     systemLogger.info("Fleet-status poll end (legacy)", {
       operation: "fleet_status_poll_end",
       fleetHostId: host.id,
       tick: pollTickCount,
       path: "legacy",
-      spawnClaimed: spawnBatch.length,
     });
   }
 

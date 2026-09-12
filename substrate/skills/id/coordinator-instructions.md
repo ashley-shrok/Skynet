@@ -254,10 +254,12 @@ If the spawn-requests folder doesn't exist yet on your box, create it first:
 
 ### Wait for the response file
 
-Skynet's per-host sweep picks up your request file on its next tick (~2 seconds), reads
-its contents, and deletes it atomically as the claim signal — the request file
-disappearing is NOT "birth complete", it's just "Skynet noticed and took over." A backend
-worker then runs the identity-birth flow (~3-5 seconds), and drops a response file back
+Skynet's per-host spawn-request scan picks up your request file on its next tick
+(**~10 seconds** — an always-on server-side scan that runs at container boot;
+independent of whether any browser is watching fleet-status), reads its contents,
+and deletes it atomically as the claim signal — the request file disappearing is
+NOT "birth complete", it's just "Skynet noticed and took over." A backend worker
+then runs the identity-birth flow (~3-5 seconds), and drops a response file back
 into the same folder keyed by your uuid:
 
 - Success → `~/fleet/spawn-requests/<uuid>.success.json` with `{name, birthed_at}`.
