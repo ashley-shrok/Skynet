@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-12T14:39:27.514Z"
+last_updated: "2026-09-12T14:55:32.735Z"
 last_activity: 2026-09-12
 progress:
   total_phases: 108
   completed_phases: 90
   total_plans: 459
-  completed_plans: 449
+  completed_plans: 450
   percent: 83
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 103 (passthrough-urls-serve-url-scheme-phase-2-of-2) — EXECUTING
-Plan: 5 of 11
+Plan: 6 of 11
 
 Last activity (prior): 2026-09-10 -- Phase 103 execution started
 Last activity (prior): 2026-09-10 — Completed Phase 98 more-versatile-stt-tts-support (Amazon Polly + Amazon Transcribe swap for Chatterbox). All 5 waves shipped: Wave 1 (98-01 ffmpeg+SDK install, 98-02 kernels, 98-03 frontend catalog, 98-09 deploy doc), Wave 2 (98-04 AWS adapters, 98-05 migration one-shot + inline Dirent type fix), Wave 3 (98-06 voice.ts rewrite, 98-07 validator flip + inline roles-create followon fix), Wave 4 (98-08 tg-bridge rewire to Skynet /voice/transcribe), Wave 5 (98-10 Chatterbox kill, media-endpoints.ts deleted). Unbiased code review clean (1 HIGH + 3 MED + 2 LOW applied; 3 LOW deferred). Both backend + frontend tsc exit 0 across the full delta. Every plan has SUMMARY.md committed. All Chatterbox integration paths removed cleanly (no dual-provider seam). Ambient IMDS creds via Iris's `SkynetPollyTranscribeAccess` inline policy on `termix-ssm-role`. Voice-migration one-shot wipes existing identity voice values on boot (users re-pick from 7-voice Polly generative catalog). tg-bridge routes through Skynet `/voice/transcribe` (provider-agnostic). Held at push boundary per greenlight-at-push rule; ship in flight.
@@ -224,7 +224,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Alice can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 Progress: [██████████] 100%
 Progress: [██████████] 100%
 
@@ -384,6 +384,7 @@ Progress: [██████████] 100%
 | Phase 106 P106-01 | 35min | 2 tasks | 3 files |
 | Phase 106 P106-04 | 13m 30s | 2 tasks | 2 files |
 | Phase 107 P01 | 217 | 1 tasks | 2 files |
+| Phase 107 P02 | 740 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -965,7 +966,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-12T14:39:27.452Z
+Last session: 2026-09-12T14:55:32.682Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed 106-02-PLAN.md
 Last session: 2026-09-08T03:58:11.814Z
