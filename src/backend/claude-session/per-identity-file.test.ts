@@ -663,3 +663,338 @@ describe("H1 lock — primitive IDENTITY_KEY_RE parity with identity-artifact-re
     }
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// Phase 107 Plan 107-01: .hidden sentinel primitive coverage
+// ──────────────────────────────────────────────────────────────────────
+//
+// Mirrors the existing .pinned test coverage for the new .hidden relPath.
+// Tests H-01 through H-10 exercise:
+//   H-01: whitelist admission (write/remove/exists accept ".hidden")
+//   H-02: whitelist still bounded (".hidden.old", "hidden" without dot still rejected)
+//   H-03: LOCAL write of ".hidden" preserves zero-byte body (presence-is-meaning)
+//   H-04: REMOTE write of ".hidden" delegates to writeMarkdownFileAtomic with $HOME literal + empty body
+//   H-05: LOCAL remove of ".hidden" — idempotent ENOENT swallow
+//   H-06: REMOTE remove of ".hidden" — idempotent SSH_FX_NO_SUCH_FILE swallow
+//   H-07: LOCAL identityFileExists — true/false + fail-closed
+//   H-08: REMOTE identityFileExists — true/false + fail-closed
+//   H-09: no chmod applied to ".hidden" (opts.chmod omitted — mirrors .pinned treatment)
+//   H-10: identityKey gate STILL applies to ".hidden" — widening relPath does NOT loosen key gate
+
+describe("Phase 107 Plan 107-01: .hidden sentinel primitive coverage", () => {
+  // ── H-01: whitelist admission ──────────────────────────────────────────
+
+  it("H-01: writeIdentityFile / removeIdentityFile / identityFileExists accept '.hidden' (no invalid-relPath throw)", async () => {
+    const writeFileMock = fsMod.writeFile as unknown as ReturnType<typeof vi.fn>;
+    const renameMock = fsMod.rename as unknown as ReturnType<typeof vi.fn>;
+    const unlinkMock = fsMod.unlink as unknown as ReturnType<typeof vi.fn>;
+    const statMock = fsMod.stat as unknown as ReturnType<typeof vi.fn>;
+    statMock.mockResolvedValueOnce({ size: 0 });
+
+    // writeIdentityFile must NOT throw at assertValidRelPath for ".hidden"
+    await expect(
+      writeIdentityFile("tina", ".hidden", "", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).resolves.toBeUndefined();
+    expect(writeFileMock).toHaveBeenCalledTimes(1);
+    expect(renameMock).toHaveBeenCalledTimes(1);
+
+    // removeIdentityFile must NOT throw at assertValidRelPath for ".hidden"
+    await expect(
+      removeIdentityFile("tina", ".hidden", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).resolves.toBeUndefined();
+    expect(unlinkMock).toHaveBeenCalledTimes(1);
+
+    // identityFileExists must NOT throw at assertValidRelPath for ".hidden"
+    const exists = await identityFileExists("tina", ".hidden", {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+    });
+    expect(typeof exists).toBe("boolean");
+  });
+
+  // ── H-02: whitelist still bounded ─────────────────────────────────────
+
+  it("H-02: '.hidden.old' and 'hidden' (without dot) still throw 'invalid relPath' — whitelist bound preserved", async () => {
+    // .hidden.old — suffix variant
+    await expect(
+      writeIdentityFile("tina", ".hidden.old", "", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).rejects.toThrow(/invalid relPath/);
+
+    // hidden — missing leading dot
+    await expect(
+      writeIdentityFile("tina", "hidden", "", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).rejects.toThrow(/invalid relPath/);
+
+    // .hiddenx — extended version still rejected
+    await expect(
+      writeIdentityFile("tina", ".hiddenx", "", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).rejects.toThrow(/invalid relPath/);
+  });
+
+  // ── H-03: LOCAL write — zero-byte body preserved ──────────────────────
+
+  it("H-03: LOCAL write of '.hidden' with empty string produces zero-byte file (presence-is-meaning)", async () => {
+    const writeFileMock = fsMod.writeFile as unknown as ReturnType<typeof vi.fn>;
+    const renameMock = fsMod.rename as unknown as ReturnType<typeof vi.fn>;
+
+    await writeIdentityFile("tina", ".hidden", "", {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+    });
+
+    expect(writeFileMock).toHaveBeenCalledTimes(1);
+    // tmp path must end with .hidden.tmp
+    const tmpPath = writeFileMock.mock.calls[0][0] as string;
+    const expectedFinal = path.join(
+      os.homedir(),
+      "fleet",
+      "identities",
+      "tina",
+      ".hidden",
+    );
+    expect(tmpPath).toBe(expectedFinal + ".tmp");
+    // Empty contents threaded through unchanged — zero-byte body (NO contents || fallback)
+    const writtenContents = writeFileMock.mock.calls[0][1] as string;
+    expect(writtenContents).toBe("");
+
+    // rename tmp → final
+    expect(renameMock).toHaveBeenCalledTimes(1);
+    expect(renameMock.mock.calls[0][0]).toBe(expectedFinal + ".tmp");
+    expect(renameMock.mock.calls[0][1]).toBe(expectedFinal);
+  });
+
+  // ── H-04: REMOTE write — writeMarkdownFileAtomic + $HOME literal + empty body ──
+
+  it("H-04: REMOTE write of '.hidden' delegates to writeMarkdownFileAtomic with $HOME literal path and empty body (byte-shape parity)", async () => {
+    const { conn, sftp, renameCalls } = buildMockConn();
+
+    await writeIdentityFile("tina", ".hidden", "", {
+      hostId: REMOTE_HOST_ID,
+      conn,
+    });
+
+    // Must use ext_openssh_rename (via writeMarkdownFileAtomic), NEVER sftp.rename
+    expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
+    expect(sftp.rename).not.toHaveBeenCalled();
+
+    // Byte-shape invariant: $HOME is a literal, NOT resolved via echo
+    expect(renameCalls).toHaveLength(1);
+    expect(renameCalls[0].to).toBe("$HOME/fleet/identities/tina/.hidden");
+
+    // sftp.writeFile invoked with the .tmp target BEFORE the rename
+    expect(sftp.writeFile).toHaveBeenCalledTimes(1);
+    const writeArgs = sftp.writeFile.mock.calls[0];
+    expect(writeArgs[0]).toBe("$HOME/fleet/identities/tina/.hidden.tmp");
+    // Empty contents threaded through (presence-is-meaning — zero-byte)
+    const writtenBuf = writeArgs[1] as Buffer;
+    expect(Buffer.isBuffer(writtenBuf)).toBe(true);
+    expect(writtenBuf.length).toBe(0);
+  });
+
+  // ── H-05: LOCAL remove — idempotent ENOENT swallow ────────────────────
+
+  it("H-05: LOCAL removeIdentityFile of '.hidden' swallows ENOENT silently (idempotent unhide)", async () => {
+    const unlinkMock = fsMod.unlink as unknown as ReturnType<typeof vi.fn>;
+    const enoent = Object.assign(new Error("ENOENT: no such file"), {
+      code: "ENOENT",
+    });
+    unlinkMock.mockRejectedValueOnce(enoent);
+
+    // Should resolve silently even when file doesn't exist
+    await expect(
+      removeIdentityFile("tina", ".hidden", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).resolves.toBeUndefined();
+
+    // When file exists — succeeds and unlinks at the correct path
+    await removeIdentityFile("tina", ".hidden", {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+    });
+    const expectedFinal = path.join(
+      os.homedir(),
+      "fleet",
+      "identities",
+      "tina",
+      ".hidden",
+    );
+    expect(unlinkMock.mock.calls[1][0]).toBe(expectedFinal);
+  });
+
+  // ── H-06: REMOTE remove — SSH_FX_NO_SUCH_FILE swallow ────────────────
+
+  it("H-06: REMOTE removeIdentityFile swallows SSH_FX_NO_SUCH_FILE (code: 2); non-ENOENT error propagates", async () => {
+    // SSH_FX_NO_SUCH_FILE (numeric code 2) swallowed — idempotent unhide of a not-yet-hidden identity
+    const sshNoSuchFile = Object.assign(new Error("No such file"), {
+      code: 2,
+    });
+    const { conn: conn1 } = buildMockConn({ unlinkErr: sshNoSuchFile });
+    await expect(
+      removeIdentityFile("tina", ".hidden", {
+        hostId: REMOTE_HOST_ID,
+        conn: conn1,
+      }),
+    ).resolves.toBeUndefined();
+
+    // Non-ENOENT error DOES propagate
+    const permErr = Object.assign(new Error("Permission denied"), {
+      code: "EACCES",
+    });
+    const { conn: conn2 } = buildMockConn({ unlinkErr: permErr });
+    await expect(
+      removeIdentityFile("tina", ".hidden", {
+        hostId: REMOTE_HOST_ID,
+        conn: conn2,
+      }),
+    ).rejects.toThrow(/Permission denied/);
+  });
+
+  // ── H-07: LOCAL identityFileExists — true/false + fail-closed ─────────
+
+  it("H-07: LOCAL identityFileExists('.hidden') — true when file exists, false on ENOENT, false on any other error (fail-closed)", async () => {
+    const statMock = fsMod.stat as unknown as ReturnType<typeof vi.fn>;
+
+    // Returns true when fs.stat resolves
+    statMock.mockResolvedValueOnce({ size: 0 });
+    const existsTrue = await identityFileExists("tina", ".hidden", {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+    });
+    expect(existsTrue).toBe(true);
+    const expectedFinal = path.join(
+      os.homedir(),
+      "fleet",
+      "identities",
+      "tina",
+      ".hidden",
+    );
+    expect(statMock.mock.calls[0][0]).toBe(expectedFinal);
+
+    // Returns false on ENOENT
+    const enoent = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    statMock.mockRejectedValueOnce(enoent);
+    const existsEnoent = await identityFileExists("tina", ".hidden", {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+    });
+    expect(existsEnoent).toBe(false);
+
+    // Fail-closed: returns false on permission error (never over-report hidden)
+    statMock.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+    const existsEacces = await identityFileExists("tina", ".hidden", {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+    });
+    expect(existsEacces).toBe(false);
+  });
+
+  // ── H-08: REMOTE identityFileExists — true/false + fail-closed ────────
+
+  it("H-08: REMOTE identityFileExists('.hidden') — true on successful sftp.stat, false on any stat error (fail-closed)", async () => {
+    // Returns true on successful sftp.stat
+    const { conn: conn1 } = buildMockConn(); // default: stat returns { size: 0 }
+    const existsTrue = await identityFileExists("tina", ".hidden", {
+      hostId: REMOTE_HOST_ID,
+      conn: conn1,
+    });
+    expect(existsTrue).toBe(true);
+
+    // Returns false on stat error regardless of error code (fail-closed)
+    const statErr = Object.assign(new Error("No such file"), { code: 2 });
+    const { conn: conn2 } = buildMockConn({ statResult: { err: statErr } });
+    const existsFalse = await identityFileExists("tina", ".hidden", {
+      hostId: REMOTE_HOST_ID,
+      conn: conn2,
+    });
+    expect(existsFalse).toBe(false);
+  });
+
+  // ── H-09: no chmod applied to ".hidden" ───────────────────────────────
+
+  it("H-09: writeIdentityFile('.hidden') with opts.chmod OMITTED does NOT invoke execCommand or fs.chmod", async () => {
+    const execMock = execCommand as unknown as ReturnType<typeof vi.fn>;
+    const chmodMock = fsMod.chmod as unknown as ReturnType<typeof vi.fn>;
+
+    // REMOTE branch — no chmod
+    const { conn } = buildMockConn();
+    await writeIdentityFile("tina", ".hidden", "", {
+      hostId: REMOTE_HOST_ID,
+      conn,
+      // opts.chmod deliberately OMITTED
+    });
+    const chmodExecCalls = execMock.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && /chmod/.test(c[1] as string),
+    );
+    expect(chmodExecCalls).toHaveLength(0);
+    expect(chmodMock).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+
+    // LOCAL branch — no chmod
+    await writeIdentityFile("tina", ".hidden", "", {
+      hostId: LOCAL_HOST_ID,
+      conn: null,
+      // opts.chmod deliberately OMITTED
+    });
+    expect(chmodMock).not.toHaveBeenCalled();
+    const chmodExecCallsLocal = execMock.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && /chmod/.test(c[1] as string),
+    );
+    expect(chmodExecCallsLocal).toHaveLength(0);
+  });
+
+  // ── H-10: identityKey gate STILL applies to ".hidden" ─────────────────
+
+  it("H-10: writeIdentityFile throws at identityKey gate for '.hidden' with invalid keys — widening relPath does NOT loosen the key gate", async () => {
+    // Uppercase rejected (MUST throw BEFORE reaching the whitelist gate)
+    await expect(
+      writeIdentityFile("Tina", ".hidden", "", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).rejects.toThrow(/invalid identityKey/);
+
+    // Dot-containing key rejected
+    await expect(
+      writeIdentityFile("tina.core", ".hidden", "", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).rejects.toThrow(/invalid identityKey/);
+
+    // Slash-containing key rejected
+    await expect(
+      writeIdentityFile("tina/sub", ".hidden", "", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).rejects.toThrow(/invalid identityKey/);
+
+    // Empty string rejected
+    await expect(
+      writeIdentityFile("", ".hidden", "", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).rejects.toThrow(/invalid identityKey/);
+  });
+});
