@@ -102,7 +102,11 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     const innerTerminalRef = useRef<TerminalHandle | null>(null);
 
     const { previewTerminalTheme } = useTabsSafe();
-    const { byKey: identitiesByKey } = useIdentities();
+    // quick-260912-0t4 followup: byHostKey-with-byKey-fallback so the terminal-mode
+    // identity badge / modal-open path picks THIS pane's own host when two identities
+    // share a name across the fleet (e.g. willow on workstation + willow on t1000).
+    // Same pattern as PrettyConversationRow.tsx L332-349.
+    const { byHostKey: identitiesByHostKey, byKey: identitiesByKey } = useIdentities();
     const isMobile = useIsMobile();
 
     const tabId = tab.id;
@@ -249,9 +253,19 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     // --- Identity badge / session tint (terminal mode only, like pre-Phase-41) ---
     // identityKey is computed from the known targetTmuxSession for badge display.
     const identityKey = sessionMatchKey(effectiveTmuxSession);
-    const identityColorHue = identityKey != null
-      ? (identitiesByKey.get(identityKey)?.colorHue ?? null)
-      : null;
+    // quick-260912-0t4 followup: resolve identity via this pane's own hostId first
+    // (byHostKey composite key), fall back to bare-name byKey for legacy tests and
+    // pre-fleet-fetch renders. Reused at L253 (colorHue), L457 (render-gate), L461
+    // (IdentityModal prop) — computed once here.
+    const paneHostIdNum = parseInt(host.id, 10);
+    const resolvedIdentity = identityKey == null
+      ? null
+      : (Number.isFinite(paneHostIdNum)
+          ? identitiesByHostKey?.get(`${paneHostIdNum}::${identityKey}`)
+          : undefined)
+        ?? identitiesByKey.get(identityKey)
+        ?? null;
+    const identityColorHue = resolvedIdentity?.colorHue ?? null;
     const sessionHue = identityColorHue != null
       ? identityColorHue
       : hueFromSessionName(effectiveTmuxSession);
@@ -454,13 +468,13 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
           {identityKey &&
             !isPrettyMode &&
             host.id != null &&
-            identitiesByKey.get(identityKey) && (
+            resolvedIdentity && (
               <IdentityModal
                 open={isIdentityModalOpen}
                 onOpenChange={setIsIdentityModalOpen}
-                identity={identitiesByKey.get(identityKey)!}
+                identity={resolvedIdentity}
                 hue={sessionHue ?? 35}
-                hostId={parseInt(host.id, 10)}
+                hostId={paneHostIdNum}
                 container={null}
               />
             )}
