@@ -158,7 +158,8 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
         with open(spill_path, "w") as f:
             f.write(diff_stdout)
         print(
-            "📝 [%s: %s] diff too large to inline — read from %s"
+            "📝 [%s: %s] diff too large to inline — read %s IMMEDIATELY "
+            "(the change may be important to your continued operation)"
             % (kind, label, spill_path),
             flush=True,
         )
