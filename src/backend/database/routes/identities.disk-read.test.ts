@@ -493,3 +493,231 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     }
   });
 });
+
+// ===========================================================================
+// Phase 107 Plan 107-02: publicIdentity.hidden + disk-fanout .hidden probe
+// ===========================================================================
+//
+// Mirrors the PUB-92-* topology exactly for the `.hidden` axis:
+//   PUB-107-signature-1/2/3 — publicIdentity's seventh `hidden` arg
+//   HID-107-01..06          — GET /identities disk-fanout .hidden probe wiring
+//
+// identityFileExists spy is extended via mockImplementation to differentiate
+// `.pinned` vs `.hidden` via the second argument, per Task 1 action guidance.
+
+describe("publicIdentity — Phase 107 Plan 107-02: hidden:boolean field (seventh arg)", () => {
+  it("PUB-107-signature-1: publicIdentity with SIX args (omitting hidden) returns hidden:false (fail-closed default per D-01)", () => {
+    const out = publicIdentity(
+      "tina",
+      1,
+      { displayName: "Tina" },
+      "box-maintainer",
+      null,
+      false, // pinned — sixth arg
+      // hidden omitted — seventh arg defaults to false
+    );
+    expect(out).toHaveProperty("hidden", false);
+  });
+
+  it("PUB-107-signature-2: publicIdentity with SEVEN args (hidden:true) surfaces hidden:true in the returned object", () => {
+    const out = publicIdentity(
+      "tina",
+      1,
+      { displayName: "Tina" },
+      "box-maintainer",
+      null,
+      false, // pinned
+      true,  // hidden — seventh arg
+    );
+    expect(out).toHaveProperty("hidden", true);
+  });
+
+  it("PUB-107-signature-3: pinned and hidden are INDEPENDENT axes — passing pinned:true hidden:false returns both values correctly", () => {
+    const out = publicIdentity(
+      "tina",
+      1,
+      { displayName: "Tina" },
+      "box-maintainer",
+      null,
+      true,  // pinned
+      false, // hidden
+    );
+    expect(out.pinned).toBe(true);
+    expect(out.hidden).toBe(false);
+  });
+});
+
+describe("GET /identities — Phase 107 Plan 107-02 disk-fanout .hidden probe", () => {
+  it("HID-107-01: identityFileExists returns false for .hidden → response.hidden:false; pinned unaffected", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+    });
+    // .pinned=true, .hidden=false
+    identityFileExistsMock.mockImplementation(
+      (_key: string, relPath: string) =>
+        Promise.resolve(relPath === ".pinned"),
+    );
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1 }));
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveProperty("hidden", false);
+    expect(rows[0]).toHaveProperty("pinned", true);
+  });
+
+  it("HID-107-02: identityFileExists returns true for .hidden → response.hidden:true; pinned unaffected", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+    });
+    // .pinned=false, .hidden=true
+    identityFileExistsMock.mockImplementation(
+      (_key: string, relPath: string) =>
+        Promise.resolve(relPath === ".hidden"),
+    );
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1 }));
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveProperty("hidden", true);
+    expect(rows[0]).toHaveProperty("pinned", false);
+  });
+
+  it("HID-107-03: identityFileExists throws for .hidden → response.hidden:false (fail-closed per D-01); pinned probe unaffected", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+    });
+    // .pinned → true (resolves); .hidden → throws
+    identityFileExistsMock.mockImplementation(
+      (_key: string, relPath: string) => {
+        if (relPath === ".hidden") {
+          return Promise.reject(new Error("stat failed for .hidden"));
+        }
+        return Promise.resolve(true); // .pinned succeeds
+      },
+    );
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1 }));
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    // Must NOT be 5xx — the fanout swallows .hidden probe failures.
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    // fail-closed: .hidden throw → hidden:false, MUST NOT paint identity as hidden.
+    expect(rows[0]).toHaveProperty("hidden", false);
+    // .pinned probe is unaffected — its result still surfaces.
+    expect(rows[0]).toHaveProperty("pinned", true);
+  });
+
+  it("HID-107-04: .hidden probe runs in parallel with .pinned + readIdentityFile (same Promise.all wave, not serial)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina", "poppy"]);
+
+    // Hold readIdentityFile pending. If .hidden were serialized after
+    // readIdentityFile, it wouldn't fire until readIdentityFile resolved.
+    let readIdentityResolvers: Array<() => void> = [];
+    readIdentityFileMock.mockImplementation(() => {
+      return new Promise((resolve) => {
+        readIdentityResolvers.push(() =>
+          resolve({
+            markdown: "---\nrole: box-maintainer\ndisplayName: X\n---\n",
+          }),
+        );
+      });
+    });
+
+    identityFileExistsMock.mockResolvedValue(false);
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1, poppy: 1 }));
+    const inFlight = httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    // Let microtasks settle so the per-key fanout dispatches.
+    await new Promise((r) => setTimeout(r, 30));
+
+    // With readIdentityFile still pending, BOTH .pinned and .hidden probes
+    // MUST have already fired for each identity (2 identities × 2 probes = 4
+    // calls) — proving they run in the SAME Promise.all wave.
+    expect(identityFileExistsMock.mock.calls.length).toBe(4);
+    // Both readIdentityFile calls are also in-flight.
+    expect(readIdentityFileMock.mock.calls.length).toBe(2);
+
+    // Resolve everything.
+    for (const r of readIdentityResolvers) r();
+    const res = await inFlight;
+    expect(res.status).toBe(200);
+  });
+
+  it("HID-107-05: no per-identity memo — identityFileExists called ONCE PER IDENTITY PER SENTINEL TYPE (2 calls per identity: .pinned + .hidden)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina", "poppy", "moxie"]);
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nrole: box-maintainer\ndisplayName: X\n---\n",
+    });
+    identityFileExistsMock.mockResolvedValue(false);
+
+    const hostsJson = encodeURIComponent(
+      JSON.stringify({ tina: 1, poppy: 1, moxie: 1 }),
+    );
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    expect(res.status).toBe(200);
+    // 3 identities × 2 probes (.pinned + .hidden) = 6 total calls.
+    expect(identityFileExistsMock).toHaveBeenCalledTimes(6);
+    // Each identity gets exactly one .pinned call and one .hidden call.
+    const pinnedCalls = identityFileExistsMock.mock.calls.filter(
+      (c) => c[1] === ".pinned",
+    );
+    const hiddenCalls = identityFileExistsMock.mock.calls.filter(
+      (c) => c[1] === ".hidden",
+    );
+    expect(pinnedCalls).toHaveLength(3);
+    expect(hiddenCalls).toHaveLength(3);
+  });
+
+  it("HID-107-06: H3 lock — identityKey passed VERBATIM to identityFileExists for .hidden (byte-for-byte, no case coercion)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    const folderNames = ["tina", "alice-01", "role_underscore"];
+    listIdentityKeysOnHostMock.mockResolvedValue(folderNames);
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nrole: box-maintainer\ndisplayName: X\n---\n",
+    });
+    identityFileExistsMock.mockResolvedValue(false);
+
+    const hostsJson = encodeURIComponent(
+      JSON.stringify({ tina: 1, "alice-01": 1, role_underscore: 1 }),
+    );
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+    expect(res.status).toBe(200);
+
+    // Filter to .hidden probe calls only.
+    const hiddenCalls = identityFileExistsMock.mock.calls.filter(
+      (c) => c[1] === ".hidden",
+    );
+    const receivedKeys = hiddenCalls.map((c) => c[0] as string);
+
+    // Every folder name from listIdentityKeysOnHost MUST appear in .hidden
+    // probe calls byte-for-byte.
+    for (const expected of folderNames) {
+      expect(receivedKeys).toContain(expected);
+    }
+
+    // Positive-shape lock: no uppercase key ever reaches the primitive from
+    // this fanout (the reader regex forbids uppercase folder names; this lock
+    // catches any future refactor that accidentally re-introduces coercion).
+    for (const k of receivedKeys) {
+      expect(k).toBe(k.toLowerCase());
+    }
+  });
+});
