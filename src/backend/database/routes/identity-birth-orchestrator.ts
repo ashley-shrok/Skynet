@@ -160,9 +160,13 @@ export { ROLE_NAME_PATTERN };
  *   - Do NOT reference id-skill section numbers (§2, §3) or the id-skill
  *     file path — those refs could change.
  *   - Speak in plain terms.
+ *
+ * REVISION 2026-09-12 (Ashley): the birth flow (Steps 6-8: admin-mint +
+ * login-as-user + SFTP-write relay.json) creates the Matrix account BEFORE
+ * the identity's first wake, so the seed comment was factually stale by
+ * the time any agent read it. Constant deleted; emitted identity file
+ * now omits the seed comment entirely.
  */
-export const IDENTITY_FILE_SEED_COMMENT =
-  "<!-- This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment. -->";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -567,7 +571,7 @@ function buildIdentityFileBody(
     forceQuotes: false,
   });
 
-  return `---\n${yamlBody}---\n\n${IDENTITY_FILE_SEED_COMMENT}\n\n# ${opts.name}\n`;
+  return `---\n${yamlBody}---\n\n# ${opts.name}\n`;
 }
 
 // ---------------------------------------------------------------------------

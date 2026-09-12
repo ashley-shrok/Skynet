@@ -557,11 +557,11 @@ describe("POST /identities/clone", () => {
     expect(stubBody).toContain("avatar: tina-2.png"); // ext from candidate mime
     // colorHue is absent when the request body omits it (Test 8 doesn't send)
     expect(stubBody).not.toContain("colorHue:");
-    // (b) Positive assertions: seed comment phrases present (REVISION 2026-08-04)
-    expect(stubBody).toContain("This identity has no relay account yet");
-    expect(stubBody).toContain("On first wake");
-    expect(stubBody).toContain("register a Matrix relay account");
-    expect(stubBody).toContain("remove this comment");
+    // (b) Seed comment REMOVED (REVISION 2026-09-12 Ashley): clone flow now
+    // mints Matrix account server-side before first wake, so the stale
+    // "register a Matrix relay account" instruction is no longer emitted.
+    expect(stubBody).not.toContain("This identity has no relay account yet");
+    expect(stubBody).not.toContain("register a Matrix relay account");
     // (c) NO "Skynet" (case-insensitive)
     expect(stubBody).not.toMatch(/skynet/i);
     // (d) NO id-skill references (case-insensitive)

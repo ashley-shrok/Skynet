@@ -62,13 +62,11 @@
  *   13. 201 with publicIdentity(newRow) response.
  *   14. Finally: try conn.end() catch {} — best-effort cleanup on every exit.
  *
- * REVISION 2026-08-04 (Alice at 22-02 checkpoint, applied here per same-
- * pattern extension): Skynet does NOT invoke the relay-register block via
- * SSH from this endpoint. Same refinement as 22-02 Task 3 (revised): the
- * new identity file gets a SEED COMMENT instructing the wake-up agent to
- * register a Matrix relay account on first wake. Rationale: fewer moving
- * parts in Skynet, cleaner boundary (Skynet does file setup, agent does
- * identity setup), same end-state. See CLONE_SEED_COMMENT constant below.
+ * REVISION 2026-09-12 (Ashley): the clone flow now mints the Matrix account
+ * server-side (mirroring identity-birth Steps 6-8) BEFORE the cloned
+ * identity's first wake. The prior "SEED COMMENT" that instructed the
+ * wake-up agent to register the account is deleted — it was stale by the
+ * time any agent read it.
  *
  * Security posture (STRIDE T-22-03-* in the plan's threat model):
  *   T-22-03-01: Shell injection via newName — MITIGATE via IDENTITY_KEY_RE
@@ -179,21 +177,12 @@ function normalizeRemotePath(p: string): string {
 }
 
 /**
- * REVISION 2026-08-04 (Alice at 22-02 checkpoint, applied here per same-
- * pattern extension). Seed comment embedded in the new identity file
- * telling the wake-up agent to register a Matrix relay account for this
- * identity on first wake.
- *
- * Style constraints (verbatim from Alice — enforced by test 8 assertions):
- *   - Do NOT say "Skynet" (agents don't know what that is)
- *   - Do NOT reference §2 / §3 / "id skill" / SKILL.md (fragile skill refs)
- *   - Plain-terms instructions to the wake-up agent
- *   - Ends with "remove this comment" so the agent knows to clear it
- *   - MUST contain: "This identity has no relay account yet", "On first wake",
- *     "register a Matrix relay account", "remove this comment"
+ * REVISION 2026-09-12 (Ashley): the identity-clone flow (like identity-birth)
+ * now mints the Matrix account server-side before the cloned identity ever
+ * wakes, so the "no relay account yet" seed comment was factually stale by
+ * the time any agent read it. Constant deleted; cloned identity file omits
+ * the seed comment entirely.
  */
-const CLONE_SEED_COMMENT =
-  "<!-- This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment. -->";
 
 /**
  * Public identity DTO — Phase 68 shape (10 fields, no id/createdAt/updatedAt).
@@ -731,7 +720,7 @@ router.post(
         },
       );
       const identityFileMarkdown =
-        `---\n${cloneYamlBody}---\n\n${CLONE_SEED_COMMENT}\n\n# ${newName}\n\n(cloned from ${sourceIdentityKey})\n`;
+        `---\n${cloneYamlBody}---\n\n# ${newName}\n\n(cloned from ${sourceIdentityKey})\n`;
       const targetPath = `${remoteHome}/fleet/identities/${newName}/${newName}.md`;
       try {
         await writeMarkdownFileAtomic(conn, targetPath, identityFileMarkdown);

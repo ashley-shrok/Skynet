@@ -302,11 +302,11 @@ it("Test 12: writeMarkdownFileAtomic invoked with target path + role: frontmatte
   //  parity invariant.)
   expect(contents).toMatch(/^---\r?\nrole: box-maintainer\r?\n/);
 
-  // Seed comment assertions — required exact phrases per Alice's constraints:
-  expect(contents).toContain("This identity has no relay account yet");
-  expect(contents).toContain("On first wake");
-  expect(contents).toContain("register a Matrix relay account");
-  expect(contents).toContain("remove this comment");
+  // Seed comment REMOVED (REVISION 2026-09-12 Ashley): birth flow mints
+  // Matrix account server-side (Steps 6-8) before first wake, so the stale
+  // "register a Matrix relay account" instruction is no longer emitted.
+  expect(contents).not.toContain("This identity has no relay account yet");
+  expect(contents).not.toContain("register a Matrix relay account");
 
   // Style constraints — MUST NOT reference internal fleet names or skill sections:
   expect(contents.toLowerCase()).not.toContain("skynet");
@@ -416,8 +416,8 @@ it("Test 17: identity file body has ---\\nrole: <role>\\n---, seed comment, and 
   expect(contents).toMatch(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
   // heading present
   expect(contents).toMatch(/#\s+testkey/i);
-  // seed comment present (HTML comment style)
-  expect(contents).toMatch(/<!--[\s\S]*first wake[\s\S]*-->/i);
+  // seed comment REMOVED (REVISION 2026-09-12 Ashley): birth mints server-side.
+  expect(contents).not.toMatch(/<!--[\s\S]*first wake[\s\S]*-->/i);
 }, 30_000);
 
 // ---------------------------------------------------------------------------
@@ -600,11 +600,10 @@ it("Test 20: full cosmetics present → frontmatter emits role/displayName/title
     "avatar",
   ]);
 
-  // Body shape: frontmatter, seed comment, H1 heading — same envelope as
-  // Test 17 but now with the extra cosmetic keys.
+  // Body shape: frontmatter, H1 heading — same envelope as Test 17 (seed
+  // comment removed 2026-09-12 per Ashley) but with the extra cosmetic keys.
   expect(contents.startsWith("---\n")).toBe(true);
-  expect(contents).toMatch(/---\r?\n\r?\n<!--/); // frontmatter closes, blank line, seed comment
-  expect(contents).toMatch(/#\s+testkey/i);
+  expect(contents).toMatch(/---\r?\n\r?\n#\s+testkey/i); // frontmatter closes, blank line, H1
 }, 30_000);
 
 it("Test 21: absent-⇒-omit — empty title + null colorHue + null voice → those keys NOT present in frontmatter", async () => {
