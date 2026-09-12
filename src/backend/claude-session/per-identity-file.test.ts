@@ -9,8 +9,8 @@
 //        /^[a-z0-9_-]{1,64}$/ — NOT the looser identity-birth.ts:64 regex.
 //        This is the H1 fix: same regex writer + readers = no silent
 //        write-succeeds-read-fails divergence.
-//   (T2) relPath gate is a bounded whitelist: exactly two literals
-//        ("relay.json" and ".pinned").
+//   (T2) relPath gate is a bounded whitelist: exactly three literals
+//        ("relay.json", ".pinned", and ".hidden" — Phase 107 Plan 107-01).
 //   (T3-T4) LOCAL + REMOTE happy-path writes.
 //   (T5-T6) LOCAL + REMOTE removes are idempotent (ENOENT swallowed).
 //   (T7-T8) LOCAL + REMOTE exists returns true/false, fail-closed on error.
@@ -270,11 +270,12 @@ describe("writeIdentityFile — relPath whitelist (D-01 filename lock)", () => {
     expect(sftp.writeFile).not.toHaveBeenCalled();
   });
 
-  it("whitelist is exactly {relay.json, .pinned}", () => {
+  it("whitelist is exactly {relay.json, .pinned, .hidden} — Phase 107 Plan 107-01 extended to three entries", () => {
     expect(ALLOWED_REL_PATHS).toBeInstanceOf(Set);
-    expect(ALLOWED_REL_PATHS.size).toBe(2);
+    expect(ALLOWED_REL_PATHS.size).toBe(3);
     expect(ALLOWED_REL_PATHS.has("relay.json")).toBe(true);
     expect(ALLOWED_REL_PATHS.has(".pinned")).toBe(true);
+    expect(ALLOWED_REL_PATHS.has(".hidden")).toBe(true);
   });
 
   it("rejects any relPath not in whitelist ('history.md', 'foo.txt')", async () => {

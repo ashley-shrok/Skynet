@@ -25,8 +25,8 @@
  *   divergence class of bug (loose write vs strict read).
  *
  * relPath whitelist:
- *   ALLOWED_REL_PATHS = { "relay.json", ".pinned" } — bounded to the two
- *   file basenames this phase's callers touch (D-01 filename lock). Any
+ *   ALLOWED_REL_PATHS = { "relay.json", ".pinned", ".hidden" } — bounded to
+ *   the three file basenames phase callers touch (D-01 filename lock). Any
  *   other value throws before I/O — belt-and-suspenders vs identityKey
  *   traversal (the reader regex already excludes `.` and `/` characters).
  *
@@ -75,12 +75,14 @@ export { IDENTITY_KEY_RE };
 /**
  * The bounded set of basenames the per-identity file primitive is allowed to
  * touch. Any other value throws before I/O. Kept intentionally tiny — only
- * "relay.json" (identity-birth Step 8) and ".pinned" (pin action, Plan 02)
- * are legitimate targets under D-05's one-audit-surface rule.
+ * "relay.json" (identity-birth Step 8), ".pinned" (pin action, Plan 92-02),
+ * and ".hidden" (hidden-sentinel, Phase 107 Plan 107-01) are legitimate
+ * targets under D-05's one-audit-surface rule. // (D-01 filename lock)
  */
 export const ALLOWED_REL_PATHS: ReadonlySet<string> = new Set([
   "relay.json",
   ".pinned",
+  ".hidden",
 ]);
 
 // ---------------------------------------------------------------------------
