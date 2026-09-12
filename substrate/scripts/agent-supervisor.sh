@@ -1197,7 +1197,15 @@ idle_check() {
 # Returns 0 = clear to kill, non-zero = something pending.
 pending_check() {
   local name="$1"
-  matrix_peek "$name" && return 1
+  # matrix_peek intentionally NOT called here (Ashley 2026-09-12). A LIVE identity's receiver
+  # is already processing messages — supervisor doesn't need to double-check the relay to
+  # decide whether to sweep to dormant. If a message races the sweep, the dormant-branch peek
+  # catches it on the next tick (~30s) and wakes the identity. Dropping this call also kills
+  # the state-churn false-positive class (registry-room m.room.member events from other
+  # identity mints were perma-blocking sweep across the fleet) and slashes supervisor→
+  # homeserver polling by ~90% (only dormant identities poll now, not live ones).
+  # schedule_peek stays: don't kill an identity right before a scheduled wake fires — the
+  # in-session wakeup-scheduler Monitor dies with the session and the fire would be missed.
   schedule_peek "$name" && return 1
   return 0
 }
@@ -1262,16 +1270,19 @@ _matrix_peek_one() {
     fi
     return 1                                # skip this cycle; next cycle uses fresh token
   fi
-  # Count wake signals:
-  # (a) new timeline events in JOINED rooms from senders != self (peer messaging me)
-  # (b) pending INVITES (someone created a fresh DM room to reach me while dormant)
-  # Either counts. On resume, my own receiver auto-joins invites + backfills the message.
-  local ec ic
+  # Count wake signals: new MESSAGE events (m.room.message / m.room.encrypted) in JOINED
+  # rooms from senders != self. State events (m.room.member, m.room.name, m.room.topic,
+  # etc.) do NOT wake — e.g. registry-room membership churn from other identity mints is
+  # background noise, not a message for me (Ashley 2026-09-12). Invites also do NOT wake:
+  # recv.sh auto-accepts them silently on the next real wake, which comes from the first
+  # actual message in the room, not the bare invite (see recv.sh L236 comment block).
+  local ec
   ec=$(echo "$resp" | jq --arg self "$self" \
-    '[.rooms.join // {} | to_entries[] | .value.timeline.events[]? | select(.sender != $self)] | length' 2>/dev/null)
-  ic=$(echo "$resp" | jq '[.rooms.invite // {} | keys[]] | length' 2>/dev/null)
-  if [ "${ec:-0}" -gt 0 ] || [ "${ic:-0}" -gt 0 ]; then
-    metric event=matrix-peek identity="$name" account="$account" result=wake events="${ec:-0}" invites="${ic:-0}"
+    '[.rooms.join // {} | to_entries[] | .value.timeline.events[]?
+      | select(.sender != $self and (.type == "m.room.message" or .type == "m.room.encrypted"))
+     ] | length' 2>/dev/null)
+  if [ "${ec:-0}" -gt 0 ]; then
+    metric event=matrix-peek identity="$name" account="$account" result=wake events="${ec:-0}"
     return 0
   fi
   metric event=matrix-peek identity="$name" account="$account" result=quiet
