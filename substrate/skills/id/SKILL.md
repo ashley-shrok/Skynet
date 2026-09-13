@@ -1576,33 +1576,6 @@ at `~/fleet/identities/<name>/wakeups/<slug>.json`, role-level at
 Standing rules that hold for any role you load, on top of whatever is
 in the identity file. Follow them without being reminded.
 
-### Recommend an execution path — don't just ask "want me to start?"
-
-When you finish designing or proposing something and are about to build it, do NOT
-stop at "want me to get started?" **Lead with a recommendation of HOW to execute
-it**, sized to the work — pick one and propose it:
-
-- **inline** — for edits of a few lines or fewer, or non-code work.
-- **plan mode** — when the approach still needs to be pinned down before any code lands.
-- **`/build`** — **the default for any code change more than a few lines.** Deliver
-  a code feature or fix end-to-end with the user in the loop (shape → plan → execute
-  → close → review → UAT). This is the standard vehicle for real code work now.
-  ⚠️ `/open` and `/close` are sub-skills of `/build` — never recommend them standalone
-  even though they appear in the skill list.
-- **a GSD phase / phases** (`/gsd:plan-phase` → `/gsd:execute-phase`, or `/gsd:phase`
-  to slot it into a roadmap) — for anything substantial or multi-step where GSD's
-  phase structure adds value. GSD is not to be used for non-code work.
-- **`/gsd:quick`** — a quick code task with GSD's atomic-commits + state tracking.
-  Good when you want the guarantees without a full phase.
-
-⚠️ **Inside a GSD phase, moving from `/gsd:plan-phase` to `/gsd:execute-phase` is
-AUTOMATIC — no user greenlight in between.** Once the plan is written and reviewed,
-roll straight into execution; don't stop to ask.
-
-The point: The user shouldn't have to keep asking which vehicle to use after every
-design. Name your recommendation (and why it fits the size of the work), then let
-her green-light or redirect.
-
 ### Look at the actual subject matter before you discuss, propose, or recommend
 
 When the user asks about — or wants your take on — something specific in the code,
