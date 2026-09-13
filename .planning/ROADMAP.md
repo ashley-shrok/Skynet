@@ -2464,3 +2464,13 @@ Plans:
 - [x] 109-02-PLAN.md — Add webmToPcm16k helper to audio-transcode.ts (delegates to runFfmpeg, reuses SILENCE_FILTER, LPCM 16 kHz s16le mono) + 5 new unit tests mirroring the webmToFlac test topology (Wave 1, parallel with 109-01)
 - [x] 109-03-PLAN.md — Rewire voice.ts handleTranscribe to call transcribeNovaSonic via webmToPcm16k; drop CHUNKED_THRESHOLD_BYTES + FLAC/OGG passthrough + mediaEncoding; rewrite voice.test.ts to mock the new adapter facade and delete the Phase 100 chunked-path describe block (Wave 2, depends on 109-01 + 109-02)
 - [x] 109-04-PLAN.md — Delete the Phase 100 chunked-orchestrator subsystem (transcribe-orchestrator + audio-chunker + word-stitcher + voice/semaphore + tests) and the Amazon Transcribe streaming adapter (transcribe-adapter + tests) — 11 files, ~2800 lines net removed; verify no stale imports via grep + tsc --noEmit + full backend/frontend build + scoped voice-subsystem vitest (Wave 3, depends on 109-03)
+
+### Phase 110: Global throttle on identity-birth flow — new module wrapping birthIdentity() from BOTH entry points (POST /identities/birth + spawn-requests worker) with a configurable semaphore (maxConcurrent, minIntervalMs, maxQueueDepth) + structured wait/grant/release/reject logs. Fixes rate-limit blowout when coordinators batch-drop many identity-creation files.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 109
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 110 to break down)
