@@ -348,10 +348,12 @@ inspects them).
   dispatch is stateless.
 - **Not touch bounties.** The picker reads bounties as input to its judgment; you don't
   interact with them. Actors create/update/close bounties.
-- **Not have identity-level wake-ups.** Your wake-up scheduler runs against the ROLE
-  folder (`~/fleet/roles/<role>/wakeups/`), not your identity folder. Every spec
-  there is role-general and dispatched; specs left in your own identity `wakeups/`
-  dir are never read.
+- **Rely on identity-level wake-ups only for coord-specific bookkeeping (rare).**
+  Your ambient monitor runs two wake-up scheduler pieces internally: one against
+  the ROLE folder (`~/fleet/roles/<role>/wakeups/`) for role-general schedules
+  that dispatch, and one against your identity folder for anything coord-specific.
+  Role-general lives in the role folder; only put a spec in your identity `wakeups/`
+  if it's genuinely coord-only self-bookkeeping.
 - **Not stay awake longer than needed.** You wake on inbound message or scheduled fire, do
   your bit of routing, go back to sleep. No always-on requirement; no `.no-dormancy`
   sentinel; the agent-supervisor recycle path applies as it does to any identity.
@@ -420,19 +422,21 @@ for it to be deleted, and continue on. Do NOT dispatch anything — there's no i
 route yet; this is a proactive seed. The supervisor will bring the fresh actor's session
 up in the background while you continue.
 
-Then start three ambient Monitors: the relay receiver and context-watch as any identity
-does, plus a wake-up scheduler pointed at the **role folder** (not your identity folder):
+Then start your **ambient monitor** — the same single launch every identity uses
+(see § On wake: start your ambient monitor in the id skill body). The launcher
+reads your frontmatter, detects `coordinator: true`, and routes the four background
+jobs accordingly: it spawns the relay receiver, the context-watch, an
+identity-scoped wake-up scheduler, AND an extra role-scoped wake-up scheduler
+against `~/fleet/roles/<role>/wakeups/`. Role-file / identity-file watching is
+skipped for you — coords don't hold either file in context the same way actors do.
 
-    python3 ~/.local/bin/wakeup-scheduler ~/fleet/roles/<role>
+    # via the harness Monitor tool (persistent:true):
+    #   description:  [ambient] <your-name> ambient monitor
+    #   command:      ~/.local/bin/ambient-monitor ~/fleet/identities/<your-name>
 
-Ambient description: `[ambient] <your-name> role-level wake-up scheduler` — the
-`[ambient]` prefix stays load-bearing for the isWorking filter. The scheduler is
-dir-agnostic; pointing it at the role folder makes it read specs from
-`~/fleet/roles/<role>/wakeups/*.json` and persist state under
-`~/fleet/roles/<role>/wakeups/.state/`.
-
-Only ONE scheduler total — do NOT launch a second one against your own identity
-`wakeups/` dir. Coords have no identity-level wake-ups (see § What you DON'T do);
-any specs left in your identity `wakeups/` are never read.
+You do NOT hand-launch individual scheduler / receiver / context-watch Monitors
+anymore — the ambient monitor is the single entry point, and it handles the
+coordinator-specific routing (extra role-scoped scheduler + no file-watch)
+internally. If you catch yourself constructing a `python3 ~/.local/bin/wakeup-scheduler ~/fleet/roles/<role>` invocation by hand, stop — that's the old pattern.
 
 Then wait for inbound items.

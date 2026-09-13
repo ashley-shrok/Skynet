@@ -32,18 +32,21 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 23 entries (16 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95)", () => {
-    // 16 = 7 single-file skills + agent-relay (SKILL.md + recv.sh counted as
-    // one item) + id (SKILL.md + 3 companions counted as one item) + 7 helper
-    // scripts. Per-FILE row layout is required by the byte-compare mechanism
-    // in Plan 03, so the array has 13 skill-side rows + 9 scripts-side rows +
-    // 1 user-onboarding row (agent-supervisor.service).
+  it("Test 1: contains exactly 24 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase)", () => {
+    // 17 = 7 single-file skills + agent-relay (SKILL.md + recv.sh counted as
+    // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
+    // scripts + 1 mega-monitor launcher (ambient-monitor). Per-FILE row
+    // layout is required by the byte-compare mechanism in Plan 03, so the
+    // array has 13 skill-side rows + 10 scripts-side rows + 1 user-onboarding
+    // row (agent-supervisor.service).
     // role-file-watch is the 7th helper script (fourth ambient monitor alongside
     // wakeup-scheduler and context-watch). fleet-status-sweep is the 8th helper
     // script (Phase 92 batch sweep for the fleet-status poller).
     // pv-context-pct-sweep is the 9th helper script (Phase 95 batch sweep for the
-    // PrettyView context-pct poller).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(23);
+    // PrettyView context-pct poller). ambient-monitor is the 10th — the single
+    // on-wake launcher that spawns the four ambient watchers under one Monitor
+    // instead of four (mega-monitor phase).
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(24);
   });
 
   it("Test 2: every bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -102,11 +105,12 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
 
     // 13 skill-side files: 4 under id/ + 2 under agent-relay/ + 7 single-file skills
     expect(skillRows.length).toBe(13);
-    // 9 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
+    // 10 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + install-usage-reporter +
     // claude-usage-collector + fleet-status-sweep (Phase 92 batch sweep) +
-    // pv-context-pct-sweep (Phase 95 PrettyView context-pct batch sweep)
-    expect(scriptRows.length).toBe(9);
+    // pv-context-pct-sweep (Phase 95 PrettyView context-pct batch sweep) +
+    // ambient-monitor (mega-monitor phase, single on-wake launcher)
+    expect(scriptRows.length).toBe(10);
     // 1 user-onboarding file: agent-supervisor.service
     expect(userOnboardingRows.length).toBe(1);
 
@@ -142,7 +146,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       );
     }
 
-    // All 9 scripts land under ~/.local/bin/
+    // All 10 scripts land under ~/.local/bin/
     for (const row of scriptRows) {
       expect(row.installPath.startsWith("~/.local/bin/")).toBe(true);
     }

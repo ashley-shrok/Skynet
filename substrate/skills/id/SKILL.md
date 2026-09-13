@@ -374,9 +374,15 @@ detection rule stated above. De-dup by identity name.
 If no actors exist (only coordinators, or role has only you), announce that fact — the
 user needs to know dispatches will escalate to her.
 
-**On-wake Monitors** still apply as they do for any identity — the coordinator needs the
-relay receiver (to receive DMs), the wake-up scheduler (to fire role-general wakes), and
-the context watch. Start all three via the sections below, same as actors do.
+**On-wake Monitor** still applies as it does for any identity — start the single
+**ambient monitor** as described in § On wake: start your ambient monitor below.
+The ambient monitor detects your coordinator status from your frontmatter at
+spawn time and internally routes the four background jobs accordingly — you
+get the relay receiver (to receive DMs), the context watch, an identity-scoped
+wake-up scheduler, AND an extra role-scoped wake-up scheduler (so role-general
+wakes fire on you). Role-file / identity-file watching is skipped for you —
+coordinators don't hold either file in context the same way actors do. Same
+launch either way; no coordinator-specific launch recipe.
 
 **Then, adopt the coordinator instructions silently and wait for inbound items.** Every
 subsequent inbound message or wake-up fire is handled per the coordinator instructions —
@@ -384,220 +390,143 @@ do NOT do role work yourself, ever, even if it looks trivial.
 
 ---
 
-## On-wake Monitors: `description: [ambient] ...` — filter contract
+## On-wake Monitor: `description: [ambient] ...` — filter contract
 
-The four on-wake Monitors below (receiver, wake-up scheduler, context-watch,
-role-file watch), plus any additional persistent Monitor you launch as background
-plumbing (e.g. a second-server relay receiver on another homeserver), are **ambient**
-— they run for the whole session as infrastructure, not as active work. Skynet's
-PrettyView filters them out of the "isWorking" fleet-status count by matching
-**`description.startsWith("[ambient] ")`** on the Stop-hook payload. Without the
-prefix, every identity looks permanently working forever and the ready-dot never
-appears.
+The on-wake ambient monitor below, plus any additional persistent Monitor you
+launch as background plumbing (e.g. a second-server relay receiver on another
+homeserver), are **ambient** — they run for the whole session as infrastructure,
+not as active work. Skynet's PrettyView filters them out of the "isWorking"
+fleet-status count by matching **`description.startsWith("[ambient] ")`** on the
+Stop-hook payload. Without the prefix, every identity looks permanently working
+forever and the ready-dot never appears.
 
 **Rule:** every persistent-Monitor launched by this skill (or by an identity as
 ambient plumbing) uses a description of the form **`[ambient] <what>`** —
-`[ambient] <name> relay receiver`, `[ambient] <name> wake-up scheduler`,
-`[ambient] <name> context watch`, `[ambient] <name> role-file watch`,
-`[ambient] <name>@<other-server> relay receiver`,
-etc. Active-work Monitors (e.g. `gh pr checks --watch` for a specific PR you're
-babysitting) do NOT get the prefix — those SHOULD show as work. (2026-08-13, Tina,
-Skynet Phase 34; filter code lives in
+`[ambient] <name> ambient monitor` for the main on-wake launcher,
+`[ambient] <name>@<other-server> relay receiver` for extra relay receivers on
+other homeservers, etc. Active-work Monitors (e.g. `gh pr checks --watch` for a
+specific PR you're babysitting) do NOT get the prefix — those SHOULD show as
+work. (2026-08-13, Tina, Skynet Phase 34; filter code lives in
 `~/skynet/src/backend/fleet-status/ambient-filter.ts`.)
 
 ---
 
-## On wake: start your relay receiver
+## On wake: start your ambient monitor
 
-Agents may need to reach you directly through Element/Matrix. You don't manage any of that by hand — as part
-of waking up, once per session right after you announce yourself, you just
-**start your relay receiver**.
-
-The receiver is an all-in-one account adapter: it watches **every room your relay
-account is in** and **auto-joins any invite**
-addressed to you, waking you on it. So simply having it running makes you reachable
-— if another agent wants to talk to you, they invite/message you and the
-receiver wakes you. There's nothing to point it at and no DM to set up in advance;
-membership is the whole story.
-
-All the mechanics come from the **`agent-relay` skill** — load it for the building
-blocks (logging in, and the wake-on-message receiver) and use THIS identity's
-durable relay account at `~/fleet/identities/<name>/relay.json` (don't make a
-throwaway). Log in with the stored creds for a fresh token, seed the cursor, and
-launch the receiver **once, as a persistent `Monitor`** (per the agent-relay skill) —
-it long-polls forever and surfaces each message as its own wake **without exiting, so
-you never relaunch it** and you never re-check channels/invites by hand (the receiver
-already watches every room and auto-joins every invite on its own). A *fresh* session
-— an initial `/id` load or a supervisor recycle — re-runs this setup naturally; async
-wakes **within** a session do not.
-
-⚠️ **Use the SHIPPED receiver — do NOT hand-roll your own.** Launch the served
-`recv.sh` side file; it is the one well-tested copy. A divergent hand-written receiver
-silently drops one of its fixes and has repeatedly reintroduced self-echo /
-dropped-message bugs. The same rule holds for the scheduler and context-watch below:
-launch the served script, never a hand-authored one. ⚠️ **Do NOT guess the URL** — two
-agents have independently hallucinated `/vms/home/relay/recv.sh` (which never existed);
-the canonical served path is exactly the one below.
-
-Launch the receiver that shipped with your substrate install. The Skynet distributor keeps
-`~/.claude/skills/agent-relay/recv.sh` current on every container restart; you just launch it:
-
-    # via the harness Monitor tool (persistent:true), after exporting STATE_DIR +
-    # SINCE_FILE per the paragraph below:
-    #   description:  [ambient] <name> relay receiver
-    #   command:      bash ~/.claude/skills/agent-relay/recv.sh
-
-**Persist your cursor across restarts (so you never miss a message sent while you
-were down).** Before you set up the receiver, create a stable per-identity state dir
-and export BOTH `STATE_DIR` and `SINCE_FILE` pointed at it:
-
-    mkdir -p ~/fleet/identities/<name>/relay-state
-    export STATE_DIR=~/fleet/identities/<name>/relay-state
-    export SINCE_FILE=~/fleet/identities/<name>/relay-state/since
-
-⚠️ **Both exports are load-bearing — do NOT invent an ephemeral `STATE_DIR=/tmp/...`
-for a durable identity.** recv.sh derives your creds path as
-`$(dirname "$STATE_DIR")/relay.json`, so `STATE_DIR` MUST land inside your identity
-folder for it to find `relay.json`. If STATE_DIR points at `/tmp/whatever`, the cred
-resolver silently comes up empty, BASE and TOK stay unset, the sync loop calls a
-malformed URL with an empty Bearer, curl exits 3, the CURSOR GUARD falls back to
-`sleep 3; continue` — and you're a silent-deafness zombie the supervisor can't see.
-(Caught 2026-07-29: Nelly missed a Tina DM for ~90 min this way after inventing a
-`/tmp/nelly-relay-$$` STATE_DIR on load.)
-
-The agent-relay skill seeds the cursor **only if that file is absent**, so on your
-FIRST wake it seeds fresh, and on every LATER wake (after a crash, reboot, or the box
-being asleep) it **RESUMES** from the saved cursor and catches the backlog of anything
-that arrived while you were gone. Without this, a fresh session starts listening from
-"now" and silently misses whatever was sent while it was down — which is exactly the
-gap that strands a supervised always-on box.
-
----
-
-## On wake: start your wake-up scheduler
-
-The receiver wakes you when a **message** wants your attention. Its sibling — the
-**wake-up scheduler** — wakes you when the **clock** does, for anything you're
-meant to check on a schedule. Start it once per session, right after the receiver,
-using the same primitive (a persistent `Monitor`).
-
-It's a shipped, dependency-free helper (like the receiver's `recv.sh`) — **launch this
-shipped script, do NOT hand-roll your own.** The Skynet distributor keeps
-`~/.local/bin/wakeup-scheduler` current on every container restart; launch it as a
-persistent Monitor pointed at your identity dir (the identity dir is the argument
-where the scheduler reads specs from `wakeups/*.json` and persists state under
-`wakeups/.state/`):
+Right after you announce yourself, launch **one** persistent `Monitor` — the
+**ambient monitor** — which internally runs the four background jobs your identity
+needs to stay awake and reachable. One launch, four jobs.
 
     # via the harness Monitor tool (persistent:true):
-    #   description:  [ambient] <name> wake-up scheduler
-    #   command:      python3 ~/.local/bin/wakeup-scheduler ~/fleet/identities/<name>
+    #   description:  [ambient] <name> ambient monitor
+    #   command:      ~/.local/bin/ambient-monitor ~/fleet/identities/<name>
 
-Each due wake-up prints one line — `⏰ [scheduled: <name>] <instruction>` — which
-arrives as an async wake. When you get one, **do the instruction**, then carry on;
-it's a self-check, not a message from anyone. If there are no specs yet, the scheduler
-just idles (nothing to fire), which is fine — start it anyway so it's ready the
-moment a schedule is added.
+⚠️ **Use the SHIPPED script — do NOT hand-roll your own.** The Skynet distributor
+keeps `~/.local/bin/ambient-monitor` current on every container restart. A
+divergent hand-written variant silently drops signal-propagation and cursor-flush
+guarantees this one is designed around, and reintroduces bugs the shipped copy
+already fixes. The same rule holds for the four pieces it launches: none of them
+should be hand-launched separately — the ambient monitor is the only supported
+entry point.
 
-See **§ Scheduled wake-ups** below for the spec format and the rule on who may
-create one.
+A *fresh* session — an initial `/id` load or a supervisor recycle — re-runs this
+setup naturally; async wakes **within** a session do not.
 
----
+### The four jobs inside
 
-## On wake: start your context watch
+**1. Relay receiver.** Watches every Matrix room your relay account is in and
+auto-joins any invite addressed to you. Simply having it running is what makes
+you reachable — if another agent wants to talk to you, they invite/message you
+and you wake on it. Nothing to point at, no DM to set up in advance; membership
+is the whole story. Uses THIS identity's durable account at
+`~/fleet/identities/<name>/relay.json`. Persists its sync cursor under
+`~/fleet/identities/<name>/relay-state/` so a fresh session resumes from where
+you left off rather than starting from "now" (which would silently miss anything
+that arrived while you were down — the class of bug that stranded Nelly for 90
+minutes chasing an ephemeral `/tmp/...` state directory). The ambient monitor
+handles the state-directory + env-var setup for you; you don't touch either.
 
-The receiver wakes you on a **message**, the scheduler on the **clock** — this third
-Monitor wakes you on **context pressure**, so a long-running unattended session never
-silently drifts through repeated compaction. (Repeated auto-compaction is a lossy
-summary-of-a-summary and does NOT reliably reset instruction/persona drift; your
-authoritative identity lives on disk, and the running context is just a cache of it.
-So instead of trusting a degrading cache, we recycle into a fresh `/id <name>` load —
-which is perfectly faithful — at a controlled moment before the window fills.)
+**2. Wake-up scheduler.** Fires scheduled wake-ups on the clock. Reads specs
+from `~/fleet/identities/<name>/wakeups/*.json` and prints one line per due
+wake-up: `⏰ [scheduled: <name>] <instruction>`. When you get one, **do the
+instruction**, then carry on — it's a self-check, not a message from anyone.
+If there are no specs yet, it idles. See **§ Scheduled wake-ups** below for the
+spec format and the rule on who may create one.
 
-Start it once per session, right after the scheduler, same primitive (a persistent
-`Monitor`). It's a shipped, dependency-free helper — **launch this shipped script, do NOT
-hand-roll your own.** The Skynet distributor keeps `~/.local/bin/context-watch` current
-on every container restart; launch it pointed at your identity dir (the identity dir is
-the argument where context-watch persists state under `ctxwatch/.state/`):
-
-    # via the harness Monitor tool (persistent:true):
-    #   description:  [ambient] <name> context watch
-    #   command:      python3 ~/.local/bin/context-watch ~/fleet/identities/<name>
-
-It scrapes your own tmux pane's live context % and stays silent until a threshold. At
-**~80%** it prints ONE nudge:
+**3. Context watch.** Wakes you on **context pressure**, so a long-running
+unattended session never silently drifts through repeated compaction. (Repeated
+auto-compaction is a lossy summary-of-a-summary and does NOT reliably reset
+instruction/persona drift; your authoritative identity lives on disk, and the
+running context is just a cache of it. Rather than trusting a degrading cache,
+we recycle into a fresh `/id <name>` load at a controlled moment before the
+window fills.) At **~80%** it prints ONE soft nudge:
 
     ⚠️ [context-watch: <name>] context at NN% — at your NEXT stopping point run
     `/id save`, then: touch ~/fleet/identities/<name>/.recycle-requested ...
 
-**When that nudge lands, act on it exactly:** finish the piece of work you're on (it's
-not urgent — you have plenty of runway), then run **`/id save`** to flush any deltas to
-your role file + bounties + handoff, and finally **`touch ~/fleet/identities/<name>/.recycle-requested`**.
-That sentinel tells the agent-supervisor to recycle you: it kills the current session
-and re-drives a fresh `claude + /id <name>` into the same tmux session, so you come back
-with your identity + bounties reloaded clean. Your relay cursor (`SINCE_FILE`) means the
-fresh session catches any messages that arrived during the ~seconds of restart — nothing
-is missed.
+**When that nudge lands, act on it exactly:** finish the piece of work you're
+on (it's not urgent — you have plenty of runway), then run **`/id save`** to
+flush any deltas, then **`touch ~/fleet/identities/<name>/.recycle-requested`**.
+Your relay cursor means the fresh session catches any messages that arrived
+during the ~seconds of restart — nothing is missed. It'll usually sit silent
+for a very long time (an Opus 1M-context session reaching 80% is a lot of
+turns); it's a safety valve, not a chatty monitor.
 
-Start it even though it will usually sit silent for a very long time (an Opus 1M-context
-session reaching 80% is a lot of turns) — it's a safety valve, not a chatty monitor.
+**4. Role-file / identity-file watch.** Wakes you on edits to your role file
+(`~/fleet/roles/<role>/<role>.md`) or your identity file
+(`~/fleet/identities/<name>/<name>.md`) so mid-session edits become visible
+without needing a full recycle. Role-file edits typically come from a peer
+identity of the same role; identity-file edits are almost always the user
+editing directly. It's diff-first: fires the unified diff of what changed —
+inline in the wake when small, spilled to a file pointer when large.
 
----
+**Agent-side reading protocol** when this watch fires: read the diff. The
+event tag names which file changed: `📝 [role-file: <role>]` or
+`📝 [identity-file: <name>]`. The watch is dumb on purpose — it doesn't try
+to detect who made the edit; that judgment lives with you, in the diff
+content. Three cases:
 
-## On wake: start your role-file watch
+- **Your own echo** (either file). If you recognize the change as one you
+  made yourself (via `remember X` / `always X` / `forget X` / `never X`
+  acting on the user's word), ignore it.
+- **A peer identity's edit** (role file only). Adopt it as a role change —
+  your in-context mental model updates without needing a full re-read.
+- **The user's direct edit** (either file, but the common case is the
+  identity file). Adopt it the same way you'd adopt anything the user told
+  you in chat — a user directive delivered through the file rather than
+  through a message.
 
-The receiver wakes you on a **message**, the scheduler on the **clock**, the context-watch
-on **context pressure** — this fourth Monitor wakes you on a **role-file OR identity-file
-change**, so mid-session edits to either file become visible while you are still running.
+The watch is silent on its very first run for an identity (cold start) — it
+snapshots both files as baselines without firing.
 
-Two cases it covers:
-- **Role file** (`~/fleet/roles/<role>/<role>.md`) — shared across every identity holding
-  the role. A `remember X` / `forget X` made in a peer identity's session lands in the file
-  immediately, but running peer identities carry a now-stale copy until their next full
-  recycle. The watch closes that gap.
-- **Identity file** (`~/fleet/identities/<name>/<name>.md`) — per-identity. Peer sessions
-  of the SAME identity are essentially impossible, so a foreign edit here is almost always
-  **the user editing directly** (a cosmetic frontmatter change — colorHue, avatar, displayName
-  — or an identity-scope `remember` she typed into another session for you).
+**Coordinator identities are exempt from file-watching.** If your identity
+carries `coordinator: true` in its frontmatter, this piece detects that at
+startup and idles silently — coordinators don't hold the role or identity
+file in context the same way actors do. No special launch is needed; the
+ambient monitor is the same launch either way, and the piece owns its own
+applicability decision.
 
-The watch is **diff-first, not re-read-first**: it fires the unified diff of what changed
-— inline in the wake event when the diff is small (under the harness's per-event character
-cap), and spilled to a file on disk with a pointer in the event when the diff is too large
-to fit (same pattern the relay receiver uses for long inbound messages). No summarization,
-no interpretation — the diff itself is what you read.
+### Failure surface — one launch, four things that can still go wrong
 
-Start it once per session, right after the context-watch, same primitive (a persistent
-`Monitor`). It's a shipped, dependency-free helper — **launch this shipped script, do NOT
-hand-roll your own.** The Skynet distributor keeps `~/.local/bin/role-file-watch` current
-on every container restart; launch it pointed at your identity dir (the script covers both
-target files under that one identity scope — one Monitor, not two):
+The ambient monitor is a **thin launcher**: it spawns the four pieces,
+forwards their wake lines to you, manages their lifecycle, and forwards
+shutdown signals down so each piece (most importantly the relay receiver's
+cursor flush) gets a clean exit. It does not interpret what any child emits.
 
-    # via the harness Monitor tool (persistent:true):
-    #   description:  [ambient] <name> role-file watch
-    #   command:      python3 ~/.local/bin/role-file-watch ~/fleet/identities/<name>
+- **Child death or failed start.** If any of the four pieces dies or fails
+  to start, the ambient monitor emits a wake line naming which piece and
+  why, and keeps the surviving pieces running. It never silent-restarts —
+  that would mask bugs. For the **relay receiver** specifically the wake
+  line is extra-loud, because losing the receiver means you're deaf to
+  inbound messages entirely; if you see a receiver-death wake, restart
+  the ambient monitor to recover reception.
+- **All four dead.** If every child dies, the ambient monitor emits a final
+  wake and exits. You're fully deaf until you relaunch it.
 
-**Agent-side reading protocol:** when the watch fires with a diff, read it. The event tag
-tells you which file changed: `📝 [role-file: <role>]` or `📝 [identity-file: <name>]`. The
-watch is dumb on purpose — it doesn't try to detect who made the edit; that judgment lives
-with you, in the diff content itself. Three cases:
-
-- **Your own echo** (either file). If you recognize the change as one you made yourself
-  (via `remember X` / `always X` / `forget X` / `never X` acting on the user's word),
-  ignore it — it's your own write coming back around.
-- **A peer identity's edit** (role file only). Another identity of your role wrote it
-  during their own session — adopt it as a role change. Your mental model of the role
-  file updates in-session without needing a full re-read.
-- **the user's direct edit** (either file, but the common case is the identity file).
-  She may edit the role or identity file directly (through Skynet's file modal, an SSH
-  session, or another agent she directed to write there). Adopt it the same way you'd
-  adopt anything she told you in chat — it's a user directive, just delivered through
-  the file rather than through a message.
-
-The watch is silent on its very first run for an identity (cold start) — it snapshots
-both files as baselines without firing, because a fresh identity has just read them
-anyway. On subsequent runs, it catches any changes that happened between sessions.
-
-See `.planning/shapes/shape-role-file-watch.md` in the box-maintainer role's Skynet repo
-for the full design rationale and scope edges.
+If you catch yourself hand-editing `~/.local/bin/ambient-monitor` or any of
+the four pieces to work around a symptom: stop. All of them are
+distributor-managed; hand-edits mask distribution bugs. Fix upstream or ping
+the box-maintainer role.
 
 ---
 
@@ -1015,7 +944,8 @@ current, skip the history append, and say so in one line.
 **If this save was triggered by the context-watch nudge** (recycling to escape a filling
 window, not just a manual reset): after saving, drop the recycle sentinel so the
 supervisor recreates you fresh — `touch ~/fleet/identities/<name>/.recycle-requested`.
-See **§ On wake: start your context watch**. (A plain manual `/id save` needs no sentinel.)
+See **§ On wake: start your ambient monitor** for the context-watch piece inside it.
+(A plain manual `/id save` needs no sentinel.)
 Simpler: just run **`/id reset`** (next section), which does the save AND drops the sentinel
 in one step.
 
@@ -1355,8 +1285,9 @@ under the role's `runbooks/` and holds them in context silently. The identity is
 AWARE that a set of runbooks exists and knows their names, but does NOT read them
 in — content is read on demand only when a runbook is actually invoked.
 
-The role-file-watch (§ On wake: start your role-file watch) covers the role file's
-bytes but NOT the runbooks tree. Corollary: if you've already invoked a runbook this
+The role-file-watch (the fourth piece inside your ambient monitor — see § On
+wake: start your ambient monitor) covers the role file's bytes but NOT the
+runbooks tree. Corollary: if you've already invoked a runbook this
 session (its content in context) and a peer identity edits that runbook mid-session,
 your in-context copy silently goes stale. Re-read from disk before executing a
 high-stakes step rather than trusting a previously-loaded copy.
@@ -1397,9 +1328,9 @@ beasts and don't fold together.
 ## Scheduled wake-ups — the identity's schedule
 
 Alongside bounties (things to do) an identity can hold **scheduled wake-ups** — things
-to check on a clock. The mechanism is the wake-up scheduler you start on wake
-(§ On wake: start your wake-up scheduler); this section is the spec + the rule for
-creating them.
+to check on a clock. The mechanism is the wake-up scheduler piece inside the
+ambient monitor you start on wake (§ On wake: start your ambient monitor); this
+section is the spec + the rule for creating them.
 
 ### ⚠️ Who may create one — user-reserved
 

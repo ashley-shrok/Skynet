@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""ambient-monitor — the single on-wake launcher that runs the four ambient watchers.
+
+Usage: ambient-monitor <identity_dir>
+
+What this replaces: the four separate on-wake Monitor invocations (relay receiver,
+wake-up scheduler, context-watch, role-file-watch). Identities now start ONE
+persistent Monitor via the harness, and this launcher spawns the four pieces as
+subprocesses, multiplexes their stdouts up to its own stdout (each line is a wake
+event to the harness), and forwards SIGTERM/SIGINT/SIGHUP to the children on
+shutdown so each piece — most importantly the relay receiver's message-cursor
+flush — gets its graceful-shutdown behavior.
+
+Design rules (see shape-mega-monitor.md in the box-maintainer role's bounty folder):
+  - Dumb dispatch on WHAT the children do. The launcher never interprets what
+    any child emits; it only forwards output lines and manages child processes.
+    No policy about content, no config surface, no per-message logic.
+  - The launcher OWNS one narrow bit of identity-type-based applicability: it
+    reads the identity's frontmatter for `coordinator: true` at startup, and
+    that ONE bit drives two spawn-time decisions — skip the role-file-watch
+    piece (coordinators don't hold role or identity file in context), and
+    spawn a SECOND wakeup-scheduler pointed at the role folder (so role-general
+    schedules fire on the coord). Actors: 4 children. Coordinators: 4 children
+    also (recv, identity-scoped scheduler, role-scoped scheduler, context-watch —
+    no file-watch). The bit lives here so the four pieces themselves stay
+    100% pristine on the coord axis.
+  - On child death or failed start: emit a wake line naming which piece and why,
+    keep the surviving children running. NEVER auto-restart — silent recovery
+    would mask bugs and rot the debugging trail.
+  - On our own shutdown: forward the signal to all children BEFORE dying, and
+    give them a bounded grace window to shut down cleanly (cursor flushes, etc.).
+    After the grace window, escalate to SIGKILL so we don't hang forever if a
+    child ignores the signal.
+  - The relay receiver is CRITICAL: its death emits an unmistakably-loud wake
+    line, because losing it means the identity is fully deaf to inbound messages.
+    (Not a separate policy — a note about how the death-wake line is formatted.)
+
+Vendored into Skynet's substrate and distributed to every host running agent
+substrate. Stdlib only.
+"""
+
+import os
+import re
+import sys
+import signal
+import subprocess
+import threading
+import time
+import pathlib
+
+GRACE_SECONDS = 10  # window we give children to shut down cleanly on our own shutdown
+REAP_POLL_SECONDS = 1  # how often the reap loop checks for dead children
+
+# ---------------------------------------------------------------- args + paths
+if len(sys.argv) != 2:
+    print("usage: ambient-monitor <identity_dir>", file=sys.stderr)
+    sys.exit(2)
+
+IDENTITY_DIR = pathlib.Path(sys.argv[1]).expanduser().resolve()
+if not IDENTITY_DIR.is_dir():
+    print("ambient-monitor: identity_dir does not exist or is not a directory: %s"
+          % IDENTITY_DIR, file=sys.stderr)
+    sys.exit(2)
+
+IDENTITY_NAME = IDENTITY_DIR.name
+HOME = pathlib.Path.home()
+
+# recv.sh needs STATE_DIR to exist before it launches. Its cred resolver derives
+# the creds path as `$(dirname $STATE_DIR)/relay.json`, so STATE_DIR MUST land
+# inside the identity folder or the resolver silently comes up empty and the
+# receiver becomes a silent-deafness zombie. Belt-and-suspenders: create the
+# directory here even though a fresh /id load has usually already done so.
+RELAY_STATE = IDENTITY_DIR / "relay-state"
+RELAY_STATE.mkdir(parents=True, exist_ok=True)
+
+
+# ---------------------------------------------------------- coord detection
+def _read_frontmatter(identity_file):
+    """Return (role, is_coordinator) parsed from the identity file's YAML frontmatter.
+    Frontmatter is the block between the FIRST two `---` fence lines. Missing file /
+    missing frontmatter / missing role → (None, False), and the caller decides how
+    loudly to complain (role-file-watch already surfaces its own SETUP FAILED wake
+    when it can't resolve; the launcher stays quiet and lets pieces surface their
+    own diagnostics).
+    """
+    try:
+        with open(identity_file) as f:
+            lines = f.readlines()
+    except OSError:
+        return None, False
+    fences = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
+    if len(fences) < 2:
+        return None, False
+    role = None
+    is_coord = False
+    for line in lines[fences[0] + 1: fences[1]]:
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        m_role = re.match(r"^role:\s*(\S+)", line)
+        if m_role and role is None:
+            role = m_role.group(1)
+            continue
+        # Strict coordinator detection: top-level YAML key (col 0), unquoted bare
+        # `true`, optionally followed by a trailing YAML comment. Matches the id
+        # skill body's coordinator-mode strict-detection rule verbatim.
+        if re.match(r"^coordinator:\s*true\s*(#.*)?$", line.rstrip("\n")):
+            is_coord = True
+    return role, is_coord
+
+
+IDENTITY_FILE = IDENTITY_DIR / ("%s.md" % IDENTITY_NAME)
+ROLE_NAME, IS_COORDINATOR = _read_frontmatter(IDENTITY_FILE)
+
+# --------------------------------------------------------------- child specs
+# Build the child list based on identity type. The launcher owns exactly ONE bit
+# of policy — coordinator-vs-actor — and uses it here at spawn time. From this
+# point on, dispatch is dumb: each entry in CHILDREN just gets spawned and
+# forwarded.
+CHILDREN = [
+    {
+        "name": "relay-receiver",
+        "cmd": ["bash", str(HOME / ".claude/skills/agent-relay/recv.sh")],
+        "env_extra": {
+            "STATE_DIR": str(RELAY_STATE),
+            "SINCE_FILE": str(RELAY_STATE / "since"),
+        },
+        "critical": True,
+    },
+    {
+        "name": "wakeup-scheduler",
+        "cmd": ["python3", str(HOME / ".local/bin/wakeup-scheduler"), str(IDENTITY_DIR)],
+        "env_extra": {},
+        "critical": False,
+    },
+    {
+        "name": "context-watch",
+        "cmd": ["python3", str(HOME / ".local/bin/context-watch"), str(IDENTITY_DIR)],
+        "env_extra": {},
+        "critical": False,
+    },
+]
+
+if IS_COORDINATOR:
+    # Coordinators: no file-watch (they don't hold role or identity file in
+    # context the same way actors do), PLUS an extra scheduler pointed at the
+    # role folder so role-general schedules still fire. Requires a resolvable
+    # role name; if we can't resolve it, fall back to the actor layout and let
+    # role-file-watch surface its own SETUP FAILED wake.
+    if ROLE_NAME is not None:
+        role_folder = pathlib.Path.home() / "fleet" / "roles" / ROLE_NAME
+        CHILDREN.append({
+            "name": "wakeup-scheduler-role",
+            "cmd": ["python3", str(HOME / ".local/bin/wakeup-scheduler"), str(role_folder)],
+            "env_extra": {},
+            "critical": False,
+        })
+    else:
+        # Couldn't resolve role — spawn file-watch (it'll surface the underlying
+        # frontmatter error loudly) so the failure is visible, and skip the
+        # role-scheduler that we don't have a target for.
+        CHILDREN.append({
+            "name": "role-file-watch",
+            "cmd": ["python3", str(HOME / ".local/bin/role-file-watch"), str(IDENTITY_DIR)],
+            "env_extra": {},
+            "critical": False,
+        })
+else:
+    CHILDREN.append({
+        "name": "role-file-watch",
+        "cmd": ["python3", str(HOME / ".local/bin/role-file-watch"), str(IDENTITY_DIR)],
+        "env_extra": {},
+        "critical": False,
+    })
+
+# ---------------------------------------------------------------------- I/O
+# stdout is the wake stream: every line becomes an async wake to the agent.
+# stderr is the harness's output file for this Monitor: readable via the Read
+# tool, but NOT a wake stream. Children's stderr routes to our stderr; our own
+# diagnostics also go there. Wake lines go to stdout ONLY.
+_stdout_lock = threading.Lock()
+_stderr_lock = threading.Lock()
+
+
+def emit_wake(msg):
+    with _stdout_lock:
+        sys.stdout.write(msg.rstrip("\n") + "\n")
+        sys.stdout.flush()
+
+
+def emit_diag(msg):
+    with _stderr_lock:
+        sys.stderr.write("ambient-monitor: " + msg.rstrip("\n") + "\n")
+        sys.stderr.flush()
+
+
+# ---------------------------------------------------------------- pumps
+def _pump_stdout(name, stream):
+    try:
+        for line in stream:
+            with _stdout_lock:
+                sys.stdout.write(line if line.endswith("\n") else line + "\n")
+                sys.stdout.flush()
+    except Exception as e:
+        emit_diag("stdout pump for %s ended: %r" % (name, e))
+
+
+def _pump_stderr(name, stream):
+    try:
+        for line in stream:
+            with _stderr_lock:
+                sys.stderr.write("[%s] %s" % (name, line if line.endswith("\n") else line + "\n"))
+                sys.stderr.flush()
+    except Exception as e:
+        emit_diag("stderr pump for %s ended: %r" % (name, e))
+
+
+# ---------------------------------------------------------------- child mgmt
+running = []  # list of dicts: {spec, popen, threads, death_announced}
+
+
+def start_child(spec):
+    env = os.environ.copy()
+    env.update(spec["env_extra"])
+    try:
+        p = subprocess.Popen(
+            spec["cmd"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1,
+            text=True,
+            env=env,
+            preexec_fn=os.setsid,  # own process group -> we can signal the whole subtree
+        )
+    except FileNotFoundError as e:
+        emit_wake("⚠️ [ambient-monitor: %s] %s FAILED TO START: executable not found — %s"
+                  % (IDENTITY_NAME, spec["name"], e))
+        return None
+    except Exception as e:
+        emit_wake("⚠️ [ambient-monitor: %s] %s FAILED TO START: %r"
+                  % (IDENTITY_NAME, spec["name"], e))
+        return None
+    t_out = threading.Thread(target=_pump_stdout, args=(spec["name"], p.stdout), daemon=True)
+    t_err = threading.Thread(target=_pump_stderr, args=(spec["name"], p.stderr), daemon=True)
+    t_out.start()
+    t_err.start()
+    return {"spec": spec, "popen": p, "threads": [t_out, t_err], "death_announced": False}
+
+
+# ---------------------------------------------------------------- shutdown
+shutting_down = threading.Event()
+_exit_code = [0]
+
+
+def _shutdown_handler(sig, _frame):
+    if not shutting_down.is_set():
+        emit_diag("shutdown signal received (sig=%d)" % sig)
+    shutting_down.set()
+
+
+signal.signal(signal.SIGTERM, _shutdown_handler)
+signal.signal(signal.SIGINT, _shutdown_handler)
+try:
+    signal.signal(signal.SIGHUP, _shutdown_handler)
+except (AttributeError, ValueError):
+    pass
+
+
+def _do_shutdown():
+    live = [e for e in running if e["popen"].poll() is None]
+    emit_diag("forwarding SIGTERM to %d live child(ren)" % len(live))
+    for entry in live:
+        p = entry["popen"]
+        try:
+            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError) as e:
+            emit_diag("could not SIGTERM %s: %r" % (entry["spec"]["name"], e))
+    # Grace window — receiver especially needs this to flush its message cursor.
+    deadline = time.time() + GRACE_SECONDS
+    for entry in live:
+        p = entry["popen"]
+        remaining = max(0.1, deadline - time.time())
+        try:
+            p.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            emit_diag("%s did not exit within %ds grace; escalating to SIGKILL"
+                      % (entry["spec"]["name"], GRACE_SECONDS))
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+
+
+# ---------------------------------------------------------------- reap
+def _death_wake(entry, rc):
+    spec = entry["spec"]
+    if spec["critical"]:
+        emit_wake(
+            "⚠️⚠️⚠️ [ambient-monitor: %s] CRITICAL: %s EXITED (rc=%d) — the identity "
+            "is no longer receiving relay messages. The ambient-monitor is still "
+            "running the other watchers; check stderr for %s's last diagnostics, "
+            "then restart the ambient-monitor to recover message reception."
+            % (IDENTITY_NAME, spec["name"], rc, spec["name"])
+        )
+    else:
+        emit_wake(
+            "⚠️ [ambient-monitor: %s] %s exited (rc=%d); other watchers still running. "
+            "Check stderr for its last diagnostics."
+            % (IDENTITY_NAME, spec["name"], rc)
+        )
+
+
+def _reap_loop():
+    while not shutting_down.is_set():
+        alive_count = 0
+        for entry in running:
+            p = entry["popen"]
+            rc = p.poll()
+            if rc is None:
+                alive_count += 1
+                continue
+            if not entry["death_announced"]:
+                # Give stderr pump a beat to drain the last diagnostics before
+                # the wake lands, so the wake follows the diagnostic in time.
+                time.sleep(0.3)
+                _death_wake(entry, rc)
+                entry["death_announced"] = True
+        if alive_count == 0:
+            emit_wake(
+                "⚠️⚠️⚠️ [ambient-monitor: %s] ALL WATCHERS HAVE DIED — the ambient "
+                "monitor has nothing left to supervise and is exiting. The identity "
+                "is fully deaf until the ambient-monitor is relaunched."
+                % IDENTITY_NAME
+            )
+            _exit_code[0] = 1
+            shutting_down.set()
+            return
+        time.sleep(REAP_POLL_SECONDS)
+
+
+# ---------------------------------------------------------------- go
+emit_diag("starting %d child(ren) for identity %s (role=%s, coordinator=%s)"
+          % (len(CHILDREN), IDENTITY_NAME, ROLE_NAME, IS_COORDINATOR))
+for spec in CHILDREN:
+    entry = start_child(spec)
+    if entry is not None:
+        running.append(entry)
+
+if not running:
+    emit_wake(
+        "⚠️⚠️⚠️ [ambient-monitor: %s] NO CHILDREN STARTED — nothing to supervise. Exiting."
+        % IDENTITY_NAME
+    )
+    sys.exit(1)
+
+reap_thread = threading.Thread(target=_reap_loop, daemon=True)
+reap_thread.start()
+
+# Main thread waits on shutdown signal (either external or all-dead self-trigger).
+while not shutting_down.is_set():
+    time.sleep(1)
+
+_do_shutdown()
+sys.exit(_exit_code[0])

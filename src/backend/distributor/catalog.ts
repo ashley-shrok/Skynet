@@ -30,27 +30,31 @@
  *   `systemctl --user daemon-reload` at the start of every sweep, so systemd
  *   has already re-read the unit before the restart hook fires.
  *
- * ROW-COUNT RECONCILIATION (16 items vs. 22 rows):
+ * ROW-COUNT RECONCILIATION (17 items vs. 24 rows):
  *   The shape doc counts "15 items" — that's 7 single-file skills + 1 skill
  *   with 1 companion (agent-relay: SKILL.md + recv.sh) + 1 skill with 3
  *   companions (id: SKILL.md + actor-status-prompt + clone-picker-prompt +
  *   coordinator-instructions) + 6 helper scripts. Phase 92 appends
- *   fleet-status-sweep as the 7th helper script, bringing the conceptual
- *   count to 16. The byte-compare mechanism in Plan 03 pushes files, not
- *   "items", so this catalog has one row per file. The bootstrap bounty adds
- *   1 more row (agent-supervisor.service):
+ *   fleet-status-sweep and Phase 95 appends pv-context-pct-sweep, bringing
+ *   the conceptual helper-script count to 8. The mega-monitor phase adds a
+ *   ninth helper script — `ambient-monitor` — bringing the conceptual count
+ *   to 17. The byte-compare mechanism in Plan 03 pushes files, not "items",
+ *   so this catalog has one row per file. The bootstrap bounty adds 1 more
+ *   row (agent-supervisor.service):
  *     - 4 rows for id/          (SKILL.md + 3 companions)
  *     - 2 rows for agent-relay/ (SKILL.md + recv.sh)
  *     - 7 rows for the single-file skills (backlog, bounty,
  *       claude-code-harness-auth, next-bounty, promote-to-coordinator,
  *       queue, role)
- *     - 9 rows for helper scripts under scripts/
- *       (role-file-watch is the fourth ambient monitor, sibling of
- *       wakeup-scheduler + context-watch; fleet-status-sweep is the
- *       Phase 92 batch sweep for the fleet-status poller;
- *       pv-context-pct-sweep is the Phase 95 batch sweep for the PV context-pct poller)
+ *     - 10 rows for helper scripts under scripts/
+ *       (role-file-watch is one of the four legacy ambient monitors, all
+ *       four now spawned as children of ambient-monitor — the mega-monitor
+ *       phase's launcher — rather than launched individually per identity;
+ *       fleet-status-sweep is the Phase 92 batch sweep for the fleet-status
+ *       poller; pv-context-pct-sweep is the Phase 95 batch sweep for the
+ *       PV context-pct poller)
  *     - 1 row for user-onboarding/agent-supervisor.service
- *   Total = 23.
+ *   Total = 24.
  */
 
 /**
@@ -263,6 +267,19 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     slug: "pv-context-pct-sweep",
     bundledPath: "/app/fleet-substrate/scripts/pv-context-pct-sweep.py",
     installPath: "~/.local/bin/pv-context-pct-sweep",
+    restartHook: null,
+  },
+
+  // --- ambient-monitor (1 row: single on-wake launcher that spawns the four ambient watchers — mega-monitor phase) ---
+  // Replaces the four separate on-wake Monitor invocations (relay receiver, wake-up scheduler,
+  // context-watch, role-file-watch) with a single launch. The four watchers stay as their own
+  // canonical entries above (still distributed, still on-disk at their existing paths);
+  // ambient-monitor invokes them via those entry points and multiplexes their stdouts. No
+  // restart hook — identities pick up the new bytes on their next `/id` recycle.
+  {
+    slug: "ambient-monitor",
+    bundledPath: "/app/fleet-substrate/scripts/ambient-monitor.py",
+    installPath: "~/.local/bin/ambient-monitor",
     restartHook: null,
   },
 ] as const;
