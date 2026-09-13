@@ -16,9 +16,8 @@ import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice
 // onto the backend behind the AWS SDK v3 adapters from Plan 04 + the pure
 // kernels from Plan 02.
 import { synthesizeToPcm } from "../../voice/polly-adapter.js";
-import { transcribeBuffer } from "../../voice/transcribe-adapter.js";
-import { transcribeBufferChunked } from "../../voice/transcribe-orchestrator.js";
-import { webmToFlac } from "../../voice/audio-transcode.js";
+import { transcribeNovaSonic } from "../../voice/nova-sonic-adapter.js";
+import { webmToPcm16k } from "../../voice/audio-transcode.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
@@ -39,11 +38,6 @@ import { isAwsAccessDenied } from "../../voice/aws-errors.js";
 export const DEFAULT_VOICE = "Joanna";
 export const SPEAK_TEXT_MAX = 25000;
 export const SAMPLE_PHRASE = "Hi, this is your voice.";
-// D-05/D-06 fast-path threshold. ~10 s of clean-speech FLAC at 16 kHz mono (see 100-RESEARCH.md
-// § Section 4 for the byte-proxy rationale — chosen over ffprobe to avoid a ~10 ms spawn on
-// every request; conservative upper bound at 80 KB catches any clip that could reasonably
-// benefit from parallel dispatch).
-export const CHUNKED_THRESHOLD_BYTES = 80_000;
 
 // --- Express router ---
 const router = express.Router();
@@ -69,42 +63,27 @@ function extFromMimetype(mimetype: string): string {
 }
 
 /**
- * Bridge the raw multipart audio bytes into a Transcribe-accepted format.
+ * Bridge the raw multipart audio bytes into a Nova Sonic-accepted format.
  *
- * Default path (WebM/Opus from MediaRecorder): full-transcode to 48 kHz mono
- * FLAC via `webmToFlac`. Adds ~50-200 ms vs the `-c:a copy` remux but is
- * bulletproof against Chrome MediaRecorder's intermittent multi-channel
- * Opus output, which produces bytes that ffprobe reads fine but Amazon
- * Transcribe rejects with `BadRequestException: The data is corrupted`
- * (observed in prod 2026-09-10 on ~50% of clips). The extra ~150 ms is
- * negligible next to Transcribe streaming's own ~audio-duration latency
- * floor.
+ * D-REWIRE + D-AUDIO (109-CONTEXT.md): Production is always WebM/Opus from
+ * the browser's MediaRecorder. The FLAC and Ogg passthrough branches (for
+ * direct FLAC/Ogg uploads) have been removed — they were never hit in
+ * production and Nova Sonic on Bedrock accepts only LPCM s16le mono 16 kHz.
  *
- * Sample rate is 48 kHz, matching MediaRecorder's native rate — the
- * earlier 16 kHz downsample was throwing away high-frequency phonetic
- * detail Transcribe's foundation model uses for consonant disambiguation
- * (bounty auth-slow-requests-on-pwa-boot close-out surfaced adjacent
- * accuracy work; separate close-out 2026-09-10).
+ * Single path: WebM → `webmToPcm16k` → 16 kHz LPCM mono s16le buffer.
+ * The `ext` parameter is retained (used by the disk-bank filename builder
+ * upstream) but is unused in this function body.
  *
- * Passes through Ogg/FLAC uploads unchanged.
- *
- * @throws when webmToFlac fails (caller returns 502).
+ * @throws when webmToPcm16k fails (caller returns 502).
  */
 async function transcodeForTranscribe(
   buf: Buffer,
   ext: string,
-): Promise<{ buffer: Buffer; mediaEncoding: "flac" | "ogg-opus"; sampleRateHz: number }> {
-  if (ext === "flac") {
-    return { buffer: buf, mediaEncoding: "flac", sampleRateHz: 16000 };
-  }
-  if (ext === "ogg") {
-    return { buffer: buf, mediaEncoding: "ogg-opus", sampleRateHz: 48000 };
-  }
-  // Default assumption: browser MediaRecorder WebM/Opus. Full-transcode to
-  // FLAC 48 kHz mono — see docblock for why we don't use the fast remux,
-  // and why we preserve 48 kHz instead of downsampling to 16 kHz.
-  const flacBuf = await webmToFlac(buf);
-  return { buffer: flacBuf, mediaEncoding: "flac", sampleRateHz: 48000 };
+): Promise<{ buffer: Buffer; sampleRateHz: number }> {
+  void ext;
+  // D-AUDIO: WebM → LPCM 16 kHz mono s16le — the only shape Nova Sonic accepts.
+  const pcmBuf = await webmToPcm16k(buf);
+  return { buffer: pcmBuf, sampleRateHz: 16000 };
 }
 
 // --- Core handler (exported for direct testing without Express harness) ---
@@ -149,25 +128,10 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     //     switches accordingly.
     const transcodeResult = await transcodeForTranscribe(file.buffer, ext);
 
-    // (c) Dispatch to chunked orchestrator for long clips; single-stream for short.
-    // D-05: below-threshold clips take the existing single-stream path unchanged.
-    // D-06: byte-proxy avoids ffprobe overhead on every request.
-    const transcript =
-      transcodeResult.buffer.length >= CHUNKED_THRESHOLD_BYTES
-        ? await transcribeBufferChunked(
-            transcodeResult.buffer,
-            transcodeResult.sampleRateHz,
-          )
-        : await transcribeBuffer(
-            transcodeResult.buffer,
-            transcodeResult.mediaEncoding,
-            transcodeResult.sampleRateHz,
-          );
+    // (c) D-CUTOVER: single-adapter path — transcribeNovaSonic(pcmBuf).
+    const transcript = await transcribeNovaSonic(transcodeResult.buffer);
 
-    databaseLogger.info(
-      `[voice-server] transcribe-ok textLen=${transcript.length} mediaEncoding=${transcodeResult.mediaEncoding} path=${transcodeResult.buffer.length >= CHUNKED_THRESHOLD_BYTES ? "chunked" : "single"}`,
-      { operation: "voice_transcribe", path: transcodeResult.buffer.length >= CHUNKED_THRESHOLD_BYTES ? "chunked" : "single" },
-    );
+    databaseLogger.info(`[voice-server] transcribe-ok textLen=${transcript.length}`, { operation: "voice_transcribe" });
 
     // --- Phase 34: server-side slash-command transform (PRESERVED VERBATIM) ---
     // If the transcript starts with the "slash <content>" wake-word AND the
