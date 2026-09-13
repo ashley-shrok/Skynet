@@ -108,8 +108,8 @@ Dependency verification (from RECON § 2): all above are ONLY imported by `trans
 ### Ship discipline
 Per fleet role rules:
 - Scoped tests during dev: `npx vitest run --related <changed-files>` — executor-level green gate.
-- Full suite ONLY at deploy time (per Ashley 2026-09-07 refinement): `npx vitest run` (no scope) + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium`. Runs orchestrator-side, immediately before `docker build`.
-- **Push gate:** hard stop after code + commit + scoped-tests-green. Wait for Ashley's explicit greenlight before `git push`. Push authorizes the whole deploy motion (push → build → force-recreate → verify).
+- Full suite ONLY at deploy time (per Alice 2026-09-07 refinement): `npx vitest run` (no scope) + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium`. Runs orchestrator-side, immediately before `docker build`.
+- **Push gate:** hard stop after code + commit + scoped-tests-green. Wait for Alice's explicit greenlight before `git push`. Push authorizes the whole deploy motion (push → build → force-recreate → verify).
 
 ### Claude's Discretion
 - Exact system prompt text (transcription-only nudge) — draft above; can iterate.
