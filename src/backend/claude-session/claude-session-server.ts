@@ -3573,10 +3573,32 @@ export function __applyQueueDedupForTests(deps: {
     return { suppress: false, dedupMap };
   }
 
-  if (rawType === "user") {
-    // Lookup branch: matching enqueue entry within TTL suppresses the
-    // frame (dequeue-time double-write). Single-shot — matched entry
-    // is consumed so a later genuine third occurrence still emits.
+  // Lookup branch: matching enqueue entry within TTL suppresses the frame
+  // (dequeue-time double-write). Two rawType shapes carry the dequeue:
+  //
+  //   1. rawType === "user" — the original Claude-Code shape (D-11 revised).
+  //   2. rawType === "attachment" with attachment.type === "queued_command" —
+  //      newer shape that emerged in the harness (parser branch accepts it
+  //      at session-file-parser.ts L1085, per pv-parser-accept-queued-
+  //      command-attachment 2026-08-10). Ashley 2026-09-13 confirmed a live
+  //      dormant-send repro where the same content lands as enqueue +
+  //      attachment_queued_command, no user turn — two bubbles rendered
+  //      because this lookup only matched "user". Bounty:
+  //      pv-client-pending-send-timer-dormancy-blind — solstice follow-up.
+  //
+  // Both are the SAME logical send and MUST dedup against the earlier
+  // enqueue. Single-shot on match — matched entry is consumed so a later
+  // genuine third occurrence still emits.
+  const isUserTurn = rawType === "user";
+  let isAttachmentQueuedCommand = false;
+  if (rawType === "attachment") {
+    const att = rawObj.attachment;
+    if (att !== null && typeof att === "object") {
+      isAttachmentQueuedCommand =
+        (att as Record<string, unknown>).type === "queued_command";
+    }
+  }
+  if (isUserTurn || isAttachmentQueuedCommand) {
     const insertedAt = dedupMap.get(contentHash);
     if (insertedAt !== undefined) {
       if (now - insertedAt <= __QUEUE_DEDUP_TTL_MS) {
@@ -3589,9 +3611,8 @@ export function __applyQueueDedupForTests(deps: {
     return { suppress: false, dedupMap };
   }
 
-  // Any other rawType (attachment/queued_command, relay_inbound wrappers
-  // that surfaced as user turns via a different path, etc.) is out of
-  // scope for this dedup path.
+  // Any other rawType (relay_inbound wrappers that surfaced as user turns
+  // via a different path, etc.) is out of scope for this dedup path.
   return { suppress: false, dedupMap };
 }
 

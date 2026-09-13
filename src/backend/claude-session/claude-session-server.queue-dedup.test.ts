@@ -71,6 +71,27 @@ function makeUserTurn(content: string, ts: string = "2026-08-20T12:02:00.000Z"):
   return { parsedFrame, rawObj };
 }
 
+function makeAttachmentQueuedCommand(
+  content: string,
+  ts: string = "2026-08-20T12:02:00.000Z",
+): {
+  parsedFrame: ReturnType<typeof parseSessionLine>;
+  rawObj: Record<string, unknown>;
+} {
+  const rawObj = {
+    type: "attachment" as const,
+    uuid: "att-" + content.slice(0, 6),
+    timestamp: ts,
+    attachment: {
+      type: "queued_command",
+      prompt: content,
+      commandMode: "prompt",
+    },
+  };
+  const parsedFrame = parseSessionLine(JSON.stringify(rawObj), "sess-A");
+  return { parsedFrame, rawObj };
+}
+
 describe("__applyQueueDedupForTests — per-session queue-enqueue dedup", () => {
   it("Test 1: dedup fires across a 2-minute span (enqueue → dequeue empirical case)", () => {
     const dedupMap = new Map<string, number>();
@@ -309,6 +330,91 @@ describe("__applyQueueDedupForTests — per-session queue-enqueue dedup", () => 
       now: t0 + TEN_MIN_MS + 30_000,
     });
     expect(rHit.suppress).toBe(true);
+  });
+
+  it("Test 9: enqueue → attachment(queued_command) with matching content SUPPRESSES second frame (solstice 2026-09-13, pv-client-pending-send-timer-dormancy-blind)", () => {
+    // Reproduces the pixie@workstation dormant-send transcript 2026-09-13:
+    // Ashley's "Testing 1 2 3" landed as queue-operation enqueue AT T+0,
+    // then again ~16s later as type:"attachment" attachment.type:
+    // "queued_command" when Claude Code pulled it into the next turn.
+    // Both parser branches emit kind:"message" role:"user" for the same
+    // logical send. Prior to this fix the dedup lookup only matched
+    // rawType:"user", so the attachment frame emitted a second bubble.
+    const dedupMap = new Map<string, number>();
+    const t0 = 9_000_000_000_000;
+    const enq = makeEnqueue("Testing 1 2 3", "2026-09-13T16:27:36.261Z");
+    const r1 = __applyQueueDedupForTests({
+      parsedFrame: enq.parsedFrame,
+      rawObj: enq.rawObj,
+      dedupMap,
+      now: t0,
+    });
+    expect(r1.suppress).toBe(false);
+    expect(r1.dedupMap.size).toBe(1);
+
+    // ~16s later — attachment carrying the same content
+    const att = makeAttachmentQueuedCommand(
+      "Testing 1 2 3",
+      "2026-09-13T16:27:52.282Z",
+    );
+    // Sanity: parser really does render the attachment as a user message
+    // (the "second bubble" source).
+    expect(att.parsedFrame.kind).toBe("message");
+    if (att.parsedFrame.kind !== "message") throw new Error("unreachable");
+    expect(att.parsedFrame.role).toBe("user");
+
+    const r2 = __applyQueueDedupForTests({
+      parsedFrame: att.parsedFrame,
+      rawObj: att.rawObj,
+      dedupMap,
+      now: t0 + 16_000,
+    });
+    expect(r2.suppress).toBe(true);
+    // Single-shot dedup — entry consumed on match
+    expect(r2.dedupMap.size).toBe(0);
+  });
+
+  it("Test 10: attachment(queued_command) with NO prior enqueue → emits (first-and-only send path unchanged)", () => {
+    // Some sends land ONLY as attachment_queued_command with no earlier
+    // enqueue (per the pv-parser-accept-queued-command-attachment
+    // 2026-08-10 branch comment at session-file-parser.ts L1071). Those
+    // must still render as ONE bubble.
+    const dedupMap = new Map<string, number>();
+    const t0 = 10_000_000_000_000;
+    const att = makeAttachmentQueuedCommand("hello");
+    const r = __applyQueueDedupForTests({
+      parsedFrame: att.parsedFrame,
+      rawObj: att.rawObj,
+      dedupMap,
+      now: t0,
+    });
+    expect(r.suppress).toBe(false);
+    // Attachment does NOT populate the Map — only enqueue does. A subsequent
+    // matching user turn (rare — attachment IS the dequeue) would emit too,
+    // but that shape is not part of the observed harness pattern.
+    expect(r.dedupMap.size).toBe(0);
+  });
+
+  it("Test 11: different-content attachment does NOT suppress after enqueue (dedup is content-scoped)", () => {
+    const dedupMap = new Map<string, number>();
+    const t0 = 11_000_000_000_000;
+    const enq = makeEnqueue("hello");
+    __applyQueueDedupForTests({
+      parsedFrame: enq.parsedFrame,
+      rawObj: enq.rawObj,
+      dedupMap,
+      now: t0,
+    });
+    const att = makeAttachmentQueuedCommand("something else entirely");
+    const r = __applyQueueDedupForTests({
+      parsedFrame: att.parsedFrame,
+      rawObj: att.rawObj,
+      dedupMap,
+      now: t0 + 5_000,
+    });
+    expect(r.suppress).toBe(false);
+    // "hello" entry stays in the Map — attachment content did not match.
+    expect(r.dedupMap.size).toBe(1);
   });
 
   it("Test 8: non-user-message frames pass through (assistant turns unaffected)", () => {
