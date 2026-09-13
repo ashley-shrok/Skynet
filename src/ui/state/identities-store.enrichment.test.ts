@@ -378,7 +378,7 @@ describe("Phase 107 Plan 04 — deriveDiskHiddenIds projection", () => {
 // patchIdentityFlag — write-side sync for pin/hide server writes
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// fern 2026-09-13: Ashley reported that pinning a conversation on mobile, then
+// fern 2026-09-13: user reported that pinning a conversation on mobile, then
 // entering a session, then coming back to the list, silently reverted the pin
 // (server persisted — hard refresh restored it, so the write reached disk).
 //
