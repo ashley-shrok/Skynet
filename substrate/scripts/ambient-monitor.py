@@ -65,6 +65,30 @@ if not IDENTITY_DIR.is_dir():
 IDENTITY_NAME = IDENTITY_DIR.name
 HOME = pathlib.Path.home()
 
+# ---------------------------------------------------------- harness-pid capture
+# Orphan-monitor guard, defense-in-depth. We (the launcher) walk up TWO PPid
+# levels to find the harness (Claude Code) process: our direct parent is the
+# bash-c wrapper the Monitor tool spawns, and its parent is Claude. The wrapper
+# stays alive as a waiter even after Claude dies, so a bare $PPID check would
+# never fire. We watch Claude ourselves in _harness_watch() below, AND we
+# propagate the captured PID to every child via AMBIENT_MONITOR_HARNESS_PID so
+# they can honor it too (each of the four watchers has env-override logic).
+# Belt-and-suspenders: launcher-side check triggers _do_shutdown so children get
+# cursor-flush grace; child-side check is a safety net for the case where the
+# launcher itself is force-killed without a chance to shut down cleanly.
+# See bounty orphan-monitor-self-suicide-check for original context.
+HARNESS_PID = None
+try:
+    with open("/proc/%d/status" % os.getppid()) as f:
+        for line in f:
+            if line.startswith("PPid:"):
+                p = int(line.split()[1])
+                if p > 1:
+                    HARNESS_PID = p
+                break
+except (OSError, ValueError):
+    pass
+
 # recv.sh needs STATE_DIR to exist before it launches. Its cred resolver derives
 # the creds path as `$(dirname $STATE_DIR)/relay.json`, so STATE_DIR MUST land
 # inside the identity folder or the resolver silently comes up empty and the
@@ -75,6 +99,9 @@ RELAY_STATE.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------- coord detection
+_ROLE_NAME_OK = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
 def _read_frontmatter(identity_file):
     """Return (role, is_coordinator) parsed from the identity file's YAML frontmatter.
     Frontmatter is the block between the FIRST two `---` fence lines. Missing file /
@@ -82,9 +109,17 @@ def _read_frontmatter(identity_file):
     loudly to complain (role-file-watch already surfaces its own SETUP FAILED wake
     when it can't resolve; the launcher stays quiet and lets pieces surface their
     own diagnostics).
+
+    The role value is stripped of surrounding YAML quotes and whitespace, then
+    validated against a strict identifier pattern (kebab-case, lowercase alphanumeric
+    with hyphens/underscores). A quoted role like `role: "box-maintainer"` yields
+    `box-maintainer`; a malformed role like `role: ../../tmp` returns (None, ...)
+    so the caller falls through to the unresolved-role branch rather than doing a
+    path-traversal makedirs. Encoding is `utf-8-sig` so a UTF-8 BOM (Windows
+    notepad-style) doesn't silently mask the first fence line.
     """
     try:
-        with open(identity_file) as f:
+        with open(identity_file, encoding="utf-8-sig") as f:
             lines = f.readlines()
     except OSError:
         return None, False
@@ -97,9 +132,11 @@ def _read_frontmatter(identity_file):
         stripped = line.lstrip()
         if stripped.startswith("#"):
             continue
-        m_role = re.match(r"^role:\s*(\S+)", line)
+        m_role = re.match(r"^role:\s*(.+?)\s*(#.*)?$", line.rstrip("\n"))
         if m_role and role is None:
-            role = m_role.group(1)
+            raw = m_role.group(1).strip().strip('"').strip("'").strip()
+            if _ROLE_NAME_OK.match(raw):
+                role = raw
             continue
         # Strict coordinator detection: top-level YAML key (col 0), unquoted bare
         # `true`, optionally followed by a trailing YAML comment. Matches the id
@@ -145,10 +182,17 @@ if IS_COORDINATOR:
     # Coordinators: no file-watch (they don't hold role or identity file in
     # context the same way actors do), PLUS an extra scheduler pointed at the
     # role folder so role-general schedules still fire. Requires a resolvable
-    # role name; if we can't resolve it, fall back to the actor layout and let
-    # role-file-watch surface its own SETUP FAILED wake.
+    # AND existing role folder; if either check fails, fall back to spawning
+    # role-file-watch so its own SETUP FAILED wake surfaces the underlying
+    # misconfig (rather than silently pointing a scheduler at a nonexistent
+    # path — the scheduler would makedirs a phantom role folder and never
+    # find any specs).
+    role_folder = None
     if ROLE_NAME is not None:
-        role_folder = pathlib.Path.home() / "fleet" / "roles" / ROLE_NAME
+        candidate = HOME / "fleet" / "roles" / ROLE_NAME
+        if candidate.is_dir():
+            role_folder = candidate
+    if role_folder is not None:
         CHILDREN.append({
             "name": "wakeup-scheduler-role",
             "cmd": ["python3", str(HOME / ".local/bin/wakeup-scheduler"), str(role_folder)],
@@ -156,9 +200,8 @@ if IS_COORDINATOR:
             "critical": False,
         })
     else:
-        # Couldn't resolve role — spawn file-watch (it'll surface the underlying
-        # frontmatter error loudly) so the failure is visible, and skip the
-        # role-scheduler that we don't have a target for.
+        # Couldn't resolve or find the role folder — spawn file-watch so its
+        # own SETUP FAILED wake surfaces the underlying misconfig loudly.
         CHILDREN.append({
             "name": "role-file-watch",
             "cmd": ["python3", str(HOME / ".local/bin/role-file-watch"), str(IDENTITY_DIR)],
@@ -222,6 +265,13 @@ running = []  # list of dicts: {spec, popen, threads, death_announced}
 def start_child(spec):
     env = os.environ.copy()
     env.update(spec["env_extra"])
+    # Propagate the captured harness PID so each child can install its own
+    # orphan-check that watches Claude directly (not their own parent = us).
+    # See § harness-pid capture near the top of the file. Absent when we
+    # couldn't resolve Claude ourselves; the four watchers fall back to their
+    # standalone grandparent-walk when this env var is unset.
+    if HARNESS_PID is not None:
+        env["AMBIENT_MONITOR_HARNESS_PID"] = str(HARNESS_PID)
     try:
         p = subprocess.Popen(
             spec["cmd"],
@@ -230,7 +280,7 @@ def start_child(spec):
             bufsize=1,
             text=True,
             env=env,
-            preexec_fn=os.setsid,  # own process group -> we can signal the whole subtree
+            start_new_session=True,  # own process group -> we can signal the subtree
         )
     except FileNotFoundError as e:
         emit_wake("⚠️ [ambient-monitor: %s] %s FAILED TO START: executable not found — %s"
@@ -339,8 +389,8 @@ def _reap_loop():
 
 
 # ---------------------------------------------------------------- go
-emit_diag("starting %d child(ren) for identity %s (role=%s, coordinator=%s)"
-          % (len(CHILDREN), IDENTITY_NAME, ROLE_NAME, IS_COORDINATOR))
+emit_diag("starting %d child(ren) for identity %s (role=%s, coordinator=%s, harness_pid=%s)"
+          % (len(CHILDREN), IDENTITY_NAME, ROLE_NAME, IS_COORDINATOR, HARNESS_PID))
 for spec in CHILDREN:
     entry = start_child(spec)
     if entry is not None:
@@ -355,6 +405,32 @@ if not running:
 
 reap_thread = threading.Thread(target=_reap_loop, daemon=True)
 reap_thread.start()
+
+
+def _harness_watch():
+    """Poll the captured harness PID once per second; on death, trigger a clean
+    shutdown (so children — the receiver especially — get their SIGTERM-with-grace
+    and can flush cursors before exiting). This is the launcher-side half of the
+    defense-in-depth orphan check; the four children have their own child-side
+    half via AMBIENT_MONITOR_HARNESS_PID (see § harness-pid capture).
+    """
+    if HARNESS_PID is None:
+        emit_diag("harness-watch disabled (couldn't resolve harness PID)")
+        return
+    while not shutting_down.is_set():
+        try:
+            os.kill(HARNESS_PID, 0)
+        except OSError:
+            emit_wake("⚠️ [ambient-monitor: %s] harness process (pid=%d) exited; "
+                      "shutting down cleanly so children can flush state."
+                      % (IDENTITY_NAME, HARNESS_PID))
+            shutting_down.set()
+            return
+        time.sleep(1)
+
+
+harness_watch_thread = threading.Thread(target=_harness_watch, daemon=True)
+harness_watch_thread.start()
 
 # Main thread waits on shutdown signal (either external or all-dead self-trigger).
 while not shutting_down.is_set():

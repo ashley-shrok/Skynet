@@ -230,22 +230,39 @@ def main():
 
     warned = set()          # (key, kind) — one-shot LOUD alert per issue per session
 
-    # Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch).
-    # Capture harness (Claude Code) PID at startup — our GRANDPARENT, not $PPID (which is
-    # the bash-c wrapper the Monitor tool spawns; the wrapper stays alive as a waiter even
-    # when Claude dies). Check per iteration below; if Claude is gone, exit(0) BEFORE any
-    # spec fires — matches the fix in recv.sh. See bounty orphan-monitor-self-suicide-check.
+    # Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch;
+    # env-override added 2026-09-13 for the ambient-monitor launcher).
+    # Capture harness (Claude Code) PID at startup. Two code paths:
+    #   1) If AMBIENT_MONITOR_HARNESS_PID is exported by our parent (the
+    #      ambient-monitor launcher), honor it — the launcher walked past its own
+    #      parent chain to find Claude, which we can't do ourselves because our
+    #      grandparent under the launcher is the bash-c wrapper, not Claude.
+    #   2) Otherwise, fall back to the pre-launcher grandparent walk — our
+    #      GRANDPARENT (not $PPID) is Claude when this script is launched
+    #      standalone by the harness, because $PPID is the bash-c wrapper the
+    #      Monitor tool spawns and the wrapper stays alive as a waiter even when
+    #      Claude dies. See bounty orphan-monitor-self-suicide-check.
+    # Check per iteration below; if Claude is gone, exit(0) BEFORE any spec fires.
     harness_pid = None
-    try:
-        with open("/proc/%d/status" % os.getppid()) as f:
-            for line in f:
-                if line.startswith("PPid:"):
-                    p = int(line.split()[1])
-                    if p > 1:
-                        harness_pid = p
-                    break
-    except (OSError, ValueError):
-        pass
+    env_override = os.environ.get("AMBIENT_MONITOR_HARNESS_PID")
+    if env_override:
+        try:
+            p = int(env_override)
+            if p > 1:
+                harness_pid = p
+        except ValueError:
+            pass
+    if harness_pid is None:
+        try:
+            with open("/proc/%d/status" % os.getppid()) as f:
+                for line in f:
+                    if line.startswith("PPid:"):
+                        p = int(line.split()[1])
+                        if p > 1:
+                            harness_pid = p
+                        break
+        except (OSError, ValueError):
+            pass
     if harness_pid is None:
         print("wakeup-scheduler: orphan-check disabled (couldn't resolve grandparent)",
               file=sys.stderr, flush=True)

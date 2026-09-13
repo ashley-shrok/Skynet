@@ -500,11 +500,12 @@ The watch is silent on its very first run for an identity (cold start) — it
 snapshots both files as baselines without firing.
 
 **Coordinator identities are exempt from file-watching.** If your identity
-carries `coordinator: true` in its frontmatter, this piece detects that at
-startup and idles silently — coordinators don't hold the role or identity
-file in context the same way actors do. No special launch is needed; the
-ambient monitor is the same launch either way, and the piece owns its own
-applicability decision.
+carries `coordinator: true` in its frontmatter, the ambient monitor detects
+that at startup and simply doesn't spawn this piece — coordinators don't
+hold the role or identity file in context the same way actors do. No
+special launch is needed; the ambient monitor is the same launch either
+way, and the launcher owns the coord-detection decision (the four pieces
+themselves are coord-unaware).
 
 ### Failure surface — one launch, four things that can still go wrong
 

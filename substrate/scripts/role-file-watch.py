@@ -281,23 +281,31 @@ def main():
     signal.signal(signal.SIGTERM, handler)
     signal.signal(signal.SIGINT, handler)
 
-    # --- Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch).
-    # Capture harness (Claude Code) PID at startup — our GRANDPARENT, not $PPID (which is
-    # the bash-c wrapper the Monitor tool spawns; the wrapper stays alive as a waiter even
-    # when Claude dies). Check per iteration below; if Claude is gone, exit(0) — matches
-    # the fix in recv.sh + wakeup-scheduler.py + context-watch.py.
-    # See bounty orphan-monitor-self-suicide-check.
+    # --- Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch;
+    # env-override added 2026-09-13 for the ambient-monitor launcher).
+    # See wakeup-scheduler.py for the full comment; short version:
+    #   1) if AMBIENT_MONITOR_HARNESS_PID is set (parent is the launcher), honor it.
+    #   2) else fall back to the grandparent walk (standalone launch case).
     harness_pid = None
-    try:
-        with open("/proc/%d/status" % os.getppid()) as f:
-            for line in f:
-                if line.startswith("PPid:"):
-                    p = int(line.split()[1])
-                    if p > 1:
-                        harness_pid = p
-                    break
-    except (OSError, ValueError):
-        pass
+    env_override = os.environ.get("AMBIENT_MONITOR_HARNESS_PID")
+    if env_override:
+        try:
+            p = int(env_override)
+            if p > 1:
+                harness_pid = p
+        except ValueError:
+            pass
+    if harness_pid is None:
+        try:
+            with open("/proc/%d/status" % os.getppid()) as f:
+                for line in f:
+                    if line.startswith("PPid:"):
+                        p = int(line.split()[1])
+                        if p > 1:
+                            harness_pid = p
+                        break
+        except (OSError, ValueError):
+            pass
     if harness_pid is None:
         print(
             "role-file-watch: orphan-check disabled (couldn't resolve grandparent)",

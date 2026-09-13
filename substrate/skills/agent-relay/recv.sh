@@ -163,21 +163,33 @@ emit_body(){  # room sender event_id body -> echo the line to surface (spilling 
   # PATH first (survives any truncation), a bounded preview LAST (harmless if it gets cut)
   printf '%s' "${prefix}[long message, ${#body} chars — full text at ${path} — Read it] «${body:0:160}…»"
 }
-# --- Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch) ---
-# Capture the harness (Claude Code) PID at startup. Our direct parent is the bash-c wrapper
-# the Monitor tool spawns; the wrapper stays alive as a waiter even after Claude dies, so
-# checking $PPID would always succeed. The GRANDPARENT is the Claude process — that's what
-# we need to track. Read it from /proc/$PPID/status which is stable across the child fork.
+# --- Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch;
+# env-override added 2026-09-13 for the ambient-monitor launcher) ---
+# Capture the harness (Claude Code) PID at startup. Two code paths:
+#   1) If AMBIENT_MONITOR_HARNESS_PID is exported by our parent (the ambient-monitor
+#      launcher), honor it — the launcher walked past its own parent chain to find
+#      Claude, which we can't do ourselves because our grandparent under the launcher
+#      is the bash-c wrapper, not Claude.
+#   2) Otherwise, fall back to the pre-launcher grandparent walk — our direct parent
+#      is the bash-c wrapper the Monitor tool spawns; the wrapper stays alive as a
+#      waiter even after Claude dies, so checking $PPID would always succeed. The
+#      GRANDPARENT is the Claude process — that's what we need to track.
 # In the main loop below, kill -0 the grandparent each iteration; if it's gone, exit(0)
 # BEFORE any sync/state changes. This closes the orphan bug where recv.sh kept polling for
 # days after Claude was killed, silently advancing SINCE past messages nobody ever saw
 # (the SIGPIPE never fired because a socket stdout only EPIPEs on actual write failure, and
 # the poll loop rarely writes). If we can't resolve the grandparent (unusual launch shape),
 # fall back to skipping the check — better to keep polling than to accidentally self-exit.
-HARNESS_PID=$(awk '/^PPid:/{print $2}' "/proc/$PPID/status" 2>/dev/null)
-if [ -z "$HARNESS_PID" ] || [ "$HARNESS_PID" = "0" ] || [ "$HARNESS_PID" = "1" ]; then
-  echo "recv.sh: orphan-check disabled (couldn't resolve grandparent from /proc/$PPID/status)" >&2
-  HARNESS_PID=""
+HARNESS_PID=""
+if [ -n "$AMBIENT_MONITOR_HARNESS_PID" ] && [ "$AMBIENT_MONITOR_HARNESS_PID" -gt 1 ] 2>/dev/null; then
+  HARNESS_PID="$AMBIENT_MONITOR_HARNESS_PID"
+fi
+if [ -z "$HARNESS_PID" ]; then
+  HARNESS_PID=$(awk '/^PPid:/{print $2}' "/proc/$PPID/status" 2>/dev/null)
+  if [ -z "$HARNESS_PID" ] || [ "$HARNESS_PID" = "0" ] || [ "$HARNESS_PID" = "1" ]; then
+    echo "recv.sh: orphan-check disabled (couldn't resolve grandparent from /proc/$PPID/status)" >&2
+    HARNESS_PID=""
+  fi
 fi
 # -------------------------------------------------------------------------------------------
 while :; do
