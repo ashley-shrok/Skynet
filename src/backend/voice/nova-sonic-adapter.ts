@@ -144,9 +144,19 @@ const client = new BedrockRuntimeClient({
 // Event frame builder (D-ASYNCGEN)
 // ---------------------------------------------------------------------------
 
-/** Wrap a JSON-serialisable event object in the SDK eventstream frame shape. */
+/**
+ * Wrap a JSON-serialisable event object in the SDK eventstream frame shape.
+ *
+ * Nova Sonic's wire schema requires each JSON payload to be nested under a
+ * top-level `event` key: `{"event": {"sessionStart": {...}}}`. Sending the
+ * payload without the outer `event` wrap produces server-side
+ * `ValidationException: Input Chunk does not contain an event: InputChunk(event=null)`
+ * (observed on the first live invoke 2026-09-13 post-Plan-01 hotfix).
+ */
 function frame(event: object): { chunk: { bytes: Uint8Array } } {
-  return { chunk: { bytes: new TextEncoder().encode(JSON.stringify(event)) } };
+  return {
+    chunk: { bytes: new TextEncoder().encode(JSON.stringify({ event })) },
+  };
 }
 
 // ---------------------------------------------------------------------------

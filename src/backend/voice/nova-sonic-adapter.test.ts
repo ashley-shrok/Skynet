@@ -81,15 +81,29 @@ function fakeResponseBody(events: object[]): AsyncIterable<unknown> {
 // Helper: drain the body iterable captured by invokeCmdCtor and return parsed
 // events (skipping the 12ms pacing sleeps is fine in test — they're still
 // awaited but resolve immediately under vi's fake-timer-free default).
+//
+// UNWRAPS the outer `event` key that Nova Sonic's wire schema requires
+// (each chunk is `{"event": {"sessionStart": {...}}}` on the wire). Tests
+// downstream assert against the inner event payload — the outer wrapper is
+// checked separately in a dedicated wire-shape test. (Hotfix 2026-09-13:
+// original executor port omitted the wrap entirely, producing
+// `ValidationException: Input Chunk does not contain an event` from Bedrock
+// on first live invoke.)
 // ---------------------------------------------------------------------------
 async function drainBody(body: AsyncIterable<unknown>): Promise<object[]> {
   const collected: object[] = [];
   for await (const frame of body as AsyncIterable<{
     chunk: { bytes: Uint8Array };
   }>) {
-    collected.push(
-      JSON.parse(new TextDecoder().decode(frame.chunk.bytes)) as object,
-    );
+    const parsed = JSON.parse(
+      new TextDecoder().decode(frame.chunk.bytes),
+    ) as { event?: object };
+    if (!parsed.event) {
+      throw new Error(
+        `frame missing outer 'event' wrap — got: ${JSON.stringify(parsed)}`,
+      );
+    }
+    collected.push(parsed.event);
   }
   return collected;
 }
