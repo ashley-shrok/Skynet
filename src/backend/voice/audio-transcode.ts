@@ -186,3 +186,43 @@ export function webmToFlac(webmBuffer: Buffer): Promise<Buffer> {
     "pipe:1",
   ]);
 }
+
+/**
+ * Full-transcode fallback path used by Plan 03: re-encode a WebM/Opus buffer
+ * as raw LPCM 16 kHz s16le mono for Amazon Nova Sonic audioInput events.
+ *
+ * Nova Sonic requires LPCM at 16 kHz per D-AUDIO — this is the only format
+ * the adapter's `audioInput` events accept. The Ogg-Opus / FLAC helpers (kept
+ * in this file through Wave 2) are Transcribe-era artifacts; they are removed
+ * as part of Plan 03's rewire when nothing consumes them.
+ *
+ * SILENCE_FILTER is preserved here because Nova Sonic bills per audio token
+ * (see CONTEXT.md § Cost estimate in the recon), so trimming leading/trailing
+ * silences pre-transcode still saves cost under the new provider.
+ *
+ * ffmpeg argv: `-i pipe:0 -af <SILENCE_FILTER> -ar 16000 -ac 1 -f s16le pipe:1`
+ * All argv entries are hardcoded literal strings; user bytes flow through stdin
+ * only (T-109-02-01 command-injection mitigation, mirrors T-98-04-04).
+ *
+ * @param webmBuffer - Raw WebM/Opus bytes as received from `MediaRecorder`.
+ * @returns Raw LPCM bytes at 16 kHz s16le mono, suitable for Nova Sonic
+ *   `audioInput` events (see Plan 03's `transcodeForTranscribe`).
+ * @throws With ffmpeg's stderr output on non-zero exit.
+ * @throws With the spawn error (e.g., ENOENT when ffmpeg is missing from
+ *   the container — see the Pitfall 7 note in the module docblock).
+ */
+export function webmToPcm16k(webmBuffer: Buffer): Promise<Buffer> {
+  return runFfmpeg(webmBuffer, [
+    "-i",
+    "pipe:0",
+    "-af",
+    SILENCE_FILTER,
+    "-ar",
+    "16000",
+    "-ac",
+    "1",
+    "-f",
+    "s16le",
+    "pipe:1",
+  ]);
+}
