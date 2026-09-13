@@ -31,7 +31,7 @@
  *    20. connectOneShot called by the worker (for response-file SFTP write)
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   parseRequestBody,
   mapEndedEventToReason,
@@ -40,6 +40,18 @@ import {
 } from "./worker.js";
 import type { PendingBirth } from "./types.js";
 import type { BirthEvent, BirthDeps } from "../database/routes/identity-birth-orchestrator.js";
+import { __resetForTests as __resetThrottleForTests } from "../identity-birth/global-throttle.js";
+
+// ---------------------------------------------------------------------------
+// Throttle env-var save/restore (for Phase 110 throttle tests)
+// ---------------------------------------------------------------------------
+
+// Captured once before all tests run; restored after each throttle test that
+// mutates these vars. Tests that do NOT mutate process.env don't need to
+// restore — the __resetThrottleForTests() call in beforeEach re-reads env
+// every time, so non-mutating tests see the original values automatically.
+const _origMaxConcurrent = process.env.IDENTITY_BIRTH_MAX_CONCURRENT;
+const _origMaxQueueDepth = process.env.IDENTITY_BIRTH_MAX_QUEUE_DEPTH;
 
 // ---------------------------------------------------------------------------
 // Mock systemLogger
@@ -156,6 +168,10 @@ function buildTestDeps(overrides?: Partial<WorkerDeps>): WorkerDeps {
 describe("spawn-request worker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset throttle state so each test starts with a clean semaphore.
+    // Also re-reads process.env so tests that mutate env vars see fresh
+    // config on the next acquireBirthSlot call.
+    __resetThrottleForTests();
   });
 
   // -------------------------------------------------------------------------
@@ -826,6 +842,158 @@ describe("spawn-request worker", () => {
       expect(failureWrite).toBeDefined();
       const failureBody = JSON.parse(failureWrite![2] as string);
       expect(failureBody.reason).toBe("birth_failed");
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Throttle integration (Phase 110) — parallel-serialization + bypass semantics
+  //
+  // These tests exercise the REAL global-throttle module (not mocked) to prove
+  // end-to-end wiring between processBirth → acquireBirthSlot. The
+  // __resetThrottleForTests() call in beforeEach gives each test a clean slate.
+  //
+  // Note on env-var mutation: tests that set IDENTITY_BIRTH_MAX_CONCURRENT or
+  // IDENTITY_BIRTH_MAX_QUEUE_DEPTH must call __resetThrottleForTests() AFTER
+  // the mutation so the new values are picked up by the semaphore. Each such
+  // test restores the original values in its own afterEach.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe("throttle integration (Phase 110)", () => {
+    it("Test 110-W-A: two parallel processBirth calls serialize under maxConcurrent=1", async () => {
+      // maxConcurrent=1 is the default — no env mutation needed; the
+      // __resetThrottleForTests() in beforeEach already applied default config.
+
+      const callOrder: string[] = [];
+
+      // Deferred Promise: controls exactly when item A's birth resolves, so we
+      // can assert item B has NOT started while A is in-flight (proving the
+      // throttle serializes them).
+      let resolveA!: () => void;
+      const deferredA = new Promise<void>((r) => {
+        resolveA = r;
+      });
+
+      const itemA = makePendingBirth({ uuid: "aaaa-1100-0000-0000-000000000001" });
+      const itemB = makePendingBirth({ uuid: "bbbb-1100-0000-0000-000000000002" });
+
+      // Two deps instances so each processBirth gets its own clean mock set.
+      const depsA = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (_opts, emit: (e: BirthEvent) => void) => {
+          callOrder.push("A-birth-start");
+          await deferredA;
+          callOrder.push("A-birth-end");
+          emit({ type: "ended", ok: true, identityId: "willow", sessionName: "Willow-Coordinator" });
+        }),
+      });
+      const depsB = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (_opts, emit: (e: BirthEvent) => void) => {
+          callOrder.push("B-birth-start");
+          callOrder.push("B-birth-end");
+          emit({ type: "ended", ok: true, identityId: "cedar", sessionName: "Cedar-Coordinator" });
+        }),
+      });
+
+      // Launch both concurrently — do NOT await yet.
+      const promiseA = processBirth(itemA, depsA);
+      const promiseB = processBirth(itemB, depsB);
+
+      // Flush several microtask ticks so A can acquire + reach the deferred await
+      // inside birthIdentity. B will attempt to acquire and find the slot busy
+      // (active === maxConcurrent === 1), so it enqueues and waits.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // A-birth-start must be present; B-birth-start must NOT be present yet.
+      expect(callOrder).toContain("A-birth-start");
+      expect(callOrder).not.toContain("B-birth-start");
+
+      // Unblock A — this causes A's birthIdentity to complete, A's finally to
+      // call release(), which unblocks B.
+      resolveA();
+
+      // Flush everything: A's finally fires release(), B's acquire resolves,
+      // B's birthIdentity runs synchronously (no deferred). Use a short
+      // setTimeout-based flush to let the Promise chain drain completely.
+      await new Promise<void>((r) => setTimeout(r, 20));
+
+      // Both promises must be settled by now.
+      await Promise.all([promiseA, promiseB]);
+
+      // B ran AFTER A completed — strict order.
+      expect(callOrder).toEqual(["A-birth-start", "A-birth-end", "B-birth-start", "B-birth-end"]);
+
+      // Each deps' birthIdentity was called exactly once (A first, B second).
+      expect(depsA.birthIdentity).toHaveBeenCalledTimes(1);
+      expect(depsB.birthIdentity).toHaveBeenCalledTimes(1);
+
+      // A's birthIdentity received itemA's hostIdNum; B's received itemB's.
+      // (opts.userId is derived from getHostOwnerUserId mock, not item.userId.)
+      expect((depsA.birthIdentity as ReturnType<typeof vi.fn>).mock.calls[0][0].hostId).toBe(itemA.hostIdNum);
+      expect((depsB.birthIdentity as ReturnType<typeof vi.fn>).mock.calls[0][0].hostId).toBe(itemB.hostIdNum);
+    });
+
+    it("Test 110-W-B: bypassQueueDepth honored — 10 parallel processBirth calls never reject", async () => {
+      // Set deliberately tiny limits: maxConcurrent=1, maxQueueDepth=2.
+      // Without bypassQueueDepth:true the 3rd+ concurrent acquire would throw
+      // ThrottleRejectedError. With bypassQueueDepth:true (what processBirth
+      // passes) all 10 must enqueue and eventually run.
+      process.env.IDENTITY_BIRTH_MAX_CONCURRENT = "1";
+      process.env.IDENTITY_BIRTH_MAX_QUEUE_DEPTH = "2";
+      // Re-apply env so the semaphore picks up the new values.
+      __resetThrottleForTests();
+
+      afterEach(() => {
+        // Restore env vars after this test regardless of pass/fail.
+        if (_origMaxConcurrent === undefined) {
+          delete process.env.IDENTITY_BIRTH_MAX_CONCURRENT;
+        } else {
+          process.env.IDENTITY_BIRTH_MAX_CONCURRENT = _origMaxConcurrent;
+        }
+        if (_origMaxQueueDepth === undefined) {
+          delete process.env.IDENTITY_BIRTH_MAX_QUEUE_DEPTH;
+        } else {
+          process.env.IDENTITY_BIRTH_MAX_QUEUE_DEPTH = _origMaxQueueDepth;
+        }
+        // Reset throttle again so the restored env takes effect for the next test.
+        __resetThrottleForTests();
+      });
+
+      // Build 10 items with distinct UUIDs so callOrder tracking is unambiguous.
+      const items = Array.from({ length: 10 }, (_, i) =>
+        makePendingBirth({
+          uuid: `test-uuid-${String(i).padStart(4, "0")}-1100-0000-000000000000`,
+        }),
+      );
+
+      // Fast-resolving birthIdentity: emits ended{ok:true} immediately on every call.
+      // Using a single shared deps with a single birthIdentity mock so we can assert
+      // it was called exactly 10 times via one mock.
+      const sharedDeps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (_opts, emit: (e: BirthEvent) => void) => {
+          emit({ type: "ended", ok: true, identityId: "willow", sessionName: "Willow-Coordinator" });
+        }),
+      });
+
+      // Fire all 10 concurrently. None should reject — bypassQueueDepth:true means
+      // the throttle never throws ThrottleRejectedError for spawn-request callers.
+      const results = await Promise.allSettled(
+        items.map((item) => processBirth(item, sharedDeps)),
+      );
+
+      // All 10 must have settled as fulfilled (no rejections).
+      const rejected = results.filter((r) => r.status === "rejected");
+      expect(rejected).toHaveLength(0);
+
+      // birthIdentity called exactly 10 times (no birth was dropped on overflow).
+      expect(sharedDeps.birthIdentity).toHaveBeenCalledTimes(10);
+
+      // writeMarkdownFileAtomic called at least 10 times — each birth produces
+      // a response file. This confirms release() enclosed ALL response-file writes
+      // (if release fired before the write, a write might be skipped on teardown).
+      const writeCalls = (sharedDeps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls;
+      expect(writeCalls.length).toBeGreaterThanOrEqual(10);
     });
   });
 });
