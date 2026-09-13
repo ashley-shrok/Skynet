@@ -37,6 +37,7 @@ import {
 import { Tabs, TabsContent } from "@/components/tabs";
 import { Button } from "@/components/button";
 import { Switch } from "@/components/switch";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 // Quick 260731-1c8: add inline title + avatar editor to the Identity tab.
 // updateIdentity is the existing PUT /identities/:identityKey HTTP client; applyIdentityChange
 // broadcasts the fresh identity to all useIdentities() consumers so live
@@ -219,6 +220,13 @@ export function IdentityModal({
   // all DELETED — those belonged to role-scope tabs that now live in RoleModal.
   // Default landing tab: "identity" (was scope-derived).
   const [activeTab, setActiveTab] = useState<string>("identity");
+  // Mobile-header two-row split: on touch phones the header's shrink-0
+  // children (avatar + stays-awake-label ~250px + pencil + close) exceed
+  // the viewport, squishing the flex-1 name/role container to zero width.
+  // On touch we push the stays-awake toggle down to a second header row
+  // so name/role has room in Row 1. Desktop keeps the single-row layout
+  // Alice signed off on in the 2026-09-02 mobile fix.
+  const isTouchDevice = useIsTouchDevice();
 
   // Quick 260731-1c8: inline editor state for the Identity tab.
   // titleDraft: controlled value for the title <input>.
@@ -1163,20 +1171,25 @@ export function IdentityModal({
           </div>
           {/* Quick 260811-ax1: "Stays awake" sentinel toggle. Switch checked =
               .no-dormancy sentinel present on the identity's host. Disabled
-              while loading (null) or saving. */}
-          <label
-            className="shrink-0 flex flex-row items-center gap-2 cursor-pointer select-none"
-            title="Toggle stays-awake sentinel for this identity"
-            style={{ position: "relative", zIndex: 1 }}
-          >
-            <Switch
-              checked={staysAwake === true}
-              onCheckedChange={onStaysAwakeToggle}
-              disabled={staysAwake === null || staysAwakeSaving}
-              aria-label={`Toggle stays-awake for ${identity.displayName}`}
-            />
-            <span className="text-xs text-[#a89a80]">Boost response time (uses more memory)</span>
-          </label>
+              while loading (null) or saving.
+              Mobile-header split: on touch phones this control moves to a
+              second header row below (see Row 2 near the bottom of this
+              DialogHeader). Rendered here only on non-touch (desktop). */}
+          {!isTouchDevice && (
+            <label
+              className="shrink-0 flex flex-row items-center gap-2 cursor-pointer select-none"
+              title="Toggle stays-awake sentinel for this identity"
+              style={{ position: "relative", zIndex: 1 }}
+            >
+              <Switch
+                checked={staysAwake === true}
+                onCheckedChange={onStaysAwakeToggle}
+                disabled={staysAwake === null || staysAwakeSaving}
+                aria-label={`Toggle stays-awake for ${identity.displayName}`}
+              />
+              <span className="text-xs text-[#a89a80]">Boost response time (uses more memory)</span>
+            </label>
+          )}
           {/* Patch #277: pencil toggle button — reveals/hides the edit block.
               Matches close-button glass affordance (same size, border, glow
               recipe) but NOT wrapped in DialogClose — does not close the dialog. */}
@@ -1251,6 +1264,30 @@ export function IdentityModal({
             </button>
           </DialogClose>
           </div>
+          {/* Mobile-header Row 2: stays-awake toggle. Displaced from the
+              single-row layout on touch phones (see the !isTouchDevice
+              gate on the label above) so Row 1's name/role has room to
+              render at all. Full-width so the label ("Boost response
+              time…") can breathe without needing horizontal-scroll. */}
+          {isTouchDevice && (
+            <div
+              className="px-6 pb-3 flex flex-row items-center"
+              style={{ position: "relative", zIndex: 1 }}
+            >
+              <label
+                className="flex flex-row items-center gap-2 cursor-pointer select-none"
+                title="Toggle stays-awake sentinel for this identity"
+              >
+                <Switch
+                  checked={staysAwake === true}
+                  onCheckedChange={onStaysAwakeToggle}
+                  disabled={staysAwake === null || staysAwakeSaving}
+                  aria-label={`Toggle stays-awake for ${identity.displayName}`}
+                />
+                <span className="text-xs text-[#a89a80]">Boost response time (uses more memory)</span>
+              </label>
+            </div>
+          )}
         </DialogHeader>
 
         {/* Header-level edit drawer (2026-08-05): the pencil in DialogHeader

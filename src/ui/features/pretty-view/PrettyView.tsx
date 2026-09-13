@@ -59,6 +59,10 @@ import { useChatSurfaceAdapter } from "./sources/use-chat-surface-adapter";
 import { MultiBadgeAnchor } from "./MultiBadgeAnchor";
 import { ChatSurfaceErrorState } from "./ChatSurfaceErrorState";
 import { useViewingUserMxid } from "@/state/viewing-user-store";
+import {
+  popIdentityModalOpen,
+  pushIdentityModalOpen,
+} from "@/state/identity-modal-open-store";
 import { buildIdentityHostsFromFleet } from "@/state/identities-store";
 import {
   getFleetSessionsSnapshot,
@@ -848,6 +852,16 @@ export function PrettyView({
   // this to true; the IdentityModal handles close via onOpenChange (Esc,
   // backdrop, X button all route through shadcn Dialog's onOpenChange).
   const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
+  // Publish modal-open to the app-wide store so AppShell's mobile back
+  // button can hide itself while the modal is visible. See
+  // identity-modal-open-store.ts for the root-cause writeup (per-tab
+  // wrapper caps the modal's z-index at 2, below the fixed z:30 back
+  // button — hiding the button is simpler than restructuring the stack).
+  useEffect(() => {
+    if (!isIdentityModalOpen) return;
+    pushIdentityModalOpen();
+    return () => popIdentityModalOpen();
+  }, [isIdentityModalOpen]);
   // Identity badge right-click context menu. Populated on onContextMenu at
   // cursor coords; cleared by the menu's onClose (Esc, click-outside, item
   // click). Only opens when the caller supplied identityBadgeContextMenuItems.

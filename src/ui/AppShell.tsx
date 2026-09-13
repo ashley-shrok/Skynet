@@ -119,6 +119,7 @@ import {
   seedSessionAiTitle,
 } from "@/state/session-working-store";
 import { publishFleetStatusWaitingFor } from "@/state/session-waiting-store";
+import { useAnyIdentityModalOpen } from "@/state/identity-modal-open-store";
 import {
   publishFleetStatusTmuxSession,
   publishFleetStatusTmuxSessionGone,
@@ -2424,6 +2425,16 @@ export function AppShell({
   // by the `#mv=1` URL fragment key via useMobileScreen (mobile-flow.ts).
   // Desktop (`!isTouchDevice`) is UNCHANGED from Plan 06-02.
   const isMobileListScreen = isTouchDevice && mobileScreen === "list";
+  // Hide the mobile back-button while an IdentityModal is open — the modal
+  // is portalled into chatRegionEl inside PrettyView, which sits inside a
+  // per-tab wrapper set to position:absolute + z-index:2 (a stacking
+  // context). The modal's inner z-[120] is capped at that z:2, below the
+  // fixed z:30 back button. Rather than restructure the stack, we hide the
+  // button for the modal's duration. Desktop is unaffected: this button
+  // doubles as the sidebar-toggle on desktop and its role there is
+  // orthogonal (and desktop keeps patch #108 composer-uncovered behavior).
+  const anyIdentityModalOpen = useAnyIdentityModalOpen();
+  const hideBackButtonForModal = isTouchDevice && anyIdentityModalOpen;
   // Patch #144 Fix (b): `isMobileViewScreen` derivation removed together
   // with the legacy mobile-view header block below. mobileScreen === "view"
   // is now expressed implicitly via `!isMobileListScreen` on the fixed
@@ -2480,7 +2491,7 @@ export function AppShell({
             functionally symmetric with desktop (where opening the sidebar
             surfaces the conversation list). Hidden on mobile-list-screen
             (nothing to navigate to; would be a phantom no-op tap). */}
-        {!isMobileListScreen && (
+        {!isMobileListScreen && !hideBackButtonForModal && (
           <button
             type="button"
             onClick={() =>
