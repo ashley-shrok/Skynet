@@ -106,10 +106,10 @@ export function sanitizeUsernameToLocalpart(username: string): string {
  *
  * The `_human` suffix distinguishes human relay accounts from agent accounts
  * in the same homeserver namespace (agents carry no suffix). Legacy identifiers
- * without the suffix (Alice, Zoey, Laura from the one-shot import) continue
+ * without the suffix (user, Zoey, Laura from the one-shot import) continue
  * to work — the suffix is convention going forward, not a schema invariant.
  *
- * @param username   - The Skynet username (may be email-form, e.g. `alice@example.com`)
+ * @param username   - The Skynet username (may be email-form, e.g. `user@example.com`)
  * @param serverName - The Matrix server-name portion only (no scheme, no port);
  *                     obtain via extractServerName(adminCreds.homeserverBase).
  */

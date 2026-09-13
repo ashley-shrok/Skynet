@@ -60,7 +60,7 @@ metrics:
 | 4 | null-role last — aaa-would-be-first sorts after role-carrying rows | §Null-role handling: sort to bottom of host bucket |
 | 5a | role compare case-insensitive — Box-Maintainer/box-maintainer/q-role/zeta-role fixture | §Sort semantics "case-insensitive alphabetical throughout" (role) |
 | 5b | label compare case-insensitive within role — Alpha/alpha cluster before Zebra | §Sort semantics "case-insensitive alphabetical throughout" (label) |
-| 6 | same-role different-label falls to label — alice/mike/zed | §Sort semantics "within each role, sort by label" |
+| 6 | same-role different-label falls to label — user/mike/zed | §Sort semantics "within each role, sort by label" |
 
 ## Infrastructure Added
 

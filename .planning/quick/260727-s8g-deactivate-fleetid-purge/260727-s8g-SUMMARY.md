@@ -117,7 +117,7 @@ Fix activeSet id-shape mismatch: ambient fleet-row tap + deactivate no longer re
 - **Commits made:** 2 (code + test).
 - **Docker:** not rebuilt.
 - **Deploy:** not performed.
-- Awaits Alice's explicit ship signal per the quick-260727-s8g plan directive.
+- Awaits user's explicit ship signal per the quick-260727-s8g plan directive.
 
 ## Self-Check: PASSED
 

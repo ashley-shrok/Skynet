@@ -694,7 +694,7 @@ describe("POST /matrix-admin/migrate-cred-files", () => {
 
   it("200 — mints for humans-with-mxid, reports skipped-no-mxid for Laura-like row", async () => {
     dbSelectMock.mockReturnValue([
-      { name: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
+      { name: "user", mxid: "@ashley:t1000.taild9b663.ts.net" },
       { name: "laura", mxid: null },
     ]);
     mintAndWriteHumanTokenMock.mockResolvedValue({ ok: true });
@@ -705,33 +705,33 @@ describe("POST /matrix-admin/migrate-cred-files", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.results).toHaveLength(2);
 
-    const alice = parsed.results.find(
-      (r: { humanName: string }) => r.humanName === "alice",
+    const user = parsed.results.find(
+      (r: { humanName: string }) => r.humanName === "user",
     );
     const laura = parsed.results.find(
       (r: { humanName: string }) => r.humanName === "laura",
     );
 
-    expect(alice.status).toBe("minted");
-    expect(alice.mxid).toBe("@ashley:t1000.taild9b663.ts.net");
+    expect(user.status).toBe("minted");
+    expect(user.mxid).toBe("@ashley:t1000.taild9b663.ts.net");
     expect(laura.status).toBe("skipped-no-mxid");
     expect(laura.mxid).toBeNull();
 
     expect(mintAndWriteHumanTokenMock).toHaveBeenCalledWith(
       "@ashley:t1000.taild9b663.ts.net",
-      "alice",
+      "user",
     );
     expect(mintAndWriteHumanTokenMock).toHaveBeenCalledTimes(1);
   });
 
   it("200 — reports status:failed when mintAndWriteHumanToken rejects for one user; other users continue", async () => {
     dbSelectMock.mockReturnValue([
-      { name: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
+      { name: "user", mxid: "@ashley:t1000.taild9b663.ts.net" },
       { name: "zoey", mxid: "@zoey:thenasty.taild9b663.ts.net" },
     ]);
     mintAndWriteHumanTokenMock.mockImplementation(
       async (_mxid: string, humanName: string) => {
-        if (humanName === "alice") {
+        if (humanName === "user") {
           return { ok: false, error: "synapse_500" };
         }
         return { ok: true };
@@ -743,26 +743,26 @@ describe("POST /matrix-admin/migrate-cred-files", () => {
     const parsed = JSON.parse(res.body);
     expect(parsed.results).toHaveLength(2);
 
-    const alice = parsed.results.find(
-      (r: { humanName: string }) => r.humanName === "alice",
+    const user = parsed.results.find(
+      (r: { humanName: string }) => r.humanName === "user",
     );
     const zoey = parsed.results.find(
       (r: { humanName: string }) => r.humanName === "zoey",
     );
 
-    expect(alice.status).toBe("failed");
-    expect(alice.error).toBe("synapse_500");
+    expect(user.status).toBe("failed");
+    expect(user.error).toBe("synapse_500");
     expect(zoey.status).toBe("minted");
   });
 
   it("200 — deletes stale .cred files under TG_BRIDGE_STATE_DIR and reports them", async () => {
     dbSelectMock.mockReturnValue([
-      { name: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
+      { name: "user", mxid: "@ashley:t1000.taild9b663.ts.net" },
     ]);
     mintAndWriteHumanTokenMock.mockResolvedValue({ ok: true });
 
     // Materialize legacy .cred files.
-    fs.writeFileSync(path.join(tempDir, "alice.cred"), "plaintext-legacy-1");
+    fs.writeFileSync(path.join(tempDir, "user.cred"), "plaintext-legacy-1");
     fs.writeFileSync(path.join(tempDir, "zoey.cred"), "plaintext-legacy-2");
     // Non-.cred file to prove the filter is scoped.
     fs.writeFileSync(path.join(tempDir, "registry.json"), "{}");
@@ -772,19 +772,19 @@ describe("POST /matrix-admin/migrate-cred-files", () => {
     const parsed = JSON.parse(res.body);
 
     expect(parsed.deletedCredFiles).toEqual(
-      expect.arrayContaining(["alice.cred", "zoey.cred"]),
+      expect.arrayContaining(["user.cred", "zoey.cred"]),
     );
     expect(parsed.deletedCredFiles).toHaveLength(2);
 
     // Post-condition: .cred files are gone; registry.json survives.
-    expect(fs.existsSync(path.join(tempDir, "alice.cred"))).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, "user.cred"))).toBe(false);
     expect(fs.existsSync(path.join(tempDir, "zoey.cred"))).toBe(false);
     expect(fs.existsSync(path.join(tempDir, "registry.json"))).toBe(true);
   });
 
   it("200 — idempotent: two consecutive calls both succeed with same response shape", async () => {
     dbSelectMock.mockReturnValue([
-      { name: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
+      { name: "user", mxid: "@ashley:t1000.taild9b663.ts.net" },
     ]);
     mintAndWriteHumanTokenMock.mockResolvedValue({ ok: true });
 

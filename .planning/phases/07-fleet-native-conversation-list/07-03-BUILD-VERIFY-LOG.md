@@ -170,7 +170,7 @@ Rationale:
 7. Scope fence honored — zero source diffs to pretty-view, terminal, guacamole, backend, docker, package.json, NewSessionDialog, or ConversationRow (Step G).
 8. Bundle-size impact: AppShell +2,984 bytes (+0.68%); other bundles byte-identical to Phase 6 (Step A).
 
-Deploy remains user-gated per fork discipline (`~/.claude/identities/tina/deploy-runbook.md` — DEADMAN IS MANDATORY, NO EXCEPTIONS; BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT). Task 4 in Plan 07-03 is deferred to the main orchestrator context after Alice reviews UAT checklist + patches-md entry and gives explicit deploy green-light.
+Deploy remains user-gated per fork discipline (`~/.claude/identities/tina/deploy-runbook.md` — DEADMAN IS MANDATORY, NO EXCEPTIONS; BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT). Task 4 in Plan 07-03 is deferred to the main orchestrator context after user reviews UAT checklist + patches-md entry and gives explicit deploy green-light.
 
 ---
 

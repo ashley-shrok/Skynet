@@ -18,13 +18,13 @@ requires:
 
 provides:
   - "07-03-BUILD-VERIFY-LOG.md — deploy-side confidence baseline (Phase 7 dist bytes clean, prior-patch bytes intact, 315/315 tests pass, scope fence honored)"
-  - "07-UAT-CHECKLIST.md — Alice's post-deploy walk-through (65 blocking gates covering TG-12..18 + Plan 07-01/07-02 additional items + Phase 6 regression TG-01..11 + prior-patch smoke #25/#35/#57/#60/#100/#102/#105 + negative-space scope-fence + deadman disarm sequence)"
+  - "07-UAT-CHECKLIST.md — user's post-deploy walk-through (65 blocking gates covering TG-12..18 + Plan 07-01/07-02 additional items + Phase 6 regression TG-01..11 + prior-patch smoke #25/#35/#57/#60/#100/#102/#105 + negative-space scope-fence + deadman disarm sequence)"
   - "07-PATCHES-MD-ENTRY.md — paste-ready patch #106 draft for `~/.claude/identities/tina/skynet-patches.md` PIN (multi-commit format per patch #105 precedent; includes rebase risk analysis + 12 post-deploy verify grep gates + 13 threat mitigations enumeration + bounty closure note)"
 
 affects: []
 # Task 4 (deploy) is DEFERRED to user-gated main orchestrator context per plan
 # hard_constraint and CLAUDE.md DEPLOY DISCIPLINE. Tasks 1-3 are the paste-ready
-# artifacts for Alice to review before she gives the deploy green-light.
+# artifacts for user to review before she gives the deploy green-light.
 
 # Tech tracking
 tech-stack:
@@ -43,8 +43,8 @@ key-files:
   modified: []
 
 key-decisions:
-  - "**Task 4 deploy DEFERRED to user-gated main orchestrator context.** Per fork DEPLOY DISCIPLINE (CLAUDE.md + `~/.claude/identities/tina/deploy-runbook.md`), the deploy checkpoint is user-gated — the executor writes the paste-ready UAT + patches-md drafts and stops. No docker build. No arm deadman. No `docker compose up -d --force-recreate`. Alice reviews the artifacts and issues the deploy green-light in the orchestrator context; the actual deploy sequence (build-skynet.sh → sentinel cleanup → nohup deadman arm → force-recreate → wait healthy → Alice UAT → narrow-pkill disarm on green light) is executed in that context, not here."
-  - "**UAT checklist follows patch #105's Phase 6 pattern verbatim** — sign-off block at top with narrow-pkill disarm sequence; sections ordered by TG-XX with observable-check + expected + 'if this fails' triage note per item; 🚨 marker for blocking gates; setup section; deadman-disarm section at bottom. Alice can work through it in a single sitting during the 15-min UAT window."
+  - "**Task 4 deploy DEFERRED to user-gated main orchestrator context.** Per fork DEPLOY DISCIPLINE (CLAUDE.md + `~/.claude/identities/tina/deploy-runbook.md`), the deploy checkpoint is user-gated — the executor writes the paste-ready UAT + patches-md drafts and stops. No docker build. No arm deadman. No `docker compose up -d --force-recreate`. user reviews the artifacts and issues the deploy green-light in the orchestrator context; the actual deploy sequence (build-skynet.sh → sentinel cleanup → nohup deadman arm → force-recreate → wait healthy → user UAT → narrow-pkill disarm on green light) is executed in that context, not here."
+  - "**UAT checklist follows patch #105's Phase 6 pattern verbatim** — sign-off block at top with narrow-pkill disarm sequence; sections ordered by TG-XX with observable-check + expected + 'if this fails' triage note per item; 🚨 marker for blocking gates; setup section; deadman-disarm section at bottom. user can work through it in a single sitting during the 15-min UAT window."
   - "**Patches-md #106 entry follows patch #105 multi-commit format** — one PIN entry describing the whole Phase 7 landing arc (7 code commits + docs across 2 code waves + 1 verify wave). Rebase-risk section enumerates 10 preservation invariants specific to Phase 7 additions layered on top of patch #35 + #25 + #105 territory. Verify-post-deploy invariants section provides 12 grep gates for future rebase smoke checks against the mangling-resistant markers (URL literals, i18n keys, SVG icon paths, DevTools attributes, sentinel ids)."
   - "**Bounty closure semantics**: `~/.claude/identities/tina/bounties/telegram-like-interface/` spans BOTH patch #105 (Phase 6) and patch #106 (Phase 7) as ONE ship arc across two deploy cycles. Close via `/close telegram-like-interface` AFTER patch #106's UAT sign-off, NOT after patch #105's — the bounty represents the whole conversation-list shape and both patches are required to fulfill it. This is explicitly noted in the patches-md draft's Deploy Note section AND the UAT checklist's Post-Sign-Off Actions section."
   - "**Bundle-size analysis**: AppShell +2,984 bytes / +0.68% is the entire Phase 7 landing surface delta vs Phase 6 baseline (440,553 → 443,537 bytes). Terminal/index/backend all byte-identical to Phase 6 (0 delta). This proves the scope fence held not just structurally (git diff --stat empty) but at the compiled-bytes level — no cross-territory leaks."
@@ -58,8 +58,8 @@ patterns-established:
 requirements-completed: []
 # NOTE: TG-12..TG-18 are LISTED in this plan's frontmatter (via the plan's
 # top-of-file `requirements:` field) but NOT marked complete here because
-# requirement completion is UAT-gated by Alice on the deployed fork. The
-# 7-requirement completion mark happens AFTER Alice works through the UAT
+# requirement completion is UAT-gated by user on the deployed fork. The
+# 7-requirement completion mark happens AFTER user works through the UAT
 # checklist post-deploy (Task 4 deferred to main orchestrator context) and
 # provides sign-off. This mirrors Phase 6 Plan 06-05's foundation-only
 # requirements-completed=[] pattern — the deploy-checkpoint plan generates
@@ -156,15 +156,15 @@ completed: 2026-07-21
 
 **NOT EXECUTED per plan hard_constraint + fork DEPLOY DISCIPLINE (CLAUDE.md + `~/.claude/identities/tina/deploy-runbook.md`).** The deploy checkpoint is user-gated — the executor writes paste-ready UAT + patches-md drafts and stops. No `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`. No arm deadman. No `docker compose up -d --force-recreate skynet`. No touch of `/tmp/skynet-keep-patched`. No edit of `/opt/skynet/docker-compose.yml`. Only READ-ONLY `docker` inspection permitted (none performed in this executor invocation).
 
-**Next steps for Task 4 (in main orchestrator context, after Alice reviews Tasks 1-3 artifacts and issues explicit deploy green-light):**
+**Next steps for Task 4 (in main orchestrator context, after user reviews Tasks 1-3 artifacts and issues explicit deploy green-light):**
 
-1. Push branch to deploy remote: `git push origin feat/tab-title-from-tmux` (or fork's existing deploy sync path per Alice's box-map.md).
+1. Push branch to deploy remote: `git push origin feat/tab-title-from-tmux` (or fork's existing deploy sync path per user's box-map.md).
 2. Sentinel cleanup: `sudo rm -f /tmp/skynet-keep-patched` (belt-and-braces before arm).
 3. Arm deadman verbatim per deploy-runbook.md step 4: `nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/skynet-keep-patched ] && bash /opt/skynet/.tmp-revert.sh' > /tmp/skynet-revert-bg.log 2>&1`.
 4. Deploy: `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
 5. Wait for container health: `docker compose ps skynet` → healthy (~10-30s).
-6. Notify Alice the container is up. Point at `07-UAT-CHECKLIST.md`. Note 15-min deadman deadline.
-7. Alice works through UAT checklist.
+6. Notify user the container is up. Point at `07-UAT-CHECKLIST.md`. Note 15-min deadman deadline.
+7. user works through UAT checklist.
 8. On sign-off: disarm deadman via narrow pkill sequence + pin `07-PATCHES-MD-ENTRY.md` into skynet-patches.md as #106 + bump "ONE HUNDRED FIVE" to "ONE HUNDRED SIX" + `/close telegram-like-interface`.
 9. On UAT failure: DO NOT touch `/tmp/skynet-keep-patched` — let deadman fire at T+15min OR explicit rollback via `sudo bash /opt/skynet/.tmp-revert.sh`. Note failing item for follow-up amendment plan.
 
@@ -241,7 +241,7 @@ See `key-decisions` in frontmatter for the full list. Highlights:
 
 **None.** The plan was well-shaped and executed exactly as written for Tasks 1-3. Every task landed with its verify gates passing on first attempt; no auto-fixes needed; no scope-fence violations; no auth gates; no architectural surprises.
 
-**Task 4 (deploy) is DEFERRED per the invocation-context hard constraint from the parent orchestrator** — the plan itself has Task 4 as `checkpoint:human-verify gate="blocking"` waiting for Alice's explicit green-light. The parent orchestrator's invocation prompt explicitly scoped this executor invocation to Tasks 1-3 ONLY, with an absolute prohibition on executing Task 4 (no docker build, no arm deadman, no `docker compose up -d --force-recreate`, no touch of `/tmp/skynet-keep-patched`, no edit of `/opt/skynet/docker-compose.yml`). This is not a plan deviation — it's an intentional and correct scope-narrowing for this executor invocation. Task 4 will execute in the user-gated main orchestrator context.
+**Task 4 (deploy) is DEFERRED per the invocation-context hard constraint from the parent orchestrator** — the plan itself has Task 4 as `checkpoint:human-verify gate="blocking"` waiting for user's explicit green-light. The parent orchestrator's invocation prompt explicitly scoped this executor invocation to Tasks 1-3 ONLY, with an absolute prohibition on executing Task 4 (no docker build, no arm deadman, no `docker compose up -d --force-recreate`, no touch of `/tmp/skynet-keep-patched`, no edit of `/opt/skynet/docker-compose.yml`). This is not a plan deviation — it's an intentional and correct scope-narrowing for this executor invocation. Task 4 will execute in the user-gated main orchestrator context.
 
 ## Issues Encountered
 
@@ -253,7 +253,7 @@ Every mitigation in the plan's `<threat_model>` block for Tasks 1-3 is landed as
 
 - **T-07-03-01 (bad build wedges Skynet):** mitigated by Task 1's build verification landing clean — all Phase 7 signals in dist, all Phase 6 signals preserved, all prior-patch bytes intact, scope fence honored. Gates Task 4 deploy.
 - **T-07-03-02 (deadman not armed before deploy):** GATE PENDING — Task 4 is deferred to user-gated main orchestrator context where the arm-BEFORE-deploy ordering is enforced by deploy-runbook.md step 4 (arm nohup) executed before step 5 (docker compose up). This executor does not execute the deploy sequence.
-- **T-07-03-03 (deploy runs without Alice's approval):** GATE PENDING — Task 4 is `checkpoint:human-verify gate="blocking"`, mirrored by this executor's own scope constraint (invocation prompt explicitly forbids executing Task 4). Deploy will only run in the main orchestrator context after Alice's explicit `approved` signal.
+- **T-07-03-03 (deploy runs without user's approval):** GATE PENDING — Task 4 is `checkpoint:human-verify gate="blocking"`, mirrored by this executor's own scope constraint (invocation prompt explicitly forbids executing Task 4). Deploy will only run in the main orchestrator context after user's explicit `approved` signal.
 - **T-07-03-04 (deploy exposes Phase 7 code to fleet):** accepted — Phase 7 code is not sensitive (UI-layer reshape). No new secrets, no new credentials, no new schemas.
 - **T-07-03-SC (supply chain — package legitimacy):** mitigated — zero new npm deps verified in Task 1 (`git diff --stat package.json package-lock.json` = empty). No package-lock.json drift.
 
@@ -270,7 +270,7 @@ Every mitigation in the plan's `<threat_model>` block for Tasks 1-3 is landed as
 Prerequisites for the deploy step, all satisfied by this executor's Tasks 1-3:
 
 - [x] Build verified clean (`07-03-BUILD-VERIFY-LOG.md` — CLEAN verdict at bottom)
-- [x] UAT checklist ready for Alice (`07-UAT-CHECKLIST.md` — 65 blocking gates)
+- [x] UAT checklist ready for user (`07-UAT-CHECKLIST.md` — 65 blocking gates)
 - [x] Patches-md #106 entry drafted (`07-PATCHES-MD-ENTRY.md` — paste-ready with placeholders for PIN time)
 - [x] Zero source diffs from this plan (git diff --stat src/ docker/ package.json package-lock.json since dd076a7~1 through fb8eeb0/0bb0bb8/19ef949 for THIS plan's own commits = empty)
 - [x] Scope-fence honored end-to-end for Phase 7 (verified in Task 1)
@@ -280,16 +280,16 @@ Prerequisites for the deploy step, all satisfied by this executor's Tasks 1-3:
 
 **Next steps in main orchestrator context:**
 
-1. Show Alice: `07-03-BUILD-VERIFY-LOG.md` + `07-UAT-CHECKLIST.md` + `07-PATCHES-MD-ENTRY.md` (three paste-ready artifacts).
-2. Await Alice's explicit deploy green-light (per deploy-runbook.md step 2 — "not carried over from earlier authorizations").
-3. On green-light: execute deploy sequence per deploy-runbook.md steps 3-6 (sentinel cleanup, arm deadman, force-recreate container, wait healthy, tell Alice to test).
-4. Alice works through `07-UAT-CHECKLIST.md`.
+1. Show user: `07-03-BUILD-VERIFY-LOG.md` + `07-UAT-CHECKLIST.md` + `07-PATCHES-MD-ENTRY.md` (three paste-ready artifacts).
+2. Await user's explicit deploy green-light (per deploy-runbook.md step 2 — "not carried over from earlier authorizations").
+3. On green-light: execute deploy sequence per deploy-runbook.md steps 3-6 (sentinel cleanup, arm deadman, force-recreate container, wait healthy, tell user to test).
+4. user works through `07-UAT-CHECKLIST.md`.
 5. On sign-off: narrow-pkill disarm + pin patches-md entry + bump count + `/close telegram-like-interface`.
 6. On failure: let deadman fire OR explicit rollback via `sudo bash /opt/skynet/.tmp-revert.sh`; note failing UAT item for follow-up amendment plan.
 
 **Phase 7 close semantics:**
 
-- Requirements TG-12..TG-18 are marked complete in this plan's frontmatter `requirements-completed:` field **ONLY AFTER Alice's UAT sign-off** in the main orchestrator context. Currently `requirements-completed: []` in the frontmatter — this is intentional and mirrors the Phase 6 Plan 06-05 pattern (deploy-checkpoint plans defer requirement-completion until UAT sign-off).
+- Requirements TG-12..TG-18 are marked complete in this plan's frontmatter `requirements-completed:` field **ONLY AFTER user's UAT sign-off** in the main orchestrator context. Currently `requirements-completed: []` in the frontmatter — this is intentional and mirrors the Phase 6 Plan 06-05 pattern (deploy-checkpoint plans defer requirement-completion until UAT sign-off).
 - After UAT sign-off, the main orchestrator will update:
   - This SUMMARY's frontmatter `requirements-completed: [TG-12, TG-13, TG-14, TG-15, TG-16, TG-17, TG-18]`
   - `.planning/STATE.md` current position to Phase 7 complete
@@ -322,4 +322,4 @@ Prerequisites for the deploy step, all satisfied by this executor's Tasks 1-3:
 
 *Phase: 07-fleet-native-conversation-list*
 *Completed (Tasks 1-3 only): 2026-07-21*
-*Deploy step (Task 4): Alice's next call in the main orchestrator context*
+*Deploy step (Task 4): user's next call in the main orchestrator context*

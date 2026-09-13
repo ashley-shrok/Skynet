@@ -16,8 +16,8 @@ const { isOIDCUserAllowed, getOIDCConfigFromEnv } =
 
 describe("isOIDCUserAllowed", () => {
   it("allows everyone when the allow-list is empty", () => {
-    expect(isOIDCUserAllowed("", "alice", "alice@x.com")).toBe(true);
-    expect(isOIDCUserAllowed("   ", "alice")).toBe(true);
+    expect(isOIDCUserAllowed("", "user", "user@x.com")).toBe(true);
+    expect(isOIDCUserAllowed("   ", "user")).toBe(true);
   });
 
   it("allows everyone with the '*' wildcard", () => {
@@ -25,13 +25,13 @@ describe("isOIDCUserAllowed", () => {
   });
 
   it("matches an exact identifier (case-insensitive)", () => {
-    expect(isOIDCUserAllowed("alice,bob", "alice")).toBe(true);
-    expect(isOIDCUserAllowed("Alice", "alice")).toBe(true);
-    expect(isOIDCUserAllowed("alice", "ALICE")).toBe(true);
+    expect(isOIDCUserAllowed("user,bob", "user")).toBe(true);
+    expect(isOIDCUserAllowed("user", "user")).toBe(true);
+    expect(isOIDCUserAllowed("user", "USER")).toBe(true);
   });
 
   it("matches against the email as well as the identifier", () => {
-    expect(isOIDCUserAllowed("alice@x.com", "sub-123", "alice@x.com")).toBe(
+    expect(isOIDCUserAllowed("user@x.com", "sub-123", "user@x.com")).toBe(
       true,
     );
   });
@@ -46,7 +46,7 @@ describe("isOIDCUserAllowed", () => {
   });
 
   it("denies users not on the list", () => {
-    expect(isOIDCUserAllowed("alice,bob", "charlie", "charlie@x.com")).toBe(
+    expect(isOIDCUserAllowed("user,bob", "charlie", "charlie@x.com")).toBe(
       false,
     );
     expect(isOIDCUserAllowed("@company.com", "sub-1", "bob@other.com")).toBe(
@@ -55,11 +55,11 @@ describe("isOIDCUserAllowed", () => {
   });
 
   it("ignores blank entries and surrounding whitespace in the list", () => {
-    expect(isOIDCUserAllowed(" alice , , bob ", "bob")).toBe(true);
+    expect(isOIDCUserAllowed(" user , , bob ", "bob")).toBe(true);
   });
 
   it("does not match the email against an identifier-only pattern when email differs", () => {
-    expect(isOIDCUserAllowed("alice", "sub-123", "alice@x.com")).toBe(false);
+    expect(isOIDCUserAllowed("user", "sub-123", "user@x.com")).toBe(false);
   });
 });
 

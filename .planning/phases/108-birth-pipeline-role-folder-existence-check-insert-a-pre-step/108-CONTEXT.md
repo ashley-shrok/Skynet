@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-12
 **Status:** Ready for planning
-**Source:** `/explain` design pass with Alice + bounty `birth-pipeline-role-folder-existence-check` (locked design, greenlit thumbs-up).
+**Source:** `/explain` design pass with user + bounty `birth-pipeline-role-folder-existence-check` (locked design, greenlit thumbs-up).
 
 <domain>
 ## Phase Boundary
@@ -13,7 +13,7 @@ Insert a target-host role-folder existence probe into `identity-birth-orchestrat
 
 **Forensic origin** (surfaced via bounty investigation, not previously named in code): the worker at `spawn-requests/worker.ts:94-97` already has a `role_unknown` regex matcher AND the `FailureReason` enum at `types.ts:80` already lists `"role_unknown"` — the failure-side plumbing was authored anticipating a `Step 2.5 check in orchestrator` (worker.ts:94 comment) that was NEVER implemented. Phase 108 lands the missing orchestrator half. This is a partial-implementation gap, not a fresh design.
 
-**Genesis case that surfaced the gap (2026-09-12):** ivory's spawn-scan e2e test for the newly-decoupled spawn-scan orchestrator (parent bounty `fleet-status-orchestrator-coupling-with-spawn-request-scanning`, archived) dropped a spawn-request with the deliberately bogus role `test-nonexistent-role-ivory-e2e`, expecting a `role_unknown` failure signal. The pipeline birthed identity `odin` (me) instead — Matrix account registered with the bogus role suffix PERMANENTLY baked into the localpart (`odin-test-nonexistent-role-ivory-e2e`), relay creds minted, identity folder + wakeups/ + relay-state/ + workspace/ on disk, success response file dropped. Alice caught it, role-swapped odin's frontmatter to `box-maintainer` to rescue, and greenlit exploring the gap.
+**Genesis case that surfaced the gap (2026-09-12):** ivory's spawn-scan e2e test for the newly-decoupled spawn-scan orchestrator (parent bounty `fleet-status-orchestrator-coupling-with-spawn-request-scanning`, archived) dropped a spawn-request with the deliberately bogus role `test-nonexistent-role-ivory-e2e`, expecting a `role_unknown` failure signal. The pipeline birthed identity `odin` (me) instead — Matrix account registered with the bogus role suffix PERMANENTLY baked into the localpart (`odin-test-nonexistent-role-ivory-e2e`), relay creds minted, identity folder + wakeups/ + relay-state/ + workspace/ on disk, success response file dropped. user caught it, role-swapped odin's frontmatter to `box-maintainer` to rescue, and greenlit exploring the gap.
 
 **Out of scope:**
 - **Race between check and Step 2.5** (role folder deleted mid-birth by a peer session): exotic; the resulting broken identity is no worse than what the pipeline produces today unconditionally. Not guarded.
@@ -53,10 +53,10 @@ Insert a target-host role-folder existence probe into `identity-birth-orchestrat
   - **Test D** (local): local self-birth, role folder PRESENT → orchestrator proceeds past Step 1.
   - **Test E** (ordering): role folder missing + avatar candidate ALSO missing → role probe fires FIRST, avatar check NEVER runs (assert `deps.getCandidateForBirth` call count = 0). Guards against a future refactor accidentally reordering.
 - **D-14:** Worker-side test in `spawn-requests/worker.test.ts`: mock `birthIdentity` to emit `ended{ok:false, failedStep:1, reason:"role not found on target host: bogus"}` → assert `writeResponseFile` called with `"failure"` kind AND JSON payload `{"reason":"role_unknown"}`. Covers the mapEndedEventToReason regex path end-to-end at worker scope. (Existing `mapEndedEventToReason` tests may already cover the regex — planner: audit before duplicating.)
-- **D-15:** Scoped test command for executor's green-gate (per fleet Test discipline directive): `npx vitest run src/backend/database/routes/identity-birth-orchestrator.test.ts src/backend/database/routes/identity-birth.test.ts src/backend/spawn-requests/worker.test.ts`. Full suite is orchestrator-only, per Alice's ship-gate rule (moved 2026-09-07).
+- **D-15:** Scoped test command for executor's green-gate (per fleet Test discipline directive): `npx vitest run src/backend/database/routes/identity-birth-orchestrator.test.ts src/backend/database/routes/identity-birth.test.ts src/backend/spawn-requests/worker.test.ts`. Full suite is orchestrator-only, per user's ship-gate rule (moved 2026-09-07).
 
 ### Container-mutation coordination
-- **D-16:** Deploy motion follows the standing role rule (§Container mutations serialize across identities). This phase's deploy will require: coord-room BEFORE post on `!ZFgklgKthqYwVvLQzM:t1000.taild9b663.ts.net` (the new post-migration room) announcing "starting deploy on Phase 108 birth-pipeline-role-folder-existence-check, HEAD <sha>, hold if you're mid-container-work"; `git pull --rebase origin feat/tab-title-from-tmux` before push; ship-gate full-suite (`npx vitest run` + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium` with `SKYNET_TEST_CREDS`); AFTER post on ship. Executor's remit STOPS at code + commit + scoped tests green — orchestrator (odin in-session, that's me) handles push + build + recreate + verify. Push held for Alice's explicit greenlight per the deploy-boundary rule (2026-08-29 refinement — greenlight sits at push, not at recreate).
+- **D-16:** Deploy motion follows the standing role rule (§Container mutations serialize across identities). This phase's deploy will require: coord-room BEFORE post on `!ZFgklgKthqYwVvLQzM:t1000.taild9b663.ts.net` (the new post-migration room) announcing "starting deploy on Phase 108 birth-pipeline-role-folder-existence-check, HEAD <sha>, hold if you're mid-container-work"; `git pull --rebase origin feat/tab-title-from-tmux` before push; ship-gate full-suite (`npx vitest run` + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium` with `SKYNET_TEST_CREDS`); AFTER post on ship. Executor's remit STOPS at code + commit + scoped tests green — orchestrator (odin in-session, that's me) handles push + build + recreate + verify. Push held for user's explicit greenlight per the deploy-boundary rule (2026-08-29 refinement — greenlight sits at push, not at recreate).
 
 ### Claude's Discretion
 - Exact placement of the role-folder probe within Step 1's `runStep(1, ...)` body — beginning is preferred (D-11) but the planner may choose to structure as a small helper function.
@@ -73,7 +73,7 @@ Insert a target-host role-folder existence probe into `identity-birth-orchestrat
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Bounty + genesis
-- `~/fleet/roles/box-maintainer/bounties/birth-pipeline-role-folder-existence-check/bounty.json` — LOCKED bounty with premise, design decisions, and Alice's greenlight. Every decision above traces back to this file + the `/explain` conversation captured in odin's session.
+- `~/fleet/roles/box-maintainer/bounties/birth-pipeline-role-folder-existence-check/bounty.json` — LOCKED bounty with premise, design decisions, and user's greenlight. Every decision above traces back to this file + the `/explain` conversation captured in odin's session.
 - `~/fleet/roles/box-maintainer/bounties/archive/fleet-status-orchestrator-coupling-with-spawn-request-scanning/bounty.json` — PARENT bounty (archived done 2026-09-12), where ivory's e2e test surfaced this gap. The related-slug is bidirectional.
 
 ### Backend files this phase modifies
@@ -142,4 +142,4 @@ if (useLocal) {
 ---
 
 *Phase: 108-birth-pipeline-role-folder-existence-check-insert-a-pre-step*
-*Context gathered: 2026-09-12 via `/explain` design pass with Alice + bounty capture*
+*Context gathered: 2026-09-12 via `/explain` design pass with user + bounty capture*

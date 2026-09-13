@@ -221,10 +221,10 @@ describe("Phase 92 Plan 04 — deriveDiskPinnedIds projection", () => {
   it("SEL-92-01 (happy path): projects pinned identities into fleet::<hostId>::<key> shape", async () => {
     await seedIdentities([
       makeIdentity("tina", true),
-      makeIdentity("alice", false),
+      makeIdentity("user", false),
       makeIdentity("bob", true),
     ]);
-    const identityHosts = { tina: 1, alice: 2, bob: 2 };
+    const identityHosts = { tina: 1, user: 2, bob: 2 };
     const result = deriveDiskPinnedIds(identityHosts);
     // order-agnostic — sort both sides to compare
     expect([...result].sort()).toEqual(
@@ -319,10 +319,10 @@ describe("Phase 107 Plan 04 — deriveDiskHiddenIds projection", () => {
   it("SEL-107-01 (happy path): projects hidden identities into fleet::<hostId>::<key> shape", async () => {
     await seedIdentities([
       makeIdentityWithHidden("tina", { hidden: true }),
-      makeIdentityWithHidden("alice", { hidden: false }),
+      makeIdentityWithHidden("user", { hidden: false }),
       makeIdentityWithHidden("bob", { hidden: true }),
     ]);
-    const identityHosts = { tina: 1, alice: 2, bob: 2 };
+    const identityHosts = { tina: 1, user: 2, bob: 2 };
     const result = deriveDiskHiddenIds(identityHosts);
     // order-agnostic — sort both sides to compare
     expect([...result].sort()).toEqual(
@@ -364,13 +364,13 @@ describe("Phase 107 Plan 04 — deriveDiskHiddenIds projection", () => {
     // Both can return non-empty simultaneously — they are not mutually exclusive.
     await seedIdentities([
       makeIdentityWithHidden("tina", { pinned: true, hidden: false }),
-      makeIdentityWithHidden("alice", { pinned: false, hidden: true }),
+      makeIdentityWithHidden("user", { pinned: false, hidden: true }),
     ]);
-    const identityHosts = { tina: 1, alice: 2 };
+    const identityHosts = { tina: 1, user: 2 };
     const pinnedResult = deriveDiskPinnedIds(identityHosts);
     const hiddenResult = deriveDiskHiddenIds(identityHosts);
     expect([...pinnedResult].sort()).toEqual(["fleet::1::tina"]);
-    expect([...hiddenResult].sort()).toEqual(["fleet::2::alice"]);
+    expect([...hiddenResult].sort()).toEqual(["fleet::2::user"]);
   });
 });
 
@@ -398,12 +398,12 @@ describe("patchIdentityFlag — pure mutator contract", () => {
   it("patches `pinned` true→false on a matching (hostId, key) identity", async () => {
     await seedIdentities([
       makeIdentity("tina", true, 1),
-      makeIdentity("alice", true, 2),
+      makeIdentity("user", true, 2),
     ]);
     patchIdentityFlag("tina", 1, "pinned", false);
-    // Only tina flipped; alice untouched.
-    const identityHosts = { tina: 1, alice: 2 };
-    expect(deriveDiskPinnedIds(identityHosts)).toEqual(["fleet::2::alice"]);
+    // Only tina flipped; user untouched.
+    const identityHosts = { tina: 1, user: 2 };
+    expect(deriveDiskPinnedIds(identityHosts)).toEqual(["fleet::2::user"]);
   });
 
   it("patches `hidden` false→true independently of `pinned`", async () => {

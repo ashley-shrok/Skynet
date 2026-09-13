@@ -71,7 +71,7 @@ describe("human-token-writer", () => {
 
     const result = await mintAndWriteHumanToken(
       "@ashley:t1000.taild9b663.ts.net",
-      "alice",
+      "user",
     );
 
     expect(result).toEqual({ ok: true });
@@ -79,7 +79,7 @@ describe("human-token-writer", () => {
       "@ashley:t1000.taild9b663.ts.net",
     );
 
-    const tokenFile = path.join(tempDir, "alice.token");
+    const tokenFile = path.join(tempDir, "user.token");
     expect(fs.existsSync(tokenFile)).toBe(true);
 
     const contents = fs.readFileSync(tokenFile, "utf8");
@@ -106,12 +106,12 @@ describe("human-token-writer", () => {
 
     const result = await mintAndWriteHumanToken(
       "@ashley:t1000.taild9b663.ts.net",
-      "alice",
+      "user",
     );
 
     expect(result).toEqual({ ok: false, error: "creds_missing" });
-    expect(fs.existsSync(path.join(tempDir, "alice.token"))).toBe(false);
-    expect(fs.existsSync(path.join(tempDir, "alice.token.tmp"))).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, "user.token"))).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, "user.token.tmp"))).toBe(false);
     // A warn should have been logged with the failure context.
     expect(warnSpy).toHaveBeenCalled();
   });
@@ -148,7 +148,7 @@ describe("human-token-writer", () => {
 
     await mintAndWriteHumanToken(
       "@ashley:t1000.taild9b663.ts.net",
-      "alice",
+      "user",
     );
 
     // Serialize every captured log call and grep for the token substring.

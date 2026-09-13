@@ -7,11 +7,11 @@ status: in-progress
 
 # Fix Context-Meter-Blank-on-Dormant + Identity-Enum Hygiene
 
-Two independent bugs, both surfaced by Alice's UAT of dormant identities on workstation:
+Two independent bugs, both surfaced by user's UAT of dormant identities on workstation:
 
 - **Fix A (hygiene)**: Skynet's identity enumeration on remote hosts uses `ls -1 ~/.claude/identities/` — picks up leftover backup tarballs (`.pre-migration-<ts>.tar.gz`, etc.) as if they were identities, firing wasted SSH-exec ghost-polls (dormancy stat, recycled-at stat, `find` for JSONL) against nonexistent identity dirs. **Fix**: filter enumeration to directories only.
 
-- **Fix B (evidence-backed root cause of blank meter)**: `readContextPctFromJsonl` reads only the last **10 KB** of the JSONL to find the most recent assistant `usage` turn. Empirically verified 2026-08-30 that for 3 of 4 dormant identities Alice just tested (Terry 1.16 MB / Pixie 1.29 MB / Holly 2.27 MB JSONLs), the last 10 KB contains **zero** assistant usage turns — the tail is dominated by tool_results, long user messages, or /exit echoes. Midna's 302 KB JSONL has one in its last 10 KB → her meter works. `readContextPctFromJsonl` returns null in all three failing cases, **silently** — no log, so the caller's `dormantSessionFile` gate short-circuits and no `context_pct` frame ever emits. Meter stays blank.
+- **Fix B (evidence-backed root cause of blank meter)**: `readContextPctFromJsonl` reads only the last **10 KB** of the JSONL to find the most recent assistant `usage` turn. Empirically verified 2026-08-30 that for 3 of 4 dormant identities user just tested (Terry 1.16 MB / Pixie 1.29 MB / Holly 2.27 MB JSONLs), the last 10 KB contains **zero** assistant usage turns — the tail is dominated by tool_results, long user messages, or /exit echoes. Midna's 302 KB JSONL has one in its last 10 KB → her meter works. `readContextPctFromJsonl` returns null in all three failing cases, **silently** — no log, so the caller's `dormantSessionFile` gate short-circuits and no `context_pct` frame ever emits. Meter stays blank.
   **Fix**: iterative tail expansion — try successive tail sizes until an assistant usage turn is found or a bounded max is reached. Log a `warn` when we bail so future silent-null cases surface immediately.
 
 ---
@@ -38,7 +38,7 @@ const listing = await channel.exec(
 
 **Tests**: `src/backend/fleet-status/ssh-poll-orchestrator.test.ts` — find the existing test(s) for `pollDormantOnlyIdentities` (grep `pollDormantOnlyIdentities` or `source B`). Add:
 - One positive test proving the swap: mock `channel.exec` to receive the new `find` command and return a directory-only listing; assert per-identity stat exec fires as expected.
-- One regression test proving the enumeration no longer processes a listing containing tarball-shaped names — supply mock listing `["alice", "bob", "alice.pre-migration-...tar.gz"]` and assert only the two dir-shaped names get downstream stat exec calls. (This is a shape test — the fix relies on the shell command filtering, so the mock listing SHOULD be dir-only after the swap; the test asserts we call the correct new find command and process what comes back verbatim, no additional client-side filtering.)
+- One regression test proving the enumeration no longer processes a listing containing tarball-shaped names — supply mock listing `["user", "bob", "user.pre-migration-...tar.gz"]` and assert only the two dir-shaped names get downstream stat exec calls. (This is a shape test — the fix relies on the shell command filtering, so the mock listing SHOULD be dir-only after the swap; the test asserts we call the correct new find command and process what comes back verbatim, no additional client-side filtering.)
 
 ---
 
@@ -86,7 +86,7 @@ Import a logger (mirror the pattern in adjacent backend files under `src/backend
 
 `sessionFileBasename` = `path.basename(sessionFile)` — no full path (T-32-05 mitigation shape used by adjacent code; the JSONL's session UUID is already discoverable via existing session-scoped logs, no need to disclose the encoded project-dir path segment).
 
-Use `.warn` (not `.info`) — these are unexpected states that indicate a real gap in meter data. Alice will grep for these next session to correlate the blank-meter class.
+Use `.warn` (not `.info`) — these are unexpected states that indicate a real gap in meter data. user will grep for these next session to correlate the blank-meter class.
 
 ### Downstream caller
 
@@ -122,7 +122,7 @@ Executor: use judgment on the empty-tail-vs-no-usage distinction. Both paths dis
 
 ### One-liner comment near `TAIL_EXPANSION_STEPS`
 
-Document why 512 KB is the ceiling: over-a-few-MB JSONLs are already unusual (Alice's fleet median is well under 1 MB); the pathological cases (>512 KB tail with no assistant usage) are a genuine bug in Claude Code write patterns worth surfacing via the `no_asst_usage` warn rather than expanding the tail infinitely. If Alice later reports that 512 KB isn't enough, bump the top of the schedule — don't add another expansion step.
+Document why 512 KB is the ceiling: over-a-few-MB JSONLs are already unusual (user's fleet median is well under 1 MB); the pathological cases (>512 KB tail with no assistant usage) are a genuine bug in Claude Code write patterns worth surfacing via the `no_asst_usage` warn rather than expanding the tail infinitely. If user later reports that 512 KB isn't enough, bump the top of the schedule — don't add another expansion step.
 
 ---
 
@@ -168,7 +168,7 @@ any regular file matching that name.
 fix(quick-260830-f1e): iterative tail expansion in readContextPctFromJsonl + warn on null-return
 
 Empirical root cause of blank context meter on dormant identities with
-large JSONLs (Alice UAT 2026-08-30):
+large JSONLs (user UAT 2026-08-30):
 
 The fixed 10 KB tail scan misses the last assistant `usage` turn when
 recent JSONL activity is dominated by tool_results, long user messages,
@@ -185,7 +185,7 @@ Changes:
   expanding infinitely.
 - Loud warn logs on every null-return path (exec_fail / empty_tail /
   no_asst_usage / exec_throw) with sessionFileBasename in meta.
-  Previously silent — Alice couldn't diagnose which identities were
+  Previously silent — user couldn't diagnose which identities were
   missing the meter until we correlated JSONL tails by hand.
 - claude-session-server.ts dormant-poll caller: warn when readJsonlPct
   returns null despite dormantSessionFile being set, so caller-site view

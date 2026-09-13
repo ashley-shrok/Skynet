@@ -235,7 +235,7 @@ No new threat surface beyond what the plan's threat model covers:
 - T-20-04-02: getCandidateForBirth(userId, id) enforces userId scoping
 - T-20-04-03: sanitizeError() maps SSH errors to "Host unreachable", truncates to 200 chars
 - T-20-04-04: SSH connect times out at 30s; orchestrator has bounded ~60s total work
-- T-20-04-05: No rollback by design (explicit Alice decision)
+- T-20-04-05: No rollback by design (explicit user decision)
 
 ## No Push / Build / Deploy
 

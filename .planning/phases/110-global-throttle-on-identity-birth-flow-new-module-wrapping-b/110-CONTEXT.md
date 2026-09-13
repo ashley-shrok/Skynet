@@ -9,7 +9,7 @@
 
 Introduce a **single global rate-limiter** in the Skynet backend that both existing entry points into `birthIdentity()` funnel through, so a coordinator can drop N spawn-request files at once (or hit `POST /identities/birth` N times concurrently) without saturating downstream chokepoints (Matrix admin API, SSH channel budget on the target host).
 
-Origin: Alice 2026-09-13 verbatim: *"i want to create a ninth agent to handle that exact problem and add like a global rate limiter or throttle i guess you would call it to the flow that that creates the identities on the skynet backend um because if we put it there then coordinators can drop a hundred new identity creation files at once and we'd never have a huge problem like that"*.
+Origin: user 2026-09-13 verbatim: *"i want to create a ninth agent to handle that exact problem and add like a global rate limiter or throttle i guess you would call it to the flow that that creates the identities on the skynet backend um because if we put it there then coordinators can drop a hundred new identity creation files at once and we'd never have a huge problem like that"*.
 
 Bounty: `identity-creation-flow-global-throttle` (box-maintainer's shared pool).
 
@@ -23,7 +23,7 @@ Bounty: `identity-creation-flow-global-throttle` (box-maintainer's shared pool).
 - **Scope: birth flow only.** Do NOT throttle the avatar-batch endpoint (`/identities/avatar/batch`) as part of this phase. It's UI-only, not exercised by coord drops, and coupling would drag in Anthropic/OpenAI rate-limit concerns that belong in their own follow-up bounty if they ever become live.
 - **New module, not extension of `spawn-requests/queue.ts`.** `queue.ts` stays as the FIFO consumer of disk-drop files; the throttle is the broader construct BOTH entry points share. Clean boundary + unit-testable in isolation from the disk-drop watcher.
 - **Default `maxConcurrent = 1`.** Preserves today's effective spawn-request behavior (serialized) while extending that safety to the HTTP path.
-- **Observability discipline is load-bearing.** Log at wait / grant / release / reject with actionable context — Alice or a peer will later ask "births are slow today, is it the throttle?" and `console-forward.log` must answer directly. Follows the role-file logging directive (`Logging is cheap and batched to the console-forward server`).
+- **Observability discipline is load-bearing.** Log at wait / grant / release / reject with actionable context — user or a peer will later ask "births are slow today, is it the throttle?" and `console-forward.log` must answer directly. Follows the role-file logging directive (`Logging is cheap and batched to the console-forward server`).
 
 ### Module shape
 
@@ -150,7 +150,7 @@ Two acceptable internal implementations; planner picks:
 - **Runtime tunable knobs** — a `PATCH /admin/identity-birth-throttle` admin endpoint. Not blocking; future refinement.
 - **Per-source rate limits** — different limits for HTTP vs spawn-request origins. Not needed today; add if traffic patterns diverge.
 - **Distributed rate limiting** — Redis-backed if two Skynet processes ever share a Matrix homeserver. Not a real concern for the current fleet.
-- **Metrics/histograms** — Prometheus-style p50/p95/p99 wait times. `console-forward.log` structured logs are sufficient for the observability need Alice actually stated.
+- **Metrics/histograms** — Prometheus-style p50/p95/p99 wait times. `console-forward.log` structured logs are sufficient for the observability need user actually stated.
 
 </deferred>
 

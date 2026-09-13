@@ -950,7 +950,7 @@ describe("Phase 92 migration — drop pinned_conversation_ids from user_preferen
       null,
       null,
       null,
-      '["fleet::1::alice"]',
+      '["fleet::1::user"]',
       '["fleet::2::bob"]',
       "2026-01-01T00:00:00.000Z",
     );
@@ -1079,7 +1079,7 @@ describe("Phase 107 migration — drop hidden_conversation_ids from user_prefere
       null,
       null,
       "en",
-      '["fleet::1::alice","fleet::2::bob"]',
+      '["fleet::1::user","fleet::2::bob"]',
       "2026-01-01T00:00:00.000Z",
     );
 

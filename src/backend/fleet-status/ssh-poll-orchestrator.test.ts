@@ -7,7 +7,7 @@
  *
  * Tests 1-12 cover the orchestrator's general behaviour; the
  * 'fail-open on missing hook payload file' describe block (Task 3) covers
- * all five failure modes Alice 2026-08-13 LOCKED as must-pass.
+ * all five failure modes user 2026-08-13 LOCKED as must-pass.
  */
 import {
   describe,
@@ -862,7 +862,7 @@ describe("createSshPollOrchestrator", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Task 3: Fail-open regression tests (Alice 2026-08-13 LOCKED constraint)
+// Task 3: Fail-open regression tests (user 2026-08-13 LOCKED constraint)
 // ---------------------------------------------------------------------------
 
 describe("fail-open on missing hook payload file", () => {
@@ -938,7 +938,7 @@ describe("fail-open on missing hook payload file", () => {
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
     expect(deps.registry.publishedStates[0].state.backgroundTasks).toHaveLength(0);
-    // Alice 2026-08-13 LOCKED: fleet_status_hook_payload_missing warn fires exactly once (F1: ENOENT)
+    // user 2026-08-13 LOCKED: fleet_status_hook_payload_missing warn fires exactly once (F1: ENOENT)
     expect(countHookWarn()).toBe(1);
     expect(deps.registry.publishedGone).toHaveLength(0);
   });
@@ -1304,17 +1304,17 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
   }
 
   // ---------------------------------------------------------------------------
-  // Test D — message-bearing filter locks the Alice 2026-08-23 msg-only-recency
-  //           contract. Only Alice's real user turns count; assistant turns,
+  // Test D — message-bearing filter locks the user 2026-08-23 msg-only-recency
+  //           contract. Only user's real user turns count; assistant turns,
   //           tool_use, and background-task frames must NOT contribute.
-  //           Alice 2026-08-23 lock: INVERTS the 2026-08-14 "either direction"
-  //           lock — only Alice's outbound user turns advance lastMessageAt.
+  //           user 2026-08-23 lock: INVERTS the 2026-08-14 "either direction"
+  //           lock — only user's outbound user turns advance lastMessageAt.
   // ---------------------------------------------------------------------------
 
   it("Test D: message-bearing filter — user msg + tool_use + assistant msg + bg-task → scanTailForNewestMessageAt returns user MSG (Phase 85 D-08 direct-scan probe)", async () => {
     // Fixture: user message at ts=1000, tool_use at ts=1500, assistant
     // message at ts=2000, background-task start at ts=2500.
-    // Alice 2026-08-23 lock: only the USER message at ts=1000 counts;
+    // user 2026-08-23 lock: only the USER message at ts=1000 counts;
     // the assistant turn (ts=2000), tool_use (1500), and bg-task (2500)
     // are all excluded by isRealUserTurn.
     //
@@ -1373,14 +1373,14 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
   });
 
   // ---------------------------------------------------------------------------
-  // Test F — user message alone floats — Alice lock: "activity = message
+  // Test F — user message alone floats — user lock: "activity = message
   //           either direction, and ONLY that". User-only sessions count.
   // ---------------------------------------------------------------------------
 
   it("Test F: JSONL with ONLY a user message at ts=3000 → scanTailForNewestMessageAt returns 3000 (Phase 85 D-08 direct-scan probe)", async () => {
     // Phase 85 (D-07/D-08): retired from orchestrator lastMessageAt axis.
     // Probes the byte-parallel-copy contract directly via the test-only
-    // export. User-side send counts — Alice 2026-08-14 verbatim:
+    // export. User-side send counts — user 2026-08-14 verbatim:
     // "activity counts as me sending them a message, or them sending me
     // a message." The predicate itself (isRealUserTurn) is unchanged
     // and still owns this shape for sessions.ts.
@@ -1390,9 +1390,9 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
 });
 
 // ---------------------------------------------------------------------------
-// quick-260823-bap — Alice 2026-08-23 msg-only-recency predicate matrix
+// quick-260823-bap — user 2026-08-23 msg-only-recency predicate matrix
 //
-// Verifies the isRealUserTurn predicate (Alice 2026-08-23 lock):
+// Verifies the isRealUserTurn predicate (user 2026-08-23 lock):
 // "only my real messages going to them" — INVERTS the 2026-08-14 lock.
 //
 // Seven cases + one mixed-tail integration case. Tested via
@@ -1400,7 +1400,7 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
 // predicate helper directly, so tests survive any internal rename.
 // ---------------------------------------------------------------------------
 
-describe("isRealUserTurn — Alice 2026-08-23 lock predicate matrix", () => {
+describe("isRealUserTurn — user 2026-08-23 lock predicate matrix", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -1479,7 +1479,7 @@ describe("isRealUserTurn — Alice 2026-08-23 lock predicate matrix", () => {
       timestamp: "2026-08-23T10:00:00.000Z",
       uuid: "u1",
     });
-    // Alice 2026-08-23 lock: typed prose is a real message → KEEP.
+    // user 2026-08-23 lock: typed prose is a real message → KEEP.
     expect(await scanSingleLine(rawLine)).toBe(ts);
   });
 
@@ -1550,7 +1550,7 @@ describe("isRealUserTurn — Alice 2026-08-23 lock predicate matrix", () => {
     });
     // pre-Aug-23 this was silently counted (MESSAGE_BEARING_KINDS included
     // "message" kind, and parseSessionLine returned kind:"message" for some
-    // list-content user turns). Alice 2026-08-23 lock: list content → DROP.
+    // list-content user turns). user 2026-08-23 lock: list content → DROP.
     expect(await scanSingleLine(rawLine)).toBeNull();
   });
 
@@ -2376,7 +2376,7 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
     // Tick 2 tail — SAME message ts (1000), SAME session, ONLY aiTitle
     // changes (topic drift A → B). status/backgroundTasks/updatedAt all
     // unchanged (SessionJson unchanged); lastMessageAt unchanged (still
-    // null — Alice 2026-08-23 lock: fixture has only an assistant turn
+    // null — user 2026-08-23 lock: fixture has only an assistant turn
     // which no longer counts). ONLY aiTitle differs. Fingerprint MUST
     // see this and fire a new publish.
     const tick2Jsonl =
@@ -2399,7 +2399,7 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
     expect(
       deps.registry.publishedStates[publishesAfterTick2 - 1].state.aiTitle,
     ).toBe("Topic B (drifted)");
-    // Alice 2026-08-23 lock: fixture has only assistant turns (excluded);
+    // user 2026-08-23 lock: fixture has only assistant turns (excluded);
     // lastMessageAt is null on both ticks — confirms nothing changed on that axis.
     expect(
       deps.registry.publishedStates[publishesAfterTick2 - 1].state.lastMessageAt,
@@ -3157,8 +3157,8 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     // Simulate what real `find … -type d -printf '%f\n'` returns: dir names
     // only. Any tarball / notes.txt entry in the identities dir is filtered
     // out by the shell command BEFORE reaching Skynet.
-    channel.setResponse("~/fleet/identities/ -mindepth", "alice\nbob\n");
-    channel.setResponse("stat ~/fleet/identities/'alice'/.dormant", "yes\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "user\nbob\n");
+    channel.setResponse("stat ~/fleet/identities/'user'/.dormant", "yes\n");
     channel.setResponse("stat ~/fleet/identities/'bob'/.dormant", "no\n");
 
     const deps = buildDeps({
@@ -3171,7 +3171,7 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     const calls = channel.getCalls().map((c) => c.command);
     // Both dir names had their .dormant stat fired.
     expect(
-      calls.some((c) => c.includes("stat ~/fleet/identities/'alice'/.dormant")),
+      calls.some((c) => c.includes("stat ~/fleet/identities/'user'/.dormant")),
     ).toBe(true);
     expect(
       calls.some((c) => c.includes("stat ~/fleet/identities/'bob'/.dormant")),
@@ -3181,7 +3181,7 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     // never touches them.
     expect(
       calls.some((c) =>
-        c.includes("'alice.pre-migration"),
+        c.includes("'user.pre-migration"),
       ),
     ).toBe(false);
     expect(
@@ -4675,8 +4675,8 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
   // ---------------------------------------------------------------------------
   // inline-260830-layer1-skip-harness-synthetic-user-turns — REGRESSION
   //
-  // Bug (Alice 2026-08-30, taylor session): during the ~30s window between
-  // Alice clicking reset and the /id skill dropping `.recycle-requested`,
+  // Bug (user 2026-08-30, taylor session): during the ~30s window between
+  // user clicking reset and the /id skill dropping `.recycle-requested`,
   // the overlay stayed off — Layer 1 never fired despite `/id reset` being
   // the freshest real user turn in the JSONL. Root cause: the /id skill's
   // own bash/read tool_use invocations write tool_result turns to JSONL as
@@ -4821,7 +4821,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
 
   it("Test inline-260830-layer1-real-user-after-reset: /id reset followed by a REAL user prompt → Layer 1 flips FALSE (semantic: last real user turn wins)", async () => {
     const channel = new MockSshChannel();
-    // Tail: /id reset THEN a plain string-content user prompt (e.g., Alice
+    // Tail: /id reset THEN a plain string-content user prompt (e.g., user
     // typed "actually never mind" — extremely rare in practice because the
     // composebox clears after submit, but semantically important). This
     // "last REAL user turn wins" semantic is preserved: a real subsequent
@@ -4853,7 +4853,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
 // quick-260823-recycle-overlay — `.recycle-requested` source-A stat as the
 // THIRD OR term in the recycling axis composition
 //
-// Motivation (Alice 2026-08-23): the recycle-overlay would come up LATE —
+// Motivation (user 2026-08-23): the recycle-overlay would come up LATE —
 // only after the harness actually closed. Root cause: the OR composition
 // covered `.recycled-at` (supervisor-authored, appears at supervisor
 // reconcile time) + Layer 1 JSONL scan (should fire when /id reset lands),
@@ -5031,8 +5031,8 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
 // ==============================================================================
 // quick-260823-73o — recycle axes in source B (per-identity, PID-independent)
 //
-// Motivation (Alice 2026-08-23): Patch #495 shipped diagnostic logs +
-// `.recycle-requested` in SOURCE A but Alice narrated a full /id reset cycle
+// Motivation (user 2026-08-23): Patch #495 shipped diagnostic logs +
+// `.recycle-requested` in SOURCE A but user narrated a full /id reset cycle
 // with no overlay. Layer 1 fired at 04:45:47Z but
 // `fleet_status_recycling_armed` NEVER fired for tina across the reset window.
 // Root cause: source A iterates per-PID (~/.claude/tasks/*.json). During
@@ -5429,7 +5429,7 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
   // ---------------------------------------------------------------------------
   // Test inline-260830-source-a-omit-recycling — REGRESSION
   //
-  // Bug (Alice 2026-08-30, taylor session): during a real /id reset, the
+  // Bug (user 2026-08-30, taylor session): during a real /id reset, the
   // overlay armed briefly the instant `.recycle-requested` dropped, then
   // disappeared and never came back through the /exit + harness kill + fresh
   // claude launch window. Root cause: source A stamped `recycling: false`

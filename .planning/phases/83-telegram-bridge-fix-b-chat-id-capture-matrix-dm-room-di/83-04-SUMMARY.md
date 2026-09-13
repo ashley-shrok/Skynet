@@ -120,7 +120,7 @@ across Promise boundaries).
 
 ### Why per-pair `Promise.all` (not sequential)
 
-Alice's fleet is small (typical: 1–3 (agent, human) pairs at any moment), so
+user's fleet is small (typical: 1–3 (agent, human) pairs at any moment), so
 sequential vs. parallel is an insignificant absolute speedup — but parallel is
 still preferable because:
 

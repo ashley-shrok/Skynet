@@ -22,7 +22,7 @@ import type { PickedParticipant } from "./participant-types";
 function makeHuman(overrides: Partial<PickedParticipant> = {}): PickedParticipant {
   return {
     mxid: "@a:s",
-    displayName: "Alice",
+    displayName: "user",
     colorHue: 200,
     avatarUrl: null,
     role: "human",
@@ -56,13 +56,13 @@ describe("ParticipantChip (Phase 91 Plan 04)", () => {
     const onRemove = vi.fn();
     render(
       <ParticipantChip
-        participant={makeHuman({ mxid: "@a:s", displayName: "Alice", colorHue: 200 })}
+        participant={makeHuman({ mxid: "@a:s", displayName: "user", colorHue: 200 })}
         onRemove={onRemove}
       />,
     );
 
     // displayName text visible
-    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("user")).toBeInTheDocument();
 
     // Color swatch has hsl(200 in the swatch color value.
     // jsdom normalizes inline style HSL to RGB; use data-swatch-color
@@ -73,7 +73,7 @@ describe("ParticipantChip (Phase 91 Plan 04)", () => {
     expect(swatch!.getAttribute("data-swatch-color")).toContain("hsl(200");
 
     // X-remove button has correct aria-label
-    const removeBtn = screen.getByRole("button", { name: "Remove Alice" });
+    const removeBtn = screen.getByRole("button", { name: "Remove user" });
     expect(removeBtn).toBeInTheDocument();
   });
 
@@ -82,11 +82,11 @@ describe("ParticipantChip (Phase 91 Plan 04)", () => {
     const onRemove = vi.fn();
     render(
       <ParticipantChip
-        participant={makeHuman({ mxid: "@a:s", displayName: "Alice", colorHue: 200 })}
+        participant={makeHuman({ mxid: "@a:s", displayName: "user", colorHue: 200 })}
         onRemove={onRemove}
       />,
     );
-    const removeBtn = screen.getByRole("button", { name: "Remove Alice" });
+    const removeBtn = screen.getByRole("button", { name: "Remove user" });
     fireEvent.click(removeBtn);
     expect(onRemove).toHaveBeenCalledWith("@a:s");
   });
@@ -121,7 +121,7 @@ describe("ParticipantChipStrip (Phase 91 Plan 04)", () => {
 
   // Test 7: populated — 2 chips, role='list' with aria-label, 2 listitem roles
   it("Test 7: populated strip renders chips with role=list and aria-label='Selected participants'", () => {
-    const a = makeHuman({ mxid: "@a:s", displayName: "Alice" });
+    const a = makeHuman({ mxid: "@a:s", displayName: "user" });
     const b = makeHuman({ mxid: "@b:s", displayName: "Bob", userId: "u2" });
     render(
       <ParticipantChipStrip picked={[a, b]} onRemove={vi.fn()} />,
@@ -136,7 +136,7 @@ describe("ParticipantChipStrip (Phase 91 Plan 04)", () => {
     expect(items).toHaveLength(2);
 
     // Both names visible
-    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("user")).toBeInTheDocument();
     expect(screen.getByText("Bob")).toBeInTheDocument();
   });
 });

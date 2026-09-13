@@ -127,7 +127,7 @@ Test Files  3 passed (3)
 Executor's remit stopped at scoped green. **Explicitly NOT invoked:**
 - `npx vitest run` (full suite) — orchestrator-only.
 - `docker build` / `docker compose up --force-recreate` — orchestrator-only ship-gate.
-- `git push` — held for Alice's greenlight per deploy-boundary rule; orchestrator (odin in-session) handles push after coord-room BEFORE post + rebase.
+- `git push` — held for user's greenlight per deploy-boundary rule; orchestrator (odin in-session) handles push after coord-room BEFORE post + rebase.
 
 Any of those commands appearing in the commit log or CI trace for these 4 commits would indicate a boundary violation; none appear.
 

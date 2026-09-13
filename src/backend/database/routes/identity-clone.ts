@@ -62,7 +62,7 @@
  *   13. 201 with publicIdentity(newRow) response.
  *   14. Finally: try conn.end() catch {} — best-effort cleanup on every exit.
  *
- * REVISION 2026-09-12 (Alice): the clone flow now mints the Matrix account
+ * REVISION 2026-09-12 (user): the clone flow now mints the Matrix account
  * server-side (mirroring identity-birth Steps 6-8) BEFORE the cloned
  * identity's first wake. The prior "SEED COMMENT" that instructed the
  * wake-up agent to register the account is deleted — it was stale by the
@@ -177,7 +177,7 @@ function normalizeRemotePath(p: string): string {
 }
 
 /**
- * REVISION 2026-09-12 (Alice): the identity-clone flow (like identity-birth)
+ * REVISION 2026-09-12 (user): the identity-clone flow (like identity-birth)
  * now mints the Matrix account server-side before the cloned identity ever
  * wakes, so the "no relay account yet" seed comment was factually stale by
  * the time any agent read it. Constant deleted; cloned identity file omits
@@ -515,7 +515,7 @@ router.post(
       //     frontmatter line. If the source has no sibling either, the clone
       //     ships without an avatar (placeholder-initial fallback). SSH errors
       //     during the read are best-effort: warn + proceed without avatar
-      //     rather than fail the whole clone — matches Alice's "accept the
+      //     rather than fail the whole clone — matches user's "accept the
       //     ugly render" posture for avatar failures elsewhere in the reader.
       // ---------------------------------------------------------------------
       if (!avatarBytes) {

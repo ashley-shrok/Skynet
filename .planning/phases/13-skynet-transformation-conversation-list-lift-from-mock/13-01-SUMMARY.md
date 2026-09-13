@@ -52,7 +52,7 @@ metrics:
 
 # Phase 13 Plan 01: Skynet Transformation — Conversation List Row Lift-from-Mock Summary
 
-Extract the LOCKED mock v4 CSS (Alice 2026-07-23) into a real
+Extract the LOCKED mock v4 CSS (user 2026-07-23) into a real
 `pretty-conversations.css` file with flat class-toggle state variants, then
 rewrite `PrettyConversationRow.tsx` to emit the mock's semantic markup
 (`pv-row` / `pv-avatar` / `pv-body` / `pv-label` / `pv-host` / `pv-meta` /
@@ -168,7 +168,7 @@ migration.
 ### Rule 4 (Architectural) Decisions
 
 None escalated. All work stayed within the class-toggle-state-variant
-architecture Alice locked in `.planning/phases/13-.../13-CONTEXT.md`.
+architecture user locked in `.planning/phases/13-.../13-CONTEXT.md`.
 
 ## Known Stubs
 
@@ -199,7 +199,7 @@ designed:
   (grep-verified: no other file uses this prefix). No collisions.
 - **T-13-01-03 (per-hue visual regression):** Tests parameterize hue
   (30, 210, 45, 80, 120, 200, 216 across the 20 tests). Real-browser UAT
-  (Wave 5) walks Alice through 3+ active sessions with distinct hues.
+  (Wave 5) walks user through 3+ active sessions with distinct hues.
 - **T-13-01-04 (ambient-recession layer ownership):** JS class-toggle IS
   the ambient signal (`isAmbient = !isRdp && !inActiveSet` → `.ambient`
   class); CSS `.pv-row.ambient` block IS the visual response. Comments
@@ -246,7 +246,7 @@ This plan's foundation makes Waves 2-5 straightforward:
 - **Wave 5 (13-05) — Build-verify + UAT checklist + patch draft:** Row's
   ambient recession values now match the mock (0.16 alpha bg,
   0.14 border, no backdrop-filter, muted foreground), addressing
-  Alice's "active conversations aren't glowing fully like they were
+  user's "active conversations aren't glowing fully like they were
   supposed to" symptom.
 
 ## Follow-up Candidates for Master Bounty

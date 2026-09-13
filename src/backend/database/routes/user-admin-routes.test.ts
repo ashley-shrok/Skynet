@@ -13,8 +13,8 @@
  * Test surface (10 cases covering every branch of the new handler):
  *   1  400 — bad mxid ("not-a-valid-mxid")
  *   2  400 — wrong type (mxid: 42)
- *   3  400 — uppercase localpart ("@Alice:host") rejected per Matrix spec
- *   4  400 — missing "@" ("alice:host.example")
+ *   3  400 — uppercase localpart ("@User:host") rejected per Matrix spec
+ *   4  400 — missing "@" ("user:host.example")
  *   5  401 — no JWT (mocked middleware rejects)
  *   6  403 — caller is not admin
  *   7  404 — target user id missing
@@ -356,11 +356,11 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
   // -------------------------------------------------------------------------
   // Test 3: 400 — uppercase localpart rejected per Matrix spec
   // -------------------------------------------------------------------------
-  it("Test 3: uppercase localpart @Alice:host → 400 (Matrix spec locks lowercase)", async () => {
+  it("Test 3: uppercase localpart @User:host → 400 (Matrix spec locks lowercase)", async () => {
     const res = await httpPost(
       server,
       "/users/target-1/mxid",
-      { mxid: "@Alice:host.example" },
+      { mxid: "@User:host.example" },
       { "x-test-user-id": "admin-1" },
     );
     expect(res.status).toBe(400);
@@ -376,7 +376,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
     const res = await httpPost(
       server,
       "/users/target-1/mxid",
-      { mxid: "alice:host.example" },
+      { mxid: "user:host.example" },
       { "x-test-user-id": "admin-1" },
     );
     expect(res.status).toBe(400);
@@ -387,7 +387,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
   // -------------------------------------------------------------------------
   it("Test 5: request without x-test-user-id → 401 (mocked middleware)", async () => {
     const res = await httpPost(server, "/users/target-1/mxid", {
-      mxid: "@alice:host.example",
+      mxid: "@ashley:host.example",
     });
     expect(res.status).toBe(401);
     expect(dbState.users.find((u) => u.id === "target-1")?.mxid).toBeNull();
@@ -400,7 +400,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
     const res = await httpPost(
       server,
       "/users/target-1/mxid",
-      { mxid: "@alice:host.example" },
+      { mxid: "@ashley:host.example" },
       { "x-test-user-id": "user-1" }, // regularuser, isAdmin=false
     );
     expect(res.status).toBe(403);
@@ -416,7 +416,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
     const res = await httpPost(
       server,
       "/users/does-not-exist/mxid",
-      { mxid: "@alice:host.example" },
+      { mxid: "@ashley:host.example" },
       { "x-test-user-id": "admin-1" },
     );
     expect(res.status).toBe(404);
@@ -431,7 +431,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
     const res = await httpPost(
       server,
       "/users/target-1/mxid",
-      { mxid: "@alice:host.example" },
+      { mxid: "@ashley:host.example" },
       { "x-test-user-id": "admin-1" },
     );
     expect(res.status).toBe(200);
@@ -439,7 +439,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
 
     // DB row now has the new mxid
     expect(dbState.users.find((u) => u.id === "target-1")?.mxid).toBe(
-      "@alice:host.example",
+      "@ashley:host.example",
     );
 
     // saveMemoryDatabaseToFile called exactly once
@@ -454,7 +454,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
       adminId: "admin-1",
       targetUserId: "target-1",
       previousMxid: null,
-      mxid: "@alice:host.example",
+      mxid: "@ashley:host.example",
     });
     // No error path taken
     expect(authLoggerMock.error).not.toHaveBeenCalled();
@@ -471,7 +471,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
     const res = await httpPost(
       server,
       "/users/target-1/mxid",
-      { mxid: "@alice:host.example" },
+      { mxid: "@ashley:host.example" },
       { "x-test-user-id": "admin-1" },
     );
     // Still 200 — the persist failure is non-fatal per the host-autostart
@@ -482,7 +482,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
 
     // Row was updated in RAM even though disk write failed
     expect(dbState.users.find((u) => u.id === "target-1")?.mxid).toBe(
-      "@alice:host.example",
+      "@ashley:host.example",
     );
 
     // authLogger.error called with operation:"mxid_save_failed"

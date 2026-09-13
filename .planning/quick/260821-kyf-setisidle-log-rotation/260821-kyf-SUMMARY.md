@@ -116,7 +116,7 @@ None.
 ## Threat Flags
 None. No new endpoints, auth paths, file-access patterns, or schema changes at trust boundaries. The rotator writes to the same file the callers already wrote to — no new external surface.
 
-## Post-Deploy Sanity Check (for orchestrator/Alice)
+## Post-Deploy Sanity Check (for orchestrator/user)
 
 After `docker compose up -d --force-recreate skynet` under the 15-min deadman timer:
 

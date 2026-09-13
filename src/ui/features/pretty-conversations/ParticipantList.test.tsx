@@ -19,12 +19,12 @@ function makeHuman(
   overrides: Partial<PickedParticipant> = {},
 ): PickedParticipant {
   return {
-    mxid: "@alice:s",
-    displayName: "Alice",
+    mxid: "@ashley:s",
+    displayName: "user",
     colorHue: 200,
     avatarUrl: null,
     role: "human",
-    userId: "u-alice",
+    userId: "u-user",
     ...overrides,
   };
 }
@@ -53,7 +53,7 @@ afterEach(() => {
 describe("ParticipantList (Phase 91 Plan 04)", () => {
   // Test 1: renders two sections with all rows
   it("Test 1: renders Humans section header, Agents section header, and three rows total", () => {
-    const a = makeHuman({ mxid: "@a:s", displayName: "Alice" });
+    const a = makeHuman({ mxid: "@a:s", displayName: "user" });
     const b = makeHuman({ mxid: "@b:s", displayName: "Bob", userId: "u-bob" });
     const x = makeAgent({ mxid: "@x:s", displayName: "Xbot" });
 
@@ -68,7 +68,7 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
 
     expect(screen.getByText(/Humans/i)).toBeInTheDocument();
     expect(screen.getByText(/Agents/i)).toBeInTheDocument();
-    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("user")).toBeInTheDocument();
     expect(screen.getByText("Bob")).toBeInTheDocument();
     expect(screen.getByText("Xbot")).toBeInTheDocument();
   });
@@ -76,7 +76,7 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
   // Test 2: row click calls onToggle with mxid
   it("Test 2: clicking a row calls onToggle with that participant's mxid", () => {
     const onToggle = vi.fn();
-    const a = makeHuman({ mxid: "@a:s", displayName: "Alice" });
+    const a = makeHuman({ mxid: "@a:s", displayName: "user" });
     render(
       <ParticipantList
         humans={[a]}
@@ -85,7 +85,7 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
         onToggle={onToggle}
       />,
     );
-    // Click the row containing Alice
+    // Click the row containing user
     const rows = screen.getAllByRole("option");
     fireEvent.click(rows[0]);
     expect(onToggle).toHaveBeenCalledWith("@a:s");
@@ -94,7 +94,7 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
   // Test 3: keyboard Enter and Space both toggle; Space calls preventDefault
   it("Test 3: Enter key calls onToggle; Space key calls onToggle and preventDefault", () => {
     const onToggle = vi.fn();
-    const a = makeHuman({ mxid: "@a:s", displayName: "Alice" });
+    const a = makeHuman({ mxid: "@a:s", displayName: "user" });
     render(
       <ParticipantList
         humans={[a]}
@@ -124,7 +124,7 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
 
   // Test 4: selected row has aria-selected='true'
   it("Test 4: row in pickedMxids has aria-selected=true; check circle has selected styling", () => {
-    const a = makeHuman({ mxid: "@a:s", displayName: "Alice" });
+    const a = makeHuman({ mxid: "@a:s", displayName: "user" });
     render(
       <ParticipantList
         humans={[a]}
@@ -150,7 +150,7 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
 
   // Test 5: unselected row has aria-selected='false'
   it("Test 5: row not in pickedMxids has aria-selected=false", () => {
-    const a = makeHuman({ mxid: "@a:s", displayName: "Alice" });
+    const a = makeHuman({ mxid: "@a:s", displayName: "user" });
     render(
       <ParticipantList
         humans={[a]}
@@ -185,7 +185,7 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
 
   // Test 7: N-of-M count when filterActive=true
   it("Test 7: filterActive=true shows '1 of 4' count in Humans section header", () => {
-    const a = makeHuman({ mxid: "@a:s", displayName: "Alice" });
+    const a = makeHuman({ mxid: "@a:s", displayName: "user" });
     render(
       <ParticipantList
         humans={[a]}
@@ -228,8 +228,8 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
   });
 
   // Test 9: avatar fallback — initial letter shown for null avatarUrl
-  it("Test 9: participant with avatarUrl=null shows initial letter 'A' (uppercase)", () => {
-    const a = makeHuman({ mxid: "@a:s", displayName: "Alice", avatarUrl: null });
+  it("Test 9: participant with avatarUrl=null shows initial letter 'U' (uppercase)", () => {
+    const a = makeHuman({ mxid: "@a:s", displayName: "user", avatarUrl: null });
     render(
       <ParticipantList
         humans={[a]}
@@ -238,15 +238,15 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
         onToggle={vi.fn()}
       />,
     );
-    // Initial letter 'A' inside the avatar disc
-    expect(screen.getByText("A")).toBeInTheDocument();
+    // Initial letter 'U' inside the avatar disc
+    expect(screen.getByText("U")).toBeInTheDocument();
   });
 
   // Test 10: avatar img renders when avatarUrl is truthy; alt is empty string
   it("Test 10: participant with avatarUrl renders img with that src and empty alt", () => {
     const a = makeHuman({
       mxid: "@a:s",
-      displayName: "Alice",
+      displayName: "user",
       avatarUrl: "https://x/a.png",
     });
     render(
@@ -267,7 +267,7 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
 
   // Test 11: hue applied to avatar disc inline style
   it("Test 11: avatar disc inline style contains hsl(200 for colorHue=200", () => {
-    const a = makeHuman({ mxid: "@a:s", displayName: "Alice", colorHue: 200 });
+    const a = makeHuman({ mxid: "@a:s", displayName: "user", colorHue: 200 });
     render(
       <ParticipantList
         humans={[a]}

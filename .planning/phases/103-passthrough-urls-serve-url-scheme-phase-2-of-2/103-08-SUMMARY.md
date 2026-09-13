@@ -91,7 +91,7 @@ Full 186-route classification audit of `src/backend/database/routes/` (D-09 comp
 6. **Task 2a: multipart-origin-guard module + tests** — `ea63e458` (feat)
 7. **Task 2b: guard applied to 9 endpoints + audit correction** — `112f6c23` (feat)
 
-**Task 3 (Alice checkpoint):** greenlit on trust 2026-09-10, deferred to end-of-phase UAT. Per Alice 2026-09-10: *"We will test things properly after we get all through the work."* The D-09 merge gate ("no partial-audit shipping") is satisfied by the audit's completeness (65/65 files represented, 186 routes classified, 9 multipart endpoints remediated + ✓-marked) rather than a live row-by-row read. Any drift or misclassification surfaces in Plan 10 UAT or future security review. No commit for Task 3 — audit + guard + SUMMARY are the shipping artifacts.
+**Task 3 (user checkpoint):** greenlit on trust 2026-09-10, deferred to end-of-phase UAT. Per user 2026-09-10: *"We will test things properly after we get all through the work."* The D-09 merge gate ("no partial-audit shipping") is satisfied by the audit's completeness (65/65 files represented, 186 routes classified, 9 multipart endpoints remediated + ✓-marked) rather than a live row-by-row read. Any drift or misclassification surfaces in Plan 10 UAT or future security review. No commit for Task 3 — audit + guard + SUMMARY are the shipping artifacts.
 
 ## Files Created
 
@@ -215,7 +215,7 @@ None found. All 9 multipart endpoints are enumerated in the plan's threat model 
 ## Next Phase Readiness
 
 - **Wave 4+ (any future serve-URL-adjacent plan) can rely on**: (1) every multipart endpoint in the current routes directory has an Origin guard; (2) any new multipart endpoint added must import `multipartOriginGuard` and mount it FIRST — established as a post-ship rule.
-- **Task 3 Alice checkpoint**: closed 2026-09-10 by "approved" per Phase 103 greenlight-on-trust convention. Real verification of the audit + guard behavior happens at end-of-phase UAT (Plan 10) alongside the full serve-URL stack test.
+- **Task 3 user checkpoint**: closed 2026-09-10 by "approved" per Phase 103 greenlight-on-trust convention. Real verification of the audit + guard behavior happens at end-of-phase UAT (Plan 10) alongside the full serve-URL stack test.
 - No push, no build, no deploy performed per box-maintainer directive (executor scope stops at code + commit + scoped-green).
 
 ---

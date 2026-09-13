@@ -2,7 +2,7 @@
 
 **Plan:** 23-05 (Wave 4, GEFM-06)
 **Status:** COMPLETE
-**Executor:** Tina (box-maintainer) — Alice approved seed write via `let's go` at checkpoint
+**Executor:** Tina (box-maintainer) — user approved seed write via `let's go` at checkpoint
 **Date shipped:** 2026-08-05
 
 ## What was built
@@ -39,12 +39,12 @@
 
 ## Deviations from plan
 
-- None. Alice greenlit the seed at checkpoint; agent wrote via direct `sudo tee`
+- None. user greenlit the seed at checkpoint; agent wrote via direct `sudo tee`
   (no SSM start-session needed — we're on the box).
 
 ## Follow-ups
 
-- Post-canonicalize + recreate: Alice smoke-tests per `23-BOOTSTRAP.md` §
+- Post-canonicalize + recreate: user smoke-tests per `23-BOOTSTRAP.md` §
   "Verifying the seed lands" (open modal → pick host → confirm CLAUDE.md
   loads). This is the last remaining Phase 23 UAT + Plan 23-04 UAT (menu
   consolidation eyeball) — both fold into one deploy round-trip.

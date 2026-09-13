@@ -363,7 +363,7 @@ vi.mock("../../relay-sessions/registry-rooms.js", () => ({
 
 // Mock: username-to-mxid — fixed happy-path stubs so tests don't reason about sanitizer output
 vi.mock("../../matrix/username-to-mxid.js", () => ({
-  buildHumanMxid: vi.fn((_username: string, _serverName: string) => "@alice_human:thenasty.taild9b663.ts.net"),
+  buildHumanMxid: vi.fn((_username: string, _serverName: string) => "@user_human:thenasty.taild9b663.ts.net"),
   generateHumanRelayPassword: vi.fn(() => "deadbeef00112233445566778899aabbccddeeff00112233"),
   extractServerName: vi.fn(() => "thenasty.taild9b663.ts.net"),
   sanitizeUsernameToLocalpart: vi.fn((s: string) => s.toLowerCase()),
@@ -733,7 +733,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // Default happy-path implementations for matrix-admin-client mocks
     mockCreateOrUpdateUser.mockResolvedValue({
       ok: true,
-      mxid: "@alice_human:thenasty.taild9b663.ts.net",
+      mxid: "@user_human:thenasty.taild9b663.ts.net",
       password: "test-pw",
       status: 201,
     });
@@ -787,7 +787,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
   it("POST /users/create — happy path (multipart with valid avatar) creates user + file", async () => {
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -801,11 +801,11 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     expect(body.message).toBe("User created");
 
     // users row must exist with avatar_path set
-    const row = sqliteDb.prepare("SELECT username, avatar_path FROM users WHERE username = ?").get("alice") as
+    const row = sqliteDb.prepare("SELECT username, avatar_path FROM users WHERE username = ?").get("user") as
       | { username: string; avatar_path: string | null }
       | undefined;
     expect(row).toBeDefined();
-    expect(row!.username).toBe("alice");
+    expect(row!.username).toBe("user");
     expect(row!.avatar_path).toBeTruthy();
     expect(row!.avatar_path).toMatch(/\.(png|jpg|webp)$/);
 
@@ -823,7 +823,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // Send multipart with only text fields (no file part)
     const boundary = "test-boundary-text-only";
     const textBody = Buffer.concat([
-      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="username"\r\n\r\nalice\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="username"\r\n\r\nuser\r\n`),
       Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="password"\r\n\r\ns3cret123\r\n`),
       Buffer.from(`--${boundary}--\r\n`),
     ]);
@@ -876,7 +876,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "big.png",
@@ -903,7 +903,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
   it("POST /users/create — image/gif returns 400 with mime error", async () => {
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "anim.gif",
@@ -933,7 +933,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -959,7 +959,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
   it("POST /users/create — happy path invokes DatabaseSaveTrigger.forceSave with correct label", async () => {
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -985,7 +985,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -1014,7 +1014,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -1042,7 +1042,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
   it("POST /users/create — (88-03-B) mint-success: createOrUpdateUser called once and mxid stored in users row", async () => {
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -1056,14 +1056,14 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // createOrUpdateUser must have been called exactly once
     expect(mockCreateOrUpdateUser).toHaveBeenCalledTimes(1);
     // First argument is the mxid (what buildHumanMxid returns per the vi.mock stub)
-    expect(mockCreateOrUpdateUser.mock.calls[0][0]).toBe("@alice_human:thenasty.taild9b663.ts.net");
+    expect(mockCreateOrUpdateUser.mock.calls[0][0]).toBe("@user_human:thenasty.taild9b663.ts.net");
 
     // users row must have mxid populated with the minted mxid
     const row = sqliteDb
       .prepare("SELECT mxid FROM users WHERE username = ?")
-      .get("alice") as { mxid: string | null } | undefined;
+      .get("user") as { mxid: string | null } | undefined;
     expect(row).toBeDefined();
-    expect(row!.mxid).toBe("@alice_human:thenasty.taild9b663.ts.net");
+    expect(row!.mxid).toBe("@user_human:thenasty.taild9b663.ts.net");
 
     // deactivateUser must NOT have been called (happy path — no rollback)
     expect(mockDeactivateUser).not.toHaveBeenCalled();
@@ -1083,7 +1083,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -1102,7 +1102,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     expect(mockDeactivateUser).not.toHaveBeenCalled();
 
     // No users row inserted — zero side effects
-    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE username = ?").get("alice") as { c: number };
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE username = ?").get("user") as { c: number };
     expect(count.c).toBe(0);
 
     // writeUserAvatar must NOT have been called — mint fail aborts before avatar write
@@ -1120,7 +1120,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -1133,10 +1133,10 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     // deactivateUser must have been called exactly once with the minted mxid (D-05 rollback)
     expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
-    expect(mockDeactivateUser.mock.calls[0][0]).toBe("@alice_human:thenasty.taild9b663.ts.net");
+    expect(mockDeactivateUser.mock.calls[0][0]).toBe("@user_human:thenasty.taild9b663.ts.net");
 
     // No users row inserted — avatar write failed before INSERT
-    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE username = ?").get("alice") as { c: number };
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE username = ?").get("user") as { c: number };
     expect(count.c).toBe(0);
   });
 
@@ -1156,7 +1156,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -1170,12 +1170,12 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // Users row must still be inserted despite the join failure.
     const row = sqliteDb
       .prepare("SELECT mxid FROM users WHERE username = ?")
-      .get("alice") as { mxid: string | null } | undefined;
-    expect(row?.mxid).toBe("@alice_human:thenasty.taild9b663.ts.net");
+      .get("user") as { mxid: string | null } | undefined;
+    expect(row?.mxid).toBe("@user_human:thenasty.taild9b663.ts.net");
     // Join hook fired exactly once with the minted mxid.
     expect(mockJoinHumanToHumansRegistry).toHaveBeenCalledTimes(1);
     expect(mockJoinHumanToHumansRegistry.mock.calls[0][0]).toBe(
-      "@alice_human:thenasty.taild9b663.ts.net",
+      "@user_human:thenasty.taild9b663.ts.net",
     );
   });
 
@@ -1183,7 +1183,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // Leave default happy-path mocks in place.
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -1195,7 +1195,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     expect(res.status).toBe(200);
     expect(mockJoinHumanToHumansRegistry).toHaveBeenCalledTimes(1);
     expect(mockJoinHumanToHumansRegistry.mock.calls[0][0]).toBe(
-      "@alice_human:thenasty.taild9b663.ts.net",
+      "@user_human:thenasty.taild9b663.ts.net",
     );
   });
 
@@ -1208,7 +1208,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -1221,8 +1221,8 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // Users row still inserted.
     const row = sqliteDb
       .prepare("SELECT mxid FROM users WHERE username = ?")
-      .get("alice") as { mxid: string | null } | undefined;
-    expect(row?.mxid).toBe("@alice_human:thenasty.taild9b663.ts.net");
+      .get("user") as { mxid: string | null } | undefined;
+    expect(row?.mxid).toBe("@user_human:thenasty.taild9b663.ts.net");
   });
 
   it("POST /users/create — (89-02-T5) mint failure: joinHumanToHumansRegistry NEVER called (hook lives after mint-success path)", async () => {
@@ -1234,7 +1234,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     const res = await multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "alice", password: "s3cret123" },
+      textFields: { username: "user", password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -1502,7 +1502,7 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
 
     // Reset auth control
     authControl.pass = true;
-    authControl.userId = "alice-id";
+    authControl.userId = "user-id";
 
     // Reset mock calls
     mockWriteUserAvatar.mockClear();
@@ -1523,11 +1523,11 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
 
     pendingWhereValue = null;
 
-    // Seed: Alice (user, has existing avatar)
-    insertUser({ id: "alice-id", username: "alice", isAdmin: 0, avatarPath: "alice-id.png" });
+    // Seed: user (user, has existing avatar)
+    insertUser({ id: "user-id", username: "user", isAdmin: 0, avatarPath: "user-id.png" });
     // Seed: Bob (admin)
     insertUser({ id: "bob-id", username: "bob", isAdmin: 1, avatarPath: "bob-id.png" });
-    // Seed: Charlie (non-admin, non-Alice)
+    // Seed: Charlie (non-admin, non-user)
     insertUser({ id: "charlie-id", username: "charlie", isAdmin: 0, avatarPath: "charlie-id.png" });
   });
 
@@ -1535,20 +1535,20 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
   // Test 1: Own user happy path → 200, row updated, forceSave called
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — own user happy path returns 200 with updated avatarPath", async () => {
-    authControl.userId = "alice-id";
-    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.png");
+    authControl.userId = "user-id";
+    mockWriteUserAvatar.mockResolvedValueOnce("user-id.png");
 
     const res = await putMultipartWithAuth(changeServer, {
-      path: "/users/alice-id/avatar",
+      path: "/users/user-id/avatar",
       file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
       jwt: "valid-jwt",
     });
 
     expect(res.status).toBe(200);
     const body = res.body as { id: string; avatarPath: string };
-    expect(body.id).toBe("alice-id");
-    expect(body.avatarPath).toBe("alice-id.png");
-    expect(mockWriteUserAvatar).toHaveBeenCalledWith("alice-id", "image/png", expect.any(Buffer));
+    expect(body.id).toBe("user-id");
+    expect(body.avatarPath).toBe("user-id.png");
+    expect(mockWriteUserAvatar).toHaveBeenCalledWith("user-id", "image/png", expect.any(Buffer));
   });
 
   // ---------------------------------------------------------------------------
@@ -1556,16 +1556,16 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — admin can change another user's avatar → 200", async () => {
     authControl.userId = "bob-id"; // Bob is admin
-    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.png");
+    mockWriteUserAvatar.mockResolvedValueOnce("user-id.png");
 
     const res = await putMultipartWithAuth(changeServer, {
-      path: "/users/alice-id/avatar",
+      path: "/users/user-id/avatar",
       file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
       jwt: "valid-jwt",
     });
 
     expect(res.status).toBe(200);
-    expect(mockWriteUserAvatar).toHaveBeenCalledWith("alice-id", "image/png", expect.any(Buffer));
+    expect(mockWriteUserAvatar).toHaveBeenCalledWith("user-id", "image/png", expect.any(Buffer));
   });
 
   // ---------------------------------------------------------------------------
@@ -1575,7 +1575,7 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
     authControl.userId = "charlie-id"; // Charlie is non-admin
 
     const res = await putMultipartWithAuth(changeServer, {
-      path: "/users/alice-id/avatar",
+      path: "/users/user-id/avatar",
       file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
       jwt: "valid-jwt",
     });
@@ -1587,51 +1587,51 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
     // No file written
     expect(mockWriteUserAvatar).not.toHaveBeenCalled();
 
-    // Alice's row unchanged
-    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+    // user's row unchanged
+    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("user-id") as
       | { avatar_path: string | null }
       | undefined;
-    expect(row?.avatar_path).toBe("alice-id.png");
+    expect(row?.avatar_path).toBe("user-id.png");
   });
 
   // ---------------------------------------------------------------------------
   // Test 4: Ext-swap (PNG → JPEG) — old file unlinked, new file has .jpg ext
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — ext-swap: old .png file unlinked, new .jpg file created", async () => {
-    authControl.userId = "alice-id";
-    // Alice currently has alice-id.png; new upload is JPEG → alice-id.jpg
-    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.jpg");
+    authControl.userId = "user-id";
+    // user currently has user-id.png; new upload is JPEG → user-id.jpg
+    mockWriteUserAvatar.mockResolvedValueOnce("user-id.jpg");
 
     const res = await putMultipartWithAuth(changeServer, {
-      path: "/users/alice-id/avatar",
+      path: "/users/user-id/avatar",
       file: { fieldName: "avatar", filename: "avatar.jpg", contentType: "image/jpeg", bytes: MINIMAL_PNG_BYTES },
       jwt: "valid-jwt",
     });
 
     expect(res.status).toBe(200);
     const body = res.body as { avatarPath: string };
-    expect(body.avatarPath).toBe("alice-id.jpg");
+    expect(body.avatarPath).toBe("user-id.jpg");
 
-    // Old file unlinked (alice-id.png !== alice-id.jpg → unlink called with old name)
-    expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("alice-id.png");
+    // Old file unlinked (user-id.png !== user-id.jpg → unlink called with old name)
+    expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("user-id.png");
 
     // DB row updated
-    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("user-id") as
       | { avatar_path: string | null }
       | undefined;
-    expect(row?.avatar_path).toBe("alice-id.jpg");
+    expect(row?.avatar_path).toBe("user-id.jpg");
   });
 
   // ---------------------------------------------------------------------------
   // Test 5: Same-ext (PNG → PNG) — no old-file unlink (file overwritten in place)
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — same-ext: no old-file unlink (file overwritten in place)", async () => {
-    authControl.userId = "alice-id";
-    // New upload is also PNG → alice-id.png (same name)
-    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.png");
+    authControl.userId = "user-id";
+    // New upload is also PNG → user-id.png (same name)
+    mockWriteUserAvatar.mockResolvedValueOnce("user-id.png");
 
     const res = await putMultipartWithAuth(changeServer, {
-      path: "/users/alice-id/avatar",
+      path: "/users/user-id/avatar",
       file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
       jwt: "valid-jwt",
     });
@@ -1646,9 +1646,9 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
   // Test 6: UPDATE rollback — new file unlinked if SQL fails
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — SQL UPDATE failure: new file unlinked (rollback)", async () => {
-    authControl.userId = "alice-id";
+    authControl.userId = "user-id";
     // New upload is JPEG (ext-swap) → new filename differs from old
-    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.jpg");
+    mockWriteUserAvatar.mockResolvedValueOnce("user-id.jpg");
 
     // Make the SQLite prepare().run() throw for UPDATE
     const realPrepare = sqliteDb.prepare.bind(sqliteDb);
@@ -1670,7 +1670,7 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
 
     try {
       const res = await putMultipartWithAuth(changeServer, {
-        path: "/users/alice-id/avatar",
+        path: "/users/user-id/avatar",
         file: { fieldName: "avatar", filename: "avatar.jpg", contentType: "image/jpeg", bytes: MINIMAL_PNG_BYTES },
         jwt: "valid-jwt",
       });
@@ -1678,13 +1678,13 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
       expect(res.status).toBe(500);
 
       // New file (different name) must be unlinked on rollback
-      expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("alice-id.jpg");
+      expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("user-id.jpg");
 
       // DB row unchanged
-      const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+      const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("user-id") as
         | { avatar_path: string | null }
         | undefined;
-      expect(row?.avatar_path).toBe("alice-id.png");
+      expect(row?.avatar_path).toBe("user-id.png");
     } finally {
       // Restore prepare
       sqliteDb.prepare = originalPrepare;
@@ -1715,10 +1715,10 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
   // Test 8: Missing avatar field → 400 "missing avatar field"
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — missing avatar field returns 400", async () => {
-    authControl.userId = "alice-id";
+    authControl.userId = "user-id";
 
     const res = await putNoBodyWithAuth(changeServer, {
-      path: "/users/alice-id/avatar",
+      path: "/users/user-id/avatar",
       jwt: "valid-jwt",
     });
 
@@ -1734,10 +1734,10 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
   // Test 9: Oversize upload → 413 via multer error handler
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — 6 MB upload returns 413 via multer error handler", async () => {
-    authControl.userId = "alice-id";
+    authControl.userId = "user-id";
 
     const res = await putOversizeWithAuth(changeServer, {
-      path: "/users/alice-id/avatar",
+      path: "/users/user-id/avatar",
       jwt: "valid-jwt",
     });
 
@@ -1753,11 +1753,11 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
   // without writeUserAvatar (i.e., without any file processing in the handler)
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — M7: non-admin non-owner returns 403 without invoking writeUserAvatar", async () => {
-    // Charlie is non-admin and is NOT Alice — authz must fire before body parse.
+    // Charlie is non-admin and is NOT user — authz must fire before body parse.
     authControl.userId = "charlie-id";
 
     const res = await putMultipartWithAuth(changeServer, {
-      path: "/users/alice-id/avatar",
+      path: "/users/user-id/avatar",
       file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
       jwt: "valid-jwt",
     });
@@ -1770,26 +1770,26 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
     // writeUserAvatar MUST NOT have been called — proves the handler body was never reached
     expect(mockWriteUserAvatar).not.toHaveBeenCalled();
 
-    // Alice's row must be unchanged
-    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+    // user's row must be unchanged
+    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("user-id") as
       | { avatar_path: string | null }
       | undefined;
-    expect(row?.avatar_path).toBe("alice-id.png");
+    expect(row?.avatar_path).toBe("user-id.png");
   });
 
   // ---------------------------------------------------------------------------
   // M3: EPERM on old-file unlink after successful UPDATE → 200, not 500
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — M3: EPERM on old-file unlink returns 200 (not 500) after successful UPDATE", async () => {
-    authControl.userId = "alice-id";
-    // New upload is JPEG → alice-id.jpg (ext-swap, so old alice-id.png will be unlinked)
-    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.jpg");
+    authControl.userId = "user-id";
+    // New upload is JPEG → user-id.jpg (ext-swap, so old user-id.png will be unlinked)
+    mockWriteUserAvatar.mockResolvedValueOnce("user-id.jpg");
     // unlinkUserAvatar throws EPERM on the old-file call (second overall call to unlinkUserAvatar)
     const epermErr = Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" });
     mockUnlinkUserAvatar.mockRejectedValueOnce(epermErr);
 
     const res = await putMultipartWithAuth(changeServer, {
-      path: "/users/alice-id/avatar",
+      path: "/users/user-id/avatar",
       file: { fieldName: "avatar", filename: "avatar.jpg", contentType: "image/jpeg", bytes: MINIMAL_PNG_BYTES },
       jwt: "valid-jwt",
     });
@@ -1797,26 +1797,26 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
     // Must be 200 — the row was updated successfully despite unlink EPERM
     expect(res.status).toBe(200);
     const body = res.body as { id: string; avatarPath: string };
-    expect(body.avatarPath).toBe("alice-id.jpg");
+    expect(body.avatarPath).toBe("user-id.jpg");
 
     // Row must reflect the new filename
-    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("user-id") as
       | { avatar_path: string | null }
       | undefined;
-    expect(row?.avatar_path).toBe("alice-id.jpg");
+    expect(row?.avatar_path).toBe("user-id.jpg");
 
     // unlinkUserAvatar was called (with the old filename — may have thrown)
-    expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("alice-id.png");
+    expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("user-id.png");
   });
 
   // ---------------------------------------------------------------------------
   // M2: old-filename is the value AT UPDATE time (atomic SELECT+UPDATE tx)
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — M2: old filename unlinked is the atomic tx-read value, not a stale pre-read", async () => {
-    // Set up Alice with old avatar "alice-id.png"
-    authControl.userId = "alice-id";
-    // New upload produces "alice-id.jpg"
-    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.jpg");
+    // Set up user with old avatar "user-id.png"
+    authControl.userId = "user-id";
+    // New upload produces "user-id.jpg"
+    mockWriteUserAvatar.mockResolvedValueOnce("user-id.jpg");
 
     // Patch db.$client.transaction to spy that it is called (proving the
     // SELECT+UPDATE runs in a single tx, not two separate calls).
@@ -1829,7 +1829,7 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
 
     try {
       const res = await putMultipartWithAuth(changeServer, {
-        path: "/users/alice-id/avatar",
+        path: "/users/user-id/avatar",
         file: { fieldName: "avatar", filename: "avatar.jpg", contentType: "image/jpeg", bytes: MINIMAL_PNG_BYTES },
         jwt: "valid-jwt",
       });
@@ -1839,14 +1839,14 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
       // The atomic transaction must have been used
       expect(transactionCalled).toBe(true);
 
-      // Old filename (alice-id.png) must have been unlinked
-      expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("alice-id.png");
+      // Old filename (user-id.png) must have been unlinked
+      expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("user-id.png");
 
       // Row updated to new filename
-      const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+      const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("user-id") as
         | { avatar_path: string | null }
         | undefined;
-      expect(row?.avatar_path).toBe("alice-id.jpg");
+      expect(row?.avatar_path).toBe("user-id.jpg");
     } finally {
       // Restore transaction
       sqliteDb.transaction = realTransaction;
@@ -1857,11 +1857,11 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
   // Test 10: Save trigger label verified
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — happy path invokes forceSave with 'phase-85-user-avatar-change'", async () => {
-    authControl.userId = "alice-id";
-    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.png");
+    authControl.userId = "user-id";
+    mockWriteUserAvatar.mockResolvedValueOnce("user-id.png");
 
     const res = await putMultipartWithAuth(changeServer, {
-      path: "/users/alice-id/avatar",
+      path: "/users/user-id/avatar",
       file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
       jwt: "valid-jwt",
     });
@@ -1919,8 +1919,8 @@ describe("GET /users/:id/avatar (Phase 85 — serve endpoint)", () => {
 
     pendingWhereValue = null;
 
-    // Seed Alice with a PNG avatar
-    insertUser({ id: "alice-id", username: "alice", isAdmin: 0, avatarPath: "alice-id.png" });
+    // Seed user with a PNG avatar
+    insertUser({ id: "user-id", username: "user", isAdmin: 0, avatarPath: "user-id.png" });
     // Seed Bob with a webp avatar
     insertUser({ id: "bob-id", username: "bob", isAdmin: 0, avatarPath: "bob-id.webp" });
     // Seed Charlie with NO avatar (null pointer)
@@ -1933,11 +1933,11 @@ describe("GET /users/:id/avatar (Phase 85 — serve endpoint)", () => {
   it("GET /:id/avatar — serves PNG bytes with Content-Type: image/png", async () => {
     mockReadUserAvatar.mockResolvedValueOnce({ bytes: MINIMAL_PNG_BYTES, mime: "image/png" });
 
-    const res = await getWithAuth(serveServer, { path: "/users/alice-id/avatar", jwt: "valid-jwt" });
+    const res = await getWithAuth(serveServer, { path: "/users/user-id/avatar", jwt: "valid-jwt" });
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/image\/png/);
-    expect(mockReadUserAvatar).toHaveBeenCalledWith("alice-id.png");
+    expect(mockReadUserAvatar).toHaveBeenCalledWith("user-id.png");
   });
 
   // ---------------------------------------------------------------------------
@@ -1988,7 +1988,7 @@ describe("GET /users/:id/avatar (Phase 85 — serve endpoint)", () => {
     const enoentErr = Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" });
     mockReadUserAvatar.mockRejectedValueOnce(enoentErr);
 
-    const res = await getWithAuth(serveServer, { path: "/users/alice-id/avatar", jwt: "valid-jwt" });
+    const res = await getWithAuth(serveServer, { path: "/users/user-id/avatar", jwt: "valid-jwt" });
 
     expect(res.status).toBe(404);
     const body = res.body as { error: string };
@@ -2002,7 +2002,7 @@ describe("GET /users/:id/avatar (Phase 85 — serve endpoint)", () => {
     // authControl.pass = false simulates the authenticateJWT middleware returning 401
     authControl.pass = false;
 
-    const res = await getNoAuth(serveServer, { path: "/users/alice-id/avatar" });
+    const res = await getNoAuth(serveServer, { path: "/users/user-id/avatar" });
 
     // Note: getNoAuth sends no Authorization header; the mock middleware checks authControl.pass
     // Since the request has no header, we need to make the middleware reject based on that.
@@ -2015,14 +2015,14 @@ describe("GET /users/:id/avatar (Phase 85 — serve endpoint)", () => {
   // Test 7: Any logged-in user can fetch any other user's avatar (auth model check)
   // ---------------------------------------------------------------------------
   it("GET /:id/avatar — any authenticated user can fetch any other user's avatar", async () => {
-    // Dave (non-admin, non-Alice) fetches Alice's avatar
+    // Dave (non-admin, non-user) fetches user's avatar
     authControl.userId = "dave-id"; // Not in DB, but GET only checks auth, not row-ownership
     // Insert Dave so the auth middleware doesn't fail user lookup (GET doesn't check DB for caller)
     // Note: the GET handler does NOT do caller-DB-lookup — it only runs authenticateJWT then
     // reads the target's row. So Dave doesn't need to exist in DB for this to work.
     mockReadUserAvatar.mockResolvedValueOnce({ bytes: MINIMAL_PNG_BYTES, mime: "image/png" });
 
-    const res = await getWithAuth(serveServer, { path: "/users/alice-id/avatar", jwt: "valid-jwt" });
+    const res = await getWithAuth(serveServer, { path: "/users/user-id/avatar", jwt: "valid-jwt" });
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/image\/png/);
@@ -2098,7 +2098,7 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
     bootstrapDb();
 
     authControl.pass = true;
-    authControl.userId = "alice-id";
+    authControl.userId = "user-id";
 
     mockWriteUserAvatar.mockClear();
     mockUnlinkUserAvatar.mockClear();
@@ -2125,15 +2125,15 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
     const password = "s3cret123";
     const passwordHash = await bcrypt.hash(password, 4); // low rounds for test speed
 
-    // Insert Alice (non-admin, non-OIDC) with a real bcrypt hash so the
+    // Insert user (non-admin, non-OIDC) with a real bcrypt hash so the
     // password check in the handler succeeds.
     sqliteDb
       .prepare(
         "INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path) VALUES (?, ?, ?, ?, ?, ?)",
       )
-      .run("alice-id", "alice", passwordHash, 0, 0, "alice-id.png");
+      .run("user-id", "user", passwordHash, 0, 0, "user-id.png");
 
-    authControl.userId = "alice-id";
+    authControl.userId = "user-id";
 
     const res = await deleteAccountWithAuth(deleteServer, { password, jwt: "valid-jwt" });
 
@@ -2145,7 +2145,7 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
     expect(mockForceSave).toHaveBeenCalledWith("phase-85-user-delete-account");
 
     // Row deleted
-    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("alice-id") as { c: number };
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("user-id") as { c: number };
     expect(count.c).toBe(0);
   });
 
@@ -2161,17 +2161,17 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
       .prepare(
         "INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path, mxid) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run("alice-id", "alice", passwordHash, 0, 0, null, "@alice_human:thenasty.taild9b663.ts.net");
+      .run("user-id", "user", passwordHash, 0, 0, null, "@user_human:thenasty.taild9b663.ts.net");
 
-    authControl.userId = "alice-id";
+    authControl.userId = "user-id";
 
     const res = await deleteAccountWithAuth(deleteServer, { password, jwt: "valid-jwt" });
 
     expect(res.status).toBe(200);
     expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
-    expect(mockDeactivateUser).toHaveBeenCalledWith("@alice_human:thenasty.taild9b663.ts.net");
+    expect(mockDeactivateUser).toHaveBeenCalledWith("@user_human:thenasty.taild9b663.ts.net");
 
-    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("alice-id") as { c: number };
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("user-id") as { c: number };
     expect(count.c).toBe(0);
   });
 
@@ -2212,9 +2212,9 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
       .prepare(
         "INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path, mxid) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run("alice-id", "alice", passwordHash, 0, 0, null, "@alice_human:thenasty.taild9b663.ts.net");
+      .run("user-id", "user", passwordHash, 0, 0, null, "@user_human:thenasty.taild9b663.ts.net");
 
-    authControl.userId = "alice-id";
+    authControl.userId = "user-id";
 
     mockDeactivateUser.mockResolvedValueOnce({ ok: false, status: 504, error: "admin_api_timeout" });
 
@@ -2223,10 +2223,10 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
     // Key assertion: delete not blocked by Synapse failure
     expect(res.status).toBe(200);
     expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
-    expect(mockDeactivateUser).toHaveBeenCalledWith("@alice_human:thenasty.taild9b663.ts.net");
+    expect(mockDeactivateUser).toHaveBeenCalledWith("@user_human:thenasty.taild9b663.ts.net");
 
     // Row is gone — proves delete PROCEEDED despite Synapse failure
-    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("alice-id") as { c: number };
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("user-id") as { c: number };
     expect(count.c).toBe(0);
   });
 });

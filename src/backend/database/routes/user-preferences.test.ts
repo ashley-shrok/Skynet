@@ -428,17 +428,17 @@ describe("handlePutPreferences: Phase 92-02 pin sentinel fan-out", () => {
     expect(writeIdentityFileMock).not.toHaveBeenCalled();
   });
 
-  it("PUT-92-03: swap pins — writeIdentityFile('bob', ...) AND removeIdentityFile('alice', ...) in same fanout", async () => {
-    // Prior state: alice pinned, bob unpinned. New: bob pinned, alice unpinned.
+  it("PUT-92-03: swap pins — writeIdentityFile('bob', ...) AND removeIdentityFile('user', ...) in same fanout", async () => {
+    // Prior state: user pinned, bob unpinned. New: bob pinned, user unpinned.
     // pre-diff probes fire once per identityHosts key (Promise.all order can
-    // interleave alice+bob) — return true for alice, false for bob.
+    // interleave user+bob) — return true for user, false for bob.
     identityFileExistsMock.mockImplementation(async (name: string) => {
       // Both pre-diff and post-fanout re-read call this. Simplest deterministic
       // policy: return true for the identity currently supposed to be pinned.
       // The handler calls this twice per key (pre + post). Tests below check
       // the CALL SEQUENCE, not the return values.
       // Toggle behavior via call count.
-      return name === "alice" && identityFileExistsMock.mock.calls.length <= 2;
+      return name === "user" && identityFileExistsMock.mock.calls.length <= 2;
     });
 
     const res = makeRes();
@@ -446,19 +446,19 @@ describe("handlePutPreferences: Phase 92-02 pin sentinel fan-out", () => {
       USER_ID,
       {
         pinnedConversationIds: ["bob"],
-        identityHosts: { alice: 1, bob: 1 },
+        identityHosts: { user: 1, bob: 1 },
       },
       res as unknown as Response,
     );
 
     expect(res._status).toBe(200);
-    // One add (bob), one remove (alice)
+    // One add (bob), one remove (user)
     expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
     expect(writeIdentityFileMock.mock.calls[0][0]).toBe("bob");
     expect(writeIdentityFileMock.mock.calls[0][1]).toBe(".pinned");
 
     expect(removeIdentityFileMock).toHaveBeenCalledTimes(1);
-    expect(removeIdentityFileMock.mock.calls[0][0]).toBe("alice");
+    expect(removeIdentityFileMock.mock.calls[0][0]).toBe("user");
     expect(removeIdentityFileMock.mock.calls[0][1]).toBe(".pinned");
   });
 
@@ -789,14 +789,14 @@ describe("handlePutPreferences: Phase 107-02 hidden sentinel fan-out", () => {
     expect(body.hiddenConversationIds).toEqual([]);
   });
 
-  it("HID-107-PUT-03: swap hides — writeIdentityFile('bob', .hidden) AND removeIdentityFile('alice', .hidden) in same fanout", async () => {
-    // Prior: alice hidden, bob not hidden. New: bob hidden, alice not hidden.
+  it("HID-107-PUT-03: swap hides — writeIdentityFile('bob', .hidden) AND removeIdentityFile('user', .hidden) in same fanout", async () => {
+    // Prior: user hidden, bob not hidden. New: bob hidden, user not hidden.
     identityFileExistsMock.mockImplementation(async (name: string, relPath: string) => {
       if (relPath !== ".hidden") return false;
       // Use call count to differentiate pre-diff from post-echo. Pre-diff fires
-      // for alice+bob in the same Promise.all; post-echo fires after writes.
-      // Return alice=true, bob=false for the pre-diff round.
-      return name === "alice" && identityFileExistsMock.mock.calls
+      // for user+bob in the same Promise.all; post-echo fires after writes.
+      // Return user=true, bob=false for the pre-diff round.
+      return name === "user" && identityFileExistsMock.mock.calls
         .filter((c) => c[1] === ".hidden").length <= 2;
     });
 
@@ -805,7 +805,7 @@ describe("handlePutPreferences: Phase 107-02 hidden sentinel fan-out", () => {
       USER_ID,
       {
         hiddenConversationIds: ["bob"],
-        identityHosts: { alice: 1, bob: 1 },
+        identityHosts: { user: 1, bob: 1 },
       },
       res as unknown as Response,
     );
@@ -816,7 +816,7 @@ describe("handlePutPreferences: Phase 107-02 hidden sentinel fan-out", () => {
     expect(hiddenWrites[0][0]).toBe("bob");
     const hiddenRemoves = removeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
     expect(hiddenRemoves).toHaveLength(1);
-    expect(hiddenRemoves[0][0]).toBe("alice");
+    expect(hiddenRemoves[0][0]).toBe("user");
   });
 
   it("HID-107-PUT-04: no-op — same set as prior disk state means NO writes and NO removes for .hidden", async () => {
@@ -980,8 +980,8 @@ describe("handlePutPreferences: Phase 107-02 hidden sentinel fan-out", () => {
       USER_ID,
       {
         pinnedConversationIds: ["tina"],
-        hiddenConversationIds: ["alice"],
-        identityHosts: { tina: 1, alice: 2 }, // two DIFFERENT hostIds
+        hiddenConversationIds: ["user"],
+        identityHosts: { tina: 1, user: 2 }, // two DIFFERENT hostIds
       },
       res as unknown as Response,
     );
@@ -996,7 +996,7 @@ describe("handlePutPreferences: Phase 107-02 hidden sentinel fan-out", () => {
     const pinWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".pinned");
     const hiddenWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
     expect(pinWrites).toHaveLength(1);  // tina pinned
-    expect(hiddenWrites).toHaveLength(1); // alice hidden
+    expect(hiddenWrites).toHaveLength(1); // user hidden
 
     // Response body has both echoes.
     const body = res._body as {
@@ -1096,8 +1096,8 @@ describe("handlePutPreferences: Phase 107-02 D-02 regression trap — DB columns
       USER_ID,
       {
         pinnedConversationIds: ["tina"],
-        hiddenConversationIds: ["alice"],
-        identityHosts: { tina: 1, alice: 1 },
+        hiddenConversationIds: ["user"],
+        identityHosts: { tina: 1, user: 1 },
       },
       res as unknown as Response,
     );

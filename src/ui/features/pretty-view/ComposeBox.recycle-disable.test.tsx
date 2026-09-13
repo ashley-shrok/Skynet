@@ -3,7 +3,7 @@
  *
  * Body consumption tests for the new `recycleActive?: boolean` prop
  * that flips every WS-side-effecting control off during a session
- * recycle while leaving the textarea typeable so Alice can pre-draft
+ * recycle while leaving the textarea typeable so user can pre-draft
  * the next message during the 2-15s recycle window.
  *
  * Truth table pinned:
@@ -28,7 +28,7 @@
  * Quick 260731-ulo (bounty mic-available-when-composebox-disabled):
  * mic + paperclip stay USABLE during recycle (no WS side-effect from
  * either alone). Voice-send is gated so a completed transcript during
- * recycle lands in the textarea/slot but does NOT dispatch — Alice
+ * recycle lands in the textarea/slot but does NOT dispatch — user
  * sends manually once the overlay clears.
  */
 

@@ -16,7 +16,7 @@
 //     walk. All non-pinned / non-active-set / non-RDP identity-tmux + fleet-
 //     synthetic rows land in a single `middle: ConversationRow[]` array.
 //   - RDP zone is emitted iff at least one host has `enableRdp === true`. When
-//     zero RDP-eligible hosts exist, `rdpGroup === null` (Alice lock: no
+//     zero RDP-eligible hosts exist, `rdpGroup === null` (user lock: no
 //     empty RDP header). RDP rows internally follow hostTree order (see the
 //     synthesis pass below), then sort by compareByHostRoleLabel.
 //   - Plan 03 (deferred, full-stack) will populate `lastMessageAt` on rows via
@@ -141,7 +141,7 @@ export type HostGroup = {
 };
 
 // Phase 41 (Plan 01): three-zone shape.
-//   - `activeSet`: rows currently in Alice's active-set (state.activeSet),
+//   - `activeSet`: rows currently in user's active-set (state.activeSet),
 //     sorted by (host, role, label). Structurally UNCHANGED from Phase 25.
 //   - `pinned`: rows pinned but NOT in activeSet, sorted by (host, role, label).
 //     Structurally UNCHANGED from Phase 25.
@@ -155,7 +155,7 @@ export type HostGroup = {
 //     middle tier.
 //   - `rdpGroup`: sentinel HostGroup (`hostId: "__rdp__"`) containing all
 //     RDP-eligible rows, OR `null` when zero hosts have `enableRdp === true`.
-//     No empty header renders in the panel when null (Alice lock).
+//     No empty header renders in the panel when null (user lock).
 export type ConversationList = {
   activeSet: ConversationRow[];
   pinned: ConversationRow[];
@@ -236,7 +236,7 @@ type SnapshotForTest = ConversationList & {
 
 // Phase 41 (Plan 01): retire the `activeSet` field's ambient-visual mention in
 // the State type comment. The `state.activeSet: Set<string>` field survives
-// AS-IS — it still drives the deactivate-action semantics (per Alice lock #5).
+// AS-IS — it still drives the deactivate-action semantics (per user lock #5).
 // Only the visual tier's ambient-recession rendering was retired; the field
 // itself is load-bearing for deactivate menu-item gating.
 
@@ -256,7 +256,7 @@ const CONVERSATION_TAB_TYPES = new Set<TabType>([
 // a JSON array of conversation ids; sessionStorage semantics = per-tab, dies
 // on tab close. See hydrateActiveSetFromStorage() + addToActiveSet() +
 // removeFromActiveSet() below. quick-260727-gm3 introduced remove semantics
-// (Alice 2026-07-27 deactivate action) — the pre-gm3 lock ("no remove API by
+// (user 2026-07-27 deactivate action) — the pre-gm3 lock ("no remove API by
 // design") was intentionally lifted; the set now grows AND shrinks within a
 // session, but still dies on tab close.
 const ACTIVE_SET_STORAGE_KEY = "pv-conv-active-set";
@@ -276,7 +276,7 @@ const SEARCH_HIDDEN_SENTINEL_KEY = "pv-conv-search-hidden-once";
 // back to an empty Set — a corrupt persistence layer must never crash the
 // UI thread.
 //
-// Alice 2026-08-05 (fix chain 70q→7rq→53a36a6→ea0098c→THIS): Move-to-new-
+// user 2026-08-05 (fix chain 70q→7rq→53a36a6→ea0098c→THIS): Move-to-new-
 // window / Open-in-new-window URLs carry `only=1` in the hash. Since we drop
 // `noopener` on window.open (PrettyConversationRow.tsx uo4-noopener-fix so
 // the null-check for popup-blocker safety works), the child window inherits
@@ -331,7 +331,7 @@ function hydrateActiveSetFromStorage(): Set<string> {
 
 function isConversationTab(tab: Tab): boolean {
   if (!CONVERSATION_TAB_TYPES.has(tab.type)) return false;
-  // Phase 91 UAT fix 2026-09-09 (Alice): relay-room tabs are host-less by
+  // Phase 91 UAT fix 2026-09-09 (user): relay-room tabs are host-less by
   // design (the room lives on the Matrix relay, not a fleet host). Admit
   // them so an openTab-derived row shows in the sidebar with row.id ===
   // tab.id — matches the selectedId set by selectConversationDeferred(tabId),
@@ -380,7 +380,7 @@ type State = {
   // updateIdentitiesByKey on identity-store change — mirrors the hostsFlat
   // pattern. keyed identically to identities-store.ts byKey (identityKey.toLowerCase()).
   identitiesByKey: Map<string, Identity>;
-  // Patch #137: sessionStorage-backed set of conversation ids Alice has
+  // Patch #137: sessionStorage-backed set of conversation ids user has
   // selected in this browser-tab session. Persisted under key
   // "pv-conv-active-set" as a JSON array. Rehydrated on module load;
   // add + remove APIs (quick-260727-gm3 added removeFromActiveSet as the
@@ -488,7 +488,7 @@ function resolveLastMessageAt(
 }
 
 function rowFromTab(tab: Tab, sessionRoleByKey: Map<string, string | null>): ConversationRow {
-  // Phase 91 UAT fix 2026-09-09 (Alice): relay-room tabs have no host and
+  // Phase 91 UAT fix 2026-09-09 (user): relay-room tabs have no host and
   // no tmux session — carry their kind + roomId + roomTitle onto the row so
   // handleRowSelect routes clicks to onRelayRoomRowClick. row.id === tab.id
   // is what makes the selection border render (selectedId === tab.id after
@@ -637,7 +637,7 @@ const compareByHostRoleLabel = (a: ConversationRow, b: ConversationRow): number 
 };
 
 // Phase 44 Plan 04 — flipped Rule 1 from null-to-top to null-to-bottom. Retires
-// Alice's 2026-08-14 no-history-to-top lock per 44-CONTEXT.md § Comparator
+// user's 2026-08-14 no-history-to-top lock per 44-CONTEXT.md § Comparator
 // change — retire no-history-to-top. Middle-zone recency comparator.
 //
 // Ordering contract (§Sort model — middle section, Phase 44 lock 2026-08-18):
@@ -732,7 +732,7 @@ function computeSnapshot(): ConversationList {
   const fleetHostNameFallback = new Map<string, string>();
   const fleetSyntheticRows: { hostIdStr: string; row: ConversationRow }[] = [];
   for (const session of state.fleetSessions) {
-    // Phase 91 UAT fix 2026-09-09 (Alice): relay-room sessions on the wire
+    // Phase 91 UAT fix 2026-09-09 (user): relay-room sessions on the wire
     // have a completely different shape from harness sessions — no hostId,
     // no hostName, no sessionName, no role. Passing them through the harness
     // synthetic-row loop below produces a malformed row (host:undefined,
@@ -805,7 +805,7 @@ function computeSnapshot(): ConversationList {
   // Tier-assignment dedup tracker — populated by the Tier 2 (pinned) loops
   // below so Tier 3 (middle) can skip ids already claimed by the pinned tier.
   //
-  // Phase 42 UAT amendment 2026-08-17 (Alice verbatim):
+  // Phase 42 UAT amendment 2026-08-17 (user verbatim):
   // "sessions are still showing above the pinned area when they are active
   //  in the current instance of the client. That shouldn't happen. Also the
   //  pinned header should go away entirely."
@@ -983,7 +983,7 @@ function computeSnapshot(): ConversationList {
   }
   rdpRows.sort(compareByHostRoleLabel);
   // Phase 41 (Plan 01): rdpGroup is `null` iff zero RDP-eligible hosts exist.
-  // This preserves the pre-Phase-41 store-level gate at L632 verbatim (Alice
+  // This preserves the pre-Phase-41 store-level gate at L632 verbatim (user
   // lock #7 — no empty RDP header renders when no RDP hosts).
   const rdpGroup: HostGroup | null =
     rdpRows.length > 0
@@ -1048,11 +1048,11 @@ export function updateOpenTabs(tabs: Tab[]): void {
   // quick-260818-l8n (retire pin pruner): updateOpenTabs no longer touches
   // state.pinnedIds. Pins are sticky across openTabs / fleetSessions churn.
   //
-  // Alice: "Pins are pins. Doesn't matter if they are open or anything
+  // user: "Pins are pins. Doesn't matter if they are open or anything
   // else." — deploy-race scenario: on WebSocket reconnect, updateOpenTabs
   // and updateFleetSessions fire with partial/empty payloads before every
   // managed host re-reports. Any pruner running in that transient window
-  // nuked legitimate pins from the in-memory Set; Alice's next pin/unpin
+  // nuked legitimate pins from the in-memory Set; user's next pin/unpin
   // action then wrote the pruned Set to the server via putPinnedIds and
   // the loss went durable. The render-side skip in computeSnapshot Tier 2
   // (see L636-675) already drops orphan pin ids gracefully — an id with
@@ -1112,7 +1112,7 @@ export function updateOpenTabs(tabs: Tab[]): void {
 // hard shape lock (see 07-CONTEXT.md §Scope Fence item #2) forbids any
 // interval/focus/visibility refetch that would produce visible list
 // mutations after page-load. Cross-device staleness is deliberately
-// acceptable; Alice refreshes to update.
+// acceptable; user refreshes to update.
 //
 // Same reference-equality + per-element ref no-op story as updateHostTree /
 // updateOpenTabs — a fresh array from a fresh fetch that happens to be
@@ -1199,7 +1199,7 @@ export function removeFleetSession(hostId: number, sessionName: string): void {
 // reload shows the last-known conversation-list row set instead of an empty
 // list for the ~200ms it takes getSessionList() to return. Row EXISTENCE only
 // — activeSet, WIP, pin state, hostTree are still live-derived and NOT cached
-// (Alice 2026-08-05).
+// (user 2026-08-05).
 //
 // Versioned key so a shape change to FleetSession can invalidate every
 // client's cache in one deploy just by bumping the suffix.
@@ -1265,7 +1265,7 @@ function isFleetSession(x: unknown): x is FleetSession {
   // rows have no kind field and must continue to route as harness — Phase 90
   // doctrine, see readFleetSessionsCache comment at lines 1322-1329). Before
   // this fix every relay-row cache entry was silently filtered on read,
-  // forcing Alice's ~10s /sessions/list wait before relay rooms painted.
+  // forcing user's ~10s /sessions/list wait before relay rooms painted.
   if (r.kind === "relay-room") {
     if (typeof r.roomId !== "string" || r.roomId.length === 0) {
       return false;
@@ -1545,7 +1545,7 @@ export function addToActiveSet(id: string): void {
 // fails. Deliberately does NOT touch state.selectedId — deactivation is
 // orthogonal to selection at the store layer; the panel wires closeTab
 // separately (see PrettyConversationsPanel.handleRowDeactivate + AppShell's
-// onDeactivateRow → closeTab bridge). Alice 2026-07-27: agent keeps running
+// onDeactivateRow → closeTab bridge). user 2026-07-27: agent keeps running
 // under the hood; tapping the row again reactivates it.
 export function removeFromActiveSet(id: string): void {
   if (!state.activeSet.has(id)) return;
@@ -1605,7 +1605,7 @@ export function pinConversation(id: string): void {
   if (state.pinnedIds.has(id)) return; // already pinned — no-op
   // Patch #149 (A): the pre-#149 defense-in-depth guard rejected any id
   // not present in state.openTabs, which silently no-op'd pin clicks on
-  // every fleet-derived row (~26 of 32 in Alice's normal panel). Mock v4
+  // every fleet-derived row (~26 of 32 in user's normal panel). Mock v4
   // treats all non-RDP rows uniformly — the row-level render only excludes
   // RDP rows from the pin affordance, so any id that reaches this function
   // is legitimately pinnable. An orphaned pin id (session gone) is inert:
@@ -1664,7 +1664,7 @@ export function togglePinConversation(id: string): void {
 
 // quick-260731-tgg: hide/unhide/toggle mutators. Fire-and-forget server write,
 // same pattern as pin/unpin above. hiddenIds are intentionally sticky across
-// openTab churn — Alice may want to keep a stale hidden id so it re-hides if
+// openTab churn — user may want to keep a stale hidden id so it re-hides if
 // the session reappears. quick-260818-l8n: pinnedIds are now equally sticky —
 // the updateOpenTabs pruner was retired, so both hidden and pinned survive
 // openTab / fleetSessions churn identically.

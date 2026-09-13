@@ -1,6 +1,6 @@
 // ─── PrettyConversationsPanel ────────────────────────────────────────────────
 // The flat-list composition of the Phase 10 pretty-conversations rework
-// (as amended by Phase 41 Plan 01, Alice 2026-08-14 — three-zone reshape).
+// (as amended by Phase 41 Plan 01, user 2026-08-14 — three-zone reshape).
 // Wraps Wave 1's `PrettyConversationRow` into a full conversation panel
 // matching the user-signed-off prototypes (prototype.html for mobile,
 // desktop.html for desktop):
@@ -12,7 +12,7 @@
 //     container with no host bucketing.
 //   - RDP sentinel group rendered from `snapshot.rdpGroup` (nullable). When
 //     `rdpGroup === null` (zero RDP-eligible hosts) the entire section —
-//     divider chip + rows — is suppressed per Alice lock #7.
+//     divider chip + rows — is suppressed per user lock #7.
 //     (The row's `data-rdp-host-row="true"` attribute already suppresses
 //     pin+swipe intrinsically per Wave 1's contract.)
 //   - Load-in-flight affordance: a compact "Loading conversations…" strip
@@ -28,7 +28,7 @@
 //   - Pencil opens the existing NewSessionDialog VERBATIM (no dialog redesign)
 //   - Gear (shadcn dropdown) removed in patch #133 — panel is now
 //     shadcn-free.
-//   - settingsRowSlot prop retired in Phase 11 (Alice's "no settings" lock —
+//   - settingsRowSlot prop retired in Phase 11 (user's "no settings" lock —
 //     SettingsRow deleted alongside AppRail).
 //   - quick-260802-pq2: the mobile swipe-coordination layer
 //     (currentlySwipedId + handleSwipeOpenChange + forceClosedFor + row-level
@@ -359,7 +359,7 @@ export function PrettyConversationsPanel({
   // that transitions list→view.
   onConversationSelected?: (id: string) => void;
   // Phase 11 Plan 03: settingsRowSlot prop RETIRED (SettingsRow deleted
-  // alongside AppRail per Alice's "no settings" lock).
+  // alongside AppRail per user's "no settings" lock).
   // Host tree fed into the NewSessionDialog's host picker. Optional so
   // tests can render the panel without wiring the picker.
   hostTree?: HostFolder | null;
@@ -390,7 +390,7 @@ export function PrettyConversationsPanel({
   // relay-room rows fall through to selectConversation (matches
   // rdpHostRow/fleetOnly semantics — silent-no-op at the store level).
   onRelayRoomRowClick?: (row: ConversationRowShape) => void;
-  // quick-260727-gm3: fired when Alice clicks the red-tinted X on an
+  // quick-260727-gm3: fired when user clicks the red-tinted X on an
   // active-set row. AppShell wires this to closeTab(row.id) so
   // the deactivate action reuses the existing tab-close plumbing verbatim
   // (including the confirm-tab-close toast branch). Required — the panel
@@ -400,7 +400,7 @@ export function PrettyConversationsPanel({
   // side. Test files that don't care pass `onDeactivateRow={() => {}}`.
   onDeactivateRow: (row: ConversationRowShape) => void;
   /**
-   * quick-260810-n3a: Fired when Alice confirms the Kill dialog.
+   * quick-260810-n3a: Fired when user confirms the Kill dialog.
    * AppShell wires this to POST /host/:hostId/session/kill + closeTab(row.id).
    * Optional so tests can render the panel without wiring it.
    */
@@ -494,7 +494,7 @@ export function PrettyConversationsPanel({
   const fleetSessionsLoaded = useFleetSessionsLoaded();
   // quick-260727-kbw: guards against re-hydration across renders even if
   // the flag were to flip back-and-forth (defense-in-depth per bug spec —
-  // Alice confirmed the store flag stays true after first flip, but a
+  // user confirmed the store flag stays true after first flip, but a
   // ref-based dedupe costs nothing and closes the invariant regardless).
   const hydratedRef = useRef(false);
 
@@ -502,7 +502,7 @@ export function PrettyConversationsPanel({
   // active set — not just click-driven selection via handleRowSelect.
   // URL-fragment restore, keyboard nav, and any other programmatic path
   // that mutates selectedId now lights the row up with the full pretty-
-  // view bubble treatment instead of the ambient flat treatment. Alice's
+  // view bubble treatment instead of the ambient flat treatment. user's
   // 2026-07-24 diag showed 32/32 rendered rows as ambient because
   // fragment-restore never touched the click path. addToActiveSet is
   // idempotent (early-return when id present), so double-fires from
@@ -533,7 +533,7 @@ export function PrettyConversationsPanel({
   //       fleetPinKeepSet (from state.fleetSessions) and does NOT nuke
   //       freshly-hydrated fleet pins via the pruner at conversation-store.ts
   //       L540-547. hydratedRef guards defense-in-depth against a hypothetical
-  //       false→true→false→true flip (Alice confirmed the flag stays true
+  //       false→true→false→true flip (user confirmed the flag stays true
   //       after first flip, but the ref costs nothing). Depends on
   //       [fleetSessionsLoaded] not [] so the body reruns when the flag flips.
   useEffect(() => {
@@ -725,7 +725,7 @@ export function PrettyConversationsPanel({
     | { roleName: string; runbookName: string; hostId: number }
   >(null);
 
-  // quick-260731-tgg: collapsed by default on every mount per Alice's design lock.
+  // quick-260731-tgg: collapsed by default on every mount per user's design lock.
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
 
   // Phase 41 Plan 02: search filter state (Task 2 will consume this for the
@@ -746,7 +746,7 @@ export function PrettyConversationsPanel({
   // Phase 41 Plan 02: one-shot cold-load scroll-hide effect. Gated by a
   // sessionStorage sentinel (SEARCH_HIDDEN_SENTINEL_KEY) so the hide fires
   // exactly ONCE per browser session (StrictMode dev double-mount + any
-  // future panel remount both no-op on the second run). Alice lock —
+  // future panel remount both no-op on the second run). user lock —
   // "we make the effort on first load of the list to hide it and then
   // don't mess with it after that." Silent try/catch guards protect against
   // sessionStorage-unavailable environments (SSR / private-mode Safari
@@ -801,7 +801,7 @@ export function PrettyConversationsPanel({
   // Phase 26 D-02 / Phase 104 Plan 03 D-11: the pinned + needs-desk bounty-
   // count filter toggles are RETIRED alongside the bounty-count wire. The
   // Ready filter (Phase 52) survives — it has an independent data source
-  // (session-working-store). Local state only — NOT persisted (Alice
+  // (session-working-store). Local state only — NOT persisted (user
   // 2026-07-28: "no remembering filter state"). filterPopoverOpen controls
   // the Popover controlled binding required for Test 30 Escape-closes
   // semantics.
@@ -922,7 +922,7 @@ export function PrettyConversationsPanel({
   //     the bounty-count toggles today (inherits the pre-Phase-41 policy:
   //     RDP rows never match the filter predicate anyway — no identity, no
   //     bounty counts). Pass through verbatim. When `rdpGroup === null` the
-  //     downstream renderer skips the entire section (Alice lock #7).
+  //     downstream renderer skips the entire section (user lock #7).
   //   - The former `displayedActiveSetRows` (D-06 exemption) is retired
   //     alongside the Tier 1 activeSet render tier; `activeSetRows` in the
   //     destructure is now always an empty array from the store snapshot.
@@ -1015,7 +1015,7 @@ export function PrettyConversationsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hiddenIds, activeSetRows, pinned, middle, rdpGroup]);
 
-  // Phase 41 Plan 02 (Alice 2026-08-14): label-only filter predicate.
+  // Phase 41 Plan 02 (user 2026-08-14): label-only filter predicate.
   //
   // Contract per 41-CONTEXT.md § Filter behavior:
   //   - Extract the row's visible text: primary label (identity.displayName
@@ -1077,9 +1077,9 @@ export function PrettyConversationsPanel({
   // signals "filter active → render this flat list of matches with NO zone
   // chrome (no divider chips)".
   //
-  // Alice locks encoded here:
+  // user locks encoded here:
   //   - Union of activeSetRows + pinned + middle + rdpGroup.rows. HIDDEN
-  //     ROWS ARE EXCLUDED per Alice lock #3 (hidden section is not in the
+  //     ROWS ARE EXCLUDED per user lock #3 (hidden section is not in the
   //     union).
   //   - Deduplicate by row.id — activeSet + pinned can overlap in principle.
   //   - Case-insensitive substring match against primary + sublabel via
@@ -1102,7 +1102,7 @@ export function PrettyConversationsPanel({
     if (rdpGroup !== null) {
       for (const r of rdpGroup.rows) pushIfMatches(r);
     }
-    // NOTE: hiddenRows deliberately NOT included (Alice lock #3 —
+    // NOTE: hiddenRows deliberately NOT included (user lock #3 —
     // hidden rows do NOT appear in filter matches).
     return out;
   }, [trimmedSearchQuery, activeSetRows, pinned, middle, rdpGroup, matchesSearch]);
@@ -1128,7 +1128,7 @@ export function PrettyConversationsPanel({
   // belt-and-suspenders for the swipe-open race; both the state and the
   // race are gone with the swipe machinery.
   const handleRowSelect = (row: ConversationRowShape) => {
-    // Alice 2026-09-03 [inverts quick-260731-tgg]: hidden means hidden.
+    // user 2026-09-03 [inverts quick-260731-tgg]: hidden means hidden.
     // Clicking a hidden row opens the session WITHOUT mutating hiddenIds.
     // Two reasons: (1) semantic — "hidden" is a user-controlled bucket, only
     // the explicit Unhide context-menu action (handleToggleHide) should change
@@ -1239,7 +1239,7 @@ export function PrettyConversationsPanel({
   const selectedIdRef = useRef(selectedId);
   const handleRowDeactivateRef = useRef(handleRowDeactivate);
   // Patch #513: idle-sweep exemption for sessions currently rendered in
-  // the AppShell splitTree. Alice's user-focus signal is "I have this
+  // the AppShell splitTree. user's user-focus signal is "I have this
   // pane on screen right now" — deactivating a session she can see is
   // the sweep firing against a user-attention row and breaks the
   // deactivate-when-idle contract. Ref-mirror pattern matches the
@@ -1251,7 +1251,7 @@ export function PrettyConversationsPanel({
   // Without this, dragging a session OUT of the tree would keep whatever
   // stale stamp existed from when it was previously un-selected — and if
   // that stamp is older than 5 min, the very next sweep would deactivate
-  // a session Alice was looking at moments ago.
+  // a session user was looking at moments ago.
   const previousVisibleSetRef = useRef<ReadonlySet<string>>(EMPTY_VISIBLE_SET);
 
   // Ref-sync: keep the sweep's view of activeSet + selectedId +
@@ -1318,7 +1318,7 @@ export function PrettyConversationsPanel({
         if (id === currentSelected) continue; // HARD INVARIANT: never sweep the selected conv
         // Patch #513: HARD INVARIANT — never sweep a session currently
         // rendered as a leaf in the AppShell splitTree. Deactivating a
-        // session Alice can see on-screen violates the sweep's
+        // session user can see on-screen violates the sweep's
         // user-focus contract.
         if (currentVisibleInSplitTree.has(id)) continue;
         const stamp = lastUnfocusedAtRef.current.get(id);
@@ -1652,7 +1652,7 @@ export function PrettyConversationsPanel({
       {/* Phase 59 Plan 01 Gap 2 — coral drop-target-affordance tint overlay.
           Sibling to the header (:pv-panel-header shrink-0) and scroll region
           below. Signals that dropping an IdentityBadge here will close the
-          session (destructive gesture — Alice UAT 2026-08-28: "no tint or
+          session (destructive gesture — user UAT 2026-08-28: "no tint or
           anything. So it doesn't necessarily seem interactable.").
           Palette values verbatim from SplitView.tsx:446-447 (`--highlight`
           from prototype). pointer-events-none is LOAD-BEARING — drop still
@@ -1693,7 +1693,7 @@ export function PrettyConversationsPanel({
         <div className="pv-panel-header-row">
           {/* Patch #144 Fix (f): title renders on BOTH mobile and desktop.
               Prior handoff note "deliberately left off per Phase 10 design"
-              was wrong per Alice 2026-07-24. */}
+              was wrong per user 2026-07-24. */}
           <span
             className="pv-title"
             style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
@@ -1815,12 +1815,12 @@ export function PrettyConversationsPanel({
           covered when scroll is at rest. Phase 41 Plan 02: ref attached so the
           one-shot cold-load scroll-hide effect can set scrollTop. */}
       <div ref={scrollContainerRef} className="pv-panel-scroll min-h-0">
-        {/* Phase 41 Plan 02 (Alice 2026-08-14): always-in-DOM search input at
+        {/* Phase 41 Plan 02 (user 2026-08-14): always-in-DOM search input at
             the very top of the scroll region. On the first cold-load per
             browser session the one-shot effect above sets scrollTop to this
             container's offsetHeight so the input sits just above the visible
             area (revealed only by scrolling up). Scoped test-ids per
-            41-02-PLAN.md acceptance criteria. NO auto-focus (Alice lock #4 —
+            41-02-PLAN.md acceptance criteria. NO auto-focus (user lock #4 —
             uniform tap/click-to-focus on both mobile + desktop). */}
         <div
           ref={searchContainerRef}
@@ -1878,12 +1878,12 @@ export function PrettyConversationsPanel({
             <span>{loadingLabel}</span>
           </div>
         )}
-        {/* Phase 41 Plan 02 (Alice 2026-08-14): render tree BRANCHES on
+        {/* Phase 41 Plan 02 (user 2026-08-14): render tree BRANCHES on
             whether the search input has a non-empty trimmed query.
               - searchMatches !== null → FLAT match list — no divider chips,
                 no zone chrome, pinned/middle/rdp all collapse into one
                 container. Hidden rows deliberately excluded from the union
-                (Alice lock #3). Deactivate/pin actions preserved per row.
+                (user lock #3). Deactivate/pin actions preserved per row.
               - searchMatches === null → three-zone view restores (activeSet
                 + pinned + middle + rdpGroup + Hidden). */}
         {searchMatches !== null ? (
@@ -1914,14 +1914,14 @@ export function PrettyConversationsPanel({
           </div>
         ) : (
           <>
-            {/* Phase 42 UAT amendment 2026-08-17 (Alice verbatim): active-set
+            {/* Phase 42 UAT amendment 2026-08-17 (user verbatim): active-set
                 top zone retired — active-set rows now flow through to pinned
                 (if pinned) or middle (by recency). Pinned tier still renders
                 inside `.pv-panel-group[data-pinned-group="true"]` with per-row
                 inActiveSet={activeSet.has(row.id)} wiring preserved to gate the
                 `.active-set` CSS deactivate-action hover-reveal. The "Pinned"
                 divider chip previously rendered above this group is also
-                retired (Alice verbatim: "the pinned header should go away
+                retired (user verbatim: "the pinned header should go away
                 entirely"). */}
             <div className="pv-panel-group" data-pinned-group="true">
               {displayedPinned.map((row) => (
@@ -1946,7 +1946,7 @@ export function PrettyConversationsPanel({
                 />
               ))}
             </div>
-            {/* Phase 41 Plan 01 (Alice 2026-08-14): FLAT middle zone.
+            {/* Phase 41 Plan 01 (user 2026-08-14): FLAT middle zone.
                 No per-host divider chips (retired). Every non-pinned, non-
                 active-set, non-RDP row lands in `displayedMiddle` as a
                 single flat array from `snapshot.middle`, sorted by the
@@ -1980,7 +1980,7 @@ export function PrettyConversationsPanel({
             )}
             {/* Phase 41 Plan 01: RDP zone renderer. When `displayedRdpGroup`
                 is null (zero RDP-eligible hosts), the entire section —
-                divider chip + rows — is suppressed (Alice lock #7).
+                divider chip + rows — is suppressed (user lock #7).
                 When non-null, renders the "Remote desktop" divider chip +
                 Monitor-glyph rows. */}
             {displayedRdpGroup !== null && (

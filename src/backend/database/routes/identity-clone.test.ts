@@ -535,7 +535,7 @@ describe("POST /identities/clone", () => {
     expect(execCalls.some((c) => c.includes(`mkdir`) && c.includes("tina-2"))).toBe(true);
     // touch handoff.md
     expect(execCalls.some((c) => c.includes("touch") && c.includes("handoff.md"))).toBe(true);
-    // NO relay-register per REVISION 2026-08-04 (Alice: no SSH register from Skynet)
+    // NO relay-register per REVISION 2026-08-04 (user: no SSH register from Skynet)
     // Assert none of the exec commands look like a relay-register curl
     for (const cmd of execCalls) {
       expect(cmd).not.toMatch(/matrix|_matrix\/client|register|thenasty|homeserver/i);
@@ -557,7 +557,7 @@ describe("POST /identities/clone", () => {
     expect(stubBody).toContain("avatar: tina-2.png"); // ext from candidate mime
     // colorHue is absent when the request body omits it (Test 8 doesn't send)
     expect(stubBody).not.toContain("colorHue:");
-    // (b) Seed comment REMOVED (REVISION 2026-09-12 Alice): clone flow now
+    // (b) Seed comment REMOVED (REVISION 2026-09-12 user): clone flow now
     // mints Matrix account server-side before first wake, so the stale
     // "register a Matrix relay account" instruction is no longer emitted.
     expect(stubBody).not.toContain("This identity has no relay account yet");
@@ -1099,7 +1099,7 @@ describe("POST /identities/clone", () => {
     // Critically, the DB insert must NOT run when the harness fails: a
     // half-state ("identity registered but harness dead") would leave the
     // sidebar with a row whose pretty-view shows "no active Claude session"
-    // and no clean recovery path (Alice's Rule: never leave the fleet in an
+    // and no clean recovery path (user's Rule: never leave the fleet in an
     // observable half-state).
     mockStartHarness.mockRejectedValueOnce(new Error("harness send-keys failed"));
 

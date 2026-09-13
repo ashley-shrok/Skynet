@@ -50,7 +50,7 @@
  *   New substrate hosts provisioned after Phase 75 ships go straight into the
  *   CSKEK model at create time — no migration needed for them.
  *
- * ─── RUNBOOK (Alice) ────────────────────────────────────────────────────────
+ * ─── RUNBOOK (user) ────────────────────────────────────────────────────────
  *
  *   1. Prepare input.json (chmod 600 before writing):
  *        chmod 600 ~/known-users.json

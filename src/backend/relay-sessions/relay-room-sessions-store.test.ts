@@ -117,7 +117,7 @@ beforeEach(() => {
   sqliteInstance.exec(RELAY_ROOM_SESSIONS_DDL);
   sqliteInstance
     .prepare("INSERT INTO users (id, username) VALUES (?, ?)")
-    .run("user-A", "alice");
+    .run("user-A", "user");
 
   forceSaveSpy.mockClear();
   forceSaveSpy.mockResolvedValue(undefined);

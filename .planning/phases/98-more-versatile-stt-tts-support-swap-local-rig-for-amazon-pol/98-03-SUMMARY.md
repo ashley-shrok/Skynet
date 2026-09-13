@@ -100,7 +100,7 @@ Each task was committed atomically:
 - `CreateRoleDialog.test.tsx` — Updated stale comment referencing `getVoices` to describe the Phase 98 kill (no code change).
 - `RoleCosmeticEditBlock.test.tsx` — Mock updated (getVoices removed); **Test D rewritten** to assert 8 static options synchronously and pick `"Ruth"` (a Polly voice ID) instead of the old `"echo"` filename.
 - `RoleModal.test.tsx` — **Test E deny-regex updated**: dropped `tiffany` from `/tabitha|tina|tiffany|tanya|taylor/i` since Tiffany now legitimately appears as a Polly voice option in the RoleCosmeticEditBlock voice picker (false-positive fix).
-- `VoicePicker.test.tsx` — **Full rewrite**: removed all getVoices mocks and `mockedGetVoices`; new Test 1 asserts the exact 8-option array synchronously; Tests 2/3/6 switched from `Alice.wav`/`Elena.wav` filenames to Polly voice IDs (`Joanna`).
+- `VoicePicker.test.tsx` — **Full rewrite**: removed all getVoices mocks and `mockedGetVoices`; new Test 1 asserts the exact 8-option array synchronously; Tests 2/3/6 switched from `user.wav`/`Elena.wav` filenames to Polly voice IDs (`Joanna`).
 - `IdentityModal.voice.test.tsx` — **Full rewrite**: removed getVoices mocks; new Test 1 asserts 8 options synchronously; Tests 2b/3/4/5/6 switched from `Elena.wav` filename to `Joanna` voice ID.
 - `IdentityModal.inherit-override.test.tsx` — Mock updated (getVoices removed); `Marcus.wav` → `Matthew` (a Polly voice ID) in fixtures and assertions to keep the inheritance semantics testable against a value the new validator will accept.
 

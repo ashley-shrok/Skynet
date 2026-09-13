@@ -346,12 +346,12 @@ describe("delete-user-data (Phase 85 avatar cleanup — D-22)", () => {
     const { deleteUserAndRelatedData } = await import("./delete-user-data.js");
 
     // Seed: user row with avatar_path set
-    insertUser(sqliteDb!, { id: "alice_id", avatarPath: "alice_id.png" });
+    insertUser(sqliteDb!, { id: "user_id", avatarPath: "user_id.png" });
 
     // Write a real avatar file so we can verify it's passed to unlinkUserAvatar.
     await fs.mkdir(testAvatarsDir, { recursive: true });
     await fs.writeFile(
-      path.join(testAvatarsDir, "alice_id.png"),
+      path.join(testAvatarsDir, "user_id.png"),
       Buffer.from([1, 2, 3]),
     );
 
@@ -365,20 +365,20 @@ describe("delete-user-data (Phase 85 avatar cleanup — D-22)", () => {
       }
     });
 
-    await deleteUserAndRelatedData("alice_id");
+    await deleteUserAndRelatedData("user_id");
 
     // Assert: unlinkUserAvatar was called with the avatar filename
-    expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("alice_id.png");
+    expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("user_id.png");
 
     // Assert: the file is gone from disk
     await expect(
-      fs.access(path.join(testAvatarsDir, "alice_id.png")),
+      fs.access(path.join(testAvatarsDir, "user_id.png")),
     ).rejects.toThrow();
 
     // Assert: the row is gone from DB
     const remaining = sqliteDb!
       .prepare("SELECT * FROM users WHERE id = ?")
-      .all("alice_id");
+      .all("user_id");
     expect(remaining).toHaveLength(0);
   });
 

@@ -840,7 +840,7 @@ export async function inviteToRoom(
 ].map(/* … */)}
 ```
 
-Note existing lock: `KEEP ORDER: New agent → New role → Edit global files… → Edit skills… (Phase 44 Pitfall 8 guard — do not alphabetize or reshuffle)`. Placing "New conversation" **first** is a clean addition; discuss with Alice if item order matters, but the shape file's "three-dot menu" placement doesn't lock order relative to existing items.
+Note existing lock: `KEEP ORDER: New agent → New role → Edit global files… → Edit skills… (Phase 44 Pitfall 8 guard — do not alphabetize or reshuffle)`. Placing "New conversation" **first** is a clean addition; discuss with user if item order matters, but the shape file's "three-dot menu" placement doesn't lock order relative to existing items.
 
 **Mount modal** (sibling of `GlobalFilesModal` at L2025-2041):
 ```tsx
@@ -869,7 +869,7 @@ const [newConversationModalOpen, setNewConversationModalOpen] = useState(false);
 onCreateRelayRoom?: (result: CreateRelayRoomResponse) => void;
 ```
 
-**Gate on menu-item visibility** — the menu button is gated on `showPencilButton = typeof onCreateSession === "function"` (L978). Slice C could add a separate gate OR ride the same one (simpler; both surfaces coexist). Alice discussed this in the shape as a v1-throwaway placement, so riding the existing gate is fine.
+**Gate on menu-item visibility** — the menu button is gated on `showPencilButton = typeof onCreateSession === "function"` (L978). Slice C could add a separate gate OR ride the same one (simpler; both surfaces coexist). user discussed this in the shape as a v1-throwaway placement, so riding the existing gate is fine.
 
 ---
 
@@ -1048,7 +1048,7 @@ it("Test N: clicking MoreVertical + selecting 'New conversation' opens NewConver
 it("Test N+1: pick one human + one agent + name + click Create → onCreated fires with response", async () => {
   const mockCreated = vi.fn();
   vi.mocked(getUsersListBasic).mockResolvedValueOnce([
-    { id: "u-1", username: "alice" }, { id: "u-2", username: "bob" },
+    { id: "u-1", username: "user" }, { id: "u-2", username: "bob" },
   ]);
   vi.mocked(createRelayRoom).mockResolvedValueOnce({
     ok: true, roomId: "!room:s", sessionId: "s-1", roomTitle: "Chat",

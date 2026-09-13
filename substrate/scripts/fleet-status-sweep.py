@@ -341,7 +341,7 @@ _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1F]")
 
 
 def _is_real_user_turn(raw_line):
-    """Return (True, ts_ms) if raw_line is a real Alice user turn, else (False, None).
+    """Return (True, ts_ms) if raw_line is a real user user turn, else (False, None).
 
     Verbatim port of the 7-step predicate in ssh-poll-orchestrator.ts
     L432–L472. Numbering below matches the TS steps 1..7 (plus the timestamp
@@ -395,7 +395,7 @@ def _is_real_user_turn(raw_line):
 def _parse_iso_to_unix_ms(iso_str):
     """Parse an ISO-8601 timestamp string to unix ms int, or None on failure.
 
-    Mirrors JS Date.parse semantics closely enough for the isAlice predicate
+    Mirrors JS Date.parse semantics closely enough for the timestamp parser
     (we only use the truthy/falsy return, not the exact ms value — the JS
     return is used for lastMessageAt elsewhere but here it's just a gate).
     Handles the `Z` suffix and `±HH:MM` offsets, plus fractional seconds.
@@ -462,7 +462,7 @@ def scan_tail_for_layer1_recycling_signal(tail_contents):
         try:
             parsed = json.loads(line)
         except Exception:
-            # Belt-and-suspenders — isAlice would already have failed here.
+            # Belt-and-suspenders — _is_real_user_turn would already have failed here.
             continue
         last_result = _detect_id_reset(parsed)
     return last_result

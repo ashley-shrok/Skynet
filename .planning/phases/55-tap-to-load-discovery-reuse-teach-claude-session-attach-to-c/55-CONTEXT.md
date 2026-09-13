@@ -6,13 +6,13 @@
 
 ## What this is
 
-When Alice taps a conversation that isn't already loaded, the pane sits with a loading overlay for about five seconds before her message bubbles appear. Under the hood, most of that wait is the Claude-session backend asking the target host a long series of small SSH questions — one at a time, over the network — in order to figure out which JSONL conversation file to start tailing from. Only after that whole investigation completes does the pane's file-following actually start streaming her bubbles.
+When user taps a conversation that isn't already loaded, the pane sits with a loading overlay for about five seconds before her message bubbles appear. Under the hood, most of that wait is the Claude-session backend asking the target host a long series of small SSH questions — one at a time, over the network — in order to figure out which JSONL conversation file to start tailing from. Only after that whole investigation completes does the pane's file-following actually start streaming her bubbles.
 
 The change: make that jump-in feel effectively instant when the answer is already known, and much faster than today when it isn't.
 
 ## Evidence from live UAT (2026-08-23)
 
-Alice hotkey-instrumented a real cold-mount of the `aqua` identity's PrettyView (evicted from her `activeSet`; browser had no prior mount). Console-forward log timeline (t=0 at first hotkey press before click):
+user hotkey-instrumented a real cold-mount of the `aqua` identity's PrettyView (evicted from her `activeSet`; browser had no prior mount). Console-forward log timeline (t=0 at first hotkey press before click):
 
 | offset (s) | event | source |
 |---|---|---|
@@ -95,7 +95,7 @@ Cold-mount tap-to-load (never-been-visible-this-session identity pane) goes from
 - **~50ms perceived** when fleet-status has a fresh answer (dominant case)
 - **~500ms perceived** when fleet-status has no answer (rare — first attach after backend restart, or identity that fleet-status doesn't cover)
 
-Ship-gate: full `npx vitest run` green; existing `startActiveSessionFlow` tests + new shared-cache + batched-fallback tests all pass; docker build + force-recreate; HTTPS 200; Alice UAT confirms perceived-instant on subsequent taps.
+Ship-gate: full `npx vitest run` green; existing `startActiveSessionFlow` tests + new shared-cache + batched-fallback tests all pass; docker build + force-recreate; HTTPS 200; user UAT confirms perceived-instant on subsequent taps.
 
 ## Fleet-directive reminders for the planner
 

@@ -11,7 +11,7 @@ delivery, first-ship backfill
 
 **Note on the discuss-phase flow:** all substantive discussion happened
 in-band during the preceding `/build` → `/open` beats over 2026-09-06 and
-2026-09-07. This log summarizes the alternatives Alice considered during
+2026-09-07. This log summarizes the alternatives user considered during
 that pitch → discuss → grill arc; CONTEXT.md contains the final decisions.
 Per build-skill convention, CONTEXT.md was seeded from
 `shape-middle-recency-from-send-log.md` rather than re-eliciting the same
@@ -21,7 +21,7 @@ gray areas here.
 
 ## Ordering-symptom diagnosis (2026-09-06)
 
-Alice's opening report: identities she worked with recently (Ivy, who
+user's opening report: identities she worked with recently (Ivy, who
 stood up a VM within the last 24 hours) sort below identities she hasn't
 messaged in weeks (Lulabelle, ~2.5 weeks; Vicky, ~1 week).
 
@@ -29,12 +29,12 @@ Diagnosis paths considered:
 
 | Hypothesis | Considered | Selected |
 |--|--|--|
-| Predicate excluding coordinator-routed / relay-received / wake-fired activity as "not Alice's real turn" | Yes — surfaced first | Partial cause |
+| Predicate excluding coordinator-routed / relay-received / wake-fired activity as "not user's real turn" | Yes — surfaced first | Partial cause |
 | Frontend working-store cache eviction on refresh | Yes | Contributing factor |
-| `/id reset` starts a fresh JSONL that's empty of real user turns, so the scanner (which reads only the newest-mtime file) sees null and the row sinks to null-to-bottom | Alice proposed | ✓ Root cause |
+| `/id reset` starts a fresh JSONL that's empty of real user turns, so the scanner (which reads only the newest-mtime file) sees null and the row sinks to null-to-bottom | user proposed | ✓ Root cause |
 | Discovery / SSH poll failure for specific identities | Considered, ruled out (Ivy shows in list) | No |
 
-**Alice's diagnosis was correct** — architecture confirmed by reading
+**user's diagnosis was correct** — architecture confirmed by reading
 `discoverIdentityJsonlPathViaChannel` (`ssh-poll-orchestrator.ts:684`) and
 `scanTailForNewestMessageAt` (`ssh-poll-orchestrator.ts:508`). Only the
 newest-mtime JSONL is scanned; after `/id reset` the new file becomes newest
@@ -47,9 +47,9 @@ and starts empty.
 | Scan ALL of an identity's JSONL files, not just newest, and aggregate max real-user-turn ts | Cheaper to reason about but keeps the predicate-fragility | |
 | Persist working-store cache to localStorage (survives refresh) | Doesn't help fresh browser open; doesn't help multi-device | |
 | Broaden predicate to include coordinator-routed / relay / wake content | Reintroduces exactly the noise the 2026-08-23 predicate lock removed | |
-| Record the timestamp on the send side in Skynet's backend when the compose funnel fires | Alice proposed 2026-09-06 | ✓ |
+| Record the timestamp on the send side in Skynet's backend when the compose funnel fires | user proposed 2026-09-06 | ✓ |
 
-**Alice's proposal (verbatim):** *"whenever messages are sent to any
+**user's proposal (verbatim):** *"whenever messages are sent to any
 session, because the only place that messages go into the sessions is from
 the front end of Skynet. So, you know, anything that the compose box does
 that sends a message into the session, like the reset button, or the thumbs
@@ -64,7 +64,7 @@ user said something to that identity."*
 | Key on `(hostId, tmuxSession)` — matches today's working-store key format | Mechanistic; sensitive to session moves | |
 | Key on identity name only | Durable across recycles, box moves, transport changes | ✓ |
 
-**Alice (verbatim):** *"we don't care about mechanisms like TMUX sessions,
+**user (verbatim):** *"we don't care about mechanisms like TMUX sessions,
 we just care about what is the identity and what was the last time it was
 talked to."*
 
@@ -75,11 +75,11 @@ talked to."*
 | Enumerated allowlist — specific buttons wired individually | Per-button coverage; future buttons need explicit wiring | |
 | Universal architectural rule — any send from the compose surface counts | Future-proof; single hook site covers all | ✓ |
 
-**Alice (verbatim):** *"if anything within the compose box sends a message
+**user (verbatim):** *"if anything within the compose box sends a message
 into the harness, then it counts."*
 
 **Exception check:** *"is there any kind of send that goes through the
-compose surface that you would want to EXPLICITLY not count?"* — **Alice:
+compose surface that you would want to EXPLICITLY not count?"* — **user:
 "No, it can all count."**
 
 ## Pinned + RDP zone scope
@@ -90,32 +90,32 @@ compose surface that you would want to EXPLICITLY not count?"* — **Alice:
 | Extend to RDP zone | Same for remote-desktop rows | |
 | Middle zone only; pinned + RDP keep current alphabetical `compareByHostRoleLabel` | Scoped, non-invasive | ✓ |
 
-**Alice:** *"We are not affecting the pinned area with this."*
+**user:** *"We are not affecting the pinned area with this."*
 
 ## Send-attempt vs. delivery
 
 | Option | Description | Selected |
 |--|--|--|
 | Stamp only on successful delivery — WS write confirmed, backend acknowledges | Filters flaky sends; but "I meant to talk to Ivy but her box was flaky" bug returns | |
-| Stamp on send-attempt regardless of delivery outcome | Intent IS the signal; matches Alice's mental model of "I just talked to Ivy" | ✓ |
+| Stamp on send-attempt regardless of delivery outcome | Intent IS the signal; matches user's mental model of "I just talked to Ivy" | ✓ |
 
-**Alice (verbatim):** *"Attempts count."*
+**user (verbatim):** *"Attempts count."*
 
 ## First-ship backfill
 
 | Option | Description | Selected |
 |--|--|--|
 | One-shot backfill: run the current JSONL scan once per known session on ship day to seed the new store | Prevents "everyone at null" on ship day | |
-| No backfill; natural fill from send activity | Simpler; Alice accepted the tradeoff | ✓ |
+| No backfill; natural fill from send activity | Simpler; user accepted the tradeoff | ✓ |
 
-**Alice (verbatim):** *"we don't even have to have the mechanism run on
+**user (verbatim):** *"we don't even have to have the mechanism run on
 first ship. I'm okay with it just kind of happening naturally."*
 
 ---
 
 ## Claude's Discretion
 
-Areas where Alice deferred to implementation:
+Areas where user deferred to implementation:
 
 - Exact Drizzle table + column names for the new store
 - Migration mechanics (Drizzle migration file shape, invocation timing)
@@ -129,7 +129,7 @@ Areas where Alice deferred to implementation:
 
 ## Deferred Ideas
 
-- Capturing Alice's phone Matrix DMs that bypass Skynet's compose
+- Capturing user's phone Matrix DMs that bypass Skynet's compose
   surface (different signal source; requires agent-relay hook, not
   compose-funnel hook)
 - Multi-user keying (Skynet single-tenant on t1000 today)

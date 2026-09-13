@@ -24,7 +24,7 @@ requirements_completed:
   - USER-IDENTITY-TITLE-SUBLABEL
   - USER-DIVIDER-CHIP-BRIGHTNESS
 status: complete
-deploy_status: PENDING (Alice greenlit "ship it" — deploy immediately after this summary+STATE commit)
+deploy_status: PENDING (user greenlit "ship it" — deploy immediately after this summary+STATE commit)
 tags: [conversation-list, skynet-transformation, pretty-conversations, identity-title, divider-chip, user-uat]
 ---
 
@@ -41,12 +41,12 @@ Skynet conversation list, user-greenlit via a live console-injection preview:
    `row.host.name` → `identity.title ?? identity.displayName`, and the `Server`
    icon on the sublabel line is dropped (it reads as "host-y," doesn't fit a
    title). Active-set, pinned, and RDP rows keep the current hostname + Server
-   icon behavior verbatim per Alice's design lock.
+   icon behavior verbatim per user's design lock.
 3. **Brightness bump** on both chip families (new per-host + existing RDP):
    `text-[#5c6070]/50 → /85` on both text and icon (Option 1 from PLAN — surgical
    alpha raise, no hue shift).
 
-## Design locks (Alice, greenlit today)
+## Design locks (user, greenlit today)
 
 - Per-host chips render ONLY inside `grouped.map` for non-`__rdp__` groups.
   Active-set (`data-active-set-group="true"`) and pinned
@@ -126,7 +126,7 @@ Tina's identity file.
 
 **Yes** — clean tree (after this summary+STATE commit), full suite 610/610
 green, typecheck clean, both commits individually PR-able on
-`feat/tab-title-from-tmux`. Alice greenlit "ship it" — deploy immediately
+`feat/tab-title-from-tmux`. user greenlit "ship it" — deploy immediately
 after the docs commit lands. Pre-warn her about the first-hard-refresh
 `HTTP2_PROTOCOL_ERROR` on chunk loads per Tina's learned deploy discipline
 (close+reopen the tab spawns a fresh H2 connection).
@@ -141,5 +141,5 @@ after the docs commit lands. Pre-warn her about the first-hard-refresh
   flush pass).
 - **Console-preview snippet**: lives at
   `~/.claude/identities/tina/bounties/skynet-transformation/host-headers-preview.js`
-  — kept for reference (the idempotent DOM mutation script Alice pasted into
+  — kept for reference (the idempotent DOM mutation script user pasted into
   DevTools to greenlight the visual before the fork commit landed).

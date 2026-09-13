@@ -199,7 +199,7 @@ Post-deploy manual UAT (out of scope for this quick task, per plan
    pre-patch flakiness but no regression).
 
 Bounty `messages-land-in-box-not-submitting` remains **in_progress**
-until Alice UATs the deployed patch (do NOT flip status here per
+until user UATs the deployed patch (do NOT flip status here per
 plan `<success_criteria>`).
 
 ## Self-Check: PASSED

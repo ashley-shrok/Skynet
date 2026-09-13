@@ -747,10 +747,10 @@ describe("NewSessionDialog: Test G — name + role + host enables Create", () =>
 // Test H: invalid name chars show error and disable Create
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test H — invalid name disables Create + shows error", () => {
-  it("Test H: name='Alice Smith' → inline error about valid chars; Create disabled", () => {
+  it("Test H: name='user Smith' → inline error about valid chars; Create disabled", () => {
     const { getByLabelText, getByRole, queryByText } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "Alice Smith" } });
+    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "user Smith" } });
     const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(true);
     // Inline error about name pattern

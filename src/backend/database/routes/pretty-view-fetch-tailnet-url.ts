@@ -5,13 +5,13 @@
  * Purpose
  * -------
  * Skynet's browser client cannot reliably reach `http://100.x.y.z:PORT/...`
- * URLs (the id-skill's `python3 -m http.server` pattern for handing Alice
+ * URLs (the id-skill's `python3 -m http.server` pattern for handing user
  * files) because:
  *   * Skynet is served HTTPS in production -> browser blocks mixed HTTP content.
  *   * `python -m http.server` sets no CORS headers.
- *   * The tailnet IP may not be routable from Alice's device (only Skynet is
+ *   * The tailnet IP may not be routable from user's device (only Skynet is
  *     guaranteed on the Tailnet).
- * The backend, being on the tailnet, proxies the fetch on Alice's behalf.
+ * The backend, being on the tailnet, proxies the fetch on user's behalf.
  *
  * Response shape (single call covers both the eligibility path and the
  * editor-open re-fetch path per D-02, D-04):

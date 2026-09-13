@@ -16,7 +16,7 @@
 //
 // RATIONALE (verbatim from bounty `hide-idle-dot-when-queued-message-waiting-to-send`):
 // if a queued message is armed to auto-send the moment the agent goes idle,
-// the agent is effectively already spoken-for and NOT ready for Alice's
+// the agent is effectively already spoken-for and NOT ready for user's
 // next instruction (which IS the meaning of the dot). Extends the patch #137
 // dot predicate with a fourth gate to correct dot semantics from "not
 // currently working" to the true "ready for next instruction."

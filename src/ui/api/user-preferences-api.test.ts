@@ -253,19 +253,19 @@ describe("Phase 107 Plan 04 Task 1 — user-preferences-api hidden surface", () 
     // Echo behavior (D-06 truth-first): backend re-derives hiddenConversationIds
     // from disk after fanout and echoes that. putHiddenIds returns echoed value.
     vi.mocked(authApi.put).mockResolvedValueOnce({
-      data: { hiddenConversationIds: ["alice", "bob"] },
+      data: { hiddenConversationIds: ["user", "bob"] },
     });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const { putHiddenIds } = await import("@/api/user-preferences-api");
     const result = await putHiddenIds(["fleet::1::tina"], { tina: 1 });
 
-    // Server echo differs from sent (sent: ["tina"], echoed: ["alice", "bob"])
+    // Server echo differs from sent (sent: ["tina"], echoed: ["user", "bob"])
     expect(warnSpy).toHaveBeenCalledWith(
       "[hide-persistence] server echo mismatch",
-      expect.objectContaining({ sent: ["tina"], echoed: ["alice", "bob"] }),
+      expect.objectContaining({ sent: ["tina"], echoed: ["user", "bob"] }),
     );
-    expect(result).toEqual(["alice", "bob"]);
+    expect(result).toEqual(["user", "bob"]);
     warnSpy.mockRestore();
   });
 });

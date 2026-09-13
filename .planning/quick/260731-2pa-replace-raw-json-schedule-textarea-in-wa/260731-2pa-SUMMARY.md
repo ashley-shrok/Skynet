@@ -52,7 +52,7 @@ one-click `toggleEnabled` handler intact.
 
 ## Objective (met)
 
-Alice pinned bounty `identity-modal-wakeup-form-editor` verbatim: "a proper
+user pinned bounty `identity-modal-wakeup-form-editor` verbatim: "a proper
 form UI for editing wakeup schedules inside the identity modal — not a
 text-edit-the-JSON situation." Shipped exactly per the user-signed-off
 prototype at `~/.claude/identities/tina/bounties/identity-modal-wakeup-form-editor/prototype.html`:

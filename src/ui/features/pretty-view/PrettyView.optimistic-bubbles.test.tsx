@@ -288,7 +288,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
    *
    * Real evidence of the shape-gap:
    *   ~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl
-   *   ts=2026-08-23T01:41:48.723Z (Alice's `/fake` send in tina session).
+   *   ts=2026-08-23T01:41:48.723Z (user's `/fake` send in tina session).
    *
    * Fix: drop byte equality from head-match — FIFO + role + state gate
    * alone. First incoming user-role frame clears the oldest sending pending,
@@ -436,7 +436,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
 
     // ComposeBox textarea stays EMPTY after failure — the red bubble is
-    // the record of the send; no edit-and-resend repopulate (Alice
+    // the record of the send; no edit-and-resend repopulate (user
     // 2026-09-02, reversing Phase 50 D-03).
     const textarea = container.querySelector(
       'textarea[placeholder^="Message"]',
@@ -833,7 +833,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     });
     // Immediately failed.
     expect(container.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
-    // Textarea is CLEARED on WS-not-open (Alice 2026-09-02) — the red
+    // Textarea is CLEARED on WS-not-open (user 2026-09-02) — the red
     // bubble is the record; no need to also keep the text in the textarea.
     const textarea = container.querySelector(
       'textarea[placeholder^="Message"]',

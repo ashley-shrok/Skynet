@@ -75,7 +75,7 @@ import { databaseLogger } from "../utils/logger.js";
 
 /**
  * Old Chatterbox voice-file naming regex. Matches `Elena.wav`, `Danielle.wav`,
- * `Alice.wav`, etc. Only values matching this exact shape are wiped.
+ * `user.wav`, etc. Only values matching this exact shape are wiped.
  */
 const OLD_VOICE_RE = /^[A-Z][A-Za-z]+\.wav$/;
 

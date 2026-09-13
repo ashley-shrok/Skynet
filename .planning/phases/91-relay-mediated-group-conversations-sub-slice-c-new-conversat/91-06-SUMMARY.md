@@ -63,7 +63,7 @@ The file renders `PrettyConversationsPanel` with `onCreateSession` and `onCreate
 | 3 | Single-agent-only disable | Create button disabled; hint matches `/agent|single/` |
 | 4 | Zero-participant disable | Create button disabled; hint mentions "participant" |
 | 5 | Blank-name disable | Create button disabled; hint mentions "name" |
-| 6 | Self-exclude | `@alice:s` (viewing user) absent from Humans picker; only Bob visible |
+| 6 | Self-exclude | `@ashley:s` (viewing user) absent from Humans picker; only Bob visible |
 | 7 | Backend-error surface | Modal stays open; error `[role="alert"]` shows "room_name_required"; button re-enabled; retry (re-primed mock) closes modal |
 | 8 | Search filter narrows | Typing "B" → Bob visible; Humans section header shows N-of-M count format |
 
@@ -72,9 +72,9 @@ The file renders `PrettyConversationsPanel` with `onCreateSession` and `onCreate
 | Mock | Purpose |
 |------|---------|
 | `vi.mock('@/api/relay-room-create-api')` | Acceptance criterion + spy for call-count/args assertions |
-| `vi.mock('@/api/user-management-api')` | Alice + Bob as BasicUser fixtures; per-test `mockResolvedValue` override |
+| `vi.mock('@/api/user-management-api')` | user + Bob as BasicUser fixtures; per-test `mockResolvedValue` override |
 | `vi.mock('@/state/identities-store')` | Nelly as agent fixture via mutable `mockIdentities` array |
-| `vi.mock('@/state/viewing-user-store')` | `@alice:s` as viewer; drives self-exclude + serverName extraction |
+| `vi.mock('@/state/viewing-user-store')` | `@ashley:s` as viewer; drives self-exclude + serverName extraction |
 
 ## Acceptance Criteria Verification
 

@@ -12,7 +12,7 @@ provides:
   - "40-BUILD-VERIFY-LOG.md — objective build/test posture snapshot at HEAD"
   - "40-UAT-CHECKLIST.md — 7-item user-walks-this-live post-deploy checklist mapped 1:1 to D-01..D-07"
   - "40-PATCHES-MD-ENTRY.md — paste-ready patch entry for the fleet maintainer's skynet-patches.md"
-  - "BLOCKING human-verify checkpoint — Alice's UAT walkthrough post-deploy is what closes the phase"
+  - "BLOCKING human-verify checkpoint — user's UAT walkthrough post-deploy is what closes the phase"
 affects: []  # zero source diffs — this plan is docs-only
 tech-stack:
   added: []
@@ -29,7 +29,7 @@ key-files:
   modified: []
 decisions:
   - "docker build + docker compose up + git push explicitly NOT performed per fleet directive — maintainer's remit"
-  - "STATE.md + ROADMAP.md NOT flipped to Complete — phase closes only after Alice's UAT walkthrough post-deploy"
+  - "STATE.md + ROADMAP.md NOT flipped to Complete — phase closes only after user's UAT walkthrough post-deploy"
   - "Ordinal-count guidance points at header line 296 numbered patches + 249 titled entries (verified 2026-08-14); increment by 1 for Phase 40 as ## Patch #442 if no queue-mates before ship day"
   - "Bundle size delta noted in build log: main JS 173.53 kB (gzip 52.54 kB) unchanged shape vs Phase 19's 173.36 kB — Phase 40 folded into main bundle without adding a new lazy chunk"
 metrics:
@@ -42,7 +42,7 @@ metrics:
 
 # Phase 40 Plan 40-05: Deploy-prep docs + BLOCKING UAT checkpoint Summary
 
-One-line: Four docs artifacts (`40-BUILD-VERIFY-LOG.md`, `40-UAT-CHECKLIST.md`, `40-PATCHES-MD-ENTRY.md`, and this `40-05-SUMMARY.md`) that hand off Phase 40 to the maintainer for deploy — build/test posture captured (2349 passed / 6 skipped / 1 todo, exit 0 across all four commands, all 10 structural grep gates green), 7-item UAT walkthrough drafted mapped 1:1 to LOCKED decisions D-01..D-07, and a paste-ready fleet patch entry drafted for `~/.claude/roles/box-maintainer/skynet-patches.md`. Zero source diffs. Zero deploy motions. Phase closes on Alice's BLOCKING UAT sign-off post-deploy.
+One-line: Four docs artifacts (`40-BUILD-VERIFY-LOG.md`, `40-UAT-CHECKLIST.md`, `40-PATCHES-MD-ENTRY.md`, and this `40-05-SUMMARY.md`) that hand off Phase 40 to the maintainer for deploy — build/test posture captured (2349 passed / 6 skipped / 1 todo, exit 0 across all four commands, all 10 structural grep gates green), 7-item UAT walkthrough drafted mapped 1:1 to LOCKED decisions D-01..D-07, and a paste-ready fleet patch entry drafted for `~/.claude/roles/box-maintainer/skynet-patches.md`. Zero source diffs. Zero deploy motions. Phase closes on user's BLOCKING UAT sign-off post-deploy.
 
 ## What Shipped
 
@@ -69,7 +69,7 @@ Four docs artifacts in `.planning/phases/40-text-editor-in-skynet/`:
    - **Item 7 (D-07):** Return trip via existing Phase 05 reply-with-attachment pipeline — agent receives edited file at `~/pretty-view-uploads/<date>/` and can cat it.
    - **Bonus iPhone PWA walk** — load-bearing case per the shape doc.
    - **Rollback plan** with per-item failure-routing guidance.
-   - **Blocking-issues + Sign-off sections** for Alice to fill during the walk.
+   - **Blocking-issues + Sign-off sections** for user to fill during the walk.
 
 3. **`40-PATCHES-MD-ENTRY.md`** — Paste-ready fleet patch entry for `~/.claude/roles/box-maintainer/skynet-patches.md` following the Phase 19 patch #237 shape (all 11 required section headings present per Task 3 verify gate):
    - **Ordinal-count guidance:** header line reads "TWO HUNDRED AND NINETY-SIX numbered patches" (verified 2026-08-14, L17); titled patch entries count = 249; next entry is `## Patch #442` if no queue-mates ship first.
@@ -128,7 +128,7 @@ The four artifacts encode/verify each of the seven LOCKED decisions from `40-CON
 
 ## Authentication gates
 
-None. This plan runs local build + test commands only; no live JWT flow, no live tailnet fetches, no external auth required at execution time. The Task 4 human-verify checkpoint is Alice's explicit approval, not a technical auth gate.
+None. This plan runs local build + test commands only; no live JWT flow, no live tailnet fetches, no external auth required at execution time. The Task 4 human-verify checkpoint is user's explicit approval, not a technical auth gate.
 
 ## Known Stubs
 
@@ -140,13 +140,13 @@ None. This plan introduces zero source diffs — zero new attack surface, zero n
 
 ## Human-verify checkpoint status
 
-**BLOCKING — awaiting Alice's post-deploy walkthrough.**
+**BLOCKING — awaiting user's post-deploy walkthrough.**
 
-Per `.planning/config.json:22` (`human_verify_mode: end-of-phase`), the phase is not complete until Alice:
+Per `.planning/config.json:22` (`human_verify_mode: end-of-phase`), the phase is not complete until user:
 
 1. The maintainer (Tiffany) performs the deploy motion (`git pull --rebase` → coord-room BEFORE announce → `docker build` → deadman-guarded `docker compose up -d --force-recreate skynet` → HTTPS 200 verify → coord-room AFTER announce → `git push` → pastes `40-PATCHES-MD-ENTRY.md` content into `~/.claude/roles/box-maintainer/skynet-patches.md` with the ordinal-count update).
-2. Alice walks the 7-item UAT checklist on production Skynet (https://term.example.com), signs off on each item.
-3. Alice returns one of:
+2. user walks the 7-item UAT checklist on production Skynet (https://term.example.com), signs off on each item.
+3. user returns one of:
    - **"APPROVED — hand off to maintainer"** (or equivalent) → Phase 40 executor rotation work is COMPLETE; STATE.md + ROADMAP.md flip to Complete; no further Phase 40 plans fire.
    - **"REVISION — [notes]"** → executor rotation loops back to the appropriate plan (40-01/02/03/04 for source fixes, or 40-05 for docs revisions) to apply.
 

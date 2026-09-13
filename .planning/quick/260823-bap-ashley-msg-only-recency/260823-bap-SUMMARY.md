@@ -20,17 +20,17 @@ key_files:
     - src/backend/database/routes/sessions.test.ts
 ---
 
-# Phase quick-260823-bap Plan 01: Alice 2026-08-23 msg-only-recency Predicate Summary
+# Phase quick-260823-bap Plan 01: user 2026-08-23 msg-only-recency Predicate Summary
 
-**One-liner:** Replaced `MESSAGE_BEARING_KINDS` kind-set predicate with `isRealUserTurn` at both JSONL tail-scan sites, inverting recency signal from "message either direction" to "only Alice's real outbound user turns."
+**One-liner:** Replaced `MESSAGE_BEARING_KINDS` kind-set predicate with `isRealUserTurn` at both JSONL tail-scan sites, inverting recency signal from "message either direction" to "only user's real outbound user turns."
 
 ## Commits
 
 | Task | Commit | Message |
 |------|--------|---------|
-| RED  | `ddf49380` | `test(quick-260823-bap): RED — Alice 2026-08-23 msg-only-recency predicate matrix` |
-| GREEN | `496f8646` | `feat(quick-260823-bap): GREEN — Alice 2026-08-23 msg-only-recency predicate at both sites` |
-| Invert | `5fcb9a95` | `test(quick-260823-bap): invert existing tests to Alice 2026-08-23 msg-only-recency lock` |
+| RED  | `ddf49380` | `test(quick-260823-bap): RED — user 2026-08-23 msg-only-recency predicate matrix` |
+| GREEN | `496f8646` | `feat(quick-260823-bap): GREEN — user 2026-08-23 msg-only-recency predicate at both sites` |
+| Invert | `5fcb9a95` | `test(quick-260823-bap): invert existing tests to user 2026-08-23 msg-only-recency lock` |
 
 ## Test Count Delta
 
@@ -42,7 +42,7 @@ key_files:
 - **Existing tests unchanged:** 84 tests
 - **Final suite:** 108 tests, all passing
 
-## Predicate Behavior (Alice 2026-08-23 lock)
+## Predicate Behavior (user 2026-08-23 lock)
 
 ```
 isRealUserTurn(rawLine) → {ok: true, ts} | {ok: false}
@@ -67,13 +67,13 @@ Returns {ok:true, ts} iff ALL:
 - `sessions.ts`: 4 occurrences (docblock + helper decl + scanTail call + comment)
 
 ### Docblocks cite 2026-08-23 lock
-- `ssh-poll-orchestrator.ts`: 2 occurrences of "Alice 2026-08-23 lock"
-- `sessions.ts`: 3 occurrences of "Alice 2026-08-23 lock"
+- `ssh-poll-orchestrator.ts`: 2 occurrences of "user 2026-08-23 lock"
+- `sessions.ts`: 3 occurrences of "user 2026-08-23 lock"
 
 ### Byte-parallel discipline
 `diff <(sed -n '/function isRealUserTurn/,/^}/p' ssh-poll-orchestrator.ts) <(sed -n '/function isRealUserTurn/,/^}/p' sessions.ts)` → empty diff (implementations identical).
 
-### Test cite Alice 2026-08-23 lock
+### Test cite user 2026-08-23 lock
 - `ssh-poll-orchestrator.test.ts`: 12 occurrences
 - `sessions.test.ts`: 13 occurrences
 
@@ -113,7 +113,7 @@ None — this change only modifies an internal predicate function; no new networ
 
 ## Pre-existing Test Files Outside Scoped Files
 
-Several test files use assistant message fixtures but were NOT in scope (Alice 2026-08-20 directive: full-suite is the orchestrator's ship-gate, not the executor's job). The following files likely have tests that assert on `lastMessageAt` derived from assistant turns and may fail at ship-gate:
+Several test files use assistant message fixtures but were NOT in scope (user 2026-08-20 directive: full-suite is the orchestrator's ship-gate, not the executor's job). The following files likely have tests that assert on `lastMessageAt` derived from assistant turns and may fail at ship-gate:
 
 - Any test file that exercises `scanTailForNewestMessageAt` behavior indirectly (not in the two scoped files) with assistant-only fixtures.
 

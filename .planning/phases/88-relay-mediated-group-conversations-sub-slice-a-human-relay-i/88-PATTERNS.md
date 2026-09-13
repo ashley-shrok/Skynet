@@ -286,7 +286,7 @@ import { deactivateUser } from "../../matrix/matrix-admin-client.js";
   // Phase 75 Plan 01 (Q3 locked decision) — mxid mapping for the Matrix
   // relay. Nullable: only humans with a registered relay account have one,
   // and it's populated via POST /users/:id/mxid (Plan 03) or the one-shot
-  // import for Alice/Zoe/Laura. Not a credential; agents' relay identifiers
+  // import for user/Zoe/Laura. Not a credential; agents' relay identifiers
   // live on-disk in ~/.claude/identities/<name>/relay.json per fleet convention.
   mxid: text("mxid"),
 ```
@@ -357,8 +357,8 @@ import {
 ```
 
 **What differs — specific test cases to write:**
-1. Simple username (`alice`) → localpart `alice_human` (lowercase passthrough)
-2. Email username (`alice@example.com`) → `alice_at_example_dot_com_human`
+1. Simple username (`user`) → localpart `user_human` (lowercase passthrough)
+2. Email username (`user@example.com`) → `user_at_example_dot_com_human`
 3. Username with literal `_` (`snake_case`) → `snake__case_human` (escape-the-escape)
 4. Bijectivity: literal `_at_` in username → `__at__human` (not same as `@` → `_at_`)
 5. `buildHumanMxid` output satisfies `MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/` (from matrix-admin-routes.ts line 27)
@@ -463,7 +463,7 @@ vi.mock("../../matrix/matrix-admin-client.js", () => ({
     // Happy-path default: mint succeeds
     mockCreateOrUpdateUser.mockResolvedValue({
       ok: true,
-      mxid: "@alice_human:thenasty.taild9b663.ts.net",
+      mxid: "@user_human:thenasty.taild9b663.ts.net",
       password: "test-pw",
       status: 201,
     });
@@ -499,7 +499,7 @@ vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
 ```typescript
 vi.mock("../../matrix/username-to-mxid.js", () => ({
   buildHumanMxid: vi.fn((_username: string, _serverName: string) =>
-    "@alice_human:thenasty.taild9b663.ts.net"),
+    "@user_human:thenasty.taild9b663.ts.net"),
   generateHumanRelayPassword: vi.fn(() => "deadbeef00112233445566778899aabbccddeeff00112233"),
   extractServerName: vi.fn(() => "thenasty.taild9b663.ts.net"),
 }));
@@ -518,14 +518,14 @@ vi.mock("../../matrix/username-to-mxid.js", () => ({
 vi.mock("../../matrix/matrix-admin-client.js", () => ({
   createOrUpdateUser: vi.fn(async () => ({
     ok: true,
-    mxid: "@alice_human:thenasty.taild9b663.ts.net",
+    mxid: "@user_human:thenasty.taild9b663.ts.net",
     password: "test-pw",
     status: 201,
   })),
   deactivateUser: vi.fn(async () => ({ ok: true })),
 }));
 vi.mock("../../matrix/username-to-mxid.js", () => ({
-  buildHumanMxid: vi.fn(() => "@alice_human:thenasty.taild9b663.ts.net"),
+  buildHumanMxid: vi.fn(() => "@user_human:thenasty.taild9b663.ts.net"),
   generateHumanRelayPassword: vi.fn(() => "deadbeef00112233445566778899aabbccddeeff00112233"),
   extractServerName: vi.fn(() => "thenasty.taild9b663.ts.net"),
 }));

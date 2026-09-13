@@ -1519,7 +1519,7 @@ describe("sendMessageAsUser (Phase 90 Plan 03 Task 2)", () => {
       { event_id: "$evt-1:server" },
     );
     const result = await sendMessageAsUser(
-      "@alice_human:server",
+      "@user_human:server",
       "!room1:server",
       "hello",
       "mqid-1",
@@ -1538,7 +1538,7 @@ describe("sendMessageAsUser (Phase 90 Plan 03 Task 2)", () => {
       { event_id: "$evt-1:server" },
     );
     await sendMessageAsUser(
-      "@alice_human:server",
+      "@user_human:server",
       "!room1:server",
       "hello",
       "mqid-1",
@@ -2068,16 +2068,16 @@ describe("inviteToRoom", () => {
     fetchMock.mockImplementationOnce(async () => mockFetchResponse(200, {}));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await inviteToRoom("!room:s", "@bob:s", "@alice:s");
+    const result = await inviteToRoom("!room:s", "@bob:s", "@ashley:s");
     expect(result.ok).toBe(true);
 
     // The invite call (second) should carry userTok, not admin token
     const inviteInit = fetchMock.mock.calls[1][1] as RequestInit;
     expect((inviteInit.headers as Record<string, string>)["Authorization"]).toBe("Bearer userTok");
 
-    // loginAsUser was called with '@alice:s'
+    // loginAsUser was called with '@ashley:s'
     const loginUrl = fetchMock.mock.calls[0][0] as string;
-    expect(loginUrl).toContain(encodeURIComponent("@alice:s"));
+    expect(loginUrl).toContain(encodeURIComponent("@ashley:s"));
   });
 
   it("Test 3: non-2xx 403 → { ok: false, status: 403, error: 'admin_api_non_2xx' }", async () => {
@@ -2112,7 +2112,7 @@ describe("inviteToRoom", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await inviteToRoom("!room:s", "@bob:s", "@alice:s");
+    const result = await inviteToRoom("!room:s", "@bob:s", "@ashley:s");
     expect(result.ok).toBe(false);
     // Only the loginAsUser fetch should fire — no invite fetch
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -2159,7 +2159,7 @@ describe("createRoomAsUser", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createRoomAsUser("@alice:s", {
+    const result = await createRoomAsUser("@ashley:s", {
       name: "Chat",
       preset: "private_chat",
       visibility: "private",
@@ -2189,7 +2189,7 @@ describe("createRoomAsUser", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createRoomAsUser("@alice:s", { name: "Chat" });
+    const result = await createRoomAsUser("@ashley:s", { name: "Chat" });
     expect(result.ok).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     if (!result.ok) {
@@ -2207,7 +2207,7 @@ describe("createRoomAsUser", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createRoomAsUser("@alice:s", { name: "Chat" });
+    const result = await createRoomAsUser("@ashley:s", { name: "Chat" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(400);
@@ -2228,7 +2228,7 @@ describe("createRoomAsUser", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createRoomAsUser("@alice:s", { name: "Chat" });
+    const result = await createRoomAsUser("@ashley:s", { name: "Chat" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(504);
@@ -2248,7 +2248,7 @@ describe("createRoomAsUser", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createRoomAsUser("@alice:s", { name: "Chat" });
+    const result = await createRoomAsUser("@ashley:s", { name: "Chat" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(502);

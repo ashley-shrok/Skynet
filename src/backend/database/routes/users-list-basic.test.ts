@@ -14,7 +14,7 @@
  *
  * Test coverage (7 tests):
  *   1: No JWT → 401
- *   2: Valid JWT for u-alice, users=[alice,bob,carol] → 200 {users:[bob,carol]}
+ *   2: Valid JWT for u-user, users=[user,bob,carol] → 200 {users:[bob,carol]}
  *   3: Only requester in users table → 200 {users:[]}
  *   4: Each row has exactly {id, username, mxid} — no sensitive fields
  *   5: DB error during select → 500 {error:"Failed to list users"}
@@ -31,7 +31,7 @@ import type { AddressInfo } from "node:net";
 // Auth manager mock — controls whether a request is authenticated
 // ---------------------------------------------------------------------------
 
-let mockUserId: string | null = "u-alice";
+let mockUserId: string | null = "u-user";
 
 vi.mock("../../utils/auth-manager.js", () => {
   const AuthManager = {
@@ -246,7 +246,7 @@ beforeEach(() => {
   dbState.lastSelectedKeys = null;
   dbState.throwOnSelect = false;
   filterAccum = {};
-  mockUserId = "u-alice";
+  mockUserId = "u-user";
 
   const app = express();
   const router = express.Router();
@@ -272,7 +272,7 @@ describe("GET /users/list-basic", () => {
   it("Test 1: no JWT → 401", async () => {
     mockUserId = null;
     dbState.users = [
-      { id: "u-alice", username: "alice" },
+      { id: "u-user", username: "user" },
       { id: "u-bob", username: "bob" },
     ];
 
@@ -286,7 +286,7 @@ describe("GET /users/list-basic", () => {
 
   it("Test 2: valid JWT, three users → returns other two", async () => {
     dbState.users = [
-      { id: "u-alice", username: "alice" },
+      { id: "u-user", username: "user" },
       { id: "u-bob", username: "bob" },
       { id: "u-carol", username: "carol" },
     ];
@@ -301,12 +301,12 @@ describe("GET /users/list-basic", () => {
     expect(body.users.length).toBe(2);
     const ids = body.users.map((u) => u.id).sort();
     expect(ids).toEqual(["u-bob", "u-carol"]);
-    // Alice (the requester) is NOT in the response
-    expect(body.users.find((u) => u.id === "u-alice")).toBeUndefined();
+    // user (the requester) is NOT in the response
+    expect(body.users.find((u) => u.id === "u-user")).toBeUndefined();
   });
 
   it("Test 3: only the requester in users table → returns empty array (not 404/204)", async () => {
-    dbState.users = [{ id: "u-alice", username: "alice" }];
+    dbState.users = [{ id: "u-user", username: "user" }];
 
     const res = await httpRequest(server, {
       method: "GET",
@@ -320,13 +320,13 @@ describe("GET /users/list-basic", () => {
   it("Test 4: every returned row has EXACTLY {id, username, mxid} — no sensitive fields", async () => {
     dbState.users = [
       {
-        id: "u-alice",
-        username: "alice",
-        mxid: "@alice:server",
+        id: "u-user",
+        username: "user",
+        mxid: "@ashley:server",
         isAdmin: true,
         isOidc: true,
-        passwordHash: "hash-alice",
-        totpSecret: "totp-alice",
+        passwordHash: "hash-user",
+        totpSecret: "totp-user",
       },
       {
         id: "u-bob",
@@ -365,7 +365,7 @@ describe("GET /users/list-basic", () => {
 
   it("Test 6 (Phase 91-00): returns mxid on every row when mxid is populated", async () => {
     dbState.users = [
-      { id: "u-alice", username: "alice", mxid: "@alice_human:s" },
+      { id: "u-user", username: "user", mxid: "@user_human:s" },
       { id: "u-bob", username: "bob", mxid: "@bob_human:s" },
       { id: "u-carol", username: "carol", mxid: "@carol_human:s" },
     ];
@@ -378,7 +378,7 @@ describe("GET /users/list-basic", () => {
     const body = res.body as {
       users: Array<{ id: string; username: string; mxid: string | null }>;
     };
-    // alice is the requester (mockUserId = "u-alice") — excluded
+    // user is the requester (mockUserId = "u-user") — excluded
     expect(body.users.length).toBe(2);
     const byId = Object.fromEntries(body.users.map((u) => [u.id, u]));
     expect(byId["u-bob"]?.mxid).toBe("@bob_human:s");
@@ -391,7 +391,7 @@ describe("GET /users/list-basic", () => {
 
   it("Test 7 (Phase 91-00): returns null mxid for pre-Phase-88 users — not coerced to empty string, not omitted", async () => {
     dbState.users = [
-      { id: "u-alice", username: "alice", mxid: "@alice_human:s" },
+      { id: "u-user", username: "user", mxid: "@user_human:s" },
       { id: "u-bob", username: "bob", mxid: null }, // pre-Phase-88 user: no relay identity
     ];
 
@@ -403,7 +403,7 @@ describe("GET /users/list-basic", () => {
     const body = res.body as {
       users: Array<{ id: string; username: string; mxid: string | null }>;
     };
-    // alice is the requester — excluded; only bob in response
+    // user is the requester — excluded; only bob in response
     expect(body.users.length).toBe(1);
     const bobRow = body.users[0];
     expect(bobRow).toBeDefined();
@@ -416,7 +416,7 @@ describe("GET /users/list-basic", () => {
   it("Test 5: DB error during select → 500 {error:'Failed to list users'}", async () => {
     dbState.throwOnSelect = true;
     dbState.users = [
-      { id: "u-alice", username: "alice" },
+      { id: "u-user", username: "user" },
       { id: "u-bob", username: "bob" },
     ];
 

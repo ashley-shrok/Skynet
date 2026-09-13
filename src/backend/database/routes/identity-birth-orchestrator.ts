@@ -150,19 +150,19 @@ export { ROLE_NAME_PATTERN };
 /**
  * Phase 22 SRIC-02 seed comment embedded in the pre-written identity file.
  *
- * REVISION 2026-08-04 (Alice, at Task 2 checkpoint): Skynet no longer
+ * REVISION 2026-08-04 (user, at Task 2 checkpoint): Skynet no longer
  * SSH-invokes the relay-register block. Instead, we seed the identity file
  * with a plain-text HTML comment telling the wake-up agent to register a
  * Matrix relay account itself on first wake, then remove the comment.
  *
- * Style constraints (verbatim from Alice):
+ * Style constraints (verbatim from user):
  *   - Do NOT say "Skynet" — agents don't know what that is (they see
  *     themselves as a fresh Claude Code agent on some box).
  *   - Do NOT reference id-skill section numbers (§2, §3) or the id-skill
  *     file path — those refs could change.
  *   - Speak in plain terms.
  *
- * REVISION 2026-09-12 (Alice): the birth flow (Steps 6-8: admin-mint +
+ * REVISION 2026-09-12 (user): the birth flow (Steps 6-8: admin-mint +
  * login-as-user + SFTP-write relay.json) creates the Matrix account BEFORE
  * the identity's first wake, so the seed comment was factually stale by
  * the time any agent read it. Constant deleted; emitted identity file

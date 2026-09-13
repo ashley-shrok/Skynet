@@ -250,7 +250,7 @@ describe("Layer 1 seam — Case 4: historical /exit user turn", () => {
     expect(state.changeoverState).toBe("active");
   });
 
-  it("fires 0 arms even for MULTIPLE historical /exit turns (Alice empirically saw 14 arm+clear pairs in ~1h under the old detector)", () => {
+  it("fires 0 arms even for MULTIPLE historical /exit turns (user empirically saw 14 arm+clear pairs in ~1h under the old detector)", () => {
     const state = makeState({ changeoverState: "active" });
     const { stubs, transitionToHolding } = makeHelpers(state);
 
@@ -299,7 +299,7 @@ describe("Layer 1 seam — Case 5: while holding, only USER turns can clear", ()
   });
 
   it("tool_result USER turn (type:user with tool_result content) does NOT count as a user turn — it is an agent-side synthetic (2026-08-08 fix)", () => {
-    // Follow-up to the initial /id reset detector ship (patch #350): Alice
+    // Follow-up to the initial /id reset detector ship (patch #350): user
     // reported that typing /id reset armed the overlay for ~1s then it went
     // away, even though the recycle was still in progress. Root cause: Claude
     // Code stores tool_result feedback with `type:"user"` and content as an

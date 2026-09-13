@@ -115,7 +115,7 @@ Callbacks via `useCallback`: `toggle` (add/delete from Set), `remove` (delete, i
 1. Initial state (roomName='', picks=empty, gate=no-room-name, submitting=false, error=null)
 2. Self-exclusion (viewingUserMxid omitted from availableHumans)
 3. Alphabetical sort (scrambled input → sorted output for both sections)
-4. Case-insensitive filter ('AL' → only "Alice" passes; empty query restores full list)
+4. Case-insensitive filter ('AL' → only "user" passes; empty query restores full list)
 5. Gate transitions (blank name → set name → pick agent → pick human → submitting)
 6. Toggle idempotence (toggle in, toggle out → back to empty)
 7. remove() (removes only the targeted mxid; unknown mxid is no-op)

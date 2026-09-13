@@ -339,13 +339,13 @@ describe("reconcile-pending-chat-ids", () => {
     clearInterval(handle);
   });
 
-  it("RP-11: multi-sentinel one-pass — alice + bob both processed, both unlinked, {2,2,0}", async () => {
-    mockSelectRowsByKey.set("alice", [{ identityKey: "alice" }]);
+  it("RP-11: multi-sentinel one-pass — user + bob both processed, both unlinked, {2,2,0}", async () => {
+    mockSelectRowsByKey.set("user", [{ identityKey: "user" }]);
     mockSelectRowsByKey.set("bob", [{ identityKey: "bob" }]);
 
-    const aliceSentinel = path.join(tempDir, "alice.pending-chat-id");
+    const userSentinel = path.join(tempDir, "user.pending-chat-id");
     const bobSentinel = path.join(tempDir, "bob.pending-chat-id");
-    fs.writeFileSync(aliceSentinel, "100");
+    fs.writeFileSync(userSentinel, "100");
     fs.writeFileSync(bobSentinel, "200");
 
     const { scanAndReconcilePendingChatIds } = await import(
@@ -359,7 +359,7 @@ describe("reconcile-pending-chat-ids", () => {
     // rewrite called TWICE — one per successful DB update (mirror
     // reconcile-dead-tokens; simplifies failure semantics at 30s cadence).
     expect(rewriteSpy).toHaveBeenCalledTimes(2);
-    expect(fs.existsSync(aliceSentinel)).toBe(false);
+    expect(fs.existsSync(userSentinel)).toBe(false);
     expect(fs.existsSync(bobSentinel)).toBe(false);
   });
 });

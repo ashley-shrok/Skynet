@@ -35,7 +35,7 @@ must_haves:
 ---
 
 <objective>
-Tighten the Pane drag/drop MIME gate in `src/ui/shell/SplitView.tsx` so browser text-selection drags no longer trigger the coral drop-preview overlay or land as fake-tabId drops on a Pane. All three native drag listeners (`onDragOver` :262, `onDragLeave` :292, `onDrop` :315) currently gate on `e.dataTransfer?.types.includes("text/plain")`, which is too weak — browser text-selection drags ALSO carry `text/plain` (the selected string). Alice UAT: highlight text → drag → hover Pane edge → coral zone renders → release → `payloadTabId = <selected-text>` flows through `onOpenSessionInTree`, AppShell can't resolve it, and the new split slot renders the `Session no longer exists` placeholder at `src/ui/shell/SplitView.tsx:436`.
+Tighten the Pane drag/drop MIME gate in `src/ui/shell/SplitView.tsx` so browser text-selection drags no longer trigger the coral drop-preview overlay or land as fake-tabId drops on a Pane. All three native drag listeners (`onDragOver` :262, `onDragLeave` :292, `onDrop` :315) currently gate on `e.dataTransfer?.types.includes("text/plain")`, which is too weak — browser text-selection drags ALSO carry `text/plain` (the selected string). user UAT: highlight text → drag → hover Pane edge → coral zone renders → release → `payloadTabId = <selected-text>` flows through `onOpenSessionInTree`, AppShell can't resolve it, and the new split slot renders the `Session no longer exists` placeholder at `src/ui/shell/SplitView.tsx:436`.
 
 Purpose: Prevent an accidental interaction pattern (highlight-then-drag in a pane) from silently creating stale split slots. The rich/fallback dispatch logic below the gate is correct — the gate itself is the wrong discriminator.
 
@@ -101,9 +101,9 @@ Read specifically:
     (Tests 2 and 3 MAY be combined into one `it()` block if the executor prefers — both assertions on the same drop event.)
 
     Test 4 (POSITIVE-CONTROL — badge drag still renders overlay + still calls onOpenSessionInTree):
-    - dataTransfer stub with BOTH entries: `{ "application/x-skynet-badge": JSON.stringify({ tabId: "tab-alice-1" }), "text/plain": "tab-alice-1" }` (mirrors the IdentityBadge dragstart wire contract locked at PrettyConversationsPanel.test.tsx:4366-4398).
+    - dataTransfer stub with BOTH entries: `{ "application/x-skynet-badge": JSON.stringify({ tabId: "tab-user-1" }), "text/plain": "tab-user-1" }` (mirrors the IdentityBadge dragstart wire contract locked at PrettyConversationsPanel.test.tsx:4366-4398).
     - `dispatchDragOverAt(paneOuter, 10, 50, dtStub)` → assert overlay IS rendered (`not.toBeNull()`).
-    - `dispatchDropAt(paneOuter, 10, 50, dtStub)` → assert `onOpenSessionInTree` was called ONCE with `("tab-alice-1", [], "left")` (path=[] for single-leaf tree, edge='left' at x=10 of 200-wide rect).
+    - `dispatchDropAt(paneOuter, 10, 50, dtStub)` → assert `onOpenSessionInTree` was called ONCE with `("tab-user-1", [], "left")` (path=[] for single-leaf tree, edge='left' at x=10 of 200-wide rect).
     - This test PROVES the tighter gate does not break the badge rearrange flow — without it, a regression that over-tightened the gate (e.g. accidentally requiring BOTH skynet MIMEs) would go undetected.
 
     Test 5 (POSITIVE-CONTROL — row drag still dispatches via rich branch):
@@ -181,9 +181,9 @@ Read specifically:
 </verification>
 
 <success_criteria>
-- Alice can highlight text in any pane, drag it, hover another pane's edge, and see NO coral drop-preview overlay. Releasing the drag creates NO split slot and NO "Session no longer exists" placeholder.
-- Alice can still press-and-drag an IdentityBadge onto a pane edge to rearrange the split tree — coral overlay renders, release creates the new split slot with the correct session.
-- Alice can still drag a conv-list row onto a pane edge — coral overlay renders, release creates the new split slot via the rich payload branch.
+- user can highlight text in any pane, drag it, hover another pane's edge, and see NO coral drop-preview overlay. Releasing the drag creates NO split slot and NO "Session no longer exists" placeholder.
+- user can still press-and-drag an IdentityBadge onto a pane edge to rearrange the split tree — coral overlay renders, release creates the new split slot with the correct session.
+- user can still drag a conv-list row onto a pane edge — coral overlay renders, release creates the new split slot via the rich payload branch.
 - `git diff HEAD --stat` shows changes confined to `src/ui/shell/SplitView.tsx`, `src/ui/shell/SplitView.test.tsx` (shared-helper stub update only), and the new `src/ui/shell/SplitView.text-selection-drag.test.tsx`.
 - Scoped test run (`npx vitest run src/ui/shell/SplitView`) is green with no regressions in the pre-existing Phase 56 / Phase 57 / Phase 58 / patch #514 test blocks.
 - One or two atomic commits on `feat/tab-title-from-tmux`, NOT pushed. Deploy motion is orchestrator scope.

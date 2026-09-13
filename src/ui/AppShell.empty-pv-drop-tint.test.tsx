@@ -281,7 +281,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline
   it("Test A: dragOver with text/plain when splitTree === null renders the coral overlay", () => {
     const { getByTestId, queryByTestId } = render(<EmptyPvDropScaffold />);
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    const dt = makeDataTransferStub({ "text/plain": "tab-user-1" });
     fireEvent.dragOver(wrapper, { dataTransfer: dt });
     expect(queryByTestId("empty-pv-drop-preview")).not.toBeNull();
   });
@@ -302,7 +302,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline
       <EmptyPvDropScaffold simulateSplitTreeNonNull />,
     );
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    const dt = makeDataTransferStub({ "text/plain": "tab-user-1" });
     fireEvent.dragOver(wrapper, { dataTransfer: dt });
     expect(queryByTestId("empty-pv-drop-preview")).toBeNull();
   });
@@ -310,7 +310,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline
   it("Test D: drop clears the overlay immediately (mirror SplitView.tsx:323)", () => {
     const { getByTestId, queryByTestId } = render(<EmptyPvDropScaffold />);
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    const dt = makeDataTransferStub({ "text/plain": "tab-user-1" });
     fireEvent.dragOver(wrapper, { dataTransfer: dt });
     expect(queryByTestId("empty-pv-drop-preview")).not.toBeNull();
     fireEvent.drop(wrapper, { dataTransfer: dt });
@@ -320,7 +320,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline
   it("Test E: window-level dragend clears the overlay (Escape-cancel path)", () => {
     const { getByTestId, queryByTestId } = render(<EmptyPvDropScaffold />);
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    const dt = makeDataTransferStub({ "text/plain": "tab-user-1" });
     fireEvent.dragOver(wrapper, { dataTransfer: dt });
     expect(queryByTestId("empty-pv-drop-preview")).not.toBeNull();
     act(() => {
@@ -332,7 +332,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline
   it("Test F: dragLeave with clientX/Y INSIDE the wrapper's bounding rect does NOT clear (child-boundary crossing guard)", () => {
     const { getByTestId, queryByTestId } = render(<EmptyPvDropScaffold />);
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    const dt = makeDataTransferStub({ "text/plain": "tab-user-1" });
     fireEvent.dragOver(wrapper, { dataTransfer: dt });
     expect(queryByTestId("empty-pv-drop-preview")).not.toBeNull();
     // KNOWN_RECT is left=100 top=100 right=500 bottom=500 — 300,300 is inside.
@@ -343,7 +343,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline
   it("Test G: dragLeave with clientX/Y OUTSIDE the wrapper's bounding rect clears the overlay", () => {
     const { getByTestId, queryByTestId } = render(<EmptyPvDropScaffold />);
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    const dt = makeDataTransferStub({ "text/plain": "tab-user-1" });
     fireEvent.dragOver(wrapper, { dataTransfer: dt });
     expect(queryByTestId("empty-pv-drop-preview")).not.toBeNull();
     dispatchDragEventAt("dragLeave", wrapper, 50, 50, dt);
@@ -354,7 +354,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const { getByTestId } = render(<EmptyPvDropScaffold />);
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    const dt = makeDataTransferStub({ "text/plain": "tab-user-1" });
 
     // Dispatch at a fixed cursor position (300,300 = center of KNOWN_RECT)
     // twice — same zone both times, so log fires once.
@@ -388,7 +388,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline
   it("Test I (inline-260902): activeIsSession=false → zone='full' whole-body geometry", () => {
     const { getByTestId } = render(<EmptyPvDropScaffold />);
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    const dt = makeDataTransferStub({ "text/plain": "tab-user-1" });
     // Cursor near left edge — but activeIsSession is false so drop replaces
     // whole tree with dropped leaf; preview must be whole-body ("full").
     dispatchDragEventAt("dragOver", wrapper, 120, 300, dt);
@@ -405,7 +405,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline
       <EmptyPvDropScaffold activeSessionTabId="tab-active-42" />,
     );
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    const dt = makeDataTransferStub({ "text/plain": "tab-user-1" });
     // KNOWN_RECT: left=100 right=500 top=100 bottom=500.
     // (120, 300): dLeft=20, dRight=380, dTop=200, dBottom=200 → nearest=left.
     dispatchDragEventAt("dragOver", wrapper, 120, 300, dt);
@@ -422,7 +422,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline
       <EmptyPvDropScaffold activeSessionTabId="tab-active-42" />,
     );
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    const dt = makeDataTransferStub({ "text/plain": "tab-user-1" });
     // (480, 300): dLeft=380, dRight=20, dTop=200, dBottom=200 → nearest=right.
     dispatchDragEventAt("dragOver", wrapper, 480, 300, dt);
     const overlay = getByTestId("empty-pv-drop-preview");

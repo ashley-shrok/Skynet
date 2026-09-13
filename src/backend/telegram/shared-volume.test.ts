@@ -37,19 +37,19 @@ describe("shared-volume constants (default)", () => {
     expect(configEnvPath()).toBe("/state/config.env");
   });
 
-  it("humanTokenPath('alice') returns '/state/alice.token'", async () => {
+  it("humanTokenPath('user') returns '/state/user.token'", async () => {
     const { humanTokenPath } = await import("./shared-volume.js");
-    expect(humanTokenPath("alice")).toBe("/state/alice.token");
+    expect(humanTokenPath("user")).toBe("/state/user.token");
   });
 
-  it("humanSincePath('alice') returns '/state/alice.since'", async () => {
+  it("humanSincePath('user') returns '/state/user.since'", async () => {
     const { humanSincePath } = await import("./shared-volume.js");
-    expect(humanSincePath("alice")).toBe("/state/alice.since");
+    expect(humanSincePath("user")).toBe("/state/user.since");
   });
 
-  it("humanTokenDeadPath('alice') returns '/state/alice.token-dead'", async () => {
+  it("humanTokenDeadPath('user') returns '/state/user.token-dead'", async () => {
     const { humanTokenDeadPath } = await import("./shared-volume.js");
-    expect(humanTokenDeadPath("alice")).toBe("/state/alice.token-dead");
+    expect(humanTokenDeadPath("user")).toBe("/state/user.token-dead");
   });
 
   it("botTokenFilePath('alexander') returns '/state/alexander.bottoken'", async () => {
@@ -87,10 +87,10 @@ describe("TG_BRIDGE_STATE_DIR_OVERRIDE env var (test-only escape hatch)", () => 
     expect(TG_BRIDGE_STATE_DIR).toBe("/tmp/tg-bridge-test");
     expect(registryPath()).toBe("/tmp/tg-bridge-test/registry.json");
     expect(configEnvPath()).toBe("/tmp/tg-bridge-test/config.env");
-    expect(humanTokenPath("alice")).toBe("/tmp/tg-bridge-test/alice.token");
-    expect(humanSincePath("alice")).toBe("/tmp/tg-bridge-test/alice.since");
-    expect(humanTokenDeadPath("alice")).toBe(
-      "/tmp/tg-bridge-test/alice.token-dead",
+    expect(humanTokenPath("user")).toBe("/tmp/tg-bridge-test/user.token");
+    expect(humanSincePath("user")).toBe("/tmp/tg-bridge-test/user.since");
+    expect(humanTokenDeadPath("user")).toBe(
+      "/tmp/tg-bridge-test/user.token-dead",
     );
     expect(botTokenFilePath("alexander")).toBe(
       "/tmp/tg-bridge-test/alexander.bottoken",
@@ -104,9 +104,9 @@ describe("assertSafeHumanName (guard exported for Plans 04 + 08)", () => {
     vi.resetModules();
   });
 
-  it("accepts single-word lowercase names (alice, zoey, laura)", async () => {
+  it("accepts single-word lowercase names (user, zoey, laura)", async () => {
     const { assertSafeHumanName } = await import("./shared-volume.js");
-    expect(() => assertSafeHumanName("alice")).not.toThrow();
+    expect(() => assertSafeHumanName("user")).not.toThrow();
     expect(() => assertSafeHumanName("zoey")).not.toThrow();
     expect(() => assertSafeHumanName("laura")).not.toThrow();
   });
@@ -151,8 +151,8 @@ describe("assertSafeHumanName (guard exported for Plans 04 + 08)", () => {
 
   it("rejects uppercase letters", async () => {
     const { assertSafeHumanName } = await import("./shared-volume.js");
-    expect(() => assertSafeHumanName("Alice")).toThrow();
-    expect(() => assertSafeHumanName("ALICE")).toThrow();
+    expect(() => assertSafeHumanName("User")).toThrow();
+    expect(() => assertSafeHumanName("USER")).toThrow();
   });
 });
 

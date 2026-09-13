@@ -104,7 +104,7 @@ vi.mock("@/state/identities-store", () => ({
 
 vi.mock("@/api/user-management-api", () => ({
   // server-side self-exclusion: /users/list-basic returns only OTHER users
-  // (ne(users.id, userId) in user-admin-routes.ts:126). Viewer (alice) is never
+  // (ne(users.id, userId) in user-admin-routes.ts:126). Viewer (user) is never
   // in the response — the mock matches that contract (H1 fix).
   getUsersListBasic: vi.fn(async () => [
     { id: "u-bob", username: "bob", mxid: "@bob:s" },
@@ -122,14 +122,14 @@ vi.mock("@/api/relay-room-create-api", () => ({
   })),
 }));
 
-// ─── viewing-user-store (Plan 06 mock: alice is the viewer) ───────────────────
+// ─── viewing-user-store (Plan 06 mock: user is the viewer) ───────────────────
 //
 // useViewingUserMxid: drives self-exclusion in useNewConversationForm and
-// serverName extraction in NewConversationModal. alice is excluded from picker.
+// serverName extraction in NewConversationModal. user is excluded from picker.
 
 vi.mock("@/state/viewing-user-store", () => ({
-  useViewingUserMxid: vi.fn(() => "@alice:s"),
-  useViewingUserId: vi.fn(() => "u-alice"),
+  useViewingUserMxid: vi.fn(() => "@ashley:s"),
+  useViewingUserId: vi.fn(() => "u-user"),
 }));
 
 // ─── Phase 104 Plan 02 — trapped-work-store (inert stub — panel mounts poller) ─
@@ -317,7 +317,7 @@ async function openNewConversationModal() {
 beforeEach(() => {
   vi.clearAllMocks();
 
-  // Re-arm default getUsersListBasic — server-side self-exclusion means alice
+  // Re-arm default getUsersListBasic — server-side self-exclusion means user
   // (the viewer) is never in the response (H1 fix: matches user-admin-routes.ts
   // ne(users.id, userId) contract). Only non-viewer users are returned.
   vi.mocked(getUsersListBasic).mockResolvedValue([
@@ -332,8 +332,8 @@ beforeEach(() => {
     roomTitle: "Test chat",
   });
 
-  // Re-arm default viewing-user (alice, so she's excluded from picker).
-  vi.mocked(useViewingUserMxid).mockReturnValue("@alice:s");
+  // Re-arm default viewing-user (user, so she's excluded from picker).
+  vi.mocked(useViewingUserMxid).mockReturnValue("@ashley:s");
 
   // Reset identities to default (Nelly only).
   mockIdentities = [
@@ -376,7 +376,7 @@ describe("NewConversationModal — full user flow", () => {
       target: { value: "Test chat" },
     });
 
-    // Step (d): click Bob row (human, self-excluded alice is not here).
+    // Step (d): click Bob row (human, self-excluded user is not here).
     fireEvent.click(within(dialog).getByText("bob"));
 
     // Step (e): click Nelly row (agent).
@@ -513,15 +513,15 @@ describe("NewConversationModal — full user flow", () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Test 6 — self-exclude: alice (viewing user) not shown in Humans section
+  // Test 6 — self-exclude: user (viewing user) not shown in Humans section
   // ──────────────────────────────────────────────────────────────────────────
 
-  it("Test 6 (self-exclude): viewingUserMxid=@alice:s → alice absent from Humans picker; only Bob visible", async () => {
-    // useViewingUserMxid returns @alice:s (default mock).
+  it("Test 6 (self-exclude): viewingUserMxid=@ashley:s → user absent from Humans picker; only Bob visible", async () => {
+    // useViewingUserMxid returns @ashley:s (default mock).
     // H1 fix: getUsersListBasic mock returns only [bob] — server already
-    // self-excludes alice (ne(users.id, userId) in user-admin-routes.ts:126).
+    // self-excludes user (ne(users.id, userId) in user-admin-routes.ts:126).
     // useNewConversationForm also applies client-side self-exclusion, which is
-    // a no-op when alice is not in the list (belt-and-suspenders).
+    // a no-op when user is not in the list (belt-and-suspenders).
     renderPanel();
 
     const dialog = await openNewConversationModal();
@@ -532,8 +532,8 @@ describe("NewConversationModal — full user flow", () => {
       expect(within(dialog).getByText("bob")).toBeInTheDocument();
     });
 
-    // Alice must NOT appear in the picker (never in response + client-side guard).
-    expect(within(dialog).queryByText("alice")).not.toBeInTheDocument();
+    // user must NOT appear in the picker (never in response + client-side guard).
+    expect(within(dialog).queryByText("user")).not.toBeInTheDocument();
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -606,7 +606,7 @@ describe("NewConversationModal — full user flow", () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it("Test 8 (search filter): typing 'B' in search → only Bob visible; section header shows '1 of 1' or equivalent count", async () => {
-    // getUsersListBasic returns [bob] only (server self-excludes alice per H1 fix).
+    // getUsersListBasic returns [bob] only (server self-excludes user per H1 fix).
     // unfiltered Humans section = [bob] (humansTotal = 1).
     // After filter 'B': bob matches (displayName 'bob' contains 'b').
     // Section header renders "Humans (1 of 1)" when filterActive=true.

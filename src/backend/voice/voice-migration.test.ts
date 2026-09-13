@@ -225,16 +225,16 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
     mkdir(FAKE_ID_ROOT);
     mkdir(FAKE_ROLE_ROOT);
     writeSeedFile(
-      `${FAKE_ID_ROOT}/alice/alice.md`,
-      "---\nname: alice\nvoice: Elena.wav\nrole: friend\n---\nBody text.\n",
+      `${FAKE_ID_ROOT}/user/user.md`,
+      "---\nname: user\nvoice: Elena.wav\nrole: friend\n---\nBody text.\n",
     );
 
     await ensureVoiceValuesMigrated();
 
-    const after = fakeFs.files.get(`${FAKE_ID_ROOT}/alice/alice.md`);
+    const after = fakeFs.files.get(`${FAKE_ID_ROOT}/user/user.md`);
     expect(after).toBeDefined();
     expect(after!).not.toMatch(/^voice:/m);
-    expect(after!).toMatch(/name: alice/);
+    expect(after!).toMatch(/name: user/);
     expect(after!).toMatch(/role: friend/);
   });
 
@@ -329,13 +329,13 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
     mkdir(FAKE_ID_ROOT);
     mkdir(FAKE_ROLE_ROOT);
     writeSeedFile(
-      `${FAKE_ID_ROOT}/alice/alice.md`,
-      "---\nname: alice\nvoice: Elena.wav\n---\nBody.\n",
+      `${FAKE_ID_ROOT}/user/user.md`,
+      "---\nname: user\nvoice: Elena.wav\n---\nBody.\n",
     );
 
     await ensureVoiceValuesMigrated();
     // Confirm first call did the migration
-    const afterFirst = fakeFs.files.get(`${FAKE_ID_ROOT}/alice/alice.md`);
+    const afterFirst = fakeFs.files.get(`${FAKE_ID_ROOT}/user/user.md`);
     expect(afterFirst!).not.toMatch(/^voice:/m);
 
     // Reset log spies to isolate the second-call assertion
@@ -364,11 +364,11 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
     mkdir(FAKE_ID_ROOT);
     mkdir(FAKE_ROLE_ROOT);
     writeSeedFile(
-      `${FAKE_ID_ROOT}/alice/alice.md`,
-      "---\nname: alice\nvoice: Elena.wav\n---\nBody.\n",
+      `${FAKE_ID_ROOT}/user/user.md`,
+      "---\nname: user\nvoice: Elena.wav\n---\nBody.\n",
     );
     // Force writeFile to reject for the identity write path
-    fakeFs.writeFailPath = `${FAKE_ID_ROOT}/alice`;
+    fakeFs.writeFailPath = `${FAKE_ID_ROOT}/user`;
 
     await expect(ensureVoiceValuesMigrated()).resolves.toBeUndefined();
   });
@@ -377,8 +377,8 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
     mkdir(FAKE_ID_ROOT);
     mkdir(FAKE_ROLE_ROOT);
     writeSeedFile(
-      `${FAKE_ID_ROOT}/alice/alice.md`,
-      "---\nname: alice\nvoice: Elena.wav\n---\nBody.\n",
+      `${FAKE_ID_ROOT}/user/user.md`,
+      "---\nname: user\nvoice: Elena.wav\n---\nBody.\n",
     );
 
     await ensureVoiceValuesMigrated();
@@ -396,8 +396,8 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
     mkdir(FAKE_ID_ROOT);
     mkdir(FAKE_ROLE_ROOT);
     writeSeedFile(
-      `${FAKE_ID_ROOT}/alice/alice.md`,
-      "---\nname: alice\nvoice: Elena.wav\n---\nBody.\n",
+      `${FAKE_ID_ROOT}/user/user.md`,
+      "---\nname: user\nvoice: Elena.wav\n---\nBody.\n",
     );
     writeSeedFile(
       `${FAKE_ROLE_ROOT}/friend/friend.md`,
@@ -406,9 +406,9 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
 
     await ensureVoiceValuesMigrated();
 
-    const aliceAfter = fakeFs.files.get(`${FAKE_ID_ROOT}/alice/alice.md`);
+    const userAfter = fakeFs.files.get(`${FAKE_ID_ROOT}/user/user.md`);
     const friendAfter = fakeFs.files.get(`${FAKE_ROLE_ROOT}/friend/friend.md`);
-    expect(aliceAfter!).not.toMatch(/^voice:/m);
+    expect(userAfter!).not.toMatch(/^voice:/m);
     expect(friendAfter!).not.toMatch(/^voice:/m);
 
     const infoCall = infoSpy.mock.calls.find(
@@ -431,8 +431,8 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
   it("Case 9c: missing per-identity .md file is skipped (does not throw)", async () => {
     mkdir(FAKE_ID_ROOT);
     mkdir(FAKE_ROLE_ROOT);
-    // Directory `alice/` exists but no `alice/alice.md` file
-    mkdir(`${FAKE_ID_ROOT}/alice`);
+    // Directory `user/` exists but no `user/user.md` file
+    mkdir(`${FAKE_ID_ROOT}/user`);
 
     await expect(ensureVoiceValuesMigrated()).resolves.toBeUndefined();
     expect(warnSpy).not.toHaveBeenCalled();
@@ -443,14 +443,14 @@ describe("ensureVoiceValuesMigrated — end-to-end behavior across both roots", 
     mkdir(FAKE_ROLE_ROOT);
     // A subdirectory with a differently-named file — skipped per contract.
     writeSeedFile(
-      `${FAKE_ID_ROOT}/alice/other.md`,
+      `${FAKE_ID_ROOT}/user/other.md`,
       "---\nvoice: Elena.wav\n---\n",
     );
 
     await ensureVoiceValuesMigrated();
 
     // File must be untouched
-    const other = fakeFs.files.get(`${FAKE_ID_ROOT}/alice/other.md`);
+    const other = fakeFs.files.get(`${FAKE_ID_ROOT}/user/other.md`);
     expect(other).toContain("voice: Elena.wav");
   });
 });

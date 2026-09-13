@@ -305,7 +305,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     ]);
 
     await stubUsersQuery([
-      { id: "u1", username: "alice", mxid: "@ashley:100.113.23.63" },
+      { id: "u1", username: "user", mxid: "@ashley:100.113.23.63" },
     ]);
 
     const { syncAllBotTokenFiles } = await import(
@@ -350,7 +350,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     expect(syncAllBotTokenFiles).toHaveBeenCalled();
     expect(mintAndWriteHumanToken).toHaveBeenCalledWith(
       "@ashley:100.113.23.63",
-      "alice",
+      "user",
     );
     expect(buildRegistryFromRows).toHaveBeenCalled();
     expect(writeRegistry).toHaveBeenCalled();
@@ -454,7 +454,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       },
     ]);
     await stubUsersQuery([
-      { id: "u1", username: "alice", mxid: "@ashley:t1000.taild9b663.ts.net" },
+      { id: "u1", username: "user", mxid: "@ashley:t1000.taild9b663.ts.net" },
     ]);
 
     const { syncAllBotTokenFiles } = await import(
@@ -592,7 +592,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     await stubUsersQuery([
       {
         id: "u1",
-        username: "alice",
+        username: "user",
         mxid: "@ashley:t1000.taild9b663.ts.net",
       },
       {
@@ -708,7 +708,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     await stubUsersQuery([
       {
         id: "u1",
-        username: "alice",
+        username: "user",
         mxid: "@ashley:t1000.taild9b663.ts.net",
       },
       {
@@ -806,7 +806,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     await stubUsersQuery([
       {
         id: "u1",
-        username: "alice",
+        username: "user",
         mxid: "@ashley:t1000.taild9b663.ts.net",
       },
       {
@@ -947,7 +947,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     ]);
 
     await stubUsersQuery([
-      { id: "u1", username: "alice", mxid: "@ashley:100.113.23.63" },
+      { id: "u1", username: "user", mxid: "@ashley:100.113.23.63" },
     ]);
 
     const { syncAllBotTokenFiles } = await import(

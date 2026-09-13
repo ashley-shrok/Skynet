@@ -46,7 +46,7 @@ requirements:
 
 # Phase 79 Plan 02: Shared media-endpoints module — extraction of STT/TTS/VOICES URLs from voice.ts Summary
 
-One-liner: Extracted the four inline STT/TTS/VOICES URL constants from `voice.ts` into a new shared TS module (`src/backend/config/media-endpoints.ts`) plus an async `getMatrixHomeserverBase()` resolver, so both `voice.ts` (existing consumer) and the tg-bridge bridge-config-writer (Plan 04, next wave) pull their endpoints from a single source of truth — closes Alice's D-03 ship-gate that forbids hardcoded Tailscale IPs from surviving into the bridge.
+One-liner: Extracted the four inline STT/TTS/VOICES URL constants from `voice.ts` into a new shared TS module (`src/backend/config/media-endpoints.ts`) plus an async `getMatrixHomeserverBase()` resolver, so both `voice.ts` (existing consumer) and the tg-bridge bridge-config-writer (Plan 04, next wave) pull their endpoints from a single source of truth — closes user's D-03 ship-gate that forbids hardcoded Tailscale IPs from surviving into the bridge.
 
 ---
 

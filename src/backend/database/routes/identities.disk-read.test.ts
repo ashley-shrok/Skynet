@@ -458,7 +458,7 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     // No uppercase in this list — the reader regex forbids uppercase folder
     // names, so any key the fanout sees is guaranteed lowercase; the test
     // asserts the fanout does NOT re-introduce a capitalized variant.
-    const folderNames = ["tina", "alice-01", "role_underscore"];
+    const folderNames = ["tina", "user-01", "role_underscore"];
     listIdentityKeysOnHostMock.mockResolvedValue(folderNames);
     readIdentityFileMock.mockResolvedValue({
       markdown: "---\nrole: box-maintainer\ndisplayName: X\n---\n",
@@ -466,7 +466,7 @@ describe("GET /identities — Phase 92 disk-fanout .pinned probe", () => {
     identityFileExistsMock.mockResolvedValue(false);
 
     const hostsJson = encodeURIComponent(
-      JSON.stringify({ tina: 1, "alice-01": 1, role_underscore: 1 }),
+      JSON.stringify({ tina: 1, "user-01": 1, role_underscore: 1 }),
     );
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
     expect(res.status).toBe(200);
@@ -695,7 +695,7 @@ describe("GET /identities — Phase 107 Plan 107-02 disk-fanout .hidden probe", 
 
   it("HID-107-06: H3 lock — identityKey passed VERBATIM to identityFileExists for .hidden (byte-for-byte, no case coercion)", async () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
-    const folderNames = ["tina", "alice-01", "role_underscore"];
+    const folderNames = ["tina", "user-01", "role_underscore"];
     listIdentityKeysOnHostMock.mockResolvedValue(folderNames);
     readIdentityFileMock.mockResolvedValue({
       markdown: "---\nrole: box-maintainer\ndisplayName: X\n---\n",
@@ -703,7 +703,7 @@ describe("GET /identities — Phase 107 Plan 107-02 disk-fanout .hidden probe", 
     identityFileExistsMock.mockResolvedValue(false);
 
     const hostsJson = encodeURIComponent(
-      JSON.stringify({ tina: 1, "alice-01": 1, role_underscore: 1 }),
+      JSON.stringify({ tina: 1, "user-01": 1, role_underscore: 1 }),
     );
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
     expect(res.status).toBe(200);

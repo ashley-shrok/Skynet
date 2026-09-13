@@ -38,14 +38,14 @@ describe("sendRoomMessage (Phase 90 Plan 04 Task 1)", () => {
     });
 
     const result = await sendRoomMessage(
-      "@alice_human:server",
+      "@user_human:server",
       "!room:server",
       "hello",
       "mqid-abc-123",
     );
 
     expect(mockSendMessageAsUser).toHaveBeenCalledWith(
-      "@alice_human:server",
+      "@user_human:server",
       "!room:server",
       "hello",
       "mqid-abc-123",

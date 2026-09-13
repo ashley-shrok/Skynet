@@ -76,7 +76,7 @@ No FIXME/XXX/TBD/HACK/PLACEHOLDER anti-patterns in any phase-touched file.
 
 ### Behavioral Spot-Checks
 
-Skipped for this phase — the code is server-side + requires a live Skynet container + SSH to fleet hosts. TSC + scoped test suite exercise the code paths. Deploy-time verification via Alice's rendering + interaction is the natural UAT — but that's orchestrator-ship-motion, out of executor scope per the phase constraints.
+Skipped for this phase — the code is server-side + requires a live Skynet container + SSH to fleet hosts. TSC + scoped test suite exercise the code paths. Deploy-time verification via user's rendering + interaction is the natural UAT — but that's orchestrator-ship-motion, out of executor scope per the phase constraints.
 
 ### Probe Execution
 

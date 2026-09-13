@@ -24,7 +24,7 @@
 //     (`.meta .pin { color: hsla(var(--hue), 80%, 70%, 0.95);
 //     filter: drop-shadow(0 0 4px hsla(var(--hue), 80%, 60%, 0.55)); }`).
 //     Phase 13 Plan 03 (SHAPE-03) established the treatment for desktop;
-//     Phase 14B extends it to mobile per Alice 2026-07-24.
+//     Phase 14B extends it to mobile per user 2026-07-24.
 //
 // Opacity / visibility is CSS-driven:
 //   - Desktop: `.pv-row.pv-row--desktop:not(.pinned):not(:hover):not(:focus-within)

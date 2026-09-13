@@ -7,7 +7,7 @@ tech-stack:
   added: []
   patterns:
     - "Native DOM drag listeners via useEffect + ref (NOT React synthetic handlers) — patch #514 lesson that React synthetic drag events don't co-bubble through portal boundaries reliably. Mirrors SplitView.tsx:258-395 canonical shape."
-    - "Coral grammar rule (Alice 2026-08-29): coral color = 'hovering a valid drop target NOW' (hover state). Baseline lane is NEUTRAL, not coral — same rule every drop target in the app already followed (SplitView, PrettyConversationsPanel, AppShell empty-PV). Tests B + D enforce."
+    - "Coral grammar rule (user 2026-08-29): coral color = 'hovering a valid drop target NOW' (hover state). Baseline lane is NEUTRAL, not coral — same rule every drop target in the app already followed (SplitView, PrettyConversationsPanel, AppShell empty-PV). Tests B + D enforce."
     - "Stacking-context sandbox: `isolation: isolate` (inline style) on the lane's outer wrapper to prevent the coral hover state's z-index budget from escaping past AppShell layer gates. Mirrors quick-260829-fh3 pattern at SplitView.tsx:417."
     - "Palette exactness: coral fill + border byte-for-byte match with SplitView.tsx:463-464 and AppShell.tsx:2482-2483 — no new palette values introduced. Neutral baseline uses existing tokens `var(--color-pv-base)` + `var(--color-pv-border-quiet-strong)` (index.css:143, 155)."
     - "Drop-ladder security discipline mirrors PrettyConversationsPanel.tsx:1368-1412 verbatim: getData → empty→return → JSON.parse in try/catch → shape validation → openTabIds.includes check → preventDefault + stopPropagation → structured log → callback. Silent-drop on any guard miss; log ONLY on the successful-close branch."
@@ -106,7 +106,7 @@ NEVER wake the native handler; this was the load-bearing insight.
 
 Tests:
 - **A**: `draggedBadgeTabId === null` → component returns null.
-- **B**: `draggedBadgeTabId='tab-alice-1'` → lane rendered, `data-hover="false"`,
+- **B**: `draggedBadgeTabId='tab-user-1'` → lane rendered, `data-hover="false"`,
   inline style contains `var(--color-pv-base)`, does NOT contain `rgba(255, 184, 150,`.
 - **C**: dragover with `application/x-skynet-badge` → `data-hover="true"` + coral palette
   present in inline style (asserted via regex `/rgba\(255, 184, 150, 0\.60?\)/` to
@@ -115,7 +115,7 @@ Tests:
   stays neutral. Semantic-crossing guard from the shape file.
 - **E**: dragover + drop with valid badge payload matching an openTabId → `onCloseTab`
   called EXACTLY once with the correct tabId, `data-hover` cleared, structured log
-  `[collapsed-lane-drop] close tabId=tab-alice-1` emitted exactly once.
+  `[collapsed-lane-drop] close tabId=tab-user-1` emitted exactly once.
 - **F**: drop with badge payload tabId NOT in `openTabIds` → `onCloseTab` NOT called
   (silent-drop, T-260829-ih3-01), NO structured log, `data-hover` cleared.
 - **G**: dragover then dragleave INSIDE bounding rect → `data-hover` STAYS `"true"`
@@ -125,7 +125,7 @@ Tests:
 - **I**: mount-gate integration — `draggedBadgeTabId` null → 'tab-x' → null cycles lane
   in/out of the DOM (instant disappear on the second null transition).
 - **J**: `useDraggedBadgeTabId` hook — dragstart with badge MIME sets probe text to
-  `'tab-alice-1'`; dragend clears to empty.
+  `'tab-user-1'`; dragend clears to empty.
 - **J.2**: bonus — dragstart WITH ONLY text/plain (row-drag simulation) leaves probe empty.
   Row drags MUST NOT setState the hook.
 
@@ -295,7 +295,7 @@ belongs in a dedicated flake-fix patch. Recorded here for follow-up.
 
 **Recommended follow-up patch (single line, not applied here):**
 Either (a) raise the `waitFor` timeout at `NewSessionDialog.role-dropdown.test.tsx:216-220`
-from `15000ms` to `30000ms` mirroring the escalation Alice approved for the
+from `15000ms` to `30000ms` mirroring the escalation user approved for the
 `NewSessionDialog.test.tsx` L654 / L1579 flakes documented at fh3-SUMMARY, or (b)
 promote Test 22 to `it.retry(2, ...)` if the vitest config permits.
 

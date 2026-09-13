@@ -29,4 +29,4 @@ Not deployed. Batched with #118-#120 (+ upcoming #122 for meter-reset-no-segment
 
 ## Bounty note
 
-`send-button-bigger` (bounty #4) was re-scoped mid-session from "make it bigger" to "rip it out" after Alice confirmed she uses Enter exclusively. Bounty closed done, not dropped — the underlying intent (compose row that reflects her actual workflow) landed, just via a different mechanism than the original title suggested.
+`send-button-bigger` (bounty #4) was re-scoped mid-session from "make it bigger" to "rip it out" after user confirmed she uses Enter exclusively. Bounty closed done, not dropped — the underlying intent (compose row that reflects her actual workflow) landed, just via a different mechanism than the original title suggested.

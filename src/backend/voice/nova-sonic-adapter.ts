@@ -299,7 +299,7 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
     //     to detect end-of-utterance cleanly. Without this, contentEnd fires
     //     while the model is still mid-ASR and it emits contentEnd
     //     `stopReason: PARTIAL_TURN` truncating the last N words (observed
-    //     hotfix-5 UAT, 2026-09-13 13:19 — Alice lost the trailing ~6 words
+    //     hotfix-5 UAT, 2026-09-13 13:19 — user lost the trailing ~6 words
     //     of a 10s clip). Send ~1.5s of zero-filled PCM chunks paced at 1x
     //     real-time so the tail-silence window is genuinely 1.5s of clock
     //     time — this is where we spend the latency we saved from 5x send.

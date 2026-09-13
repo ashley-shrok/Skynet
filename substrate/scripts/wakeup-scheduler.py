@@ -29,7 +29,7 @@ Schedule specs live at `~/fleet/identities/<name>/wakeups/<slug>.json`:
      #   can't double-fire). Malformed `at` = LOUD one-shot alert, spec DOES NOT FIRE.
      "instruction": "Check the work Kanban for cards assigned to you and triage."}
 
-⚠️ GOVERNANCE (user-reserved): an agent may SUGGEST a wake-up, but only Alice
+⚠️ GOVERNANCE (user-reserved): an agent may SUGGEST a wake-up, but only user
 authorizes creating one — she says yes to a suggestion, or asks for it. Agents
 never self-schedule. (This file just executes whatever specs exist.)
 
@@ -278,7 +278,7 @@ def main():
             key = spec["_key"]
             zi, tz_err = _zone(spec)
             if tz_err:
-                # Malformed IANA name: DO NOT FIRE. LOUD one-shot wake so Alice notices.
+                # Malformed IANA name: DO NOT FIRE. LOUD one-shot wake so user notices.
                 if (key, "tz_bad") not in warned:
                     print("⚠️ [wakeup-scheduler: %s] %s — spec DOES NOT FIRE until fixed"
                           % (key, tz_err), flush=True)

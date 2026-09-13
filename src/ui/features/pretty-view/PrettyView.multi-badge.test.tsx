@@ -290,7 +290,7 @@ describe("PrettyView — Phase 93 Slice 2 multi-badge case-branch", () => {
         isReady: true,
         participants: {
           humans: [
-            { mxid: "@a:x", displayName: "Alice", userId: "1" },
+            { mxid: "@a:x", displayName: "user", userId: "1" },
             { mxid: "@b:x", displayName: "Bob", userId: "2" },
           ],
           agents: [{ mxid: "@nelly:x", identityKey: "nelly" }],
@@ -312,7 +312,7 @@ describe("PrettyView — Phase 93 Slice 2 multi-badge case-branch", () => {
       />,
     );
 
-    // Alice + Bob + Nelly — 3 participants total (viewing user @viewer:example
+    // user + Bob + Nelly — 3 participants total (viewing user @viewer:example
     // is not in the participants list).
     const cells = container.querySelectorAll(
       '[data-testid="relay-room-participant"]',

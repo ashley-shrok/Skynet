@@ -434,12 +434,12 @@ describe("joinAgentToAgentsRegistry", () => {
       .run(SETTINGS_KEY_AGENTS_REGISTRY, "!agents:server");
     joinRoomSpy.mockResolvedValueOnce({ ok: true, roomId: "!agents:server" });
 
-    const result = await joinAgentToAgentsRegistry("@alice-agent:server");
+    const result = await joinAgentToAgentsRegistry("@user-agent:server");
     expect(result).toEqual({ ok: true, roomId: "!agents:server" });
     expect(joinRoomSpy).toHaveBeenCalledTimes(1);
     expect(joinRoomSpy).toHaveBeenCalledWith(
       "!agents:server",
-      "@alice-agent:server",
+      "@user-agent:server",
     );
   });
 

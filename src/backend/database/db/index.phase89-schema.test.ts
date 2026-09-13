@@ -75,7 +75,7 @@ function bootstrapSchemaDb(): Database.Database {
   // Seed a user so Test 2's INSERT into relay_room_sessions doesn't trip the FK.
   db.prepare("INSERT INTO users (id, username) VALUES (?, ?)").run(
     "user-A",
-    "alice",
+    "user",
   );
   return db;
 }

@@ -19,7 +19,7 @@ user_setup: []
 
 must_haves:
   truths:
-    - "Alice sees a bare pencil icon (no 'Edit' text) next to eligible file links on desktop."
+    - "user sees a bare pencil icon (no 'Edit' text) next to eligible file links on desktop."
     - "The pencil affordance no longer flips between 'pencil icon' and the word 'Edit' during hover — because the 'Edit' text no longer exists."
     - "Message bubble text below a file link does not jitter after the affordance mounts."
     - "`npx vitest run` is green after EACH of the three commits (no red intermediate state)."
@@ -53,7 +53,7 @@ must_haves:
 ---
 
 <objective>
-Fix Phase 40 pencil-affordance flicker and message-text jitter reported by Alice:
+Fix Phase 40 pencil-affordance flicker and message-text jitter reported by user:
 "pencil button kind of spazzing out and flipping between the pencil icon and the
 word edit" — with message-bubble text below jittering until scroll.
 
@@ -64,7 +64,7 @@ orchestrator; this plan is scope-execution only, no re-diagnosis.
 - BUG A: `EditableFileAffordance.tsx` renders a stray "Edit" span next to the
   pencil icon on desktop (spec violation — UI-SPEC L124 + Phase 13 SHAPE-03
   idiom + the component's own docstring all say bare-icon-only). This is what
-  Alice literally sees flip.
+  user literally sees flip.
 - BUG B: `useIsTouchDevice` initializes to `undefined` and returns `!!undefined
   === false`, so every consumer renders one frame as "desktop" before the
   useEffect fires. The pencil affordance renders "Edit" text for a frame, then
@@ -424,7 +424,7 @@ Executor completes successfully when ALL of the following are true:
 - [ ] `git diff --name-only 224b2d57..HEAD` lists only the 5 files enumerated above.
 - [ ] `git status --porcelain` empty.
 - [ ] No push, no docker build, no `docker compose up`, no `skynet-patches.md` edit performed.
-- [ ] Alice's reproducer: pencil affordance no longer has an "Edit" text label (BUG A visible outcome), no first-render flash (BUG B), no remount cascade under normal message-arrival churn (BUG C).
+- [ ] user's reproducer: pencil affordance no longer has an "Edit" text label (BUG A visible outcome), no first-render flash (BUG B), no remount cascade under normal message-arrival churn (BUG C).
 
 Deploy motion (patch-entry update + docker build + tailnet deploy) is orchestrator (Tiffany) scope and is EXPLICITLY OUT of executor scope per fleet directive.
 </success_criteria>

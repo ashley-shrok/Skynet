@@ -151,7 +151,7 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 }
 
 // Three-way discriminated union on `identityMode`:
-//   - `false`   → regular-session open (Alice picks a host + optional session name).
+//   - `false`   → regular-session open (user picks a host + optional session name).
 //   - `true`    → identity-birth success (the birth stream finished; the new identity
 //                 has a fresh tmux session on `host` keyed by `name`). Phase 86 Plan
 //                 86-04 (D-CTX-86-surface-4): cosmetic fields (title, brief, voice,
@@ -317,7 +317,7 @@ export function NewSessionDialog({
   const flatHosts = useMemo(
     () =>
       // Patch #111 F4: exclude RDP-enabled hosts from the new-session picker.
-      // Rationale (Alice UAT 2026-07-21): RDP hosts already surface as
+      // Rationale (user UAT 2026-07-21): RDP hosts already surface as
       // sentinel rows at the bottom of the conversation list (Plan 07-02
       // TG-15), so listing them here too is redundant clutter. Match the
       // exact predicate used in conversation-store's RDP row derivation

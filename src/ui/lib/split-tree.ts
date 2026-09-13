@@ -6,7 +6,7 @@
 // the retired `paneTabIds: (string | null)[]` fixed-grid data model that
 // used to live inside `SplitView.tsx`.
 //
-// LOCKED DECISION — Alice 2026-08-28: no draggable pane dividers.
+// LOCKED DECISION — user 2026-08-28: no draggable pane dividers.
 //   Constant-ratio 50/50 is a rendering choice made downstream. The tree
 //   node carries NO ratio / size / weight / percent field. Every cell holds
 //   the same shape of thing (a session), so a window-manager knob would

@@ -235,8 +235,8 @@ describe("SplitView Pane — text-selection drag rejection (tightened MIME gate)
     // Badge dragstart wire contract (IdentityBadge): BOTH skynet badge MIME + text/plain=<tabId>.
     // Mirrors PrettyConversationsPanel.test.tsx:4366-4398.
     const dtStub = makeDataTransferStub({
-      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-alice-1" }),
-      "text/plain": "tab-alice-1",
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-user-1" }),
+      "text/plain": "tab-user-1",
     });
 
     // DragOver → coral overlay must appear.
@@ -247,7 +247,7 @@ describe("SplitView Pane — text-selection drag rejection (tightened MIME gate)
     // x=10 on a 200-wide rect → 'left' zone.
     dispatchDropAt(paneOuter, 10, 50, dtStub);
     expect(onOpenSessionInTree).toHaveBeenCalledTimes(1);
-    expect(onOpenSessionInTree).toHaveBeenCalledWith("tab-alice-1", [], "left");
+    expect(onOpenSessionInTree).toHaveBeenCalledWith("tab-user-1", [], "left");
     // Rich branch should NOT have fired (no application/x-skynet-row present).
     expect(onDropRowInTree).not.toHaveBeenCalled();
   });

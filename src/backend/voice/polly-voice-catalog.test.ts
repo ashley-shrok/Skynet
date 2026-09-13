@@ -82,7 +82,7 @@ describe("POLLY_VOICE_IDS Set", () => {
 
   it("does not contain any of the old Chatterbox .wav filenames", () => {
     expect(POLLY_VOICE_IDS.has("Elena.wav")).toBe(false);
-    expect(POLLY_VOICE_IDS.has("Alice.wav")).toBe(false);
+    expect(POLLY_VOICE_IDS.has("user.wav")).toBe(false);
     expect(POLLY_VOICE_IDS.has("Danielle.wav")).toBe(false);
   });
 });
@@ -122,8 +122,8 @@ describe("isValidPollyVoice — rejects old-Chatterbox shapes and non-string/mal
     expect(isValidPollyVoice("Elena.wav")).toBe(false);
   });
 
-  it("rejects 'Alice.wav'", () => {
-    expect(isValidPollyVoice("Alice.wav")).toBe(false);
+  it("rejects 'user.wav'", () => {
+    expect(isValidPollyVoice("user.wav")).toBe(false);
   });
 
   it("rejects 'Danielle.wav' (Polly voice name + .wav suffix)", () => {

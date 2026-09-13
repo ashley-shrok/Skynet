@@ -2,7 +2,7 @@
  * Phase 22 (SRIC-02) Plan 22-02 Task 3: Tests for the role: frontmatter
  * pre-write branch (Step 2.5) in identity-birth-orchestrator.
  *
- * REVISION 2026-08-04 (Alice, during Task 2 checkpoint): B4b(a) resolution
+ * REVISION 2026-08-04 (user, during Task 2 checkpoint): B4b(a) resolution
  * is APPROVED but the relay-register work is SHIFTED OUT of Skynet's birth
  * orchestrator and into the fresh agent's own first-wake flow. Step 2.5
  * now writes ONLY:
@@ -307,7 +307,7 @@ it("Test 12: writeMarkdownFileAtomic invoked with target path + role: frontmatte
   //  parity invariant.)
   expect(contents).toMatch(/^---\r?\nrole: box-maintainer\r?\n/);
 
-  // Seed comment REMOVED (REVISION 2026-09-12 Alice): birth flow mints
+  // Seed comment REMOVED (REVISION 2026-09-12 user): birth flow mints
   // Matrix account server-side (Steps 6-8) before first wake, so the stale
   // "register a Matrix relay account" instruction is no longer emitted.
   expect(contents).not.toContain("This identity has no relay account yet");
@@ -425,7 +425,7 @@ it("Test 17: identity file body has ---\\nrole: <role>\\n---, seed comment, and 
   expect(contents).toMatch(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
   // heading present
   expect(contents).toMatch(/#\s+testkey/i);
-  // seed comment REMOVED (REVISION 2026-09-12 Alice): birth mints server-side.
+  // seed comment REMOVED (REVISION 2026-09-12 user): birth mints server-side.
   expect(contents).not.toMatch(/<!--[\s\S]*first wake[\s\S]*-->/i);
 }, 30_000);
 
@@ -614,7 +614,7 @@ it("Test 20: full cosmetics present → frontmatter emits role/displayName/title
   ]);
 
   // Body shape: frontmatter, H1 heading — same envelope as Test 17 (seed
-  // comment removed 2026-09-12 per Alice) but with the extra cosmetic keys.
+  // comment removed 2026-09-12 per user) but with the extra cosmetic keys.
   expect(contents.startsWith("---\n")).toBe(true);
   expect(contents).toMatch(/---\r?\n\r?\n#\s+testkey/i); // frontmatter closes, blank line, H1
 }, 30_000);

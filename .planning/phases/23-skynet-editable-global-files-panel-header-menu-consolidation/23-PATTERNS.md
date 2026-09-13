@@ -480,7 +480,7 @@ import type { TabState } from "./IdentityFileTab";
 
 **Analog A (existing header layout):** Same file, L700-776 (the `.pv-panel-header-row` + `.pv-header-actions` block).
 
-**Analog B (popover chrome — since no `DropdownMenu` prior art in Skynet):** `/home/ubuntu/skynet/src/ui/features/pretty-conversations/PrettyConversationContextMenu.tsx` (full file, 165 lines). This is a **custom portal-mounted menu** with the exact glass/pretty-view aesthetic Alice wants.
+**Analog B (popover chrome — since no `DropdownMenu` prior art in Skynet):** `/home/ubuntu/skynet/src/ui/features/pretty-conversations/PrettyConversationContextMenu.tsx` (full file, 165 lines). This is a **custom portal-mounted menu** with the exact glass/pretty-view aesthetic user wants.
 
 **Existing header — what to remove** (L742-774):
 ```typescript
@@ -551,7 +551,7 @@ createPortal(
 )
 ```
 
-**Menu trigger button** — planner picks icon (CONTEXT §GEFM-01 lists `MoreHorizontal` / `MoreVertical` / `Plus` as candidates; `MoreVertical` is the conventional "overflow menu" glyph and fits Alice's "collapse into one button" framing). Use the `.pv-pencil` CSS class for chrome parity with the (now-removed) sibling buttons — see `src/ui/features/pretty-conversations/pretty-conversations.css` L102 for the class definition.
+**Menu trigger button** — planner picks icon (CONTEXT §GEFM-01 lists `MoreHorizontal` / `MoreVertical` / `Plus` as candidates; `MoreVertical` is the conventional "overflow menu" glyph and fits user's "collapse into one button" framing). Use the `.pv-pencil` CSS class for chrome parity with the (now-removed) sibling buttons — see `src/ui/features/pretty-conversations/pretty-conversations.css` L102 for the class definition.
 
 **Menu items (three):**
 1. **New agent** (formerly the pencil `+` button) → `setNewSessionDialogOpen(true)`
@@ -568,7 +568,7 @@ const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(nu
 **Dialog mounts** — the existing `NewSessionDialog` (L1063) and `CreateRoleDialog` (L1095) mounts stay **unchanged** — only the buttons that open them change. Add a `<GlobalFilesModal>` mount adjacent, gated on `showPencilButton` (same predicate — the panel-header dropdown only shows when there's a session-creation seam).
 
 **What to adapt:**
-- The Filter button is behind a `false &&` guard (L728) per patch #317 (Alice hid it for the identity-creation UAT). CONTEXT §GEFM-01 says "Filter button stays separate" — do NOT re-enable, but do NOT fold into the dropdown either. Leave the guard as-is.
+- The Filter button is behind a `false &&` guard (L728) per patch #317 (user hid it for the identity-creation UAT). CONTEXT §GEFM-01 says "Filter button stays separate" — do NOT re-enable, but do NOT fold into the dropdown either. Leave the guard as-is.
 - The pinned-count badge is not present in the visible header today (it lives inside conversation rows, not the header). CONTEXT §GEFM-01 says "Pinned count badge stays where it is (badge, not button)" — no action needed on it.
 
 ---

@@ -44,7 +44,7 @@ key-files:
   modified: []
 
 key-decisions:
-  - "Single it() for the full lifecycle — state-dependency makes split tests invalid (Step 3 GET needs Step 1's aliceId)"
+  - "Single it() for the full lifecycle — state-dependency makes split tests invalid (Step 3 GET needs Step 1's newUserId)"
   - "Real file I/O, mocked auth: filesystem is what we're proving end-to-end; auth chain (bcrypt + JWT + session) adds noise without adding coverage for D-12 through D-22"
   - "Module-scope forceSaveFn rather than vi.spyOn: avoids the captured-undefined problem that arises when vi.resetModules() re-runs the mock factory"
   - "Seed admin pre-populated in bootstrapDb: prevents the 403 from users.ts line 2235 (cannot delete last admin)"
@@ -80,7 +80,7 @@ The single-flow test covers 8 assertion points across 6 HTTP steps:
 | Step | HTTP | Status | Assertion |
 |------|------|--------|-----------|
 | 1 | POST /users/create (PNG multipart) | 200 | row.avatar_path set + file on disk + spy("phase-87-user-avatar-create") |
-| 2 | Set authControl.userId from real aliceId | — | simulated login |
+| 2 | Set authControl.userId from real newUserId | — | simulated login |
 | 3 | GET /users/:id/avatar | 200 | Content-Type: image/png + bytes byte-for-byte match validPngBytes |
 | 4 | PUT /users/:id/avatar (WebP ext-swap) | 200 | row.avatar_path updated + new .webp on disk + old .png unlinked + spy("phase-87-user-avatar-change") |
 | 5 | GET /users/:id/avatar | 200 | Content-Type: image/webp + bytes byte-for-byte match validWebpBytes |
@@ -194,8 +194,8 @@ After running Steps A-D, report:
 **1. [Rule 1 - Bug] Seed admin user pre-populated to prevent last-admin 403**
 
 - **Found during:** Task 1 (first test run)
-- **Issue:** POST /users/create makes Alice the first (and only) user, so she becomes admin. The delete-account handler at users.ts:2232-2240 checks `if (userRecord.isAdmin && adminCount <= 1) → 403`. Test failed with `expected [200, 204] to include 403`.
-- **Fix:** Added `INSERT OR IGNORE INTO users (id, username, password_hash, is_admin, ...)` for a "seed-admin" user in `bootstrapDb()`. Alice is now the second user → non-admin → delete-account succeeds.
+- **Issue:** POST /users/create makes user the first (and only) user, so she becomes admin. The delete-account handler at users.ts:2232-2240 checks `if (userRecord.isAdmin && adminCount <= 1) → 403`. Test failed with `expected [200, 204] to include 403`.
+- **Fix:** Added `INSERT OR IGNORE INTO users (id, username, password_hash, is_admin, ...)` for a "seed-admin" user in `bootstrapDb()`. user is now the second user → non-admin → delete-account succeeds.
 - **Files modified:** `user-avatars.integration.test.ts` (bootstrapDb helper)
 - **Committed in:** `62888c53` (already in Task 1 commit)
 

@@ -10,7 +10,7 @@
 //   8)  Mobile header shows SKYNET brand lockup (same shape as desktop) — patch #257
 //   9)  Desktop gear renders when onRailClick provided
 //  10)  Mobile gear NEVER renders (even when onRailClick provided)
-//  11)  RETIRED — settingsRowSlot prop dropped in Phase 11 (Alice's "no settings" lock)
+//  11)  RETIRED — settingsRowSlot prop dropped in Phase 11 (user's "no settings" lock)
 //  12)  Row click routes RDP → onRdpRowClick (not onDetachedRowClick, not selectConversation)
 //  13)  Row click routes fleetOnly → onDetachedRowClick (not onRdpRowClick)
 //  14)  Row click on plain row calls selectConversation
@@ -315,8 +315,8 @@ vi.mock("@/api/relay-room-create-api", () => ({
   createRelayRoom: vi.fn(async () => ({ ok: true, roomId: "!r:s", sessionId: "s1", roomTitle: "T" })),
 }));
 vi.mock("@/state/viewing-user-store", () => ({
-  useViewingUserMxid: vi.fn(() => "@alice:thenasty.taild9b663.ts.net"),
-  useViewingUserId: vi.fn(() => "u-alice"),
+  useViewingUserMxid: vi.fn(() => "@ashley:thenasty.taild9b663.ts.net"),
+  useViewingUserId: vi.fn(() => "u-user"),
 }));
 
 // Patch #137 / #260806-ixl: PrettyConversationsPanel calls
@@ -597,7 +597,7 @@ describe("PrettyConversationsPanel: load-in-flight affordance", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 18 — active-set top zone RETIRED (Phase 42 UAT amendment 2026-08-17)
 // ─────────────────────────────────────────────────────────────────────────────
-// Alice verbatim: "sessions are still showing above the pinned area when they
+// user verbatim: "sessions are still showing above the pinned area when they
 // are active in the current instance of the client. That shouldn't happen."
 // The panel no longer renders a `[data-active-set-group="true"]` wrapper
 // regardless of what the store snapshot's activeSet field reports. The
@@ -694,7 +694,7 @@ describe("PrettyConversationsPanel: pinned-first ordering", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: 'Pinned' divider chip RETIRED (Phase 42 UAT amendment 2026-08-17)", () => {
-  // Alice verbatim 2026-08-17: "Also the pinned header should go away entirely."
+  // user verbatim 2026-08-17: "Also the pinned header should go away entirely."
   // The divider chip (Pin icon + uppercase "Pinned" label + gradient rule) that
   // patch #234 introduced above the pinned tier is retired unconditionally.
   // The pinned tier itself still renders inside `[data-pinned-group="true"]`.
@@ -767,7 +767,7 @@ describe("PrettyConversationsPanel: 'Pinned' divider chip RETIRED (Phase 42 UAT 
 // these DOM-shape tests).
 
 describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () => {
-  // Phase 41 Plan 01 (Alice 2026-08-14) REWRITE: the pre-Phase-41 per-host
+  // Phase 41 Plan 01 (user 2026-08-14) REWRITE: the pre-Phase-41 per-host
   // divider chips (Tests 19A + 19B) were retired. The middle zone now
   // renders as ONE flat container with no per-host wrappers, no divider
   // chips. Tests 19A/19B are rewritten to lock the retirement.
@@ -785,7 +785,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
-    // Alice lock: NO host-divider chips render inside the middle zone.
+    // user lock: NO host-divider chips render inside the middle zone.
     // The retired `[data-testid="host-divider"]` element MUST NOT be
     // present under any circumstance.
     const chips = Array.from(
@@ -808,7 +808,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
   });
 
   it("Test 19B (rewritten Phase 42 UAT amendment 2026-08-17): pinned + middle rows render without host-divider chips; no active-set wrapper renders", () => {
-    // Phase 42 UAT amendment 2026-08-17 (Alice verbatim): active-set render
+    // Phase 42 UAT amendment 2026-08-17 (user verbatim): active-set render
     // tier retired — no `[data-active-set-group="true"]` wrapper renders
     // regardless of what the mock's activeSet field reports. The pinned
     // wrapper still renders and the middle row lands in the flat middle
@@ -829,7 +829,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
-    // Alice lock: zero host-divider chips anywhere in the panel.
+    // user lock: zero host-divider chips anywhere in the panel.
     const chips = Array.from(
       container.querySelectorAll('[data-testid="host-divider"]'),
     ) as HTMLElement[];
@@ -872,14 +872,14 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
 
     const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
 
-    // Alice lock: no host-divider chip. The rdp-divider IS present.
+    // user lock: no host-divider chip. The rdp-divider IS present.
     const hostChips = container.querySelectorAll('[data-testid="host-divider"]');
     const rdpChips = container.querySelectorAll('[data-testid="rdp-divider"]');
     expect(hostChips.length).toBe(0);
     expect(rdpChips.length).toBe(1);
   });
 
-  // Phase 41 Plan 01 regression (Alice lock #7): the RDP section header
+  // Phase 41 Plan 01 regression (user lock #7): the RDP section header
   // (rdp-divider chip) does NOT render when rdpGroup is null.
   it("Test 19D (rdp-header-hides-on-zero): rdpGroup=null → no rdp-divider chip renders", () => {
     const hostA = makeHost("h1", "hostA");
@@ -897,7 +897,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
     expect(container.querySelector('[data-testid="rdp-divider"]')).toBeNull();
   });
 
-  // Alice 2026-08-20 UAT tightening of the 2026-08-19 verbatim rule: idle
+  // user 2026-08-20 UAT tightening of the 2026-08-19 verbatim rule: idle
   // rows have NOTHING; ACTIVE-SET working rows get a slow dashed spinner
   // ring on the avatar via `.pv-row.spinner-on .pv-avatar::before`. The
   // `spinner-on` class is JS-emitted by the active-set-scoped gate
@@ -908,7 +908,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
   // This test locks that partitioning at the panel level (integration): a
   // regression that widened the gate back to the 2026-08-19 full-inversion
   // shape (every ambient idle row spinning) would fail here.
-  it("Test 19E: non-active-set idle rows have NO ready-dot AND NO `spinner-on` (ambient rows silent for both indicators, Alice 2026-08-20)", () => {
+  it("Test 19E: non-active-set idle rows have NO ready-dot AND NO `spinner-on` (ambient rows silent for both indicators, user 2026-08-20)", () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       // Two rows, neither in the active-set, both non-working (default in
@@ -946,7 +946,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests 20A / 20B / 20C / 20D / 20E — [quick-260727-gm3] deactivate action
 // ─────────────────────────────────────────────────────────────────────────────
-// Alice 2026-07-27 deactivate-preview.js console snippet: rows in the active-
+// user 2026-07-27 deactivate-preview.js console snippet: rows in the active-
 // set (non-RDP) grow a red-tinted X glyph. Click closes the tab AND removes
 // the id from activeSet; the row recedes to ambient. Row-level render:
 //   - Desktop active-set non-RDP → DeactivateAction inside .pv-meta, BEFORE
@@ -962,7 +962,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
   it("Test 20A: desktop active-set non-RDP row → contextmenu opens portal menu carrying Pin (Deactivate removed from menu 2026-08-17)", () => {
     // Phase 42 UAT amendment 2026-08-17: the Tier 1 active-set render tier
     // was retired — active-set rows now flow through to pinned (if pinned)
-    // or middle (by recency). Alice 2026-08-17 follow-up: the Deactivate
+    // or middle (by recency). user 2026-08-17 follow-up: the Deactivate
     // context-menu item was removed entirely (swipe-LEFT remains the sole
     // UI trigger for deactivate). Row is seeded into `middle` and marked
     // active-in-set via `mockActiveSet` so the row's `inActiveSet` prop is
@@ -1004,7 +1004,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
     const menu = screen.getByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: /pin/i })).toBeTruthy();
-    // Deactivate menu item removed 2026-08-17 (Alice).
+    // Deactivate menu item removed 2026-08-17 (user).
     expect(
       within(menu).queryByRole("menuitem", { name: /deactivate/i }),
     ).toBeNull();
@@ -1088,7 +1088,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
   // items[] builder is a single source of truth so mobile menu content is
   // guaranteed by transitivity with the desktop assertions in Test 20A + 20E.
 
-  // Tests 20E, 20F, 20G, 20H — DELETED 2026-08-17. Alice removed the
+  // Tests 20E, 20F, 20G, 20H — DELETED 2026-08-17. user removed the
   // Deactivate context-menu item. The tests exercised the menu-click path
   // which no longer exists. The panel's `handleRowDeactivate` composition
   // (removeFromActiveSet + onDeactivateRow, plus the fleet-id sibling purge
@@ -1877,7 +1877,7 @@ describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hy
 // ─────────────────────────────────────────────────────────────────────────────
 // quick-260912-5q2 — mount hydration race: identities-store loaded gate
 // ─────────────────────────────────────────────────────────────────────────────
-// Regression trap for the cold-reload pin-loss race Alice reproduced on
+// Regression trap for the cold-reload pin-loss race user reproduced on
 // t1000: the hydrate effect fired on the fleetSessionsLoaded false→true flip
 // BEFORE the identities-store's GET /identities fanout resolved, causing
 // deriveDiskPinnedIds to read an empty state.identities and return [].
@@ -1975,10 +1975,10 @@ describe("PrettyConversationsPanel (Phase 92 Plan 04): PANEL-92-* hydrate regres
     mockFleetSessionsLoaded = true;
     const fleetFixture = [
       { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      { hostId: 2, hostName: "beta", sessionName: "alice", created: 200, role: null },
+      { hostId: 2, hostName: "beta", sessionName: "user", created: 200, role: null },
     ];
     mockFleetSessionsSnapshot = fleetFixture;
-    const expectedIdentityHosts = { tina: 1, alice: 2 };
+    const expectedIdentityHosts = { tina: 1, user: 2 };
     buildIdentityHostsFromFleetSpy.mockReturnValueOnce(expectedIdentityHosts);
     deriveDiskPinnedIdsSpy.mockReturnValueOnce(["fleet::1::tina"]);
 
@@ -2110,10 +2110,10 @@ describe("PrettyConversationsPanel (Phase 107 Plan 04): PANEL-107-* hidden hydra
     mockFleetSessionsLoaded = true;
     const fleetFixture = [
       { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      { hostId: 2, hostName: "beta", sessionName: "alice", created: 200, role: null },
+      { hostId: 2, hostName: "beta", sessionName: "user", created: 200, role: null },
     ];
     mockFleetSessionsSnapshot = fleetFixture;
-    const sharedIdentityHosts = { tina: 1, alice: 2 };
+    const sharedIdentityHosts = { tina: 1, user: 2 };
     buildIdentityHostsFromFleetSpy.mockReturnValueOnce(sharedIdentityHosts);
     deriveDiskPinnedIdsSpy.mockReturnValueOnce(["fleet::1::tina"]);
     deriveDiskHiddenIdsSpy.mockReturnValueOnce([]);
@@ -2433,7 +2433,7 @@ describe("PrettyConversationsPanel: Phase 48 Plan 05 pinned row v14 shape (was p
     expect(pvAiTitle!.className).not.toContain("pv-ai-title--placeholder");
 
     // (2) The title line reads "identity.displayName (identity.title)" —
-    //     inline-260823-conv-title-suffix (Alice 2026-08-23) flipped the
+    //     inline-260823-conv-title-suffix (user 2026-08-23) flipped the
     //     parenthetical to prefer identity.title over hostname. The
     //     identity mock uses displayName="tina@laptop" title="Tina's Laptop"
     //     so title wins over hostA. Hostname fallback path covered by
@@ -2659,7 +2659,7 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
   it("Test (g): context menu on a non-hidden active-set row shows Pin/Hide/Open-in-new-window in order (Deactivate removed 2026-08-17)", async () => {
     // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
     // row into `middle` and mark active-in-set via `mockActiveSet`.
-    // Alice 2026-08-17 follow-up: Deactivate menu item removed entirely;
+    // user 2026-08-17 follow-up: Deactivate menu item removed entirely;
     // menu order is now Pin, Hide, Open-in-new-window (create-new-agent-under-this-role hidden — row
     // has no identity).
     // Phase 107 Plan 04: row id must start with "fleet::" to pass isFleetIdentityRow
@@ -2722,7 +2722,7 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     });
 
     const menu = screen.getByRole("menu");
-    // Should have an "Unhide" item, not "Hide" (patch #252 — Alice 2026-08-01 ask)
+    // Should have an "Unhide" item, not "Hide" (patch #252 — user 2026-08-01 ask)
     expect(within(menu).queryByRole("menuitem", { name: /^unhide$/i })).toBeTruthy();
     expect(within(menu).queryByRole("menuitem", { name: /^hide$/i })).toBeNull();
   });
@@ -2861,14 +2861,14 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     expect(deactivateOrder).toBeLessThan(hideOrder);
   });
 
-  // Test (n) [Alice 2026-09-03 — inverts quick-260731-tgg]: clicking a
+  // Test (n) [user 2026-09-03 — inverts quick-260731-tgg]: clicking a
   // hidden row opens the session but leaves hiddenIds untouched. The prior
   // quick-260731-tgg auto-unhide-on-click both violated the "hidden means
   // hidden" semantic and produced a click race (row DOM moved out from
   // under the cursor between click-down and click-up, dropping the
   // selectConversation dispatch). Test (f) above still asserts unhide-on-
   // pin — that path is unchanged; only the click path stops mutating.
-  it("Test (n) [Alice 2026-09-03 flip of quick-260731-tgg]: clicking a hidden row calls selectConversation + onConversationSelected but does NOT call unhideConversation", async () => {
+  it("Test (n) [user 2026-09-03 flip of quick-260731-tgg]: clicking a hidden row calls selectConversation + onConversationSelected but does NOT call unhideConversation", async () => {
     const row = makeConversationRow({ id: "hidden-row-n", label: "hidden-n", host: hostA });
     setSnapshot({
       grouped: [{ hostId: "h1", hostName: "hostA", rows: [row] }],
@@ -3170,7 +3170,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 41 Plan 02 — Search input + one-shot cold-load scroll-hide (Task 1)
 // ─────────────────────────────────────────────────────────────────────────────
-// Alice 2026-08-14 locks (see 41-CONTEXT.md + 41-02-PLAN.md):
+// user 2026-08-14 locks (see 41-CONTEXT.md + 41-02-PLAN.md):
 //   - A `<input type="search">` is ALWAYS in the DOM at the top of the panel
 //     scroll region, regardless of snapshot state (empty / loading / populated).
 //   - On the app's first cold-load per browser session, the scroll region's
@@ -3182,7 +3182,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
 //     "pv-conv-search-hidden-once".
 //   - The `only=1` new-window opener path clears the sentinel key so a fresh
 //     tab always gets the hide (Rule T-41-02-01 — sessionStorage-bleed guard).
-//   - NO auto-focus on mount (Alice lock #4 — tap-to-focus on mobile,
+//   - NO auto-focus on mount (user lock #4 — tap-to-focus on mobile,
 //     uniform on desktop).
 
 describe("PrettyConversationsPanel (Phase 41 Plan 02): search input mount + scroll-hide", () => {
@@ -3349,7 +3349,7 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): search input mount + scro
       '[data-testid="pretty-conversations-search-input"]',
     ) as HTMLElement | null;
     expect(searchInput).toBeTruthy();
-    // Alice lock #4: no auto-focus on either platform.
+    // user lock #4: no auto-focus on either platform.
     expect(document.activeElement).not.toBe(searchInput);
   });
 
@@ -3370,13 +3370,13 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): search input mount + scro
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 41 Plan 02 — Filter predicate + flat match render branch (Task 2)
 // ─────────────────────────────────────────────────────────────────────────────
-// Alice 2026-08-14 locks (see 41-CONTEXT.md § Filter behavior):
+// user 2026-08-14 locks (see 41-CONTEXT.md § Filter behavior):
 //   - Typing flattens the entire list to matches. Pinned zone, flat middle,
 //     and RDP section all collapse into ONE list of matches while a filter
 //     is active. Section boundaries and pin priority are NOT preserved.
 //   - Match target: visible row label text only (label + sublabel where both
 //     shown). No message-body content search.
-//   - Hidden rows do NOT appear in filter matches (Alice lock #3 — hiding
+//   - Hidden rows do NOT appear in filter matches (user lock #3 — hiding
 //     is a user choice that the filter respects).
 //   - Clearing the filter restores the three-zone view.
 
@@ -3466,7 +3466,7 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
     expect(searchInput).toBeTruthy();
     fireEvent.change(searchInput, { target: { value: "foo" } });
 
-    // ALL three divider chips MUST be absent during filter (Alice lock —
+    // ALL three divider chips MUST be absent during filter (user lock —
     // section boundaries not preserved during search).
     expect(container.querySelector('[data-testid="pinned-divider"]')).toBeNull();
     expect(container.querySelector('[data-testid="rdp-divider"]')).toBeNull();
@@ -3528,7 +3528,7 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
     void rerender;
   });
 
-  it("Test I: hidden rows are EXCLUDED from filter matches (Alice lock #3)", () => {
+  it("Test I: hidden rows are EXCLUDED from filter matches (user lock #3)", () => {
     // A hidden row with label matching the query must NOT appear in results.
     // The store filters hidden ids out of all tiers, so the panel's
     // knownRowsRef accumulator holds hidden rows separately in `hiddenRows`.
@@ -3599,7 +3599,7 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
     ) as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: "foo" } });
     expect(container.querySelector('[data-conversation-id="m2"]')).toBeTruthy();
-    // Alice lock #3: hidden m1 must NOT appear in matches even though
+    // user lock #3: hidden m1 must NOT appear in matches even though
     // knownRowsRef still holds the row object from the earlier render.
     expect(container.querySelector('[data-conversation-id="m1"]')).toBeNull();
   });
@@ -4499,7 +4499,7 @@ describe("PrettyConversationsPanel: Phase 58 — conv-list drop target for badge
         variant="desktop"
         onDeactivateRow={() => {}}
         onCloseSession={onCloseSession}
-        openTabIds={["tab-alice-1"]}
+        openTabIds={["tab-user-1"]}
       />,
     );
     const panel = getByTestId("pretty-conversations-panel");
@@ -4679,7 +4679,7 @@ describe("PrettyConversationsPanel: Phase 58 Plan 02 — Test I (integration): I
     const { getByTestId } = render(
       <IdentityBadge
         identityKey="tina"
-        tabId="tab-alice-1"
+        tabId="tab-user-1"
         onClick={onClick}
       />,
     );
@@ -4697,13 +4697,13 @@ describe("PrettyConversationsPanel: Phase 58 Plan 02 — Test I (integration): I
     // routes through openSessionInTree(tabId, path, edge), which
     // removeLeaf-then-insertAtEdge rearranges the tree. No need to mount
     // SplitView; that layer is covered by SplitView.test.tsx 26/26.
-    expect(dt.getData("text/plain")).toBe("tab-alice-1");
+    expect(dt.getData("text/plain")).toBe("tab-user-1");
     // Belt-and-suspenders: the discriminator MIME is also present so a
     // badge drop that lands on the conv-list (Plan 58-02 target) closes
     // instead of rearranging. Same source, one payload, two consumers.
     const badgePayload = dt.getData("application/x-skynet-badge");
     expect(badgePayload).not.toBe("");
-    expect(JSON.parse(badgePayload).tabId).toBe("tab-alice-1");
+    expect(JSON.parse(badgePayload).tabId).toBe("tab-user-1");
     // effectAllowed matches the conv-list row convention (Phase 56 patch #511).
     expect(dt.effectAllowed).toBe("move");
   });

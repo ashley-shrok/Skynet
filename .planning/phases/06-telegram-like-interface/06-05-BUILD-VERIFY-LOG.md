@@ -109,7 +109,7 @@ Rationale:
 5. Scope fence honored — zero source diffs to pretty-view, terminal, guacamole, backend, docker, or package.json (Step E).
 6. Source-side deletions consistent with dist absence (Step F).
 
-Deploy remains user-gated per fork discipline (`~/.claude/identities/tina/deploy-runbook.md` — DEADMAN IS MANDATORY, NO EXCEPTIONS; blanket pre-authorization ≠ per-deploy green light). Task 4 in Plan 06-05 is deferred to the main orchestrator context after Alice reviews UAT checklist + patches-md entry and gives explicit deploy green-light.
+Deploy remains user-gated per fork discipline (`~/.claude/identities/tina/deploy-runbook.md` — DEADMAN IS MANDATORY, NO EXCEPTIONS; blanket pre-authorization ≠ per-deploy green light). Task 4 in Plan 06-05 is deferred to the main orchestrator context after user reviews UAT checklist + patches-md entry and gives explicit deploy green-light.
 
 ---
 

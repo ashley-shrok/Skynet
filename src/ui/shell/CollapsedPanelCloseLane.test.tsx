@@ -12,7 +12,7 @@
 //
 // Tests (per PLAN.md <behavior> block A-J):
 //   A: draggedBadgeTabId === null → component returns null.
-//   B: draggedBadgeTabId='tab-alice-1' → lane rendered; data-hover="false";
+//   B: draggedBadgeTabId='tab-user-1' → lane rendered; data-hover="false";
 //      inline style contains var(--color-pv-base), NOT rgba(255, 184, 150,.
 //   C: dragover with application/x-skynet-badge → data-hover="true"; inline
 //      style contains rgba(255, 184, 150, 0.22) AND rgba(255, 184, 150, 0.60).
@@ -153,7 +153,7 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
     const { queryByTestId } = render(
       <CollapsedPanelCloseLane
         draggedBadgeTabId={null}
-        openTabIds={["tab-alice-1"]}
+        openTabIds={["tab-user-1"]}
         onCloseTab={vi.fn()}
       />,
     );
@@ -163,8 +163,8 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
   it("Test B: draggedBadgeTabId non-null → lane rendered with NEUTRAL baseline (data-hover='false', pv-base fill, NOT coral)", () => {
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1"]}
         onCloseTab={vi.fn()}
       />,
     );
@@ -181,15 +181,15 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
   it("Test C: dragover with application/x-skynet-badge → data-hover='true' + coral palette in inline style", () => {
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1"]}
         onCloseTab={vi.fn()}
       />,
     );
     const lane = getByTestId("collapsed-panel-close-lane");
     const dt = makeDataTransferStub({
-      "text/plain": "tab-alice-1",
-      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-alice-1" }),
+      "text/plain": "tab-user-1",
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-user-1" }),
     });
     act(() => {
       dispatchNativeDragOver(lane, dt);
@@ -208,8 +208,8 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
   it("Test D: dragover with ONLY text/plain (row drag) → data-hover STAYS 'false', palette stays neutral, AND preventDefault NOT called (browser default not-a-drop-target semantic preserved per T-260829-ih3-04)", () => {
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1"]}
         onCloseTab={vi.fn()}
       />,
     );
@@ -239,15 +239,15 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
     const onCloseTab = vi.fn();
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1", "tab-bob-2"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1", "tab-bob-2"]}
         onCloseTab={onCloseTab}
       />,
     );
     const lane = getByTestId("collapsed-panel-close-lane");
     const dt = makeDataTransferStub({
-      "text/plain": "tab-alice-1",
-      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-alice-1" }),
+      "text/plain": "tab-user-1",
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-user-1" }),
     });
     act(() => {
       dispatchNativeDragOver(lane, dt);
@@ -257,7 +257,7 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
       dispatchNativeDrop(lane, dt);
     });
     expect(onCloseTab).toHaveBeenCalledTimes(1);
-    expect(onCloseTab).toHaveBeenCalledWith("tab-alice-1");
+    expect(onCloseTab).toHaveBeenCalledWith("tab-user-1");
     expect(lane.getAttribute("data-hover")).toBe("false");
     const laneDropLogs = infoSpy.mock.calls.filter(
       (call) =>
@@ -265,7 +265,7 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
         call[0].startsWith("[collapsed-lane-drop] close tabId="),
     );
     expect(laneDropLogs).toHaveLength(1);
-    expect(laneDropLogs[0][0]).toBe("[collapsed-lane-drop] close tabId=tab-alice-1");
+    expect(laneDropLogs[0][0]).toBe("[collapsed-lane-drop] close tabId=tab-user-1");
   });
 
   it("Test F: drop with badge payload tabId NOT in openTabIds → onCloseTab NOT called (silent-drop security guard), NO log, data-hover cleared", () => {
@@ -274,7 +274,7 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
         draggedBadgeTabId="tab-attacker-forged"
-        openTabIds={["tab-alice-1", "tab-bob-2"]}
+        openTabIds={["tab-user-1", "tab-bob-2"]}
         onCloseTab={onCloseTab}
       />,
     );
@@ -304,15 +304,15 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
   it("Test G: dragover then dragleave INSIDE bounding rect → data-hover STAYS 'true' (child-boundary crossing guard)", () => {
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1"]}
         onCloseTab={vi.fn()}
       />,
     );
     const lane = getByTestId("collapsed-panel-close-lane");
     const dt = makeDataTransferStub({
-      "text/plain": "tab-alice-1",
-      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-alice-1" }),
+      "text/plain": "tab-user-1",
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-user-1" }),
     });
     act(() => {
       dispatchNativeDragOver(lane, dt);
@@ -328,15 +328,15 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
   it("Test H: dragover then window-level dragend (Escape-cancel) → data-hover cleared without a preceding dragleave", () => {
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1"]}
         onCloseTab={vi.fn()}
       />,
     );
     const lane = getByTestId("collapsed-panel-close-lane");
     const dt = makeDataTransferStub({
-      "text/plain": "tab-alice-1",
-      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-alice-1" }),
+      "text/plain": "tab-user-1",
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-user-1" }),
     });
     act(() => {
       dispatchNativeDragOver(lane, dt);
@@ -382,7 +382,7 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
     // exactly once at first render with `outerRef.current === null`
     // (component returned null when draggedBadgeTabId was null), silently
     // failed to attach drag listeners, and never re-ran when the div
-    // eventually mounted on drag-start. Alice report 2026-08-30 (taylor):
+    // eventually mounted on drag-start. user report 2026-08-30 (taylor):
     // "when I start dragging an identity badge it does pop out that side
     // thing with the X in it but it doesn't highlight coral when I actually
     // hover over it with the identity badge and if I drop on there nothing
@@ -392,23 +392,23 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
     const { getByTestId, queryByTestId, rerender } = render(
       <CollapsedPanelCloseLane
         draggedBadgeTabId={null}
-        openTabIds={["tab-alice-1"]}
+        openTabIds={["tab-user-1"]}
         onCloseTab={onCloseTab}
       />,
     );
     expect(queryByTestId("collapsed-panel-close-lane")).toBeNull();
     rerender(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1"]}
         onCloseTab={onCloseTab}
       />,
     );
     const lane = getByTestId("collapsed-panel-close-lane");
     expect(lane.getAttribute("data-hover")).toBe("false");
     const dt = makeDataTransferStub({
-      "text/plain": "tab-alice-1",
-      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-alice-1" }),
+      "text/plain": "tab-user-1",
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-user-1" }),
     });
     act(() => {
       dispatchNativeDragOver(lane, dt);
@@ -422,7 +422,7 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
       dispatchNativeDrop(lane, dt);
     });
     expect(onCloseTab).toHaveBeenCalledTimes(1);
-    expect(onCloseTab).toHaveBeenCalledWith("tab-alice-1");
+    expect(onCloseTab).toHaveBeenCalledWith("tab-user-1");
   });
 });
 
@@ -454,8 +454,8 @@ describe("useDraggedBadgeTabId hook (quick-260829-ih3 Task 1)", () => {
     expect(probe.textContent).toBe("");
 
     const dt = makeDataTransferStub({
-      "text/plain": "tab-alice-1",
-      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-alice-1" }),
+      "text/plain": "tab-user-1",
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-user-1" }),
     });
     act(() => {
       const evt = new Event("dragstart", { bubbles: true });
@@ -465,7 +465,7 @@ describe("useDraggedBadgeTabId hook (quick-260829-ih3 Task 1)", () => {
       });
       window.dispatchEvent(evt);
     });
-    expect(probe.textContent).toBe("tab-alice-1");
+    expect(probe.textContent).toBe("tab-user-1");
 
     act(() => {
       window.dispatchEvent(new Event("dragend"));
@@ -524,8 +524,8 @@ describe("CollapsedPanelCloseLane — drop-ladder validation branches (code-revi
     const onCloseTab = vi.fn();
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1"]}
         onCloseTab={onCloseTab}
       />,
     );
@@ -551,8 +551,8 @@ describe("CollapsedPanelCloseLane — drop-ladder validation branches (code-revi
     const onCloseTab = vi.fn();
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1"]}
         onCloseTab={onCloseTab}
       />,
     );
@@ -576,8 +576,8 @@ describe("CollapsedPanelCloseLane — drop-ladder validation branches (code-revi
     const onCloseTab = vi.fn();
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1"]}
         onCloseTab={onCloseTab}
       />,
     );
@@ -601,8 +601,8 @@ describe("CollapsedPanelCloseLane — drop-ladder validation branches (code-revi
     const onCloseTab = vi.fn();
     const { getByTestId } = render(
       <CollapsedPanelCloseLane
-        draggedBadgeTabId="tab-alice-1"
-        openTabIds={["tab-alice-1"]}
+        draggedBadgeTabId="tab-user-1"
+        openTabIds={["tab-user-1"]}
         onCloseTab={onCloseTab}
       />,
     );

@@ -67,7 +67,7 @@ assertion to tighten.
 
 | Test | File | What changed |
 |------|------|--------------|
-| flow test mock `getUsersListBasic` | `NewConversationModal.flow.test.tsx` | Returns only `[bob]` (not alice+bob) to match server self-exclusion contract (H1) |
+| flow test mock `getUsersListBasic` | `NewConversationModal.flow.test.tsx` | Returns only `[bob]` (not user+bob) to match server self-exclusion contract (H1) |
 | flow Test 8 assertion | `NewConversationModal.flow.test.tsx` | Regex → exact `.toContain("humans (1 of 1)")` (L1) |
 | flow Test 6 comment | `NewConversationModal.flow.test.tsx` | Documents server-side vs client-side exclusion layers |
 | backend Test 9 | `relay-room-create.test.ts` | Added Layer-1 log assertion (H2) |

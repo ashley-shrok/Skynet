@@ -34,7 +34,7 @@ function makeParticipant(overrides: Partial<PickedParticipant> = {}): PickedPart
 }
 
 // 3 humans + 3 agents shared across tests
-const HUMAN_A = makeParticipant({ mxid: "@alice:s", displayName: "Alice", role: "human", userId: "u-alice" });
+const HUMAN_A = makeParticipant({ mxid: "@ashley:s", displayName: "user", role: "human", userId: "u-user" });
 const HUMAN_B = makeParticipant({ mxid: "@bob:s", displayName: "Bob", role: "human", userId: "u-bob" });
 const HUMAN_C = makeParticipant({ mxid: "@carol:s", displayName: "Carol", role: "human", userId: "u-carol" });
 
@@ -105,20 +105,19 @@ describe("useNewConversationForm", () => {
   });
 
   // ─── Test 4: Case-insensitive substring filter ────────────────────────────
-  it("Test 4: setSearchQuery('AL') filters availableHumans to displayName containing 'al' (any case)", () => {
-    // HUMAN_A: "Alice" (contains 'al'), HUMAN_B: "Bob" (no), HUMAN_C: "Carol" (contains 'al' via 'aro...al'? no — 'Carol' ⊃ 'al' at chars 1-2? c-a-r-o-l → no 'al' substring)
-    // Actually "Alice" → a-l-i-c-e → 'al' at position 0. "Bob" → no. "Carol" → c-a-r-o-l → no 'al'.
+  it("Test 4: setSearchQuery('US') filters availableHumans to displayName containing 'us' (any case)", () => {
+    // HUMAN_A: "user" (contains 'us' at chars 0-1), HUMAN_B: "Bob" (no), HUMAN_C: "Carol" (no).
     const { result } = renderHook(() =>
       useNewConversationForm({ humans: ALL_HUMANS, agents: ALL_AGENTS, viewingUserMxid: null }),
     );
 
     act(() => {
-      result.current.setSearchQuery("AL");
+      result.current.setSearchQuery("US");
     });
 
     const humanNames = result.current.availableHumans.map((h) => h.displayName);
-    // Only "Alice" contains 'al' (case-insensitive)
-    expect(humanNames).toContain("Alice");
+    // Only "user" contains 'us' (case-insensitive)
+    expect(humanNames).toContain("user");
     expect(humanNames).not.toContain("Bob");
     expect(humanNames).not.toContain("Carol");
 

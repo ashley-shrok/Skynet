@@ -36,9 +36,9 @@ import {
 import "@testing-library/jest-dom/vitest";
 import { hueFromSessionName } from "@/features/terminal/session-hue";
 
-// Minimal mock for viewing-user-store (default: alice has an mxid).
+// Minimal mock for viewing-user-store (default: user has an mxid).
 const mockViewingUserMxid = vi.fn<[], string | null>(
-  () => "@alice:thenasty.taild9b663.ts.net",
+  () => "@ashley:thenasty.taild9b663.ts.net",
 );
 
 vi.mock("@/state/viewing-user-store", () => ({
@@ -66,9 +66,9 @@ vi.mock("@/state/identities-store", () => ({
   useIdentities: () => mockIdentities(),
 }));
 
-// Minimal mock for user-management-api (default: alice + bob have mxids).
+// Minimal mock for user-management-api (default: user + bob have mxids).
 const mockGetUsersListBasic = vi.fn(async () => [
-  { id: "u1", username: "alice", mxid: "@alice:thenasty.taild9b663.ts.net" },
+  { id: "u1", username: "user", mxid: "@ashley:thenasty.taild9b663.ts.net" },
   { id: "u2", username: "bob", mxid: "@bob:thenasty.taild9b663.ts.net" },
 ]);
 
@@ -146,7 +146,7 @@ describe("NewConversationModal", () => {
   beforeEach(() => {
     // Clear call counts + reset mocks to defaults before each test.
     vi.clearAllMocks();
-    mockViewingUserMxid.mockReturnValue("@alice:thenasty.taild9b663.ts.net");
+    mockViewingUserMxid.mockReturnValue("@ashley:thenasty.taild9b663.ts.net");
     mockIdentities.mockReturnValue({
       identities: [
         {
@@ -163,7 +163,7 @@ describe("NewConversationModal", () => {
       refresh: async () => {},
     });
     mockGetUsersListBasic.mockResolvedValue([
-      { id: "u1", username: "alice", mxid: "@alice:thenasty.taild9b663.ts.net" },
+      { id: "u1", username: "user", mxid: "@ashley:thenasty.taild9b663.ts.net" },
       { id: "u2", username: "bob", mxid: "@bob:thenasty.taild9b663.ts.net" },
     ]);
     mockCreateRelayRoom.mockResolvedValue({
@@ -236,7 +236,7 @@ describe("NewConversationModal", () => {
     await renderOpen();
 
     setRoomName("Chat");
-    // Bob is in the list (alice is self-excluded)
+    // Bob is in the list (user is self-excluded)
     await waitFor(() => {
       expect(screen.getByRole("option", { name: /bob/i })).toBeInTheDocument();
     });
@@ -423,8 +423,8 @@ describe("NewConversationModal", () => {
   });
 
   // ─── Test 12: self-exclude ────────────────────────────────────────────────
-  it("Test 12 (self-exclude): viewing user (alice) does NOT appear in picker", async () => {
-    // viewingUserMxid = @alice:... — alice should be filtered out
+  it("Test 12 (self-exclude): viewing user (user) does NOT appear in picker", async () => {
+    // viewingUserMxid = @ashley:... — user should be filtered out
     await renderOpen();
 
     await waitFor(() => {
@@ -432,12 +432,12 @@ describe("NewConversationModal", () => {
       expect(screen.getByRole("option", { name: /bob/i })).toBeInTheDocument();
     });
 
-    // Alice should NOT appear as a pickable option
+    // user should NOT appear as a pickable option
     const options = screen.getAllByRole("option");
-    const aliceOption = options.find((el) =>
-      el.textContent?.toLowerCase().includes("alice"),
+    const userOption = options.find((el) =>
+      el.textContent?.toLowerCase().includes("user"),
     );
-    expect(aliceOption).toBeUndefined();
+    expect(userOption).toBeUndefined();
   });
 
   // ─── Test 13: humans-without-hue derived via hueFromSessionName ───────────
@@ -501,7 +501,7 @@ describe("NewConversationModal", () => {
   // ─── Test 15: agent mxid derivation from viewingUserMxid serverName ──────
   it("Test 15 (agent mxid derivation): agent mxid uses identityKey lowercased + serverName from viewer mxid", async () => {
     // Identity has identityKey "Nelly" (uppercase N)
-    // viewingUserMxid = @alice:thenasty.taild9b663.ts.net
+    // viewingUserMxid = @ashley:thenasty.taild9b663.ts.net
     // Expected agent mxid = @nelly:thenasty.taild9b663.ts.net
 
     // Render with only agents — no humans (so we can isolate).

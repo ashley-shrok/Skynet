@@ -18,7 +18,7 @@ commits:
     stats: "+17 −10"
 requirements_completed:
   - USER-MOBILE-SIZING
-deploy_status: HELD (batched with cdccd4f, awaiting Alice combined-batch UAT)
+deploy_status: HELD (batched with cdccd4f, awaiting user combined-batch UAT)
 key-decisions:
   - "Additive-only Tailwind max-md: variants — zero desktop visual change, zero JS/logic touched, zero new imports"
   - "isTouchDevice ternary at Row-1 container preserved untouched; max-md:min-h-16 appended as third cn() arg (both signals coexist per plan §Do NOT touch)"
@@ -29,7 +29,7 @@ tags: [mobile, tailwind, ergonomics, user-uat, composebox, prettyview]
 
 # Quick 260727-ejk: Mobile Sizing Bumps for ComposeBox Buttons + PrettyView Scroll-to-Bottom Summary
 
-Purely-additive Tailwind `max-md:` className bumps across `ComposeBox.tsx` (row-1 retry, meter well/reset+RotateCcw, 5× row-2 icon-sm cluster, textarea min-height + right padding, inside-textarea Send trio) and `PrettyView.tsx` (jump-to-latest button + ArrowDown icon) so Alice's <768px viewport gets ~2× tap targets on the composer and a ~4× scroll-to-bottom pill — with byte-identical desktop rendering and no logic touched.
+Purely-additive Tailwind `max-md:` className bumps across `ComposeBox.tsx` (row-1 retry, meter well/reset+RotateCcw, 5× row-2 icon-sm cluster, textarea min-height + right padding, inside-textarea Send trio) and `PrettyView.tsx` (jump-to-latest button + ArrowDown icon) so user's <768px viewport gets ~2× tap targets on the composer and a ~4× scroll-to-bottom pill — with byte-identical desktop rendering and no logic touched.
 
 ## Files Modified
 
@@ -95,7 +95,7 @@ Per-touch inventory (against final file line numbers):
 
 ## Deploy Status
 
-**HELD.** This commit stacks on `cdccd4f` (fix(aside): extend /id suppression to cover harness slash-UI form) and awaits Alice's combined-batch UAT greenlight before `docker compose up -d --force-recreate skynet`. Per constraints: **do NOT deploy inside this task** — batch discipline (one deploy, not two). The 15-min deadman-rollback constraint was retired 2026-07-21 (bounty `claude-md-15min-deadman-stale`) but the batch-discipline reason still applies.
+**HELD.** This commit stacks on `cdccd4f` (fix(aside): extend /id suppression to cover harness slash-UI form) and awaits user's combined-batch UAT greenlight before `docker compose up -d --force-recreate skynet`. Per constraints: **do NOT deploy inside this task** — batch discipline (one deploy, not two). The 15-min deadman-rollback constraint was retired 2026-07-21 (bounty `claude-md-15min-deadman-stale`) but the batch-discipline reason still applies.
 
 ## Self-Check: PASSED
 
