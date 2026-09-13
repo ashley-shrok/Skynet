@@ -341,13 +341,22 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
         continue;
       }
 
+      // Nova Sonic wraps response payloads under a top-level `event` key,
+      // symmetrically with the send side. Hotfix-4 (2026-09-13): original
+      // consumer read parsed.textOutput / parsed.completionEnd directly,
+      // which were always undefined — every USER textOutput event was
+      // silently discarded and the loop only terminated when the AsyncIterable
+      // naturally ended, producing `transcribe-ok textLen=0`.
+      const inner = parsed.event as Record<string, unknown> | undefined;
+      if (inner === undefined) continue;
+
       // Terminate on completionEnd (D-TERM)
-      if (parsed.completionEnd !== undefined) {
+      if (inner.completionEnd !== undefined) {
         break;
       }
 
       // Accumulate USER textOutput (D-FILTER)
-      const textOutput = parsed.textOutput as
+      const textOutput = inner.textOutput as
         | { role: string; content: string }
         | undefined;
       if (textOutput !== undefined) {

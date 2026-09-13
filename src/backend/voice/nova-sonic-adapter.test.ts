@@ -60,8 +60,14 @@ vi.mock("@smithy/node-http-handler", () => {
 const { transcribeNovaSonic } = await import("./nova-sonic-adapter.js");
 
 // ---------------------------------------------------------------------------
-// Helper: build a fake async-iterable response body for the receive side
-// Each event is { chunk: { bytes: TextEncoder.encode(JSON.stringify(event)) } }
+// Helper: build a fake async-iterable response body for the receive side.
+//
+// Each event is `{ chunk: { bytes: TextEncoder.encode(JSON.stringify({event: ev})) } }`
+// — Nova Sonic wraps response payloads under a top-level `event` key on the
+// wire, symmetrically with the send side. The adapter's response consumer
+// unwraps `parsed.event` before dispatching (hotfix-4, 2026-09-13). Tests
+// pass the INNER payload (e.g. `{ textOutput: { role: "USER", ... } }`) and
+// this helper adds the wrap so the adapter's consumer sees the real shape.
 // ---------------------------------------------------------------------------
 function fakeResponseBody(events: object[]): AsyncIterable<unknown> {
   return {
@@ -69,7 +75,7 @@ function fakeResponseBody(events: object[]): AsyncIterable<unknown> {
       for (const ev of events) {
         yield {
           chunk: {
-            bytes: new TextEncoder().encode(JSON.stringify(ev)),
+            bytes: new TextEncoder().encode(JSON.stringify({ event: ev })),
           },
         };
       }
@@ -325,7 +331,9 @@ describe("nova-sonic-adapter — command shape + event sequence", () => {
             chunk: {
               bytes: new TextEncoder().encode(
                 JSON.stringify({
-                  textOutput: { role: "USER", content: "teardown test" },
+                  event: {
+                    textOutput: { role: "USER", content: "teardown test" },
+                  },
                 }),
               ),
             },
@@ -333,7 +341,7 @@ describe("nova-sonic-adapter — command shape + event sequence", () => {
           yield {
             chunk: {
               bytes: new TextEncoder().encode(
-                JSON.stringify({ completionEnd: {} }),
+                JSON.stringify({ event: { completionEnd: {} } }),
               ),
             },
           };
