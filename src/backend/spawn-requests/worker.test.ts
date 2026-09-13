@@ -697,4 +697,135 @@ describe("spawn-request worker", () => {
       }
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Pool-collision retry (2026-09-12 hotfix — bounded retry on the
+  // "identity already exists on this host" step-failure)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe("pool-collision retry", () => {
+    it("R1: first pick collides, second pick succeeds → success file dropped with the SECOND name", async () => {
+      // Track how many times birthIdentity was called + what name each got.
+      const namesTried: string[] = [];
+      const mockBirthIdentity = vi.fn().mockImplementation(
+        async (
+          opts: BirthOptions,
+          emit: (e: BirthEvent) => void,
+        ) => {
+          namesTried.push(opts.name);
+          if (namesTried.length === 1) {
+            // First attempt: collision
+            emit({ type: "step", n: 1, phase: "failed", reason: "identity already exists on this host" });
+            emit({ type: "ended", ok: false, failedStep: 1, reason: "identity already exists on this host" });
+          } else {
+            // Second attempt: success
+            emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+          }
+        },
+      );
+      const deps = buildTestDeps({
+        // Two-name pool so the retry has exactly one alternative
+        getVettedPool: vi.fn().mockReturnValue(["ada", "byron"]),
+        birthIdentity: mockBirthIdentity,
+      });
+      const item = makePendingBirth();
+
+      await processBirth(item, deps);
+
+      // birthIdentity called twice, with two different names
+      expect(mockBirthIdentity).toHaveBeenCalledTimes(2);
+      expect(new Set(namesTried).size).toBe(2);
+
+      // Success file dropped with the name from the SECOND (winning) attempt
+      const writes = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls;
+      const successWrite = writes.find(
+        (c) => typeof c[1] === "string" && (c[1] as string).endsWith(".success.json"),
+      );
+      expect(successWrite).toBeDefined();
+      const successBody = JSON.parse(successWrite![2] as string);
+      expect(successBody.name).toBe(namesTried[1]);
+
+      // No failure file
+      const failureWrite = writes.find(
+        (c) => typeof c[1] === "string" && (c[1] as string).endsWith(".failure.json"),
+      );
+      expect(failureWrite).toBeUndefined();
+    });
+
+    it("R2: every attempt collides until local pool is exhausted → .failure.json {reason:pool_exhausted}", async () => {
+      // 3-name pool with all-collide birthIdentity mock. After 3 excluded picks
+      // the retry loop's candidate filter returns empty, poolExhaustedLocally
+      // fires, and a pool_exhausted failure file is dropped.
+      const namesTried: string[] = [];
+      const mockBirthIdentity = vi.fn().mockImplementation(
+        async (
+          opts: BirthOptions,
+          emit: (e: BirthEvent) => void,
+        ) => {
+          namesTried.push(opts.name);
+          emit({ type: "step", n: 1, phase: "failed", reason: "identity already exists on this host" });
+          emit({ type: "ended", ok: false, failedStep: 1, reason: "identity already exists on this host" });
+        },
+      );
+      const deps = buildTestDeps({
+        getVettedPool: vi.fn().mockReturnValue(["ada", "byron", "curie"]),
+        birthIdentity: mockBirthIdentity,
+      });
+      const item = makePendingBirth();
+
+      await processBirth(item, deps);
+
+      // Exactly 3 birthIdentity attempts (pool size); every name tried exactly once
+      expect(mockBirthIdentity).toHaveBeenCalledTimes(3);
+      expect(new Set(namesTried).size).toBe(3);
+      expect(new Set(namesTried)).toEqual(new Set(["ada", "byron", "curie"]));
+
+      // Failure file dropped with reason:pool_exhausted (NOT birth_failed —
+      // the classification distinguishes "we tried and pool ran out" from
+      // "birth flow itself broke on an unrelated error")
+      const writes = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls;
+      const failureWrite = writes.find(
+        (c) => typeof c[1] === "string" && (c[1] as string).endsWith(".failure.json"),
+      );
+      expect(failureWrite).toBeDefined();
+      const failureBody = JSON.parse(failureWrite![2] as string);
+      expect(failureBody.reason).toBe("pool_exhausted");
+    });
+
+    it("R3: non-collision failure on first attempt does NOT trigger retry → single attempt, birth_failed", async () => {
+      // A different failure mode (e.g. matrix registration failed) must NOT
+      // retry — collision is the ONLY reason the retry loop fires.
+      const namesTried: string[] = [];
+      const mockBirthIdentity = vi.fn().mockImplementation(
+        async (
+          opts: BirthOptions,
+          emit: (e: BirthEvent) => void,
+        ) => {
+          namesTried.push(opts.name);
+          emit({ type: "step", n: 4, phase: "failed", reason: "matrix registration failed: 502" });
+          emit({ type: "ended", ok: false, failedStep: 4, reason: "matrix registration failed: 502" });
+        },
+      );
+      const deps = buildTestDeps({
+        getVettedPool: vi.fn().mockReturnValue(["ada", "byron", "curie"]),
+        birthIdentity: mockBirthIdentity,
+      });
+      const item = makePendingBirth();
+
+      await processBirth(item, deps);
+
+      // Exactly ONE attempt (no retry on non-collision failures)
+      expect(mockBirthIdentity).toHaveBeenCalledTimes(1);
+
+      // birth_failed failure file (mapEndedEventToReason classifies non-collision
+      // step failures under birth_failed)
+      const writes = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls;
+      const failureWrite = writes.find(
+        (c) => typeof c[1] === "string" && (c[1] as string).endsWith(".failure.json"),
+      );
+      expect(failureWrite).toBeDefined();
+      const failureBody = JSON.parse(failureWrite![2] as string);
+      expect(failureBody.reason).toBe("birth_failed");
+    });
+  });
 });

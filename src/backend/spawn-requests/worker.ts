@@ -323,24 +323,6 @@ export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promis
     return;
   }
 
-  // 3. Pool-pick: random selection from vetted pool
-  const pickedName = pool[Math.floor(Math.random() * pool.length)];
-
-  // 4. Assemble BirthOptions (RESEARCH Pattern 6)
-  const opts: BirthOptions = {
-    userId: currentUserId,
-    hostId: item.hostIdNum, // numeric — Pitfall 2: HostRecord.id is string, BirthOptions.hostId is number
-    name: pickedName.toLowerCase(),
-    title: "",
-    path: `~/${pickedName.toLowerCase()}/`,
-    colorHue: null,
-    voice: null,
-    avatarCandidateId: "",
-    role: item.role,
-    task: item.task ?? undefined,
-    poolPicked: true, // worker births are always pool-picked (Pattern 6)
-  };
-
   // 5. Assemble BirthDeps (mirror of identity-birth.ts:325-363 — identical shape)
   //
   //    getCandidateForBirth: () => null  — no avatar for worker births
@@ -386,8 +368,19 @@ export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promis
       discoverIdentitySessionFile(conn, identityName),
   };
 
-  // 6. Invoke birthIdentity via injected dep (never throws in normal operation —
-  //    all failures go through emit() as {type:"ended", ok:false}).
+  // 6. Pool-pick + invoke birthIdentity via injected dep, with bounded retry
+  //    on the pool-name collision failure mode ("identity already exists on this
+  //    host"). The vetted pool has ~222 names; a target host with ~20 identities
+  //    already installed gives ~9% per-attempt collision probability. Prior
+  //    behavior hard-failed on first collision, forcing the coordinator (or the
+  //    dropper) to retry manually. Fix: local exclusion set of just-attempted
+  //    collided names + bounded retry with a fresh random pick each iteration.
+  //    Any non-collision failure surfaces as birth_failed on the FIRST attempt
+  //    (no retry on unrelated errors); genuine exhaustion after 5 collided
+  //    attempts surfaces as pool_exhausted.
+  //
+  //    Never throws in normal operation — all failures go through emit() as
+  //    {type:"ended", ok:false}.
   let endedEvent: (BirthEvent & { type: "ended" }) | null = null;
   // Capture the most recent step:failed reason. Orchestrator surfaces failure
   // classifications on step events (not on ended — the ended type has no reason
@@ -411,15 +404,81 @@ export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promis
     });
   };
 
-  try {
-    await deps.birthIdentity(opts, emit, birthDeps);
-  } catch (err) {
-    // Truly unexpected — orchestrator's own catch should have emitted ended{ok:false}
-    systemLogger.error("spawn-request worker: birthIdentity threw unexpectedly", {
-      operation: "spawn_request_birth_unexpected_throw",
-      uuid: item.uuid,
-      error: err instanceof Error ? err.message : String(err),
-    });
+  const COLLISION_REASON = "identity already exists on this host";
+  const MAX_POOL_PICK_ATTEMPTS = 5;
+  const excluded = new Set<string>();
+  let poolExhaustedLocally = false;
+  // Hoisted so the post-loop success-file writer can reference the name of the
+  // attempt that succeeded (or the name of the last attempt if we're writing
+  // a failure — for logging).
+  let lastPickedName: string | undefined;
+
+  for (let attempt = 0; attempt < MAX_POOL_PICK_ATTEMPTS; attempt++) {
+    const candidates = pool.filter((n) => !excluded.has(n.toLowerCase()));
+    if (candidates.length === 0) {
+      // Every name we've tried collided AND the pool has no other names —
+      // real pool exhaustion. Different from "pool.length === 0" earlier
+      // (that's a fresh pool with zero names; this is a locally-drained
+      // effective pool after N collided picks).
+      poolExhaustedLocally = true;
+      break;
+    }
+    const pickedName = candidates[Math.floor(Math.random() * candidates.length)];
+    lastPickedName = pickedName;
+    const opts: BirthOptions = {
+      userId: currentUserId,
+      hostId: item.hostIdNum, // numeric — Pitfall 2: HostRecord.id is string, BirthOptions.hostId is number
+      name: (lastPickedName ?? "").toLowerCase(),
+      title: "",
+      path: `~/${pickedName.toLowerCase()}/`,
+      colorHue: null,
+      voice: null,
+      avatarCandidateId: "",
+      role: item.role,
+      task: item.task ?? undefined,
+      poolPicked: true, // worker births are always pool-picked (Pattern 6)
+    };
+
+    // Reset per-attempt capture state so the previous attempt's residue doesn't
+    // leak into this attempt's classification.
+    endedEvent = null;
+    lastStepFailReason = undefined;
+
+    try {
+      await deps.birthIdentity(opts, emit, birthDeps);
+    } catch (err) {
+      // Truly unexpected — orchestrator's own catch should have emitted ended{ok:false}
+      systemLogger.error("spawn-request worker: birthIdentity threw unexpectedly", {
+        operation: "spawn_request_birth_unexpected_throw",
+        uuid: item.uuid,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    if (endedEvent !== null && (endedEvent as { ok: boolean }).ok === true) {
+      break; // success — exit the retry loop, drop success file below
+    }
+    if (lastStepFailReason === COLLISION_REASON) {
+      // Collision — exclude this name locally, log the retry decision, and
+      // re-pick. Bounded by MAX_POOL_PICK_ATTEMPTS.
+      excluded.add(pickedName.toLowerCase());
+      systemLogger.info("spawn-request worker: pool-name collision — retrying with a fresh pick", {
+        operation: "spawn_request_pool_collision_retry",
+        uuid: item.uuid,
+        attempt: attempt + 1,
+        maxAttempts: MAX_POOL_PICK_ATTEMPTS,
+        excludedCount: excluded.size,
+      });
+      continue;
+    }
+    // Any other failure (or no ended event) — surface as birth_failed on this
+    // attempt; do NOT retry non-collision errors.
+    break;
+  }
+
+  if (poolExhaustedLocally) {
+    await writeFailureFile(item, deps, { reason: "pool_exhausted" });
+    return;
   }
 
   // 7. Post-birth response file drop
@@ -444,14 +503,14 @@ export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promis
     // see types.ts SuccessResponse doc for rationale). Coord uses `name` for
     // dispatch; directory-search resolves name → mxid when actually needed.
     const successPayload: SuccessResponse = {
-      name: pickedName.toLowerCase(),
+      name: (lastPickedName ?? "").toLowerCase(),
       birthed_at: deps.now().toISOString(),
     };
 
     systemLogger.info("spawn-request worker: birth success, writing success file", {
       operation: "spawn_request_birth_success",
       uuid: item.uuid,
-      name: pickedName.toLowerCase(),
+      name: (lastPickedName ?? "").toLowerCase(),
     });
 
     await writeResponseFile(

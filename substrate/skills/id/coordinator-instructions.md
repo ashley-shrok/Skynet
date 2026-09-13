@@ -241,17 +241,29 @@ so brevity and front-loaded specificity matter.
 ### Drop the request file
 
 Write a JSON file to `~/fleet/spawn-requests/<uuid>.json` on your own box (the new identity
-always lands on the same box as the coordinator that requested it). Contents are minimal:
+always lands on the same box as the coordinator that requested it). Contents are minimal
+and MUST be a **single line of compact JSON** (no internal newlines) — Skynet's watcher
+reads the file back through an SSH exec whose output format is one line per file
+(`<filename><TAB><body><NEWLINE>`), so any internal newline in the body breaks parsing:
 
-    {
-      "role": "<your-role>",
-      "task": "<the task string you just derived>",
-      "requested_at": "<ISO-Z timestamp — e.g. 2026-09-10T14:23:00Z>"
-    }
+    {"role":"<your-role>","task":"<the task string you just derived>","requested_at":"<ISO-Z timestamp — e.g. 2026-09-10T14:23:00Z>"}
+
+Concrete recipe (printf keeps the body single-line; uuidgen generates a fresh id per request):
+
+    UUID=$(uuidgen); TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    printf '{"role":"<your-role>","task":"<task>","requested_at":"%s"}\n' "$TS" \
+      > ~/fleet/spawn-requests/$UUID.json.tmp
+    mv ~/fleet/spawn-requests/$UUID.json.tmp ~/fleet/spawn-requests/$UUID.json
 
 ⚠️ **Write atomically** — write to `<uuid>.json.tmp` first, then `mv` to `<uuid>.json`.
 Skynet's watcher must never read a half-written file. Use a fresh UUID per request
 (e.g. `uuidgen`) so parallel requests don't collide.
+
+⚠️ **Never pretty-print the JSON.** A pretty-printed body fails watcher-side with
+`invalid JSON: Expected property name or '}' in JSON at position 1 (line 1 column 2)` —
+the body captured before the first internal newline is just `{`, which is invalid JSON.
+Bug caught 2026-09-12 (vega) after this document originally showed a pretty-printed
+example. Instructions and scanner now agree on single-line.
 
 If the spawn-requests folder doesn't exist yet on your box, create it first:
 `mkdir -p ~/fleet/spawn-requests`.
