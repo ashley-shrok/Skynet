@@ -268,6 +268,14 @@ example. Instructions and scanner now agree on single-line.
 If the spawn-requests folder doesn't exist yet on your box, create it first:
 `mkdir -p ~/fleet/spawn-requests`.
 
+⚠️ **Batch drops are safe.** The Skynet backend paces births internally
+via a global throttle (Phase 110 — `src/backend/identity-birth/global-throttle.ts`)
+that both entry points funnel through, so dropping many request files at
+once will not overwhelm the homeserver, the SSH channel budget, or the
+orchestrator. No manual spacing between drops is needed — write the files
+as quickly as your role logic decides they are needed, and the backend
+will drain them in order at a safe pace.
+
 ### Wait for the response file
 
 Skynet's per-host spawn-request scan picks up your request file on its next tick
