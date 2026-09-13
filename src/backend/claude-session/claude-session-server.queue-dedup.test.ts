@@ -334,7 +334,7 @@ describe("__applyQueueDedupForTests — per-session queue-enqueue dedup", () => 
 
   it("Test 9: enqueue → attachment(queued_command) with matching content SUPPRESSES second frame (solstice 2026-09-13, pv-client-pending-send-timer-dormancy-blind)", () => {
     // Reproduces the pixie@workstation dormant-send transcript 2026-09-13:
-    // Ashley's "Testing 1 2 3" landed as queue-operation enqueue AT T+0,
+    // The user's "Testing 1 2 3" landed as queue-operation enqueue AT T+0,
     // then again ~16s later as type:"attachment" attachment.type:
     // "queued_command" when Claude Code pulled it into the next turn.
     // Both parser branches emit kind:"message" role:"user" for the same

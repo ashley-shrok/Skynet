@@ -3580,7 +3580,7 @@ export function __applyQueueDedupForTests(deps: {
   //   2. rawType === "attachment" with attachment.type === "queued_command" —
   //      newer shape that emerged in the harness (parser branch accepts it
   //      at session-file-parser.ts L1085, per pv-parser-accept-queued-
-  //      command-attachment 2026-08-10). Ashley 2026-09-13 confirmed a live
+  //      command-attachment 2026-08-10). The user 2026-09-13 confirmed a live
   //      dormant-send repro where the same content lands as enqueue +
   //      attachment_queued_command, no user turn — two bubbles rendered
   //      because this lookup only matched "user". Bounty:
