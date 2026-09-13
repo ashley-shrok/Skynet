@@ -371,6 +371,47 @@ export function applyIdentityChange(
   setIdentities(list);
 }
 
+/**
+ * Patch a boolean sentinel field (`pinned` / `hidden`) on a single identity in
+ * the local store to reflect a write that just succeeded server-side.
+ *
+ * Without this, pinConversation/hideConversation optimistically mutate
+ * conversation-store's `pinnedIds`/`hiddenIds` but leave identities-store's
+ * per-identity `pinned`/`hidden` STALE. The next PrettyConversationsPanel
+ * remount re-runs its hydrate effect, deriveDisk{Pinned,Hidden}Ids reads the
+ * stale identities snapshot, and hydrate{Pinned,Hidden}IdsFromServer overwrites
+ * the just-set local set — the pin/hide silently reverts on mobile navigate-
+ * away-and-back (list→session→list unmounts the panel per AppShell.tsx L2632).
+ *
+ * Match by (hostId, identityKey) — falls back to bare-name match when hostId
+ * is absent (pre-quick-260912-0t4 fixtures + relay-room callers without a
+ * fleet hostId). No-op when the field is already the target value (idempotent
+ * on double-clicks and hydrate-echo).
+ */
+export function patchIdentityFlag(
+  identityKey: string,
+  hostId: number | null,
+  field: "pinned" | "hidden",
+  value: boolean,
+): void {
+  const keyLc = identityKey.toLowerCase();
+  let changed = false;
+  const nextList = state.identities.map((i) => {
+    const keyMatches = i.identityKey.toLowerCase() === keyLc;
+    if (!keyMatches) return i;
+    const hostMatches =
+      hostId === null ||
+      typeof i.hostId !== "number" ||
+      i.hostId === hostId;
+    if (!hostMatches) return i;
+    if (i[field] === value) return i;
+    changed = true;
+    return { ...i, [field]: value };
+  });
+  if (!changed) return;
+  setIdentities(nextList);
+}
+
 export function useIdentities(): {
   identities: Identity[];
   byKey: Map<string, Identity>;

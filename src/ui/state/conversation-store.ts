@@ -58,7 +58,11 @@ import { sessionMatchKey } from "@/features/terminal/session-hue";
 // pattern crashes on the relay-room `sessionName === undefined` case (see
 // L710-731 relay-room branch) and diverges from the semantics the
 // identities-store fetch already uses.
-import { buildIdentityHostsFromFleet, refreshIdentities } from "./identities-store";
+import {
+  buildIdentityHostsFromFleet,
+  patchIdentityFlag,
+  refreshIdentities,
+} from "./identities-store";
 // Phase 41 Plan 03 — bridge to the working-store cache for the wire-side
 // lastMessageAt signal + a subscribe hook so a working-store publish invalidates
 // our memoized snapshot (row derivation re-runs and re-picks up fresh recency).
@@ -1561,6 +1565,42 @@ export function removeFromActiveSet(id: string): void {
   notify();
 }
 
+// Parse a row id emitted by fleetRowId(hostId, sessionName) → the identity
+// key + hostId used to patch the identities-store's per-identity sentinel
+// after a successful pin/unpin/hide/unhide server write. Returns null hostId
+// on non-composite ids (openTabs-derived rows, relay-room ids, test fixtures
+// that pass a bare key) — patchIdentityFlag falls back to bare-name match
+// in that case.
+function parseFleetRowId(id: string): {
+  identityKey: string;
+  hostId: number | null;
+} {
+  const parts = id.split("::");
+  if (parts.length === 3 && parts[0] === "fleet") {
+    const parsedHost = Number.parseInt(parts[1], 10);
+    return {
+      identityKey: parts[2],
+      hostId: Number.isFinite(parsedHost) ? parsedHost : null,
+    };
+  }
+  return { identityKey: id, hostId: null };
+}
+
+// Sync a successful pin/hide server write back into the identities-store's
+// per-identity `pinned`/`hidden` sentinel so a subsequent PrettyConversations
+// Panel remount (mobile list→session→list unmounts the panel per AppShell.tsx
+// L2632) doesn't re-derive from stale identities data and clobber the local
+// set via hydrate{Pinned,Hidden}IdsFromServer. Mirror on both flag types +
+// both directions (add/remove).
+function syncIdentityFlagAfterWrite(
+  id: string,
+  field: "pinned" | "hidden",
+  value: boolean,
+): void {
+  const { identityKey, hostId } = parseFleetRowId(id);
+  patchIdentityFlag(identityKey, hostId, field, value);
+}
+
 export function pinConversation(id: string): void {
   if (state.pinnedIds.has(id)) return; // already pinned — no-op
   // Patch #149 (A): the pre-#149 defense-in-depth guard rejected any id
@@ -1584,12 +1624,18 @@ export function pinConversation(id: string): void {
   // with an inline `fleetSessions.map(s => [s.sessionName.toLowerCase(),
   // s.hostId])` pattern — that crashes on the undefined sessionName case.
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
+  // On success, mirror the write into identities-store so a subsequent
+  // PrettyConversationsPanel remount doesn't re-derive a stale pinnedIds
+  // set from the un-patched identities snapshot and clobber this local
+  // update (mobile list→session→list unmounts the panel — fern 2026-09-13).
   // Fire-and-forget with async-rejection swallow. `void`d + try/catch would only
   // catch synchronous throws; putPinnedIds is async so rejections propagate as
   // unhandled promise rejections. Optimistic update stands; retry on next mount
   // or next pin/unpin. (Phase 107 code-review M3, fixed symmetrically on both
   // pin and hidden sides in the same commit.)
-  putPinnedIds([...nextPinnedIds], identityHosts).catch(() => refreshIdentities().catch(() => {}));
+  putPinnedIds([...nextPinnedIds], identityHosts)
+    .then(() => syncIdentityFlagAfterWrite(id, "pinned", true))
+    .catch(() => refreshIdentities().catch(() => {}));
   state = { ...state, pinnedIds: nextPinnedIds };
   notify();
 }
@@ -1604,7 +1650,9 @@ export function unpinConversation(id: string): void {
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
   // Fire-and-forget with async-rejection swallow (see pinConversation comment
   // above — Phase 107 code-review M3).
-  putPinnedIds([...nextPinnedIds], identityHosts).catch(() => refreshIdentities().catch(() => {}));
+  putPinnedIds([...nextPinnedIds], identityHosts)
+    .then(() => syncIdentityFlagAfterWrite(id, "pinned", false))
+    .catch(() => refreshIdentities().catch(() => {}));
   state = { ...state, pinnedIds: nextPinnedIds };
   notify();
 }
@@ -1633,7 +1681,11 @@ export function hideConversation(id: string): void {
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
   // Fire-and-forget with async-rejection swallow (Phase 107 code-review M3 —
   // pattern-mirror of pin-side fix in pinConversation/unpinConversation).
-  putHiddenIds([...nextHiddenIds], identityHosts).catch(() => refreshIdentities().catch(() => {}));
+  // Success-side identities-store sync mirrors pinConversation (fern
+  // 2026-09-13) — hidden has the same mobile-remount clobber shape as pin.
+  putHiddenIds([...nextHiddenIds], identityHosts)
+    .then(() => syncIdentityFlagAfterWrite(id, "hidden", true))
+    .catch(() => refreshIdentities().catch(() => {}));
   state = { ...state, hiddenIds: nextHiddenIds };
   notify();
 }
@@ -1647,7 +1699,9 @@ export function unhideConversation(id: string): void {
   // identityHosts derivation site. Do not fork.
   const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
   // Fire-and-forget with async-rejection swallow (Phase 107 code-review M3).
-  putHiddenIds([...nextHiddenIds], identityHosts).catch(() => refreshIdentities().catch(() => {}));
+  putHiddenIds([...nextHiddenIds], identityHosts)
+    .then(() => syncIdentityFlagAfterWrite(id, "hidden", false))
+    .catch(() => refreshIdentities().catch(() => {}));
   state = { ...state, hiddenIds: nextHiddenIds };
   notify();
 }

@@ -27,13 +27,23 @@ import {
   __resetIdentitiesStoreForTest,
   deriveDiskPinnedIds,
   deriveDiskHiddenIds,
+  patchIdentityFlag,
 } from "./identities-store.js";
 import * as IdentitiesStore from "./identities-store.js";
 import * as IdentitiesApi from "@/api/identities-api";
+import * as UserPreferencesApi from "@/api/user-preferences-api";
 import type { Identity } from "@/api/identities-api";
 import {
   updateFleetSessions,
   __resetFleetSessionsForTest,
+  __resetPinnedIdsForTest,
+  __resetHiddenIdsForTest,
+  pinConversation,
+  unpinConversation,
+  hideConversation,
+  unhideConversation,
+  hydratePinnedIdsFromServer,
+  hydrateHiddenIdsFromServer,
   type FleetSession,
 } from "./conversation-store.js";
 
@@ -54,8 +64,14 @@ function makeSession(hostId: number, sessionName: string): FleetSession {
 beforeEach(() => {
   vi.mocked(IdentitiesApi.listIdentities).mockClear();
   vi.mocked(IdentitiesApi.listIdentities).mockResolvedValue([]);
+  vi.mocked(UserPreferencesApi.putPinnedIds).mockClear();
+  vi.mocked(UserPreferencesApi.putPinnedIds).mockResolvedValue([]);
+  vi.mocked(UserPreferencesApi.putHiddenIds).mockClear();
+  vi.mocked(UserPreferencesApi.putHiddenIds).mockResolvedValue([]);
   __resetFleetSessionsForTest();
   __resetIdentitiesStoreForTest();
+  __resetPinnedIdsForTest();
+  __resetHiddenIdsForTest();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,6 +177,7 @@ describe("refresh-after-fleet-load — fires exactly once", () => {
 function makeIdentity(
   identityKey: string,
   pinned: boolean | undefined,
+  hostId?: number,
 ): Identity {
   const base: Identity = {
     identityKey,
@@ -179,6 +196,11 @@ function makeIdentity(
   // compat with callsites that don't care about the pin projection.
   if (pinned !== undefined) {
     (base as Identity & { pinned?: boolean }).pinned = pinned;
+  }
+  // quick-260912-0t4: hostId enables (hostId, key)-scoped byHostKey lookups
+  // and cross-host name-collision tests for patchIdentityFlag.
+  if (hostId !== undefined) {
+    (base as Identity & { hostId?: number }).hostId = hostId;
   }
   return base;
 }
@@ -266,6 +288,7 @@ describe("Phase 92 Plan 04 — deriveDiskPinnedIds projection", () => {
 function makeIdentityWithHidden(
   identityKey: string,
   opts: { pinned?: boolean; hidden?: boolean },
+  hostId?: number,
 ): Identity {
   const base: Identity = {
     identityKey,
@@ -285,6 +308,9 @@ function makeIdentityWithHidden(
   }
   if (opts.hidden !== undefined) {
     (base as Identity & { hidden?: boolean }).hidden = opts.hidden;
+  }
+  if (hostId !== undefined) {
+    (base as Identity & { hostId?: number }).hostId = hostId;
   }
   return base;
 }
@@ -345,5 +371,156 @@ describe("Phase 107 Plan 04 — deriveDiskHiddenIds projection", () => {
     const hiddenResult = deriveDiskHiddenIds(identityHosts);
     expect([...pinnedResult].sort()).toEqual(["fleet::1::tina"]);
     expect([...hiddenResult].sort()).toEqual(["fleet::2::alice"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// patchIdentityFlag — write-side sync for pin/hide server writes
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// fern 2026-09-13: Ashley reported that pinning a conversation on mobile, then
+// entering a session, then coming back to the list, silently reverted the pin
+// (server persisted — hard refresh restored it, so the write reached disk).
+//
+// Root cause: PrettyConversationsPanel (AppShell.tsx L2632) unmounts on mobile
+// list→session→list navigation. On remount, its hydrate effect re-runs
+// deriveDiskPinnedIds over the identities-store, which was STALE — the pin
+// path only mutated conversation-store's pinnedIds + fired the PUT, leaving
+// identities-store's per-identity `pinned: boolean` at false. Result:
+// hydratePinnedIdsFromServer(staleSet) overwrote the just-set pin.
+//
+// Fix: pinConversation/unpinConversation (and hidden mirror) now call
+// patchIdentityFlag on the PUT-success side to keep identities-store aligned
+// with the write. These tests lock the mutator's contract plus the end-to-end
+// remount-cycle invariant.
+
+describe("patchIdentityFlag — pure mutator contract", () => {
+  it("patches `pinned` true→false on a matching (hostId, key) identity", async () => {
+    await seedIdentities([
+      makeIdentity("tina", true, 1),
+      makeIdentity("alice", true, 2),
+    ]);
+    patchIdentityFlag("tina", 1, "pinned", false);
+    // Only tina flipped; alice untouched.
+    const identityHosts = { tina: 1, alice: 2 };
+    expect(deriveDiskPinnedIds(identityHosts)).toEqual(["fleet::2::alice"]);
+  });
+
+  it("patches `hidden` false→true independently of `pinned`", async () => {
+    await seedIdentities([
+      makeIdentityWithHidden("tina", { pinned: true, hidden: false }, 1),
+    ]);
+    patchIdentityFlag("tina", 1, "hidden", true);
+    const identityHosts = { tina: 1 };
+    expect(deriveDiskPinnedIds(identityHosts)).toEqual(["fleet::1::tina"]);
+    expect(deriveDiskHiddenIds(identityHosts)).toEqual(["fleet::1::tina"]);
+  });
+
+  it("is idempotent — no-op when field already matches target value", async () => {
+    await seedIdentities([makeIdentity("tina", true, 1)]);
+    // No-op path: setIdentities NOT called, snapshot reference stable.
+    const identityHosts = { tina: 1 };
+    const before = deriveDiskPinnedIds(identityHosts);
+    patchIdentityFlag("tina", 1, "pinned", true); // already true
+    const afterNoop = deriveDiskPinnedIds(identityHosts);
+    expect(afterNoop).toEqual(before);
+    patchIdentityFlag("tina", 1, "pinned", false); // real change
+    expect(deriveDiskPinnedIds(identityHosts)).toEqual([]);
+  });
+
+  it("with null hostId, falls back to bare-name match", async () => {
+    await seedIdentities([makeIdentity("tina", false, 1)]);
+    patchIdentityFlag("tina", null, "pinned", true);
+    expect(deriveDiskPinnedIds({ tina: 1 })).toEqual(["fleet::1::tina"]);
+  });
+
+  it("with mismatched hostId, is a no-op (never patches the wrong host row)", async () => {
+    // Two identities share a name across hosts. patchIdentityFlag targeted at a
+    // hostId that doesn't match any existing row must NOT flip anything (the
+    // caller's write refers to a row that doesn't exist locally yet — likely a
+    // wire-fanout race; the next refreshIdentities will reconcile).
+    await seedIdentities([
+      makeIdentity("willow", false, 1),
+      makeIdentity("willow", false, 2),
+    ]);
+    patchIdentityFlag("willow", 99, "pinned", true);
+    // Nobody flipped. Both willows still unpinned.
+    // deriveDiskPinnedIds projects one row per identityKey (map is one-per-name),
+    // so the invariant we can assert is "no willow surfaces as pinned regardless
+    // of which host mapping we project through."
+    expect(deriveDiskPinnedIds({ willow: 1 })).toEqual([]);
+    expect(deriveDiskPinnedIds({ willow: 2 })).toEqual([]);
+  });
+});
+
+describe("Pin/hide remount-cycle regression (fern 2026-09-13)", () => {
+  it("PIN: after a successful pin, a subsequent deriveDiskPinnedIds→hydrate cycle preserves the pin", async () => {
+    // Seed the identities-store with tina UNPINNED on disk (baseline before
+    // the click). The fleet session provides the hostId used by the pin path
+    // to build identityHosts and by deriveDiskPinnedIds to project.
+    await seedIdentities([makeIdentity("tina", false, 1)]);
+    updateFleetSessions([makeSession(1, "tina")]);
+
+    const rowId = "fleet::1::tina";
+    pinConversation(rowId);
+    // Let the fire-and-forget PUT .then() microtask run so patchIdentityFlag
+    // executes before we simulate the remount.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Simulate the panel's remount hydrate cycle: derive from the identities-
+    // store (should NOW include tina), then hydrate the conversation-store.
+    const identityHosts = buildIdentityHostsFromFleet([makeSession(1, "tina")]);
+    const derived = deriveDiskPinnedIds(identityHosts);
+    expect(derived).toEqual([rowId]); // the fix — pre-fix this was []
+    hydratePinnedIdsFromServer(derived); // pre-fix this wiped state.pinnedIds
+  });
+
+  it("UNPIN: after a successful unpin, a subsequent deriveDiskPinnedIds→hydrate cycle preserves the unpin", async () => {
+    await seedIdentities([makeIdentity("tina", true, 1)]);
+    updateFleetSessions([makeSession(1, "tina")]);
+
+    // Prime conversation-store's pinnedIds via hydrate so unpinConversation's
+    // "already unpinned — no-op" guard doesn't short-circuit.
+    hydratePinnedIdsFromServer(["fleet::1::tina"]);
+
+    unpinConversation("fleet::1::tina");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const identityHosts = buildIdentityHostsFromFleet([makeSession(1, "tina")]);
+    expect(deriveDiskPinnedIds(identityHosts)).toEqual([]);
+  });
+
+  it("HIDE: after a successful hide, a subsequent deriveDiskHiddenIds→hydrate cycle preserves the hide", async () => {
+    await seedIdentities([
+      makeIdentityWithHidden("tina", { hidden: false }, 1),
+    ]);
+    updateFleetSessions([makeSession(1, "tina")]);
+
+    hideConversation("fleet::1::tina");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const identityHosts = buildIdentityHostsFromFleet([makeSession(1, "tina")]);
+    const derived = deriveDiskHiddenIds(identityHosts);
+    expect(derived).toEqual(["fleet::1::tina"]);
+    hydrateHiddenIdsFromServer(derived);
+  });
+
+  it("UNHIDE: after a successful unhide, a subsequent deriveDiskHiddenIds cycle preserves the unhide", async () => {
+    await seedIdentities([
+      makeIdentityWithHidden("tina", { hidden: true }, 1),
+    ]);
+    updateFleetSessions([makeSession(1, "tina")]);
+
+    hydrateHiddenIdsFromServer(["fleet::1::tina"]);
+
+    unhideConversation("fleet::1::tina");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const identityHosts = buildIdentityHostsFromFleet([makeSession(1, "tina")]);
+    expect(deriveDiskHiddenIds(identityHosts)).toEqual([]);
   });
 });
