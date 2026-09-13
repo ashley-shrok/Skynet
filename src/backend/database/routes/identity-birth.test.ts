@@ -17,6 +17,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
+import { __resetForTests as __resetThrottleForTests } from "../../identity-birth/global-throttle.js";
 import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -106,6 +107,10 @@ vi.mock("../../utils/logger.js", () => ({
   databaseLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   sshLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  // Phase 110: global-throttle.ts imports systemLogger from the same module.
+  // The real module is NOT mocked (we test end-to-end wiring), so systemLogger
+  // must be present in the mock to avoid "No systemLogger export" at module-init.
+  systemLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
 // Phase 77 (Plan 04) added a 503 fail-early gate at POST / and POST /retry/:key
@@ -276,6 +281,15 @@ const VALID_BODY = {
 };
 
 // ---------------------------------------------------------------------------
+// Throttle env-var save/restore — module-scope captures initial values so
+// per-test mutations (Test 110-B sets IDENTITY_BIRTH_MAX_CONCURRENT etc.)
+// don't leak across tests. Restored in afterEach.
+// ---------------------------------------------------------------------------
+const _origMaxConcurrent = process.env.IDENTITY_BIRTH_MAX_CONCURRENT;
+const _origMaxQueueDepth = process.env.IDENTITY_BIRTH_MAX_QUEUE_DEPTH;
+const _origMinIntervalMs = process.env.IDENTITY_BIRTH_MIN_INTERVAL_MS;
+
+// ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
@@ -286,6 +300,11 @@ beforeEach(async () => {
   mockUserId = "1";
   mockBirthIdentity.mockReset();
 
+  // Phase 110: reset throttle state so concurrency + queue tests get a clean
+  // semaphore. __resetThrottleForTests also re-reads process.env so per-test
+  // env mutations take effect immediately on the next acquireBirthSlot call.
+  __resetThrottleForTests();
+
   const { server: s } = makeServer();
   server = s;
   await startServer(server);
@@ -293,6 +312,23 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Phase 110: restore throttle env vars so mutations in 110-B don't leak.
+  if (_origMaxConcurrent === undefined) {
+    delete process.env.IDENTITY_BIRTH_MAX_CONCURRENT;
+  } else {
+    process.env.IDENTITY_BIRTH_MAX_CONCURRENT = _origMaxConcurrent;
+  }
+  if (_origMaxQueueDepth === undefined) {
+    delete process.env.IDENTITY_BIRTH_MAX_QUEUE_DEPTH;
+  } else {
+    process.env.IDENTITY_BIRTH_MAX_QUEUE_DEPTH = _origMaxQueueDepth;
+  }
+  if (_origMinIntervalMs === undefined) {
+    delete process.env.IDENTITY_BIRTH_MIN_INTERVAL_MS;
+  } else {
+    process.env.IDENTITY_BIRTH_MIN_INTERVAL_MS = _origMinIntervalMs;
+  }
+
   await stopServer(server);
   vi.clearAllMocks();
 });
@@ -1044,3 +1080,160 @@ it(
     expect(parsed.failedStep).toBeUndefined();
   },
 );
+
+// ---------------------------------------------------------------------------
+// Phase 110: throttle integration tests
+//
+// These tests use the REAL global-throttle module (not mocked) to prove
+// end-to-end wiring: acquireBirthSlot is called before SSE opens, the
+// semaphore actually gates concurrent requests, and ThrottleRejectedError
+// maps to a 429 JSON response (not an SSE frame).
+//
+// __resetThrottleForTests() is called in the global beforeEach above so each
+// test starts with a clean semaphore state and re-reads process.env.
+// ---------------------------------------------------------------------------
+
+describe("throttle integration", () => {
+  it("Test 110-A: three concurrent POST /identities/birth serialize under maxConcurrent=1", async () => {
+    // Ensure maxConcurrent=1 (the default) is in effect. The beforeEach
+    // __resetThrottleForTests() call already re-reads env; delete any override
+    // so the default (1) applies.
+    delete process.env.IDENTITY_BIRTH_MAX_CONCURRENT;
+    __resetThrottleForTests();
+
+    // Build three manually-resolvable promises (deferred pattern from
+    // queue.test.ts). Each deferred is passed to the mock so the test
+    // controls when each "birth" finishes and the slot is released.
+    type Deferred = { resolve: () => void; promise: Promise<void> };
+    function makeDeferred(): Deferred {
+      let resolve!: () => void;
+      const promise = new Promise<void>((res) => { resolve = res; });
+      return { resolve, promise };
+    }
+
+    const deferreds: [Deferred, Deferred, Deferred] = [
+      makeDeferred(),
+      makeDeferred(),
+      makeDeferred(),
+    ];
+
+    const callOrder: string[] = [];
+    let deferredIndex = 0;
+
+    mockBirthIdentity.mockImplementation(
+      async (
+        opts: unknown,
+        emit: (e: unknown) => void,
+        _deps: unknown,
+      ) => {
+        const idx = deferredIndex++;
+        const name = (opts as { name: string }).name;
+        callOrder.push(name);
+        // Wait until the test resolves this deferred to simulate a long birth.
+        await deferreds[idx].promise;
+        emit({ type: "ended", ok: true, identityId: name, sessionName: name });
+      },
+    );
+
+    // Fire three concurrent POST requests — none will resolve until their
+    // corresponding deferred is resolved.
+    const bodyA = { ...VALID_BODY, name: "aaa" };
+    const bodyB = { ...VALID_BODY, name: "bbb" };
+    const bodyC = { ...VALID_BODY, name: "ccc" };
+
+    const promiseA = httpPost(port, "/identities/birth", bodyA, { Accept: "text/event-stream" });
+    const promiseB = httpPost(port, "/identities/birth", bodyB, { Accept: "text/event-stream" });
+    const promiseC = httpPost(port, "/identities/birth", bodyC, { Accept: "text/event-stream" });
+
+    // Wait a short time for the first request to acquire the slot and invoke
+    // birthIdentity, and for B and C to enter the throttle queue.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Under maxConcurrent=1, only the FIRST birthIdentity call should have
+    // fired — B and C are waiting in the throttle queue.
+    expect(mockBirthIdentity.mock.calls.length).toBe(1);
+    expect(callOrder[0]).toBe("aaa");
+
+    // Resolve A's deferred → slot released → B acquires slot → birthIdentity called for B.
+    deferreds[0].resolve();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockBirthIdentity.mock.calls.length).toBe(2);
+    expect(callOrder[1]).toBe("bbb");
+
+    // Resolve B's deferred → slot released → C acquires slot → birthIdentity called for C.
+    deferreds[1].resolve();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockBirthIdentity.mock.calls.length).toBe(3);
+    expect(callOrder[2]).toBe("ccc");
+
+    // Resolve C → all three POSTs complete.
+    deferreds[2].resolve();
+
+    // Await all three HTTP responses — they should all return 200 with SSE streams.
+    const [resA, resB, resC] = await Promise.all([promiseA, promiseB, promiseC]);
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+    expect(resC.status).toBe(200);
+
+    // Assert the call order is A → B → C (FIFO through the throttle queue).
+    expect(callOrder).toEqual(["aaa", "bbb", "ccc"]);
+  }, 10000);
+
+  it("Test 110-B: 429 at queue-depth cap with maxConcurrent=1 + maxQueueDepth=2", async () => {
+    // Configure throttle: 1 concurrent slot, max 2 queued waiters.
+    // A 4th request (1 active + 2 queued + 1 overflow) must get 429.
+    process.env.IDENTITY_BIRTH_MAX_CONCURRENT = "1";
+    process.env.IDENTITY_BIRTH_MAX_QUEUE_DEPTH = "2";
+    __resetThrottleForTests();
+
+    // birthIdentity never resolves — holds the slot indefinitely so the queue
+    // fills up and request #4 overflows.
+    let neverResolve!: () => void;
+    const neverResolvingPromise = new Promise<void>((res) => { neverResolve = res; });
+
+    mockBirthIdentity.mockImplementation(async (_opts: unknown, _emit: unknown, _deps: unknown) => {
+      await neverResolvingPromise;
+    });
+
+    // Request #1: acquires the slot, holds it (birthIdentity never resolves).
+    // Do NOT await it here — keep it pending.
+    const pendingRequest1 = httpPost(port, "/identities/birth", { ...VALID_BODY, name: "hold1" }, {
+      Accept: "text/event-stream",
+    }).catch(() => ({ status: -1, headers: {}, body: "" }));
+
+    // Wait for request #1 to acquire the slot before firing the queue-fillers.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Requests #2 and #3: fill the queue (maxQueueDepth=2).
+    const pendingRequest2 = httpPost(port, "/identities/birth", { ...VALID_BODY, name: "hold2" }, {
+      Accept: "text/event-stream",
+    }).catch(() => ({ status: -1, headers: {}, body: "" }));
+    const pendingRequest3 = httpPost(port, "/identities/birth", { ...VALID_BODY, name: "hold3" }, {
+      Accept: "text/event-stream",
+    }).catch(() => ({ status: -1, headers: {}, body: "" }));
+
+    // Wait for requests #2 and #3 to enter the queue before firing #4.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Request #4: queue is at cap → must get 429 immediately (before SSE opens).
+    const result4 = await httpPost(port, "/identities/birth", { ...VALID_BODY, name: "overflow" }, {
+      Accept: "text/event-stream",
+    });
+
+    // Assert 429 with JSON body (not SSE).
+    expect(result4.status).toBe(429);
+    expect(result4.headers["content-type"]).toContain("application/json");
+    // Body must NOT contain SSE frame markers.
+    expect(result4.body).not.toContain("text/event-stream");
+
+    const body4 = JSON.parse(result4.body);
+    expect(body4.error).toBe("identity_birth_queue_full");
+    expect(typeof body4.retry_after_ms).toBe("number");
+    expect(body4.retry_after_ms).toBeGreaterThan(0);
+
+    // Cleanup: resolve the never-resolving promise so requests #1/2/3 can
+    // drain and the HTTP server closes cleanly in afterEach.
+    neverResolve();
+    await Promise.all([pendingRequest1, pendingRequest2, pendingRequest3]);
+  }, 10000);
+});
