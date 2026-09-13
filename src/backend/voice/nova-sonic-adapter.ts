@@ -295,6 +295,28 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
       await new Promise<void>((r) => setTimeout(r, PACE_MS));
     }
 
+    // 7b. Tail silence pad — Nova Sonic's VAD needs a trailing silence window
+    //     to detect end-of-utterance cleanly. Without this, contentEnd fires
+    //     while the model is still mid-ASR and it emits contentEnd
+    //     `stopReason: PARTIAL_TURN` truncating the last N words (observed
+    //     hotfix-5 UAT, 2026-09-13 13:19 — Alice lost the trailing ~6 words
+    //     of a 10s clip). Send ~1.5s of zero-filled PCM chunks paced at 1x
+    //     real-time so the tail-silence window is genuinely 1.5s of clock
+    //     time — this is where we spend the latency we saved from 5x send.
+    const SILENCE_CHUNK = Buffer.alloc(CHUNK_BYTES); // 60 ms of s16le zeros
+    const SILENCE_CHUNK_B64 = SILENCE_CHUNK.toString("base64");
+    const TAIL_SILENCE_CHUNKS = 25; // 25 × 60 ms = 1.5 s
+    for (let i = 0; i < TAIL_SILENCE_CHUNKS; i++) {
+      yield frame({
+        audioInput: {
+          promptName,
+          contentName: audioContentName,
+          content: SILENCE_CHUNK_B64,
+        },
+      });
+      await new Promise<void>((r) => setTimeout(r, 60)); // 1x real-time
+    }
+
     // 8. USER contentEnd (D-EVENTS step 4)
     yield frame({
       contentEnd: { promptName, contentName: audioContentName },
@@ -348,17 +370,6 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
       // silently discarded and the loop only terminated when the AsyncIterable
       // naturally ended, producing `transcribe-ok textLen=0`.
       const inner = parsed.event as Record<string, unknown> | undefined;
-      // DIAGNOSTIC (temporary — remove after Alice's UAT loop closes):
-      // dump every parsed frame so we can see what Bedrock actually sends.
-      databaseLogger.info(
-        `[nova-sonic-DIAG] rx-frame keys=${Object.keys(parsed).join(",")} innerKeys=${inner ? Object.keys(inner).join(",") : "<none>"}`,
-        {
-          operation: "nova_sonic_diag_rx_frame",
-          rawKeys: Object.keys(parsed),
-          innerKeys: inner ? Object.keys(inner) : null,
-          rawSample: JSON.stringify(parsed).slice(0, 400),
-        },
-      );
       if (inner === undefined) continue;
 
       // Terminate on completionEnd (D-TERM)
