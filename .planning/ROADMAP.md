@@ -2451,3 +2451,13 @@ Plans:
 
 Plans:
 - [ ] 108-01-PLAN.md — Insert role-folder probe into runStep(1) (local + remote branches), add 5 orchestrator tests + 1 worker processBirth test, update stale worker.ts comment, run D-15 scoped vitest gate (Wave 1)
+
+### Phase 109: STT provider swap Amazon Transcribe to Amazon Nova Sonic on Bedrock (Nova 2 Sonic v1 default, cutover migration) — replace transcribe-adapter with a new nova-sonic-adapter using @aws-sdk/client-bedrock-runtime InvokeModelWithBidirectionalStreamCommand + NodeHttp2Handler, port the working Python event schema verbatim, feed LPCM 16kHz audio chunks paced at 5x real-time, filter role=USER textOutput for the ASR result, discard assistant text/audio. Add webmToPcm16k helper in audio-transcode.ts, rewire voice.ts handleTranscribe, drop the CHUNKED_THRESHOLD_BYTES branch, delete the Phase 100 chunked-orchestrator subsystem (transcribe-orchestrator + audio-chunker + word-stitcher + voice/semaphore + 4 test files, ~2200 lines) plus transcribe-adapter.ts + test, swap package.json deps. Client-side voice code + /voice/transcribe request contract untouched. Depends on Phase 108. Full recon at ~/fleet/roles/box-maintainer/bounties/stt-nova-sonic-migration/RECON.md.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 108
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 109 to break down)
