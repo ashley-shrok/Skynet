@@ -2454,10 +2454,13 @@ Plans:
 
 ### Phase 109: STT provider swap Amazon Transcribe to Amazon Nova Sonic on Bedrock (Nova 2 Sonic v1 default, cutover migration) — replace transcribe-adapter with a new nova-sonic-adapter using @aws-sdk/client-bedrock-runtime InvokeModelWithBidirectionalStreamCommand + NodeHttp2Handler, port the working Python event schema verbatim, feed LPCM 16kHz audio chunks paced at 5x real-time, filter role=USER textOutput for the ASR result, discard assistant text/audio. Add webmToPcm16k helper in audio-transcode.ts, rewire voice.ts handleTranscribe, drop the CHUNKED_THRESHOLD_BYTES branch, delete the Phase 100 chunked-orchestrator subsystem (transcribe-orchestrator + audio-chunker + word-stitcher + voice/semaphore + 4 test files, ~2200 lines) plus transcribe-adapter.ts + test, swap package.json deps. Client-side voice code + /voice/transcribe request contract untouched. Depends on Phase 108. Full recon at ~/fleet/roles/box-maintainer/bounties/stt-nova-sonic-migration/RECON.md.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Skynet's server-side STT provider is fully cut over from Amazon Transcribe streaming to Amazon Nova Sonic on Bedrock (Nova 2 Sonic v1 default), with the Phase 100 chunked-parallel orchestrator subsystem retired; `/voice/transcribe` request contract unchanged for the browser; all client-side voice code untouched.
+**Requirements**: D-PROV, D-SDK, D-TRANSPORT, D-CREDS, D-REGION, D-SINGLETON, D-EVENTS, D-AUDIOOUT, D-AUDIO, D-FILTER, D-TERM, D-PROMPT, D-TEARDOWN, D-ASYNCGEN, D-REWIRE, D-CUTOVER, D-DELETE, D-PKG, D-TESTS, D-SHIP (see 109-CONTEXT.md — CONTEXT-locked decisions serve as the acceptance surface; no numbered requirement IDs)
 **Depends on:** Phase 108
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 109 to break down)
+- [ ] 109-01-PLAN.md — Create nova-sonic-adapter.ts + unit tests (mocked SDK, event sequence, USER-only filter, clean teardown, IMDS-only credentials); swap package.json deps: -@aws-sdk/client-transcribe-streaming, +@aws-sdk/client-bedrock-runtime, +@smithy/node-http-handler (Wave 1)
+- [ ] 109-02-PLAN.md — Add webmToPcm16k helper to audio-transcode.ts (delegates to runFfmpeg, reuses SILENCE_FILTER, LPCM 16 kHz s16le mono) + 5 new unit tests mirroring the webmToFlac test topology (Wave 1, parallel with 109-01)
+- [ ] 109-03-PLAN.md — Rewire voice.ts handleTranscribe to call transcribeNovaSonic via webmToPcm16k; drop CHUNKED_THRESHOLD_BYTES + FLAC/OGG passthrough + mediaEncoding; rewrite voice.test.ts to mock the new adapter facade and delete the Phase 100 chunked-path describe block (Wave 2, depends on 109-01 + 109-02)
+- [ ] 109-04-PLAN.md — Delete the Phase 100 chunked-orchestrator subsystem (transcribe-orchestrator + audio-chunker + word-stitcher + voice/semaphore + tests) and the Amazon Transcribe streaming adapter (transcribe-adapter + tests) — 11 files, ~2800 lines net removed; verify no stale imports via grep + tsc --noEmit + full backend/frontend build + scoped voice-subsystem vitest (Wave 3, depends on 109-03)
