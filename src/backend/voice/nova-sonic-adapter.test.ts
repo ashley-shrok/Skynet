@@ -226,6 +226,40 @@ describe("nova-sonic-adapter — command shape + event sequence", () => {
     expect(Object.keys(last3[0])).toContain("contentEnd");
     expect(Object.keys(last3[1])).toContain("promptEnd");
     expect(Object.keys(last3[2])).toContain("sessionEnd");
+
+    // Regression guard (hotfix 2026-09-13, second-pass):
+    // Nova Sonic rejects with `Value at 'promptId' failed to satisfy constraint`
+    // when any of these event carriers omit the identifier. Verify:
+    //   - promptStart carries `promptName`
+    //   - contentStart (both SYSTEM + USER) + textInput + contentEnd + audioInput
+    //     + promptEnd all carry `promptName`
+    //   - content-scoped events (contentStart/textInput/contentEnd/audioInput)
+    //     additionally carry `contentName`
+    const promptName = (
+      (events[1] as { promptStart: { promptName?: string } }).promptStart
+    ).promptName;
+    expect(typeof promptName).toBe("string");
+    expect((promptName ?? "").length).toBeGreaterThan(0);
+
+    for (const ev of events.slice(1)) {
+      const inner = Object.values(ev)[0] as Record<string, unknown>;
+      // sessionStart is index 0, already excluded. sessionEnd has no promptName.
+      if (Object.keys(ev)[0] === "sessionEnd") continue;
+      expect(inner.promptName).toBe(promptName);
+    }
+    // Content-scoped events also need contentName.
+    for (const ev of events) {
+      const key = Object.keys(ev)[0];
+      const inner = Object.values(ev)[0] as Record<string, unknown>;
+      if (
+        key === "contentStart" ||
+        key === "contentEnd" ||
+        key === "textInput" ||
+        key === "audioInput"
+      ) {
+        expect(typeof inner.contentName).toBe("string");
+      }
+    }
   });
 
   // Test 6 — audio chunking (D-AUDIO)

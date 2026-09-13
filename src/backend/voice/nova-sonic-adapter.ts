@@ -81,6 +81,7 @@
  * @see src/backend/database/routes/voice.ts (Plan 03 rewires this adapter in)
  */
 
+import { randomUUID } from "node:crypto";
 import {
   BedrockRuntimeClient,
   InvokeModelWithBidirectionalStreamCommand,
@@ -178,6 +179,17 @@ function frame(event: object): { chunk: { bytes: Uint8Array } } {
  *   change `MODEL_ID` constant to `'amazon.nova-sonic-v1:0'` (Nova Sonic v1).
  */
 export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
+  // Per-session identifiers. Nova Sonic requires `promptName` on promptStart /
+  // contentStart / contentEnd / textInput / audioInput / promptEnd events,
+  // and `contentName` on every content-scoped event. Server maps promptName →
+  // promptId internally; omitting either produces
+  // `ValidationException: Value at 'promptId' failed to satisfy constraint: Member must not be null`
+  // (observed 2026-09-13 post-first-hotfix). Mirrors the identifier scheme
+  // used in the working Python experiment.
+  const promptName = randomUUID();
+  const sysContentName = randomUUID();
+  const audioContentName = randomUUID();
+
   // -------------------------------------------------------------------------
   // Build send sequence as an async generator (D-ASYNCGEN, D-EVENTS)
   // -------------------------------------------------------------------------
@@ -200,6 +212,7 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
     //    even when we discard the audio output)
     yield frame({
       promptStart: {
+        promptName,
         textOutputConfiguration: {
           mediaType: "text/plain",
         },
@@ -218,6 +231,8 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
     // 3. SYSTEM contentStart (D-EVENTS step 3)
     yield frame({
       contentStart: {
+        promptName,
+        contentName: sysContentName,
         type: "TEXT",
         role: "SYSTEM",
       },
@@ -226,16 +241,22 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
     // 4. SYSTEM textInput (D-PROMPT)
     yield frame({
       textInput: {
+        promptName,
+        contentName: sysContentName,
         content: SYSTEM_PROMPT,
       },
     });
 
     // 5. SYSTEM contentEnd (D-EVENTS step 3)
-    yield frame({ contentEnd: {} });
+    yield frame({
+      contentEnd: { promptName, contentName: sysContentName },
+    });
 
     // 6. USER audio contentStart (D-EVENTS step 4)
     yield frame({
       contentStart: {
+        promptName,
+        contentName: audioContentName,
         type: "AUDIO",
         role: "USER",
         audioInputConfiguration: {
@@ -257,6 +278,8 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
       );
       yield frame({
         audioInput: {
+          promptName,
+          contentName: audioContentName,
           content: slice.toString("base64"),
         },
       });
@@ -265,10 +288,12 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
     }
 
     // 8. USER contentEnd (D-EVENTS step 4)
-    yield frame({ contentEnd: {} });
+    yield frame({
+      contentEnd: { promptName, contentName: audioContentName },
+    });
 
     // 9. promptEnd (D-EVENTS step 5)
-    yield frame({ promptEnd: {} });
+    yield frame({ promptEnd: { promptName } });
 
     // 10. sessionEnd (D-EVENTS step 5)
     yield frame({ sessionEnd: {} });
