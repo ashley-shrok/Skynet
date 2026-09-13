@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-09-13T19:37:44.598Z"
+last_updated: "2026-09-13T19:43:29.631Z"
 last_activity: 2026-09-13
 progress:
   total_phases: 111
   completed_phases: 93
   total_plans: 468
-  completed_plans: 459
+  completed_plans: 460
   percent: 84
 ---
 
@@ -388,6 +388,7 @@ Progress: [██████████] 100%
 | Phase 107 P03 | 196 | 1 tasks | 3 files |
 | Phase 107 P04 | ~21m | 2 tasks | 8 files |
 | Phase 110-global-throttle-on-identity-birth-flow-new-module-wrapping-b P01 | 25 | 2 tasks | 2 files |
+| Phase 110-global-throttle-on-identity-birth-flow-new-module-wrapping-b P03 | 12min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -625,6 +626,8 @@ Recent decisions affecting current work:
 - [Phase ?]: active++ placed before min-interval setTimeout so concurrency-cap invariant holds during the delay window
 - [Phase ?]: bypassQueueDepth=true flag for spawn-request path: disk-drop items already live on disk, silently dropping on overflow is worse UX than memory growth
 - [Phase ?]: acquire slot AFTER 503/404 gates BEFORE res.flushHeaders() ensures 429 lands as JSON not SSE frame
+- [Phase ?]: doBirth() helper approach chosen for processBirth wrap: cleaner diff (no 250-line indentation shift), acquire/release wrapper stays small and readable
+- [Phase ?]: bypassQueueDepth:true for spawn-request path: disk-drop items already durable; silently dropping on overflow worse UX than queuing in memory
 
 ### Pending Todos
 
@@ -979,9 +982,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-13T19:37:14.194Z
+Last session: 2026-09-13T19:43:29.570Z
 Last session: 2026-09-10T07:47:17.370Z
-Stopped at: Completed 110-01-PLAN.md
+Stopped at: Completed 110-03-PLAN.md
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
 Last session: 2026-09-06T12:17:07.176Z
