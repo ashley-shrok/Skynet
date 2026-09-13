@@ -594,32 +594,30 @@ afterEach(() => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test A: path field is visible in both modes
+// Test A: path field is visible ONLY when admin has opted into shell mode
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test A — path field visible in both modes (under isAdmin)", () => {
-  it("Test A: path input present in agent mode (Phase-88 default), and still present after clicking checkbox to opt into shell mode", () => {
-    // Phase 88 (Plan 88-02): the Path field is admin-gated. The renderDialog
-    // helper defaults isAdmin=true so the Path field is visible on mount.
-    // Agent mode is the new default (shellOnly=false); clicking the checkbox
-    // now OPTS INTO shell mode (was: opted out of identity mode). Path stays
-    // visible in both modes for admin users.
-    const { getByLabelText, getByRole } = renderDialog();
-    // Agent mode is default under isAdmin=true → path should be visible
-    expect(getByLabelText(/^path$/i)).toBeTruthy();
-    // Click checkbox to opt into shell mode
+describe("NewSessionDialog: Test A — path field visible only in shell mode (under isAdmin)", () => {
+  it("Test A: path input hidden in default agent mode; appears after admin toggles the shell checkbox", () => {
+    // The Path knob is only meaningful in the raw-shell branch (where it
+    // becomes the shell's cwd). In agent mode both admin and non-admin get
+    // the backend workspace-default substitution, so the field stays out of
+    // the DOM. Toggling the admin-only "Just a shell" checkbox reveals it.
+    const { queryByLabelText, getByLabelText, getByRole } = renderDialog();
+    expect(queryByLabelText(/^path$/i)).toBeNull();
     const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
-    // Path still present (visible in both modes for admin)
     expect(getByLabelText(/^path$/i)).toBeTruthy();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test B: path defaults to empty (2026-09-11 fix — was "~/")
+// Test B: path defaults to empty in shell mode
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test B — path defaults to empty", () => {
-  it("Test B: initial render → path input value is empty (admin opts into backend workspace-default substitution by leaving blank)", () => {
-    const { getByLabelText } = renderDialog();
+describe("NewSessionDialog: Test B — path defaults to empty (shell mode)", () => {
+  it("Test B: shell-mode initial render → path input value is empty (normalizePath('') → '~' → shell opens in home)", () => {
+    const { getByLabelText, getByRole } = renderDialog();
+    // Path field only renders in shell mode; toggle to reveal it.
+    fireEvent.click(getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }));
     const pathInput = getByLabelText(/^path$/i) as HTMLInputElement;
     expect(pathInput.value).toBe("");
   });
@@ -928,16 +926,13 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
   it("Test U: fill fields, close, re-open → all fields back to defaults", () => {
     const onClose = vi.fn();
     const { getByLabelText, getByRole, rerender } = renderDialog({ onClose });
-    // Fill Phase-86-current fields (name, path, task).
+    // Fill the agent-mode fields (name, task). Path lives in the shell
+    // branch now; its reset is covered by Test B (default is "" on shell
+    // toggle) so it isn't reasserted here.
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-    fireEvent.change(getByLabelText(/^path$/i), { target: { value: "/custom/path" } });
     fireEvent.change(getByLabelText(/^task$/i), { target: { value: "do things" } });
 
     // Close the dialog.
-    // Phase 88 (Plan 88-01/88-02): pass isAdmin={true} on rerender so the
-    // Path field + shell-only checkbox remain rendered (Plan 88-02 admin-gate).
-    // NewSessionDialog defaults isAdmin=false fail-closed at destructure, so
-    // without this forward the Path + checkbox would not exist in the DOM.
     rerender(
       <NewSessionDialog
         open={false}
@@ -957,14 +952,9 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
         isAdmin={true}
       />
     );
-    // Fields should reset
     expect((getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
-    expect((getByLabelText(/^path$/i) as HTMLInputElement).value).toBe("~/");
     expect((getByLabelText(/^task$/i) as HTMLTextAreaElement).value).toBe("");
-    // Phase 88 (Plan 88-02 Edit D): the local state variable was renamed
-    // from `identityMode` to `shellOnly` and its default flipped from
-    // `true` to `false`. After close+reopen the shell-only checkbox
-    // re-arms to the new default: UNCHECKED (agent mode is the default).
+    // Shell-only checkbox re-arms to the default UNCHECKED (agent mode).
     const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
     expect(checkbox.checked).toBe(false);
   });
@@ -1291,19 +1281,14 @@ describe("NewSessionDialog: Phase 88 admin-gate + backend substitution", () => {
     expect(queryByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE })).toBeNull();
   });
 
-  it("Phase 88 T2 (2026-09-11 fix): isAdmin=true → Path input present with default value EMPTY AND shell-only checkbox present unchecked", () => {
-    const { getByLabelText, getByRole } = renderDialog({ isAdmin: true });
-    const pathInput = getByLabelText(/^path$/i) as HTMLInputElement;
-    expect(pathInput).toBeTruthy();
-    // 2026-09-11 fix: default flipped from "~/" to "" so admin submissions
-    // trigger backend workspace-default substitution to
-    // ~/fleet/identities/<name>/workspace/ (Phase-96 D-04) without the admin
-    // having to blank the field manually.
-    expect(pathInput.value).toBe("");
+  it("Phase 88 T2: isAdmin=true → shell-only checkbox present unchecked AND Path field NOT rendered (agent mode default)", () => {
+    const { queryByLabelText, getByRole } = renderDialog({ isAdmin: true });
+    // Path field is now gated on `isAdmin && shellOnly`. Default state is
+    // agent mode (shellOnly=false), so the field stays out of the DOM — the
+    // birth branch relies on backend workspace-default substitution.
+    expect(queryByLabelText(/^path$/i)).toBeNull();
     const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
     expect(checkbox).toBeTruthy();
-    // Plan 88-02 Edit D: local state var renamed identityMode → shellOnly,
-    // useState default flipped true → false → checkbox defaults UNCHECKED.
     expect(checkbox.checked).toBe(false);
   });
 
@@ -1339,41 +1324,30 @@ describe("NewSessionDialog: Phase 88 admin-gate + backend substitution", () => {
     expect(payload.name).toBe("alicia");
   });
 
-  it("Phase 88 T4 (2026-09-11 fix): admin with blank Path → Create ENABLED (blank triggers backend workspace-default substitution)", async () => {
-    // Alice 2026-09-11: the previous "blank Path → Create disabled + inline
-    // error" behavior locked admins out of the Phase-96 workspace-default
-    // substitution. Combined with useState default "~/", it meant admin-born
-    // identities always carried a non-empty path on the wire, suppressing
-    // Chunk 2's identity-birth.ts server-side substitution to
-    // ~/fleet/identities/<name>/workspace/. Fix: blank path is now valid
-    // for admins too; backend handles the empty case per Phase 88 backend
-    // narrow. Admin who wants a specific path types one; admin who wants
-    // the Phase-96 default just leaves it blank (the new useState default).
+  it("Phase 88 T4: admin agent-mode submit sends path:'' on the wire (backend substitutes workspace default)", async () => {
+    // Regression guard for the trap the previous "admin-blank" fix left
+    // behind: normalizePath("") → "~", and the wire had been sending that
+    // through as a truthy path, defeating identity-birth.ts's empty-path
+    // substitution to ~/fleet/identities/<name>/workspace/. With the Path
+    // field now gated on `isAdmin && shellOnly`, agent-mode admin submits
+    // never touch normalizePath — they send literal empty-string.
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([]));
     const utils = renderDialog({ isAdmin: true });
     await fillIdentityForm(utils);
-    const pathInput = utils.getByLabelText(/^path$/i) as HTMLInputElement;
-    // 2026-09-11 fix: default state now blank, Create enabled from the
-    // start (pathValid is unconditionally true).
-    expect(pathInput.value).toBe("");
-    const createBtnBefore = utils.getByRole("button", {
+    // Sanity: no Path field in agent mode, Create is enabled.
+    expect(utils.queryByLabelText(/^path$/i)).toBeNull();
+    const createBtn = utils.getByRole("button", {
       name: /^(open|create|creating)/i,
     }) as HTMLButtonElement;
-    expect(createBtnBefore.disabled).toBe(false);
-    // Explicitly clearing (or leaving blank) does NOT disable Create anymore.
-    fireEvent.change(pathInput, { target: { value: "" } });
-    const createBtnAfter = utils.getByRole("button", {
-      name: /^(open|create|creating)/i,
-    }) as HTMLButtonElement;
-    expect(createBtnAfter.disabled).toBe(false);
-    // No inline error rendered for blank path.
-    expect(utils.queryByText("Path is required.")).toBeNull();
-    // Whitespace-only ALSO valid now (backend receives it and trim-checks
-    // its own way; frontend no longer gates).
-    fireEvent.change(pathInput, { target: { value: "   " } });
-    const createBtnWs = utils.getByRole("button", {
-      name: /^(open|create|creating)/i,
-    }) as HTMLButtonElement;
-    expect(createBtnWs.disabled).toBe(false);
+    expect(createBtn.disabled).toBe(false);
+    fireEvent.click(createBtn);
+    await waitFor(() => {
+      expect(mockOpenBirthStream).toHaveBeenCalledTimes(1);
+    });
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(payload.path).toBe("");
   });
 });
 

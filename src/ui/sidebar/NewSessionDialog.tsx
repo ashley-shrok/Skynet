@@ -36,8 +36,10 @@
 // revision in CreateRoleDialog.tsx same commit surface):
 //   A. Agent blurb: startDescription defaultValue byte-exact revision to
 //      the LOCKED text at 88-CONTEXT.md §Verbatim copy.
-//   B. Path field admin-gated — non-admin never renders the field. Wire
-//      complement is Edit F.
+//   B. Path field gated on `isAdmin && shellOnly` — the knob is only
+//      meaningful in the raw-shell branch (where it becomes the shell's
+//      cwd). In agent mode both admin and non-admin get the backend
+//      workspace-default substitution. Wire complement is Edit F.
 //   C. Identity-mode checkbox admin-gated + label flipped from the
 //      pre-Phase-88 wording to the Phase-88 LOCKED wording at
 //      88-CONTEXT.md §Verbatim label (U+2014 em-dash).
@@ -50,9 +52,11 @@
 //   E. Submit-onclick invariant: regular-session (raw shell) branch is
 //      gated on `isAdmin && shellOnly` (defense-in-depth so a bug in the
 //      render gate cannot leak shell access to non-admin).
-//   F. handleBirth openBirthStream sends `path: isAdmin ? normalizedPath
-//      : ""` — non-admin's empty-string triggers Plan 88-01's backend
-//      narrow at identity-birth.ts:206 which substitutes `~/<name>/`.
+//   F. handleBirth openBirthStream sends `path: ""` unconditionally.
+//      With Edit B's tightened gate the Path field never renders in agent
+//      mode, so admin and non-admin both fall through to the backend
+//      substitution at identity-birth.ts (Phase 96 D-04:
+//      `~/fleet/identities/<name>/workspace/`).
 // Depends on Plan 88-01's `isAdmin` prop (already destructured with
 // fail-closed `= false` default).
 //
@@ -232,28 +236,14 @@ export function NewSessionDialog({
   initialRole?: string | null;
   initialBrief?: string | null;
   /**
-   * Phase 88 (Plan 88-01): admin-gate wired from PrettyConversationsPanel.tsx L285
-   * (source of truth: destructured isAdmin prop with fail-closed default;
-   * forwarded from AppShell state `users.is_admin` from `/users/me`). The
-   * default at destructuring above is fail-closed — when a caller forgets to
-   * pass the prop, non-admin behavior applies (Path field + shell checkbox
-   * hidden). This matches the sibling gate at PrettyConversationsPanel.tsx
-   * L1651 for `<WeeklyUsageMeter />` and shape-create-agent-modal-ux-pass
-   * §What would make it wrong item #2/#3 ("Non-admin sees the 'Just a shell'
-   * checkbox / Path field" = leaked shell access + defeated
-   * per-agent-working-directory scoping).
-   *
-   * Downstream consumers land in Plan 88-02:
-   *   - Path field admin-gate at the current L926-942 block, wrapped in an
-   *     isAdmin-conditional JSX guard.
-   *   - Identity-mode checkbox admin-gate at the current L944-960 block,
-   *     wrapped in an isAdmin-conditional JSX guard.
-   *   - Submit-onclick invariant: non-admin submits force the agent-birth
-   *     branch regardless of local `identityMode` state, so a bug in the
-   *     render gate cannot leak shell access at submit time.
-   *
-   * Plan 88-01 lands only the destructure + type declaration; no admin-gated
-   * JSX ships in Wave 1.
+   * Admin-gate forwarded from AppShell state `users.is_admin` (via
+   * PrettyConversationsPanel). Fail-closed default: a caller that forgets
+   * the prop gets non-admin behavior. Downstream consumers:
+   *   - `Just a shell` checkbox is admin-only (JSX guard on `isAdmin`).
+   *   - Path field is `isAdmin && shellOnly`-gated — only rendered in the
+   *     raw-shell branch, where the value becomes the shell's cwd.
+   *   - Submit-onclick routes non-admin to agent-birth regardless of local
+   *     `shellOnly` state, so a render-gate bug can't leak shell access.
    */
   isAdmin?: boolean;
 }) {
@@ -262,17 +252,11 @@ export function NewSessionDialog({
   const [sessionName, setSessionName] = useState("");
   const [search, setSearch] = useState("");
 
-  // Path field — visible in BOTH modes, placed below host+name and above identity-mode checkbox.
-  // 2026-09-11 fix: default is now empty string. Previously "~/" — which meant admin submissions
-  // always carried a non-empty path on the wire, suppressing Chunk 2's backend workspace-default
-  // substitution (Phase 88 backend narrow at identity-birth.ts substitutes `~/fleet/identities/
-  // <name>/workspace/` ONLY when body.path is empty). Result before: admin-born identities landed
-  // at `~/` instead of the Phase-96 workspace path, and admins had no ergonomic way to opt back
-  // into the default (had to manually delete the field value AND clear frontend validation).
-  // After: field starts blank with a placeholder describing the default; if admin leaves it blank,
-  // backend substitutes the Phase-96 workspace path; if admin types a specific path, that overrides.
-  // Non-admins never see the field and always submit empty per handleBirth's `isAdmin ? ... : ""`
-  // ternary at :615.
+  // Path field state — the field itself only renders when isAdmin && shellOnly (see JSX gate
+  // below). In agent mode nothing reads this state; handleBirth submits `path: ""` and the
+  // backend substitutes `~/fleet/identities/<name>/workspace/` (Phase 96 D-04). In shell-only
+  // mode this state is the raw-shell cwd; blank → normalizePath returns "~" → shell opens in
+  // the user's home dir.
   const [path, setPath] = useState("");
 
   // Phase 88 (88-CONTEXT.md §Identity-mode checkbox admin-gate + inversion):
@@ -609,17 +593,16 @@ export function NewSessionDialog({
         {
           hostId: hostIdNum,
           name: name.toLowerCase(),
-          // Phase 88 (path-clear for non-admin): non-admin submissions send
-          // empty-string `path` so Plan 88-01's backend narrow at
-          // identity-birth.ts:206 substitutes `~/<name>/` server-side —
-          // non-admin agents each get their own working directory named
-          // after themselves per shape §Philosophy. Admin submits send the
-          // normalized field value (default "~/" from useState above, or
-          // any override the admin typed into the admin-only Path input).
-          // Note: normalizePath("") → "~", which would DEFEAT the backend
-          // substitution — so we bypass normalizePath for the non-admin
-          // branch by sending the literal empty string on the wire.
-          path: isAdmin ? normalizedPath : "",
+          // Phase 88 (path-clear, both branches): the Path field only
+          // renders in the raw-shell branch (see JSX gate on
+          // `effectiveShellOnly`), so an agent-birth submit — admin or
+          // non-admin — has no user-supplied path to honor. Send empty
+          // unconditionally and let the backend narrow at identity-birth.ts
+          // substitute `~/fleet/identities/<name>/workspace/` (Phase 96
+          // D-04). Bypassing normalizePath here matters because
+          // normalizePath("") → "~", which would be truthy on the backend
+          // and defeat the substitution.
+          path: "",
           // Phase 86 Plan 86-04 (D-CTX-86-inherit): title / colorHue / voice /
           // avatarCandidateId are OMITTED from the birth request. The backend
           // (identity-birth.ts + identity-birth-orchestrator.ts) accepts the
@@ -724,16 +707,9 @@ export function NewSessionDialog({
     ? name.length > 0 && IDENTITY_NAME_PATTERN.test(name)
     : SESSION_NAME_PATTERN.test(sessionName);
 
-  // 2026-09-11 fix: empty path is now the ADMIN-preferred submission shape —
-  // it triggers backend workspace-default substitution (Chunk 2's identity-
-  // birth.ts logic) so admin-born identities land at `~/fleet/identities/
-  // <name>/workspace/` per Phase-96 D-04 without the admin having to type
-  // anything. Previously this predicate rejected admin-blank submissions,
-  // which combined with the useState `"~/"` default meant admins could never
-  // opt into the default workspace path. Now: admin-blank is valid and takes
-  // the backend default; admin-typed overrides. Non-admins always send empty
-  // per handleBirth's `isAdmin ? normalizedPath : ""` ternary. Kept as a
-  // constant `true` for readability + so any future gate can hook here.
+  // Path is never blocking. In agent mode the field doesn't render and the
+  // backend substitutes the workspace default; in shell mode blank → "~".
+  // Kept as a named constant so a future gate has an obvious hook.
   const pathValid = true;
 
   // Phase 88 code-review M2 (defense-in-depth consistency): the "shell only"
@@ -940,19 +916,11 @@ export function NewSessionDialog({
             </div>
           )}
 
-          {/* Phase 88 (Path field admin-gate — 88-CONTEXT.md §Path field
-              admin-gate + 88-PATTERNS.md §2b): visible ONLY when isAdmin is
-              truthy; non-admin agents get a per-agent `~/<name>/` working
-              directory computed server-side by Plan 88-01's backend narrow
-              at identity-birth.ts:206 when body.path is empty. Mirrors the
-              in-repo canonical admin-gate idiom at
-              PrettyConversationsPanel.tsx:1651 ({isAdmin && <WeeklyUsageMeter />}).
-              Fail-closed: Plan 88-01's `isAdmin = false` destructure default
-              means callers that forget the prop get non-admin behavior
-              (field not rendered). Wire flow to backend substitution ships
-              in Edit F below (path cleared to empty-string on non-admin
-              submit at handleBirth). */}
-          {isAdmin && (
+          {/* Path field gated on `effectiveShellOnly` (= isAdmin && shellOnly).
+              Only meaningful in the raw-shell branch as the shell's cwd. In
+              agent mode (both admin and non-admin) the backend substitutes
+              the workspace default per Phase 96 D-04. */}
+          {effectiveShellOnly && (
             <div className="flex flex-col gap-1.5">
               <label
                 htmlFor="new-session-path"
@@ -965,14 +933,9 @@ export function NewSessionDialog({
                 aria-label="Path"
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
-                placeholder="Blank = ~/fleet/identities/<name>/workspace/"
+                placeholder="Working directory (blank = ~/)"
                 disabled={formDisabled}
               />
-              {/* 2026-09-11 fix: inline "Path is required" error retired.
-                  Empty is now the admin-preferred submission — it triggers
-                  backend workspace-default substitution to
-                  ~/fleet/identities/<name>/workspace/ (Phase-96 D-04). See
-                  pathValid comment above. */}
             </div>
           )}
 
