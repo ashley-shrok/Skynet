@@ -48,6 +48,10 @@ import {
   type BirthDeps,
 } from "./identity-birth-orchestrator.js";
 import {
+  acquireBirthSlot,
+  ThrottleRejectedError,
+} from "../../identity-birth/global-throttle.js";
+import {
   getCandidateForBirth,
   consumeCandidateForBirth,
 } from "./identity-avatar-batch.js";
@@ -321,6 +325,27 @@ router.post(
     }
 
     // -----------------------------------------------------------------------
+    // Phase 110: acquire a global-birth-throttle slot before opening SSE. If
+    // the queue is at capacity, reject with 429 JSON (Content-Type
+    // application/json) — do NOT flush SSE headers, because a caller that
+    // receives text/event-stream frames after a 429 status has no clean way
+    // to route the response. The 429 body carries retry_after_ms so the
+    // frontend can back off with a hint.
+    // -----------------------------------------------------------------------
+    let release: (() => void) | null = null;
+    try {
+      release = await acquireBirthSlot({ source: "http" });
+    } catch (err) {
+      if (err instanceof ThrottleRejectedError) {
+        res
+          .status(429)
+          .json({ error: "identity_birth_queue_full", retry_after_ms: err.retryAfterMs });
+        return;
+      }
+      throw err;
+    }
+
+    // -----------------------------------------------------------------------
     // Open SSE stream (headers flushed BEFORE orchestrator starts)
     // -----------------------------------------------------------------------
     res.setHeader("Content-Type", "text/event-stream");
@@ -507,6 +532,11 @@ router.post(
         }
       }
       res.end();
+      // Phase 110: release the throttle slot LAST — after res.end() has flushed
+      // pending frames but before the handler returns to Express. The
+      // global-throttle module guards release() with a local `released` flag,
+      // so a stray double-call is a no-op.
+      if (release) release();
     }
   },
 );
@@ -586,6 +616,24 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
     if (!host) {
       res.status(404).json({ error: "host not found" });
       return;
+    }
+
+    // Phase 110: acquire a global-birth-throttle slot before opening SSE. If
+    // the queue is at capacity, reject with 429 JSON (Content-Type
+    // application/json) — same discipline as the POST / handler above.
+    // Acquire happens AFTER the host-resolve 404 gate so a bad hostId
+    // doesn't needlessly hold a throttle slot.
+    let release: (() => void) | null = null;
+    try {
+      release = await acquireBirthSlot({ source: "http" });
+    } catch (err) {
+      if (err instanceof ThrottleRejectedError) {
+        res
+          .status(429)
+          .json({ error: "identity_birth_queue_full", retry_after_ms: err.retryAfterMs });
+        return;
+      }
+      throw err;
     }
 
     // Open SSE with the same envelope as the birth handler.
@@ -699,6 +747,11 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
         }
       }
       res.end();
+      // Phase 110: release the throttle slot LAST — after res.end() has flushed
+      // pending frames but before the handler returns to Express. Guarded by
+      // `if (release)` because acquire may have thrown before assigning it
+      // (though the 429 path returns early, not falls through).
+      if (release) release();
     }
   },
 );
