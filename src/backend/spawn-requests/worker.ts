@@ -24,6 +24,7 @@ import { isLocalHostId, writeMarkdownFileAtomic } from "../claude-session/identi
 import { discoverIdentitySessionFile } from "../claude-session/discover-identity-session-file.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { birthIdentity, ROLE_NAME_PATTERN, SSH_CONNECT_TIMEOUT_MS, type BirthEvent, type BirthDeps, type BirthOptions } from "../database/routes/identity-birth-orchestrator.js";
+import { acquireBirthSlot } from "../identity-birth/global-throttle.js";
 import {
   createOrUpdateUser as matrixCreateOrUpdateUser,
   loginAsUser as matrixLoginAsUser,
@@ -276,6 +277,34 @@ async function writeFailureFile(
  * Does NOT retry on failure (D-15). All outcomes produce a response file.
  */
 export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
+  // Phase 110: acquire a global-birth-throttle slot. Spawn-request-origin
+  // callers set bypassQueueDepth:true — disk-drop items are already
+  // durable, so silently dropping them on queue overflow is worse UX than
+  // piling up in memory. The throttle is orthogonal to spawn-requests/queue.ts
+  // (which stays as the FIFO consumer of disk-drop files); the throttle is
+  // the broader construct both entry points share.
+  const release = await acquireBirthSlot({
+    source: "spawn-request",
+    bypassQueueDepth: true,
+    requestId: item.uuid,
+  });
+  try {
+    await doBirth(item, deps);
+  } finally {
+    release();
+  }
+};
+
+/**
+ * Inner implementation of the birth flow — all pre-flight checks,
+ * birthIdentity invocation, and response-file drops. Separated from
+ * processBirth so the acquire/release try/finally wrapper above can remain
+ * small and readable, and to avoid a massive indentation shift across the
+ * existing 250-line body.
+ *
+ * Called exclusively by processBirth.
+ */
+const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   // 1. Log worker start
   systemLogger.info("spawn-request worker: processing birth", {
     operation: "spawn_request_worker_start",
