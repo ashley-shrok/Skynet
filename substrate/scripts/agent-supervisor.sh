@@ -1211,19 +1211,25 @@ pending_check() {
 }
 
 # matrix_peek: returns 0 if THIS identity has new events since it went dormant on ANY of its
-# Matrix accounts. Enumerates <idroot>/relay.json (primary) + <idroot>/*/relay.json (secondaries,
-# exactly one level deep — no deeper). For each discovered account it calls _matrix_peek_one
-# which REUSES that account's own recv.sh token + since cursor (from <account-dir>/relay-state/
-# {token,since}). Why cursor-reuse: the receiver's cursor was captured at time-of-dormancy, so
-# /sync?since=<that> returns EXACTLY the events that arrived while dormant — no need for a
-# separate supervisor-owned device, no fresh-login/first-seed issues (which caused the earlier
-# design to be blind to invites arriving before its own first sync). Since the receiver died
-# with the CC session, there's no concurrent user of the token. Supervisor does NOT write back
-# to since — receiver picks up from the same cursor on wake and backfills naturally.
+# Matrix accounts. Enumerates BY CONTENT: any *.json file at <idroot>/ or <idroot>/*/ that
+# contains base + user_id + password keys counts as a relay account. State dir is derived
+# from the cred file's stem — <stem>-state/ as a sibling folder (so relay.json → relay-state/,
+# relay-aithercloud.json → relay-aithercloud-state/, <subdir>/relay.json → <subdir>/relay-state/).
+# This matches ambient-monitor.py's discovery so both scripts agree on which files are creds
+# and where each account's state lives.
+#
+# For each discovered account _matrix_peek_one REUSES that account's own recv.sh token +
+# since cursor (from <state-dir>/{token,since}). Why cursor-reuse: the receiver's cursor was
+# captured at time-of-dormancy, so /sync?since=<that> returns EXACTLY the events that arrived
+# while dormant — no need for a separate supervisor-owned device, no fresh-login/first-seed
+# issues (which caused the earlier design to be blind to invites arriving before its own first
+# sync). Since the receiver died with the CC session, there's no concurrent user of the token.
+# Supervisor does NOT write back to since — receiver picks up from the same cursor on wake
+# and backfills naturally.
 #
 # On 401 (token expired/revoked) for a given account, _matrix_peek_one falls back to fresh login
-# using THAT account's relay.json password + saves the NEW token back to THAT account's own
-# relay-state/token (matches recv.sh's own 401 behavior — that path is proven; per-account isolation
+# using THAT account's cred-file password + saves the NEW token back to THAT account's own
+# state-dir/token (matches recv.sh's own 401 behavior — that path is proven; per-account isolation
 # ensures a stale primary token doesn't clobber a healthy secondary and vice versa).
 #
 # The enumerator does NOT early-return on wake — it iterates every account so each one's own 401
@@ -1232,11 +1238,15 @@ _matrix_peek_one() {
   local name="$1"
   local rj="$2"
   local rs="$3"
-  local account
-  if [ "$(dirname "$rj")" = "$IDENTITIES_DIR/$name" ]; then
-    account="primary"
+  # Account label mirrors ambient-monitor.py's labeling: filename stem at top level,
+  # "<subdir>/<stem>" one deep. Used in metric lines only — no behavior depends on it.
+  local account stem parent_dir
+  stem=$(basename "$rj" .json)
+  parent_dir=$(dirname "$rj")
+  if [ "$parent_dir" = "$IDENTITIES_DIR/$name" ]; then
+    account="$stem"
   else
-    account=$(basename "$(dirname "$rj")")
+    account="$(basename "$parent_dir")/$stem"
   fi
   [ -f "$rj" ] || return 1
   [ -d "$rs" ] || return 1
@@ -1293,14 +1303,23 @@ matrix_peek() {
   local name="$1"
   local idroot="$IDENTITIES_DIR/$name"
   local wake=1
-  # nullglob so an empty <idroot>/*/relay.json glob yields zero iterations, not a literal '*'
-  # string. Save & restore prior nullglob state so we don't leak the option to the caller.
+  # nullglob so an empty *.json glob yields zero iterations, not a literal '*' string.
+  # Save & restore prior nullglob state so we don't leak the option to the caller.
   local restore_nullglob
   restore_nullglob=$(shopt -p nullglob)
   shopt -s nullglob
-  local rj rs rc
-  for rj in "$idroot/relay.json" "$idroot"/*/relay.json; do
-    rs="$(dirname "$rj")/relay-state"
+  local rj rs rc stem
+  for rj in "$idroot"/*.json "$idroot"/*/*.json; do
+    # Content filter: only files with base + user_id + password count as cred files.
+    # Filters out wakeups/*.json (name/schedule/instruction), relay-state/*.json (login/req
+    # bodies), and any unrelated JSON that lands in the identity tree.
+    jq -e 'type == "object" and (has("base") and has("user_id") and has("password"))
+           and (.base | type == "string" and length > 0)
+           and (.user_id | type == "string" and length > 0)
+           and (.password | type == "string" and length > 0)' \
+      "$rj" >/dev/null 2>&1 || continue
+    stem=$(basename "$rj" .json)
+    rs="$(dirname "$rj")/${stem}-state"
     _matrix_peek_one "$name" "$rj" "$rs"; rc=$?
     # Do NOT break on wake — remaining accounts still need their own 401-refresh cycle to run
     # so stale tokens on quiet accounts don't rot. wake tracks the "any account woke" bit.

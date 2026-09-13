@@ -39,6 +39,7 @@ Vendored into Skynet's substrate and distributed to every host running agent
 substrate. Stdlib only.
 """
 
+import json
 import os
 import re
 import sys
@@ -89,13 +90,65 @@ try:
 except (OSError, ValueError):
     pass
 
-# recv.sh needs STATE_DIR to exist before it launches. Its cred resolver derives
-# the creds path as `$(dirname $STATE_DIR)/relay.json`, so STATE_DIR MUST land
-# inside the identity folder or the resolver silently comes up empty and the
-# receiver becomes a silent-deafness zombie. Belt-and-suspenders: create the
-# directory here even though a fresh /id load has usually already done so.
-RELAY_STATE = IDENTITY_DIR / "relay-state"
-RELAY_STATE.mkdir(parents=True, exist_ok=True)
+# --------------------------------------------------- relay account discovery
+# Enumerate relay accounts BY CONTENT, not filename. Any *.json file at
+# <idroot>/ or <idroot>/*/ that contains base + user_id + password keys is
+# treated as a Matrix relay account. State dir = same folder as the cred file,
+# named after the filename stem + "-state" (so relay.json → relay-state/,
+# relay-aithercloud.json → relay-aithercloud-state/, aithercloud/relay.json →
+# aithercloud/relay-state/).
+#
+# Why content-based instead of a narrower filename glob: agents self-registering
+# on secondary homeservers name their cred files however feels natural at the
+# time (george/relay-aithercloud.json, etc.). A wider glob + a strict content
+# filter picks up whatever they choose without prescribing a naming convention.
+# The old exactly-relay.json / <subdir>/relay.json layout is a strict subset —
+# every previous identity keeps working because "relay" + "-state" = the
+# existing "relay-state" folder.
+#
+# recv.sh needs STATE_DIR to exist before it launches. Its cred resolver walks
+# `$(dirname $STATE_DIR)/relay.json` by default, so we ALSO set RELAY_CREDS
+# explicitly to the exact file (recv.sh L19 honors this env var) — that way the
+# resolver doesn't have to guess when the filename is anything other than
+# relay.json.
+RELAY_REQUIRED_KEYS = ("base", "user_id", "password")
+
+
+def _looks_like_relay_creds(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    return all(isinstance(data.get(k), str) and data[k] for k in RELAY_REQUIRED_KEYS)
+
+
+def _discover_relay_accounts(idroot):
+    """Return list of (cred_path, state_dir, label) for every relay account.
+    Enumerates one level deep. Deterministic (sorted) so wake lines + metric
+    labels stay stable across launches.
+    """
+    accounts = []
+    candidates = sorted(idroot.glob("*.json")) + sorted(idroot.glob("*/*.json"))
+    for c in candidates:
+        if not c.is_file() or not _looks_like_relay_creds(c):
+            continue
+        state_dir = c.parent / (c.stem + "-state")
+        # Label mirrors the supervisor's matrix_peek account naming: filename
+        # stem at top level; "<subdir>/<stem>" when nested one deep.
+        if c.parent == idroot:
+            label = c.stem
+        else:
+            label = "%s/%s" % (c.parent.name, c.stem)
+        accounts.append((c, state_dir, label))
+    return accounts
+
+
+RELAY_ACCOUNTS = _discover_relay_accounts(IDENTITY_DIR)
+for _, _sd, _ in RELAY_ACCOUNTS:
+    _sd.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------- coord detection
@@ -154,29 +207,30 @@ ROLE_NAME, IS_COORDINATOR = _read_frontmatter(IDENTITY_FILE)
 # of policy — coordinator-vs-actor — and uses it here at spawn time. From this
 # point on, dispatch is dumb: each entry in CHILDREN just gets spawned and
 # forwarded.
-CHILDREN = [
-    {
-        "name": "relay-receiver",
+CHILDREN = []
+for _cred_path, _state_dir, _label in RELAY_ACCOUNTS:
+    CHILDREN.append({
+        "name": "relay-receiver:%s" % _label,
         "cmd": ["bash", str(HOME / ".claude/skills/agent-relay/recv.sh")],
         "env_extra": {
-            "STATE_DIR": str(RELAY_STATE),
-            "SINCE_FILE": str(RELAY_STATE / "since"),
+            "STATE_DIR": str(_state_dir),
+            "SINCE_FILE": str(_state_dir / "since"),
+            "RELAY_CREDS": str(_cred_path),
         },
         "critical": True,
-    },
-    {
-        "name": "wakeup-scheduler",
-        "cmd": ["python3", str(HOME / ".local/bin/wakeup-scheduler"), str(IDENTITY_DIR)],
-        "env_extra": {},
-        "critical": False,
-    },
-    {
-        "name": "context-watch",
-        "cmd": ["python3", str(HOME / ".local/bin/context-watch"), str(IDENTITY_DIR)],
-        "env_extra": {},
-        "critical": False,
-    },
-]
+    })
+CHILDREN.append({
+    "name": "wakeup-scheduler",
+    "cmd": ["python3", str(HOME / ".local/bin/wakeup-scheduler"), str(IDENTITY_DIR)],
+    "env_extra": {},
+    "critical": False,
+})
+CHILDREN.append({
+    "name": "context-watch",
+    "cmd": ["python3", str(HOME / ".local/bin/context-watch"), str(IDENTITY_DIR)],
+    "env_extra": {},
+    "critical": False,
+})
 
 if IS_COORDINATOR:
     # Coordinators: no file-watch (they don't hold role or identity file in
@@ -389,6 +443,16 @@ def _reap_loop():
 
 
 # ---------------------------------------------------------------- go
+if not RELAY_ACCOUNTS:
+    emit_wake(
+        "⚠️ [ambient-monitor: %s] NO RELAY ACCOUNTS DISCOVERED — no *.json file in "
+        "%s or its immediate subdirectories has base+user_id+password keys. Identity "
+        "is deaf to inbound DMs until creds are provisioned. Other watchers still "
+        "starting." % (IDENTITY_NAME, IDENTITY_DIR)
+    )
+else:
+    emit_diag("discovered %d relay account(s): %s"
+              % (len(RELAY_ACCOUNTS), ", ".join(a[2] for a in RELAY_ACCOUNTS)))
 emit_diag("starting %d child(ren) for identity %s (role=%s, coordinator=%s, harness_pid=%s)"
           % (len(CHILDREN), IDENTITY_NAME, ROLE_NAME, IS_COORDINATOR, HARNESS_PID))
 for spec in CHILDREN:
