@@ -1,22 +1,23 @@
 /**
- * Phase 98 plan 06 — voice route tests, rewritten to consume AWS SDK adapters.
+ * Phase 109 plan 03 — voice route tests, rewired to Amazon Nova Sonic on Bedrock.
  *
  * Handler-level tests (no Express harness, no auth middleware — the auth gate
  * is verified by construction: the route wires authenticateJWT before multer
  * before the handler in voice.ts). Follows the handleConsoleLog pattern from
  * debug.test.ts.
  *
- * SDK strategy: `@aws-sdk/client-polly` and `@aws-sdk/client-transcribe-streaming`
- * are mocked at module level via `vi.hoisted` + `vi.mock` — the same pattern
- * used by polly-adapter.test.ts + transcribe-adapter.test.ts (Plan 04). No real
- * AWS call is made from this file. audio-transcode.ts is mocked so its ffmpeg
- * spawn is replaced by pass-through stub buffers (per-test overrides trigger
- * the FLAC fallback path).
+ * SDK strategy: `@aws-sdk/client-polly` is mocked at module level via
+ * `vi.hoisted` + `vi.mock`. The Nova Sonic adapter (`nova-sonic-adapter.ts`)
+ * and audio-transcode helper (`webmToPcm16k`) are each mocked as adapter
+ * facades — the same pattern used by polly-adapter.test.ts (Plan 04). No real
+ * AWS call is made from this file.
  *
  * NOT tested here (dropped or covered elsewhere):
  *   - `handleListVoices` — deleted entirely per D-Claude's-discretion 2026-09-10.
  *   - Chatterbox-URL forwarding — dead; the old shared-constants module (Phase
  *     79 Plan 02) was deleted in Phase 98 Plan 10 alongside all its imports.
+ *   - Chunked-path tests from the prior Phase (T1-T6) — deleted per D-CUTOVER (109-03);
+ *     equivalent coverage lives in the rewritten handleTranscribe block below.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -30,16 +31,12 @@ const {
   pollyClientCtor,
   synthesizeSpeechCmdCtor,
   pollySendMock,
-  transcribeClientCtor,
-  startStreamCmdCtor,
-  transcribeSendMock,
+  transcribeNovaSonicMock,
 } = vi.hoisted(() => ({
   pollyClientCtor: vi.fn(),
   synthesizeSpeechCmdCtor: vi.fn(),
   pollySendMock: vi.fn(),
-  transcribeClientCtor: vi.fn(),
-  startStreamCmdCtor: vi.fn(),
-  transcribeSendMock: vi.fn(),
+  transcribeNovaSonicMock: vi.fn(),
 }));
 
 // AWS SDK mocks — function-ctor pattern so `new PollyClient(...)` works.
@@ -55,28 +52,17 @@ vi.mock("@aws-sdk/client-polly", () => {
   return { PollyClient, SynthesizeSpeechCommand };
 });
 
-vi.mock("@aws-sdk/client-transcribe-streaming", () => {
-  function TranscribeStreamingClient(this: unknown, cfg: unknown) {
-    transcribeClientCtor(cfg);
-    (this as { send: unknown }).send = transcribeSendMock;
-  }
-  function StartStreamTranscriptionCommand(this: unknown, input: unknown) {
-    startStreamCmdCtor(input);
-    (this as { input: unknown }).input = input;
-  }
-  return { TranscribeStreamingClient, StartStreamTranscriptionCommand };
-});
-
-// audio-transcode mock — stub webmToFlac so tests exercise the transcode
+// audio-transcode mock — stub webmToPcm16k so tests exercise the transcode
 // plumbing in handleTranscribe without spawning real ffmpeg.
 vi.mock("../../voice/audio-transcode.js", () => ({
-  webmToFlac: vi.fn(async (buf: Buffer) => buf),
+  webmToPcm16k: vi.fn(async (buf: Buffer) => buf),
 }));
 
-// Phase 100 Plan 04: mock transcribe-orchestrator so tests can verify
-// chunked-path routing without spawning real ffmpeg / Transcribe streams.
-vi.mock("../../voice/transcribe-orchestrator.js", () => ({
-  transcribeBufferChunked: vi.fn(),
+// Nova Sonic adapter facade mock — matches the polly-adapter pattern.
+// Route tests verify adapter call count + args; the adapter's own unit tests
+// cover the Bedrock session protocol (nova-sonic-adapter.test.ts).
+vi.mock("../../voice/nova-sonic-adapter.js", () => ({
+  transcribeNovaSonic: transcribeNovaSonicMock,
 }));
 
 // Skill-catalog fetcher stub — same reason as before (avoid SSH round-trip).
@@ -117,11 +103,10 @@ import {
   handleSpeakStream,
   DEFAULT_VOICE,
   SPEAK_TEXT_MAX,
-  CHUNKED_THRESHOLD_BYTES,
 } from "./voice.js";
 import { fetchSkillCatalog } from "../../voice/skill-catalog.js";
-import { webmToFlac } from "../../voice/audio-transcode.js";
-import { transcribeBufferChunked } from "../../voice/transcribe-orchestrator.js";
+import { webmToPcm16k } from "../../voice/audio-transcode.js";
+import { transcribeNovaSonic } from "../../voice/nova-sonic-adapter.js";
 import fs from "node:fs";
 
 // -----------------------------------------------------------------------------
@@ -228,31 +213,8 @@ function makeSpeakReq(body: Record<string, unknown>): { body: Record<string, unk
 }
 
 // -----------------------------------------------------------------------------
-// Helpers: fake Transcribe result streams + Polly Readables.
+// Helpers: Polly Readables + error factories.
 // -----------------------------------------------------------------------------
-
-function fakeTranscriptStream(
-  results: Array<{ IsPartial: boolean; transcript: string }>,
-): AsyncIterable<unknown> {
-  return {
-    async *[Symbol.asyncIterator]() {
-      for (const r of results) {
-        yield {
-          TranscriptEvent: {
-            Transcript: {
-              Results: [
-                {
-                  IsPartial: r.IsPartial,
-                  Alternatives: [{ Transcript: r.transcript }],
-                },
-              ],
-            },
-          },
-        };
-      }
-    },
-  };
-}
 
 function makeAccessDeniedError(): Error {
   const err = new Error("User is not authorized to perform this action");
@@ -273,13 +235,11 @@ beforeEach(() => {
   vi.mocked(fs.promises.writeFile).mockResolvedValue(undefined);
   vi.mocked(fs.promises.mkdir).mockResolvedValue(undefined);
   pollySendMock.mockReset();
-  transcribeSendMock.mockReset();
   synthesizeSpeechCmdCtor.mockClear();
-  startStreamCmdCtor.mockClear();
-  vi.mocked(webmToFlac).mockReset();
-  vi.mocked(webmToFlac).mockImplementation(async (buf: Buffer) => buf);
+  transcribeNovaSonicMock.mockReset();
+  vi.mocked(webmToPcm16k).mockReset();
+  vi.mocked(webmToPcm16k).mockImplementation(async (buf: Buffer) => buf);
   vi.mocked(fetchSkillCatalog).mockReset();
-  vi.mocked(transcribeBufferChunked).mockReset();
 });
 
 afterEach(() => {
@@ -287,20 +247,16 @@ afterEach(() => {
 });
 
 // =============================================================================
-// handleTranscribe — happy path + disk-bank + slash-transform + fallback + AccessDenied
+// handleTranscribe — happy path + disk-bank + slash-transform + 502/503 errors
 // =============================================================================
 
-describe("handleTranscribe (AWS Transcribe streaming)", () => {
-  it("returns 200 with {text} from Transcribe when webm arrives (flac default path)", async () => {
+describe("handleTranscribe (Amazon Nova Sonic on Bedrock)", () => {
+  it("returns 200 with {text} from Nova Sonic when webm arrives (single path)", async () => {
     const audioBytes = Buffer.from("fake webm bytes");
     const req = makeReq({ buffer: audioBytes, mimetype: "audio/webm", size: audioBytes.length });
     const res = makeRes();
 
-    transcribeSendMock.mockResolvedValueOnce({
-      TranscriptResultStream: fakeTranscriptStream([
-        { IsPartial: false, transcript: "hello world" },
-      ]),
-    });
+    transcribeNovaSonicMock.mockResolvedValueOnce("hello world");
 
     await handleTranscribe(
       req as unknown as import("express").Request,
@@ -309,10 +265,12 @@ describe("handleTranscribe (AWS Transcribe streaming)", () => {
 
     expect(res._status).toBe(200);
     expect((res._body as { text: string }).text).toBe("hello world");
-    expect(vi.mocked(webmToFlac)).toHaveBeenCalledTimes(1);
-    const cmdArgs = startStreamCmdCtor.mock.calls[0]?.[0];
-    expect(cmdArgs.MediaEncoding).toBe("flac");
-    expect(cmdArgs.MediaSampleRateHertz).toBe(48000);
+    // Single path: webmToPcm16k called once, transcribeNovaSonic called once.
+    expect(vi.mocked(webmToPcm16k)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(transcribeNovaSonic)).toHaveBeenCalledTimes(1);
+    // transcribeNovaSonic receives the buffer returned by webmToPcm16k.
+    const pcmBuf = await vi.mocked(webmToPcm16k).mock.results[0]?.value;
+    expect(vi.mocked(transcribeNovaSonic)).toHaveBeenCalledWith(pcmBuf);
   });
 
   it("returns 400 when req.file is missing", async () => {
@@ -328,16 +286,12 @@ describe("handleTranscribe (AWS Transcribe streaming)", () => {
     expect((res._body as { error: string }).error).toBe("missing file field");
   });
 
-  it("disk-bank writes raw multipart bytes BEFORE any transcode (Pitfall 6)", async () => {
+  it("disk-bank writes raw multipart bytes BEFORE any transcode (Pitfall 6 / D-14)", async () => {
     const audioBytes = Buffer.from("raw-webm-bytes-fixture");
     const req = makeReq({ buffer: audioBytes, mimetype: "audio/webm", size: audioBytes.length });
     const res = makeRes();
 
-    transcribeSendMock.mockResolvedValueOnce({
-      TranscriptResultStream: fakeTranscriptStream([
-        { IsPartial: false, transcript: "hello" },
-      ]),
-    });
+    transcribeNovaSonicMock.mockResolvedValueOnce("hello");
 
     await handleTranscribe(
       req as unknown as import("express").Request,
@@ -360,18 +314,18 @@ describe("handleTranscribe (AWS Transcribe streaming)", () => {
     expect(Buffer.isBuffer(writtenData)).toBe(true);
     expect(writtenData.equals(audioBytes)).toBe(true);
 
-    // Call-ordering: mkdir was invoked BEFORE webmToFlac (bank-write kicks off first).
+    // Call-ordering: mkdir was invoked BEFORE webmToPcm16k (bank-write kicks off first).
     const mkdirOrder = vi.mocked(fs.promises.mkdir).mock.invocationCallOrder[0];
-    const transcodeOrder = vi.mocked(webmToFlac).mock.invocationCallOrder[0];
+    const transcodeOrder = vi.mocked(webmToPcm16k).mock.invocationCallOrder[0];
     expect(mkdirOrder).toBeLessThan(transcodeOrder);
   });
 
-  it("returns 502 when webmToFlac throws", async () => {
+  it("returns 502 when webmToPcm16k throws", async () => {
     const audioBytes = Buffer.from("raw webm");
     const req = makeReq({ buffer: audioBytes, mimetype: "audio/webm", size: audioBytes.length });
     const res = makeRes();
 
-    vi.mocked(webmToFlac).mockRejectedValueOnce(new Error("flac transcode failed"));
+    vi.mocked(webmToPcm16k).mockRejectedValueOnce(new Error("pcm transcode failed"));
 
     await handleTranscribe(
       req as unknown as import("express").Request,
@@ -384,12 +338,12 @@ describe("handleTranscribe (AWS Transcribe streaming)", () => {
     expect(typeof body.error).toBe("string");
   });
 
-  it("returns 503 when Transcribe throws AccessDeniedException (P98-OFF-01)", async () => {
+  it("returns 503 when Nova Sonic throws AccessDeniedException (T-109-03-01)", async () => {
     const audioBytes = Buffer.from("raw webm");
     const req = makeReq({ buffer: audioBytes, mimetype: "audio/webm", size: audioBytes.length });
     const res = makeRes();
 
-    transcribeSendMock.mockRejectedValueOnce(makeAccessDeniedError());
+    transcribeNovaSonicMock.mockRejectedValueOnce(makeAccessDeniedError());
 
     await handleTranscribe(
       req as unknown as import("express").Request,
@@ -411,11 +365,7 @@ describe("handleTranscribe (AWS Transcribe streaming)", () => {
     (req as unknown as { userId: string }).userId = "user-1";
     const res = makeRes();
 
-    transcribeSendMock.mockResolvedValueOnce({
-      TranscriptResultStream: fakeTranscriptStream([
-        { IsPartial: false, transcript: "slash gsd status" },
-      ]),
-    });
+    transcribeNovaSonicMock.mockResolvedValueOnce("slash gsd status");
     vi.mocked(fetchSkillCatalog).mockResolvedValue(new Set(["gsd", "bounty"]));
 
     await handleTranscribe(
@@ -437,11 +387,7 @@ describe("handleTranscribe (AWS Transcribe streaming)", () => {
     (req as unknown as { userId: string }).userId = "user-1";
     const res = makeRes();
 
-    transcribeSendMock.mockResolvedValueOnce({
-      TranscriptResultStream: fakeTranscriptStream([
-        { IsPartial: false, transcript: "hello world" },
-      ]),
-    });
+    transcribeNovaSonicMock.mockResolvedValueOnce("hello world");
 
     await handleTranscribe(
       req as unknown as import("express").Request,
@@ -747,158 +693,3 @@ describe("handleSpeakStream (AWS Polly, streaming with chunk-and-stitch)", () =>
   });
 });
 
-// =============================================================================
-// handleTranscribe — Phase 100 Plan 04: fast-path gate + chunked-path routing
-// =============================================================================
-
-describe("handleTranscribe — Phase 100 chunked path routing", () => {
-  // T1: Short clips (below threshold) still use the single-stream path (D-05).
-  it("T1 (D-05 fast-path): short clip below threshold calls single-stream transcribeBuffer, NOT chunked", async () => {
-    // CHUNKED_THRESHOLD_BYTES = 80_000; use a buffer well below that.
-    const shortFlac = Buffer.alloc(10_000, 0);
-    // webmToFlac pass-through: the returned buffer is what voice.ts sees.
-    vi.mocked(webmToFlac).mockResolvedValueOnce(shortFlac);
-
-    const req = makeReq({ buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 });
-    const res = makeRes();
-
-    transcribeSendMock.mockResolvedValueOnce({
-      TranscriptResultStream: fakeTranscriptStream([
-        { IsPartial: false, transcript: "hello world" },
-      ]),
-    });
-
-    await handleTranscribe(
-      req as unknown as import("express").Request,
-      res as unknown as import("express").Response,
-    );
-
-    expect(res._status).toBe(200);
-    expect((res._body as { text: string }).text).toBe("hello world");
-    // Single-stream path fired.
-    expect(transcribeSendMock).toHaveBeenCalledTimes(1);
-    // Chunked path must NOT have been called.
-    expect(vi.mocked(transcribeBufferChunked)).not.toHaveBeenCalled();
-  });
-
-  // T2: Long clips (at/above threshold) route to the chunked orchestrator (D-06).
-  it("T2 (D-06 chunked routing): long clip at/above threshold calls transcribeBufferChunked, NOT single-stream", async () => {
-    const longFlac = Buffer.alloc(100_000, 0); // above 80_000 threshold
-    vi.mocked(webmToFlac).mockResolvedValueOnce(longFlac);
-
-    const req = makeReq({ buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 });
-    const res = makeRes();
-
-    vi.mocked(transcribeBufferChunked).mockResolvedValueOnce("chunked transcript from parallel path");
-
-    await handleTranscribe(
-      req as unknown as import("express").Request,
-      res as unknown as import("express").Response,
-    );
-
-    expect(res._status).toBe(200);
-    expect((res._body as { text: string }).text).toBe("chunked transcript from parallel path");
-    // Chunked path was called with the FLAC buffer AND sampleRateHz=48000.
-    expect(vi.mocked(transcribeBufferChunked)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(transcribeBufferChunked)).toHaveBeenCalledWith(longFlac, 48000);
-    // Single-stream path must NOT have been called.
-    expect(transcribeSendMock).not.toHaveBeenCalled();
-  });
-
-  // T3: AccessDenied from the chunked path → 503 via the existing catch block (D-12).
-  it("T3 (chunked AccessDenied → 503): transcribeBufferChunked AccessDenied returns 503 with fixed shape", async () => {
-    const longFlac = Buffer.alloc(100_000, 0);
-    vi.mocked(webmToFlac).mockResolvedValueOnce(longFlac);
-
-    const req = makeReq({ buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 });
-    const res = makeRes();
-
-    vi.mocked(transcribeBufferChunked).mockRejectedValueOnce(makeAccessDeniedError());
-
-    await handleTranscribe(
-      req as unknown as import("express").Request,
-      res as unknown as import("express").Response,
-    );
-
-    expect(res._status).toBe(503);
-    const body = res._body as { error: string; status: number };
-    expect(body.error).toBe("voice STT unavailable");
-    expect(body.status).toBe(503);
-  });
-
-  // T4: Generic failure from the chunked path → 502 via the existing catch block (D-12).
-  it("T4 (chunked generic error → 502): transcribeBufferChunked network error returns 502 with fixed shape", async () => {
-    const longFlac = Buffer.alloc(100_000, 0);
-    vi.mocked(webmToFlac).mockResolvedValueOnce(longFlac);
-
-    const req = makeReq({ buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 });
-    const res = makeRes();
-
-    vi.mocked(transcribeBufferChunked).mockRejectedValueOnce(new Error("network timeout"));
-
-    await handleTranscribe(
-      req as unknown as import("express").Request,
-      res as unknown as import("express").Response,
-    );
-
-    expect(res._status).toBe(502);
-    const body = res._body as { error: string; status: number };
-    expect(body.error).toBe("STT error");
-    expect(body.status).toBe(502);
-  });
-
-  // T5: D-13 slash-transform still fires on chunked-path output.
-  it("T5 (D-13 preservation): slash-transform fires on chunked-path transcript", async () => {
-    const longFlac = Buffer.alloc(100_000, 0);
-    vi.mocked(webmToFlac).mockResolvedValueOnce(longFlac);
-
-    const req = makeReq(
-      { buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 },
-      { hostId: "42" },
-    );
-    (req as unknown as { userId: string }).userId = "user-1";
-    const res = makeRes();
-
-    vi.mocked(transcribeBufferChunked).mockResolvedValueOnce("slash gsd status");
-    vi.mocked(fetchSkillCatalog).mockResolvedValue(new Set(["gsd", "bounty"]));
-
-    await handleTranscribe(
-      req as unknown as import("express").Request,
-      res as unknown as import("express").Response,
-    );
-
-    expect(res._status).toBe(200);
-    // The slash-transform should have converted "slash gsd status" → "/gsd status".
-    expect((res._body as { text: string }).text).toBe("/gsd status");
-    expect(vi.mocked(fetchSkillCatalog)).toHaveBeenCalledWith(42, "user-1", 10_000);
-  });
-
-  // T6: D-14 disk-bank write still fires for the chunked path (write ordering preserved).
-  it("T6 (D-14 preservation): disk-bank write fires for chunked-path requests (mkdir + writeFile called)", async () => {
-    const longFlac = Buffer.alloc(100_000, 0);
-    vi.mocked(webmToFlac).mockResolvedValueOnce(longFlac);
-
-    const req = makeReq({ buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 });
-    const res = makeRes();
-
-    vi.mocked(transcribeBufferChunked).mockResolvedValueOnce("chunked result");
-
-    await handleTranscribe(
-      req as unknown as import("express").Request,
-      res as unknown as import("express").Response,
-    );
-
-    // Settle fire-and-forget microtasks.
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // Both disk-bank ops must have been called.
-    expect(vi.mocked(fs.promises.mkdir)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(fs.promises.writeFile)).toHaveBeenCalledTimes(1);
-
-    // mkdir must have been called BEFORE transcribeBufferChunked (D-14 ordering).
-    const mkdirOrder = vi.mocked(fs.promises.mkdir).mock.invocationCallOrder[0];
-    const chunkedOrder = vi.mocked(transcribeBufferChunked).mock.invocationCallOrder[0];
-    expect(mkdirOrder).toBeLessThan(chunkedOrder);
-  });
-});
