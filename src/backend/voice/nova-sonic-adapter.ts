@@ -348,6 +348,17 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
       // silently discarded and the loop only terminated when the AsyncIterable
       // naturally ended, producing `transcribe-ok textLen=0`.
       const inner = parsed.event as Record<string, unknown> | undefined;
+      // DIAGNOSTIC (temporary — remove after Alice's UAT loop closes):
+      // dump every parsed frame so we can see what Bedrock actually sends.
+      databaseLogger.info(
+        `[nova-sonic-DIAG] rx-frame keys=${Object.keys(parsed).join(",")} innerKeys=${inner ? Object.keys(inner).join(",") : "<none>"}`,
+        {
+          operation: "nova_sonic_diag_rx_frame",
+          rawKeys: Object.keys(parsed),
+          innerKeys: inner ? Object.keys(inner) : null,
+          rawSample: JSON.stringify(parsed).slice(0, 400),
+        },
+      );
       if (inner === undefined) continue;
 
       // Terminate on completionEnd (D-TERM)
