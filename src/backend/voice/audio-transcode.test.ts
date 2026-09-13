@@ -51,6 +51,7 @@ vi.mock("node:child_process", () => ({
 const {
   webmToOggOpus,
   webmToFlac,
+  webmToPcm16k,
   SILENCE_TRIM_MIN_SEC,
   SILENCE_TRIM_PAD_SEC,
   SILENCE_TRIM_THRESHOLD_DB,
@@ -194,5 +195,81 @@ describe("audio-transcode.webmToFlac — fallback full-transcode path", () => {
     fake.stderr.emit("data", Buffer.from("flac encoder failed"));
     fake.emit("close", 2);
     await expect(promise).rejects.toThrow(/flac encoder failed/);
+  });
+});
+
+describe("audio-transcode.webmToPcm16k — ffmpeg WebM → LPCM 16 kHz s16le mono transcode", () => {
+  let fake: FakeChildProcess;
+
+  beforeEach(() => {
+    fake = new FakeChildProcess();
+    spawnMock.mockReset();
+    spawnMock.mockReturnValueOnce(fake);
+  });
+
+  it("spawns ffmpeg with the exact LPCM 16 kHz s16le argv", async () => {
+    const promise = webmToPcm16k(Buffer.from([0]));
+    fake.stdout.emit("data", Buffer.from([0xff]));
+    fake.emit("close", 0);
+    await promise;
+
+    const [bin, args] = spawnMock.mock.calls[0];
+    expect(bin).toBe("ffmpeg");
+    expect(args).toEqual([
+      "-i",
+      "pipe:0",
+      "-af",
+      `silenceremove=stop_periods=-1:stop_duration=${SILENCE_TRIM_MIN_SEC}:stop_threshold=${SILENCE_TRIM_THRESHOLD_DB}dB:stop_silence=${SILENCE_TRIM_PAD_SEC}`,
+      "-ar",
+      "16000",
+      "-ac",
+      "1",
+      "-f",
+      "s16le",
+      "pipe:1",
+    ]);
+  });
+
+  it("embeds the silence-trim tuning constants in the -af filter chain", async () => {
+    const promise = webmToPcm16k(Buffer.from([0]));
+    fake.stdout.emit("data", Buffer.from([0xff]));
+    fake.emit("close", 0);
+    await promise;
+
+    const [, args] = spawnMock.mock.calls[0];
+    const afIdx = (args as string[]).indexOf("-af");
+    expect(afIdx).toBeGreaterThanOrEqual(0);
+    const filter = (args as string[])[afIdx + 1];
+    expect(filter).toContain(`stop_duration=${SILENCE_TRIM_MIN_SEC}`);
+    expect(filter).toContain(`stop_silence=${SILENCE_TRIM_PAD_SEC}`);
+    expect(filter).toContain(`stop_threshold=${SILENCE_TRIM_THRESHOLD_DB}dB`);
+    expect(filter).toContain("stop_periods=-1");
+  });
+
+  it("feeds the input buffer to stdin via .end(buf)", async () => {
+    const input = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
+    const promise = webmToPcm16k(input);
+    fake.stdout.emit("data", Buffer.from([0]));
+    fake.emit("close", 0);
+    await promise;
+    expect(fake.stdin.end).toHaveBeenCalledTimes(1);
+    expect(fake.stdin.end).toHaveBeenCalledWith(input);
+  });
+
+  it("resolves to Buffer.concat(stdout chunks) on close code 0", async () => {
+    const promise = webmToPcm16k(Buffer.from([0]));
+    fake.stdout.emit("data", Buffer.from([0x11, 0x22]));
+    fake.stdout.emit("data", Buffer.from([0x33]));
+    fake.emit("close", 0);
+    const result = await promise;
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.equals(Buffer.from([0x11, 0x22, 0x33]))).toBe(true);
+  });
+
+  it("rejects with error including stderr text on non-zero exit", async () => {
+    const promise = webmToPcm16k(Buffer.from([0]));
+    fake.stderr.emit("data", Buffer.from("pcm encoder failed"));
+    fake.emit("close", 3);
+    await expect(promise).rejects.toThrow(/pcm encoder failed/);
   });
 });
