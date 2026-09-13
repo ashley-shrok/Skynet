@@ -155,23 +155,27 @@ const HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS = 60_000;
 const WORKING_SET_CAP = 20;
 
 /**
- * Phase 62 Wave 1 — client-side pending-send timeout constants.
- *
- * PENDING_SEND_TIMEOUT_MS_NORMAL applies when a send is armed while the
- * pane is NOT dormant — matches the historical 20000ms behavior from
- * Phase 50 Plan 03.
+ * Client-side pending-send timeout constants.
  *
  * PENDING_SEND_TIMEOUT_MS_DORMANT applies when a send is armed while
- * dormantRef.current === true. Sizing rationale per D-62-02: the backend
+ * dormantRef.current === true. Sizing per D-62-02: the backend
  * pv-send-watchdog (src/backend/claude-session/pv-send-watchdog.ts) waits
  * up to MARKER_FALLBACK_MS_MIRROR (90_000ms) for the .resume-complete
- * marker before it even arms its own dormant-send watchdog, whose
- * GIVE_UP_MS_DORMANT is currently MARKER_FALLBACK_MS_MIRROR + GIVE_UP_MS
- * + 10_000 = 120_000ms. Backend ceiling from user-send = 90_000 + 120_000
- * = 210_000ms. The client MUST NOT fire before the backend has had time
- * to complete its full dormant-send sequence — racing the backend is the
- * exact bug this phase fixes. 220_000ms gives a 10s margin above the
- * backend ceiling.
+ * marker before it arms its own dormant-send watchdog, whose
+ * GIVE_UP_MS_DORMANT is MARKER_FALLBACK_MS_MIRROR + GIVE_UP_MS + 10_000
+ * = 120_000ms. Backend ceiling from user-send = 210_000ms. Client must
+ * not fire before backend gives up. 220_000ms gives a 10s margin.
+ *
+ * PENDING_SEND_TIMEOUT_MS_NORMAL applies when a send is armed while the
+ * pane is NOT dormant. Historically 20_000ms (Phase 50 Plan 03), widened
+ * to 90_000ms because dormant-at-arm detection has proved unreliable
+ * across Phases 60/62/76 — the false-red-bubble bug persists whenever
+ * dormantRef.current is stale at arm time (WS reconnect races, React
+ * useEffect timing), and the truly-cheap workaround is to make NORMAL
+ * forgiving enough that mis-detection doesn't matter. 90s comfortably
+ * covers observed wake times (~31s in the 2026-08-30 log trace) while
+ * still giving user feedback within a reasonable window on genuine
+ * non-dormant failures (network drop, harness crash mid-alive).
  *
  * NOTE for future maintainers: if the backend widens GIVE_UP_MS_DORMANT
  * further, bump PENDING_SEND_TIMEOUT_MS_DORMANT to stay above the sum
@@ -179,7 +183,7 @@ const WORKING_SET_CAP = 20;
  * file drift guard here (frontend can't import backend) — this comment
  * is the coupling.
  */
-export const PENDING_SEND_TIMEOUT_MS_NORMAL = 20_000;
+export const PENDING_SEND_TIMEOUT_MS_NORMAL = 90_000;
 export const PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000;
 
 // Minimal read-only pretty view for a live Claude Code session.
@@ -1477,7 +1481,7 @@ export function PrettyView({
         : PENDING_SEND_TIMEOUT_MS_NORMAL;
       const timeoutReason = armedDormant
         ? "client_timeout_220s_dormant"
-        : "client_timeout_20s_normal";
+        : "client_timeout_90s_normal";
       console.info(`[diag-dormant-send] arm mqid=${mqid} dormant=${armedDormant} timeoutMs=${timeoutMs} arm_reason=${timeoutReason} collapsedLen=${collapsed.length} pendingCount=${pendingSendsRef.current.length} now=${Date.now()} attachmentCount=${attachments?.length ?? 0}`);
       const armSentAt = Date.now();
       const timerHandle = window.setTimeout(() => {

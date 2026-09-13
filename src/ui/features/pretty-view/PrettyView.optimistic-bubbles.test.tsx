@@ -394,7 +394,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(remaining.getAttribute("data-event-id")).toBe(`pending-${secondMqid}`);
   });
 
-  it("Test 5: 20s timer flips pending to failed; composebox stays empty (no repopulate)", async () => {
+  it("Test 5: NORMAL 90s timer flips pending to failed; composebox stays empty (no repopulate)", async () => {
     vi.useFakeTimers();
     const { container } = mount();
     const ws = getCurrentWs();
@@ -414,9 +414,19 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
       container.querySelector("[data-pv-bubble-spinner]"),
     ).not.toBeNull();
 
-    // Advance past 20000ms.
+    // At T+20001 the bubble MUST still be spinning — NORMAL was widened
+    // from 20_000 to 90_000ms so mis-detected dormant sends don't flip
+    // early. Pin the widened floor here.
     await act(async () => {
       vi.advanceTimersByTime(20001);
+      await Promise.resolve();
+    });
+    expect(container.querySelector("[data-pv-bubble-failed]")).toBeNull();
+    expect(container.querySelector("[data-pv-bubble-spinner]")).not.toBeNull();
+
+    // Advance past 90000ms cumulative — NORMAL ceiling fires.
+    await act(async () => {
+      vi.advanceTimersByTime(70000);
       await Promise.resolve();
     });
     // Pending should now be in 'failed' state.
