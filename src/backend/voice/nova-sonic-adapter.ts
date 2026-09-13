@@ -229,12 +229,18 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
     });
 
     // 3. SYSTEM contentStart (D-EVENTS step 3)
+    //    `interactive: true` + `textInputConfiguration` mirror the working
+    //    Python schema — without them Nova 2 Sonic returns
+    //    `ModelStreamErrorException: The system encountered an unexpected error
+    //    during processing` mid-stream (observed hotfix-3, 2026-09-13).
     yield frame({
       contentStart: {
         promptName,
         contentName: sysContentName,
         type: "TEXT",
         role: "SYSTEM",
+        interactive: true,
+        textInputConfiguration: { mediaType: "text/plain" },
       },
     });
 
@@ -252,13 +258,15 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
       contentEnd: { promptName, contentName: sysContentName },
     });
 
-    // 6. USER audio contentStart (D-EVENTS step 4)
+    // 6. USER audio contentStart (D-EVENTS step 4). `interactive: true` mirrors
+    //    the working Python schema (see SYSTEM contentStart above for rationale).
     yield frame({
       contentStart: {
         promptName,
         contentName: audioContentName,
         type: "AUDIO",
         role: "USER",
+        interactive: true,
         audioInputConfiguration: {
           mediaType: "audio/lpcm",
           sampleRateHertz: 16000,
