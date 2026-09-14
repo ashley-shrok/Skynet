@@ -20,6 +20,7 @@ export function ColorPicker({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         disabled={disabled}
+        className="pv-hue-slider"
         style={{
           flex: 1,
           height: 10,

@@ -547,3 +547,50 @@ button[data-hold-active="true"] {
     opacity: 0.6;
   }
 }
+
+/* Hue slider thumb (ColorPicker). The input sets `appearance: none` to get the
+ * rainbow gradient track, which also strips the native thumb — without these
+ * rules the grab target falls back to whatever the browser draws, which is too
+ * small to hit reliably on a phone. Pseudo-elements can't be expressed as inline
+ * styles, hence the class. The vendor prefixes can NOT be merged into one
+ * selector list: one unrecognized pseudo-element invalidates the entire rule,
+ * so each engine needs its own block. */
+.pv-hue-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f4f1e8;
+  border: 2px solid rgba(0, 0, 0, 0.45);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+}
+
+.pv-hue-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f4f1e8;
+  border: 2px solid rgba(0, 0, 0, 0.45);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+}
+
+.pv-hue-slider:active::-webkit-slider-thumb {
+  cursor: grabbing;
+}
+
+.pv-hue-slider:active::-moz-range-thumb {
+  cursor: grabbing;
+}
+
+.pv-hue-slider:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pv-hue-slider:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
