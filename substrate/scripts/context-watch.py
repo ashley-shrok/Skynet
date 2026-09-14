@@ -111,7 +111,13 @@ def _hook_installed_check():
     If BRIDGE_DIR has never seen a `claude-ctx-*.json`, the hook isn't installed
     on this box and this watch will be silent forever. Log once so the operator sees
     why. Does NOT gate startup — the hook may be installed and just haven't fired
-    yet on a fresh box."""
+    yet on a fresh box.
+
+    Goes to STDERR, not stdout: ambient-monitor treats every stdout line as a wake
+    to the agent, and this is a diagnostic for the operator, not an event worth an
+    agent turn. On a brand-new box no agent turn has happened yet, so no bridge file
+    CAN exist — on stdout this fired on the very first wake of the very first agent
+    on every new VM, which is the first thing a new user ever sees."""
     any_bridge = glob.glob(os.path.join(BRIDGE_DIR, "claude-ctx-*.json"))
     if not any_bridge:
         print(
@@ -119,6 +125,7 @@ def _hook_installed_check():
             "statusline hook may not be installed. Watch will remain silent "
             "until the hook writes its first bridge file. This is fine on a "
             "brand-new box before the first agent turn." % BRIDGE_DIR,
+            file=sys.stderr,
             flush=True,
         )
 
