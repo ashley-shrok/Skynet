@@ -570,16 +570,6 @@ _check_id_first_turn() {
   printf '%s' "$line" | grep -qE "<command-args>${name}(<|[[:space:]]|$)"
 }
 
-# _check_resume_nudge_landed <jsonl-path>
-# Predicate: did the resume-nudge text land as a real user turn in the resumed jsonl? Substring
-# match on tail of file — the nudge phrase is distinctive enough (fixed 152-byte string) that
-# co-occurrence with "type":"user" on the same line is definitive. Byte-string check (no
-# JSON.parse) matches the _check_id_first_turn shape.
-_check_resume_nudge_landed() {
-  local path="$1"
-  tail -c 32768 "$path" 2>/dev/null | grep -q '"type":"user".*Your session was just resumed by the agent-supervisor'
-}
-
 # submit_id: paste `/id NAME` into the pane and verify it actually landed as a user turn in
 # Claude Code's per-session jsonl file. See `_check_id_first_turn` above for the predicate,
 # and Tina's 2026-08-29 consult (event $xA63ie79SXO17I5x7_k5dq_vUNya5Z5hmLQNK_gYBLg) for the
@@ -667,114 +657,70 @@ submit_id() {
   return 1
 }
 
-# submit_resume_nudge: paste the re-arm-monitors nudge into a just-resumed pane and verify it
-# actually landed as a user turn in the resumed session's jsonl. Mirrors submit_id's
-# observable-outcome shape.
+# ---- ambient monitor ownership (2026-09-14) -------------------------------------------------
+# The supervisor OWNS each identity's ambient monitor. Previously the agent started it — driven
+# by the id skill's on-wake instructions plus a pasted re-arm nudge on every resume. Since the
+# supervisor is the only thing that ever brings a harness up (fresh / recycle / dormant-wake),
+# it is the natural owner, and the agent is relieved of the job entirely.
 #
-# The failure this closes (2026-09-02, user on harper + fleet-wide): paste + Enter both return
-# 0, but Claude Code's Ink UI is still mounting the compose input when the paste fires. Ink
-# either drops the bytes (compose stays empty) or catches the text but not the Enter (compose
-# has text sitting unsubmitted). The old code logged "sent nudge" regardless — a lie by
-# omission that presented as either (a) empty compose after resume or (b) unsubmitted nudge.
-# wait_for_claude only proves the claude process is on the pane's tty, not that Ink has mounted;
-# there can be a multi-second gap. Retry-until-observable-outcome closes the gap without
-# guessing at a settle time.
+# Our added responsibility is deliberately TINY: start the process, then stay out of the way.
+# We do NOT handle, inspect, reformat, or route events — the monitor injects its own wake lines
+# straight into the harness pane (it is given the pane and the harness PID and does the rest).
+# Keeping the supervisor out of the event path is a hard rule of the shape; if event policy ever
+# starts accumulating here, the separation that keeps each watcher legible has decayed.
 #
-# 2026-09-07 refinement (user, bounty supervisor-resume-nudge-enter-only-retry): the original
-# 2026-09-02 shape retried the FULL dance (C-c + re-paste + Enter) up to 3 times, and the leading
-# C-c on each retry actively WIPED the successful paste from the prior attempt. That made the
-# 'paste landed but Enter didn't fire' failure mode structurally unfixable — the cycle stomped
-# on its own convergence path. Symptom shapes user named: (a) nudge sits unsubmitted in the
-# harness compose, (b) nudge gets stacked on top of her next PV send. Both are the same root:
-# paste succeeded, Enter didn't. Fix: split inject vs commit. Initial dance is unchanged; INSIDE
-# each attempt's 10s poll window, if the JSONL landing check fails after ~2s, fire Enter alone
-# (no C-c, no re-paste) at ~2s intervals up to 3 times within the window. If paste is sitting
-# uncommitted, extra Enter commits it. If paste never landed, empty-compose Enter is a no-op at
-# a fresh claude prompt (or advances a modal harmlessly at worst). Outer 3-attempt loop stays
-# as the safety net for genuine ink-mount races and claude-DIED scenarios.
+# Lifecycle is unchanged in substance: the monitor watches the harness PID we hand it and shuts
+# down cleanly when that process goes, so it can never outlive the session it serves. We do not
+# track it, do not health-check it, and do not restart it — its own death-wake reporting and the
+# harness-watch are the mechanism.
 #
-# Approach:
-#   1. Resolve the resumed jsonl by <cwd>/<resume_id>.jsonl (same sanitizer as submit_id).
-#   2. C-c + load-buffer + paste-buffer + Enter — initial inject, unchanged.
-#   3. Poll the jsonl for a user turn matching the nudge signature. Inside the 10s poll window,
-#      fire Enter alone every ~2s (up to 3 times per attempt) — NO C-c, NO re-paste. This is
-#      the load-bearing new behavior versus the 2026-09-02 shape.
-#   4. Three attempts × 10s each = 30s worst-case budget. Between attempts a C-c clears any
-#      partial paste sitting unsubmitted in compose (the outer-attempt re-paste happens after
-#      the C-c so no doubling risk); within an attempt no C-c fires so no self-wipe risk.
-#   5. Final failure → LOUD log + return 1 so drive() knows not to mark the resume complete.
-submit_resume_nudge() {
-  local name="$1" sess="$2" cwd="$3" resume_id="$4"
-  [ -n "$cwd" ] || { log "ERROR: '$name' submit_resume_nudge: cwd argument missing"; return 1; }
-  [ -n "$resume_id" ] || { log "ERROR: '$name' submit_resume_nudge: resume_id argument missing"; return 1; }
-  local sanitized project_dir jsonl
-  sanitized=$(printf '%s' "$cwd" | sed 's|/|-|g')
-  project_dir="$PROJECTS_DIR/$sanitized"
-  jsonl="$project_dir/${resume_id}.jsonl"
-  [ -f "$jsonl" ] || { log "ERROR: '$name' submit_resume_nudge: resumed jsonl not found at $jsonl"; return 1; }
+# NOTE ON REAPING: launched with setsid + full detach so it is NOT a child of the reconcile loop.
+# A child would need waiting on, and a supervisor restart would orphan it to init anyway; the
+# harness-watch inside the monitor is what guarantees cleanup, not process parentage.
+AMBIENT_MONITOR="${AGENT_SUPERVISOR_AMBIENT_MONITOR:-$HOME/.local/bin/ambient-monitor}"
 
-  local nudge='Your session was just resumed by the agent-supervisor. Your background Monitors stopped with the previous session — start them again per the id skill.'
-
-  local attempt max=3
-  for attempt in $(seq 1 $max); do
-    log "'$name' submit_resume_nudge attempt $attempt: C-c + load-buffer + paste-buffer + Enter"
-    timeout -k 5 10 tmux send-keys -t "$sess" C-c 2>/dev/null
-    sleep 0.5
-    # 2026-09-02 Ink-mount race guard: same as submit_id — if C-c killed a still-mounting Ink,
-    # relaunch with the resume_id and an 8s extended settle, then FALL THROUGH to the paste
-    # (do NOT `continue`). 2026-09-08 fix: the previous `continue` looped back to the top and
-    # fired another C-c on the just-relaunched (still mid-mount) claude, killing it again; on
-    # max attempts we bailed leaving a naked resumed harness with no nudge (relay-deaf). Falling
-    # through instead: the just-relaunched claude has a fresh empty compose (no C-c needed), so
-    # we paste directly. If the paste doesn't land in the 10s poll, the next attempt does a
-    # normal C-c on a now-fully-mounted claude.
-    if ! claude_running "$sess"; then
-      log "'$name' submit_resume_nudge attempt $attempt: claude DIED after our C-c (Ink was mid-mount) — relaunching with 8s extended settle, then pasting on the fresh compose"
-      redrive_claude "$name" "$sess" "$resume_id"
-      if ! wait_for_claude "$sess" 8; then
-        log "ERROR: '$name' submit_resume_nudge: post-C-c-death relaunch failed — bailing"
-        return 1
-      fi
-      sleep 8
-      # fall through to paste — the fresh Ink mount has an empty compose, no C-c needed
-    fi
-    local _tmp
-    _tmp=$(mktemp)
-    printf '%s' "$nudge" > "$_tmp"
-    timeout -k 5 10 tmux load-buffer -t "$sess" "$_tmp" 2>/dev/null
-    timeout -k 5 10 tmux paste-buffer -p -t "$sess" 2>/dev/null
-    rm -f "$_tmp"
-    sleep 0.5
-    timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
-
-    # Poll 10s. If landing doesn't show within ~2s, fire Enter alone (no C-c, no re-paste) —
-    # commits an unsubmitted paste sitting in compose. Up to 3 enter-only retries per attempt.
-    local deadline=$(($(date +%s) + 10))
-    local last_enter enter_retries=0
-    last_enter=$(date +%s)
-    while [ $(date +%s) -lt "$deadline" ]; do
-      sleep 0.5
-      if _check_resume_nudge_landed "$jsonl"; then
-        if [ "$enter_retries" -gt 0 ]; then
-          log "'$name' submit_resume_nudge: nudge landed after $enter_retries enter-only retries in $(basename "$jsonl") (attempt $attempt)"
-        else
-          log "'$name' submit_resume_nudge: nudge landed as user turn in $(basename "$jsonl") (attempt $attempt)"
-        fi
-        return 0
-      fi
-      if [ "$enter_retries" -lt 3 ] && [ $(( $(date +%s) - last_enter )) -ge 2 ]; then
-        enter_retries=$((enter_retries + 1))
-        timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
-        last_enter=$(date +%s)
-      fi
-    done
-    log "'$name' submit_resume_nudge attempt $attempt: 10s elapsed, no user turn with nudge signature (fired $enter_retries enter-only retries) — will retry from full dance"
-  done
-
-  log "ERROR: '$name' submit_resume_nudge: no user turn with nudge signature after $max attempts × 10s — bailing, resumed agent will be relay-deaf until manually revived"
-  log "  jsonl: $jsonl"
-  log "  pane tail: $(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -10 2>/dev/null | tr '\n' '|' | tail -c 400)"
+# resolve_harness_pid <session> — PID of the claude process on the session's pane tty.
+# Prefers the pane shell's direct claude child (same fact do_kill_dormant polls), falling back to
+# a tty scan for the case where claude sits under an intermediate wrapper (e.g. a memory-cap scope).
+resolve_harness_pid() {
+  local sess="$1" pane_pid pid
+  pane_pid=$(timeout -k 5 10 tmux display-message -p -t "$sess" '#{pane_pid}' 2>/dev/null)
+  if [ -n "$pane_pid" ]; then
+    pid=$(pgrep -P "$pane_pid" -x claude 2>/dev/null | head -1)
+    [ -n "$pid" ] && { printf '%s' "$pid"; return 0; }
+  fi
+  local tty; tty="$(timeout -k 5 10 tmux list-panes -t "=$sess" -F '#{pane_tty}' 2>/dev/null | head -1)"
+  if [ -n "$tty" ]; then
+    pid=$(ps -t "${tty#/dev/}" -o pid=,comm= 2>/dev/null | awk '$2=="claude"{print $1; exit}')
+    [ -n "$pid" ] && { printf '%s' "$pid"; return 0; }
+  fi
   return 1
+}
+
+# start_ambient_monitor <identity> <session>
+# Called at the tail of every successful drive() — the one place all three launch paths converge,
+# so there is exactly one call site rather than three that can drift apart.
+start_ambient_monitor() {
+  local name="$1" sess="$2"
+  [ "${DRY_RUN:-0}" = 1 ] && { log "DRY_RUN would start ambient monitor for '$name'"; return 0; }
+  if [ ! -x "$AMBIENT_MONITOR" ]; then
+    log "ERROR: '$name' ambient monitor NOT STARTED — $AMBIENT_MONITOR missing or not executable. Identity is DEAF (no relay, no schedule, no context-watch, no file-watch) until this is fixed."
+    return 1
+  fi
+  local hpid
+  if ! hpid="$(resolve_harness_pid "$sess")"; then
+    log "ERROR: '$name' ambient monitor NOT STARTED — could not resolve harness PID on session '$sess'. Identity is DEAF until the next successful launch."
+    return 1
+  fi
+  local logf="$IDENTITIES_DIR/$name/ambient-monitor.log"
+  # Truncate rather than append: this log is a diagnostic for the CURRENT session, and an
+  # append across every wake forever would grow unbounded on always-on identities.
+  setsid nohup "$AMBIENT_MONITOR" "$IDENTITIES_DIR/$name" \
+      --inject-to "$sess" --harness-pid "$hpid" \
+      > "$logf" 2>&1 < /dev/null & disown
+  log "'$name' ambient monitor started (harness_pid=$hpid, session='$sess', log=$logf)"
+  metric event=ambient-monitor-start identity="$name" session="$sess" harness_pid="$hpid"
+  return 0
 }
 
 # redrive_claude: clear whatever's in the pane's input buffer / at the shell prompt (C-c to abort
@@ -860,18 +806,19 @@ drive() {
     # A terminal Device Attributes response echoing at the shell prompt as literal `1;2c0;276;0c`
     # got prefixed onto the env-claude line; bash parsed with `;` as command separators, `0c` became
     # the command name, claude never launched, then the compaction-cancel + prompt scrape below all
-    # ran against a bare bash prompt, and the re-arm-monitors nudge was dropped into bash. Fix:
+    # ran against a bare bash prompt (and, while the re-arm nudge still existed, it was pasted into
+    # bash). Fix:
     # check the pane's tty for the claude/node process (reuses claude_running()) — if it's not there
     # within ~8s, ONCE clear the pane and re-drive, then re-verify. Second failure = log LOUD and
-    # SKIP everything below (no compaction cancel, no prompt scrape, no nudge — leave the pane alone
-    # for a human to see the mess). Alive-check on the next supervisor tick will flag the identity
-    # dead and try again.
+    # SKIP everything below (no prompt scrape, no ambient-monitor start — leave the pane alone for a
+    # human to see the mess). Alive-check on the next supervisor tick will flag the identity dead
+    # and try again.
     if ! wait_for_claude "$sess" 8; then
       log "WARNING: '$name' claude did NOT launch after resume drive — attempting one retry with typeahead clear"
       log "  pane tail: $(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -10 2>/dev/null | tr '\n' '|' | tail -c 400)"
       redrive_claude "$name" "$sess" "$resume"
       if ! wait_for_claude "$sess" 8; then
-        log "ERROR: '$name' claude STILL did not launch after retry — bailing out of drive() to avoid dropping nudge into a broken pane. Session '$sess' left as-is for inspection. Alive-check will re-attempt on next tick."
+        log "ERROR: '$name' claude STILL did not launch after retry — bailing out of drive() before starting the ambient monitor against a broken pane. Session '$sess' left as-is for inspection. Alive-check will re-attempt on next tick."
         log "  pane tail: $(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -10 2>/dev/null | tr '\n' '|' | tail -c 400)"
         return 1
       fi
@@ -896,27 +843,20 @@ drive() {
       *"Resume from summary"*|*"Resume full session"*|*"Yes, I trust this folder"*|*"Enter to confirm"*)
         log "WARNING: '$name' still sitting at an interactive prompt after resume — NOT at a REPL, will be relay-deaf until cleared. Prompt source-suppression (env vars + hasTrustDialogAccepted) may have regressed; restore the scrape+answer loop if this fires more than once (session '$sess')";;
       *)
-        # RE-ARM THE ON-WAKE MONITORS (2026-07-22, user's call). A resume restores the
-        # conversation but NOT the previous session's background Monitors — they died with the old
-        # session, so a resumed agent comes back alive-but-DEAF. There's nothing to restore
-        # mechanically; the agent just has to relaunch them. So once we're past the prompt and at a
-        # REPL, tell it that in one line and let it do its own /id-documented startup.
+        # THE RE-ARM-YOUR-MONITORS NUDGE IS RETIRED (2026-09-14). It existed because a resume
+        # restored the conversation but not the previous session's background Monitors, leaving a
+        # resumed agent alive-but-DEAF — so we pasted in a line telling it to relaunch them itself.
+        # The agent no longer owns its watchers; the supervisor starts them below. Nothing to
+        # re-arm, nothing to tell the agent, one less paste into a freshly-woken Ink.
+        start_ambient_monitor "$name" "$sess"
+        # supervisor's hands are OFF this pane — drop the marker with a UTC timestamp inside so
+        # consumers (Skynet DormancyOverlay) can distinguish this-wake from a stale prior-wake
+        # marker via freshness check (marker_ts > wake_trigger_ts).
         #
-        # ⚠️ Delivery goes through submit_resume_nudge() (not a bare load-buffer+paste-buffer+Enter)
-        # because the fire-and-forget paste is not enough — wait_for_claude only proves the claude
-        # process is on the tty, but Ink can still be mid-render when the paste fires and drops
-        # bytes (empty compose) or catches the text without the Enter (unsubmitted). See the
-        # submit_resume_nudge header for the full failure story (2026-09-02, user). The nudge
-        # text lives inside submit_resume_nudge alongside its verify predicate — keep them together.
-        if submit_resume_nudge "$name" "$sess" "$cwd" "$resume"; then
-          # supervisor's hands are OFF this pane — drop the marker with a UTC timestamp inside so
-          # consumers (Skynet DormancyOverlay) can distinguish this-wake from a stale prior-wake
-          # marker via freshness check (marker_ts > wake_trigger_ts).
-          date -u +%Y-%m-%dT%H:%M:%SZ > "$IDENTITIES_DIR/$name/.resume-complete"
-        fi
-        # else: submit_resume_nudge already logged ERROR + pane tail. Leave .resume-complete
-        # absent so the alive-check on the next tick sees a resumed-but-not-completed session
-        # and knows this identity is still stuck. Same shape as submit_id's failure path.
+        # The marker is dropped even if start_ambient_monitor failed: it means "supervisor is done
+        # touching this pane", which is true either way, and a DEAF identity is already LOUD in the
+        # log. Withholding it would additionally wedge Skynet's overlay on a pane nobody is driving.
+        date -u +%Y-%m-%dT%H:%M:%SZ > "$IDENTITIES_DIR/$name/.resume-complete"
         ;;
     esac
     return 0
@@ -972,6 +912,9 @@ drive() {
     log "ERROR: '$name' drive fresh: submit_id failed — bailing from drive(). Alive-check will re-attempt on next tick."
     return 1
   fi
+  # Supervisor owns the ambient monitor — start it now that the identity is loaded. Same call as
+  # the resume path above; this is the second and last of the two convergence points.
+  start_ambient_monitor "$name" "$sess"
   # supervisor's hands are OFF this pane — same marker as the resume path above.
   date -u +%Y-%m-%dT%H:%M:%SZ > "$IDENTITIES_DIR/$name/.resume-complete"
 }
@@ -1559,9 +1502,9 @@ do_kill_dormant() {
 }
 
 # do_wake: remove .dormant, call drive() with --resume. Reuses the existing --resume path verbatim
-# (trust dialog, resume-summary Down+Enter, ctrl-C anti-compact spam, re-arm-monitors nudge).
+# (trust dialog, resume-summary Down+Enter, ambient-monitor start).
 # drive() ALREADY scrapes for the ❯ prompt as part of its dialog-handling; if drive() returns 0
-# and its final log line "resumed — sent re-arm-your-monitors nudge" appears, we're at REPL. So
+# and its ambient-monitor-start log line appears, we're at REPL. So
 # no need for a redundant 60s verify poll here — we just check pane state at the end and LOUD-log
 # any mismatch. If the wake FAILS (drive() couldn't resume), the sentinel is already removed and
 # next reconcile cycle sees dead claude + no sentinel → existing recover path relaunches. That's
@@ -1583,7 +1526,7 @@ do_wake() {
   else
     drive "$name" "$sess" "$sid" "$wcwd"
   fi
-  # Brief settle before verify — drive() just sent the re-arm nudge; Ink needs a beat to render
+  # Brief settle before verify — drive() just finished driving the pane; Ink needs a beat to render
   # the ❯ input line. Without this settle, verify sometimes runs before the prompt paints.
   sleep 2
   t1=$(date +%s)

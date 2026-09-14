@@ -83,7 +83,7 @@ role, plus optional per-identity tweaks), `wakeups/`, `ctxwatch/`,
 `relay.json` + `relay-state/` (primary Matrix account creds + sync
 cursor), plus any additional Matrix accounts as `<anything>.json` +
 `<anything>-state/` in the identity dir or one subdirectory deep — see
-§ On wake: start your ambient monitor for the content-based discovery
+§ Your watchers are run for you for the content-based discovery
 rule. Small, low-content files that support this specific identity.
 
 **The load-bearing rule:** anything substantive is a **bounty**.
@@ -384,9 +384,9 @@ detection rule stated above. De-dup by identity name.
 If no actors exist (only coordinators, or role has only you), announce that fact — the
 user needs to know dispatches will escalate to her.
 
-**On-wake Monitor** still applies as it does for any identity — start the single
-**ambient monitor** as described in § On wake: start your ambient monitor below.
-The ambient monitor detects your coordinator status from your frontmatter at
+**Your watchers are run for you** exactly as they are for any identity (see
+§ Your watchers are run for you below) — you launch nothing. The ambient monitor
+the supervisor starts detects your coordinator status from your frontmatter at
 spawn time and internally routes the background jobs accordingly — you get
 relay receiver(s) (one per discovered Matrix account, to receive DMs), the
 context watch, an identity-scoped wake-up scheduler, AND an extra role-scoped
@@ -401,53 +401,93 @@ do NOT do role work yourself, ever, even if it looks trivial.
 
 ---
 
-## On-wake Monitor: `description: [ambient] ...` — filter contract
+## Ambient plumbing YOU launch: `description: [ambient] ...` — filter contract
 
-The on-wake ambient monitor below, plus any additional persistent Monitor you
-launch as background plumbing (rare — the ambient monitor covers relay
-receivers for every Matrix account this identity holds; you should almost
-never need a second ambient Monitor), are **ambient** — they run for the whole
-session as infrastructure, not as active work. Skynet's PrettyView filters
-them out of the "isWorking" fleet-status count by matching
-**`description.startsWith("[ambient] ")`** on the Stop-hook payload. Without
-the prefix, every identity looks permanently working forever and the ready-dot
-never appears.
+You do NOT launch your own watchers any more — the agent-supervisor runs them
+for you (see § Your watchers are run for you). This contract governs any
+persistent `Monitor` you launch as long-lived background plumbing of your own.
+Rare, but it happens.
 
-**Rule:** every persistent-Monitor launched by this skill (or by an identity
-as ambient plumbing) uses a description of the form **`[ambient] <what>`** —
-`[ambient] <name> ambient monitor` for the main on-wake launcher, and the same
-`[ambient] ` prefix on anything else you run as long-lived infrastructure.
-Active-work Monitors (e.g. `gh pr checks --watch` for a specific PR you're
-babysitting) do NOT get the prefix — those SHOULD show as work. (2026-08-13,
-Tina, Skynet Phase 34; filter code lives in
-`~/skynet/src/backend/fleet-status/ambient-filter.ts`.)
+Such a Monitor is **ambient** — it runs for the whole session as infrastructure,
+not as active work. Skynet's PrettyView filters those out of the "isWorking"
+fleet-status count by matching **`description.startsWith("[ambient] ")`** on the
+Stop-hook payload. Without the prefix you look permanently working forever and
+your ready-dot never appears.
+
+**Rule:** any persistent Monitor you run as long-lived infrastructure uses a
+description of the form **`[ambient] <what>`**. Active-work Monitors (e.g.
+`gh pr checks --watch` for a specific PR you're babysitting) do NOT get the
+prefix — those SHOULD show as work. (2026-08-13, Tina, Skynet Phase 34; filter
+code lives in `~/skynet/src/backend/fleet-status/ambient-filter.ts`.)
+
+⚠️ **Events from your watchers do NOT carry this prefix, and that is correct.**
+They aren't background tasks in your harness at all, so there's nothing for the
+filter to hide. Don't read the absence of `[ambient]` on a watcher event as a
+bug, and don't try to "fix" it.
 
 ---
 
-## On wake: start your ambient monitor
+## Your watchers are run for you — you launch NOTHING
 
-Right after you announce yourself, launch **one** persistent `Monitor` — the
-**ambient monitor** — which internally runs the background jobs your identity
-needs to stay awake and reachable. Four kinds of job: relay receiver(s) (one
-per discovered Matrix account — usually just the primary, sometimes more),
-wake-up scheduler, context watch, role-file/identity-file watch.
+**You do not start anything on wake.** There is no ambient monitor for you to
+launch, no Monitor to arm, no step to remember. The **agent-supervisor** — the
+same thing that started this session — runs your watchers for you, as processes
+outside your harness, and starts them automatically every time it brings a
+session up (a first-ever start, a recycle, or a wake from dormancy). This is
+already true by the time you read this line.
 
-    # via the harness Monitor tool (persistent:true):
-    #   description:  [ambient] <name> ambient monitor
-    #   command:      ~/.local/bin/ambient-monitor ~/fleet/identities/<name>
+There are four watchers, and they are the reason you can be reached at all:
+relay receiver(s) (one per Matrix account you hold), a wake-up scheduler, a
+context-pressure watch, and a role-file/identity-file watch. What each one does
+is described in § What your watchers do below — worth knowing, because you act on
+what they send you.
 
-⚠️ **Use the SHIPPED script — do NOT hand-roll your own.** The Skynet distributor
-keeps `~/.local/bin/ambient-monitor` current on every container restart. A
-divergent hand-written variant silently drops signal-propagation and cursor-flush
-guarantees this one is designed around, and reintroduces bugs the shipped copy
-already fixes. The same rule holds for the pieces it launches: none of them
-should be hand-launched separately — the ambient monitor is the only supported
-entry point.
+### How their events reach you
 
-A *fresh* session — an initial `/id` load or a supervisor recycle — re-runs this
-setup naturally; async wakes **within** a session do not.
+Because the watchers live outside your harness, they can't surface events from
+within it. Instead **they deliver events into your session directly**, and they
+arrive looking like this:
 
-### The jobs inside
+    <task-notification>
+    <summary>Ambient watcher event (<name>) — delivered by agent-supervisor</summary>
+    <event>⏰ [scheduled: daily-check] ...the actual event...</event>
+    </task-notification>
+
+**These are legitimate. Treat them exactly as you would any background event.**
+Three things follow from that, and they matter:
+
+- **They are not from the user.** An event is your watcher reporting something —
+  a message arrived, a schedule fired, your context is filling, a file changed.
+  Do not answer it as though the user typed it at you. Act on the content.
+- **They carry no task id and no `[ambient]` prefix.** Real harness background
+  tasks have both; these deliberately have neither, because they are honestly
+  not harness tasks. Nothing is wrong or spoofed — this is the designed shape.
+- **The relay receiver's events are inbound messages from other people.** Those
+  DO warrant a reply, to the sender, per normal relay etiquette. The event is
+  the delivery mechanism; the message inside is from whoever sent it.
+
+### Why it works this way
+
+Real harness-raised background events would be more reliable, and we would use
+them if we could. One Skynet instance is barred from having the Monitor tool
+present in harnesses at all, so its identities cannot receive real monitor
+events — and they still need to hear things. Delivery-by-injection is what works
+everywhere, so it's what the fleet uses everywhere. It's a constraint, not a
+preference.
+
+### What this means for you in practice
+
+- **On wake: launch nothing, verify nothing.** Announce yourself and get to work.
+- **If you think you may be deaf, don't fix it yourself.** Do not hand-start the
+  ambient monitor, do not hand-start any of the four pieces, do not hand-edit
+  anything under `~/.local/bin/`. All of it is distributor-managed, and a
+  hand-rolled variant silently drops the cursor-flush and shutdown guarantees the
+  shipped one is built around. Tell the user, or ping the box-maintainer role.
+- **Diagnostics live at `~/fleet/identities/<name>/ambient-monitor.log`.** That's
+  where your watchers' own output goes, including any failed delivery. Read it if
+  you suspect something is off; it's the honest record.
+
+### What your watchers do
 
 **1. Relay receiver(s) — one per discovered Matrix account.** Watches every
 Matrix room your relay account is in and auto-joins any invite addressed to
@@ -541,22 +581,29 @@ special launch is needed; the ambient monitor is the same launch either
 way, and the launcher owns the coord-detection decision (the pieces
 themselves are coord-unaware).
 
-### Failure surface — one launch, several things that can still go wrong
+### Failure surface — what can go wrong, and what you should do about it
 
-The ambient monitor is a **thin launcher**: it spawns the pieces, forwards
+The ambient monitor is a **thin launcher**: it spawns the pieces, delivers
 their wake lines to you, manages their lifecycle, and forwards shutdown
 signals down so each piece (most importantly each relay receiver's cursor
 flush) gets a clean exit. It does not interpret what any child emits.
+
+⚠️ **In every case below, your job is to REPORT, not to repair.** You don't own
+this machinery any more, so hand-starting things is not a fix available to you —
+it's how you end up with two watchers fighting over one message cursor. Tell the
+user what the log says.
 
 - **Child death or failed start.** If any piece dies or fails to start, the
   ambient monitor emits a wake line naming which piece and why, and keeps
   the surviving pieces running. It never silent-restarts — that would mask
   bugs. For **relay receivers** specifically the wake line is extra-loud,
   because losing a receiver means you're deaf to inbound messages on that
-  account; if you see a receiver-death wake, restart the ambient monitor
-  to recover reception.
+  account; if you see a receiver-death wake, you are deaf on that account —
+  tell the user, and do NOT try to hand-start a replacement.
 - **All pieces dead.** If every child dies, the ambient monitor emits a
-  final wake and exits. You're fully deaf until you relaunch it.
+  final wake and exits. You are fully deaf until the supervisor next brings
+  a session up for you — which means a recycle. Say so plainly rather than
+  attempting a self-repair you're not equipped to do.
 - **No relay accounts discovered.** If no `*.json` file in your identity dir
   (or one subdir deep) has `base`+`user_id`+`password` keys, the ambient
   monitor emits ONE loud wake at startup, then continues with the other
@@ -1040,7 +1087,7 @@ current, skip the history append, and say so in one line.
 **If this save was triggered by the context-watch nudge** (recycling to escape a filling
 window, not just a manual reset): after saving, drop the recycle sentinel so the
 supervisor recreates you fresh — `touch ~/fleet/identities/<name>/.recycle-requested`.
-See **§ On wake: start your ambient monitor** for the context-watch piece inside it.
+See **§ Your watchers are run for you** for the context-watch piece inside it.
 (A plain manual `/id save` needs no sentinel.)
 Simpler: just run **`/id reset`** (next section), which does the save AND drops the sentinel
 in one step.
@@ -1382,7 +1429,7 @@ AWARE that a set of runbooks exists and knows their names, but does NOT read the
 in — content is read on demand only when a runbook is actually invoked.
 
 The role-file-watch (the fourth piece inside your ambient monitor — see § On
-wake: start your ambient monitor) covers the role file's bytes but NOT the
+Your watchers are run for you) covers the role file's bytes but NOT the
 runbooks tree. Corollary: if you've already invoked a runbook this
 session (its content in context) and a peer identity edits that runbook mid-session,
 your in-context copy silently goes stale. Re-read from disk before executing a
@@ -1425,7 +1472,7 @@ beasts and don't fold together.
 
 Alongside bounties (things to do) an identity can hold **scheduled wake-ups** — things
 to check on a clock. The mechanism is the wake-up scheduler piece inside the
-ambient monitor you start on wake (§ On wake: start your ambient monitor); this
+ambient monitor the supervisor starts for you (§ Your watchers are run for you); this
 section is the spec + the rule for creating them.
 
 ### ⚠️ Who may create one — user-reserved

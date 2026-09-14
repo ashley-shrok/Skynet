@@ -1,15 +1,43 @@
 #!/usr/bin/env python3
-"""ambient-monitor — the single on-wake launcher that runs the four ambient watchers.
+"""ambient-monitor — the single launcher that runs the four ambient watchers.
 
-Usage: ambient-monitor <identity_dir>
+Usage:
+  ambient-monitor <identity_dir>                                  # stdout mode (legacy)
+  ambient-monitor <identity_dir> --inject-to <tmux-session> \\
+                                 --harness-pid <pid>              # inject mode
 
 What this replaces: the four separate on-wake Monitor invocations (relay receiver,
-wake-up scheduler, context-watch, role-file-watch). Identities now start ONE
-persistent Monitor via the harness, and this launcher spawns the four pieces as
-subprocesses, multiplexes their stdouts up to its own stdout (each line is a wake
-event to the harness), and forwards SIGTERM/SIGINT/SIGHUP to the children on
-shutdown so each piece — most importantly the relay receiver's message-cursor
-flush — gets its graceful-shutdown behavior.
+wake-up scheduler, context-watch, role-file-watch). This launcher spawns the four
+pieces as subprocesses, delivers each wake line to the agent, and forwards
+SIGTERM/SIGINT/SIGHUP to the children on shutdown so each piece — most importantly
+the relay receiver's message-cursor flush — gets its graceful-shutdown behavior.
+
+TWO DELIVERY MODES (see shape-supervisor-owns-ambient-monitor.md):
+
+  stdout mode (no --inject-to) — the original arrangement. The launcher is itself a
+  harness-started Monitor; wake lines go to stdout and the harness turns each line
+  into an async wake. Retained because it still works and because the four pieces
+  are unchanged, but no longer how the fleet runs.
+
+  inject mode (--inject-to + --harness-pid) — the launcher runs OUTSIDE the harness,
+  started by the agent-supervisor alongside the session it brought up. There is no
+  harness-owned Monitor to raise events through, so each wake line is DELIVERED INTO
+  the session by pasting it as a <task-notification> envelope. Why this exists at all:
+  one Skynet instance is barred from having the Monitor tool present in harnesses, so
+  its identities cannot receive real monitor events. Real monitor events are strictly
+  more reliable and would be preferred if they were available anywhere we need them —
+  injection is a constraint, never a preference.
+
+INJECTED EVENTS ARE HONESTLY SYNTHETIC. They use the <task-notification> envelope
+because that shape is already recognized, but they do NOT impersonate a real harness
+task: no forged task id (real ones are `b`+8 base36 for background tasks, `a`+16 hex
+for subagents), and no `[ambient]` prefix (that marker exists solely so Skynet's
+ambient-filter can hide a REAL background task from its isWorking count — with no
+background task present, claiming it would state something false). The summary names
+what the event actually is. Identities are primed for this at load time by the id
+skill, which is what makes honesty work where disguise would otherwise be needed:
+an agent told at load time that the supervisor runs its watchers externally treats
+these as legitimate, where the same thing arriving cold would invite suspicion.
 
 Design rules (see shape-mega-monitor.md in the box-maintainer role's bounty folder):
   - Dumb dispatch on WHAT the children do. The launcher never interprets what
@@ -45,6 +73,7 @@ import re
 import sys
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 import pathlib
@@ -53,11 +82,55 @@ GRACE_SECONDS = 10  # window we give children to shut down cleanly on our own sh
 REAP_POLL_SECONDS = 1  # how often the reap loop checks for dead children
 
 # ---------------------------------------------------------------- args + paths
-if len(sys.argv) != 2:
-    print("usage: ambient-monitor <identity_dir>", file=sys.stderr)
+def _usage(msg=None):
+    if msg:
+        print("ambient-monitor: %s" % msg, file=sys.stderr)
+    print("usage: ambient-monitor <identity_dir> "
+          "[--inject-to <tmux-session> --harness-pid <pid>]", file=sys.stderr)
     sys.exit(2)
 
-IDENTITY_DIR = pathlib.Path(sys.argv[1]).expanduser().resolve()
+
+_argv = sys.argv[1:]
+if not _argv:
+    _usage()
+
+_positional = []
+INJECT_SESSION = None
+INJECT_HARNESS_PID = None
+_i = 0
+while _i < len(_argv):
+    a = _argv[_i]
+    if a == "--inject-to":
+        if _i + 1 >= len(_argv):
+            _usage("--inject-to requires a tmux session name")
+        INJECT_SESSION = _argv[_i + 1]
+        _i += 2
+    elif a == "--harness-pid":
+        if _i + 1 >= len(_argv):
+            _usage("--harness-pid requires a pid")
+        try:
+            INJECT_HARNESS_PID = int(_argv[_i + 1])
+        except ValueError:
+            _usage("--harness-pid must be an integer, got %r" % _argv[_i + 1])
+        _i += 2
+    elif a.startswith("-"):
+        _usage("unknown flag %r" % a)
+    else:
+        _positional.append(a)
+        _i += 1
+
+if len(_positional) != 1:
+    _usage("expected exactly one identity_dir, got %d" % len(_positional))
+
+# Inject mode requires BOTH flags. Accepting --inject-to alone would leave us with no
+# harness to watch, so the launcher could outlive the session it serves — the exact
+# orphan-watcher failure the shape names as unacceptable. Fail loud at startup instead.
+if (INJECT_SESSION is None) != (INJECT_HARNESS_PID is None):
+    _usage("--inject-to and --harness-pid must be given together")
+
+INJECT_MODE = INJECT_SESSION is not None
+
+IDENTITY_DIR = pathlib.Path(_positional[0]).expanduser().resolve()
 if not IDENTITY_DIR.is_dir():
     print("ambient-monitor: identity_dir does not exist or is not a directory: %s"
           % IDENTITY_DIR, file=sys.stderr)
@@ -78,17 +151,26 @@ HOME = pathlib.Path.home()
 # cursor-flush grace; child-side check is a safety net for the case where the
 # launcher itself is force-killed without a chance to shut down cleanly.
 # See bounty orphan-monitor-self-suicide-check for original context.
+#
+# In INJECT MODE the grandparent walk is meaningless — our parent is the supervisor, not
+# the harness — so the supervisor tells us the harness PID explicitly via --harness-pid
+# and we use that verbatim. The self-termination property is identical either way: we
+# watch the harness process and shut down cleanly when it goes, so a watcher can never
+# outlive the session it serves.
 HARNESS_PID = None
-try:
-    with open("/proc/%d/status" % os.getppid()) as f:
-        for line in f:
-            if line.startswith("PPid:"):
-                p = int(line.split()[1])
-                if p > 1:
-                    HARNESS_PID = p
-                break
-except (OSError, ValueError):
-    pass
+if INJECT_MODE:
+    HARNESS_PID = INJECT_HARNESS_PID
+else:
+    try:
+        with open("/proc/%d/status" % os.getppid()) as f:
+            for line in f:
+                if line.startswith("PPid:"):
+                    p = int(line.split()[1])
+                    if p > 1:
+                        HARNESS_PID = p
+                    break
+    except (OSError, ValueError):
+        pass
 
 # --------------------------------------------------- relay account discovery
 # Enumerate relay accounts BY CONTENT, not filename. Any *.json file at
@@ -279,25 +361,121 @@ _stdout_lock = threading.Lock()
 _stderr_lock = threading.Lock()
 
 
-def emit_wake(msg):
-    with _stdout_lock:
-        sys.stdout.write(msg.rstrip("\n") + "\n")
-        sys.stdout.flush()
-
-
 def emit_diag(msg):
     with _stderr_lock:
         sys.stderr.write("ambient-monitor: " + msg.rstrip("\n") + "\n")
         sys.stderr.flush()
 
 
+# ------------------------------------------------------- injection (inject mode)
+# Deliver a wake line INTO the harness by pasting a <task-notification> envelope into
+# its tmux pane. Reuses the paste discipline the supervisor's resume-nudge arrived at
+# after a series of real observed failures (see agent-supervisor.sh submit_resume_nudge):
+#
+#   * load-buffer + paste-buffer -p (bracketed paste) rather than send-keys -l. Ink
+#     drops plain typed bytes when it is mid-render; bracketed paste survives that.
+#   * Enter as a SEPARATE call after a short settle, because the paste can land while
+#     the keystroke that commits it does not.
+#   * Enter-only retries — never a re-paste. A leading C-c or a second paste would wipe
+#     or double a paste that actually succeeded, which is precisely the bug that made
+#     the nudge's original retry loop unable to converge.
+#
+# Deliberately NOT here (shape § Scope OUT — "making delivery robust"): transcript
+# verification, acknowledgement, queueing of undelivered events. We reuse what is proven
+# and ship; hardening is a later pass driven by real observed problems. What we do NOT
+# trade away is visibility — a delivery that fails is recorded loudly on stderr, because
+# an unreliable mechanism whose failures are invisible is a system that quietly stops
+# working and nobody notices.
+ENVELOPE_SUMMARY = "Ambient watcher event (%s) — delivered by agent-supervisor" % IDENTITY_NAME
+INJECT_SETTLE_SECONDS = 0.5
+INJECT_ENTER_RETRIES = 3
+INJECT_ENTER_SPACING_SECONDS = 2
+_inject_lock = threading.Lock()
+
+
+def _tmux(*args, timeout=10):
+    """Run a tmux command with a bounded timeout. Returns True on clean exit.
+    Bounded because a wedged tmux server would otherwise hang the delivery thread
+    indefinitely and stall every subsequent event behind it.
+    """
+    try:
+        r = subprocess.run(("tmux",) + args, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=timeout)
+        return r.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
+def _envelope(event_text):
+    return (
+        "<task-notification>\n"
+        "<summary>%s</summary>\n"
+        "<event>%s</event>\n"
+        "</task-notification>"
+    ) % (ENVELOPE_SUMMARY, event_text.rstrip("\n"))
+
+
+def _inject(event_text):
+    """Paste one wake line into the harness pane. Serialized: two concurrent pastes
+    would interleave in the tmux paste buffer and produce one corrupt turn instead of
+    two clean ones.
+    """
+    payload = _envelope(event_text)
+    with _inject_lock:
+        tmp = None
+        try:
+            fd, tmp = tempfile.mkstemp(prefix="ambient-inject-")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+            if not _tmux("load-buffer", "-t", INJECT_SESSION, tmp):
+                emit_diag("INJECTION FAILED (load-buffer) for session %s — event NOT delivered: %s"
+                          % (INJECT_SESSION, event_text[:200]))
+                return False
+            if not _tmux("paste-buffer", "-p", "-t", INJECT_SESSION):
+                emit_diag("INJECTION FAILED (paste-buffer) for session %s — event NOT delivered: %s"
+                          % (INJECT_SESSION, event_text[:200]))
+                return False
+        finally:
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+        time.sleep(INJECT_SETTLE_SECONDS)
+        committed = _tmux("send-keys", "-t", INJECT_SESSION, "Enter")
+        # Enter-only retries: if the paste landed but its Enter didn't commit, an extra
+        # Enter commits it. At an already-empty compose an extra Enter is a harmless no-op.
+        for _ in range(INJECT_ENTER_RETRIES):
+            if committed:
+                break
+            time.sleep(INJECT_ENTER_SPACING_SECONDS)
+            committed = _tmux("send-keys", "-t", INJECT_SESSION, "Enter")
+        if not committed:
+            emit_diag("INJECTION FAILED (Enter never committed after %d retries) for session %s "
+                      "— event may be sitting uncommitted in compose: %s"
+                      % (INJECT_ENTER_RETRIES, INJECT_SESSION, event_text[:200]))
+            return False
+        return True
+
+
+def emit_wake(msg):
+    """Deliver one wake line to the agent — stdout in legacy mode, injection in inject mode."""
+    line = msg.rstrip("\n")
+    if not line:
+        return
+    if INJECT_MODE:
+        _inject(line)
+        return
+    with _stdout_lock:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+
+
 # ---------------------------------------------------------------- pumps
 def _pump_stdout(name, stream):
     try:
         for line in stream:
-            with _stdout_lock:
-                sys.stdout.write(line if line.endswith("\n") else line + "\n")
-                sys.stdout.flush()
+            emit_wake(line)
     except Exception as e:
         emit_diag("stdout pump for %s ended: %r" % (name, e))
 
@@ -453,8 +631,18 @@ if not RELAY_ACCOUNTS:
 else:
     emit_diag("discovered %d relay account(s): %s"
               % (len(RELAY_ACCOUNTS), ", ".join(a[2] for a in RELAY_ACCOUNTS)))
-emit_diag("starting %d child(ren) for identity %s (role=%s, coordinator=%s, harness_pid=%s)"
-          % (len(CHILDREN), IDENTITY_NAME, ROLE_NAME, IS_COORDINATOR, HARNESS_PID))
+emit_diag("starting %d child(ren) for identity %s (role=%s, coordinator=%s, harness_pid=%s, "
+          "delivery=%s)"
+          % (len(CHILDREN), IDENTITY_NAME, ROLE_NAME, IS_COORDINATOR, HARNESS_PID,
+             ("inject->tmux:%s" % INJECT_SESSION) if INJECT_MODE else "stdout"))
+
+# In inject mode a missing harness PID is fatal, not a degraded mode: without it the
+# harness-watch below is disabled, so we would keep running — and keep pasting into a
+# pane — after the session died. That is the orphan-watcher failure the shape forbids.
+# (Unreachable via CLI parsing, which requires both flags; guards a future caller.)
+if INJECT_MODE and HARNESS_PID is None:
+    emit_diag("FATAL: inject mode with no harness PID — refusing to start (would orphan)")
+    sys.exit(2)
 for spec in CHILDREN:
     entry = start_child(spec)
     if entry is not None:

@@ -38,7 +38,9 @@
  *   fleet-status-sweep and Phase 95 appends pv-context-pct-sweep, bringing
  *   the conceptual helper-script count to 8. The mega-monitor phase adds a
  *   ninth helper script — `ambient-monitor` — bringing the conceptual count
- *   to 17. The byte-compare mechanism in Plan 03 pushes files, not "items",
+ *   to 17. (As of 2026-09-14 the agent-supervisor, not the agent, launches
+ *   ambient-monitor; that changed the caller, not the row count.)
+ *   The byte-compare mechanism in Plan 03 pushes files, not "items",
  *   so this catalog has one row per file. The bootstrap bounty adds 1 more
  *   row (agent-supervisor.service):
  *     - 4 rows for id/          (SKILL.md + 3 companions)
@@ -47,9 +49,9 @@
  *       claude-code-harness-auth, next-bounty, promote-to-coordinator,
  *       queue, role)
  *     - 10 rows for helper scripts under scripts/
- *       (role-file-watch is one of the four legacy ambient monitors, all
- *       four now spawned as children of ambient-monitor — the mega-monitor
- *       phase's launcher — rather than launched individually per identity;
+ *       (role-file-watch is one of the four ambient watchers, all four
+ *       spawned as children of ambient-monitor rather than launched
+ *       individually per identity;
  *       fleet-status-sweep is the Phase 92 batch sweep for the fleet-status
  *       poller; pv-context-pct-sweep is the Phase 95 batch sweep for the
  *       PV context-pct poller)
@@ -270,12 +272,23 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- ambient-monitor (1 row: single on-wake launcher that spawns the four ambient watchers — mega-monitor phase) ---
-  // Replaces the four separate on-wake Monitor invocations (relay receiver, wake-up scheduler,
+  // --- ambient-monitor (1 row: the single launcher that spawns the four ambient watchers) ---
+  // Replaces what were once four separate Monitor invocations (relay receiver, wake-up scheduler,
   // context-watch, role-file-watch) with a single launch. The four watchers stay as their own
   // canonical entries above (still distributed, still on-disk at their existing paths);
-  // ambient-monitor invokes them via those entry points and multiplexes their stdouts. No
-  // restart hook — identities pick up the new bytes on their next `/id` recycle.
+  // ambient-monitor invokes them via those entry points.
+  //
+  // 2026-09-14: the AGENT-SUPERVISOR now starts this, not the agent — one launcher per harness it
+  // brings up (fresh / recycle / dormant-wake), passing --inject-to <session> --harness-pid <pid>.
+  // In that mode the launcher delivers each wake line INTO the session as a <task-notification>
+  // envelope rather than writing to stdout, because with no harness-owned Monitor there is nothing
+  // to raise events through. Motivating constraint: one Skynet instance is barred from having the
+  // Monitor tool present in harnesses at all, so its identities cannot receive real monitor events.
+  //
+  // No restart hook, and it deliberately needs none: the supervisor starts a fresh launcher on every
+  // harness launch and each launcher dies with the harness it watches, so new bytes land on an
+  // identity's next recycle. A restart hook here would be actively WRONG — it would have to kill
+  // live launchers, orphaning their identities mid-session.
   {
     slug: "ambient-monitor",
     bundledPath: "/app/fleet-substrate/scripts/ambient-monitor.py",

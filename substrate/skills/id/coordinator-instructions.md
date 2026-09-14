@@ -430,21 +430,23 @@ for it to be deleted, and continue on. Do NOT dispatch anything — there's no i
 route yet; this is a proactive seed. The supervisor will bring the fresh actor's session
 up in the background while you continue.
 
-Then start your **ambient monitor** — the same single launch every identity uses
-(see § On wake: start your ambient monitor in the id skill body). The launcher
-reads your frontmatter, detects `coordinator: true`, and routes the four background
-jobs accordingly: it spawns the relay receiver, the context-watch, an
-identity-scoped wake-up scheduler, AND an extra role-scoped wake-up scheduler
-against `~/fleet/roles/<role>/wakeups/`. Role-file / identity-file watching is
-skipped for you — coords don't hold either file in context the same way actors do.
+**You launch nothing.** Your watchers are already running — the agent-supervisor
+started them when it brought this session up (see § Your watchers are run for you
+in the id skill body). The launcher read your frontmatter, detected
+`coordinator: true`, and routed the background jobs accordingly: relay receiver,
+context-watch, an identity-scoped wake-up scheduler, AND an extra role-scoped
+wake-up scheduler against `~/fleet/roles/<role>/wakeups/` so role-general wakes
+fire on you. Role-file / identity-file watching is skipped for you — coords don't
+hold either file in context the same way actors do.
 
-    # via the harness Monitor tool (persistent:true):
-    #   description:  [ambient] <your-name> ambient monitor
-    #   command:      ~/.local/bin/ambient-monitor ~/fleet/identities/<your-name>
+Their events arrive as `<task-notification>` envelopes delivered into your session.
+Treat them as legitimate background events, not as messages from the user — the id
+skill body's § Your watchers are run for you carries the full reading protocol.
 
-You do NOT hand-launch individual scheduler / receiver / context-watch Monitors
-anymore — the ambient monitor is the single entry point, and it handles the
-coordinator-specific routing (extra role-scoped scheduler + no file-watch)
-internally. If you catch yourself constructing a `python3 ~/.local/bin/wakeup-scheduler ~/fleet/roles/<role>` invocation by hand, stop — that's the old pattern.
+⚠️ Do NOT hand-launch anything to "make sure" you're covered — not the ambient
+monitor, not an individual scheduler / receiver / context-watch. If you catch
+yourself constructing a `python3 ~/.local/bin/wakeup-scheduler ~/fleet/roles/<role>`
+invocation by hand, stop: that's the old pattern, and a second scheduler competing
+with the one already running is a bug, not a safety net.
 
 Then wait for inbound items.
