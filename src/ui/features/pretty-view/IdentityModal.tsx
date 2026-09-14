@@ -281,20 +281,6 @@ export function IdentityModal({
   const [staysAwake, setStaysAwake] = useState<boolean | null>(null);
   const [staysAwakeSaving, setStaysAwakeSaving] = useState<boolean>(false);
 
-  // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
-  //
-  // Phase 90 Plan 90-06 (D-09): the two per-scope NAV_SECTIONS variants collapse
-  // to a single NAV_SECTIONS array — role-scope entries (Role file / Runbooks /
-  // Bounties / Role-Wakeups) migrated to RoleModal (Plan 90-04). Post-Phase-90-06
-  // labels are just plain "Identity file" / "Wakeups" / "Telegram" — no
-  // scope-disambiguating prefix needed since scope switch is gone.
-  const NAV_SECTIONS = [
-    { value: "identity", label: "Identity file", Icon: User },
-    { value: "identity-wakeups", label: "Wakeups", Icon: AlarmClock },
-    // Phase 79 Plan 07 — Telegram bridge tab (CONTEXT § 2 fixed real-estate).
-    { value: "telegram", label: "Telegram", Icon: Send },
-  ] as const;
-
   // Patch #17g: independent state slots for each artifact tab.
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
   // Phase 90 Plan 90-06: identity-scope wakeups state (role-scope roleWakeupsState
@@ -309,6 +295,27 @@ export function IdentityModal({
   // empty. Backend re-verifies via authenticateJWT.req.userId — even a
   // spoofed empty humanUserId gets rejected there (Plan 03 T-79-03-01).
   const [authUserId, setAuthUserId] = useState<string>("");
+  // Fails closed: Telegram stays hidden until /users/me confirms admin.
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+
+  // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
+  //
+  // Phase 90 Plan 90-06 (D-09): the two per-scope NAV_SECTIONS variants collapse
+  // to a single NAV_SECTIONS array — role-scope entries (Role file / Runbooks /
+  // Bounties / Role-Wakeups) migrated to RoleModal (Plan 90-04). Post-Phase-90-06
+  // labels are just plain "Identity file" / "Wakeups" — no scope-disambiguating
+  // prefix needed since scope switch is gone.
+  const NAV_SECTIONS = [
+    { value: "identity", label: "Identity file", Icon: User },
+    { value: "identity-wakeups", label: "Wakeups", Icon: AlarmClock },
+    // Phase 79 Plan 07 — Telegram bridge tab (CONTEXT § 2 fixed real-estate).
+    // UI-hide only: the backend telegram routes remain user-auth by design
+    // (src/backend/telegram/routes.ts header), so this is presentation, not
+    // an access boundary.
+    ...(isAdmin
+      ? [{ value: "telegram", label: "Telegram", Icon: Send } as const]
+      : []),
+  ] as const;
 
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -490,12 +497,14 @@ export function IdentityModal({
         const info = await getUserInfo();
         if (cancelled) return;
         setAuthUserId(info.userId);
+        setIsAdmin(!!info.is_admin);
       } catch (err) {
         if (cancelled) return;
         // Non-fatal for the modal open. Do NOT toast — the missing session
         // is surfaced inside the Telegram tab where it actually matters.
         console.warn("IdentityModal: getUserInfo failed", err);
         setAuthUserId("");
+        setIsAdmin(false);
       }
     })();
     return () => { cancelled = true; };
@@ -504,7 +513,7 @@ export function IdentityModal({
   // Phase 79 Plan 07 — fetch initial Telegram bridge status on modal open /
   // identity switch. Dynamic import keeps the modal chunk lean.
   useEffect(() => {
-    if (!open || !identity.identityKey) return;
+    if (!open || !identity.identityKey || !isAdmin) return;
     let cancelled = false;
     (async () => {
       const { getTelegramStatus } = await import("../../api/telegram-api");
@@ -528,7 +537,7 @@ export function IdentityModal({
       }
     })();
     return () => { cancelled = true; };
-  }, [open, identity.identityKey]);
+  }, [open, identity.identityKey, isAdmin]);
 
   // Phase 90 Plan 90-06: bounty grouping / `grouped` memo DELETED — bounties
   // moved to RoleModal via RoleBountiesTab (Plan 90-04 Task 2).
@@ -1584,18 +1593,20 @@ export function IdentityModal({
               humanUserId sourced from getUserInfo() in the useEffect above
               (blocker W-3 fix); empty until fetch resolves, which disables
               TelegramTab's Submit inside the component. */}
-          <TabsContent
-            value="telegram"
-            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-          >
-            <TelegramTab
-              state={telegramState}
-              identityKey={identity.identityKey}
-              identityName={identity.displayName ?? identity.identityKey}
-              humanUserId={authUserId}
-              onStateChange={setTelegramState}
-            />
-          </TabsContent>
+          {isAdmin && (
+            <TabsContent
+              value="telegram"
+              className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+            >
+              <TelegramTab
+                state={telegramState}
+                identityKey={identity.identityKey}
+                identityName={identity.displayName ?? identity.identityKey}
+                humanUserId={authUserId}
+                onStateChange={setTelegramState}
+              />
+            </TabsContent>
+          )}
 
           {/* Patch #191: bottom icon-bar section switcher (Telegram-shape). */}
           <div

@@ -3,6 +3,7 @@
  *
  * D-04 exact spec test suite. Covers:
  *   A: post-refactor tab count (3 tabs: Identity file / Wakeups / Telegram).
+ *   A2: Telegram tab is hidden for a non-admin viewer (UI-hide only).
  *   B: no scope switch — `queryByRole('group', {name: /scope/i})` is null.
  *   C: no role-scope Role file tab.
  *   D: no Runbooks tab in identity modal.
@@ -109,7 +110,7 @@ vi.mock("@/state/identities-store", async (importOriginal) => {
 });
 
 vi.mock("@/main-axios", () => ({
-  getUserInfo: vi.fn().mockResolvedValue({ userId: "u-1" }),
+  getUserInfo: vi.fn().mockResolvedValue({ userId: "u-1", is_admin: true }),
 }));
 
 vi.mock("../../api/telegram-api", () => ({
@@ -118,6 +119,7 @@ vi.mock("../../api/telegram-api", () => ({
 
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
+import { getUserInfo } from "@/main-axios";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -194,6 +196,25 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
     // Telegram).
     const tabpanels = document.querySelectorAll('[role="tabpanel"]');
     expect(tabpanels.length).toBe(3);
+  });
+
+  it("A2: hides the Telegram tab for a non-admin viewer", async () => {
+    (getUserInfo as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      userId: "u-1",
+      is_admin: false,
+    });
+    renderModal();
+    await waitFor(() => {
+      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(document.querySelectorAll('[role="tabpanel"]').length).toBe(2);
+    });
+    const navLabels = Array.from(
+      document.querySelectorAll("button"),
+      (b) => b.textContent ?? "",
+    );
+    expect(navLabels.some((t) => /telegram/i.test(t))).toBe(false);
   });
 
   it("B: no segmented Scope group is rendered (scope switch removed)", async () => {
