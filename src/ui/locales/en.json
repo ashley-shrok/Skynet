@@ -145,7 +145,7 @@
       "loading": "Loading agents…"
     },
     "newSessionTitle": "Create a new agent conversation",
-    "newSessionDescription": "Pick a host and (optionally) name the agent.",
+    "newSessionDescription": "Pick a role and (optionally) name the agent.",
     "newSessionSearchHosts": "Search hosts",
     "newSessionNameLabel": "Agent name (optional)",
     "newSessionNamePlaceholder": "auto",

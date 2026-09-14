@@ -562,7 +562,7 @@ describe("NewSessionDialog role-select bug fix: host-null affordance", () => {
     // Phase 88: agent mode is the new default (shellOnly=false). Use
     // two-host tree so no auto-select fires → selectedHost stays null on
     // open. The literal we check for is DISTINCT from the modal-description
-    // text ("Pick a host and (optionally) name the agent.") so this cannot
+    // text ("Pick a role and (optionally) name the agent.") so this cannot
     // be satisfied by the pre-existing L787 description alone — it must be
     // the new Task-3 hint block rendered inside the agent-cluster.
     renderDialog({ hostTree: twoHostTree });
