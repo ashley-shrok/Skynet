@@ -56,7 +56,7 @@ import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
 // input mounted at the top of the pv-panel-scroll region.
-import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, MoreVertical, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, EyeOff, Loader2, Monitor, MoreVertical, Search, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -131,7 +131,6 @@ import {
   deriveDiskHiddenIds,
 } from "@/state/identities-store";
 import { startTrappedWorkPoller } from "@/state/trapped-work-store";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSessionDialog";
 // D-10 revised 2026-09-11: CreateRoleDialog re-imported at panel level. The
@@ -800,13 +799,12 @@ export function PrettyConversationsPanel({
 
   // Phase 26 D-02 / Phase 104 Plan 03 D-11: the pinned + needs-desk bounty-
   // count filter toggles are RETIRED alongside the bounty-count wire. The
-  // Ready filter (Phase 52) survives — it has an independent data source
-  // (session-working-store). Local state only — NOT persisted (user
-  // 2026-07-28: "no remembering filter state"). filterPopoverOpen controls
-  // the Popover controlled binding required for Test 30 Escape-closes
-  // semantics.
+  // Ready filter (Phase 52) survives as dead code — its UI entry point (the
+  // Filter popover) was removed in quick-260914-liu. The state and predicate
+  // machinery is retained intentionally (Ashley's explicit decision: not worth
+  // the render-path refactor risk to clean up). The filter flag is permanently
+  // false, so displayedPinned / displayedMiddle pass rows through unfiltered.
   const [readyOnly, setReadyOnly] = useState(false);
-  const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
   const anyFilterOn = readyOnly;
 
   // Phase 52 Plan 03 — per-row (isWorking, isDormant) map for the Ready predicate.
@@ -1711,82 +1709,6 @@ export function PrettyConversationsPanel({
             />
           </span>
           <div className="pv-header-actions">
-            {/* Phase 26 D-03/D-05 (Phase 52 Plan 02 restyle): Filter button → shadcn Popover
-                with three menuitemcheckbox buttons (Ready, Pinned, Needs desk). Popover
-                handles Escape, click-outside, and Tab navigation via Radix primitives. The
-                button's aria-label is hardcoded as the literal English string
-                "Filter conversations" — NOT the stale filterLabel i18n key
-                which reads "Filter by pinned bounties" and would mislead
-                screen readers after the popover offers a needs-desk toggle. */}
-            <Popover open={filterPopoverOpen} onOpenChange={setFilterPopoverOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Filter conversations"
-                  aria-haspopup="dialog"
-                  aria-expanded={filterPopoverOpen}
-                  title="Filter conversations"
-                  className="pv-filter"
-                  data-active={anyFilterOn ? "true" : "false"}
-                  data-testid="pv-filter-toggles"
-                >
-                  <Filter />
-                  {anyFilterOn && <span className="pv-filter-dot" aria-hidden="true" />}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                sideOffset={6}
-                className="pv-filter-popover"
-                data-testid="pv-filter-toggles-popover"
-                style={{
-                  padding: 4,
-                  borderRadius: 12,
-                  background: "linear-gradient(160deg, rgba(20,21,32,0.94), rgba(10,11,18,0.94))",
-                  border: "1px solid rgba(255,240,215,0.12)",
-                  boxShadow: "0 12px 32px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,240,215,0.08)",
-                  backdropFilter: "blur(20px) saturate(1.6)",
-                  WebkitBackdropFilter: "blur(20px) saturate(1.6)",
-                  color: "#e8e4d8",
-                  minWidth: 200,
-                  // Phase 52 Plan 02 (plan-checker W-1 fix): shadcn PopoverContent hardcodes
-                  // w-72 (fixed 288px width) in its className. Inline `width: "auto"` here
-                  // overrides that utility via same-property inline-wins so the popover
-                  // sizes to content (matching the three-dots menu's auto-width behavior).
-                  // Without this, minWidth: 200 alone leaves the popover at 288px because
-                  // width and min-width are different CSS properties.
-                  width: "auto",
-                }}
-              >
-                {/* Phase 52 Plan 02 / Phase 104 Plan 03 D-11: Ready menuitemcheckbox.
-                    Was Ready + Pinned + Needs desk pre-Plan-03; the two bounty-scoped
-                    toggles retired alongside the bounty-count wire. Chrome (background
-                    gradient, border, radius, blur, drop shadow, color, width, padding)
-                    is on the PopoverContent inline style above. Item hover/active flash
-                    comes from .pv-filter-menu-item CSS rules. Checkbox affordance from
-                    .pv-filter-check. */}
-                <button
-                  type="button"
-                  role="menuitemcheckbox"
-                  aria-checked={readyOnly ? "true" : "false"}
-                  data-testid="pv-filter-toggle-ready"
-                  className="pv-filter-menu-item"
-                  onClick={(e) => { e.preventDefault(); setReadyOnly((v) => !v); }}
-                >
-                  <span className="pv-filter-check" data-checked={readyOnly ? "true" : "false"} aria-hidden="true">
-                    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M3.5 8.5 L7 12 L13 5" />
-                    </svg>
-                  </span>
-                  <span>Ready</span>
-                </button>
-              </PopoverContent>
-            </Popover>
-            {/* Phase 23 (GEFM-01): pencil + `+ New role` collapsed into one
-                MoreVertical menu button. Three items: New agent, New role,
-                Edit global files…. Gated on the same showPencilButton
-                predicate; uses pv-pencil class for chrome parity with the
-                removed individual buttons. */}
             {showPencilButton && (
               <button
                 ref={menuButtonRef}
