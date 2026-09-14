@@ -2287,7 +2287,7 @@ export function PrettyConversationsPanel({
             { label: "New agent", onClick: () => setNewSessionDialogOpen(true) },
             { label: "Edit roles…", onClick: () => setRolesListModalOpen(true) },
             { label: "Edit global files…", onClick: () => setGlobalFilesModalOpen(true) },
-            { label: "Edit skills…", onClick: () => setSkillsEditorModalOpen(true) },
+            { label: "Edit global skills…", onClick: () => setSkillsEditorModalOpen(true) },
           ].map((item) => (
             <button
               key={item.label}

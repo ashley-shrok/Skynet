@@ -206,7 +206,7 @@ describe("PrettyConversationsPanel: Edit roles… menu entry (Phase 90 D-07 rewr
       "New agent",
       "Edit roles…",
       "Edit global files…",
-      "Edit skills…",
+      "Edit global skills…",
     ]);
   });
 
