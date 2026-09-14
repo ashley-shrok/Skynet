@@ -56,7 +56,7 @@ import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
 // input mounted at the top of the pv-panel-scroll region.
-import { ChevronDown, ChevronRight, EyeOff, Loader2, Monitor, MoreVertical, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Drama, EyeOff, Globe, Loader2, Monitor, MoreVertical, Search, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -1709,19 +1709,55 @@ export function PrettyConversationsPanel({
             />
           </span>
           <div className="pv-header-actions">
+            {/* quick-260914-liu: four header icon buttons share a single showPencilButton
+                guard (typeof onCreateSession === "function"). Left-to-right: New agent,
+                Edit roles, Edit global files, kebab. All four disappear together when
+                onCreateSession is undefined. */}
             {showPencilButton && (
-              <button
-                ref={menuButtonRef}
-                type="button"
-                className="pv-pencil"
-                onClick={openMenu}
-                data-testid="pv-header-menu-button"
-                aria-label="More actions"
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-              >
-                <MoreVertical size={18} />
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="pv-pencil"
+                  aria-label="New agent"
+                  title="New agent"
+                  data-testid="pv-header-new-agent-button"
+                  onClick={() => setNewSessionDialogOpen(true)}
+                >
+                  <SquarePen size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="pv-pencil"
+                  aria-label="Edit roles"
+                  title="Edit roles"
+                  data-testid="pv-header-edit-roles-button"
+                  onClick={() => setRolesListModalOpen(true)}
+                >
+                  <Drama size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="pv-pencil"
+                  aria-label="Edit global files"
+                  title="Edit global files"
+                  data-testid="pv-header-global-files-button"
+                  onClick={() => setGlobalFilesModalOpen(true)}
+                >
+                  <Globe size={18} />
+                </button>
+                <button
+                  ref={menuButtonRef}
+                  type="button"
+                  className="pv-pencil"
+                  onClick={openMenu}
+                  data-testid="pv-header-menu-button"
+                  aria-label="More actions"
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                >
+                  <MoreVertical size={18} />
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -2198,17 +2234,13 @@ export function PrettyConversationsPanel({
             color: "#e8e4d8",
           }}
         >
-          {/* KEEP ORDER: New conversation → New agent → Edit roles… → Edit global files… → Edit skills… (Phase 44 Pitfall 8 guard — do not alphabetize or reshuffle).
-              Phase 90 Plan 90-06 (D-07): "New role" swapped out for "Edit roles…"
-              — the roles-list modal is the new front door to role creation
-              (via its header '+ New role' button) AND to per-role editing.
-              Phase 91 — "New conversation" prepended as v1 throwaway placement;
-              conversation-list area redesign will resurface this. */}
+          {/* KEEP ORDER: New group conversation → Edit global skills… (Phase 44 Pitfall 8 guard —
+              do not alphabetize or reshuffle these two survivors). quick-260914-liu moved
+              New agent, Edit roles, and Edit global files into dedicated header icon buttons;
+              those three entries are gone from this list. The Phase 44 no-reshuffle guard still
+              applies to the two items that remain. */}
           {[
             { label: "New group conversation", onClick: () => setNewConversationModalOpen(true) }, // Phase 91 Plan 05
-            { label: "New agent", onClick: () => setNewSessionDialogOpen(true) },
-            { label: "Edit roles…", onClick: () => setRolesListModalOpen(true) },
-            { label: "Edit global files…", onClick: () => setGlobalFilesModalOpen(true) },
             { label: "Edit global skills…", onClick: () => setSkillsEditorModalOpen(true) },
           ].map((item) => (
             <button
