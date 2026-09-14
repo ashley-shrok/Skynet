@@ -4,7 +4,8 @@
 // role folder on the picked target host via POST /roles (roles-create.ts).
 //
 // Fields:
-//   - Name (required, kebab-case-lowercase; validated by ROLE_NAME_PATTERN)
+//   - Name (required, free text; slugified for disk, kept raw as the `title`
+//     cosmetic — see slugifyRoleName)
 //   - Description (required, multi-line textarea)
 //   - Host picker (same visual pattern as NewSessionDialog's inline listbox;
 //     suppressed when only one pickable host — auto-selected in-place)
@@ -33,9 +34,6 @@
 // Cosmetics migrate to role level: this dialog is now the primary AUTHORING
 // surface for the four cosmetic frontmatter fields (title, colorHue, voice,
 // avatar). Added below the Description textarea and above the Host picker:
-//   - Title input (labelled "Title", id `create-role-title`)
-//   - VoicePicker (imported from `@/features/pretty-view/pickers/VoicePicker`,
-//     id `create-role-voice`)
 //   - ColorPicker (imported from `@/features/pretty-view/pickers/ColorPicker`,
 //     id `create-role-color`, seeded randomly per open)
 //   - Avatar generator: Generate/Regenerate button + Upload button + 3-candidate
@@ -43,9 +41,10 @@
 //     "planner's discretion (b) — only one caller remains post-phase; extraction
 //     can happen later if a third caller emerges".
 //
-// Submission blocks until Name + Description + Host + Title + Voice +
-// ColorHue + a picked/uploaded avatar are ALL set (D-CTX-86-empty-not-scenario:
-// "roles can't have empty cosmetics with the flows that we have set up").
+// Submission blocks until Name + Description + Host + a picked/uploaded avatar
+// are ALL set (D-CTX-86-empty-not-scenario: "roles can't have empty cosmetics
+// with the flows that we have set up"). Title derives from Name and voice is a
+// fixed default, so neither is a separate gate.
 //
 // Avatar transport (LOCKED — D-CTX-86-surface-3): raw File in multipart. For a
 // generated candidate, we `fetch(candidate.url).blob()` and re-package as a
@@ -55,8 +54,7 @@
 //
 // Zero new npm deps. Reuses the fork's Dialog wrapper (@/components/dialog),
 // Button (@/components/button), Input (@/components/input), lucide-react icons
-// (Search + Loader2), and the ColorPicker/VoicePicker components from
-// pretty-view/pickers.
+// (Search + Loader2), and the ColorPicker component from pretty-view/pickers.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -82,7 +80,6 @@ import {
 } from "@/api/identities-api";
 // Phase 86 (D-CTX-86-surface-3): reused cosmetic pickers from pretty-view.
 // Same call shape as NewSessionDialog L1232-1254 and IdentityModal L1763-1772.
-import { VoicePicker } from "@/features/pretty-view/pickers/VoicePicker";
 import { ColorPicker } from "@/features/pretty-view/pickers/ColorPicker";
 
 // ─── Type-guard + host DFS (duplicated from NewSessionDialog L82-99) ─────────
@@ -113,11 +110,32 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 // re-validates before any SSH/SFTP work.
 export const ROLE_NAME_PATTERN = /^[a-z0-9-]+$/;
 
+// The Name field accepts free text (any capitalization/spacing) and drives BOTH
+// the on-disk role slug and the `title:` cosmetic. Slugification happens here so
+// the backend keeps receiving a kebab-case `name` and its ROLE_NAME_PATTERN gate
+// stays untouched as defense-in-depth. Diacritics are folded rather than dropped
+// so "Café Ops" yields `cafe-ops`, not `caf-ops`.
+export function slugifyRoleName(raw: string): string {
+  return raw
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/g, "");
+}
+
 // ─── Phase 86: mimetype → file-extension map for generated-candidate File
 // reconstruction. The batch generator returns image URLs; we fetch bytes and
 // re-package as a File. Default to `webp` (what the batch generator emits)
 // when the response header omits Content-Type. Kept local to this dialog per
 // D-CTX-86-surface-3 "extract later if a third caller emerges" precedent.
+// Every new role gets this voice. Set explicitly rather than by leaving `voice`
+// unset — the backend's omitted-voice fallback is Joanna (voice.ts DEFAULT_VOICE),
+// and changing that global would retint every existing voiceless role.
+const DEFAULT_ROLE_VOICE = "Danielle";
+
 const MIME_TO_EXT: Record<string, string> = {
   "image/webp": "webp",
   "image/png": "png",
@@ -171,8 +189,6 @@ export function CreateRoleDialog({
   // Mirrors NewSessionDialog L317-337 shape. All EPHEMERAL until submit.
   // colorHue seeded randomly per open so never-touched roles aren't all cyan
   // (matches NewSessionDialog L320's Math.floor(Math.random() * 360) seed).
-  const [title, setTitle] = useState<string>("");
-  const [voice, setVoice] = useState<string>("");
   const [colorHue, setColorHue] = useState<number>(() =>
     Math.floor(Math.random() * 360),
   );
@@ -239,8 +255,6 @@ export function CreateRoleDialog({
       setSubmitting(false);
       setSubmitError(null);
       // Phase 86: reset cosmetic + avatar state on close so re-open is fresh.
-      setTitle("");
-      setVoice("");
       setCandidates([]);
       setPickedCandidateId(null);
       setGenLoading(false);
@@ -278,25 +292,23 @@ export function CreateRoleDialog({
   }, []);
 
   // ─── Validation ──────────────────────────────────────────────────────────
-  const nameValid = name.length > 0 && ROLE_NAME_PATTERN.test(name);
-  const nameShowError = name.length > 0 && !nameValid;
+  // `name` is free text; `slug` is what the backend and disk see. The field is
+  // invalid only when it slugifies to nothing (e.g. "!!!") — capitalization and
+  // spaces are expected input, not errors.
+  const title = name.trim();
+  const slug = slugifyRoleName(name);
+  const nameValid = slug.length > 0 && ROLE_NAME_PATTERN.test(slug);
+  const nameShowError = name.trim().length > 0 && !nameValid;
   const descriptionValid = description.trim().length > 0;
   const hostValid = selectedHost !== null;
   // Phase 86 (D-CTX-86-empty-not-scenario): cosmetic fields are REQUIRED.
-  // Roles can't have empty cosmetics with the flows we have set up.
-  // colorHue is always non-null (seeded randomly); voice + title + avatar
-  // are user-set gates.
-  const titleValid = title.trim().length > 0;
-  const voiceValid = voice.length > 0;
+  // colorHue is always non-null (seeded randomly); voice is a fixed default;
+  // title now derives from the Name field, so only avatar remains a user gate.
   const avatarValid = pickedCandidateId !== null;
-  // canOpen predicate — enables the Create button. Extended in Phase 86 to
-  // also require the four cosmetic gates (title + voice + colorHue + avatar).
   const canOpen =
     nameValid &&
     descriptionValid &&
     hostValid &&
-    titleValid &&
-    voiceValid &&
     avatarValid &&
     !submitting;
 
@@ -309,8 +321,7 @@ export function CreateRoleDialog({
   const canGenerate =
     !genLoading &&
     !formDisabled &&
-    name.length > 0 &&
-    title.trim().length > 0 &&
+    nameValid &&
     description.trim().length > 0;
 
   // ─── Phase 86: avatar generate handler (inlined per D-CTX-86-surface-3) ──
@@ -333,8 +344,11 @@ export function CreateRoleDialog({
     setGenLoading(true);
     setGenError(null);
     try {
+      // Name and title are one concept now, so the drafter gets the same
+      // human-readable string for both — it reads better in a prompt than the
+      // slug would ("Box Maintainer", not "box-maintainer").
       const cands = await postGenerateAvatarBatch({
-        name,
+        name: title,
         title,
         brief: description,
         colorHue,
@@ -406,7 +420,7 @@ export function CreateRoleDialog({
     const blob = await res.blob();
     const mime = blob.type || "image/webp";
     const ext = MIME_TO_EXT[mime] ?? "webp";
-    return new File([blob], `${name}.${ext}`, { type: mime });
+    return new File([blob], `${slug}.${ext}`, { type: mime });
   }
 
   // ─── Submit handler ──────────────────────────────────────────────────────
@@ -424,13 +438,13 @@ export function CreateRoleDialog({
       const avatarFile = await resolveAvatarFile();
       await createRole(
         {
-          name,
+          name: slug,
           description,
           hostId: hostIdNum,
           cosmetics: {
             title,
             colorHue,
-            voice,
+            voice: DEFAULT_ROLE_VOICE,
           },
         },
         avatarFile,
@@ -444,17 +458,17 @@ export function CreateRoleDialog({
       // don't opt in to the chain (test-only pattern; production panel wires
       // it — see PrettyConversationsPanel.tsx chainPrefill).
       if (onChainToCreateIdentity) {
-        onChainToCreateIdentity({ role: name, host: selectedHost, description });
+        onChainToCreateIdentity({ role: slug, host: selectedHost, description });
       }
       if (onCreated) {
-        onCreated({ name, description, host: selectedHost });
+        onCreated({ name: slug, description, host: selectedHost });
       }
       onClose();
     } catch (err) {
       // 409 → inline "already exists" message (Test 19).
       if (err instanceof RoleAlreadyExistsError) {
         setSubmitError(
-          `A role named \`${name}\` already exists on ${selectedHost.name}`,
+          `A role named \`${slug}\` already exists on ${selectedHost.name}`,
         );
       } else {
         setSubmitError(err instanceof Error ? err.message : "create role failed");
@@ -481,10 +495,10 @@ export function CreateRoleDialog({
     defaultValue: "Name",
   });
   const namePlaceholder = t("nav.createRoleNamePlaceholder", {
-    defaultValue: "box-maintainer",
+    defaultValue: "Box Maintainer",
   });
   const nameErrorText = t("nav.createRoleNameError", {
-    defaultValue: "Name must be kebab-case-lowercase (a-z, 0-9, hyphen only)",
+    defaultValue: "Name must contain at least one letter or number",
   });
   const descriptionLabel = t("nav.createRoleDescriptionLabel", {
     defaultValue: "Description",
@@ -585,42 +599,6 @@ export function CreateRoleDialog({
            * L1186-1366 (Title → Voice → Color → Avatar) so the two dialogs feel
            * consistent to a wearer who's used to authoring identity cosmetics.
            */}
-
-          {/* Title field (Phase 86) */}
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="create-role-title"
-              className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-            >
-              Title
-            </label>
-            <Input
-              id="create-role-title"
-              aria-label="Title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Box Maintainer"
-              disabled={formDisabled}
-              className="text-xs"
-            />
-          </div>
-
-          {/* Voice picker (Phase 86) — reused from pretty-view/pickers */}
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="create-role-voice"
-              className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-            >
-              Voice
-            </label>
-            <VoicePicker
-              value={voice}
-              onChange={(v) => !formDisabled && setVoice(v)}
-              id="create-role-voice"
-              ariaLabel="Voice"
-              disabled={formDisabled}
-            />
-          </div>
 
           {/* Color picker (Phase 86) — reused from pretty-view/pickers */}
           <div className="flex flex-col gap-1.5">

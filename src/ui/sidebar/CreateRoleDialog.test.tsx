@@ -144,7 +144,11 @@ vi.mock("@/features/pretty-view/pickers/VoicePicker", () => ({
 // the mockRejectedValue tests below throw the actual instance the dialog
 // checks against with instanceof.
 import { RoleAlreadyExistsError } from "@/api/identities-api";
-import { CreateRoleDialog } from "./CreateRoleDialog";
+import {
+  CreateRoleDialog,
+  ROLE_NAME_PATTERN,
+  slugifyRoleName,
+} from "./CreateRoleDialog";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
@@ -215,17 +219,11 @@ afterEach(() => {
   // Best-effort cleanup — @testing-library auto-unmounts, no explicit action.
 });
 
-// ─── Phase 86 helper — populate the four cosmetic gates in one call ──────
-// After name + description + host are already set, this drives Title,
-// VoicePicker mock, and picks the first generated candidate so `canOpen`
-// flips to true. Called from tests 13-17, 19-20 whose Phase 22/84 shape
-// only exercised the pre-cosmetic gates.
-async function fillCosmeticsAndPickAvatar(opts: { title?: string } = {}) {
-  const title = opts.title ?? "Box Maintainer";
-  // Title input
-  fireEvent.change(screen.getByLabelText(/^title$/i), { target: { value: title } });
-  // Voice via passthrough mock button
-  fireEvent.click(screen.getByTestId("voice-picker-set-elena"));
+// ─── Helper — satisfy the remaining cosmetic gate in one call ────────────
+// Title now derives from the Name field and voice is a fixed default, so the
+// avatar is the only cosmetic the user still supplies. `canOpen` flips once a
+// candidate is picked (name + description + host set by the caller).
+async function fillCosmeticsAndPickAvatar() {
   // Generate candidates + pick the first one
   fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
   await waitFor(() =>
@@ -245,7 +243,7 @@ async function fillCosmeticsAndPickAvatar(opts: { title?: string } = {}) {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe("CreateRoleDialog", () => {
-  it("Test 11 (Phase 86 Plan 06): renders Name, Description, four cosmetic controls (Title / VoicePicker / ColorPicker / Generate+Upload), Host picker; header blurb present; required-caption + chain-checkbox both DELETED from DOM", () => {
+  it("Test 11: renders Name, Description, ColorPicker + Generate/Upload, Host picker; Title input and VoicePicker are GONE; header blurb present; required-caption + chain-checkbox both DELETED from DOM", () => {
     render(
       <CreateRoleDialog
         open={true}
@@ -271,11 +269,11 @@ describe("CreateRoleDialog", () => {
     expect(desc).toBeTruthy();
     expect(desc.tagName).toBe("TEXTAREA");
 
-    // Phase 86 Plan 86-06: the four cosmetic authoring controls added by
-    // Plan 86-03 all render. Title input, VoicePicker (mocked), ColorPicker
-    // (mocked), and the avatar section's Generate + Upload buttons.
-    expect(screen.getByLabelText(/^title$/i)).toBeTruthy();
-    expect(screen.getByTestId("voice-picker")).toBeTruthy();
+    // Title merged into Name and voice fixed to a default, so neither control
+    // exists any more. Asserting ABSENCE is the point — a regression that
+    // reintroduces either field is exactly what this guards.
+    expect(screen.queryByLabelText(/^title$/i)).toBeNull();
+    expect(screen.queryByTestId("voice-picker")).toBeNull();
     expect(screen.getByTestId("color-picker")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^generate$/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /upload avatar/i })).toBeTruthy();
@@ -316,7 +314,7 @@ describe("CreateRoleDialog", () => {
     ).toBeNull();
   });
 
-  it("Test 12: Name validation — 'Box_Maintainer' shows inline error and disables Create; 'box-maintainer' clears the error", () => {
+  it("Test 12: Name validation — free text ('Box_Maintainer', 'Box Maintainer') is accepted; only a name that slugifies to nothing ('!!!') errors and disables Create", () => {
     render(
       <CreateRoleDialog
         open={true}
@@ -326,24 +324,26 @@ describe("CreateRoleDialog", () => {
     );
 
     const nameInput = screen.getByLabelText(/name/i) as HTMLInputElement;
-    // Type an invalid name (uppercase + underscore both fail /^[a-z0-9-]+$/)
+
+    // Free text is now VALID input — caps, spaces and underscores all slugify
+    // cleanly, so none of them may raise an error. This is the inversion of the
+    // old kebab-case-only rule.
     fireEvent.change(nameInput, { target: { value: "Box_Maintainer" } });
+    expect(screen.queryByText(/at least one letter or number/i)).toBeNull();
+    fireEvent.change(nameInput, { target: { value: "Box Maintainer" } });
+    expect(screen.queryByText(/at least one letter or number/i)).toBeNull();
 
-    // Inline error present
-    expect(
-      screen.getByText(/kebab-case-lowercase|a-z, 0-9, hyphen/i),
-    ).toBeTruthy();
-
-    // Create button disabled (regardless of any other field state)
+    // Only a name that slugifies to NOTHING is an error — there'd be no folder
+    // name to create.
+    fireEvent.change(nameInput, { target: { value: "!!!" } });
+    expect(screen.getByText(/at least one letter or number/i)).toBeTruthy();
     const createBtn = screen.getByRole("button", { name: /create/i }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(true);
 
-    // Now type a valid name → inline error clears (Create enablement is
-    // separately gated on cosmetics — Test 22 covers that).
+    // Recovering clears the error (Create enablement is separately gated on the
+    // avatar — Test 22-cosmetic-gate-avatar covers that).
     fireEvent.change(nameInput, { target: { value: "box-maintainer" } });
-    expect(
-      screen.queryByText(/kebab-case-lowercase|a-z, 0-9, hyphen/i),
-    ).toBeNull();
+    expect(screen.queryByText(/at least one letter or number/i)).toBeNull();
   });
 
   it("Test 13 (Phase 86 Plan 06): Description validation — empty description disables Create even when name+host+cosmetics are all valid", async () => {
@@ -360,15 +360,9 @@ describe("CreateRoleDialog", () => {
       target: { value: "box-maintainer" },
     });
 
-    // Fill title + voice (2 of the 3 cosmetic gates that would otherwise
-    // mask the description gate). Description stays EMPTY — this is the
-    // gate we're testing. Avatar can't be picked without description (the
-    // canGenerate predicate requires description), so we only fill title+voice
-    // here and rely on the assertion that description alone keeps Create off.
-    fireEvent.change(screen.getByLabelText(/^title$/i), {
-      target: { value: "Box Maintainer" },
-    });
-    fireEvent.click(screen.getByTestId("voice-picker-set-elena"));
+    // Description stays EMPTY — the gate under test. The avatar can't be picked
+    // without a description either (canGenerate requires it), so this asserts
+    // that description alone keeps Create off.
 
     // Description empty → still disabled
     const createBtn = screen.getByRole("button", { name: /create/i }) as HTMLButtonElement;
@@ -454,7 +448,7 @@ describe("CreateRoleDialog", () => {
     await waitFor(() => expect(createBtn.disabled).toBe(false));
   });
 
-  it("Test 16 (Phase 86 Plan 06): On submit, createRole is called with the widened multipart shape ({name, description, hostId, cosmetics: {title, colorHue, voice}}, avatarFile)", async () => {
+  it("Test 16: On submit, createRole gets the slugified name plus the raw Name text as `title` and the default voice ({name, description, hostId, cosmetics: {title, colorHue, voice}}, avatarFile)", async () => {
     render(
       <CreateRoleDialog
         open={true}
@@ -463,15 +457,15 @@ describe("CreateRoleDialog", () => {
       />,
     );
 
+    // Free text in ONE field drives both the slug and the title.
     fireEvent.change(screen.getByLabelText(/^name$/i), {
-      target: { value: "box-maintainer" },
+      target: { value: "Box Maintainer" },
     });
     fireEvent.change(screen.getByLabelText(/^description$/i), {
       target: { value: "d1" },
     });
-    // Populate cosmetics + pick a generated candidate. Manual-upload path
-    // is exercised separately in Test 24.
-    await fillCosmeticsAndPickAvatar({ title: "Box Maintainer" });
+    // Pick a generated candidate. Manual-upload path is exercised in Test 24.
+    await fillCosmeticsAndPickAvatar();
 
     // Stub fetch for the generated candidate — resolveAvatarFile() calls
     // fetch(candidate.url), reads `.blob()`, then reads `blob.type` to derive
@@ -497,13 +491,15 @@ describe("CreateRoleDialog", () => {
       Record<string, unknown>,
       File | null,
     ];
+    // "Box Maintainer" splits: slugified into `name` (the on-disk folder) and
+    // kept raw as the `title` cosmetic. Voice is the fixed default.
     expect(input).toMatchObject({
       name: "box-maintainer",
       description: "d1",
       hostId: 42,
       cosmetics: {
         title: "Box Maintainer",
-        voice: "Elena.wav",
+        voice: "Danielle",
       },
     });
     // colorHue is seeded randomly per open — assert it's a number in range.
@@ -612,7 +608,7 @@ describe("CreateRoleDialog", () => {
     fetchSpy.mockRestore();
   });
 
-  it("Test 20 (Phase 86 Plan 06): On modal close, all state resets — name, description, host, AND the Phase 86 cosmetic state (title, voice, colorHue reseeded, candidates cleared, pickedCandidateId cleared)", async () => {
+  it("Test 20: On modal close, all state resets — name, description, host, AND cosmetic state (colorHue reseeded, candidates cleared, pickedCandidateId cleared)", async () => {
     let openState = true;
     const setOpen = (v: boolean) => { openState = v; };
     const { rerender } = render(
@@ -635,12 +631,9 @@ describe("CreateRoleDialog", () => {
       target: { value: "d1" },
     });
     fireEvent.click(screen.getByRole("option", { name: /hostB/ }));
-    await fillCosmeticsAndPickAvatar({ title: "Prior Title" });
+    await fillCosmeticsAndPickAvatar();
 
     // Verify some cosmetic state actually landed on the DOM before close.
-    expect(
-      (screen.getByLabelText(/^title$/i) as HTMLInputElement).value,
-    ).toBe("Prior Title");
     expect(document.querySelectorAll("[data-candidate-id]").length).toBe(3);
 
     // Close (open=false)
@@ -678,14 +671,8 @@ describe("CreateRoleDialog", () => {
       screen.getByRole("option", { name: /hostB/ }).getAttribute("aria-selected"),
     ).toBe("false");
 
-    // Phase 86 cosmetic state reset
-    expect(
-      (screen.getByLabelText(/^title$/i) as HTMLInputElement).value,
-    ).toBe("");
-    // VoicePicker mock passes value through as data-value on its stub.
-    expect(
-      screen.getByTestId("voice-picker").getAttribute("data-value"),
-    ).toBe("");
+    // Phase 86 cosmetic state reset. Title rides on the Name field (asserted
+    // empty above) and voice is a constant, so neither has its own control.
     // ColorPicker's value is a number seeded randomly on open — assert
     // it's a valid hue but ALSO assert it re-rolled (data-value is a
     // number in [0, 360)).
@@ -743,7 +730,7 @@ describe("CreateRoleDialog", () => {
 
   // ─── Phase 86 (Plan 86-06) NEW tests ──────────────────────────────────
 
-  it("Test 22-cosmetic-gate-title (Phase 86 Plan 06): with everything else valid, empty title keeps Create disabled per D-CTX-86-empty-not-scenario", async () => {
+  it("Test 22-cosmetic-gate-name: clearing the Name field after everything else is valid keeps Create disabled (Name drives both slug and title)", async () => {
     render(
       <CreateRoleDialog
         open={true}
@@ -754,18 +741,11 @@ describe("CreateRoleDialog", () => {
 
     // Fill name + description (single-host tree auto-picks host)
     fireEvent.change(screen.getByLabelText(/^name$/i), {
-      target: { value: "box-maintainer" },
+      target: { value: "Box Maintainer" },
     });
     fireEvent.change(screen.getByLabelText(/^description$/i), {
       target: { value: "d1" },
     });
-    // Fill voice; skip title. Also generate + pick avatar (requires title
-    // internally for the seed, but we set a title, generate/pick, then
-    // CLEAR the title to prove the gate is enforced at Create-time).
-    fireEvent.change(screen.getByLabelText(/^title$/i), {
-      target: { value: "Temporary" },
-    });
-    fireEvent.click(screen.getByTestId("voice-picker-set-elena"));
     fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
     await waitFor(() => expect(mockPostGenerateAvatarBatch).toHaveBeenCalled());
     await waitFor(
@@ -777,47 +757,11 @@ describe("CreateRoleDialog", () => {
     const createBtn = screen.getByRole("button", { name: /create/i }) as HTMLButtonElement;
     await waitFor(() => expect(createBtn.disabled).toBe(false));
 
-    // Clear the title → Create disables
-    fireEvent.change(screen.getByLabelText(/^title$/i), {
+    // Clear the name → Create disables (no slug, and no title either)
+    fireEvent.change(screen.getByLabelText(/^name$/i), {
       target: { value: "" },
     });
     expect(createBtn.disabled).toBe(true);
-  });
-
-  it("Test 22-cosmetic-gate-voice (Phase 86 Plan 06): with everything else valid, empty voice keeps Create disabled", async () => {
-    render(
-      <CreateRoleDialog
-        open={true}
-        onClose={() => {}}
-        hostTree={makeHostTree([makeHost("h1", "onlyHost")])}
-      />,
-    );
-
-    fireEvent.change(screen.getByLabelText(/^name$/i), {
-      target: { value: "box-maintainer" },
-    });
-    fireEvent.change(screen.getByLabelText(/^description$/i), {
-      target: { value: "d1" },
-    });
-    fireEvent.change(screen.getByLabelText(/^title$/i), {
-      target: { value: "Box Maintainer" },
-    });
-    // Skip voice — leave the VoicePicker's value as "".
-    // Generate + pick avatar to lift the avatar gate.
-    fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
-    await waitFor(() => expect(mockPostGenerateAvatarBatch).toHaveBeenCalled());
-    await waitFor(
-      () => expect(document.querySelectorAll("[data-candidate-id]").length).toBe(3),
-    );
-    fireEvent.click(document.querySelectorAll("[data-candidate-id]")[0]);
-
-    // Voice unset → Create disabled
-    const createBtn = screen.getByRole("button", { name: /create/i }) as HTMLButtonElement;
-    expect(createBtn.disabled).toBe(true);
-
-    // Set voice → Create enables
-    fireEvent.click(screen.getByTestId("voice-picker-set-elena"));
-    await waitFor(() => expect(createBtn.disabled).toBe(false));
   });
 
   it("Test 22-cosmetic-gate-avatar (Phase 86 Plan 06): with everything else valid, no picked avatar keeps Create disabled; picking one enables it", async () => {
@@ -835,11 +779,6 @@ describe("CreateRoleDialog", () => {
     fireEvent.change(screen.getByLabelText(/^description$/i), {
       target: { value: "d1" },
     });
-    fireEvent.change(screen.getByLabelText(/^title$/i), {
-      target: { value: "Box Maintainer" },
-    });
-    fireEvent.click(screen.getByTestId("voice-picker-set-elena"));
-
     // Generate but do NOT pick → Create stays disabled
     fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
     await waitFor(() => expect(mockPostGenerateAvatarBatch).toHaveBeenCalled());
@@ -864,25 +803,24 @@ describe("CreateRoleDialog", () => {
     );
 
     fireEvent.change(screen.getByLabelText(/^name$/i), {
-      target: { value: "box-maintainer" },
+      target: { value: "Box Maintainer" },
     });
     fireEvent.change(screen.getByLabelText(/^description$/i), {
       target: { value: "role description" },
-    });
-    fireEvent.change(screen.getByLabelText(/^title$/i), {
-      target: { value: "Box Maintainer" },
     });
 
     // Click Generate
     fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
 
-    // Seed mapping per D-CTX-86-surface-3: brief maps from description.
+    // Seed mapping per D-CTX-86-surface-3: brief maps from description. The
+    // drafter gets the human-readable Name for BOTH name and title — the slug
+    // would read worse in a prompt.
     await waitFor(() =>
       expect(mockPostGenerateAvatarBatch).toHaveBeenCalledTimes(1),
     );
     expect(mockPostGenerateAvatarBatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: "box-maintainer",
+        name: "Box Maintainer",
         title: "Box Maintainer",
         brief: "role description",
       }),
@@ -925,9 +863,6 @@ describe("CreateRoleDialog", () => {
     fireEvent.change(screen.getByLabelText(/^description$/i), {
       target: { value: "d1" },
     });
-    fireEvent.change(screen.getByLabelText(/^title$/i), {
-      target: { value: "Box Maintainer" },
-    });
     fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
     await waitFor(
       () => expect(document.querySelectorAll("[data-candidate-id]").length).toBe(3),
@@ -957,5 +892,40 @@ describe("CreateRoleDialog", () => {
     // Generated candidate carousel cleared (mutual exclusion — Plan 86-03
     // handleManualUpload clears `candidates` on successful upload).
     expect(document.querySelectorAll("[data-candidate-id]").length).toBe(0);
+  });
+});
+
+// ─── slugifyRoleName ────────────────────────────────────────────────────────
+
+describe("slugifyRoleName", () => {
+  it("lowercases and hyphenates free text, and always yields a valid role name", () => {
+    const cases: Array<[string, string]> = [
+      ["Box Maintainer", "box-maintainer"],
+      ["box-maintainer", "box-maintainer"],
+      ["Box_Maintainer", "box-maintainer"],
+      ["  Box   Maintainer  ", "box-maintainer"],
+      ["Aither Health / Infra", "aither-health-infra"],
+      ["Café Ops", "cafe-ops"],
+      ["R2D2", "r2d2"],
+      ["Ops!!!", "ops"],
+    ];
+    for (const [input, expected] of cases) {
+      expect(slugifyRoleName(input)).toBe(expected);
+      // Whatever comes out must satisfy the backend's gate.
+      expect(ROLE_NAME_PATTERN.test(slugifyRoleName(input))).toBe(true);
+    }
+  });
+
+  it("returns empty string when there is nothing sluggable, which is what gates Create", () => {
+    for (const input of ["", "   ", "!!!", "---", "  -- "]) {
+      expect(slugifyRoleName(input)).toBe("");
+    }
+  });
+
+  it("caps length at 64 chars without leaving a trailing hyphen", () => {
+    const slug = slugifyRoleName("a".repeat(60) + " " + "b".repeat(20));
+    expect(slug.length).toBeLessThanOrEqual(64);
+    expect(slug.endsWith("-")).toBe(false);
+    expect(ROLE_NAME_PATTERN.test(slug)).toBe(true);
   });
 });
