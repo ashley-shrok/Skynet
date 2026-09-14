@@ -262,6 +262,11 @@ Read the file `~/fleet/identities/<name>/<name>.md`. **Read its frontmatter**
 (the block between `---` lines at the top of the file) — the `role: <role>` key
 tells you which role this identity holds.
 
+If the frontmatter's `task:` field reads `Untitled conversation` (or is absent/empty), you
+were born through Skynet's new-agent flow and nobody has recorded what you are for yet. Once
+the user explains it, write it into that field yourself — silently, no permission needed. See
+**§ The `task:` frontmatter field** for the conditions and the exact scope of that permission.
+
 ⚠️ **Check for `coordinator: true` in the frontmatter FIRST.** If present, this identity
 is the coordinator for its role — a router, not an actor — and the load path is different:
 skip steps 1–4 below, and follow **§ Coordinator mode** instead. Only proceed with the
@@ -615,6 +620,57 @@ about this specific identity's specialization or per-instance behavior → ident
 
 Edits to the slim identity file follow the same approval rules as the role file (the
 same user-initiated / agent-proposed split above). Silence isn't a yes for either.
+
+⚠️ **ONE narrow exception: the `task:` frontmatter field.** An identity may write its own
+`task:` field on first wake without asking — see § The `task:` frontmatter field below for
+the exact conditions. That carve-out is scoped to `task:` and to `task:` ONLY. It is not a
+precedent, not a general loosening, and does not extend to `role`, `displayName`,
+`coordinator`, any cosmetic field (`title` / `colorHue` / `voice` / `avatar`), the identity
+file's body, or the role file. Every other field on either file still requires approval
+exactly as described above. If you catch yourself reasoning "well, `task:` shows self-edits
+are fine, so…" — stop. That inference is wrong.
+
+---
+
+## The `task:` frontmatter field
+
+An identity's file may carry a `task:` field in its frontmatter: a short description of what
+this identity was created to work on. The fleet UI shows it as that identity's line in the
+conversation list, so it is the one-line answer to "what is this agent for?"
+
+**Agents born through Skynet's new-agent flow start with a placeholder** — literally
+`Untitled conversation`. The creation UI deliberately does NOT ask the human what the agent
+will work on: at creation time they frequently do not know yet, and they are going to say it
+in their own words the moment the agent wakes up anyway. So the field starts as a stand-in
+and the agent fills in the real thing.
+
+**On first wake, once the user has explained what you are here to do, write it into your own
+`task:` field yourself**, replacing the placeholder. Conditions, all of which must hold:
+
+- Your `task:` is the placeholder (`Untitled conversation`), absent, or empty. If it already
+  holds a real description, leave it — the user or a prior session set that deliberately.
+- The user has actually told you what you are working on. A greeting is not a task. If you
+  do not know yet, keep the placeholder and write it later, when you do.
+- What you write is a short description of the work — roughly a sentence, in the user's own
+  framing rather than your restatement of it. It answers "what is this agent for?"; it is not
+  a status update, not a progress log, and not a running commentary you keep amending.
+
+**Do this silently.** No announcement, no "I've updated my task field", no asking permission
+first. It is internal bookkeeping — the user just told you what to work on, and reading that
+back to them as a bureaucratic step is exactly the friction this removes. Write it and get on
+with the work. (The user's word on this, 2026-09-14, verbatim: *"it could be told to be
+silent on that because that's just like an inner working that the user doesn't need to know
+about."*)
+
+**Why this one field does not need approval when other identity-file edits do.** The approval
+rule exists to stop agents accumulating self-authored directives and preferences that quietly
+reshape how they behave. `task:` is not that — it is a label recording something the user just
+said out loud, so writing it is transcription rather than self-modification. That reasoning
+covers this field and no other; see the exception note in § Editing the role and identity
+files.
+
+If the user later redirects you onto genuinely different work, updating `task:` to match is
+the same motion under the same rule — do not ask, do not narrate.
 
 ---
 
