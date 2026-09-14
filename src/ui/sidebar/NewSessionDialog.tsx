@@ -340,6 +340,11 @@ export function NewSessionDialog({
   // Debounce ref for collision precheck (cancel on remount/name change)
   const collisionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Latched true the moment Create fires a birth; gates the collision precheck
+  // so it can never report on the identity folder birth itself creates. See
+  // runCollisionPrecheck for the race this closes.
+  const birthStartedRef = useRef(false);
+
   // Phase 22 SRIC-05: tracks the previously-observed selectedHost.id so the
   // roles-for-host effect only clears selectedRole on an ACTUAL host change,
   // not on the initial seeding (which would nuke the chain pre-fill in
@@ -457,6 +462,8 @@ export function NewSessionDialog({
       // Reset birth state — Phase 106 Plan 106-02 (D-13/D-15): the only
       // surviving birth-related state is the `birthing` boolean.
       setBirthing(false);
+      // Un-latch so the next open re-enables the collision precheck.
+      birthStartedRef.current = false;
     }
   }, [open, flatHosts]);
 
@@ -642,10 +649,21 @@ export function NewSessionDialog({
 
   // Collision precheck: fired on name blur (debounced 300ms).
   // Fires both listIdentities + getIdentityExistsOnHost in parallel.
+  //
+  // ⚠️ Once birth has started, this check MUST NOT run or report. Clicking
+  // Create blurs the name field, which schedules this timer, and the click then
+  // starts birth immediately — so the probe would land ~300ms later, AFTER
+  // Step 1/2 created `~/fleet/identities/<name>/` on the target host, and
+  // report "Already exists on <host>" about a folder the birth itself just
+  // made. The user sees a collision error on a birth that goes on to succeed
+  // (observed on a fresh host, 2026-09-14). birthStartedRef is a ref, not the
+  // `birthing` state, because the timer callback needs the value as of when it
+  // FIRES; a state read would be captured from the render that scheduled it.
   function runCollisionPrecheck(currentName: string) {
     if (collisionTimerRef.current) {
       clearTimeout(collisionTimerRef.current);
     }
+    if (birthStartedRef.current) return;
     // Clear state immediately if name is invalid or no host selected
     if (!currentName || !IDENTITY_NAME_PATTERN.test(currentName) || !selectedHost) {
       setSkynetCollision(false);
@@ -653,6 +671,7 @@ export function NewSessionDialog({
       return;
     }
     collisionTimerRef.current = setTimeout(async () => {
+      if (birthStartedRef.current) return;
       setCollisionChecking(true);
       try {
         const lowerName = currentName.toLowerCase();
@@ -660,6 +679,7 @@ export function NewSessionDialog({
           listIdentities(),
           getIdentityExistsOnHost(selectedHost.id as unknown as number, lowerName),
         ]);
+        if (birthStartedRef.current) return;
         const skynetHit = identities.some((id) => id.identityKey === lowerName);
         setSkynetCollision(skynetHit);
         setHostCollision(existsOnHost);
@@ -689,6 +709,13 @@ export function NewSessionDialog({
   // generic `window.alert("agent creation failed")` per D-17.
   async function handleBirth() {
     if (!selectedHost) return;
+    // Latch BEFORE any await so the blur-scheduled collision probe (which fires
+    // ~300ms from now, after Step 1 has created the identity folder) sees it.
+    birthStartedRef.current = true;
+    if (collisionTimerRef.current) {
+      clearTimeout(collisionTimerRef.current);
+      collisionTimerRef.current = null;
+    }
     setBirthing(true);
     abortControllerRef.current = new AbortController();
 
@@ -772,8 +799,16 @@ export function NewSessionDialog({
         // is preserved; refresh MUST fire between ended:ok consumption and
         // onCreate firing so the just-born identity is in the store before
         // AppShell's openTab resolves it into pretty-view routing.
+        //
+        // The explicit {name: hostId} entry is what makes that actually work.
+        // refreshIdentities derives its host fanout from fleetSessions, and the
+        // newborn has no tmux session yet (the supervisor opens it on its next
+        // reconcile tick), so a bare refresh queries hosts that don't include
+        // this one and returns nothing for this name — the terminal-instead-of-
+        // PrettyView + missing-avatar symptoms. Naming the host directly means
+        // the backend enumerates it and finds the folder birth just wrote.
         try {
-          await refreshIdentities();
+          await refreshIdentities({ [name.toLowerCase()]: hostIdNum });
         } catch { /* best-effort — row will resolve on next store refresh */ }
 
         // Success (D-16): call onCreate for focus-follow, then close modal.
@@ -859,16 +894,8 @@ export function NewSessionDialog({
   // the 5-step checklist (the Create button IS the spinner surface per D-14).
   const formDisabled = birthing;
 
-  const uiTitle = t("nav.newSession", { defaultValue: "New agent" });
-  // Phase 84 (D-CONTEXT item 7): modal title conforms DOWN to the dropdown
-  // label at PrettyConversationsPanel.tsx:2036 ("New agent"). Same i18n
-  // key, only the English defaultValue changes in place — no new key.
-  // Existing translations continue to render "Start a new agent" until
-  // re-translated; English is the source-of-truth locale for this bounty
-  // (per Copy-guard LOCKED in 84-CONTEXT.md). Paired with Plan 84-01's
-  // sibling change on CreateRoleDialog's title.
   const startTitle = t("nav.newSessionTitle", {
-    defaultValue: "New agent",
+    defaultValue: "Create a new agent conversation",
   });
   // Phase 88 (paired-blurb revision): in-place defaultValue edit only,
   // no new i18n key. Sibling role blurb ships in CreateRoleDialog.tsx
@@ -897,8 +924,6 @@ export function NewSessionDialog({
   const emptyHostsLabel = t("nav.newSessionNoHosts", {
     defaultValue: "No hosts available",
   });
-
-  void uiTitle; // suppress unused warning
 
   return (
     <Dialog
@@ -1177,7 +1202,7 @@ export function NewSessionDialog({
                   htmlFor="new-identity-name"
                   className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
                 >
-                  Name
+                  Name (used when you want agents to talk to each other)
                 </label>
                 <Input
                   id="new-identity-name"

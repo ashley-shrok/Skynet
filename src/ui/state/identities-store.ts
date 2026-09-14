@@ -283,7 +283,21 @@ async function fetchOnce(): Promise<void> {
   return inflight;
 }
 
-export function refreshIdentities(): Promise<void> {
+/**
+ * @param extraIdentityHosts Additional `{ identityKey: hostId }` entries to
+ *   union into the map derived from fleetSessions. Needed by the birth flow: a
+ *   just-born identity has no tmux session yet (the agent-supervisor opens it
+ *   on its next reconcile tick, per Phase 106 D-01), so it is absent from
+ *   fleetSessions and buildIdentityHostsFromFleet cannot see it. Without an
+ *   entry naming its host, the backend fans out to zero hosts for that name and
+ *   the identity comes back in no response at all — leaving byKey without it,
+ *   which makes AppShell mount a raw terminal instead of PrettyView and
+ *   PrettyConversationRow render with no avatar/title. Worst on a host that has
+ *   never birthed an identity, where the map may be empty entirely.
+ */
+export function refreshIdentities(
+  extraIdentityHosts: Record<string, number> = {},
+): Promise<void> {
   // Force a fresh fetch even if the initial fetchOnce is still inflight.
   //
   // 2026-09-01 user regression: the first fetchOnce fires from
@@ -310,9 +324,10 @@ export function refreshIdentities(): Promise<void> {
   ensureFleetSubscription();
   const p = (async () => {
     try {
-      const identityHosts = buildIdentityHostsFromFleet(
-        getFleetSessionsSnapshot(),
-      );
+      const identityHosts = {
+        ...buildIdentityHostsFromFleet(getFleetSessionsSnapshot()),
+        ...extraIdentityHosts,
+      };
       const list = await listIdentities(identityHosts);
       setIdentities(list);
     } catch {
