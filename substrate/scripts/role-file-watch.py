@@ -41,6 +41,14 @@ import traceback
 # spill threshold matches recv.sh:152 — INLINE_MAX=460 keeps the whole event line
 # comfortably under the ~500-char harness cap (recv.sh:137)
 INLINE_MAX = 460
+
+# ⚠ Every event MUST leave this script as exactly ONE line. ambient-monitor reads child
+# stdout line-by-line and injects each line as a SEPARATE wake, so an N-line payload
+# becomes N wakes, each costing the agent a full turn. A single `task:` field edit
+# produced ~10 wakes in the field (2026-09-14, first VM-born agent on T800) because a
+# unified diff is inherently multi-line and went out through one print(). Byte-capping
+# does not prevent this on its own — a small multi-line diff sits well under INLINE_MAX
+# and still fans out. See _flatten_diff.
 POLL = int(os.environ.get("ROLE_WATCH_POLL_SEC", "2"))
 
 # Module-level inotifywait subprocess handle so signal handlers can clean it up.
@@ -132,6 +140,29 @@ def _run_diff(baseline_path, role_file_path):
     return result.stdout
 
 
+def _flatten_diff(diff_stdout):
+    """Collapse a unified diff into ONE line suitable for a single wake.
+
+    Drops the `---` / `+++` / `@@` header lines (no value to the agent — the file and
+    identity are already named in the event tag) and joins the remaining content lines
+    with a visible separator so the +/- structure survives the flattening.
+
+    Returns "(no textual change)" for an empty/whitespace-only diff rather than an
+    empty string, so the emitted event is never a bare tag with nothing after it.
+    """
+    kept = []
+    for raw in diff_stdout.splitlines():
+        if raw.startswith(("---", "+++", "@@")):
+            continue
+        stripped = raw.rstrip()
+        if not stripped:
+            continue
+        kept.append(stripped)
+    if not kept:
+        return "(no textual change)"
+    return " ⏎ ".join(kept)
+
+
 def _emit_event(kind, label, diff_stdout, spill_dir):
     """Emit one event line (or spill to file if over INLINE_MAX).
 
@@ -144,8 +175,20 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
     emoji in directives); a line at len==460 code points can be well over 460 bytes
     and get truncated by the harness — exactly the failure mode the spill exists to
     prevent.
+
+    A unified diff is ALWAYS multi-line, so we cannot simply spill on line count —
+    that would spill every event and force a file Read for even a one-word change,
+    losing the whole point of inlining. Instead we FLATTEN the diff to a single line
+    (newlines → ' ⏎ ') and inline it when the flattened form fits the byte budget.
+    Only a genuinely large diff spills.
+
+    Flattening also drops the `---`/`+++`/`@@` header lines: they carry no information
+    the agent wants (the labels are already in the event tag, and hunk offsets are
+    meaningless for a file it can just read) and they are most of the line budget on
+    a small change.
     """
-    line = "📝 [%s: %s] %s" % (kind, label, diff_stdout)
+    flat = _flatten_diff(diff_stdout)
+    line = "📝 [%s: %s] %s" % (kind, label, flat)
     if len(line.encode("utf-8")) <= INLINE_MAX:
         print(line, flush=True)
     else:
@@ -157,10 +200,11 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
         spill_path = os.path.join(spill_dir, "%s.%s.diff" % (ts, kind))
         with open(spill_path, "w") as f:
             f.write(diff_stdout)
+        # PATH before PREVIEW, matching recv.sh's long-message idiom: if anything
+        # gets truncated it must be the preview, never the path.
         print(
-            "📝 [%s: %s] diff too large to inline — read %s IMMEDIATELY "
-            "(the change may be important to your continued operation)"
-            % (kind, label, spill_path),
+            "📝 [%s: %s] large change — full diff at %s — Read it «%s…»"
+            % (kind, label, spill_path, flat[:160]),
             flush=True,
         )
 
