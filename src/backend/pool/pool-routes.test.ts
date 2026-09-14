@@ -25,14 +25,16 @@
  *   4:   ABSENT role → 200 (inverted from the old "missing role → 400")
  *   4b:  empty-string role → 200 (treated as absent)
  *   5:   role uppercase → 400 (malformed role still rejected)
- *   6:   role leading digit → 400 (ROLE_NAME_PATTERN leading-alpha gate)
+ *   6:   role leading digit → 200 (inverted — canonical pattern allows it)
+ *   6b:  genuinely malformed role → 400
  *   7:   cross-user hostId → 404
  *   8:   empty pool → 503 "pool is empty"
  *   9:   HAPPY PATH — a name already on the host is skipped
  *   10:  host enumerated EXACTLY ONCE regardless of pool size (cost guard)
- *   11:  all names taken → falls back to first candidate, never fails
+ *   11:  all names taken → falls back to a taken candidate, never fails
  *   12:  unreachable host still returns a name (degradation contract)
  *   12b: enumeration failure mid-flight still returns a name
+ *   12c: a hanging host does not hang the request (total budget)
  *   13:  LOCAL host skips SSH entirely (conn === null)
  *   13b: REMOTE host closes its SSH connection
  *   14:  pool casing drift — PascalCase entry matches lowercase folder
@@ -307,15 +309,36 @@ describe("POST /identities/pool/pick", () => {
     expect(getVettedPool).not.toHaveBeenCalled();
   });
 
-  it("Test 6: role with leading digit → 400 (ROLE_NAME_PATTERN leading-alpha gate)", async () => {
+  it("Test 6: role with leading digit → 200 (canonical pattern allows it)", async () => {
+    // Inverted 2026-09-14. This route used to enforce a STRICTER leading-alpha
+    // rule than the rest of the system, inherited from the MXID-shape gate it
+    // needed while it composed handles to probe. It no longer composes anything,
+    // and the strict rule was actively harmful: role creation and the role-list
+    // endpoint both use the canonical `/^[a-z0-9-]+$/`, so `2foo` is a legal role
+    // that would appear in the dropdown and then 400 here — killing name
+    // suggestions for a role the system itself accepted.
     const res = await httpRequest(server, {
       method: "POST",
       path: "/identities/pool/pick",
       body: { role: "2foo", hostId: 7 },
     });
-    expect(res.status).toBe(400);
-    expect((res.body as { error: string }).error).toMatch(/role/);
-    expect(getVettedPool).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(["willow", "aster"]).toContain((res.body as { name: string }).name);
+  });
+
+  it("Test 6b: genuinely malformed role → 400 (uppercase / illegal chars)", async () => {
+    // Validation is still real, just aligned with the canonical pattern. Role is
+    // advisory on this route now, so the point of the gate is to fail loudly here
+    // rather than let a malformed value travel silently.
+    for (const role of ["Skynet-Maintainer", "has space", "has_underscore"]) {
+      const res = await httpRequest(server, {
+        method: "POST",
+        path: "/identities/pool/pick",
+        body: { role, hostId: 7 },
+      });
+      expect(res.status).toBe(400);
+      expect((res.body as { error: string }).error).toMatch(/role/);
+    }
   });
 
   it("Test 7: cross-user hostId → 404 (resolveHostById returns null)", async () => {
@@ -389,12 +412,17 @@ describe("POST /identities/pool/pick", () => {
     expect((listIdentityKeysOnHost as Mock).mock.calls.length).toBe(1);
   });
 
-  it("Test 11: all names taken → falls back to first candidate (never fails)", async () => {
-    (getVettedPool as Mock).mockReturnValueOnce(["Willow", "Aster"]);
-    // Both pool names occupied → no free candidate. Birth's
-    // deriveMxidWithOrdinal appends `-N`, so returning a taken name is correct
-    // behavior rather than an error (RESEARCH §Landmine 8).
-    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce(["willow", "aster"]);
+  it("Test 11: all names taken → falls back to a taken candidate (never fails)", async () => {
+    // SINGLE-name pool so the assertion actually distinguishes "fell back" from
+    // "found a free name". With a two-name pool, `toContain` over both names is
+    // satisfied by any return value — including the happy path — so the test
+    // would still pass with the fallback deleted.
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow"]);
+    // The only pool name is occupied → no free candidate. Returning it anyway is
+    // correct: never 5xx a suggestion endpoint over pool exhaustion (RESEARCH
+    // §Landmine 8). Birth will reject it downstream, which is the intended
+    // outcome at genuine exhaustion.
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce(["willow"]);
 
     const res = await httpRequest(server, {
       method: "POST",
@@ -402,7 +430,7 @@ describe("POST /identities/pool/pick", () => {
       body: { role: "skynet-maintainer", hostId: 7 },
     });
     expect(res.status).toBe(200);
-    expect(["willow", "aster"]).toContain((res.body as { name: string }).name);
+    expect((res.body as { name: string }).name).toBe("willow");
   });
 
   it("Test 12: unreachable host still returns a name (degradation contract)", async () => {
@@ -441,6 +469,29 @@ describe("POST /identities/pool/pick", () => {
     expect(res.status).toBe(200);
     expect((res.body as { name: string }).name).toBe("willow");
   });
+
+  it("Test 12c: a hanging host does not hang the request (total budget)", async () => {
+    // connectOneShot's timeout covers only the handshake, and the enumerator
+    // carries its own 15s exec timer — so a box that accepts TCP but never
+    // answers could stall this endpoint ~18s without an outer budget. Assert the
+    // request still resolves with a name well before that.
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow"]);
+    (listIdentityKeysOnHost as Mock).mockImplementation(
+      () => new Promise(() => { /* never settles */ }),
+    );
+
+    const started = Date.now();
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { role: "skynet-maintainer", hostId: 7 },
+    });
+    const elapsed = Date.now() - started;
+
+    expect(res.status).toBe(200);
+    expect((res.body as { name: string }).name).toBe("willow");
+    expect(elapsed).toBeLessThan(10000);
+  }, 20000);
 
   it("Test 13: LOCAL host skips SSH entirely", async () => {
     // When the target is the box Skynet runs on, enumeration reads the

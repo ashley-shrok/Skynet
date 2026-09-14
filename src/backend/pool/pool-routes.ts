@@ -57,10 +57,11 @@
  *
  * Security discipline:
  *   - JWT auth via AuthManager.createAuthMiddleware()
- *   - Cross-user hostId spoofing → 404 (never 200 with empty data)
- *   - Missing matrix admin creds → 503 fail-early (mirror identity-birth L158-165)
- *   - Malformed role → 400 BEFORE any Synapse call (ROLE_NAME_PATTERN gate)
- *   - Never logs admin token / synapse response bodies
+ *   - Cross-user hostId spoofing → 404 (never 200 with empty data), checked
+ *     BEFORE the pool is loaded or the host is contacted
+ *   - Malformed role → 400 before any host contact (when role is supplied)
+ *   - Enumeration failures log a coarse classification only — never the raw
+ *     error message, which can embed the target address or auth hints
  *   - Generic 500 fallback at router base
  */
 
@@ -76,35 +77,47 @@ import {
   isLocalHostId,
   listIdentityKeysOnHost,
 } from "../claude-session/identity-artifact-reader.js";
+import { ROLE_NAME_PATTERN } from "../utils/role-name-pattern.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
-/**
- * Role name validator — kebab-case-lowercase with leading-alpha per segment.
- *
- * IMPORTANT: this MUST match identity-birth-orchestrator.ts's private
- * ROLE_NAME_RE exactly (L517). It is stricter than the widely-used
- * ROLE_NAME_PATTERN (`/^[a-z0-9-]+$/`) — the leading-alpha requirement
- * prevents the picker from composing a base handle that composeMxidLocalpart
- * would then reject with `mxid_role_malformed`. Keeping the two regexes in
- * sync means a role that passes this gate here will always successfully
- * compose downstream at birth time.
- *
- * Duplicated (not imported) because ROLE_NAME_RE is a private const in
- * identity-birth-orchestrator.ts — matches the local-duplication style of
- * IDENTITY_KEY_RE in identity-birth.ts:63 (defense-in-depth per T-75-16).
- */
-const ROLE_NAME_PATTERN = /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/;
+// Role-name validation uses the CANONICAL kebab-case-lowercase pattern
+// (`/^[a-z0-9-]+$/`) imported above.
+//
+// 2026-09-14: this file previously kept a private, STRICTER copy requiring a
+// leading alpha per segment, mirroring identity-birth-orchestrator's MXID-shape
+// gate. That made sense while this route composed an MXID to probe — a role that
+// could not compose was worth rejecting early. It no longer composes anything,
+// so the strict gate had become a liability rather than defense-in-depth: a role
+// like `2fa-helper` passes creation AND passes the role-listing filter (which
+// uses the canonical pattern), so it appears in the dropdown and would then 400
+// here, killing name suggestions for a role the system itself accepted.
+//
+// Role is advisory on this route now — it is logged, not used to compute the
+// answer. Validation is retained only so a malformed value fails loudly here
+// rather than silently downstream, and it matches what the rest of the system
+// considers a valid role name.
 
 /**
  * SSH connect timeout for the REMOTE identity-enumeration branch. Matches
  * identity-exists-on-host.ts's connectOneShot budget — this route answers the
- * same "is this name taken on that host?" question and sits behind the same
- * 10s nginx proxy_read_timeout, so it must not out-wait it.
+ * same "is this name taken on that host?" question.
  */
 const SSH_CONNECT_TIMEOUT_MS = 3000;
+
+/**
+ * Total wall-clock budget for the enumeration step (connect + exec).
+ *
+ * SSH_CONNECT_TIMEOUT_MS bounds only the handshake; listIdentityKeysOnHost's
+ * REMOTE branch applies its own 15s exec timer, so the two together allow ~18s
+ * before the degradation path engages. This endpoint only produces a name
+ * suggestion for a modal, and the degradation path already returns a usable
+ * (unverified) name — so failing fast beats making the user wait, since the
+ * visible outcome of a slow answer and no answer is the same empty field.
+ */
+const ENUMERATION_BUDGET_MS = 4000;
 
 // prettier-ignore
 router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: Response): Promise<void> => {
@@ -199,22 +212,49 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     let takenNames = new Set<string>();
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     try {
-      if (!isLocalHostId(hostId)) {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      }
-      takenNames = new Set(await listIdentityKeysOnHost(conn));
+      // Bound the WHOLE enumeration, not just the connect. connectOneShot's
+      // timeout covers the handshake only, and listIdentityKeysOnHost's REMOTE
+      // branch carries its own 15s exec timer — so connect + exec worst-case is
+      // ~18s on a box that accepts TCP but has a wedged shell. This route only
+      // produces a name SUGGESTION, and the degradation path below already
+      // handles "no answer", so waiting that long is strictly worse than giving
+      // up early: the user stares at an empty Name field either way.
+      takenNames = await Promise.race([
+        (async () => {
+          if (!isLocalHostId(hostId)) {
+            conn = await connectOneShot(
+              host as unknown as Parameters<typeof connectOneShot>[0],
+              SSH_CONNECT_TIMEOUT_MS,
+            );
+          }
+          return new Set(await listIdentityKeysOnHost(conn));
+        })(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("enumeration_budget_exceeded")),
+            ENUMERATION_BUDGET_MS,
+          ),
+        ),
+      ]);
     } catch (err) {
       // Swallow per the degradation contract. Log for forensics — the name
       // returned below is unverified, and that fact should be diagnosable
       // from the log rather than inferred from a user's confusion later.
+      //
+      // Log a COARSE classification, never the raw error message. ssh2 failures
+      // embed the target address (`connect ETIMEDOUT 10.0.0.7:22`) and can carry
+      // key-material hints on auth failures, and Logger.sanitizeContext masks by
+      // KEY NAME — an `error` key is not in its sensitive list, so a raw message
+      // would land verbatim in the shared console-forward log.
       sshLogger.warn(
         "pool pick: host identity enumeration failed — returning unverified suggestion",
         {
           hostId,
-          error: err instanceof Error ? err.message : String(err),
+          reason:
+            err instanceof Error && err.message === "enumeration_budget_exceeded"
+              ? "budget_exceeded"
+              : "enumeration_failed",
+          errorName: err instanceof Error ? err.name : "unknown",
         },
       );
     } finally {
@@ -229,10 +269,19 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
 
     // -----------------------------------------------------------------------
     // 7. First candidate with no identity folder on the host wins.
-    //    All busy (or enumeration failed and every name looks taken — which
-    //    cannot happen with an empty set) → fall back to the first shuffled
-    //    candidate; birth's deriveMxidWithOrdinal appends `-N`. Never fail the
-    //    request just because the pool is exhausted (RESEARCH §Landmine 8).
+    //
+    //    If EVERY pool name is occupied on this host, fall back to the first
+    //    shuffled candidate rather than failing the request (RESEARCH §Landmine
+    //    8 — never 5xx a suggestion endpoint over pool exhaustion). Note what
+    //    that fallback does and does not buy: the returned name is genuinely
+    //    taken, and birth's Step-1 folder probe will reject it. Only the MXID
+    //    gets an ordinal suffix (deriveMxidWithOrdinal); the identity NAME is
+    //    suffix-retried solely on the spawn-request worker path, not the modal's.
+    //    So true exhaustion surfaces as a failed birth, which is acceptable at
+    //    221 occupied names on one host but is NOT a graceful recovery.
+    //
+    //    When enumeration failed, takenNames is empty, so the first candidate is
+    //    returned unverified — the intended degradation, logged above.
     // -----------------------------------------------------------------------
     const free = candidates.find((c) => !takenNames.has(c));
     res.json({ name: free ?? candidates[0] });

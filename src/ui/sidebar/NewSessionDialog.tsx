@@ -318,6 +318,20 @@ export function NewSessionDialog({
   // Birth sends TASK_PLACEHOLDER and the agent self-fills on first wake.
   const [poolPickedName, setPoolPickedName] = useState<string | null>(null);
 
+  // Current-value mirrors for the name-prefill effect. That effect intentionally
+  // omits these from its dep array (including `name` would re-issue the request
+  // on every keystroke), so a closure read would observe the render that STARTED
+  // the request rather than the state when it RESOLVED. Refs are read at
+  // resolve-time, which is what makes the "never clobber a typed name" and
+  // "replace our own stale suggestion" rules actually hold. Assigned during
+  // render rather than in an effect so they are already current for any response
+  // that lands before effects flush.
+  const nameRef = useRef(name);
+  nameRef.current = name;
+  const poolPickedNameRef = useRef(poolPickedName);
+  poolPickedNameRef.current = poolPickedName;
+  const selectedRoleRef = useRef("");
+
   // Collision precheck state
   const [skynetCollision, setSkynetCollision] = useState(false);
   const [hostCollision, setHostCollision] = useState(false);
@@ -336,6 +350,9 @@ export function NewSessionDialog({
   // when a host is picked with identity-mode ON). Selection blocks Create until
   // the user actively picks a role. Reset on host change AND on modal close.
   const [selectedRole, setSelectedRole] = useState<string>("");
+  // Mirror for the name-prefill effect (declared above with the other refs) —
+  // role is sent along with the pick request but must not be a dep of it.
+  selectedRoleRef.current = selectedRole;
   const [rolesForHost, setRolesForHost] = useState<RoleSummary[]>([]);
   const [rolesLoading, setRolesLoading] = useState<boolean>(false);
   const [rolesError, setRolesError] = useState<string | null>(null);
@@ -416,6 +433,12 @@ export function NewSessionDialog({
       setName("");
       // Phase 80 Plan 80-06: reset pool-pick tracking on close.
       setPoolPickedName(null);
+      // Reset the prefill effect's mirrors too. State setters above are async,
+      // so an in-flight response resolving between this close and the next
+      // render would otherwise read pre-close values through the refs.
+      nameRef.current = "";
+      poolPickedNameRef.current = null;
+      selectedRoleRef.current = "";
       setSkynetCollision(false);
       setHostCollision(false);
       setCollisionChecking(false);
@@ -555,17 +578,28 @@ export function NewSessionDialog({
   // is known, instead of the user staring at an empty Name field until they
   // also pick a role.
   //
-  // Still keyed on selectedRole as well, so picking a role RE-PICKS a name.
-  // That matters because the suggestion is host-scoped: re-running costs one
-  // request and keeps the name fresh if another identity was born meanwhile.
-  // The `name === ""` guard below means a re-pick can never clobber a
-  // user-typed name — the pool is a suggestion source, not a restriction
-  // (D-01).
+  // Keyed on selectedHost only — NOT on selectedRole. Role does not affect the
+  // answer any more (availability is host-scoped and role-independent), so
+  // re-picking when a role lands would issue a second request whose result is
+  // always discarded. Sole-role auto-select makes that the common path, so the
+  // waste would be one redundant SSH connection per modal open.
   //
-  // Records the returned value in `poolPickedName` so the birth-submit path can
+  // Records the applied value in `poolPickedName` so the birth-submit path can
   // decide whether to send `poolPicked: true` (A1 MXID lock). Silent on failure
   // — user simply types a name manually. cancelled-flag pattern guards against
-  // stale responses when role/host changes mid-flight (T-80-06-04 mitigation).
+  // stale responses when the host changes mid-flight (T-80-06-04 mitigation).
+  //
+  // ⚠️ Why the applied-name check goes through refs rather than reading `name`
+  // and `poolPickedName` directly: this effect deliberately does not list them
+  // as deps (listing `name` would re-fire the request on every keystroke), so a
+  // closure read would see the values from the render that STARTED the request,
+  // not the values at the moment it RESOLVES. That is a live bug rather than a
+  // theoretical one — since the role gate came off, the request now fires at
+  // modal open, so a user typing a name they already know races the response and
+  // a stale `name === ""` read overwrites what they typed. Refs always observe
+  // current state, so intent wins (shape §What would make it wrong: "A name the
+  // person typed being overwritten by a suggestion. Suggestions yield to
+  // intent, always.").
   useEffect(() => {
     if (shellOnly || !selectedHost) return;
     const hostIdNum = parseInt(String(selectedHost.id), 10);
@@ -573,16 +607,22 @@ export function NewSessionDialog({
     let cancelled = false;
     (async () => {
       try {
-        // Role is optional now; pass it only when the user has picked one.
+        // Role is passed when known — it no longer gates the request, but it
+        // keeps the call self-describing in backend logs.
         const { name: poolName } = await pickPoolName(
           hostIdNum,
-          selectedRole || undefined,
+          selectedRoleRef.current || undefined,
         );
         if (cancelled) return;
-        // Only prefill if user hasn't typed a custom name yet. User-typed
-        // names are preserved (shape §Frontend creation flow: "user can
-        // override the name field").
-        if (name === "") {
+        // Apply only when the field is empty, or still holds a suggestion WE
+        // wrote and the user has not touched. The second case is what lets a
+        // host switch replace the previous host's suggestion — that name was
+        // checked for availability on a different machine, so leaving it would
+        // show an untrustworthy suggestion (shape §What would make it wrong:
+        // "A suggested name that is already in use on the target machine").
+        // A user-typed name matches neither branch and is never touched.
+        const current = nameRef.current;
+        if (current === "" || current === poolPickedNameRef.current) {
           setName(poolName);
           setPoolPickedName(poolName);
         }
@@ -595,8 +635,10 @@ export function NewSessionDialog({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRole, selectedHost, shellOnly]);
+    // No exhaustive-deps suppression needed: every value this effect reads
+    // reactively IS in the dep array. `name`, `poolPickedName`, and
+    // `selectedRole` are read through refs precisely so they do not belong here.
+  }, [selectedHost, shellOnly]);
 
   // Collision precheck: fired on name blur (debounced 300ms).
   // Fires both listIdentities + getIdentityExistsOnHost in parallel.

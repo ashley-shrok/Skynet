@@ -324,29 +324,39 @@ describe("NewSessionDialog task input: poolPicked wire signal (A1 MXID lock)", (
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
-  it("Task 2a: selecting a role calls pickPoolName(hostId, role) + name field is prefilled", async () => {
+  it("Task 2a: the suggestion request fires once on host-select and prefills the name", async () => {
+    // 2026-09-14: the request is keyed on HOST, not role. It used to fire on role
+    // selection; now it fires as soon as a host is known, and picking a role does
+    // NOT re-issue it — role has no bearing on the answer (availability is
+    // host-scoped), so a re-pick would spend a second SSH round-trip on a result
+    // the apply-guard would then discard.
+    //
+    // Signature is (hostId, role?) with hostId leading, since it is the only
+    // required argument now.
     mockPickPoolName.mockResolvedValueOnce({ name: "willow" });
     renderDialog();
-    // Wait for the roles fetch to resolve so the dropdown appears
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    // Pick a role
-    const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
-    fireEvent.change(roleSelect, { target: { value: "box-maintainer" } });
-    // 2026-09-14: signature is (hostId, role?) — hostId leads because it is the
-    // required argument now; role is optional since availability is answered by
-    // the host's identity directories rather than a composed MXID.
+
     await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());
-    const lastCall = mockPickPoolName.mock.calls[
-      mockPickPoolName.mock.calls.length - 1
-    ] as [number, string | undefined];
-    const [hostId, role] = lastCall;
+    const [hostId] = mockPickPoolName.mock.calls[0] as [
+      number,
+      string | undefined,
+    ];
     expect(typeof hostId).toBe("number");
-    expect(role).toBe("box-maintainer");
+
     // Name field populated with returned pool name
     await waitFor(() => {
       const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
       expect(nameInput.value).toBe("willow");
     });
+
+    // Picking a role must NOT trigger another request.
+    const callsBefore = mockPickPoolName.mock.calls.length;
+    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    fireEvent.change(screen.getByLabelText(/^role$/i), {
+      target: { value: "box-maintainer" },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockPickPoolName.mock.calls.length).toBe(callsBefore);
   });
 
   it("Task 2b: user-typed name is NOT overwritten when role changes and pool returns a value", async () => {
@@ -374,6 +384,82 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     expect((screen.getByLabelText(/^name$/i) as HTMLInputElement).value).toBe(
       "custom-name",
     );
+  });
+
+  it("Task 2b-race: a name typed WHILE a suggestion is in flight is not overwritten", async () => {
+    // The race Task 2b no longer reaches. Since the role gate came off, the
+    // suggestion request fires at modal open — so the dangerous window is "user
+    // starts typing a name they already know, and the in-flight response lands
+    // after them". The effect must not clobber what they typed.
+    //
+    // Task 2b types AFTER a prefill has already landed, so it only proves
+    // "non-empty field is not overwritten". Here the field is genuinely empty at
+    // the moment the request is issued, which is what makes the stale-closure
+    // read observable.
+    let releasePick: (v: { name: string }) => void = () => {};
+    mockPickPoolName.mockImplementation(
+      () => new Promise((resolve) => { releasePick = resolve; }),
+    );
+    mockListRolesForHost.mockResolvedValue([
+      { name: "box-maintainer", description: "" },
+      { name: "general-assistant", description: "" },
+    ]);
+    renderDialog();
+
+    // Request is in flight, field still empty.
+    await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());
+    const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
+    expect(nameInput.value).toBe("");
+
+    // User types while the suggestion is still pending.
+    fireEvent.change(nameInput, { target: { value: "ashley" } });
+    expect(
+      (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
+    ).toBe("ashley");
+
+    // Suggestion now resolves — intent must win.
+    releasePick({ name: "willow" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
+    ).toBe("ashley");
+  });
+
+  it("Task 2e: switching hosts re-suggests, replacing an unedited suggestion", async () => {
+    // A suggestion is only trustworthy for the host it was checked against, so a
+    // host switch must replace an untouched suggestion rather than leave the
+    // previous host's name sitting there. Distinct from Task 2b: that guards a
+    // USER-TYPED name; this one is a name only we wrote.
+    mockPickPoolName
+      .mockResolvedValueOnce({ name: "willow" })
+      .mockResolvedValueOnce({ name: "aster" });
+    mockListRolesForHost.mockResolvedValue([
+      { name: "box-maintainer", description: "" },
+      { name: "general-assistant", description: "" },
+    ]);
+    // Numeric ids so the effect's Number.isFinite guard passes.
+    const numericTwoHostTree: HostFolder = {
+      name: "root",
+      children: [
+        makeHost("1", "alpha", { username: "root", ip: "10.0.0.1" }),
+        makeHost("2", "bravo", { username: "root", ip: "10.0.0.2" }),
+      ],
+    };
+    renderDialog({ hostTree: numericTwoHostTree });
+
+    fireEvent.click(screen.getByText("alpha"));
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
+      ).toBe("willow");
+    });
+
+    fireEvent.click(screen.getByText("bravo"));
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
+      ).toBe("aster");
+    });
   });
 
   it("Task 2c: pickPoolName failure is silent (no toast/error/throw) — user can type", async () => {
