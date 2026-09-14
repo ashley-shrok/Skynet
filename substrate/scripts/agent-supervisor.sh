@@ -24,6 +24,8 @@
 #   # STAGGER_SECONDS=8            # extra gap between launches during a bring-up
 #   # SETTLE_SECONDS=6             # time budget to blind-drive past the trust prompt before sending /id
 #   # CLAUDE_MODEL="opus"          # value for claude's --model flag; empty string omits the flag entirely
+#   # DORMANCY="off"               # dormancy is ON by default; this is the per-box escape hatch
+#   # IDLE_THRESHOLD_MINUTES=30    # idle minutes before an identity is swept dormant
 #
 # Identity list is derived from disk on every reconcile — every subfolder of
 # $IDENTITIES_DIR (~/fleet/identities by default) whose <name>/<name>.md file
@@ -68,9 +70,13 @@ CLAUDE_MODEL="opus"      # Model passed as `--model <value>` to every claude lau
                          # whatever the harness's own default is.
 [ -f "$CONF" ] && . "$CONF"
 
-# ---- dormancy (2026-08-07) defaults — OFF fleet-wide, enabled per-box via $CONF: DORMANCY="on"
-# See bounty session-dormancy-pilot-beelink for the design + measurement plan.
-DORMANCY="${DORMANCY:-off}"
+# ---- dormancy (2026-08-07) — ON fleet-wide by default since 2026-09-14.
+# It was opt-in through its pilot (bounty session-dormancy-pilot-beelink); the pilot is over and
+# idle reclamation is the fleet's answer to memory pressure now that MEMORY_CAP is disabled, so a
+# box with no DORMANCY line should GET dormancy rather than silently run every identity forever.
+# The knob survives as an escape hatch — per-box $CONF: DORMANCY="off". Per-identity opt-out is
+# the .no-dormancy sentinel (user-initiated only), which is unaffected by this default.
+DORMANCY="${DORMANCY:-on}"
 IDLE_THRESHOLD_MINUTES="${IDLE_THRESHOLD_MINUTES:-30}"     # pilot 10; prod default 30 (user 2026-08-08: idle-check triple-guard is conservative enough that 30 is safe)
 FALSE_KILL_MINUTES="${FALSE_KILL_MINUTES:-5}"              # wake within this many min of kill = flagged
 DORMANCY_STATE_DIR="${DORMANCY_STATE_DIR:-$HOME/.claude/agent-supervisor-state}"
@@ -1054,7 +1060,8 @@ launch() {
 # =============================================================================================
 # DORMANCY (2026-08-07) — kill idle claude, wake on Matrix DM / scheduled fire / sentinel-delete
 # =============================================================================================
-# Gated by $DORMANCY (default "off"). OFF = no behavior change vs. pre-2026-08-07 supervisor.
+# Gated by $DORMANCY (default "on" since 2026-09-14). DORMANCY="off" = no behavior change vs. the
+# pre-2026-08-07 supervisor.
 # Design: bounty session-dormancy-pilot-beelink. Pilot target: beelink (bella + alpha + beta),
 # IDLE_THRESHOLD_MINUTES=10 for iteration speed; prod default 120.
 #
