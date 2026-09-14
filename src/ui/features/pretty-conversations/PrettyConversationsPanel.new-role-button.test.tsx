@@ -202,7 +202,7 @@ describe("PrettyConversationsPanel: Edit roles… menu entry (Phase 90 D-07 rewr
       el.textContent?.trim() ?? "",
     );
     expect(items).toEqual([
-      "New conversation",
+      "New group conversation",
       "New agent",
       "Edit roles…",
       "Edit global files…",

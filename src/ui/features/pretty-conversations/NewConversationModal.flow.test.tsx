@@ -299,11 +299,11 @@ function openThreeDotMenu() {
 }
 
 /**
- * Click "New conversation" in the open menu and wait for the modal dialog.
+ * Click "New group conversation" in the open menu and wait for the modal dialog.
  */
 async function openNewConversationModal() {
   openThreeDotMenu();
-  const menuItem = screen.getByRole("menuitem", { name: /new conversation/i });
+  const menuItem = screen.getByRole("menuitem", { name: /new group conversation/i });
   await act(async () => {
     fireEvent.click(menuItem);
   });

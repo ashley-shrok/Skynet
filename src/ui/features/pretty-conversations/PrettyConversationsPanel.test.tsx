@@ -5009,17 +5009,17 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
   }
 
   // Test 1: menu item exists
-  it("Test 1: clicking the three-dot menu shows a 'New conversation' item", () => {
+  it("Test 1: clicking the three-dot menu shows a 'New group conversation' item", () => {
     renderPanelWithCreateRelayRoom();
     openThreeDotMenu();
-    expect(screen.getByRole("menuitem", { name: /new conversation/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /new group conversation/i })).toBeTruthy();
   });
 
   // Test 2: menu item opens modal
-  it("Test 2: clicking 'New conversation' item opens the modal", async () => {
+  it("Test 2: clicking 'New group conversation' item opens the modal", async () => {
     renderPanelWithCreateRelayRoom();
     openThreeDotMenu();
-    const menuItem = screen.getByRole("menuitem", { name: /new conversation/i });
+    const menuItem = screen.getByRole("menuitem", { name: /new group conversation/i });
     await act(async () => {
       fireEvent.click(menuItem);
     });
@@ -5039,7 +5039,7 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     // Verify the menu item exists (the full modal→create→prop threading is
     // covered by NewConversationModal.test.tsx Test 6; here we verify structural
     // wiring: the prop is passed and the menu item exists).
-    expect(screen.getByRole("menuitem", { name: /new conversation/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /new group conversation/i })).toBeTruthy();
     // The prop being defined means it can receive calls
     expect(typeof onCreateRelayRoom).toBe("function");
   });
@@ -5058,8 +5058,8 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     const items = screen.getAllByRole("menuitem");
     const labels = items.map((el) => el.textContent?.trim() ?? "");
 
-    // New conversation is first
-    expect(labels[0]).toBe("New conversation");
+    // New group conversation is first
+    expect(labels[0]).toBe("New group conversation");
 
     // The four locked items must appear in this order relative to each other.
     const agentIdx = labels.findIndex((l) => l === "New agent");
@@ -5078,7 +5078,7 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     renderPanelWithCreateRelayRoom();
     openThreeDotMenu();
 
-    const menuItem = screen.getByRole("menuitem", { name: /new conversation/i });
+    const menuItem = screen.getByRole("menuitem", { name: /new group conversation/i });
     await act(async () => {
       fireEvent.click(menuItem);
     });

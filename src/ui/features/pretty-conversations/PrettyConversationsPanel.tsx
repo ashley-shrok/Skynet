@@ -2283,7 +2283,7 @@ export function PrettyConversationsPanel({
               Phase 91 — "New conversation" prepended as v1 throwaway placement;
               conversation-list area redesign will resurface this. */}
           {[
-            { label: "New conversation", onClick: () => setNewConversationModalOpen(true) }, // Phase 91 Plan 05
+            { label: "New group conversation", onClick: () => setNewConversationModalOpen(true) }, // Phase 91 Plan 05
             { label: "New agent", onClick: () => setNewSessionDialogOpen(true) },
             { label: "Edit roles…", onClick: () => setRolesListModalOpen(true) },
             { label: "Edit global files…", onClick: () => setGlobalFilesModalOpen(true) },
