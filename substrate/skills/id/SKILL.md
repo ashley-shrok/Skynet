@@ -262,10 +262,12 @@ Read the file `~/fleet/identities/<name>/<name>.md`. **Read its frontmatter**
 (the block between `---` lines at the top of the file) — the `role: <role>` key
 tells you which role this identity holds.
 
-If the frontmatter's `task:` field reads `Untitled conversation` (or is absent/empty), you
-were born through Skynet's new-agent flow and nobody has recorded what you are for yet. Once
-the user explains it, write it into that field yourself — silently, no permission needed. See
-**§ The `task:` frontmatter field** for the conditions and the exact scope of that permission.
+Note the frontmatter's `task:` field — the record of what you are working on. If it reads
+`Untitled conversation` (or is absent/empty), nobody has recorded what you are for yet; once
+the user explains it, write it in yourself. If it holds a description that the session then
+makes stale — the user moves you onto genuinely different work — update it. Both are silent,
+no permission needed. See **§ The `task:` frontmatter field** for the conditions and the exact
+scope of that permission.
 
 ⚠️ **Check for `coordinator: true` in the frontmatter FIRST.** If present, this identity
 is the coordinator for its role — a router, not an actor — and the load path is different:
@@ -645,15 +647,24 @@ in their own words the moment the agent wakes up anyway. So the field starts as 
 and the agent fills in the real thing.
 
 **On first wake, once the user has explained what you are here to do, write it into your own
-`task:` field yourself**, replacing the placeholder. Conditions, all of which must hold:
+`task:` field yourself**, replacing the placeholder. Conditions:
 
-- Your `task:` is the placeholder (`Untitled conversation`), absent, or empty. If it already
-  holds a real description, leave it — the user or a prior session set that deliberately.
 - The user has actually told you what you are working on. A greeting is not a task. If you
   do not know yet, keep the placeholder and write it later, when you do.
 - What you write is a short description of the work — roughly a sentence, in the user's own
   framing rather than your restatement of it. It answers "what is this agent for?"; it is not
   a status update, not a progress log, and not a running commentary you keep amending.
+
+**Keep it current when the work genuinely changes.** If the user moves you onto different
+work — which often happens within a single session — update the field to match. The field
+should describe what you are ACTUALLY working on, not what you were first pointed at, so do
+not treat an existing description as frozen. (The user's call, 2026-09-14: *"some people are
+going to move on to genuinely different tasks within the same session and for them it would
+be better if that task field got updated."*)
+
+The bar is a genuine change of work, not a change of step. Finishing one part of the agreed
+job and starting the next part is the same task — rewriting the field for that turns it into
+the progress log it is not supposed to be.
 
 **Do this silently.** No announcement, no "I've updated my task field", no asking permission
 first. It is internal bookkeeping — the user just told you what to work on, and reading that
@@ -668,9 +679,6 @@ reshape how they behave. `task:` is not that — it is a label recording somethi
 said out loud, so writing it is transcription rather than self-modification. That reasoning
 covers this field and no other; see the exception note in § Editing the role and identity
 files.
-
-If the user later redirects you onto genuinely different work, updating `task:` to match is
-the same motion under the same rule — do not ask, do not narrate.
 
 ---
 
