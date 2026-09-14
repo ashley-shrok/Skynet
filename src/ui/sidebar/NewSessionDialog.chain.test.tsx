@@ -240,6 +240,15 @@ describe("NewSessionDialog chain: Test 2 — no props preserves existing behavio
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
   it("Test 3: initialHost=box-a, initialRole not provided → host pre-filled + role empty", async () => {
+    // 2026-09-14: TWO roles, overriding the one-role beforeEach default. This
+    // test proves that without initialRole nothing is SEEDED — but sole-role
+    // auto-select would legitimately fill a one-role dropdown, masking the
+    // very absence being asserted. Two roles keeps the empty state observable;
+    // Test 3b covers the one-role case on purpose.
+    mockListRolesForHost.mockResolvedValue([
+      { name: "box-maintainer", description: "" },
+      { name: "general-assistant", description: "" },
+    ]);
     render(
       <NewSessionDialog
         open
@@ -259,6 +268,28 @@ describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
     // Role selection empty (user must manually pick)
     const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
     expect(sel.value).toBe("");
+  });
+
+  it("Test 3b: initialHost + a single available role → that role auto-selects", async () => {
+    // The complement of Test 3: no initialRole seed, but only one role exists on
+    // the pre-filled host, so there is no decision left to make and the dropdown
+    // resolves itself rather than gating Create behind a mandatory click.
+    mockListRolesForHost.mockResolvedValue([
+      { name: "box-maintainer", description: "" },
+    ]);
+    render(
+      <NewSessionDialog
+        open
+        onClose={vi.fn()}
+        hostTree={twoHostTree}
+        onCreate={vi.fn()}
+        initialHost={hostA}
+      />,
+    );
+    await waitFor(() => {
+      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
+      expect(sel.value).toBe("box-maintainer");
+    });
   });
 });
 
@@ -284,6 +315,18 @@ describe("NewSessionDialog chain: Test 4 — initialRole alone", () => {
     // Phase 84 hide-picker-when-1-host (commit bc07561e): with a
     // single-host tree the host listbox is suppressed. The role
     // dropdown appearance is the observable proof of auto-selection.
+    //
+    // 2026-09-14: TWO roles, overriding the one-role beforeEach default. The
+    // assertion below is that initialRole WITHOUT initialHost does not seed;
+    // with one role available, sole-role auto-select would fill the dropdown and
+    // the test would fail for an unrelated reason. Note the role names here
+    // deliberately EXCLUDE "box-maintainer" — if the seed did wrongly apply, the
+    // phantom-role guard would also clear it, so an empty dropdown would be
+    // ambiguous. Excluding it means empty can only mean "never seeded".
+    mockListRolesForHost.mockResolvedValue([
+      { name: "general-assistant", description: "" },
+      { name: "video-producer", description: "" },
+    ]);
     render(
       <NewSessionDialog
         open

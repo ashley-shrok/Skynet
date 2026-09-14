@@ -381,17 +381,26 @@ export async function updateRoleAvatarByName(
 // Consumed by NewSessionDialog's name-field prefill (plan 80-06).
 
 /**
- * Phase 80: fetch an unused pool name for the given role on the given host.
- * Backend picks a bare pool name (lowercase) not currently in use as a Matrix
- * account on the target server. User can edit thereafter (pool is a suggestion
- * source, not a restriction). Errors surface via handleApiError.
+ * Phase 80: fetch an unused pool name for the given host.
+ *
+ * Backend picks a bare pool name (lowercase) that has no identity folder on the
+ * target host. User can edit thereafter (pool is a suggestion source, not a
+ * restriction). Errors surface via handleApiError.
+ *
+ * 2026-09-14: `role` is OPTIONAL. Availability is answered by the host's
+ * identity directories, which are role-independent, so a name can be suggested
+ * before the user has picked a role. Pass it when known — the backend still
+ * validates the shape and it keeps the request self-describing in logs.
  */
 export async function pickPoolName(
-  role: string,
   hostId: number,
+  role?: string,
 ): Promise<{ name: string }> {
   try {
-    const response = await authApi.post("/identities/pool/pick", { role, hostId });
+    const response = await authApi.post("/identities/pool/pick", {
+      hostId,
+      ...(role ? { role } : {}),
+    });
     return response.data as { name: string };
   } catch (error) {
     handleApiError(error, "pick pool name");

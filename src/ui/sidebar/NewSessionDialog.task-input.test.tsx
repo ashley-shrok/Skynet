@@ -161,11 +161,10 @@ function renderDialog(overrides: {
 // resolved role list. Selects the first role in the list.
 async function fillFormForSubmit(opts: {
   name?: string;
-  taskText?: string;
   editNameAfterPrefill?: boolean;
   waitForPrefill?: boolean;
 } = {}) {
-  const { name = "alicia", taskText, editNameAfterPrefill, waitForPrefill } = opts;
+  const { name = "alicia", editNameAfterPrefill, waitForPrefill } = opts;
   // Wait for role dropdown to appear
   await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
   // Pick a role → triggers pickPoolName useEffect
@@ -191,11 +190,9 @@ async function fillFormForSubmit(opts: {
   // deleted from source. canOpen (post-Phase-86) requires only
   // host + valid name + role in identity-mode. The old scaffolding is
   // stripped from this helper accordingly.
-  // Task input — Phase 80 addition
-  if (taskText !== undefined) {
-    const taskArea = screen.getByLabelText(/^task$/i) as HTMLTextAreaElement;
-    fireEvent.change(taskArea, { target: { value: taskText } });
-  }
+  //
+  // 2026-09-14: the task-textarea fill step is gone with the field itself —
+  // birth always sends TASK_PLACEHOLDER, so there is nothing to type here.
   // Wait until Create is enabled
   await waitFor(() => {
     const createBtn = screen.getByRole("button", {
@@ -243,53 +240,42 @@ afterEach(() => {
 // Task 1 — Task textarea presence + attributes + wiring into birth body
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("NewSessionDialog task input: presence and attributes", () => {
-  it("Task 1a: task textarea is rendered when agent mode is on (the new default — no checkbox click needed post-Phase-88)", async () => {
-    // Phase 88 (Plan 88-02 Edit D): local state var renamed identityMode
-    // → shellOnly, useState default flipped true → false. Agent mode is
-    // now the default (shellOnly=false) — no checkbox click needed to
-    // reach it. The task textarea's render gate is {!shellOnly && (…)},
-    // so it IS rendered on fresh mount.
+describe("NewSessionDialog task input: removed from the modal (2026-09-14)", () => {
+  // The "What will this agent work on?" textarea was REMOVED. It asked too
+  // early — the user often does not know at creation time, and restates it
+  // conversationally the moment the agent wakes. Birth now records
+  // TASK_PLACEHOLDER and the agent overwrites its own `task:` frontmatter on
+  // first wake (substrate/skills/id/SKILL.md).
+  //
+  // Original 1a (textarea present) and 1c (maxLength=200) are inverted/dropped;
+  // 1b survives because "absent in shell mode" is still true — it is now absent
+  // in BOTH modes.
+
+  it("Task 1a: task textarea is absent in agent mode (the field is gone)", async () => {
     renderDialog();
+    // Wait on the role dropdown first: it proves the agent-mode cluster
+    // actually rendered, so a missing textarea is meaningful rather than just
+    // "nothing has mounted yet".
     await waitFor(() => {
-      expect(screen.queryByLabelText(/^task$/i)).toBeTruthy();
+      expect(screen.queryByLabelText(/^role$/i)).toBeTruthy();
     });
-    const taskArea = screen.getByLabelText(/^task$/i) as HTMLTextAreaElement;
-    expect(taskArea.tagName).toBe("TEXTAREA");
+    expect(screen.queryByLabelText(/^task$/i)).toBeFalsy();
+    expect(screen.queryByText(/what will this agent work on/i)).toBeFalsy();
   });
 
-  it("Task 1b: task textarea is absent when user opts into shell mode (checks the 'Just a shell — no agent' checkbox)", async () => {
-    // Phase 88: click OPTS INTO shell mode (was: opted out of identity
-    // mode). The checkbox label flipped from "Create with new identity"
-    // to "Just a shell — no agent"; the local state var was renamed
-    // from `identityMode` to `shellOnly` and the useState default flipped
-    // from `true` to `false`. Semantics: unchecked = agent mode = task
-    // textarea rendered; checked = shell mode = task textarea absent.
+  it("Task 1b: task textarea is absent in shell mode too", async () => {
     const { getByRole } = renderDialog();
-    const checkbox = getByRole("checkbox", {
-      name: IDENTITY_MODE_CHECKBOX_RE,
-    });
-    fireEvent.click(checkbox);
-    // Assertions unchanged — textarea still absent in shell mode.
+    fireEvent.click(getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }));
     await waitFor(() => {
       expect(screen.queryByLabelText(/^task$/i)).toBeFalsy();
     });
   });
-
-  it("Task 1c: task textarea maxLength attribute is 200", async () => {
-    renderDialog();
-    await waitFor(() => {
-      expect(screen.queryByLabelText(/^task$/i)).toBeTruthy();
-    });
-    const taskArea = screen.getByLabelText(/^task$/i) as HTMLTextAreaElement;
-    expect(taskArea.maxLength).toBe(200);
-  });
 });
 
 describe("NewSessionDialog task input: wiring into POST /identities/birth body", () => {
-  it("Task 1d: submitting with a task string → birth body contains task: <typed value>", async () => {
+  it("Task 1d: birth body carries the placeholder", async () => {
     renderDialog();
-    await fillFormForSubmit({ name: "alicia", taskText: "wire the pool-pick endpoint" });
+    await fillFormForSubmit({ name: "alicia" });
     fireEvent.click(
       screen.getByRole("button", { name: /^(open|create|creating)/i }),
     );
@@ -297,12 +283,15 @@ describe("NewSessionDialog task input: wiring into POST /identities/birth body",
     const [payload] = mockOpenBirthStream.mock.calls[0] as [
       Record<string, unknown>,
     ];
-    expect(payload.task).toBe("wire the pool-pick endpoint");
+    expect(payload.task).toBe("Untitled conversation");
   });
 
-  it("Task 1e: submitting with empty task → birth body omits task (undefined)", async () => {
+  it("Task 1e: placeholder is sent unconditionally, never omitted", async () => {
+    // Sent rather than omitted so the row has readable primary text from the
+    // moment it appears — PrettyConversationRow renders `task` as the row's
+    // primary line, and an absent value would render blank until first wake.
     renderDialog();
-    await fillFormForSubmit({ name: "alicia" }); // no taskText → left blank
+    await fillFormForSubmit({ name: "bella" });
     fireEvent.click(
       screen.getByRole("button", { name: /^(open|create|creating)/i }),
     );
@@ -310,7 +299,8 @@ describe("NewSessionDialog task input: wiring into POST /identities/birth body",
     const [payload] = mockOpenBirthStream.mock.calls[0] as [
       Record<string, unknown>,
     ];
-    expect(payload.task).toBeUndefined();
+    expect(payload.task).toBeDefined();
+    expect(payload.task).not.toBe("");
   });
 });
 
@@ -334,7 +324,7 @@ describe("NewSessionDialog task input: poolPicked wire signal (A1 MXID lock)", (
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
-  it("Task 2a: selecting a role calls pickPoolName(role, hostId) + name field is prefilled", async () => {
+  it("Task 2a: selecting a role calls pickPoolName(hostId, role) + name field is prefilled", async () => {
     mockPickPoolName.mockResolvedValueOnce({ name: "willow" });
     renderDialog();
     // Wait for the roles fetch to resolve so the dropdown appears
@@ -342,11 +332,16 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     // Pick a role
     const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
     fireEvent.change(roleSelect, { target: { value: "box-maintainer" } });
-    // pickPoolName should be called with (role, hostIdNum)
+    // 2026-09-14: signature is (hostId, role?) — hostId leads because it is the
+    // required argument now; role is optional since availability is answered by
+    // the host's identity directories rather than a composed MXID.
     await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());
-    const [role, hostId] = mockPickPoolName.mock.calls[0] as [string, number];
-    expect(role).toBe("box-maintainer");
+    const lastCall = mockPickPoolName.mock.calls[
+      mockPickPoolName.mock.calls.length - 1
+    ] as [number, string | undefined];
+    const [hostId, role] = lastCall;
     expect(typeof hostId).toBe("number");
+    expect(role).toBe("box-maintainer");
     // Name field populated with returned pool name
     await waitFor(() => {
       const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
@@ -396,6 +391,37 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     expect((screen.getByLabelText(/^name$/i) as HTMLInputElement).value).toBe(
       "",
     );
+  });
+  it("Task 2d: name prefills with NO role selected (2026-09-14 — role gate removed)", async () => {
+    // The prefill effect used to early-return on `!selectedRole`, so the Name
+    // field sat empty until the user also picked a role. Role never had
+    // anything to do with name availability — it was only there to compose the
+    // MXID the old probe checked. With availability answered by the host, the
+    // suggestion lands as soon as a host is known.
+    //
+    // Multi-role host so sole-role auto-select does NOT fire and selectedRole
+    // genuinely stays empty — otherwise this would pass for the wrong reason.
+    mockListRolesForHost.mockResolvedValue([
+      { name: "box-maintainer", description: "" },
+      { name: "general-assistant", description: "" },
+    ]);
+    mockPickPoolName.mockResolvedValue({ name: "willow" });
+    renderDialog();
+
+    await waitFor(() => {
+      const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
+      expect(nameInput.value).toBe("willow");
+    });
+
+    // Role is still unpicked, and the call carried role === undefined.
+    const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
+    expect(roleSelect.value).toBe("");
+    const [hostId, role] = mockPickPoolName.mock.calls[0] as [
+      number,
+      string | undefined,
+    ];
+    expect(typeof hostId).toBe("number");
+    expect(role).toBeUndefined();
   });
 });
 

@@ -36,6 +36,12 @@
 //   fillIdentityFormAndPick helper: renamed to fillIdentityForm, no longer
 //     touches title/brief/generate/pick — just fills name + role.
 //
+// 2026-09-14 (task-field removal): the "What will this agent work on?" textarea
+// was removed from the dialog — birth sends a placeholder and the agent writes
+// its real task into its own frontmatter on first wake.
+//   Test F: now asserts the task field is ABSENT (was: present).
+//   Test U: no longer fills or re-asserts task — that state is gone.
+//
 // PRESERVED (non-cosmetic identity-mode surface):
 //   Tests A-D — path field + identity-mode checkbox.
 //   Test E — asserts cosmetic controls are absent when identity-mode OFF
@@ -699,16 +705,21 @@ describe("NewSessionDialog: Test E — shell mode hides birth fields (opt in via
 // from source — those assertions have been removed.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test F — identity-mode ON reveals birth fields", () => {
-  it("Test F: default (identity-mode ON) + host picked → task, name, role dropdown present; cosmetic controls (title/brief/voice/color/generate) absent", async () => {
+  it("Test F: default (identity-mode ON) + host picked → name + role dropdown present; task and cosmetic controls absent", async () => {
     const { getByLabelText, queryByLabelText, queryByRole } = renderDialog();
     // Pick a host so the role dropdown wrap renders (host-gated per L983).
     fireEvent.click(screen.getByText("alpha"));
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
 
-    // Current identity-mode fields
-    expect(getByLabelText(/^task$/i)).toBeTruthy();
+    // Current identity-mode fields — creation asks for a name and a role, and
+    // nothing else.
     expect(getByLabelText(/^name$/i)).toBeTruthy();
     expect(getByLabelText(/^role$/i)).toBeTruthy();
+
+    // 2026-09-14: the task textarea was removed — birth sends a placeholder and
+    // the agent self-fills its own `task:` frontmatter on first wake. Asserted
+    // absent as a regression guard, same as the cosmetic controls below.
+    expect(queryByLabelText(/^task$/i)).toBeNull();
 
     // Phase 86 Plan 86-04: cosmetic controls are deleted from source. Assert
     // their absence as a regression guard against accidental re-introduction.
@@ -926,11 +937,13 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
   it("Test U: fill fields, close, re-open → all fields back to defaults", () => {
     const onClose = vi.fn();
     const { getByLabelText, getByRole, rerender } = renderDialog({ onClose });
-    // Fill the agent-mode fields (name, task). Path lives in the shell
-    // branch now; its reset is covered by Test B (default is "" on shell
-    // toggle) so it isn't reasserted here.
+    // Fill the agent-mode fields. Path lives in the shell branch now; its reset
+    // is covered by Test B (default is "" on shell toggle) so it isn't
+    // reasserted here.
+    //
+    // 2026-09-14: only `name` remains fillable here — the task textarea was
+    // removed, so there is no task state left to reset.
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-    fireEvent.change(getByLabelText(/^task$/i), { target: { value: "do things" } });
 
     // Close the dialog.
     rerender(
@@ -953,7 +966,6 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
       />
     );
     expect((getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
-    expect((getByLabelText(/^task$/i) as HTMLTextAreaElement).value).toBe("");
     // Shell-only checkbox re-arms to the default UNCHECKED (agent mode).
     const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
     expect(checkbox.checked).toBe(false);

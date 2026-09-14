@@ -87,6 +87,25 @@
 // identity-birth-orchestrator.ts) accepts the absence and skips the
 // identity-side avatar sibling write (role folder's avatar file is
 // served via Plan 86-01's GET /:key/avatar fallback).
+//
+// ─── 2026-09-14 (new-agent modal: name + task de-friction) ─────────────
+// Three coordinated edits, all narrowing what creation asks a human for:
+//   1. Sole-role auto-select — a host offering exactly one role selects it
+//      rather than parking the user on a "Pick a role…" placeholder that
+//      gates Create. Mirrors the existing single-host behavior (Phase 84).
+//      Composes with — does not fight — the chain-prefill seed and the
+//      phantom-role guard; see the effect's own comment for the ordering.
+//   2. Name prefill no longer waits for a role. That gate existed only
+//      because availability was probed as a composed MXID; the probe moved
+//      to the target host's identity directories, which are
+//      role-independent. The `name === ""` no-clobber rule is unchanged, so
+//      a user-typed name is still never overwritten.
+//   3. The "What will this agent work on?" textarea is gone, along with its
+//      `task` state. Birth sends TASK_PLACEHOLDER and the agent writes its
+//      real task into its own `task:` frontmatter on first wake — silently,
+//      as internal bookkeeping rather than something narrated to the user.
+// Paired backend change: POST /identities/pool/pick treats `role` as
+// optional and answers availability from the host (see pool-routes.ts).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -122,6 +141,22 @@ export const SESSION_NAME_PATTERN = /^[\w-]{0,64}$/;
 // Identity name pattern matching backend IDENTITY_KEY_RE at identities.ts:22.
 // Must match [a-z0-9._=/+-]+ (lowercase, digits, and specific special chars).
 export const IDENTITY_NAME_PATTERN = /^[a-z0-9._=/+-]+$/;
+
+/**
+ * Stand-in written to a new identity's `task:` frontmatter at birth.
+ *
+ * 2026-09-14: the "What will this agent work on?" textarea was removed from this
+ * dialog. Asking at creation time asks too early — the user often does not know
+ * yet, and they will say it again in their own words the moment the agent wakes.
+ * So birth records this stand-in and the agent replaces it with the real task on
+ * first wake (see substrate/skills/id/SKILL.md § the task frontmatter field).
+ *
+ * This string is USER-VISIBLE: PrettyConversationRow renders `task` as a row's
+ * primary text, so it is what an agent's row reads as until the agent overwrites
+ * it. Kept deliberately plain — Ashley picked the wording, and a stand-in with a
+ * short life should not try to be clever (e.g. deriving something from the role).
+ */
+export const TASK_PLACEHOLDER = "Untitled conversation";
 
 // Path normalization: convert backslashes to forward slashes; empty/whitespace → "~".
 export function normalizePath(p: string): string {
@@ -279,8 +314,8 @@ export function NewSessionDialog({
   // inherits them on landing. Only the identity's own name + task remain.
   const [name, setName] = useState(""); // identity name (distinct from regular sessionName)
 
-  // Phase 80 Plan 80-06: task-description field state (see textarea below).
-  const [task, setTask] = useState<string>("");
+  // 2026-09-14: the task-description textarea and its `task` state were removed.
+  // Birth sends TASK_PLACEHOLDER and the agent self-fills on first wake.
   const [poolPickedName, setPoolPickedName] = useState<string | null>(null);
 
   // Collision precheck state
@@ -379,8 +414,7 @@ export function NewSessionDialog({
       setPath("~/");
       setShellOnly(false);
       setName("");
-      // Phase 80 Plan 80-06: reset task-input + pool-pick tracking on close.
-      setTask("");
+      // Phase 80 Plan 80-06: reset pool-pick tracking on close.
       setPoolPickedName(null);
       setSkynetCollision(false);
       setHostCollision(false);
@@ -488,25 +522,62 @@ export function NewSessionDialog({
     }
   }, [rolesForHost, rolesLoading, selectedRole]);
 
-  // Phase 80 Plan 80-06 Task 2: auto-prefill Name via pickPoolName on role
-  // change. Fires whenever selectedRole, selectedHost, or shellOnly changes
-  // and only when all three of (selectedHost, selectedRole, agent-mode) hold.
-  // Backend picks an unused pool name for the (role, host) pair; frontend
-  // prefills the Name input ONLY if the user hasn't typed anything yet
-  // (name === "") — pool is a suggestion source, not a restriction (D-01).
-  // Records the returned value in `poolPickedName` so the birth-submit path
-  // can decide whether to send `poolPicked: true` (A1 MXID lock). Silent on
-  // failure — user simply types a name manually. cancelled-flag pattern
-  // guards against stale responses when role/host changes mid-flight
-  // (T-80-06-04 threat mitigation).
+  // 2026-09-14: sole-role auto-select. When the picked host offers exactly one
+  // role there is no decision to make, so select it rather than parking the
+  // user on a "Pick a role…" placeholder that gates the Create button. Same
+  // courtesy the host picker already extends when there is exactly one host
+  // (see the open-effect above and the Phase 84 listbox gate).
+  //
+  // Ordering vs the two neighbours it must not fight:
+  //   - The chain-prefill seed (open-effect) sets selectedRole BEFORE any fetch
+  //     resolves. The `selectedRole !== ""` bail below means a seeded role is
+  //     never overwritten — and when the seed matches the only available role,
+  //     the assignment would be a no-op anyway.
+  //   - The stale-role guard directly above may CLEAR a phantom seed once the
+  //     fetch lands. That clear and this select both key on [rolesForHost,
+  //     rolesLoading, selectedRole], so the clear re-runs this effect and the
+  //     lone role is then selected — the user ends up on the only valid choice
+  //     instead of an empty dropdown. The two compose; neither loops, because
+  //     this effect only ever writes a value the guard considers valid.
   useEffect(() => {
-    if (shellOnly || !selectedRole || !selectedHost) return;
+    if (rolesLoading) return;
+    if (selectedRole !== "") return;
+    if (rolesForHost.length !== 1) return;
+    setSelectedRole(rolesForHost[0].name);
+  }, [rolesForHost, rolesLoading, selectedRole]);
+
+  // Phase 80 Plan 80-06 Task 2: auto-prefill Name via pickPoolName.
+  //
+  // 2026-09-14: the `!selectedRole` gate is GONE. It was never about names —
+  // the backend needed a role solely to compose the MXID it probed for
+  // availability, and that probe has moved to the host's identity directories
+  // (which are role-independent). So a name can be suggested the moment a host
+  // is known, instead of the user staring at an empty Name field until they
+  // also pick a role.
+  //
+  // Still keyed on selectedRole as well, so picking a role RE-PICKS a name.
+  // That matters because the suggestion is host-scoped: re-running costs one
+  // request and keeps the name fresh if another identity was born meanwhile.
+  // The `name === ""` guard below means a re-pick can never clobber a
+  // user-typed name — the pool is a suggestion source, not a restriction
+  // (D-01).
+  //
+  // Records the returned value in `poolPickedName` so the birth-submit path can
+  // decide whether to send `poolPicked: true` (A1 MXID lock). Silent on failure
+  // — user simply types a name manually. cancelled-flag pattern guards against
+  // stale responses when role/host changes mid-flight (T-80-06-04 mitigation).
+  useEffect(() => {
+    if (shellOnly || !selectedHost) return;
     const hostIdNum = parseInt(String(selectedHost.id), 10);
     if (!Number.isFinite(hostIdNum)) return;
     let cancelled = false;
     (async () => {
       try {
-        const { name: poolName } = await pickPoolName(selectedRole, hostIdNum);
+        // Role is optional now; pass it only when the user has picked one.
+        const { name: poolName } = await pickPoolName(
+          hostIdNum,
+          selectedRole || undefined,
+        );
         if (cancelled) return;
         // Only prefill if user hasn't typed a custom name yet. User-typed
         // names are preserved (shape §Frontend creation flow: "user can
@@ -613,10 +684,12 @@ export function NewSessionDialog({
           voice: null,
           // Phase 22 SRIC-02: required role from the dropdown.
           role: selectedRole,
-          // Phase 80 Plan 80-06: optional task string (soft-cap 200 client-side,
-          // backend hard-caps 500 defense-in-depth). Empty/whitespace-only →
-          // undefined so the backend treats absence as legacy shape.
-          task: task.trim() || undefined,
+          // 2026-09-14: always the stand-in. The user is no longer asked what
+          // the agent will work on at creation time; the agent writes the real
+          // task into its own frontmatter on first wake. Sent unconditionally
+          // (rather than omitted) so the row has readable primary text from the
+          // moment it appears instead of rendering blank until first wake.
+          task: TASK_PLACEHOLDER,
           // Phase 80 Plan 80-06 (A1 MXID lock signal): true iff the current
           // name state EXACTLY matches the last pool-picked value AND a
           // pool-pick actually happened. Any user edit flips this to false
@@ -1049,32 +1122,12 @@ export function NewSessionDialog({
                 </div>
               )}
 
-              {/* Phase 80 Plan 80-06: task-description textarea.
-                  Positioned ABOVE the Name input inside the identity cluster
-                  (gated on !shellOnly along with the whole cluster —
-                  agent-mode gate; see Phase 88 rename). Soft-cap 200 chars
-                  (D-Claude's Discretion — executor may retune when badge
-                  widths render in plan 80-07). Backend hard-caps 500 chars
-                  (defense-in-depth per plan 80-03). */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="new-identity-task"
-                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-                >
-                  What will this agent work on?
-                </label>
-                <textarea
-                  id="new-identity-task"
-                  aria-label="Task"
-                  value={task}
-                  onChange={(e) => setTask(e.target.value)}
-                  maxLength={200}
-                  rows={2}
-                  placeholder="Describe the task in 15-20 words…"
-                  disabled={formDisabled}
-                  className="w-full rounded-sm border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] px-3 py-2 text-xs text-[color:var(--color-pv-fg)] placeholder:text-[color:var(--color-pv-fg-dim)] outline-none disabled:opacity-50 resize-none"
-                />
-              </div>
+              {/* 2026-09-14: the "What will this agent work on?" textarea that
+                  sat here (Phase 80 Plan 80-06) was removed. It asked too early
+                  — the user frequently does not know yet at creation time, and
+                  restates it conversationally the moment the agent wakes. Birth
+                  now records TASK_PLACEHOLDER and the agent overwrites its own
+                  `task:` frontmatter on first wake. */}
 
               {/* Identity name field */}
               <div className="flex flex-col gap-1.5">

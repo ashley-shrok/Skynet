@@ -235,18 +235,62 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
       ).toBe("tina");
     }, { timeout: 15000 });
 
-    // Host B: different roles
+    // Host B: TWO different roles.
+    //
+    // 2026-09-14: host B deliberately offers two roles now. It used to offer
+    // one, and the assertion below is `value === ""` — but with sole-role
+    // auto-select in place a one-role host B would immediately select that role,
+    // so the old assertion would fail for a reason unrelated to what this test
+    // guards (that a stale cross-host role does not survive a host change).
+    // Keeping host B multi-role keeps the "cleared" state observable. The
+    // single-role case is covered by Test 22b below.
     mockListRolesForHost.mockResolvedValueOnce([
       { name: "other-role", description: "" },
+      { name: "another-role", description: "" },
     ]);
     fireEvent.click(screen.getByText("bravo"));
     await waitFor(() => {
       expect(mockListRolesForHost).toHaveBeenCalledTimes(2);
     }, { timeout: 15000 });
-    // Selection cleared — the select falls back to placeholder (empty value)
+    // Selection cleared — the select falls back to placeholder (empty value).
+    // Host A's "tina" must NOT carry over.
     await waitFor(() => {
       const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
       expect(sel.value).toBe("");
+    }, { timeout: 15000 });
+  }, 20000);
+
+  it("Test 22b: host change to a SINGLE-role host auto-selects that role", async () => {
+    // Companion to Test 22, and the interaction worth pinning: the stale-role
+    // clear and the sole-role auto-select COMPOSE. The clear drops host A's
+    // role, then the auto-select lands the user on host B's only valid choice
+    // instead of an empty dropdown that gates Create for no reason.
+    mockListRolesForHost.mockResolvedValueOnce([
+      { name: "box-maintainer", description: "" },
+      { name: "tina", description: "" },
+    ]);
+    renderDialog();
+    fireEvent.click(screen.getByText("alpha"));
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/^role$/i)).toBeTruthy();
+    }, { timeout: 15000 });
+    fireEvent.change(screen.getByLabelText(/^role$/i), {
+      target: { value: "tina" },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText(/^role$/i) as HTMLSelectElement).value,
+      ).toBe("tina");
+    }, { timeout: 15000 });
+
+    // Host B offers exactly one role.
+    mockListRolesForHost.mockResolvedValueOnce([
+      { name: "other-role", description: "" },
+    ]);
+    fireEvent.click(screen.getByText("bravo"));
+    await waitFor(() => {
+      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
+      expect(sel.value).toBe("other-role");
     }, { timeout: 15000 });
   }, 20000);
 });
@@ -261,8 +305,14 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
     // host + valid name + role in identity-mode. This test was rewritten
     // to remove references to the deleted title/brief/generate/img UI
     // per D-CTX-86-surface-4 acceptance criteria.
+    // 2026-09-14: TWO roles rather than one. With sole-role auto-select, a
+    // single-role host would select its role immediately, so "role empty →
+    // Create disabled" would be unobservable — the gate this test exists to
+    // guard would appear broken when it is in fact just satisfied early. Two
+    // roles means the user must genuinely pick, which is the state under test.
     mockListRolesForHost.mockResolvedValueOnce([
       { name: "box-maintainer", description: "" },
+      { name: "general-assistant", description: "" },
     ]);
     mockListIdentities.mockResolvedValue([]);
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
@@ -281,6 +331,52 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
     const roleSelect = getByLabelText(/^role$/i) as HTMLSelectElement;
     fireEvent.change(roleSelect, { target: { value: "box-maintainer" } });
     await waitFor(() => {
+      expect(createBtn.disabled).toBe(false);
+    });
+  });
+
+  it("Test 23b: single-role host → Create enabled without the user touching the dropdown", async () => {
+    // The payoff of sole-role auto-select: name is prefilled and the only role
+    // is selected, so Create is reachable with zero interactions beyond opening
+    // the modal. This is the case Aither-style one-role-per-host deployments hit
+    // constantly.
+    mockListRolesForHost.mockResolvedValueOnce([
+      { name: "box-maintainer", description: "" },
+    ]);
+    mockListIdentities.mockResolvedValue([]);
+    mockGetIdentityExistsOnHost.mockResolvedValue(false);
+    mockPickPoolName.mockResolvedValue({ name: "willow" });
+    // NOTE the numeric host ids. This suite's shared twoHostTree uses "h1"/"h2",
+    // which parseInt turns into NaN — the name-prefill effect bails on its
+    // Number.isFinite guard, so no pool pick ever fires (see Test 20's comment
+    // on the same quirk). Real host ids are numeric strings, and this test needs
+    // the prefill to actually run, so it supplies its own fixture.
+    const numericHostTree: HostFolder = {
+      name: "root",
+      children: [
+        makeHost("1", "alpha", { username: "root", ip: "10.0.0.1" }),
+        makeHost("2", "bravo", { username: "root", ip: "10.0.0.2" }),
+      ],
+    };
+    const { getByRole } = renderDialog({ hostTree: numericHostTree });
+    fireEvent.click(screen.getByText("alpha"));
+
+    await waitFor(() => {
+      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
+      expect(sel.value).toBe("box-maintainer");
+    });
+    // Name must actually prefill for Create to enable, so assert it landed
+    // before checking the button (this suite's default pickPoolName mock
+    // REJECTS — see the module-level mock — so the resolved override above is
+    // load-bearing here).
+    await waitFor(() => {
+      const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
+      expect(nameInput.value).toBe("willow");
+    });
+    await waitFor(() => {
+      const createBtn = getByRole("button", {
+        name: /^(open|create|creating)/i,
+      }) as HTMLButtonElement;
       expect(createBtn.disabled).toBe(false);
     });
   });
