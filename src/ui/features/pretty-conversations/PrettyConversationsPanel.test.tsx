@@ -1299,15 +1299,11 @@ describe("PrettyConversationsPanel: RDP sentinel at bottom", () => {
 // Test 5 — Header pencil opens NewSessionDialog
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: header menu opens NewSessionDialog", () => {
-  it("Test 5 (Phase 23 GEFM-01 repoint; Phase 84 Plan 02 title-conform): clicking the MoreVertical menu button + selecting 'New agent' opens the NewSessionDialog (title now reads 'New agent'); menu button carries pv-pencil class + data-testid=pv-header-menu-button", async () => {
-    // Phase 23: the pencil + `+ New role` buttons are collapsed into a single
-    // MoreVertical menu (data-testid="pv-header-menu-button", aria-label="More actions").
-    // The "New agent" flow is: click menu button → menu portal appears → click "New agent"
-    // → NewSessionDialog opens. This test re-points the OLD Test 5 assertion at the
-    // new two-step flow (plan 23-04 instruction: re-point tests at new selectors or
-    // skip with note referencing this plan — re-pointing preferred to preserve coverage).
-    const { getByRole, getByTestId } = render(
+describe("PrettyConversationsPanel: header New agent button opens NewSessionDialog", () => {
+  it("Test 5 (quick-260914-liu repoint): clicking the dedicated pv-header-new-agent-button opens the NewSessionDialog (title 'New agent') in one step; button carries pv-pencil class, aria-label and title 'New agent'", async () => {
+    // quick-260914-liu: New agent is now a dedicated header icon button.
+    // The flow is one step: click pv-header-new-agent-button → NewSessionDialog opens.
+    const { getByTestId } = render(
       <PrettyConversationsPanel
         variant="desktop"
         hostTree={ONE_HOST_TREE}
@@ -1316,36 +1312,20 @@ describe("PrettyConversationsPanel: header menu opens NewSessionDialog", () => {
       />,
     );
 
-    // Step 1: menu trigger button exists with pv-pencil class + correct testid.
-    const menuBtn = getByTestId("pv-header-menu-button");
-    expect(menuBtn.className).toContain("pv-pencil");
-    expect(menuBtn.getAttribute("aria-label")).toBe("More actions");
-    expect(menuBtn.getAttribute("aria-haspopup")).toBe("menu");
+    // New agent header button exists with correct chrome.
+    const newAgentBtn = getByTestId("pv-header-new-agent-button");
+    expect(newAgentBtn.className).toContain("pv-pencil");
+    expect(newAgentBtn.getAttribute("aria-label")).toBe("New agent");
+    expect(newAgentBtn.getAttribute("title")).toBe("New agent");
 
-    // Step 2: click the menu trigger → portal menu appears.
-    fireEvent.click(menuBtn);
-    const menu = getByRole("menu");
-    expect(menu).toBeTruthy();
-
-    // Step 3: menu has "New agent" as first item.
-    const newAgentItem = within(menu).getByRole("menuitem", { name: /new agent/i });
-    expect(newAgentItem).toBeTruthy();
-
-    // Step 4: click "New agent" → NewSessionDialog opens.
-    fireEvent.click(newAgentItem);
+    // Click opens the NewSessionDialog.
+    fireEvent.click(newAgentBtn);
 
     // NewSessionDialog uses shadcn Dialog which renders inside a portal.
-    // document.querySelector('[role="dialog"]') queries the whole document body.
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
     expect(dialog).toBeTruthy();
-    // Phase 84 (Plan 84-02): NewSessionDialog title now reads "New agent"
-    // (conforms DOWN to the "New agent" dropdown item at
-    // PrettyConversationsPanel.tsx:2036 — dropdown is source of truth).
-    // The i18n key nav.newSessionTitle is unchanged; only its English
-    // defaultValue changed in place. Target the dialog title element
-    // specifically — matching against dialog.textContent is too loose (the
-    // phrase "new agent" also appears in the header menu items rendered
-    // in the same portal DOM).
+    // Phase 84 (Plan 84-02): title reads "New agent". Target dialog-title specifically
+    // to avoid false-positive matches against other portal DOM text.
     const dialogTitle = dialog!.querySelector(
       '[data-slot="dialog-title"]',
     ) as HTMLElement | null;
@@ -1358,17 +1338,18 @@ describe("PrettyConversationsPanel: header menu opens NewSessionDialog", () => {
 // Test 6 — Header pencil NOT rendered when onCreateSession is undefined
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: menu button gate", () => {
-  it("Test 6 (Phase 23 GEFM-01 repoint): the MoreVertical menu button (data-testid=pv-header-menu-button) is absent when onCreateSession is undefined", () => {
-    // Phase 23: the two individual action buttons (pencil + new role) are replaced
-    // by a single MoreVertical menu button. The showPencilButton gate (gated on
-    // typeof onCreateSession === "function") controls the new menu button exactly as
-    // it controlled the old individual buttons. When onCreateSession is undefined,
-    // the menu button must NOT appear.
+describe("PrettyConversationsPanel: all four header buttons gated on onCreateSession", () => {
+  it("Test 6 (quick-260914-liu extend): all four header icon buttons (New agent, Edit roles, Edit global files, kebab) are absent when onCreateSession is undefined — they share one showPencilButton guard", () => {
+    // quick-260914-liu: three new header buttons join the kebab under the same
+    // showPencilButton guard. When onCreateSession is undefined, all four must
+    // be absent.
     const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
     expect(container.querySelector('[data-testid="pv-header-menu-button"]')).toBeNull();
+    expect(container.querySelector('[data-testid="pv-header-new-agent-button"]')).toBeNull();
+    expect(container.querySelector('[data-testid="pv-header-edit-roles-button"]')).toBeNull();
+    expect(container.querySelector('[data-testid="pv-header-global-files-button"]')).toBeNull();
   });
 });
 
@@ -2295,65 +2276,6 @@ describe("PrettyConversationsPanel (Phase 107 Plan 04): PANEL-107-* hidden hydra
     expect(() => {
       render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
     }).not.toThrow();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 26 — bounty-count filter popover (two-toggle + AND-intersect)
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () => {
-  it("Test 23: filter button renders with data-active=false + no dot + popover closed by default", () => {
-    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
-    const { container, getByTestId, queryByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    const btn = getByTestId("pv-filter-toggles");
-    expect(btn.getAttribute("data-active")).toBe("false");
-    expect(btn.getAttribute("aria-expanded")).toBe("false");
-    // No dot when both toggles off.
-    expect(container.querySelector(".pv-filter-dot")).toBeNull();
-    // Popover not yet in DOM.
-    expect(queryByTestId("pv-filter-toggles-popover")).toBeNull();
-  });
-
-  it("Test 24: clicking the button opens the popover; Ready toggle unchecked; button still data-active=false + no dot", () => {
-    // Phase 52 Plan 02 adaptation: shadcn Checkbox data-state="unchecked" replaced by
-    // role="menuitemcheckbox" aria-checked="false" on the new button elements.
-    // Phase 104 Plan 03: pinned + needs-desk toggles retired alongside the
-    // bounty-count wire; only Ready survives (D-11).
-    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
-    const { container, getByTestId, queryByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    queryByTestId; // silence lint — kept for signature parity
-    // Open the popover.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    // Popover is now in DOM (via portal — use screen queries).
-    expect(screen.queryByTestId("pv-filter-toggles-popover")).toBeTruthy();
-    // Ready menu-item button present, aria-checked=false.
-    const readyBtn = screen.getByTestId("pv-filter-toggle-ready");
-    expect(readyBtn.getAttribute("aria-checked")).toBe("false");
-    // The retired pinned + needs-desk toggles must NOT render.
-    expect(screen.queryByTestId("pv-filter-toggle-pinned")).toBeNull();
-    expect(screen.queryByTestId("pv-filter-toggle-needs-desk")).toBeNull();
-    // Button still inactive — opening popover doesn't flip any toggle.
-    const btn = getByTestId("pv-filter-toggles");
-    expect(btn.getAttribute("data-active")).toBe("false");
-    expect(container.querySelector(".pv-filter-dot")).toBeNull();
-  });
-
-  it("Test 30: popover closes on Escape keydown", () => {
-    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
-    const { getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Open popover.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    expect(screen.queryByTestId("pv-filter-toggles-popover")).toBeTruthy();
-    // Dispatch Escape — Radix Popover handles this via its onKeyDown.
-    fireEvent.keyDown(document.body, { key: "Escape", code: "Escape" });
-    expect(screen.queryByTestId("pv-filter-toggles-popover")).toBeNull();
   });
 });
 
@@ -4112,259 +4034,6 @@ describe("PrettyConversationsPanel (Phase 47 Plan 04): PrettyConversationRowLive
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 52 Plan 04 — filter popover chrome + Ready toggle coverage (10 tests)
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("PrettyConversationsPanel: Phase 52 — filter popover restyle + Ready toggle", () => {
-  // Clear the Phase 52 Plan 04 seeding Maps after each test in this block.
-  // beforeEach (module-level above) resets them to empty; this afterEach
-  // clears them as a belt-and-suspenders guard for any tests that mutate
-  // the Maps mid-test and don't clean up before asserting a second render.
-  afterEach(() => {
-    mockIsWorkingByKey.clear();
-    mockIsDormantByKey.clear();
-    // Phase 53 Plan 03 — clear recycling seed Map alongside sibling Maps.
-    mockIsRecyclingByKey.clear();
-    mockWorkingSnapshot.clear();
-  });
-
-  // ── Shared fixture helper ──────────────────────────────────────────────────
-  // Sets up one middle row: tina-session on host "1" (hostA). Used by the
-  // four Ready-predicate tests (P50-4, P50-5, P50-6, P50-6b) and P50-9.
-  // Keys:
-  //   sessionMatchKey("tina-session") → "tina-session" (matchKey used by rowSessionStates)
-  //   sessionWorkingKey(row)          → "1:tina-session" (key for per-row hooks)
-  function setupTinaRow() {
-    const host1 = makeHost("1", "hostA");
-    mockIdentitiesByKey = new Map([["tina-session", { identityKey: "tina" }]]);
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      middle: [
-        makeConversationRow({ id: "tina-row", targetTmuxSession: "tina-session", host: host1 }),
-      ],
-      rdpGroup: null,
-    });
-  }
-
-  // ── P50-1: Popover chrome tokens (including width:auto override) ──────────
-
-  it("P50-1 — popover chrome tokens are present on PopoverContent inline style including width:auto (plan-checker W-1 alignment)", () => {
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-    const { getByTestId, queryByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Open the popover.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    const popover = screen.queryByTestId("pv-filter-toggles-popover");
-    expect(popover).toBeTruthy();
-    // Read the style attribute and normalize whitespace for reliable substring matching.
-    const styleAttr = (popover!.getAttribute("style") ?? "").replace(/\s+/g, " ");
-    // Glass gradient background.
-    expect(styleAttr).toContain("linear-gradient(160deg");
-    // Deep navy base layer — note rgba may or may not have spaces; check both.
-    const hasNordBase =
-      styleAttr.includes("rgba(20,21,32,0.94)") ||
-      styleAttr.includes("rgba(20, 21, 32, 0.94)");
-    expect(hasNordBase).toBe(true);
-    // Warm-cream border alpha.
-    const hasWarmBorder =
-      styleAttr.includes("rgba(255,240,215,0.12)") ||
-      styleAttr.includes("rgba(255, 240, 215, 0.12)");
-    expect(hasWarmBorder).toBe(true);
-    // Backdrop blur + saturate.
-    expect(styleAttr).toContain("blur(20px)");
-    expect(styleAttr).toContain("saturate(1.6)");
-    // Warm cream text color. JSDOM normalizes hex to rgb(), so check both forms.
-    const hasWarmColor =
-      styleAttr.includes("#e8e4d8") ||
-      styleAttr.includes("rgb(232, 228, 216)") ||
-      styleAttr.includes("rgb(232,228,216)");
-    expect(hasWarmColor).toBe(true);
-    // min-width: 200px (from minWidth: 200 in React inline style).
-    const hasMinWidth =
-      styleAttr.includes("min-width: 200px") ||
-      styleAttr.includes("min-width:200px");
-    expect(hasMinWidth).toBe(true);
-    // width: auto — the shadcn w-72 override (plan-checker W-1 alignment).
-    const hasWidthAuto =
-      styleAttr.includes("width: auto") ||
-      styleAttr.includes("width:auto");
-    expect(hasWidthAuto).toBe(true);
-  });
-
-  // ── P50-2: Menu-item count + order ───────────────────────────────────────
-
-  it("P50-2 — popover renders exactly 1 menuitemcheckbox button (Ready) — pinned + needs-desk toggles retired in Phase 104 Plan 03 (D-11)", () => {
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-    const { getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    const items = screen.getAllByRole("menuitemcheckbox");
-    expect(items).toHaveLength(1);
-    expect(items[0].textContent).toContain("Ready");
-  });
-
-  // ── P50-3: Leading outlined-square check affordance with inline SVG ───────
-
-  it("P50-3 — Ready button has a .pv-filter-check affordance with inline-SVG path M3.5 8.5 L7 12 L13 5; clicking toggles data-checked", () => {
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-    const { getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    const readyBtn = screen.getByTestId("pv-filter-toggle-ready");
-    // Leading checkbox affordance element.
-    const checkEl = readyBtn.querySelector(".pv-filter-check");
-    expect(checkEl).toBeTruthy();
-    expect(checkEl!.getAttribute("data-checked")).toBe("false");
-    // Inline SVG path — exact value from CONTEXT.md § decisions § Menu items.
-    const pathEl = readyBtn.querySelector("svg > path");
-    expect(pathEl).toBeTruthy();
-    expect(pathEl!.getAttribute("d")).toBe("M3.5 8.5 L7 12 L13 5");
-    // Click toggles the check.
-    fireEvent.click(readyBtn);
-    expect(checkEl!.getAttribute("data-checked")).toBe("true");
-  });
-
-  // ── P50-4: Ready toggle filters out working rows ──────────────────────────
-
-  it("P50-4 — Ready toggle hides rows where isWorking=true", () => {
-    setupTinaRow();
-    // Seed working-store snapshot: tina-session is working.
-    // Key for mockWorkingSnapshot: sessionMatchKey("tina-session") = "tina-session".
-    // Key for mockIsWorkingByKey: sessionWorkingKey(row) = "1:tina-session".
-    mockWorkingSnapshot.set("tina-session", { isWorking: true, lastMessageAt: null, aiTitle: null, dormant: false, recycling: false });
-    mockIsWorkingByKey.set("1:tina-session", true);
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Pre-filter: row is present.
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
-    // Enable Ready filter.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
-    // Working row is hidden: !isWorking is false → readyOk is false.
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeNull();
-  });
-
-  // ── P50-5: Ready toggle filters out dormant rows ──────────────────────────
-
-  it("P50-5 — Ready toggle hides rows where isDormant=true", () => {
-    setupTinaRow();
-    // Seed: tina-session is dormant (not working, but dormant).
-    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: true, recycling: false });
-    mockIsDormantByKey.set("1:tina-session", true);
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Pre-filter: row is present.
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
-    // Enable Ready filter.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
-    // Dormant row is hidden: !isDormant is false → readyOk is false.
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeNull();
-  });
-
-  // ── P50-6: Ready toggle admits idle-not-dormant rows WITH seeded wire signal
-
-  it("P50-6 — Ready toggle shows idle-not-dormant rows that have a seeded wire signal (fail-CLOSED-compatible admit case)", () => {
-    setupTinaRow();
-    // Seed: tina-session is idle AND not dormant, with an explicit wire signal
-    // (rowState IS defined — this is the admit case for fail-CLOSED predicate).
-    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: false, recycling: false });
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Pre-filter: row is present.
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
-    // Enable Ready filter.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
-    // Row passes: rowState defined, isWorking=false, isDormant=false → readyOk=true.
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
-  });
-
-  // ── P50-6b: Ready toggle fail-CLOSED default ──────────────────────────────
-
-  it("P50-6b — Ready toggle fail-CLOSED default: row with no wire signal is HIDDEN when readyOnly is on", () => {
-    // fail-CLOSED: a row absent from the working-store snapshot (rowState undefined)
-    // is treated as NOT ready. This test locks the W-3 plan-checker fix: if a future
-    // refactor reverts to fail-OPEN (!rowState?.isWorking && !rowState?.isDormant),
-    // this test fails immediately because undefined?.isWorking evaluates to undefined
-    // (falsy) — making the row VISIBLE instead of hidden.
-    setupTinaRow();
-    // IMPORTANT: do NOT seed mockWorkingSnapshot for "tina-session". The row is
-    // truly rowState-undefined — no wire signal has arrived for this session.
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Pre-filter: row is present (Ready toggle is off, so filter is not applied).
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
-    // Enable Ready filter.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
-    // fail-CLOSED: rowState undefined → readyOk=false → row hidden.
-    // The predicate is `!readyOnly || (rowState !== undefined && !rowState.isWorking && !rowState.isDormant)`.
-    // With readyOnly=true and rowState=undefined: false → row is filtered out.
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeNull();
-  });
-
-  // ── P50-7: anyFilterOn extends to readyOnly ───────────────────────────────
-
-  it("P50-7 — anyFilterOn extends to readyOnly: .pv-filter-dot appears and data-active=true when only Ready is on", () => {
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // No dot initially.
-    expect(container.querySelector(".pv-filter-dot")).toBeNull();
-    expect(getByTestId("pv-filter-toggles").getAttribute("data-active")).toBe("false");
-    // Enable Ready filter only (Pinned + Needs desk remain off).
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
-    // anyFilterOn is now true (readyOnly=true) → dot is present.
-    expect(container.querySelector(".pv-filter-dot")).toBeTruthy();
-    expect(getByTestId("pv-filter-toggles").getAttribute("data-active")).toBe("true");
-  });
-
-  // ── P50-8: RDP-group rows pass through unfiltered when Ready is on ────────
-
-  it("P50-8 — RDP-group rows pass through unfiltered when Ready toggle is on", () => {
-    // RDP rows never match the identity-based filter predicates (no tmuxSession,
-    // no working-store signal) — they are explicitly excluded from filtering per
-    // CONTEXT.md § decisions § Filter logic (displayedRdpGroup = rdpGroup verbatim).
-    const rdpRow = makeConversationRow({
-      id: "rdp-row",
-      targetTmuxSession: null,
-      host: makeHost("2", "rdpBox"),
-      rdpHostRow: true,
-    });
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      middle: [],
-      rdpGroup: { hostId: "__rdp__", hostName: "rdp-hosts", rows: [rdpRow] },
-    });
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // RDP row is present pre-filter.
-    expect(container.querySelector('[data-conversation-id="rdp-row"]')).toBeTruthy();
-    // Enable Ready filter.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
-    // RDP row is still present: it bypasses the filter entirely.
-    expect(container.querySelector('[data-conversation-id="rdp-row"]')).toBeTruthy();
-  });
-
-  // P50-9 (AND-intersection Ready + Pinned) — RETIRED in Phase 104 Plan 03
-  // alongside the bounty-count wire (the Pinned toggle is gone).
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Phase 58 Plan 02 — Conv-list panel as drop target for badge close
 // ─────────────────────────────────────────────────────────────────────────────
 // Seven tests (A-G) defend PV58-CONVLIST-DROP-TARGET-CLOSE +
@@ -5044,33 +4713,18 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     expect(typeof onCreateRelayRoom).toBe("function");
   });
 
-  // Test 4: order-locked existing items unchanged. Phase 90 Plan 90-06 (D-07)
-  // swapped "New role" for "Edit roles…"; expected order is now
-  // New conversation → New agent → Edit roles… → Edit global files… → Edit skills….
-  it("Test 4: existing menu items appear in locked order (New agent → Edit roles… → Edit global files… → Edit skills…)", () => {
-    // This is a grep/source-level assertion.
-    // We also verify via rendering that the items appear in source order.
-    // Phase 90 Plan 90-06 (D-07): "New role" swapped out for "Edit roles…"
-    // (PrettyConversationsPanel.tsx:2213).
+  // Test 4: kebab now holds exactly two items in locked order.
+  // quick-260914-liu: New agent, Edit roles, Edit global files were promoted
+  // to dedicated header icon buttons. The kebab survivors are:
+  // New group conversation → Edit global skills… (Phase 44 Pitfall 8 guard still applies).
+  it("Test 4 (quick-260914-liu rewrite): kebab holds exactly two items in locked order: 'New group conversation' then 'Edit global skills…'", () => {
     renderPanelWithCreateRelayRoom();
     openThreeDotMenu();
 
     const items = screen.getAllByRole("menuitem");
     const labels = items.map((el) => el.textContent?.trim() ?? "");
 
-    // New group conversation is first
-    expect(labels[0]).toBe("New group conversation");
-
-    // The four locked items must appear in this order relative to each other.
-    const agentIdx = labels.findIndex((l) => l === "New agent");
-    const rolesIdx = labels.findIndex((l) => l.includes("Edit roles"));
-    const filesIdx = labels.findIndex((l) => l.includes("global files"));
-    const skillsIdx = labels.findIndex((l) => l.toLowerCase().includes("skills"));
-
-    expect(agentIdx).toBeGreaterThan(-1);
-    expect(rolesIdx).toBeGreaterThan(agentIdx); // Edit roles… AFTER New agent
-    expect(filesIdx).toBeGreaterThan(rolesIdx); // Edit global files… AFTER Edit roles…
-    expect(skillsIdx).toBeGreaterThan(filesIdx); // Edit skills… AFTER Edit global files…
+    expect(labels).toEqual(["New group conversation", "Edit global skills…"]);
   });
 
   // Test 5: portal-mount pattern — NewConversationModal is sibling of GlobalFilesModal

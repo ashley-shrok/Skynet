@@ -6,9 +6,11 @@
  * 90-06 through their intended user gestures.
  *
  * Tests:
- *   A: panel-header → three-dots → "Edit roles…" → RolesListModal renders →
+ *   A: panel-header → Edit roles header button → RolesListModal renders →
  *      pick host → 2 rows visible → click first row → RolesListModal closes →
  *      RoleModal opens with the picked role's cosmetics.
+ *      (quick-260914-liu: entry point changed from three-dots menu item to
+ *      the dedicated header icon button)
  *   B: cosmetic edit inside RoleModal → title input changes to "New Title" →
  *      Save fires updateRoleFileByName(roleName, hostId, expected combined
  *      markdown containing "title: 'New Title'").
@@ -342,15 +344,8 @@ describe("Phase 90 role-management flow — panel-header entry point", () => {
       />,
     );
 
-    // Open the three-dots menu.
-    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
-    const menu = screen.getByRole("menu");
-    // Click "Edit roles…"
-    fireEvent.click(
-      Array.from(menu.querySelectorAll('[role="menuitem"]')).find(
-        (b) => b.textContent?.includes("Edit roles"),
-      ) as HTMLElement,
-    );
+    // Click the dedicated Edit roles header button (quick-260914-liu).
+    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
 
     // RolesListModal renders with "Roles" DialogTitle.
     await waitFor(() => {
@@ -399,14 +394,8 @@ describe("Phase 90 role-management flow — RoleModal close", () => {
       />,
     );
 
-    // Open three-dots → Edit roles… → row click.
-    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
-    const menu = screen.getByRole("menu");
-    fireEvent.click(
-      Array.from(menu.querySelectorAll('[role="menuitem"]')).find(
-        (b) => b.textContent?.includes("Edit roles"),
-      ) as HTMLElement,
-    );
+    // Click the dedicated Edit roles header button (quick-260914-liu).
+    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
     await waitFor(() => {
       expect(screen.queryByText("Box Maintainer")).toBeTruthy();
     });
@@ -463,14 +452,8 @@ describe("Phase 90 role-management flow — RoleModal cosmetic edit", () => {
       />,
     );
 
-    // Open three-dots → Edit roles… → row click.
-    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
-    const menu = screen.getByRole("menu");
-    fireEvent.click(
-      Array.from(menu.querySelectorAll('[role="menuitem"]')).find(
-        (b) => b.textContent?.includes("Edit roles"),
-      ) as HTMLElement,
-    );
+    // Click the dedicated Edit roles header button (quick-260914-liu).
+    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
     await waitFor(() => {
       expect(screen.queryByText("Box Maintainer")).toBeTruthy();
     });
@@ -510,14 +493,8 @@ describe("Phase 90 role-management flow — CreateRoleDialog swap", () => {
       />,
     );
 
-    // Open menu and click "Edit roles…"
-    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
-    const menu = screen.getByRole("menu");
-    fireEvent.click(
-      Array.from(menu.querySelectorAll('[role="menuitem"]')).find(
-        (b) => b.textContent?.includes("Edit roles"),
-      ) as HTMLElement,
-    );
+    // Click the dedicated Edit roles header button (quick-260914-liu).
+    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
 
     // Wait for RolesListModal — detectable via its "Roles" title.
     await waitFor(() => {

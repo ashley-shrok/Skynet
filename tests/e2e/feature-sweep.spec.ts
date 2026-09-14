@@ -88,12 +88,10 @@ test("feature sweep — exercise every visible affordance for a fresh user", asy
     await page.waitForTimeout(500);
   }
 
-  // 7. Edit global files
-  await page.locator('[data-testid="pv-header-menu-button"]').click();
-  await page.waitForTimeout(400);
-  const editGlobal = page.getByRole("menuitem", { name: /edit global files/i });
-  if (await editGlobal.isVisible().catch(() => false)) {
-    await editGlobal.click();
+  // 7. Edit global files — now a dedicated header icon button (quick-260914-liu)
+  const editGlobalBtn = page.locator('[data-testid="pv-header-global-files-button"]');
+  if (await editGlobalBtn.isVisible().catch(() => false)) {
+    await editGlobalBtn.click();
     await page.waitForTimeout(1500);
     await page.screenshot({ path: path.join(OUT, "08-edit-global-files.png") });
     await page.keyboard.press("Escape");

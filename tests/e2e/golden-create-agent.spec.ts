@@ -1,16 +1,19 @@
 /**
  * Golden-path E2E — create a new agent from the shell.
  *
- * Flow: seedFullAuth → shell paints → open kebab menu → click "New agent" →
+ * Flow: seedFullAuth → shell paints → click pv-header-new-agent-button →
  *   the sidebar NewSessionDialog opens → pick a host → fill session name →
  *   click Create → assert a new conversation row appears with that name.
+ *
+ * quick-260914-liu: "New agent" is now a dedicated header icon button
+ * (pv-header-new-agent-button); no kebab open needed.
  *
  * Requires: the test user has at least one host they can select. Skips
  * gracefully if the shell state doesn't offer the host picker.
  *
  * Selector strategy: prefer accessible-name + role first, testid second,
  * placeholder third. If UI changes and selectors drift, tune here — the
- * shape (menu → dialog → pick → fill → create → assert) IS the golden path.
+ * shape (button → dialog → pick → fill → create → assert) IS the golden path.
  */
 import { test, expect } from "@playwright/test";
 import { readCreds, seedFullAuth } from "./helpers/auth";
@@ -20,7 +23,7 @@ const BASE_URL =
 
 test.use({ trace: "retain-on-failure" });
 
-test("golden: create a new agent — kebab → New agent → pick host → name → Create", async ({
+test("golden: create a new agent — New agent header button → pick host → name → Create", async ({
   browser,
 }) => {
   const context = await browser.newContext({
@@ -33,29 +36,24 @@ test("golden: create a new agent — kebab → New agent → pick host → name 
   await expect(page.locator("body")).toBeVisible();
   await page.waitForTimeout(2500);
 
-  // 1. Open the kebab menu in the pretty-view header.
-  const kebab = page.locator('[data-testid="pv-header-menu-button"]');
-  await expect(kebab).toBeVisible({ timeout: 10_000 });
-  await kebab.click();
+  // 1. Click the dedicated New agent header icon button (quick-260914-liu).
+  const newAgentBtn = page.locator('[data-testid="pv-header-new-agent-button"]');
+  await expect(newAgentBtn).toBeVisible({ timeout: 10_000 });
+  await newAgentBtn.click();
 
-  // 2. Click the "New agent" menu item — the order-locked first entry per
-  //    PrettyConversationsPanel.tsx:2036 ("KEEP ORDER: New agent → New role
-  //    → Edit global files… → Edit skills…").
-  const newAgentItem = page.getByText(/^new agent$/i).first();
-  await expect(newAgentItem).toBeVisible({ timeout: 5_000 });
-  await newAgentItem.click();
-
-  // 3. The sidebar NewSessionDialog opens. Wait for the modal shell.
+  // 2. The sidebar NewSessionDialog opens. Wait for the modal shell.
   const dialogTitle = page.getByRole("heading", { name: /new agent/i });
   await expect(dialogTitle).toBeVisible({ timeout: 8_000 });
 
-  // 4. Pick a host — the dialog has a searchable host list. Find and click
+  // 3. Pick a host — the dialog has a searchable host list. Find and click
   //    the first host row. If the test user has no hosts, skip.
   //    Host rows have role=option or role=button; the search input is
   //    labeled with a placeholder like "Search hosts…".
+  //    Exclude all four header icon buttons from the candidate list so the
+  //    host-picker click cannot land on a header button.
   const hostCandidates = page
     .locator('[role="option"], [role="button"][data-host-id], button[data-host-id]')
-    .filter({ hasNot: page.locator('[data-testid="pv-header-menu-button"]') });
+    .filter({ hasNot: page.locator('[data-testid="pv-header-menu-button"], [data-testid="pv-header-new-agent-button"], [data-testid="pv-header-edit-roles-button"], [data-testid="pv-header-global-files-button"]') });
 
   const hostCount = await hostCandidates.count();
   test.skip(
