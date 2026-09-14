@@ -46,6 +46,21 @@ export type GlobalFilesConfig = { hosts: Record<string, GlobalFileEntry[]> };
 
 export const GLOBAL_FILES_CONFIG_FILENAME = "global-files.json";
 
+/**
+ * The user-wide Claude instructions file, present at the harness user's home
+ * dir on every managed host. Implicit on every host so a newly-registered host
+ * exposes it without a hand-edit of global-files.json. `~/` is resolved
+ * per-host over SSH by the read/write routes.
+ *
+ * Because getFilesForHost() also serves as the read/write whitelist, this makes
+ * the file editable by any user with access to the host (Ashley's call,
+ * 2026-09-14: "i'm okay with always being able to edit the file").
+ */
+export const IMPLICIT_GLOBAL_FILE: GlobalFileEntry = {
+  path: "~/.claude/CLAUDE.md",
+  label: "User CLAUDE.md",
+};
+
 /** Byte cap: reject files >256KB — config file should be tiny. */
 const MAX_CONFIG_BYTES = 256 * 1024;
 
@@ -154,6 +169,10 @@ export async function loadGlobalFilesConfig(
  *
  * Each returned entry is validated to have a string `path`; entries missing
  * `path` are dropped with a log line (bad JSON → partial config, not crash).
+ *
+ * IMPLICIT_GLOBAL_FILE is always included, even for a host with no config at
+ * all. An explicit config entry for the same path wins, so an operator can
+ * still override its label.
  */
 export function getFilesForHost(
   config: GlobalFilesConfig,
@@ -166,7 +185,7 @@ export function getFilesForHost(
   const raw: unknown = byName !== undefined ? byName : byId;
 
   if (!Array.isArray(raw)) {
-    return [];
+    return [IMPLICIT_GLOBAL_FILE];
   }
 
   const entries: GlobalFileEntry[] = [];
@@ -192,6 +211,10 @@ export function getFilesForHost(
       entry.label = label;
     }
     entries.push(entry);
+  }
+
+  if (!entries.some((e) => e.path === IMPLICIT_GLOBAL_FILE.path)) {
+    entries.unshift(IMPLICIT_GLOBAL_FILE);
   }
 
   return entries;
