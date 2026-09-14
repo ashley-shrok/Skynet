@@ -7,7 +7,8 @@
  *
  * Checks whether `~/fleet/identities/<name>/` exists on the target host:
  *   - LOCAL branch: when hostId is in IDENTITIES_LOCAL_HOST_IDS, probe is a
- *     local fs.stat call against os.homedir()/fleet/identities/<name>/.
+ *     local fs.stat call against getLocalIdentitiesRoot()/<name>/ — i.e. the
+ *     IDENTITIES_HOST_DIR bind-mount, or ~/fleet/identities for dev.
  *   - SSH branch: otherwise, opens a connectOneShot SSH connection and runs
  *     an idempotent `if [ -d ... ]` check via execCommand.
  *
@@ -36,13 +37,15 @@ import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
 import type { Request, Response } from "express";
 import { stat as fspStat } from "fs/promises";
-import os from "os";
 import path from "path";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
-import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
+import {
+  getLocalIdentitiesRoot,
+  isLocalHostId,
+} from "../../claude-session/identity-artifact-reader.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -95,13 +98,25 @@ router.get(
 
     // 4. Branch on isLocalHostId
     if (isLocalHostId(hostId)) {
-      // LOCAL BRANCH: probe via fs.stat against the bind-mount / os.homedir()
-      const candidate = path.join(
-        os.homedir(),
-        ".claude",
-        "identities",
-        name,
-      );
+      // LOCAL BRANCH: probe via fs.stat against the identities root.
+      //
+      // 2026-09-14 path-drift fix: this branch previously probed
+      // `os.homedir()/.claude/identities/<name>` — the PRE-D-04 location.
+      // Identity homes moved to `~/fleet/identities/` (Phase 96 D-04) and the
+      // sweep that updated call sites missed this one, so the probe pointed at
+      // a directory that does not exist. Consequence was silent and total: the
+      // ENOENT branch below returned `{ exists: false }` for EVERY name on the
+      // local host, i.e. the collision precheck approved names that were
+      // already taken. Verified against the running container — the env has
+      // IDENTITIES_HOST_DIR=/fleet/identities (populated) while
+      // /root/.claude/identities does not exist.
+      //
+      // getLocalIdentitiesRoot() is the canonical resolver: it prefers the
+      // IDENTITIES_HOST_DIR bind-mount and falls back to
+      // `os.homedir()/fleet/identities` for dev. Matches the SSH branch below
+      // (`$HOME/fleet/identities/...`) and this route's own header docs, and is
+      // the same migration per-identity-file.ts:106 already made.
+      const candidate = path.join(getLocalIdentitiesRoot(), name);
       try {
         await fspStat(candidate);
         return res.json({ exists: true });

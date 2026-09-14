@@ -70,6 +70,10 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   isLocalHostId: vi.fn(),
+  // 2026-09-14 path-drift fix: the LOCAL branch resolves the identities root
+  // through getLocalIdentitiesRoot() (honors the IDENTITIES_HOST_DIR
+  // bind-mount) instead of hardcoding os.homedir()/.claude/identities.
+  getLocalIdentitiesRoot: vi.fn(() => "/fleet/identities"),
 }));
 
 vi.mock("fs/promises", () => ({
@@ -225,6 +229,29 @@ describe("GET /identities/exists-on-host", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ exists: false });
     expect(connectOneShot).not.toHaveBeenCalled();
+  });
+
+  it("Test 2b: local branch probes the identities root, NOT the pre-D-04 ~/.claude path", async () => {
+    // Regression gate for the 2026-09-14 path-drift fix. The LOCAL branch used
+    // to probe `os.homedir()/.claude/identities/<name>` — a location identity
+    // homes moved away from — so fs.stat always hit ENOENT and the route
+    // answered `{exists: false}` for EVERY local name. That silently approved
+    // already-taken names in the collision precheck.
+    //
+    // No prior test asserted the probed PATH, which is exactly why the drift
+    // survived. Assert it explicitly: the path must come from
+    // getLocalIdentitiesRoot() (mocked to /fleet/identities above) and must
+    // never contain a .claude segment.
+    (fspStat as Mock).mockResolvedValue({});
+
+    await httpRequest(server, {
+      method: "GET",
+      path: "/identities/exists-on-host?hostId=5&name=moxie",
+    });
+
+    expect(fspStat).toHaveBeenCalledWith("/fleet/identities/moxie");
+    const probedPath = (fspStat as Mock).mock.calls[0][0] as string;
+    expect(probedPath).not.toContain(".claude");
   });
 
   it("Test 3: SSH branch — existing folder returns {exists: true}", async () => {
