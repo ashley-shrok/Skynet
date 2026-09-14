@@ -144,8 +144,7 @@
       "backToList": "Back to conversations",
       "loading": "Loading agents…"
     },
-    "newSession": "New agent",
-    "newSessionTitle": "Create a new agent",
+    "newSessionTitle": "Create a new agent conversation",
     "newSessionDescription": "Pick a host and (optionally) name the agent.",
     "newSessionSearchHosts": "Search hosts",
     "newSessionNameLabel": "Agent name (optional)",

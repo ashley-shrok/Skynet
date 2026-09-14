@@ -1621,9 +1621,6 @@ export function PrettyConversationsPanel({
     onCloseSession?.(tabId);
   };
 
-  const newSessionLabel = t("nav.newSession", {
-    defaultValue: "New agent",
-  });
   // Phase 22 (SRIC-04): label for the `+ New role` launcher button.
   const newRoleLabel = t("nav.newRole", {
     defaultValue: "New role",
@@ -1710,7 +1707,7 @@ export function PrettyConversationsPanel({
           </span>
           <div className="pv-header-actions">
             {/* quick-260914-liu: four header icon buttons share a single showPencilButton
-                guard (typeof onCreateSession === "function"). Left-to-right: New agent,
+                guard (typeof onCreateSession === "function"). Left-to-right: New conversation,
                 Edit roles, Edit global files, kebab. All four disappear together when
                 onCreateSession is undefined. */}
             {showPencilButton && (
@@ -1718,8 +1715,8 @@ export function PrettyConversationsPanel({
                 <button
                   type="button"
                   className="pv-pencil"
-                  aria-label="New agent"
-                  title="New agent"
+                  aria-label="New conversation"
+                  title="New conversation"
                   data-testid="pv-header-new-agent-button"
                   onClick={() => setNewSessionDialogOpen(true)}
                 >

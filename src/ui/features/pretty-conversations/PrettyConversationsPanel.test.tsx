@@ -1300,7 +1300,7 @@ describe("PrettyConversationsPanel: RDP sentinel at bottom", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: header New agent button opens NewSessionDialog", () => {
-  it("Test 5 (quick-260914-liu repoint): clicking the dedicated pv-header-new-agent-button opens the NewSessionDialog (title 'New agent') in one step; button carries pv-pencil class, aria-label and title 'New agent'", async () => {
+  it("Test 5 (quick-260914-liu repoint): clicking the dedicated pv-header-new-agent-button opens the NewSessionDialog (title 'Create a new agent conversation') in one step; button carries pv-pencil class, aria-label and title 'New conversation'", async () => {
     // quick-260914-liu: New agent is now a dedicated header icon button.
     // The flow is one step: click pv-header-new-agent-button → NewSessionDialog opens.
     const { getByTestId } = render(
@@ -1312,11 +1312,11 @@ describe("PrettyConversationsPanel: header New agent button opens NewSessionDial
       />,
     );
 
-    // New agent header button exists with correct chrome.
+    // New conversation header button exists with correct chrome.
     const newAgentBtn = getByTestId("pv-header-new-agent-button");
     expect(newAgentBtn.className).toContain("pv-pencil");
-    expect(newAgentBtn.getAttribute("aria-label")).toBe("New agent");
-    expect(newAgentBtn.getAttribute("title")).toBe("New agent");
+    expect(newAgentBtn.getAttribute("aria-label")).toBe("New conversation");
+    expect(newAgentBtn.getAttribute("title")).toBe("New conversation");
 
     // Click opens the NewSessionDialog.
     fireEvent.click(newAgentBtn);
@@ -1324,13 +1324,15 @@ describe("PrettyConversationsPanel: header New agent button opens NewSessionDial
     // NewSessionDialog uses shadcn Dialog which renders inside a portal.
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
     expect(dialog).toBeTruthy();
-    // Phase 84 (Plan 84-02): title reads "New agent". Target dialog-title specifically
-    // to avoid false-positive matches against other portal DOM text.
+    // Title reads "Create a new agent conversation". Target dialog-title
+    // specifically to avoid false-positive matches against other portal DOM text.
     const dialogTitle = dialog!.querySelector(
       '[data-slot="dialog-title"]',
     ) as HTMLElement | null;
     expect(dialogTitle).toBeTruthy();
-    expect(dialogTitle!.textContent).toMatch(/^\s*new agent\s*$/i);
+    expect(dialogTitle!.textContent).toMatch(
+      /^\s*create a new agent conversation\s*$/i,
+    );
   });
 });
 
