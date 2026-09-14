@@ -66,8 +66,33 @@
  * taxonomy.
  */
 
+import { promises as fsp } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { Client } from "ssh2";
 import { execCommand } from "../ssh/tmux-helper.js";
+
+/**
+ * Returns the local Claude Code projects root — the parent of the per-cwd
+ * subfolders the Claude CLI writes transcripts into.
+ *
+ * Prefers CLAUDE_PROJECTS_HOST_DIR (bind-mount path inside the Skynet
+ * container, e.g. `/host-claude-projects`) over the os.homedir() fallback
+ * (dev/host path `~/.claude/projects`). Mirrors getLocalIdentitiesRoot at
+ * identity-artifact-reader.ts:218.
+ *
+ * Consumed by discoverIdentitySessionFile's LOCAL branch (conn === null),
+ * which is exercised by identity-birth-orchestrator's supervisor-wait for
+ * co-located births (isLocalHostId=true) — the container reaches the host's
+ * `~/.claude/projects/` through this mount the same way `/fleet` reaches
+ * the host's `~/fleet/`.
+ */
+export function getLocalClaudeProjectsRoot(): string {
+  return (
+    process.env.CLAUDE_PROJECTS_HOST_DIR ||
+    path.join(os.homedir(), ".claude", "projects")
+  );
+}
 
 /**
  * Hard ceiling on the discovery exec call. Bumped 3000 → 30000 (user
@@ -289,13 +314,25 @@ export function parseDiscoveryStdout(stdout: string): DiscoveryRecord[] {
  * null-return path (this module emits ZERO log lines per Phase 32
  * invariant 5 + T-32-02).
  *
- * @param conn — an open SSH client (the pane's connection).
+ * Routing (mirrors writeIdentityFile's LOCAL vs REMOTE split at
+ * per-identity-file.ts:198):
+ *   - conn === null → LOCAL: read `getLocalClaudeProjectsRoot()` via node
+ *     fs (bind-mounted host path inside the Skynet container). Used by
+ *     identity-birth-orchestrator's supervisor-wait for co-located births
+ *     (isLocalHostId=true) — no SSH-to-self required.
+ *   - conn !== null → REMOTE: SSH-exec the discovery shell script over the
+ *     provided client — original Phase 32 behavior, byte-identical.
+ *
+ * @param conn — an open SSH client, or null for a LOCAL read.
  * @param identityName — the identity to discover (e.g. `tanya`, `tiffany`).
  */
 export async function discoverIdentitySessionFile(
-  conn: Client,
+  conn: Client | null,
   identityName: string,
 ): Promise<string | null> {
+  if (conn === null) {
+    return discoverIdentitySessionFileLocal(identityName);
+  }
   const escaped = shellSingleQuote(identityName);
   const script = buildDiscoveryScript(escaped);
 
@@ -333,4 +370,125 @@ export async function discoverIdentitySessionFile(
     }
   }
   return null;
+}
+
+/**
+ * LOCAL-branch discovery. Same semantics as the SSH branch's `find |
+ * sort -rn | while ...` shell script, but implemented in node fs against
+ * the container's bind-mounted host `.claude/projects/` (see
+ * getLocalClaudeProjectsRoot above).
+ *
+ * Semantics preserved from the shell version:
+ *   - Enumerate `<root>/<projectDir>/*.jsonl` (one level deep — matches
+ *     `find -maxdepth 2` in buildDiscoveryScript).
+ *   - Order candidates mtime-descending (matches shell `sort -rn`).
+ *   - Inspect only the first 4096 bytes of each file (matches `head -c 4096`).
+ *   - Look at the first line containing `"role":"user"` (matches
+ *     `grep -m 1 '"role":"user"'`).
+ *   - Return the first path whose first-user-role line satisfies the
+ *     __matchesIdentityFirstTurnForTests predicate; else null.
+ *
+ * Fail-safe: any throw at any stage → null (matches the SSH branch's
+ * catch-all). Bounded by LOCAL_DISCOVERY_TIMEOUT_MS as a defense against
+ * a pathological readdir; caller logs the null-return per Phase 32
+ * invariant 5.
+ */
+async function discoverIdentitySessionFileLocal(
+  identityName: string,
+): Promise<string | null> {
+  try {
+    return await Promise.race([
+      readLocalDiscovery(identityName),
+      new Promise<string | null>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `discoverIdentitySessionFile (local) timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`,
+              ),
+            ),
+          DISCOVERY_EXEC_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+async function readLocalDiscovery(
+  identityName: string,
+): Promise<string | null> {
+  const root = getLocalClaudeProjectsRoot();
+  let projectEntries;
+  try {
+    projectEntries = await fsp.readdir(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  const candidates: { path: string; mtime: number }[] = [];
+  for (const entry of projectEntries) {
+    if (!entry.isDirectory()) continue;
+    const projectDir = path.join(root, entry.name);
+    let jsonlEntries;
+    try {
+      jsonlEntries = await fsp.readdir(projectDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const j of jsonlEntries) {
+      if (!j.isFile()) continue;
+      if (!j.name.endsWith(".jsonl")) continue;
+      const full = path.join(projectDir, j.name);
+      try {
+        const st = await fsp.stat(full);
+        candidates.push({ path: full, mtime: st.mtimeMs });
+      } catch {
+        continue;
+      }
+    }
+  }
+  candidates.sort((a, b) => b.mtime - a.mtime);
+
+  for (const cand of candidates) {
+    const firstUserLine = await readFirstUserRoleLine(cand.path);
+    if (firstUserLine === null) continue;
+    if (__matchesIdentityFirstTurnForTests(firstUserLine, identityName)) {
+      return cand.path;
+    }
+  }
+  return null;
+}
+
+/**
+ * Mirror of the shell's `head -c 4096 | grep -m 1 '"role":"user"'` step.
+ * Reads up to the first 4096 bytes of the file and returns the first line
+ * containing `"role":"user"`, or null if none in that window.
+ */
+async function readFirstUserRoleLine(filePath: string): Promise<string | null> {
+  let handle;
+  try {
+    handle = await fsp.open(filePath, "r");
+  } catch {
+    return null;
+  }
+  try {
+    const buf = Buffer.alloc(4096);
+    const { bytesRead } = await handle.read(buf, 0, 4096, 0);
+    if (bytesRead === 0) return null;
+    const chunk = buf.slice(0, bytesRead).toString("utf8");
+    for (const line of chunk.split("\n")) {
+      if (line.includes('"role":"user"')) return line;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    try {
+      await handle.close();
+    } catch {
+      // ignore
+    }
+  }
 }

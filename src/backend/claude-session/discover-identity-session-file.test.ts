@@ -23,7 +23,10 @@
  * `session-file-discovery.test.ts`).
  */
 
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { promises as fsp } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 // Mock the tmux-helper module so we can inject execCommand stdout per test.
 vi.mock("../ssh/tmux-helper.js", () => ({
@@ -457,5 +460,137 @@ describe("discoverIdentitySessionFile", () => {
     if (cmd.includes("tanya")) {
       expect(cmd).toMatch(/'tanya'/);
     }
+  });
+});
+
+// ── LOCAL-branch cases (conn === null): 2026-09-13 ──────────────────────────
+//
+// discoverIdentitySessionFile now accepts (Client | null, identityName). When
+// conn is null, the sensor reads the local FS at CLAUDE_PROJECTS_HOST_DIR —
+// exercised by identity-birth-orchestrator's supervisor-wait for co-located
+// births. The tests below mirror CASE-H1/H2/H3/H6/H7/H8 semantics against a
+// real tmpdir fixture. execCommand is not touched on the null-conn path.
+
+describe("discoverIdentitySessionFile — LOCAL branch (conn === null)", () => {
+  let tmpRoot: string;
+  const prevEnv = process.env.CLAUDE_PROJECTS_HOST_DIR;
+
+  beforeEach(async () => {
+    tmpRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "disco-local-"));
+    process.env.CLAUDE_PROJECTS_HOST_DIR = tmpRoot;
+  });
+
+  afterEach(async () => {
+    if (prevEnv === undefined) delete process.env.CLAUDE_PROJECTS_HOST_DIR;
+    else process.env.CLAUDE_PROJECTS_HOST_DIR = prevEnv;
+    try {
+      await fsp.rm(tmpRoot, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  });
+
+  async function seed(
+    projectSlug: string,
+    fileName: string,
+    firstLine: string,
+    mtimeSeconds: number,
+  ): Promise<string> {
+    const projDir = path.join(tmpRoot, projectSlug);
+    await fsp.mkdir(projDir, { recursive: true });
+    const full = path.join(projDir, fileName);
+    await fsp.writeFile(full, firstLine + "\n", "utf8");
+    await fsp.utimes(full, mtimeSeconds, mtimeSeconds);
+    return full;
+  }
+
+  it("LOCAL-CASE-L1: single matching JSONL → returns absolute path", async () => {
+    const filePath = await seed(
+      "-home-ubuntu-fleet-identities-tanya-workspace",
+      "session.jsonl",
+      firstUserTurnLine("tanya"),
+      1_000_000,
+    );
+    const result = await discoverIdentitySessionFile(null, "tanya");
+    expect(result).toBe(filePath);
+  });
+
+  it("LOCAL-CASE-L2: multi-match returns the mtime-latest path (D-03 tiebreak)", async () => {
+    await seed(
+      "-home-ubuntu-fleet-identities-tanya-workspace",
+      "old.jsonl",
+      firstUserTurnLine("tanya"),
+      1000,
+    );
+    const newestPath = await seed(
+      "-home-ubuntu-fleet-identities-tanya-workspace",
+      "newest.jsonl",
+      firstUserTurnLine("tanya"),
+      2000,
+    );
+    await seed(
+      "-home-ubuntu-fleet-identities-tanya-workspace",
+      "middle.jsonl",
+      firstUserTurnLine("tanya"),
+      1500,
+    );
+    const result = await discoverIdentitySessionFile(null, "tanya");
+    expect(result).toBe(newestPath);
+  });
+
+  it("LOCAL-CASE-L3: no matches → returns null, no throw (D-05 fallback)", async () => {
+    await seed(
+      "-home-ubuntu-fleet-identities-nelly-workspace",
+      "a.jsonl",
+      firstUserTurnLine("nelly"),
+      1000,
+    );
+    await seed(
+      "-home-ubuntu-throwaway",
+      "b.jsonl",
+      plainUserTurnLine("hello there"),
+      900,
+    );
+    const result = await discoverIdentitySessionFile(null, "tanya");
+    expect(result).toBe(null);
+  });
+
+  it("LOCAL-CASE-L4: empty projects dir → returns null (cold-start)", async () => {
+    const result = await discoverIdentitySessionFile(null, "tanya");
+    expect(result).toBe(null);
+  });
+
+  it("LOCAL-CASE-L5: missing projects root → returns null, no throw (fail-safe)", async () => {
+    process.env.CLAUDE_PROJECTS_HOST_DIR = path.join(
+      tmpRoot,
+      "does-not-exist",
+    );
+    const result = await discoverIdentitySessionFile(null, "tanya");
+    expect(result).toBe(null);
+  });
+
+  it("LOCAL-CASE-L6: partial-name refusal end-to-end — identity `tiffany` does not match a JSONL whose first user line is `<command-args>tiff<`", async () => {
+    await seed(
+      "-home-ubuntu-fleet-identities-tiff-workspace",
+      "h.jsonl",
+      firstUserTurnLine("tiff"),
+      1000,
+    );
+    const result = await discoverIdentitySessionFile(null, "tiffany");
+    expect(result).toBe(null);
+  });
+
+  it("LOCAL-CASE-L7: file with no user-role line in first 4KB → skipped, returns null", async () => {
+    const projDir = path.join(
+      tmpRoot,
+      "-home-ubuntu-fleet-identities-tanya-workspace",
+    );
+    await fsp.mkdir(projDir, { recursive: true });
+    // 5KB of non-user-role content (a run of assistant lines, say).
+    const filler = '{"type":"assistant"}\n'.repeat(300);
+    const full = path.join(projDir, "no-user.jsonl");
+    await fsp.writeFile(full, filler, "utf8");
+    const result = await discoverIdentitySessionFile(null, "tanya");
+    expect(result).toBe(null);
   });
 });

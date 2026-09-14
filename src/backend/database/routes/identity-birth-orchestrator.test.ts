@@ -461,15 +461,17 @@ it("Test 1: happy path, remote host, emits steps 1/2/6/7/8 in order (Phase 106)"
 }, 10_000);
 
 // ---------------------------------------------------------------------------
-// Test 2: self-birth (isLocalHostId=true) — no SSH, no discoverIdentitySessionFile
-// poll (guarded on !useLocal per Phase 106 wait-block predicate). LOCAL branch
-// now runs Steps 1, 2 (via execLocal) + 6, 7, 8 (with conn=null; writeIdentityFile
-// routes to node fs). Only the wait-for-supervisor step stays skipped on LOCAL.
-// Updated 2026-09-11: LOCAL-branch coverage of 6/7/8 (fix for coord spawn-request
-// flow silently succeeding without minting/writing anything on t1000).
+// Test 2: self-birth (isLocalHostId=true) — no SSH, runs the wait-for-supervisor
+// poll with conn=null (LOCAL branch of discoverIdentitySessionFile reads the
+// container's bind-mounted host `.claude/projects/` via node fs). LOCAL branch
+// runs Steps 1, 2 (via execLocal) + 6, 7, 8 (writeIdentityFile routes to node
+// fs) + the supervisor-wait (with null conn).
+// Updated 2026-09-13: local branch now goes through the wait for uniformity
+// with the remote branch — bind-mount added in docker-compose.yml, sensor
+// signature widened to (Client | null).
 // ---------------------------------------------------------------------------
 
-it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH, runs 1+2+6+7+8, skips wait-poll", async () => {
+it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH, runs 1+2+6+7+8, runs wait-poll with null conn", async () => {
   mockIsLocalHostId.mockReturnValue(true);
 
   // execLocal returns "" for mkdir/touch, "/home/test" for `echo $HOME` (Step 2.5
@@ -515,9 +517,11 @@ it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH, runs 1+2+6
   expect(deps.writeMarkdownFileAtomic).toHaveBeenCalledWith(null, expect.any(String), expect.any(String));
   expect(deps.writeAvatarSiblingFile).toHaveBeenCalledWith(null, opts.name, expect.any(String), expect.any(Buffer));
 
-  // Phase 106: local branch skips wait-poll entirely — discoverIdentitySessionFile
-  // is never invoked (guarded on `!useLocal && conn`).
-  expect(mockDiscover).not.toHaveBeenCalled();
+  // 2026-09-13: LOCAL branch now runs the wait-poll with null conn. The mock
+  // resolves to a real path on the first tick, so the loop exits immediately.
+  expect(mockDiscover).toHaveBeenCalled();
+  expect(mockDiscover.mock.calls[0][0]).toBeNull();
+  expect(mockDiscover.mock.calls[0][1]).toBe(opts.name);
 
   // Ended{ok:true}
   const endedEvent = events.find((e) => e.type === "ended");

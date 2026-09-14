@@ -88,11 +88,31 @@ services:
       # canonical env file) — required for BOTH steps because compose
       # interpolates volume paths at config-parse time, not just at up.
       - ${SKYNET_FLEET_MOUNT_SRC:?SKYNET_FLEET_MOUNT_SRC must be set — pass --env-file /opt/skynet/.env to docker compose (required for BOTH build and up; see docker/docker-compose.yml note above)}:/fleet
+      # LOCAL-branch bind for the birth-flow supervisor-wait's discovery
+      # sensor. Exposes the host's `~/.claude/projects/` (where Claude Code
+      # writes per-session transcripts) into the container read-only, so
+      # discoverIdentitySessionFile's LOCAL branch can walk it via node fs
+      # when a birth targets the Skynet host itself (isLocalHostId=true).
+      # Without this mount, local births time out the 120s supervisor-wait
+      # (fail-safe: identity folder + Matrix account still on disk per Q2
+      # no-rollback lock; supervisor's next 15s tick still brings it up).
+      # Consumed via CLAUDE_PROJECTS_HOST_DIR below → getLocalClaudeProjectsRoot()
+      # in src/backend/claude-session/discover-identity-session-file.ts. RO
+      # because the sensor only reads. Default source matches the common
+      # deployment shape (ubuntu HOME on Debian/Ubuntu AWS AMIs); override
+      # SKYNET_CLAUDE_PROJECTS_MOUNT_SRC in skynet.env for other layouts.
+      - type: bind
+        source: ${SKYNET_CLAUDE_PROJECTS_MOUNT_SRC:-/home/ubuntu/.claude/projects}
+        target: /host-claude-projects
+        read_only: true
+        bind:
+          create_host_path: true
     env_file:
       - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
     environment:
       PORT: "8080"
       SKYNET_CONSOLE_FORWARD_LOG_PATH: "/var/log/skynet/console-forward/console-forward.log"
+      CLAUDE_PROJECTS_HOST_DIR: "/host-claude-projects"
     depends_on:
       - guacd
     networks:

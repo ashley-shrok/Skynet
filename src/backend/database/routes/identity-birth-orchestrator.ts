@@ -414,7 +414,7 @@ export interface BirthDeps {
    * session, not a bare shell." Do NOT introduce a parallel sensor per shape
    * file §"What would make it wrong" bullet 7.
    */
-  discoverIdentitySessionFile: (conn: SSHClient, identityName: string) => Promise<string | null>;
+  discoverIdentitySessionFile: (conn: SSHClient | null, identityName: string) => Promise<string | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -1570,21 +1570,26 @@ export async function birthIdentity(
     //   we've given up waiting — deleting on timeout re-introduces the race
     //   the no-rollback rule was written to prevent.
     //
-    // Local branch (isLocalHostId=true): skip the wait entirely and emit
-    // ended{ok:true} directly. The supervisor sees the new identity folder on
-    // its next 15s reconcile tick (Steps 2 + 2.5 already wrote it in the LOCAL
-    // branch above) and brings the tmux + claude + `/id <name>` up on its
-    // own. discoverIdentitySessionFile IS callable via SSH-to-self, but for
-    // co-located spawns the caller (spawn-requests worker) doesn't need
-    // birth-time confirmation the JSONL exists — the response file lands
-    // when Steps 6/7/8 complete, the coord picks it up + DMs the new mxid,
-    // the receiver auto-joins the invite on first wake. The supervisor's
-    // 15s tick brings the identity alive shortly after. Adding a JSONL-poll
-    // wait here would require bind-mounting /home/ubuntu/.claude/projects/
-    // into the Skynet container (not currently mounted) — deferred as a
-    // future hardening pass; the current fast-exit doesn't lose information.
+    // Local branch (isLocalHostId=true): runs the SAME poll loop with a
+    // null SSH conn. discoverIdentitySessionFile's LOCAL branch reads the
+    // container's bind-mounted host `.claude/projects/` via node fs (env
+    // CLAUDE_PROJECTS_HOST_DIR, defaulted in docker-compose.yml alongside
+    // the existing `/fleet` bind) — same routing shape as writeIdentityFile
+    // at per-identity-file.ts. Local births go through the wait for two
+    // reasons: (1) the UI birth flow (POST /identities/birth, SSE) can now
+    // target the Skynet host itself and its modal auto-route depends on
+    // ended{ok:true} meaning "PrettyView has something real to render", and
+    // (2) uniformity with the remote branch means one set of semantics for
+    // every caller (spawn-requests worker, /identities/birth handler) and
+    // one testable timeout path.
+    //
+    // Prior behavior (fast-exit for useLocal — the "not currently mounted"
+    // deferral) is retired: the bind-mount is now first-class in the
+    // canonical compose, and the local FS walk has the same fail-safe
+    // return-null semantics as the SSH branch.
     // -----------------------------------------------------------------------
-    if (!useLocal && conn) {
+    const supervisorSensorConn: SSHClient | null = useLocal ? null : conn;
+    if (useLocal || conn) {
       const waitStartMs = Date.now();
       let discoveredPath: string | null = null;
       let clientAborted = false;
@@ -1597,7 +1602,7 @@ export async function birthIdentity(
           clientAborted = true;
           break;
         }
-        discoveredPath = await deps.discoverIdentitySessionFile(conn, opts.name);
+        discoveredPath = await deps.discoverIdentitySessionFile(supervisorSensorConn, opts.name);
         if (discoveredPath !== null) break;
         await sleep(WAIT_FOR_SUPERVISOR_POLL_MS);
       }
