@@ -3,8 +3,9 @@
  * Phase 74 Plan 03: config-driven aesthetic director spec + gamma.
  *
  * Mounts on /identities/avatar (in database.ts) and provides:
- *   POST /batch   — LLM archetype draft + 3 parallel gpt-image-1 calls
- *                   + gamma correction + in-memory candidate cache
+ *   POST /batch   — LLM archetype draft of 3 DISTINCT prompts + 3 parallel
+ *                   gpt-image-1 calls (one per prompt) + gamma correction
+ *                   + in-memory candidate cache
  *   GET  /candidate/:id — serves cached candidate PNG bytes
  *
  * OpenAI API key: read from process.env.OPENAI_API_KEY at request time.
@@ -194,6 +195,66 @@ function paletteHueLine(hue: number | null): string {
 }
 
 // ---------------------------------------------------------------------------
+// Three-distinct-prompts request + parse
+//
+// The drafter used to return ONE prompt that was then rendered BATCH_SIZE times,
+// so the three candidates were three samples of one description and looked
+// nearly identical — the choice they offered was "which sample came out best",
+// not "which concept fits". Asking for one distinct prompt per candidate makes
+// the three genuinely different takes.
+//
+// This instruction lives HERE rather than in the operator-authored
+// avatarDirectorSpec deliberately: the spec is per-instance and not in git
+// (t1000 and T800 each hold their own copy), so requiring an operator edit to
+// get variety would silently leave existing deployments on the old behavior.
+// The spec still owns all AESTHETIC content; this only owns the output SHAPE.
+// Same division of labor as paletteHueLine above.
+// ---------------------------------------------------------------------------
+
+const THREE_PROMPT_INSTRUCTION =
+  `Produce ${BATCH_SIZE} DISTINCT image-generation prompts — not variations on ` +
+  `one description. Each should be a different plausible take on this role, so ` +
+  `a viewer picking between them is choosing between genuinely different ` +
+  `characters rather than three renders of the same one. Every prompt must ` +
+  `independently satisfy every requirement above, including the palette. ` +
+  `Return JSON of the form {"prompts": ["...", "...", "..."]} and nothing else.`;
+
+/**
+ * Parse the drafter's reply into exactly BATCH_SIZE prompts.
+ *
+ * Falls back to repeating a single prompt when the reply isn't the JSON shape we
+ * asked for. That keeps a model that ignores the format instruction (or an older
+ * operator spec that fights it) producing avatars at pre-change quality instead
+ * of failing the request outright. Short arrays are cycled, long ones truncated.
+ */
+export function parseDraftedPrompts(raw: string): string[] {
+  const trimmed = raw.trim();
+  let prompts: string[] = [];
+  try {
+    // Tolerate a fenced ```json block, which models emit even when told not to.
+    const unfenced = trimmed
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/, "");
+    const parsed = JSON.parse(unfenced) as unknown;
+    const arr = Array.isArray(parsed)
+      ? parsed
+      : (parsed as { prompts?: unknown })?.prompts;
+    if (Array.isArray(arr)) {
+      prompts = arr.filter(
+        (p): p is string => typeof p === "string" && p.trim().length > 0,
+      );
+    }
+  } catch {
+    // Not JSON — treat the whole reply as one prompt below.
+  }
+  if (prompts.length === 0) prompts = [trimmed];
+  return Array.from(
+    { length: BATCH_SIZE },
+    (_, i) => prompts[i % prompts.length],
+  );
+}
+
+// ---------------------------------------------------------------------------
 // POST /batch
 // ---------------------------------------------------------------------------
 
@@ -262,7 +323,7 @@ router.post(
     // ------------------------------------------------------------------
     // Step 1: LLM archetype draft (called ONCE per request)
     // ------------------------------------------------------------------
-    let draftedPrompt: string;
+    let draftedPrompts: string[];
     try {
       const archController = new AbortController();
       const archTimeout = setTimeout(() => archController.abort(), ARCHETYPE_TIMEOUT_MS);
@@ -279,7 +340,7 @@ router.post(
             { role: "system", content: directorSpec },
             {
               role: "user",
-              content: `Name: ${name}\nTitle: ${title}\nBrief: ${brief}${paletteHueLine(paletteHue)}\n\nProduce the image-generation prompt only. No preamble. No explanation. Just the prompt.`,
+              content: `Name: ${name}\nTitle: ${title}\nBrief: ${brief}${paletteHueLine(paletteHue)}\n\n${THREE_PROMPT_INSTRUCTION}`,
             },
           ],
         }),
@@ -296,7 +357,9 @@ router.post(
       const archData = (await archRes.json()) as {
         choices: Array<{ message: { content: string } }>;
       };
-      draftedPrompt = archData.choices[0].message.content.trim();
+      draftedPrompts = parseDraftedPrompts(
+        archData.choices[0].message.content,
+      );
     } catch (err) {
       const isAbort =
         err instanceof Error && err.name === "AbortError";
@@ -314,7 +377,7 @@ router.post(
     let b64Results: string[];
     try {
       const imageGenResults = await Promise.all(
-        Array.from({ length: BATCH_SIZE }, async () => {
+        draftedPrompts.map(async (draftedPrompt) => {
           const imgController = new AbortController();
           const imgTimeout = setTimeout(() => imgController.abort(), IMAGE_GEN_TIMEOUT_MS);
 

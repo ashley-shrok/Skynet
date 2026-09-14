@@ -1029,3 +1029,127 @@ describe("Phase 74 Plan 03: config-driven avatar batch", () => {
     expect(fetchCalled).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// parseDraftedPrompts — three-distinct-prompts parsing
+// ---------------------------------------------------------------------------
+
+describe("parseDraftedPrompts", () => {
+  it("returns the three distinct prompts from the requested JSON shape", async () => {
+    const { parseDraftedPrompts } = await import("./identity-avatar-batch.js");
+    const out = parseDraftedPrompts(
+      JSON.stringify({ prompts: ["alpha", "beta", "gamma"] }),
+    );
+    expect(out).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  it("tolerates a fenced ```json block and a bare top-level array", async () => {
+    const { parseDraftedPrompts } = await import("./identity-avatar-batch.js");
+    expect(
+      parseDraftedPrompts('```json\n{"prompts":["a","b","c"]}\n```'),
+    ).toEqual(["a", "b", "c"]);
+    expect(parseDraftedPrompts('["a","b","c"]')).toEqual(["a", "b", "c"]);
+  });
+
+  it("falls back to repeating a single prompt when the reply is plain prose", async () => {
+    const { parseDraftedPrompts } = await import("./identity-avatar-batch.js");
+    // A model that ignores the format instruction must still yield avatars at
+    // pre-change quality rather than failing the request.
+    expect(parseDraftedPrompts("just one prompt")).toEqual([
+      "just one prompt",
+      "just one prompt",
+      "just one prompt",
+    ]);
+  });
+
+  it("always returns exactly 3 entries — cycling short arrays, truncating long ones", async () => {
+    const { parseDraftedPrompts } = await import("./identity-avatar-batch.js");
+    expect(parseDraftedPrompts('{"prompts":["a","b"]}')).toEqual(["a", "b", "a"]);
+    expect(parseDraftedPrompts('{"prompts":["a","b","c","d","e"]}')).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(parseDraftedPrompts('{"prompts":[]}').length).toBe(3);
+  });
+
+  it("ignores non-string and blank entries", async () => {
+    const { parseDraftedPrompts } = await import("./identity-avatar-batch.js");
+    expect(parseDraftedPrompts('{"prompts":["a",null,"  ",7,"b"]}')).toEqual([
+      "a",
+      "b",
+      "a",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// End-to-end: each of the three prompts drives its OWN image-gen call
+// ---------------------------------------------------------------------------
+
+describe("POST /batch three-prompt wiring", () => {
+  it("sends one image-gen request per drafted prompt, and asks the drafter for 3 distinct prompts", async () => {
+    const server2 = await startServer();
+    try {
+      const imagePrompts: string[] = [];
+      let draftUserMsg = "";
+      vi.stubGlobal(
+        "fetch",
+        async (url: string, opts: RequestInit) => {
+          if (url.includes("chat/completions")) {
+            const parsed = JSON.parse(String(opts.body)) as {
+              messages: Array<{ role: string; content: string }>;
+            };
+            draftUserMsg =
+              parsed.messages.find((m) => m.role === "user")?.content ?? "";
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                choices: [
+                  {
+                    message: {
+                      content: JSON.stringify({
+                        prompts: ["prompt-one", "prompt-two", "prompt-three"],
+                      }),
+                    },
+                  },
+                ],
+              }),
+            } as unknown as Response;
+          }
+          if (url.includes("images/generations")) {
+            imagePrompts.push(
+              (JSON.parse(String(opts.body)) as { prompt: string }).prompt,
+            );
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ data: [{ b64_json: WHITE_1X1_PNG_B64 }] }),
+            } as unknown as Response;
+          }
+          throw new Error(`Unexpected fetch URL: ${url}`);
+        },
+      );
+
+      const res = await httpRequest(server2, {
+        method: "POST",
+        path: "/identities/avatar/batch",
+        body: { name: "tri", title: "Tri Test", brief: "b" },
+      });
+
+      expect(res.status).toBe(200);
+      expect((res.body as { candidates: unknown[] }).candidates.length).toBe(3);
+      // The whole point: three DIFFERENT prompts rendered, not one repeated.
+      expect(imagePrompts.sort()).toEqual([
+        "prompt-one",
+        "prompt-three",
+        "prompt-two",
+      ]);
+      // And the drafter was actually asked for distinct options.
+      expect(draftUserMsg).toMatch(/3 DISTINCT image-generation prompts/);
+    } finally {
+      await new Promise<void>((r) => server2.close(() => r()));
+    }
+  });
+});
