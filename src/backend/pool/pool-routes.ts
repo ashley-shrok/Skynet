@@ -3,27 +3,51 @@
  *
  * Consumes:
  *   - pool-loader.ts (Plan 80-01) via getVettedPool()
- *   - matrix-admin-client.ts (Plan 80-02) via countUsersMatching()
- *   - matrix-admin-creds-store.ts via getMatrixAdminCreds()
+ *   - identity-artifact-reader.ts via listIdentityKeysOnHost() + isLocalHostId()
  *   - ssh/host-resolver.ts via resolveHostById() (cross-user isolation)
+ *   - ssh/ssh-one-shot.ts via connectOneShot() (REMOTE enumeration branch)
  *   - utils/auth-manager.ts via AuthManager (JWT gate)
  *
  * Returns a bare lowercase pool name (matches IDENTITY_KEY_RE) for the
- * frontend NewSessionDialog to prefill the identity name field when a role
- * is chosen. The response is ALWAYS the bare pool name — the birth-
- * orchestrator (Plan 80-03b) owns full-handle MXID composition and appends
- * an ordinal (`-2`, `-3`, ...) at creation time if the base handle is taken.
+ * frontend NewSessionDialog to prefill the identity name field. The response
+ * is ALWAYS the bare pool name — the birth-orchestrator (Plan 80-03b) owns
+ * full-handle MXID composition and appends an ordinal (`-2`, `-3`, ...) at
+ * creation time if the base handle is taken.
  *
- * "Is this taken?" question (blocker 2 fix, revision 2026-09-06):
- *   For each pool candidate, this handler composes the FULL base-handle
- *   MXID `@<PascalCandidate>-<PascalHyphenatedRole>:<serverHost>` using
- *   the SAME casing rule as identity-birth-orchestrator's
- *   composeMxidLocalpart, then calls countUsersMatching on that shape.
- *   The bare-lowercase check `@<candidate>:<server>` is WRONG — real
- *   Matrix accounts for pool-picked identities are minted as
- *   `@Willow-Skynet-Maintainer:server` per A1 DIVERGE lock, so the
- *   bare-lowercase query always returns total===0 and hands back names
- *   that are ALREADY taken in their real MXID form.
+ * "Is this taken?" question (2026-09-14 rewrite — authority moved to the host):
+ *   The availability authority is the TARGET HOST's identity directory set:
+ *   a name is free iff `$HOME/fleet/identities/<name>` does not exist there.
+ *   That is the same gate identity-birth-orchestrator enforces at creation
+ *   time (L1313-1330), so the suggestion now agrees with what birth will
+ *   actually accept.
+ *
+ *   The prior implementation probed SYNAPSE instead — composing the full
+ *   base-handle MXID `@<candidate>-<role>:<serverHost>` per candidate and
+ *   asking countUsersMatching whether it existed. That was the wrong
+ *   authority (Matrix account existence is downstream of, and can disagree
+ *   with, identity-folder existence) and it was the ONLY reason this route
+ *   needed `role` at all. Ashley 2026-09-14, verbatim: *"currently the relay
+ *   is not used to check units checking us only the identity folders on the
+ *   given host are so i don't think we will have a problem of the
+ *   availability probe."* Losing the MXID probe is deliberate: it was
+ *   suggestion-quality polish, never the guarantee. Birth-time folder
+ *   existence + the frontend's name-blur collision precheck +
+ *   deriveMxidWithOrdinal remain the real gates.
+ *
+ *   Cost also improves: ONE enumeration round-trip replaces up to
+ *   pool-length sequential admin-API calls.
+ *
+ * `role` is OPTIONAL (2026-09-14). It no longer participates in the
+ * availability question, so the frontend can prefill a name before a role is
+ * chosen. When supplied it is still validated (ROLE_NAME_PATTERN) so a
+ * malformed value fails loudly here rather than silently later; when absent
+ * the route behaves identically minus that validation.
+ *
+ * Degradation contract: an unreachable / unenumerable host must NOT fail the
+ * request. The pool is still returned from (first shuffled candidate) so the
+ * modal always offers a name — a suggestion box that stalls or errors is
+ * worse UX than an unverified suggestion, and birth-time checks still
+ * protect correctness.
  *
  * Route mount ordering (RESEARCH §Landmine 4):
  *   MUST be mounted at `/identities/pool` BEFORE the generic
@@ -45,10 +69,13 @@ import express from "express";
 import type { Request, Response } from "express";
 import { AuthManager } from "../utils/auth-manager.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
+import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { sshLogger } from "../utils/logger.js";
 import { getVettedPool } from "./pool-loader.js";
-import { countUsersMatching } from "../matrix/matrix-admin-client.js";
-import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
+import {
+  isLocalHostId,
+  listIdentityKeysOnHost,
+} from "../claude-session/identity-artifact-reader.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -71,6 +98,14 @@ const authenticateJWT = authManager.createAuthMiddleware();
  */
 const ROLE_NAME_PATTERN = /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/;
 
+/**
+ * SSH connect timeout for the REMOTE identity-enumeration branch. Matches
+ * identity-exists-on-host.ts's connectOneShot budget — this route answers the
+ * same "is this name taken on that host?" question and sits behind the same
+ * 10s nginx proxy_read_timeout, so it must not out-wait it.
+ */
+const SSH_CONNECT_TIMEOUT_MS = 3000;
+
 // prettier-ignore
 router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
@@ -90,30 +125,22 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     }
 
     // -----------------------------------------------------------------------
-    // 2. role validation — kebab-case-lowercase, alpha-leading per segment
+    // 2. role validation — OPTIONAL as of 2026-09-14 (see header §role).
+    //    Role no longer participates in the availability question, so absence
+    //    is legal. When PRESENT it is still validated so a malformed value
+    //    fails here rather than silently downstream at birth.
     // -----------------------------------------------------------------------
-    if (typeof role !== "string" || !ROLE_NAME_PATTERN.test(role.trim())) {
-      res.status(400).json({
-        error: "role must be kebab-case with alpha-leading segments",
-      });
-      return;
-    }
-    const roleTrimmed = role.trim();
-
-    // -----------------------------------------------------------------------
-    // 3. Matrix admin creds fail-early gate (mirror identity-birth.ts L158-165)
-    // -----------------------------------------------------------------------
-    const creds = await getMatrixAdminCreds();
-    if (!creds) {
-      res.status(503).json({
-        error: "matrix_admin_foundation_not_ingested",
-        detail: "matrix admin foundation not ingested — see deploy runbook",
-      });
-      return;
+    if (role !== undefined && role !== null && role !== "") {
+      if (typeof role !== "string" || !ROLE_NAME_PATTERN.test(role.trim())) {
+        res.status(400).json({
+          error: "role must be kebab-case with alpha-leading segments",
+        });
+        return;
+      }
     }
 
     // -----------------------------------------------------------------------
-    // 4. Cross-user host isolation (T-80-04-01) — 404 on unowned/unknown
+    // 3. Cross-user host isolation (T-80-04-01) — 404 on unowned/unknown
     // -----------------------------------------------------------------------
     const host = await resolveHostById(hostId, userId);
     if (!host) {
@@ -122,7 +149,7 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     }
 
     // -----------------------------------------------------------------------
-    // 5. Load pool (never throws; returns [] on any pool-loader failure)
+    // 4. Load pool (never throws; returns [] on any pool-loader failure)
     // -----------------------------------------------------------------------
     const pool = getVettedPool();
     if (pool.length === 0) {
@@ -131,84 +158,84 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     }
 
     // -----------------------------------------------------------------------
-    // 6. Picker (Shape A per RESEARCH §8 — blocker-2-corrected):
-    //    - Extract serverHost from creds.homeserverBase.
-    //    - Shuffle pool, iterate candidates:
-    //        - Normalize candidate to lowercase (defense-in-depth vs casing
-    //          drift in pool.json + Matrix mxid gate).
-    //        - Compose FULL base-handle MXID
-    //          `@<lowerCandidate>-<lowerRole>:<serverHost>`.
-    //        - countUsersMatching(fullBaseHandle):
-    //            - !ok → 502 (no leak of pool state).
-    //            - total===0 → return 200 { name: lowerCandidate }.
-    //    - All busy → fallback to first shuffled candidate lowercased;
-    //      birth-orchestrator's deriveMxidWithOrdinal will append `-N`.
+    // 5. Shuffle the pool.
+    //
+    //    Shuffle a copy so the pool order isn't a covert stability signal.
+    //    Fisher-Yates — `sort(() => Math.random() - 0.5)` is a biased shuffle
+    //    (compare function violates transitivity; V8 TimSort skews
+    //    permutations), which would cluster picks against the shape's
+    //    "recycle the pool evenly" goal. See RESEARCH §Landmine 8 (pool
+    //    exhaustion) — a biased shuffle would exhaust some names dramatically
+    //    faster than others.
     // -----------------------------------------------------------------------
-    const serverHost = new URL(creds.homeserverBase).host;
-
-    // Role for probe — stays lowercase byte-for-byte identical to
-    // composeMxidLocalpart's post-2026-09-11 output (lowercase mxids per
-    // Matrix spec + Synapse M_INVALID_USERNAME). ROLE_NAME_RE upstream
-    // already gates roleTrimmed as kebab-case-lowercase, so no transform
-    // needed here.
-    const lowerRole = roleTrimmed;
-
-    // Shuffle a copy so the pool order isn't a covert stability signal.
-    // Fisher-Yates — `sort(() => Math.random() - 0.5)` is a biased shuffle
-    // (compare function violates transitivity; V8 TimSort skews permutations),
-    // which would cluster picks against the shape's "recycle the pool evenly"
-    // goal. See RESEARCH §Landmine 8 (pool exhaustion) — biased shuffle would
-    // exhaust some names dramatically faster than others.
     const shuffled = [...pool];
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
 
-    for (const candidate of shuffled) {
-      // Defense-in-depth normalization: pool.json entries are PascalCase by
-      // convention (Plan 80-01 seed shape) but any casing drift is corrected
-      // here so the query and the returned name are both canonical lowercase.
-      const lowerCandidate = candidate.toLowerCase();
+    // Defense-in-depth normalization: pool.json entries are PascalCase by
+    // convention (Plan 80-01 seed shape) but any casing drift is corrected
+    // here so both the comparison and the returned name are canonical
+    // lowercase (IDENTITY_KEY_RE shape, and identity folders are lowercase
+    // on disk per the H3 invariant).
+    const candidates = shuffled.map((c) => c.toLowerCase());
 
-      // FULL base-handle MXID — blocker 2 fix. NEVER compose the bare shape
-      // `@${candidate.toLowerCase()}:${serverHost}` — that produces false-
-      // negatives against real accounts minted as `@willow-skynet-maintainer`.
-      // Note: Synapse admin `user_id=<mxid>` is a SUBSTRING match, so this
-      // probe also matches any `@<base>-N:server` ordinals (e.g. `-2`, `-3`).
-      // Consequence: once ANY ordinal of a base handle exists, this picker
-      // considers the base "taken" even if the exact bare handle is free
-      // (recycled after all `-N` accounts were deactivated). The birth
-      // orchestrator's `deriveMxidWithOrdinal` still finds a free slot at
-      // creation time (checking each ordinal individually), so this is a
-      // picker-freshness note only — birth uniqueness is preserved.
-      //
-      // 2026-09-11 lowercase flip: composeMxidLocalpart now returns lowercase
-      // (Matrix spec + Synapse mxid gate). The probe here must match that
-      // exact byte shape or the picker's availability check drifts from what
-      // the mint actually produces.
-      const baseHandleMxid = `@${lowerCandidate}-${lowerRole}:${serverHost}`;
-
-      const result = await countUsersMatching(baseHandleMxid);
-      if (!result.ok) {
-        // Generic 502 — do NOT surface the underlying error string or leak
-        // pool state (T-80-04-06 admin-token / info-disclosure defense).
-        res.status(502).json({ error: "admin API failure" });
-        return;
+    // -----------------------------------------------------------------------
+    // 6. Enumerate identity names already present on the target host — ONE
+    //    round-trip, then an in-memory set difference against the pool.
+    //
+    //    LOCAL branch (conn === null): reads getLocalIdentitiesRoot(), which
+    //    honors the IDENTITIES_HOST_DIR bind-mount.
+    //    REMOTE branch: one-shot SSH + `find $HOME/fleet/identities -maxdepth 1`.
+    //
+    //    Degradation (see header §Degradation contract): ANY failure here —
+    //    unreachable host, SSH timeout, permission error — is swallowed and
+    //    treated as "no information about taken names". The request still
+    //    returns a name. A stalled or 5xx-ing suggestion box is worse UX than
+    //    an unverified suggestion, and birth-time folder-existence checks plus
+    //    deriveMxidWithOrdinal remain the actual correctness gates.
+    // -----------------------------------------------------------------------
+    let takenNames = new Set<string>();
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      if (!isLocalHostId(hostId)) {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
       }
-      if (result.total === 0) {
-        // Response is the bare lowercase pool name (matches IDENTITY_KEY_RE).
-        // Birth-orchestrator re-derives the full MXID at creation time.
-        res.json({ name: lowerCandidate });
-        return;
+      takenNames = new Set(await listIdentityKeysOnHost(conn));
+    } catch (err) {
+      // Swallow per the degradation contract. Log for forensics — the name
+      // returned below is unverified, and that fact should be diagnosable
+      // from the log rather than inferred from a user's confusion later.
+      sshLogger.warn(
+        "pool pick: host identity enumeration failed — returning unverified suggestion",
+        {
+          hostId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* ignore */
+        }
       }
     }
 
-    // All candidates busy — return first shuffled candidate lowercased.
-    // deriveMxidWithOrdinal (identity-birth-orchestrator) appends `-N` when
-    // the base handle exists. Never fails the request just because the pool
-    // is exhausted (RESEARCH §Landmine 8).
-    res.json({ name: shuffled[0].toLowerCase() });
+    // -----------------------------------------------------------------------
+    // 7. First candidate with no identity folder on the host wins.
+    //    All busy (or enumeration failed and every name looks taken — which
+    //    cannot happen with an empty set) → fall back to the first shuffled
+    //    candidate; birth's deriveMxidWithOrdinal appends `-N`. Never fail the
+    //    request just because the pool is exhausted (RESEARCH §Landmine 8).
+    // -----------------------------------------------------------------------
+    const free = candidates.find((c) => !takenNames.has(c));
+    res.json({ name: free ?? candidates[0] });
   },
 );
 

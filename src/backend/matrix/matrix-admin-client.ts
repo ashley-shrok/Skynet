@@ -370,8 +370,14 @@ export async function listRooms(
 // Substrate used by:
 //   - Phase 80-03b (identity birth): compute ordinal suffix from current count
 //     (e.g. `Willow-Skynet-Maintainer-2` when Willow-* count is 1).
-//   - Phase 80-04 (`/identities/pool/pick`): confirm a pool-derived MXID handle
-//     is still free before returning it to the frontend picker.
+//   - spawn-requests/worker.ts: same ordinal derivation on the worker path.
+//
+// NO LONGER used by `/identities/pool/pick` (2026-09-14): the name picker's
+// availability authority moved to the target host's identity directories, so it
+// asks the host rather than Synapse. This primitive remains the authority for
+// MXID ordinal derivation at CREATION time, which is a different question —
+// "what suffix makes this handle unique on the homeserver?" rather than "is this
+// pool name free to suggest?".
 
 export type CountUsersOk = AdminOk<{ total: number }>;
 

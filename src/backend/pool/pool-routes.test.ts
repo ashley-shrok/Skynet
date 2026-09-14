@@ -5,29 +5,37 @@
  * Node's built-in http module (project convention: no supertest — mirror
  * roles-list-for-host.test.ts pattern).
  *
- * Auth middleware is mocked. All backend collaborators (getMatrixAdminCreds,
- * resolveHostById, getVettedPool, countUsersMatching) are mocked so tests
- * exercise only the router logic.
+ * Auth middleware is mocked. All backend collaborators (resolveHostById,
+ * getVettedPool, listIdentityKeysOnHost, isLocalHostId, connectOneShot) are
+ * mocked so tests exercise only the router logic.
  *
- * Test coverage (14 tests — mirror plan Task 1 <behavior>):
- *   1: missing JWT → 401
- *   2: missing hostId → 400
- *   3: non-integer hostId → 400
- *   4: missing role → 400
- *   5: role uppercase → 400
- *   6: role leading digit → 400 (ROLE_NAME_PATTERN leading-alpha gate)
- *   7: cross-user hostId → 404
- *   8: getMatrixAdminCreds() null → 503 matrix_admin_foundation_not_ingested
- *   9: empty pool → 503 "pool is empty"
- *  10: HAPPY PATH — regression guard for blocker 2:
- *      countUsersMatching MUST be called with the FULL base-handle MXID
- *      `@<PascalCandidate>-<PascalHyphenatedRole>:<server>` (NEVER the bare
- *      `@<candidate.toLowerCase()>:<server>` shape).
- *  11: all-busy fallback — returns first shuffled candidate (bare lowercase)
- *  12: countUsersMatching returns error → 502
- *  13: multi-segment role composes full PascalCase-hyphenated handle
- *  14: pool.json casing drift regression — lowercase pool entry still gets
- *      PascalCase-normalized in the check (defense-in-depth).
+ * ─── 2026-09-14 rewrite ────────────────────────────────────────────────────
+ * The availability authority moved from Synapse (per-candidate MXID probe) to
+ * the target host's identity directories (single enumeration + set difference).
+ * Consequences reflected in these tests:
+ *   - `role` is OPTIONAL — it only ever existed here to compose the probe MXID.
+ *     A malformed role is still a 400; an ABSENT role is now a 200.
+ *   - The Matrix admin-creds fail-early gate is gone (no Matrix dependency).
+ *   - Enumeration failure degrades to an unverified suggestion, never a 5xx.
+ *
+ * Test coverage:
+ *   1:   missing JWT → 401
+ *   2:   missing hostId → 400
+ *   3:   non-integer hostId → 400
+ *   4:   ABSENT role → 200 (inverted from the old "missing role → 400")
+ *   4b:  empty-string role → 200 (treated as absent)
+ *   5:   role uppercase → 400 (malformed role still rejected)
+ *   6:   role leading digit → 400 (ROLE_NAME_PATTERN leading-alpha gate)
+ *   7:   cross-user hostId → 404
+ *   8:   empty pool → 503 "pool is empty"
+ *   9:   HAPPY PATH — a name already on the host is skipped
+ *   10:  host enumerated EXACTLY ONCE regardless of pool size (cost guard)
+ *   11:  all names taken → falls back to first candidate, never fails
+ *   12:  unreachable host still returns a name (degradation contract)
+ *   12b: enumeration failure mid-flight still returns a name
+ *   13:  LOCAL host skips SSH entirely (conn === null)
+ *   13b: REMOTE host closes its SSH connection
+ *   14:  pool casing drift — PascalCase entry matches lowercase folder
  */
 
 import {
@@ -81,12 +89,18 @@ vi.mock("./pool-loader.js", () => ({
   getVettedPool: vi.fn(),
 }));
 
-vi.mock("../matrix/matrix-admin-client.js", () => ({
-  countUsersMatching: vi.fn(),
+// 2026-09-14: the availability authority moved from Synapse to the target
+// host's identity directories, so this router no longer imports
+// matrix-admin-client / matrix-admin-creds-store at all. What it DOES import is
+// the identity enumerator + the local-host discriminator, plus a one-shot SSH
+// connection for the REMOTE branch.
+vi.mock("../claude-session/identity-artifact-reader.js", () => ({
+  isLocalHostId: vi.fn(),
+  listIdentityKeysOnHost: vi.fn(),
 }));
 
-vi.mock("../matrix/matrix-admin-creds-store.js", () => ({
-  getMatrixAdminCreds: vi.fn(),
+vi.mock("../ssh/ssh-one-shot.js", () => ({
+  connectOneShot: vi.fn(),
 }));
 
 // Silence logger noise in test output
@@ -104,8 +118,11 @@ vi.mock("../utils/logger.js", () => ({
 
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { getVettedPool } from "./pool-loader.js";
-import { countUsersMatching } from "../matrix/matrix-admin-client.js";
-import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
+import {
+  isLocalHostId,
+  listIdentityKeysOnHost,
+} from "../claude-session/identity-artifact-reader.js";
+import { connectOneShot } from "../ssh/ssh-one-shot.js";
 
 // ---------------------------------------------------------------------------
 // HTTP request helper (mirrors roles-list-for-host.test.ts)
@@ -174,12 +191,8 @@ const stubHost = {
   password: "secret",
 };
 
-const stubCreds = {
-  homeserverBase: "https://matrix.example.com",
-  userId: "@admin:matrix.example.com",
-  accessToken: "syt_test_token",
-  password: "adminpw",
-};
+/** Stub SSH connection handle — only `end()` is exercised by the router. */
+const stubConn = { end: vi.fn() };
 
 // ---------------------------------------------------------------------------
 // Import the router under test (module does not exist yet → RED)
@@ -199,9 +212,11 @@ beforeEach(() => {
     return Promise.resolve(null);
   });
 
-  (getMatrixAdminCreds as Mock).mockResolvedValue(stubCreds);
   (getVettedPool as Mock).mockReturnValue(["Willow", "Aster"]);
-  (countUsersMatching as Mock).mockResolvedValue({ ok: true, total: 0 });
+  // Default: host 7 is REMOTE, reachable, and has no identities yet.
+  (isLocalHostId as Mock).mockReturnValue(false);
+  (connectOneShot as Mock).mockResolvedValue(stubConn);
+  (listIdentityKeysOnHost as Mock).mockResolvedValue([]);
 
   const app = express();
   // Mount router at /identities/pool (mirrors database.ts mount).
@@ -228,7 +243,7 @@ describe("POST /identities/pool/pick", () => {
       body: { role: "skynet-maintainer", hostId: 7 },
     });
     expect(res.status).toBe(401);
-    expect(countUsersMatching).not.toHaveBeenCalled();
+    expect(listIdentityKeysOnHost).not.toHaveBeenCalled();
     expect(getVettedPool).not.toHaveBeenCalled();
   });
 
@@ -254,15 +269,31 @@ describe("POST /identities/pool/pick", () => {
     expect(getVettedPool).not.toHaveBeenCalled();
   });
 
-  it("Test 4: missing role → 400", async () => {
+  it("Test 4: ABSENT role → 200 (role is optional as of 2026-09-14)", async () => {
+    // Inverted from the original "missing role → 400". Role only ever existed
+    // on this route to compose an MXID for the Synapse availability probe;
+    // with availability now answered by the host's identity folders, role is
+    // irrelevant here. The frontend needs a name suggestion BEFORE a role has
+    // been picked, so absence must be legal rather than a 400.
     const res = await httpRequest(server, {
       method: "POST",
       path: "/identities/pool/pick",
       body: { hostId: 7 },
     });
-    expect(res.status).toBe(400);
-    expect((res.body as { error: string }).error).toMatch(/role/);
-    expect(getVettedPool).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    // Pool is shuffled, so assert membership rather than a specific name.
+    expect(["willow", "aster"]).toContain((res.body as { name: string }).name);
+    expect(listIdentityKeysOnHost).toHaveBeenCalled();
+  });
+
+  it("Test 4b: empty-string role → 200 (treated as absent, not malformed)", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { role: "", hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    expect(["willow", "aster"]).toContain((res.body as { name: string }).name);
   });
 
   it("Test 5: role uppercase → 400", async () => {
@@ -295,28 +326,15 @@ describe("POST /identities/pool/pick", () => {
     });
     expect(res.status).toBe(404);
     expect((res.body as { error: string }).error).toMatch(/Host/i);
-    // Pool + admin API MUST NOT be touched on cross-user 404
+    // Pool + host enumeration MUST NOT be touched on cross-user 404
     expect(getVettedPool).not.toHaveBeenCalled();
-    expect(countUsersMatching).not.toHaveBeenCalled();
+    expect(listIdentityKeysOnHost).not.toHaveBeenCalled();
   });
 
-  it("Test 8: getMatrixAdminCreds() null → 503 matrix_admin_foundation_not_ingested", async () => {
-    (getMatrixAdminCreds as Mock).mockResolvedValueOnce(null);
-    const res = await httpRequest(server, {
-      method: "POST",
-      path: "/identities/pool/pick",
-      body: { role: "skynet-maintainer", hostId: 7 },
-    });
-    expect(res.status).toBe(503);
-    expect((res.body as { error: string }).error).toBe(
-      "matrix_admin_foundation_not_ingested",
-    );
-    // No pool load / no admin API call on missing creds
-    expect(getVettedPool).not.toHaveBeenCalled();
-    expect(countUsersMatching).not.toHaveBeenCalled();
-  });
-
-  it("Test 9: empty pool → 503 'pool is empty'", async () => {
+  it("Test 8: empty pool → 503 'pool is empty'", async () => {
+    // (Was Test 9. The old Test 8 asserted a 503 when Matrix admin creds were
+    // missing; this route no longer consults Matrix at all, so that gate — and
+    // the fail-early creds dependency behind it — is gone.)
     (getVettedPool as Mock).mockReturnValueOnce([]);
     const res = await httpRequest(server, {
       method: "POST",
@@ -325,14 +343,16 @@ describe("POST /identities/pool/pick", () => {
     });
     expect(res.status).toBe(503);
     expect((res.body as { error: string }).error).toMatch(/pool is empty/);
-    // Admin API MUST NOT be touched on empty pool
-    expect(countUsersMatching).not.toHaveBeenCalled();
+    // Host enumeration MUST NOT be touched on empty pool
+    expect(listIdentityKeysOnHost).not.toHaveBeenCalled();
   });
 
-  it("Test 10: HAPPY PATH — regression guard for blocker 2: countUsersMatching called with FULL base-handle MXID (never bare-lowercase)", async () => {
-    // total===0 on first candidate → returns that name lowercased.
+  it("Test 9: HAPPY PATH — skips names already present on the host", async () => {
+    // Availability authority is the target host's identity folders. `willow`
+    // already has a home there, so the pick MUST fall through to `aster`
+    // regardless of shuffle order.
     (getVettedPool as Mock).mockReturnValueOnce(["Willow", "Aster"]);
-    (countUsersMatching as Mock).mockResolvedValue({ ok: true, total: 0 });
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce(["willow"]);
 
     const res = await httpRequest(server, {
       method: "POST",
@@ -341,32 +361,40 @@ describe("POST /identities/pool/pick", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = res.body as { name: string };
-    // Response is bare lowercase pool name (matches IDENTITY_KEY_RE).
-    expect(["willow", "aster"]).toContain(body.name);
-
-    // REGRESSION GUARD: countUsersMatching call args MUST contain the full
-    // PascalCase-hyphenated base handle, NEVER the bare-lowercase shape.
-    const callArgs = (countUsersMatching as Mock).mock.calls;
-    expect(callArgs.length).toBeGreaterThan(0);
-    for (const [mxidArg] of callArgs) {
-      // Positive: must contain the hyphenated lowercase base-handle segment
-      // (post 2026-09-11 casing flip — Matrix spec + Synapse mxid gate).
-      expect(mxidArg as string).toMatch(
-        /^@(willow|aster)-skynet-maintainer:matrix\.example\.com$/,
-      );
-      // Negative: must NOT be the bare-lowercase shape.
-      expect(mxidArg as string).not.toMatch(
-        /^@(willow|aster):matrix\.example\.com$/,
-      );
-    }
+    // Response is the bare lowercase pool name (matches IDENTITY_KEY_RE).
+    expect((res.body as { name: string }).name).toBe("aster");
   });
 
-  it("Test 11: all-busy fallback returns first pool name lowercased", async () => {
+  it("Test 10: enumerates the host EXACTLY ONCE regardless of pool size", async () => {
+    // Cost regression guard. The prior implementation issued one Synapse admin
+    // call PER CANDIDATE (up to pool-length sequential round-trips). The host
+    // authority answers the whole question in a single enumeration; keep it
+    // that way.
+    (getVettedPool as Mock).mockReturnValueOnce([
+      "Willow",
+      "Aster",
+      "Moxie",
+      "Fern",
+      "Rune",
+    ]);
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce([]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { role: "skynet-maintainer", hostId: 7 },
+    });
+
+    expect(res.status).toBe(200);
+    expect((listIdentityKeysOnHost as Mock).mock.calls.length).toBe(1);
+  });
+
+  it("Test 11: all names taken → falls back to first candidate (never fails)", async () => {
     (getVettedPool as Mock).mockReturnValueOnce(["Willow", "Aster"]);
-    // Every candidate reports total>0 → picker exhausts shuffle and falls
-    // back to the first shuffled candidate lowercased.
-    (countUsersMatching as Mock).mockResolvedValue({ ok: true, total: 3 });
+    // Both pool names occupied → no free candidate. Birth's
+    // deriveMxidWithOrdinal appends `-N`, so returning a taken name is correct
+    // behavior rather than an error (RESEARCH §Landmine 8).
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce(["willow", "aster"]);
 
     const res = await httpRequest(server, {
       method: "POST",
@@ -374,54 +402,17 @@ describe("POST /identities/pool/pick", () => {
       body: { role: "skynet-maintainer", hostId: 7 },
     });
     expect(res.status).toBe(200);
-    const body = res.body as { name: string };
-    // Fallback name is one of the pool names (bare lowercase).
-    expect(["willow", "aster"]).toContain(body.name);
-    // Every candidate was probed (shuffle length === 2).
-    expect((countUsersMatching as Mock).mock.calls.length).toBe(2);
+    expect(["willow", "aster"]).toContain((res.body as { name: string }).name);
   });
 
-  it("Test 12: countUsersMatching returns error → 502", async () => {
-    (countUsersMatching as Mock).mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      error: "admin_api_proxy_error",
-    });
-    const res = await httpRequest(server, {
-      method: "POST",
-      path: "/identities/pool/pick",
-      body: { role: "skynet-maintainer", hostId: 7 },
-    });
-    expect(res.status).toBe(502);
-    expect((res.body as { error: string }).error).toMatch(/admin API/i);
-    // MUST NOT leak the pool state — response error string is generic.
-    expect(JSON.stringify(res.body)).not.toContain("Willow");
-    expect(JSON.stringify(res.body)).not.toContain("Aster");
-  });
-
-  it("Test 13: multi-segment role composes full PascalCase-hyphenated base handle", async () => {
+  it("Test 12: unreachable host still returns a name (degradation contract)", async () => {
+    // A suggestion box that stalls or 5xx-es is worse UX than an unverified
+    // suggestion, and birth-time checks remain the real correctness gate. So an
+    // SSH failure must be swallowed, NOT surfaced.
     (getVettedPool as Mock).mockReturnValueOnce(["Willow"]);
-    (countUsersMatching as Mock).mockResolvedValue({ ok: true, total: 0 });
-
-    const res = await httpRequest(server, {
-      method: "POST",
-      path: "/identities/pool/pick",
-      body: { role: "foo-bar-baz", hostId: 7 },
-    });
-    expect(res.status).toBe(200);
-    expect((res.body as { name: string }).name).toBe("willow");
-
-    // Exact call args: `@willow-foo-bar-baz:matrix.example.com` (post 2026-09-11
-    // lowercase-mxid flip — Matrix spec + Synapse M_INVALID_USERNAME).
-    expect(countUsersMatching).toHaveBeenCalledWith(
-      "@willow-foo-bar-baz:matrix.example.com",
+    (connectOneShot as Mock).mockRejectedValueOnce(
+      new Error("connect ETIMEDOUT 10.0.0.7:22"),
     );
-  });
-
-  it("Test 14: pool.json casing drift — PascalCase pool entry gets lowercased (defense-in-depth)", async () => {
-    // Pool entry is PascalCase in JSON (matches Plan 80-01 seed convention).
-    (getVettedPool as Mock).mockReturnValueOnce(["Willow"]);
-    (countUsersMatching as Mock).mockResolvedValue({ ok: true, total: 0 });
 
     const res = await httpRequest(server, {
       method: "POST",
@@ -430,11 +421,78 @@ describe("POST /identities/pool/pick", () => {
     });
     expect(res.status).toBe(200);
     expect((res.body as { name: string }).name).toBe("willow");
+    // MUST NOT leak host/pool internals in the (successful) response.
+    expect(JSON.stringify(res.body)).not.toContain("ETIMEDOUT");
+  });
 
-    // Regardless of the pool entry's casing, the MXID check MUST use the
-    // lowercase base handle — Synapse rejects uppercase mxids.
-    expect(countUsersMatching).toHaveBeenCalledWith(
-      "@willow-skynet-maintainer:matrix.example.com",
+  it("Test 12b: enumeration failure mid-flight still returns a name", async () => {
+    // Same contract as Test 12 but the failure lands on the enumeration rather
+    // than the connection — covers the SSH-exec-timeout shape too.
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow"]);
+    (listIdentityKeysOnHost as Mock).mockRejectedValueOnce(
+      new Error("SSH exec timeout after 3000ms"),
     );
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { role: "skynet-maintainer", hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    expect((res.body as { name: string }).name).toBe("willow");
+  });
+
+  it("Test 13: LOCAL host skips SSH entirely", async () => {
+    // When the target is the box Skynet runs on, enumeration reads the
+    // identities root directly — opening an SSH connection to ourselves would
+    // be wasteful and can fail on boxes with no inbound SSH (t1000 is
+    // SSM-only).
+    (isLocalHostId as Mock).mockReturnValue(true);
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow"]);
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce([]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { role: "skynet-maintainer", hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    expect((res.body as { name: string }).name).toBe("willow");
+    expect(connectOneShot).not.toHaveBeenCalled();
+    // conn === null signals the LOCAL branch to the enumerator.
+    expect(listIdentityKeysOnHost).toHaveBeenCalledWith(null);
+  });
+
+  it("Test 13b: REMOTE host closes its SSH connection", async () => {
+    // Leaked one-shot connections accumulate per name suggestion, and the modal
+    // re-suggests on every host/role change.
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow"]);
+
+    await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { role: "skynet-maintainer", hostId: 7 },
+    });
+
+    expect(connectOneShot).toHaveBeenCalled();
+    expect(stubConn.end).toHaveBeenCalled();
+  });
+
+  it("Test 14: pool.json casing drift — PascalCase entry compares + returns lowercase", async () => {
+    // Pool entries are PascalCase by convention (Plan 80-01 seed shape) while
+    // identity folders on disk are lowercase (H3 invariant). The comparison
+    // must normalize, or a PascalCase pool entry would never match its own
+    // lowercase folder and every taken name would read as free.
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow", "Aster"]);
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce(["willow"]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { role: "skynet-maintainer", hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    // "Willow" (pool) matched "willow" (disk) → skipped, despite the casing gap.
+    expect((res.body as { name: string }).name).toBe("aster");
   });
 });
