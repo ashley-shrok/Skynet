@@ -23,6 +23,7 @@
 #   # CHECK_INTERVAL=30            # seconds between reconcile passes in loop mode
 #   # STAGGER_SECONDS=8            # extra gap between launches during a bring-up
 #   # SETTLE_SECONDS=6             # time budget to blind-drive past the trust prompt before sending /id
+#   # CLAUDE_MODEL="opus"          # value for claude's --model flag; empty string omits the flag entirely
 #
 # Identity list is derived from disk on every reconcile — every subfolder of
 # $IDENTITIES_DIR (~/fleet/identities by default) whose <name>/<name>.md file
@@ -61,6 +62,10 @@ MEMORY_CAP="disabled"    # 2026-08-08 fleet policy (user + Stacy catch): cap mec
                          # the DEFAULT — a stale conf without an explicit MEMORY_CAP now inherits
                          # "disabled", not the old 80M trap. Per-box overrides: MEMORY_CAP="auto"
                          # (historic zram-detect), MEMORY_CAP="150M" (explicit), etc.
+CLAUDE_MODEL="opus"      # Model passed as `--model <value>` to every claude launch. Per-box override
+                         # in $CONF: CLAUDE_MODEL="sonnet" (or any alias/full id the installed Claude
+                         # Code accepts), or CLAUDE_MODEL="" to omit the flag entirely and inherit
+                         # whatever the harness's own default is.
 [ -f "$CONF" ] && . "$CONF"
 
 # ---- dormancy (2026-08-07) defaults — OFF fleet-wide, enabled per-box via $CONF: DORMANCY="on"
@@ -150,7 +155,11 @@ CLAUDE_LAUNCH_ENV="CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RES
 # stay in sync — an inline-per-site spelling means a flag can silently fall off some but not others
 # (2026-09-04, user: fleet came back on Sonnet by default after supervisor recycles because --model opus
 # was never wired in). Adding a flag = one edit here, applies everywhere.
-CLAUDE_LAUNCH_FLAGS="--model opus --dangerously-skip-permissions"
+#
+# The model flag is conditional on $CLAUDE_MODEL (see § config) so a box can pin a different model or
+# opt out of pinning altogether — an empty value omits `--model` and lets the harness pick its own default.
+CLAUDE_LAUNCH_FLAGS="${CLAUDE_MODEL:+--model $CLAUDE_MODEL }--dangerously-skip-permissions"
+log "claude-model: $([ -n "$CLAUDE_MODEL" ] && echo "pinned to '$CLAUDE_MODEL'" || echo "unpinned (CLAUDE_MODEL empty) — harness default applies")"
 
 # ---- memory cap (2026-08-06) — wrap claude launches in a systemd scope with MemoryHigh ----
 # Rationale: claude's baseline is ~500 MB RSS per session (Ink React TUI + Node/V8, architectural).
