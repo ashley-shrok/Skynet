@@ -415,6 +415,27 @@ def _envelope(event_text):
     ) % (ENVELOPE_SUMMARY, event_text.rstrip("\n"))
 
 
+def _harness_alive():
+    """True if the harness we were told to inject into is still running.
+
+    Restores a safety property the old stdout channel had implicitly. Under stdout
+    delivery the pipe was OWNED by the harness's Monitor, so it became undeliverable
+    at the exact moment the harness died — you could not write into a dead session
+    because the channel died first. A tmux pane has the opposite property: it OUTLIVES
+    the harness. Pasting into it after the harness is gone hands the text to whatever
+    now owns the pane — a bash prompt — which then executes it. Since wake lines
+    embed arbitrary text (relay message bodies verbatim), that is a shell-execution
+    hazard, not just cosmetic noise.
+    """
+    if HARNESS_PID is None:
+        return False
+    try:
+        os.kill(HARNESS_PID, 0)
+        return True
+    except OSError:
+        return False
+
+
 def _inject(event_text):
     """Paste one wake line into the harness pane. Serialized: two concurrent pastes
     would interleave in the tmux paste buffer and produce one corrupt turn instead of
@@ -422,6 +443,30 @@ def _inject(event_text):
     """
     payload = _envelope(event_text)
     with _inject_lock:
+        # Checked inside the lock and as late as possible: shutdown races mean a
+        # queued event can reach here after the harness has already gone (children
+        # emitting final lines, the reap loop noticing deaths it caused). A residual
+        # TOCTOU window remains -- the pane-command guard below is the backstop.
+        if not _harness_alive():
+            emit_diag("harness (pid=%s) gone — event NOT injected, logged instead: %s"
+                      % (HARNESS_PID, event_text[:200]))
+            return False
+        # Backstop for the residual race: refuse to paste when the pane is sitting at
+        # a shell. Denylisting shells is more robust than trying to guess every name
+        # the harness process might present as.
+        try:
+            r = subprocess.run(
+                ("tmux", "display-message", "-p", "-t", INJECT_SESSION,
+                 "#{pane_current_command}"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=10, text=True)
+            pane_cmd = (r.stdout or "").strip()
+        except (subprocess.TimeoutExpired, OSError):
+            pane_cmd = ""
+        if pane_cmd in ("bash", "sh", "zsh", "dash", "fish"):
+            emit_diag("pane %s is at a shell (%s) — event NOT injected, logged "
+                      "instead: %s" % (INJECT_SESSION, pane_cmd, event_text[:200]))
+            return False
         tmp = None
         try:
             fd, tmp = tempfile.mkstemp(prefix="ambient-inject-")
@@ -673,9 +718,13 @@ def _harness_watch():
         try:
             os.kill(HARNESS_PID, 0)
         except OSError:
-            emit_wake("⚠️ [ambient-monitor: %s] harness process (pid=%d) exited; "
-                      "shutting down cleanly so children can flush state."
-                      % (IDENTITY_NAME, HARNESS_PID))
+            # Log, never wake: this fires BECAUSE the harness died, so there is no
+            # agent left to tell. Under stdout delivery the write went into a broken
+            # pipe and vanished; under injection the pane outlives the harness, so a
+            # wake here pastes into whatever now owns it (a bash prompt) and gets
+            # executed as shell.
+            emit_diag("harness process (pid=%d) exited; shutting down cleanly so "
+                      "children can flush state." % HARNESS_PID)
             shutting_down.set()
             return
         time.sleep(1)
