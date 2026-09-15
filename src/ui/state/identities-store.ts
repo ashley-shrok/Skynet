@@ -220,22 +220,35 @@ export function deriveDiskHiddenIds(
   return out;
 }
 
-// One-shot re-fetch after the first fleetSessions load. Fires ONCE per module
+// Re-fetch after the first fleetSessions load. Succeeds at most ONCE per module
 // lifetime (guarded by hasRefreshedAfterFleetLoad). The subscription itself
 // is also installed lazily inside fetchOnce so a test that imports the module
 // without ever calling fetchOnce doesn't leak a live subscription.
+//
+// The latch is set on SUCCESS, not on attempt. Setting it before the fetch
+// resolved meant one failed attempt permanently spent the only automatic
+// retry: the safe-default (null-cosmetics) render stayed up for the life of
+// the tab, and the only way back was a user action that happens to call
+// refreshIdentities directly — e.g. creating a role. Ashley hit exactly that
+// (4 rows rendered colourless; creating a role restored them), which is what
+// identified this. An inflight guard keeps a burst of store notifications
+// from stacking duplicate fetches while one is in the air.
 function ensureFleetSubscription(): void {
   if (hasSubscribedToFleet) return;
   hasSubscribedToFleet = true;
+  let refreshInflight = false;
   subscribeConversationStore(() => {
-    if (hasRefreshedAfterFleetLoad) return;
+    if (hasRefreshedAfterFleetLoad || refreshInflight) return;
     const snapshot = getFleetSessionsSnapshot();
     if (snapshot.length === 0) return; // still empty — wait for the load flip
-    hasRefreshedAfterFleetLoad = true;
-    // Fire-and-forget — a failure here (network error, backend down) is
-    // benign: the safe-defaults render is still up from the first fetch,
-    // and the next user-driven refreshIdentities() call has another shot.
-    void refreshIdentities();
+    refreshInflight = true;
+    void refreshIdentities().then((ok) => {
+      refreshInflight = false;
+      // Only a successful refresh spends the latch. On failure the next
+      // fleetSessions notification retries instead of leaving the user
+      // stuck with safe-defaults.
+      if (ok) hasRefreshedAfterFleetLoad = true;
+    });
   });
 }
 
@@ -273,7 +286,8 @@ async function fetchOnce(): Promise<void> {
       );
       const list = await listIdentities(identityHosts);
       setIdentities(list);
-    } catch {
+    } catch (err) {
+      console.warn("identities-store: initial identities fetch failed", err);
       state = { ...state, loaded: true };
       notify();
     } finally {
@@ -297,7 +311,7 @@ async function fetchOnce(): Promise<void> {
  */
 export function refreshIdentities(
   extraIdentityHosts: Record<string, number> = {},
-): Promise<void> {
+): Promise<boolean> {
   // Force a fresh fetch even if the initial fetchOnce is still inflight.
   //
   // 2026-09-01 user regression: the first fetchOnce fires from
@@ -330,8 +344,14 @@ export function refreshIdentities(
       };
       const list = await listIdentities(identityHosts);
       setIdentities(list);
-    } catch {
-      // Silent — the safe-default render from the initial fetch stays up.
+      return true;
+    } catch (err) {
+      // Never rejects — callers rely on that. But the failure is reported both
+      // to the caller (so the post-fleet-load latch can retry) and to the
+      // console: silently keeping the safe-default render is what made a
+      // colourless conversation list undiagnosable.
+      console.warn("identities-store: refreshIdentities failed", err);
+      return false;
     }
   })();
   return p;

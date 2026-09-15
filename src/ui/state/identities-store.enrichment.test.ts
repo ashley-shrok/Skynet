@@ -153,6 +153,44 @@ describe("refresh-after-fleet-load — fires exactly once", () => {
     await Promise.resolve();
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
   });
+
+  // Regression guard: a FAILED post-fleet-load refresh must not spend the
+  // latch. It used to be set before the fetch resolved, so a single failure
+  // left the safe-default (null-cosmetics) render up for the life of the tab —
+  // the colourless-conversation-rows bug. The only recovery was a user action
+  // that called refreshIdentities directly, e.g. creating a role.
+  it("Test 7b: a failed post-fleet-load refresh retries on the next fleetSessions change", async () => {
+    vi.mocked(IdentitiesApi.listIdentities).mockRejectedValueOnce(
+      new Error("network down"),
+    );
+
+    // Fleet loads → one-shot re-fetch fires and FAILS.
+    updateFleetSessions([makeSession(1, "tina")]);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(1);
+
+    // Next fleetSessions change must retry, because the latch was not spent.
+    updateFleetSessions([makeSession(1, "tina"), makeSession(5, "nelly")]);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenLastCalledWith({
+      tina: 1,
+      nelly: 5,
+    });
+
+    // Once it succeeds the latch IS spent — no further chaining.
+    updateFleetSessions([makeSession(1, "tina"), makeSession(7, "zeus")]);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
+  });
+
+  it("Test 7c: refreshIdentities resolves false on failure, true on success, and never rejects", async () => {
+    vi.mocked(IdentitiesApi.listIdentities).mockRejectedValueOnce(
+      new Error("boom"),
+    );
+    await expect(refreshIdentities()).resolves.toBe(false);
+    await expect(refreshIdentities()).resolves.toBe(true);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
