@@ -42,6 +42,7 @@ import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
 // the read-side of the D-05 wire — a fail-closed stat against
 // `~/fleet/identities/<identityKey>/.pinned` on the identity's host.
 import { identityFileExists } from "../../claude-session/per-identity-file.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -324,6 +325,11 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
     }
 
     // 3. Collect unique hostIds (Set preserves insertion order on iteration).
+    //    Only the VALUES are used — the identity-name keys are ignored, so
+    //    `{"zeus":11}` enumerates ALL of host 11, not just zeus. Fine for the
+    //    only caller today (the frontend asks for everything), but the param
+    //    shape implies a per-name filter that does not exist; don't write a
+    //    targeted query against it expecting one (stacy, 2026-09-15).
     const uniqueHostIds = [...new Set(Object.values(identityHosts))];
 
     // 4. Per-host fanout via Promise.all. Each host returns an array of publicIdentity objects.
@@ -342,8 +348,26 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
           }
 
           try {
+            // Every SSH channel this handler opens goes through the shared
+            // per-host semaphore (default cap 8, sized against sshd's
+            // MaxSessions=10). The cap MUST be at the individual-channel
+            // level, not per identity: the fanout opens 3 channels per
+            // identity (identity file + `.pinned` + `.hidden`), so an
+            // 8-slot cap applied per identity would still permit 24
+            // concurrent channels and blow the ceiling exactly as before.
+            //
+            // Local hosts (conn === null) read the bind-mount with no SSH
+            // channel at all, so they bypass the semaphore rather than
+            // occupying slots they don't need.
+            const withSlot = local
+              ? <T,>(fn: () => Promise<T>): Promise<T> => fn()
+              : <T,>(fn: () => Promise<T>): Promise<T> =>
+                  getHostSemaphore(hostId).run(fn);
+
             // Enumerate keys on this host.
-            const identityKeys = await listIdentityKeysOnHost(conn);
+            const identityKeys = await withSlot(() =>
+              listIdentityKeysOnHost(conn),
+            );
 
             // Phase 85 Plan 85-01 Task 2: per-host role-cosmetics memo.
             // Multiple identities of the same role on the same host must
@@ -365,9 +389,8 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
               if (existing !== undefined) return existing;
               const p = (async () => {
                 try {
-                  const { markdown: roleMd } = await readRoleFileByName(
-                    conn,
-                    roleName,
+                  const { markdown: roleMd } = await withSlot(() =>
+                    readRoleFileByName(conn, roleName),
                   );
                   return roleMd ? extractCosmeticsFromFrontmatter(roleMd) : {};
                 } catch {
@@ -399,24 +422,26 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                   // this string is already lowercase, so it matches the
                   // on-disk folder segment byte-for-byte.
                   // Grep-hygiene marker: identityFileExists → .pinned wiring.
-                  const pinnedPromise = identityFileExists(
-                    identityKey,
-                    ".pinned",
-                    { hostId, conn },
+                  const pinnedPromise = withSlot(() =>
+                    identityFileExists(identityKey, ".pinned", {
+                      hostId,
+                      conn,
+                    }),
                   ).catch(() => false); // fail-closed per D-01 (PUB-92-03)
                   // Phase 107 Plan 107-02: parallel `.hidden` probe in the SAME
                   // Promise.all wave as `.pinned` + readIdentityFile. Same fail-closed
                   // contract (exists throw → hidden:false per D-01 — a stat failure
                   // must NEVER paint an identity as hidden by mistake). HID-107-03
                   // locks the exception path; HID-107-04 locks the parallel-wave shape.
-                  const hiddenPromise = identityFileExists(
-                    identityKey,
-                    ".hidden",
-                    { hostId, conn },
+                  const hiddenPromise = withSlot(() =>
+                    identityFileExists(identityKey, ".hidden", {
+                      hostId,
+                      conn,
+                    }),
                   ).catch(() => false); // fail-closed per D-01 (HID-107-03)
 
                   const [{ markdown }, pinned, hidden] = await Promise.all([
-                    readIdentityFile(conn, identityKey),
+                    withSlot(() => readIdentityFile(conn, identityKey)),
                     pinnedPromise,
                     hiddenPromise,
                   ]);
@@ -439,8 +464,17 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                     pinned,
                     hidden,
                   );
-                } catch {
-                  // Per-key failure swallowed — skip this key.
+                } catch (err) {
+                  // Skip this key, but say so: an identity that is absent from
+                  // disk and one whose read was refused are very different
+                  // facts, and collapsing them silently made an SSH channel
+                  // exhaustion present as a UI glitch (stacy, 2026-09-15).
+                  databaseLogger.warn("Dropping identity from roster — read failed", {
+                    operation: "list_identities_key_read",
+                    hostId,
+                    identityKey,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
                   return null;
                 }
               }),
@@ -452,9 +486,16 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
               try { conn.end(); } catch { /* ignore */ }
             }
           }
-        } catch {
-          // Per-host silent-swallow: unreachable host contributes zero identities.
-          // Server logs receive the failure via databaseLogger (T-68-02-03).
+        } catch (err) {
+          // Per-host silent-swallow: unreachable host contributes zero
+          // identities rather than failing the whole endpoint (T-68-02-03).
+          // The log line the original comment claimed was never actually
+          // emitted, which left a whole host vanishing with no trace.
+          databaseLogger.warn("Dropping host from identity roster — fanout failed", {
+            operation: "list_identities_host_fanout",
+            hostId,
+            error: err instanceof Error ? err.message : String(err),
+          });
           return [];
         }
       }),
