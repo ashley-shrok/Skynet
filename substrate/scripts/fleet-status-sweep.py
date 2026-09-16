@@ -815,13 +815,22 @@ def _read_proc_stat(pid):
 # ---------------------------------------------------------------------------
 
 
-def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache):
+def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, role_cosmetics_memo):
     """Assemble a SweepIdentityLine dict.
 
     Runs discovery lazily via `jsonl_path` (already computed and passed in
     to allow sharing with per-PID emission — A11 folded into B4). Caches the
     tail read result in `jsonl_tail_cache` keyed by identity name so the
     per-PID emission below can reuse it without a second read.
+
+    New parameter `role_cosmetics_memo` (Phase 111-01): a per-tick dict shared
+    across all identity lines so each role file is read at most once per tick
+    (D-02). Pass {} for first call; the same dict must be reused across all
+    _build_identity_line calls in a single tick.
+
+    Fail-closed appearance contract: an unreadable identity or role file yields
+    null cosmetics and the identity line is STILL emitted. Membership (the line
+    being present) must never depend on appearance reads succeeding (T-111-04).
     """
     layer1 = None
     tail_str = None
@@ -830,6 +839,28 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache):
         if tail_str is not None:
             layer1 = scan_tail_for_layer1_recycling_signal(tail_str)
     jsonl_tail_cache[name] = tail_str
+
+    # ---- Phase 111-01: appearance block. ----
+    # Outer try/except is a belt: the helpers already swallow OSError, but this
+    # guarantees that no unforeseen path error inside the appearance block can
+    # prevent the identity line from being emitted (T-111-04).
+    identity_cosmetics = None
+    role = None
+    role_cosmetics = None
+    try:
+        identity_path = os.path.join(home, "fleet", "identities", name, name + ".md")
+        identity_cosmetics, role = _read_frontmatter_cosmetics(
+            identity_path,
+            ("displayName", "title", "colorHue", "voice", "task", "coordinator"),
+        )
+        if identity_cosmetics is None:
+            _log("identity_cosmetics_unreadable", identity=name[:40])
+        role_cosmetics = _read_role_cosmetics(role, home, role_cosmetics_memo)
+    except OSError:
+        identity_cosmetics = None
+        role = None
+        role_cosmetics = None
+
     return {
         "line_kind": "identity",
         "schema_version": SCHEMA_VERSION,
@@ -839,6 +870,11 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache):
         "recycle_requested": sentinels["recycle_requested"],
         "jsonl_path": jsonl_path,
         "layer1_recycling": layer1,
+        "role": role,
+        "identity_cosmetics": identity_cosmetics,
+        "role_cosmetics": role_cosmetics,
+        "pinned": sentinels["pinned"],
+        "hidden": sentinels["hidden"],
     }
 
 
@@ -939,10 +975,14 @@ def _build_pid_line(pid, identity, home, identity_jsonl_paths, jsonl_tail_cache)
 
 
 def _enumerate_identities(home):
-    """Return list of dicts {name, dormant, recycled_at, recycle_requested}.
+    """Return list of dicts {name, dormant, recycled_at, recycle_requested, pinned, hidden}.
 
     Iterates ~/fleet/identities/*/. On FileNotFoundError, returns []. Skips
     entries whose name fails the safe-char regex (G6 server-side belt).
+
+    This function is a pure sentinel walk — it does NOT read frontmatter. Per-identity
+    frontmatter reads happen inside _build_identity_line where the per-identity
+    try/except can contain any read failure without aborting the whole host sweep.
     """
     identities_root = os.path.join(home, "fleet", "identities")
     out = []
@@ -960,11 +1000,15 @@ def _enumerate_identities(home):
                 recycle_requested = os.path.exists(
                     os.path.join(entry.path, ".recycle-requested"),
                 )
+                pinned = os.path.exists(os.path.join(entry.path, ".pinned"))
+                hidden = os.path.exists(os.path.join(entry.path, ".hidden"))
                 out.append({
                     "name": name,
                     "dormant": dormant,
                     "recycled_at": recycled_at,
                     "recycle_requested": recycle_requested,
+                    "pinned": pinned,
+                    "hidden": hidden,
                 })
     except FileNotFoundError:
         return []
@@ -1034,6 +1078,8 @@ def main():
             "dormant": False,
             "recycled_at": False,
             "recycle_requested": False,
+            "pinned": False,
+            "hidden": False,
         })
         known_names.add(identity)
 
@@ -1046,6 +1092,7 @@ def main():
 
     # ---- Emit identity lines first (all Layer-1 tail scans run here). ----
     jsonl_tail_cache = {}  # name -> str | None (populated by _build_identity_line)
+    role_cosmetics_memo = {}  # role -> dict | None (at most one read per role per tick)
     for rec in identity_records:
         line = _build_identity_line(
             rec["name"],
@@ -1054,9 +1101,12 @@ def main():
                 "dormant": rec["dormant"],
                 "recycled_at": rec["recycled_at"],
                 "recycle_requested": rec["recycle_requested"],
+                "pinned": rec["pinned"],
+                "hidden": rec["hidden"],
             },
             identity_jsonl_paths.get(rec["name"]),
             jsonl_tail_cache,
+            role_cosmetics_memo,
         )
         _emit(line)
 
