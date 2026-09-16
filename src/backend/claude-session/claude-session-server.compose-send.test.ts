@@ -659,6 +659,65 @@ describe("__applyInterruptMessageForTests", () => {
     expect(cmd1).toContain("C-c");
     expect(cmd2).toContain("C-c");
   });
+
+  // Guards the record-BEFORE-await ordering inside the seam. execCommand has no
+  // timeout and unbounded latency, so two interrupts can be in flight at once on
+  // one pane. If the seam recorded its throttle timestamp AFTER awaiting exec,
+  // both calls would read an empty gate and both would send — landing two Ctrl-C
+  // presses at the pane inside Claude Code's ~0.8s exit-confirm window, which
+  // terminates the harness. The sequential tests above cannot catch that
+  // inversion (each await completes before the next call begins), so this test
+  // holds the first exec open until both calls have passed the gate.
+  it("interrupt throttle — concurrent in-flight on one pane: slow exec still collapses to ONE keystroke", async () => {
+    let t = 4_000_000;
+    const now = () => t;
+
+    // exec parks on the first call and only resolves when we release it, so the
+    // first interrupt is provably still in flight when the second arrives.
+    let releaseFirstExec: () => void = () => {};
+    let signalFirstExecStarted: () => void = () => {};
+    const firstExecStarted = new Promise<void>((resolve) => {
+      signalFirstExecStarted = resolve;
+    });
+    const exec = vi.fn().mockImplementation(
+      () =>
+        new Promise<string>((resolveExec) => {
+          releaseFirstExec = () => resolveExec("");
+          signalFirstExecStarted();
+        }),
+    );
+    vi.mocked(sshLogger.warn).mockClear();
+
+    const deps = {
+      sshConn: fakeConn,
+      currentTmuxSession: "concurrent-pane",
+      currentHostId: 7,
+      execCommand: exec,
+      now,
+    };
+
+    // Start the first interrupt but do NOT await it — it parks inside exec.
+    const first = __applyInterruptMessageForTests(deps);
+    await firstExecStarted;
+    expect(exec).toHaveBeenCalledTimes(1);
+
+    // Second interrupt arrives while the first exec is still in flight, 10ms
+    // later — far inside the window. Must be dropped.
+    t += 10;
+    await __applyInterruptMessageForTests(deps);
+
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sshLogger.warn)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sshLogger.warn).mock.calls[0][1]).toMatchObject({
+      operation: "interrupt_throttled",
+      hostId: 7,
+      tmuxSession: "concurrent-pane",
+    });
+
+    releaseFirstExec();
+    await first;
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ─── Phase 50 Plan 02 Task 2 — pv-send-watchdog wire-up + send_keys_error frame ─
