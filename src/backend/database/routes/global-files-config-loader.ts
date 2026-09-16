@@ -53,8 +53,8 @@ export const GLOBAL_FILES_CONFIG_FILENAME = "global-files.json";
  * per-host over SSH by the read/write routes.
  *
  * Because getFilesForHost() also serves as the read/write whitelist, this makes
- * the file editable by any user with access to the host (Ashley's call,
- * 2026-09-14: "i'm okay with always being able to edit the file").
+ * the file editable by any user with access to the host (the operator's
+ * call, 2026-09-14: "i'm okay with always being able to edit the file").
  */
 export const IMPLICIT_GLOBAL_FILE: GlobalFileEntry = {
   path: "~/.claude/CLAUDE.md",

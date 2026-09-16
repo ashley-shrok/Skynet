@@ -229,7 +229,7 @@ export function deriveDiskHiddenIds(
 // resolved meant one failed attempt permanently spent the only automatic
 // retry: the safe-default (null-cosmetics) render stayed up for the life of
 // the tab, and the only way back was a user action that happens to call
-// refreshIdentities directly — e.g. creating a role. Ashley hit exactly that
+// refreshIdentities directly — e.g. creating a role. The operator hit exactly that
 // (4 rows rendered colourless; creating a role restored them), which is what
 // identified this. An inflight guard keeps a burst of store notifications
 // from stacking duplicate fetches while one is in the air.

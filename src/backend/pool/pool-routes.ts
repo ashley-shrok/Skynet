@@ -26,7 +26,7 @@
  *   asking countUsersMatching whether it existed. That was the wrong
  *   authority (Matrix account existence is downstream of, and can disagree
  *   with, identity-folder existence) and it was the ONLY reason this route
- *   needed `role` at all. Ashley 2026-09-14, verbatim: *"currently the relay
+ *   needed `role` at all. The operator, 2026-09-14, verbatim: *"currently the relay
  *   is not used to check units checking us only the identity folders on the
  *   given host are so i don't think we will have a problem of the
  *   availability probe."* Losing the MXID probe is deliberate: it was

@@ -412,17 +412,17 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     expect(nameInput.value).toBe("");
 
     // User types while the suggestion is still pending.
-    fireEvent.change(nameInput, { target: { value: "ashley" } });
+    fireEvent.change(nameInput, { target: { value: "sample" } });
     expect(
       (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
-    ).toBe("ashley");
+    ).toBe("sample");
 
     // Suggestion now resolves — intent must win.
     releasePick({ name: "willow" });
     await new Promise((r) => setTimeout(r, 50));
     expect(
       (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
-    ).toBe("ashley");
+    ).toBe("sample");
   });
 
   it("Task 2e: switching hosts re-suggests, replacing an unedited suggestion", async () => {

@@ -819,7 +819,7 @@ export function PrettyConversationsPanel({
   // count filter toggles are RETIRED alongside the bounty-count wire. The
   // Ready filter (Phase 52) survives as dead code — its UI entry point (the
   // Filter popover) was removed in quick-260914-liu. The state and predicate
-  // machinery is retained intentionally (Ashley's explicit decision: not worth
+  // machinery is retained intentionally (the operator's explicit decision: not worth
   // the render-path refactor risk to clean up). The filter flag is permanently
   // false, so displayedPinned / displayedMiddle pass rows through unfiltered.
   const [readyOnly, setReadyOnly] = useState(false);

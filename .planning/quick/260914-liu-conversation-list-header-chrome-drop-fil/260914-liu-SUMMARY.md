@@ -21,7 +21,7 @@ key_files:
     - tests/e2e/golden-create-agent.spec.ts
     - tests/e2e/feature-sweep.spec.ts
 decisions:
-  - "Retain Ready-filter dead code (readyOnly, anyFilterOn, rowSessionStates, matchesFilterForRow, displayedPinned/displayedMiddle) per Ashley's explicit decision"
+  - "Retain Ready-filter dead code (readyOnly, anyFilterOn, rowSessionStates, matchesFilterForRow, displayedPinned/displayedMiddle) per the user's explicit decision"
   - "Icons SquarePen/Drama/Globe locked by user after rendered preview — do not substitute"
   - "All four header buttons share single showPencilButton guard via JSX fragment"
   - "Delete Phase 26 and Phase 52 filter-popover describe blocks; module-level mock scaffolding retained"

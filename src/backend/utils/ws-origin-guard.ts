@@ -19,13 +19,13 @@
 // Plan 02's cors-config.ts SERVE_SUBDOMAIN_RE, modulo the http|https prefix.
 //
 // ⚠️ The `serve` label is matched WITHOUT the instance's own primary-domain
-// labels. An earlier revision hardcoded `.serve.term.`, which is t1000's
-// subdomain (term.gigaashley.click) — so on any other Skynet instance (e.g.
-// skynet.aithercloud.com, whose serve URLs are <host>-<port>.serve.skynet.
-// aithercloud.com) NOTHING matched and this deny-guard silently failed OPEN.
-// Matching on `.serve.` alone is instance-agnostic and fails CLOSED
-// everywhere, which is the safe direction for a deny rule. Do not
-// reintroduce a primary-domain literal here.
+// labels. An earlier revision hardcoded a specific `.serve.<label>.` prefix
+// tied to one instance's own primary domain — so on ANY other Skynet
+// instance (whose serve URLs use a different `<label>`) NOTHING matched
+// and this deny-guard silently failed OPEN. Matching on `.serve.` alone
+// is instance-agnostic and fails CLOSED everywhere, which is the safe
+// direction for a deny rule. Do not reintroduce a primary-domain literal
+// here.
 export const SERVE_SUBDOMAIN_ORIGIN_RE =
   /^https?:\/\/[^/]+\.serve\.[a-zA-Z0-9.-]+$/;
 

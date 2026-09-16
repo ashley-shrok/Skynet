@@ -160,7 +160,7 @@ export const IDENTITY_NAME_PATTERN = /^[a-z0-9._=/+-]+$/;
  *
  * This string is USER-VISIBLE: PrettyConversationRow renders `task` as a row's
  * primary text, so it is what an agent's row reads as until the agent overwrites
- * it. Kept deliberately plain — Ashley picked the wording, and a stand-in with a
+ * it. Kept deliberately plain — the operator picked the wording, and a stand-in with a
  * short life should not try to be clever (e.g. deriving something from the role).
  */
 export const TASK_PLACEHOLDER = "Untitled conversation";

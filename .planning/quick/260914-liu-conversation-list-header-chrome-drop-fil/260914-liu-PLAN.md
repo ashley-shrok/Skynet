@@ -50,7 +50,7 @@ files...") into dedicated header icon buttons using lucide `SquarePen`, `Drama`,
 
 Purpose: flatten the information architecture of the panel header — the three most-used
 actions become one-click instead of two-click, and the Ready-filter affordance (which
-Ashley does not use) stops occupying header real estate.
+the user does not use) stops occupying header real estate.
 
 Output: cosmetic / IA change only. Every promoted action opens EXACTLY the modal it opens
 today. No behavior change to any action, no new CSS classes, no new state.
@@ -116,7 +116,7 @@ The Ready-filter machinery stays in place as dead code:
 | `PrettyConversationsPanel.tsx:889-911` | `matchesFilterForRow` useMemo |
 | `PrettyConversationsPanel.tsx:929-933` | `displayedPinned` / `displayedMiddle` |
 
-Ashley's verbatim words: *"i don't really care whether we delete the ready filter feature
+the user's verbatim words: *"i don't really care whether we delete the ready filter feature
 itself, i just want the filter icon gone for right now. like, if it's trivial to remove,
 then that's fine. and if not, just leave it as dead code because it's not going to hurt
 anything else."*
@@ -163,7 +163,7 @@ Your remit STOPS at: code + atomic commits + scoped tests green.
 - Full-suite `npx vitest run` with no path filter (that is a deploy-time gate; we are not
   deploying)
 
-Deploys are orchestrator-only and Ashley gates every push personally.
+Deploys are orchestrator-only and the user gates every push personally.
 
 **Also forbidden:**
 - Committing docs artifacts (`PLAN.md`, `SUMMARY.md`, `STATE.md`) — the orchestrator
@@ -288,7 +288,7 @@ references went away.
 import at `:59`, preserving alphabetical ordering. Final import set:
 `ChevronDown, ChevronRight, Drama, EyeOff, Globe, Loader2, Monitor, MoreVertical, Search, SquarePen, X`.
 
-**ICON CHOICES ARE LOCKED.** Ashley picked `SquarePen`, `Drama`, `Globe` after reviewing a
+**ICON CHOICES ARE LOCKED.** the user picked `SquarePen`, `Drama`, `Globe` after reviewing a
 rendered preview of candidates. Do NOT substitute alternatives. Do NOT "improve" them.
 
 **B. Add three buttons inside the `pv-header-actions` div, BEFORE the existing kebab
@@ -572,7 +572,7 @@ commits exist on `feat/tab-title-from-tmux`; nothing has been pushed.
 | T-liu-01 | Elevation of Privilege | The three promoted header buttons | accept | The buttons are gated on the exact same `showPencilButton` predicate (`typeof onCreateSession === "function"`) that gated the kebab items they replace, so reachability is unchanged. Authorization for the underlying actions lives in the modals and their backend routes, which are untouched. Task 1's gate pins `className="pv-pencil"` count at 4 and Tasks 1/2 gates pin the single shared guard; Tests 6 / 21b assert all four vanish together when `onCreateSession` is undefined. |
 | T-liu-02 | Tampering | Concurrent edit to `src/ui/sidebar/NewSessionDialog.tsx` by peer agent `camelot` | mitigate | Hard scope boundary in this plan forbids touching that file. `NewSessionDialog.test.tsx` needs no change (its `pv-header-menu-button` reference still resolves — the kebab survives). `files_modified` frontmatter excludes both. |
 | T-liu-03 | Denial of Service | Accidental deletion of `.pv-pencil` CSS while pruning the shared mobile-bump selector lists at `:1332-1342` | mitigate | Task 1's gate asserts exactly 4 surviving `.pv-panel-header .pv-pencil` selector occurrences. Losing the mobile bump would silently shrink all four header buttons below the 44px touch target on mobile — the gate catches it. |
-| T-liu-04 | Tampering | Over-eager cleanup of the deliberate Ready-filter dead code | mitigate | Explicit `<deliberate_dead_code>` section with Ashley's verbatim decision. Task 1's gate pins `anyFilterOn` at exactly 3 occurrences and `readyOnly` at >= 4, so removal fails the gate. |
+| T-liu-04 | Tampering | Over-eager cleanup of the deliberate Ready-filter dead code | mitigate | Explicit `<deliberate_dead_code>` section with the user's verbatim decision. Task 1's gate pins `anyFilterOn` at exactly 3 occurrences and `readyOnly` at >= 4, so removal fails the gate. |
 | T-liu-05 | Information Disclosure | Loss of test coverage for reachable actions | mitigate | Repoint-not-delete rule stated explicitly per test. Deletion is authorized ONLY for the two describe blocks whose subject UI no longer exists (Phase 26 filter popover, Phase 52 Ready toggle). Every "user can reach action X" test is re-pointed at the promoted button, and Task 3's gate asserts each promoted testid appears in the test that owns its flow. |
 | T-liu-SC | Tampering | `npm ci` dependency install | accept | No new packages are added — `lucide-react@1.28.0` is already a pinned dependency in `package.json` and `package-lock.json`, and `SquarePen` / `Drama` / `Globe` are pre-existing exports of that version (verified against the resolved package). `npm ci` installs the existing lockfile verbatim with no resolution changes, so there is no new package to audit for legitimacy. |
 </threat_model>
