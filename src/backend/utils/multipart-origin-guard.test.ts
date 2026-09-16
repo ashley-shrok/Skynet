@@ -68,6 +68,17 @@ describe("multipartOriginGuard middleware", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  // Instance-agnostic: the shared predicate no longer hardcodes `.serve.term.`
+  // (t1000's subdomain), which used to make this guard fail OPEN on every
+  // other Skynet instance.
+  it("rejects serve subdomain on a non-term instance", () => {
+    const req = mkReq("https://foo-8080.serve.skynet.example.com");
+    const res = mkRes();
+    multipartOriginGuard(req, res, next);
+    expect(res._status).toBe(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it("passes through request with primary origin https://term.<domain>", () => {
     const req = mkReq("https://term.example.com");
     const res = mkRes();

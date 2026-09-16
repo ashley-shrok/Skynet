@@ -5,12 +5,17 @@ import { getRequestOrigin } from "./request-origin.js";
 const DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
 const ELECTRON_FILE_ORIGIN = "file://";
 
-// Phase 103 D-07: primary domain refuses CORS for any *.serve.term.<domain>
+// Phase 103 D-07: primary domain refuses CORS for any *.serve.<domain>
 // origin. This blocks CSRF from serve subdomains at the browser preflight
 // layer for any state-changing endpoint requiring preflight (JSON POST/PUT/
 // DELETE/PATCH/custom-header). Explicit deny wins — placed as the very first
 // check after the no-origin guard so no accept branch can shadow it.
-const SERVE_SUBDOMAIN_RE = /^https:\/\/[^/]+\.serve\.term\.[a-zA-Z0-9.-]+$/;
+//
+// ⚠️ Matches the `serve` label WITHOUT this instance's own primary-domain
+// labels — see the note on ws-origin-guard.ts SERVE_SUBDOMAIN_ORIGIN_RE. A
+// hardcoded `.serve.term.` made this deny-guard fail OPEN on every Skynet
+// instance not served under term.<domain>. Do not reintroduce one.
+const SERVE_SUBDOMAIN_RE = /^https:\/\/[^/]+\.serve\.[a-zA-Z0-9.-]+$/;
 
 function getAllowedOrigins(): string[] {
   const envOrigins = process.env.CORS_ALLOWED_ORIGINS;
@@ -53,7 +58,7 @@ export function createCorsMiddleware(
         if (!origin) return callback(null, true);
 
         // Phase 103 D-07: explicit reject BEFORE any accept check. Any origin
-        // matching *.serve.term.<domain> is a serve subdomain and must never
+        // matching *.serve.<domain> is a serve subdomain and must never
         // be granted CORS access to the primary domain — this is the browser-
         // preflight CSRF defense for the widened JWT cookie (D-02).
         if (SERVE_SUBDOMAIN_RE.test(origin)) {

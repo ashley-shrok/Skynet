@@ -150,6 +150,24 @@ describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)
     expect(matches).toBeNull();
   });
 
+  // The `.serve.` label no longer carries this instance's own primary-domain
+  // labels, so serve URLs on other Skynet instances are detected too.
+  it("matches a serve URL on a non-term instance", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url = "https://t800-3020.serve.skynet.example.com/app";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).not.toBeNull();
+    expect(matches![0]).toBe(url);
+  });
+
+  it("matches an AWS-default host name in a serve URL", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url = "https://ip-172-31-209-239-3020.serve.skynet.example.com";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).not.toBeNull();
+    expect(matches![0]).toBe(url);
+  });
+
   it("rejects a file URL (belongs to SKYNET_FILE_URL_RE_CLIENT)", () => {
     SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
     const url = "https://term.example.com/file/host/path";

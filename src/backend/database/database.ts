@@ -149,10 +149,10 @@ const requireAdmin = authManager.createAdminMiddleware();
 // consumes the request stream (bodyParser.*) upstream of the proxy truncates
 // POST bodies to zero bytes. cookieParser runs first because it reads
 // req.headers.cookie (header-only, no body consumption) and subdomain-dispatch
-// needs req.cookies to run the JWT check for *.serve.term.<domain> traffic.
+// needs req.cookies to run the JWT check for *.serve.<domain> traffic.
 //
 // These ALSO run before createCorsMiddleware: the D-07 deny in cors-config.ts
-// rejects every *.serve.term.<domain> origin as the primary domain's CSRF
+// rejects every *.serve.<domain> origin as the primary domain's CSRF
 // defense, which would otherwise judge tunnel-bound traffic that never touches
 // the primary API. Browsers attach Origin to ES-module script fetches even
 // same-origin, so with CORS first every module request from a dev server behind

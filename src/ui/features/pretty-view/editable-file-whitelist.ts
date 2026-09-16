@@ -144,22 +144,25 @@ export const SKYNET_FILE_URL_RE_CLIENT =
   /https:\/\/[a-zA-Z0-9.-]+(?::\d{1,5})?\/file\/[a-zA-Z0-9._-]+\/[^\s)?#]+/g;
 
 /**
- * Phase 103 D-29 URL shape: <hostname>-<port>.serve.term.<domain>[/path]
+ * Phase 103 D-29 URL shape: <hostname>-<port>.serve.<domain>[/path]
  * Example: https://t1000-3020.serve.term.example.com/foo/bar
  *
- * Grammar (locked in Phase 103 D-01 + D-11 + D-12):
+ * Grammar (locked in Phase 103 D-01 + D-11; D-12 superseded — see below):
  *   - scheme:      https:// only (Caddy edge terminates TLS; agents on the
  *                  serve subdomain always speak HTTPS to the user's browser).
  *   - hostname:    [a-zA-Z0-9._-]+ — matches hosts.name for the fleet's
  *                  simple-name convention (D-13 case preserved on the wire;
- *                  backend does LOWER() at lookup time). D-12 enforces at
- *                  registration that hostnames MUST NOT end in `-\d+`, so
- *                  the LAST-DASH split in D-11 is unambiguous.
+ *                  backend does LOWER() at lookup time). The LAST-DASH split
+ *                  in D-11 is unambiguous by construction: the port is
+ *                  all-digits, so it never contains a dash, so the joining
+ *                  dash is always the last one. (The old D-12 registration
+ *                  guard rejecting `-\d+$` hostnames was redundant and has
+ *                  been replaced by a single-DNS-label check.)
  *   - literal:     - (last dash of the leftmost DNS label per D-11)
  *   - port:        \d{1,5} — the agent's port on the target host.
- *   - literal:     .serve.term.
- *   - domain:      [a-zA-Z0-9.-]+ — any DNS-legal parent domain (currently
- *                  example.com; T800 will have its own per D-23).
+ *   - literal:     .serve.
+ *   - domain:      [a-zA-Z0-9.-]+ — any DNS-legal parent domain, including
+ *                  each instance's own (term.<domain>, skynet.<domain>, ...).
  *   - opt port:    (?::\d{1,5})? — rare on serve URLs (Caddy terminates on
  *                  443) but included for symmetry with SKYNET_FILE_URL_RE_CLIENT.
  *   - opt path:    (?:\/[^\s)?#]*)? — same terminator style as the sibling
@@ -192,7 +195,7 @@ export const SKYNET_FILE_URL_RE_CLIENT =
  * to preserve the paper trail.
  */
 export const SKYNET_SERVE_URL_RE_CLIENT =
-  /https:\/\/[a-zA-Z0-9._-]+-\d{1,5}\.serve\.term\.[a-zA-Z0-9.-]+(?::\d{1,5})?(?:\/[^\s)?#]*)?/g;
+  /https:\/\/[a-zA-Z0-9._-]+-\d{1,5}\.serve\.[a-zA-Z0-9.-]+(?::\d{1,5})?(?:\/[^\s)?#]*)?/g;
 
 /**
  * Strip trailing prose punctuation from an extracted URL (rev-3 2026-08-14

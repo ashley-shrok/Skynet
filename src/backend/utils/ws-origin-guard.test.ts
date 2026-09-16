@@ -21,6 +21,35 @@ describe("SERVE_SUBDOMAIN_ORIGIN_RE", () => {
   });
 });
 
+// The `serve` label is matched WITHOUT the instance's own primary-domain
+// labels. An earlier revision hardcoded `.serve.term.` — t1000's subdomain —
+// so this deny-guard silently failed OPEN on every other Skynet instance.
+// These cases pin the instance-agnostic behavior: without them the suite
+// passes either way and proves nothing.
+describe("isServeSubdomainOrigin — instance-agnostic (not just term.*)", () => {
+  it("returns true for a serve subdomain on a non-term instance", () => {
+    expect(
+      isServeSubdomainOrigin("https://foo-8080.serve.skynet.example.com"),
+    ).toBe(true);
+  });
+
+  it("returns true for a serve subdomain on a single-label parent", () => {
+    expect(isServeSubdomainOrigin("https://foo-8080.serve.example")).toBe(true);
+  });
+
+  it("returns true for an AWS-default host name on a non-term instance", () => {
+    expect(
+      isServeSubdomainOrigin(
+        "https://ip-172-31-209-239-3020.serve.skynet.example.com",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for a non-term primary origin (no serve label)", () => {
+    expect(isServeSubdomainOrigin("https://skynet.example.com")).toBe(false);
+  });
+});
+
 describe("isServeSubdomainOrigin", () => {
   it("returns true for https://foo-8080.serve.term.example.com", () => {
     expect(

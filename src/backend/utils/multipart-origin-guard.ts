@@ -1,7 +1,7 @@
 /**
  * Phase 103 D-10: multipart/form-data POSTs are CORS-simple (don't preflight).
  * Widening the JWT cookie to term.<domain> (Plan 02 D-02) means a page at
- * *.serve.term.<domain> can drive a multipart POST to term.<domain> with the
+ * *.serve.<domain> can drive a multipart POST to term.<domain> with the
  * user's cookie. This module rejects such requests explicitly by Origin header.
  *
  * Reuses SERVE_SUBDOMAIN_ORIGIN_RE via isServeSubdomainOrigin from
@@ -33,7 +33,7 @@ const REJECT_ERROR_MESSAGE = "Origin not permitted for this endpoint";
 
 /**
  * Express middleware: reject the request with 403 when its Origin header
- * matches *.serve.term.<domain>. Otherwise pass to next().
+ * matches *.serve.<domain>. Otherwise pass to next().
  *
  * Non-browser callers (curl, backend-to-backend) send no Origin header — they
  * fall through to next() unchanged. Only browser cross-origin requests carry

@@ -2348,7 +2348,7 @@ const server = createServer(app);
 const c2sRelayWss = new WebSocketServer({
   server,
   path: "/ssh/tunnel/c2s/stream",
-  // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins at
+  // Phase 103 D-08: reject WS upgrades from *.serve.<domain> origins at
   // the handshake layer — WS complement to Plan 02's CORS reject.
   verifyClient: (info, done) => {
     if (rejectServeSubdomain(info.req)) {

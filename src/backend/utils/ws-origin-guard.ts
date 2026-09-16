@@ -1,24 +1,33 @@
-// Phase 103 D-08: reject WebSocket upgrades from *.serve.term.<domain>
-// origins. WS doesn't do CORS preflight, so this is the WS-layer complement
+// Phase 103 D-08: reject WebSocket upgrades from *.serve.<domain> origins.
+// WS doesn't do CORS preflight, so this is the WS-layer complement
 // to Plan 02's cors-config.ts reject (which handles state-changing HTTP
 // endpoints via browser preflight). Imported by every WebSocketServer
 // definition in the backend (terminal.ts, docker-console.ts, tunnel.ts,
 // fleet-status-server.ts, relay-room-stream-server.ts).
 //
-// Threat model: the widened JWT cookie (Plan 02 D-02, Domain=term.<domain>)
-// flows on any *.term.<domain> WS handshake. Without this guard, a malicious
-// agent-supplied page served at foo-3000.serve.term.<domain> could open a
-// WS to term.<domain>'s command surfaces (terminal, docker-console, etc.)
-// and drive them authenticated as the user. This helper closes that hole.
+// Threat model: the widened JWT cookie (Plan 02 D-02) flows on any
+// same-primary-domain WS handshake. Without this guard, a malicious
+// agent-supplied page served at foo-3000.serve.<domain> could open a
+// WS to the primary domain's command surfaces (terminal, docker-console,
+// etc.) and drive them authenticated as the user. This helper closes that
+// hole.
 
 // Regex tolerates both http:// and https:// schemes because dev/preview
-// origins may be http. Requires a subdomain segment BEFORE `.serve.term.`
-// (`[^/]+\.serve\.term\.`) so the bare `serve.term.<domain>` — which has
-// no legitimate WS use case — does NOT match. Character class is identical
-// in shape to Plan 02's cors-config.ts SERVE_SUBDOMAIN_RE, modulo the
-// http|https prefix.
+// origins may be http. Requires a subdomain segment BEFORE `.serve.`
+// (`[^/]+\.serve\.`) so the bare `serve.<domain>` — which has no legitimate
+// WS use case — does NOT match. Character class is identical in shape to
+// Plan 02's cors-config.ts SERVE_SUBDOMAIN_RE, modulo the http|https prefix.
+//
+// ⚠️ The `serve` label is matched WITHOUT the instance's own primary-domain
+// labels. An earlier revision hardcoded `.serve.term.`, which is t1000's
+// subdomain (term.gigaashley.click) — so on any other Skynet instance (e.g.
+// skynet.aithercloud.com, whose serve URLs are <host>-<port>.serve.skynet.
+// aithercloud.com) NOTHING matched and this deny-guard silently failed OPEN.
+// Matching on `.serve.` alone is instance-agnostic and fails CLOSED
+// everywhere, which is the safe direction for a deny rule. Do not
+// reintroduce a primary-domain literal here.
 export const SERVE_SUBDOMAIN_ORIGIN_RE =
-  /^https?:\/\/[^/]+\.serve\.term\.[a-zA-Z0-9.-]+$/;
+  /^https?:\/\/[^/]+\.serve\.[a-zA-Z0-9.-]+$/;
 
 export function isServeSubdomainOrigin(
   origin: string | undefined | null,

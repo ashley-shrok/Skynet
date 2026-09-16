@@ -88,7 +88,7 @@ export function startFleetStatusServer(
   // Use path: undefined so we can dispatch manually per req.url
   const wss = new WebSocketServer({
     port,
-    // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins
+    // Phase 103 D-08: reject WS upgrades from *.serve.<domain> origins
     // at the handshake layer — WS complement to Plan 02's CORS reject.
     verifyClient: (info, done) => {
       if (rejectServeSubdomain(info.req)) {
