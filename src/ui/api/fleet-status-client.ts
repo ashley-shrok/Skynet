@@ -6,9 +6,29 @@
  * them to session-working-store + session-waiting-store via callbacks.
  *
  * Reconnect pattern: mirrors the patch #148 backoff from PrettyView.tsx
- * (proven in production). Backoff schedule: 2s, 4s, 6s, 8s, 8s (≈28s total).
- * After MAX_RECONNECT_ATTEMPTS closes without a successful open, gives up and
- * logs `operation: 'fleet_status_client_gave_up'`.
+ * (proven in production). Backoff schedule: 2s, 4s, 6s, 8s, 8s (≈28s total),
+ * then settles into an indefinite slow retry at SLOW_RETRY_MS (~30s) rather
+ * than going permanently deaf (D-11). Full-jitter draw preserved on every cap
+ * so a multi-tab restore does not re-clump the herd (D-13).
+ *
+ * Phase 111 Plan 06 (D-11, D-12, D-13):
+ *   - After the backoff ladder is exhausted the client never gives up — it
+ *     settles into a ~30s steady retry indefinitely. A phone in a pocket is
+ *     the normal case; permanent deafness is the failure case.
+ *   - Becoming visible reconnects immediately rather than waiting for the next
+ *     slow retry (D-12). This is cross-platform (not iOS-PWA only — see the
+ *     comment inside handleVisibilityChange).
+ *   - The transition to slow-retry emits `fleet_status_client_slow_retry` ONCE.
+ *     Any dashboard matching the retired gave-up operation string
+ *     ("fleet_status_client_" + "gave_up") should be re-pointed at this new
+ *     operation string.
+ *   - No sequence-reconciliation, no gap-fill, no missed-event recovery (D-13).
+ *     The reconnect sends a `subscribe` frame; the server answers with its held
+ *     Map as a full snapshot. That snapshot IS the current picture and IS the
+ *     backstop.
+ *   - Budget owners: `reconnectAttempts` is reset in exactly two places —
+ *     `ws.onopen` (successful connection) and the visible branch of the
+ *     visibilitychange handler (user intent). No other site may reset it.
  *
  * Structured logging: console.info / console.warn with the same structured-fields
  * shape as the backend's systemLogger, grep-discoverable by `operation:` key.
@@ -32,8 +52,12 @@ import { FRAME_SCHEMA_VERSION } from "./fleet-status-types.js";
 // Constants — mirror patch #148 backoff schedule verbatim
 // ---------------------------------------------------------------------------
 
-const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_RECONNECT_ATTEMPTS = 5; // ladder length; no longer gates a terminal give-up (D-11)
 const BACKOFF_SCHEDULE_MS = [2000, 4000, 6000, 8000, 8000] as const;
+
+// D-11: after the ladder is exhausted the client settles into this slow steady
+// retry indefinitely — cheap when nothing is listening; never unrecoverably deaf.
+const SLOW_RETRY_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -89,7 +113,9 @@ export function createFleetStatusClient(
         operation: "fleet_status_client_open",
         url,
       });
-      // Reset attempt counter on successful open — fresh budget for next drop.
+      // Budget owner 1 of 2: reset on successful connection. The two budget
+      // owners are ws.onopen (success) and the visible branch of the
+      // visibilitychange handler (user intent). No other site resets this.
       reconnectAttempts = 0;
       // Send subscribe frame per wire protocol
       try {
@@ -206,19 +232,35 @@ export function createFleetStatusClient(
         attempt: reconnectAttempts,
       });
 
-      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      // D-11: never give up permanently. After the ladder is exhausted the
+      // client settles into a slow steady retry at SLOW_RETRY_MS indefinitely.
+      // The `reconnectAttempts >= MAX_RECONNECT_ATTEMPTS` early-return that
+      // previously lived here (emitting the give-up log operation and
+      // returning with no timer) is intentionally removed. The `Math.min`
+      // clamp that followed it is also removed — it is now unreachable.
+      //
+      // Log the transition ONCE (not every slow retry — that would be a 30s
+      // heartbeat of warnings). Subsequent slow retries use the existing
+      // fleet_status_client_retry_scheduled info line.
+      if (reconnectAttempts === MAX_RECONNECT_ATTEMPTS) {
         console.warn({
-          operation: "fleet_status_client_gave_up",
+          operation: "fleet_status_client_slow_retry",
           url,
           totalAttempts: reconnectAttempts,
+          slowRetryMs: SLOW_RETRY_MS,
         });
-        return;
       }
 
+      // Cap selection: ladder for the first MAX_RECONNECT_ATTEMPTS closes,
+      // then SLOW_RETRY_MS indefinitely. The existing full-jitter draw
+      // (`Math.floor(Math.random() * capMs)`) applies to SLOW_RETRY_MS too —
+      // D-13 multi-tab restore herd prevention applies at all caps.
+      const capMs =
+        reconnectAttempts < BACKOFF_SCHEDULE_MS.length
+          ? BACKOFF_SCHEDULE_MS[reconnectAttempts]
+          : SLOW_RETRY_MS;
+
       // R-54-07: full-jitter — uniform random draw in [0, capMs) prevents 10-tab restore from re-clumping the herd on the reconnect ladder.
-      const capMs = BACKOFF_SCHEDULE_MS[
-        Math.min(reconnectAttempts, BACKOFF_SCHEDULE_MS.length - 1)
-      ];
       const delayMs = Math.floor(Math.random() * capMs);
       reconnectAttempts += 1;
 
@@ -235,6 +277,64 @@ export function createFleetStatusClient(
       }, delayMs);
     };
   }
+
+  // D-12: wake-on-visible — cross-platform, NOT iOS-PWA only.
+  //
+  // PrettyView.tsx and Terminal.tsx open their analogous handlers with
+  // the iOS-PWA-only gate found in PrettyView.tsx. That gate exists because on Chrome desktop /
+  // Android / non-PWA Safari, force-reconnecting a session-attachment WS
+  // creates a race (the old WS's detachWs fires AFTER the new one attaches,
+  // destroying the session). fleet-status is READ-ONLY FANOUT with no
+  // attachment semantics, so that race cannot occur. D-12 explicitly wants
+  // wake-on-visible on every platform. Copying the gate would silently
+  // deliver nothing on desktop.
+  //
+  // Guard set taken from PrettyView.tsx's hardened handler (NOT the iOS gate):
+  //   1. disposed check (every handler in this file)
+  //   2. hidden: clear retryTimer without resetting reconnectAttempts
+  //      (a hide during retry must not drop the accumulated count)
+  //   3. visible + ws !== null: double-fire guard (iOS PWA fires spuriously)
+  //   4. visible + ws === null: clear any pending timer, fresh budget, connect
+  //
+  // D-13 note: there is NO sequence-reconciliation here. The reconnect's
+  // `subscribe` frame causes the server to answer from its held Map with a
+  // full snapshot; that snapshot IS the current picture and IS the backstop.
+  // A future reader looking at a reconnect will be tempted to add gap-fill
+  // or missed-event recovery — resist it. D-13 explicitly forbids it.
+  const handleVisibilityChange = () => {
+    if (disposed) return;
+
+    if (document.visibilityState !== "visible") {
+      // Tab hidden: cancel any pending retry timer. Do NOT reset
+      // reconnectAttempts — a hide during a retry sequence must not drop
+      // the accumulated count (PrettyView.tsx comment at ~:2964-2967).
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      return;
+    }
+
+    // Tab visible: reconnect if needed.
+    // Double-fire guard: iOS PWA fires visibilitychange spuriously; connecting
+    // over a live socket would create two sockets and potentially two subscriptions.
+    if (ws !== null) return;
+
+    // Clear any pending scheduled retry — an immediate connect supersedes it.
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+
+    // Budget owner 2 of 2: fresh budget for this foreground event (user intent).
+    // The two budget owners are ws.onopen (success) and here (visible). No other
+    // site resets reconnectAttempts.
+    reconnectAttempts = 0;
+
+    connect();
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
 
   // Open immediately
   connect();
@@ -256,6 +356,11 @@ export function createFleetStatusClient(
         }
         ws = null;
       }
+
+      // Remove the visibilitychange listener — unlike console-forwarder.ts (a
+      // process-lifetime forwarder that intentionally never removes its listener),
+      // this client has a dispose() contract that must fully clean up.
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
 
       console.info({
         operation: "fleet_status_client_disposed",
