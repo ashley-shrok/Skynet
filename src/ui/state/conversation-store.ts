@@ -990,32 +990,19 @@ function computeSnapshot(): ConversationList {
       ? { hostId: "__rdp__", hostName: "", rows: rdpRows }
       : null;
 
-  // quick-260731-tgg (updated Phase 41 Plan 01, Phase 42 UAT amendment
-  // 2026-08-17): final render-time filter — remove hiddenIds from pinned +
-  // middle. Applied AFTER all tier logic so it acts as a pure removal pass.
-  // Hidden rows are still in openTabs/fleetSessions; they simply don't
-  // surface in the visible tiers.
+  // The snapshot carries EVERY row, including ones the user has hidden.
+  // Hidden-ness is resolved at render time by the panel, which owns both the
+  // hiddenIds subscription and canonicalHideIdForRow() — the id-shape resolver
+  // that reconciles a row's `tab-XXX` open-chat id against the
+  // `fleet::<hostId>::<name>` form hiddenIds actually stores. Partitioning here
+  // instead would have to duplicate that resolver, and a raw `row.id` test
+  // (what the removed pass did) silently misses every currently-open chat.
   //
-  // The `activeSet` field in the returned shape is now an always-empty
-  // ConversationRow[] (Tier 1 render tier retired) — no filter pass needed.
-  //
-  // RDP rows (synthesized into rdpGroup) are NOT eligible for hiding — their
-  // id shape (rdp-host::${host.id}) never appears in hiddenIds (the hide
-  // affordance is suppressed for RDP rows at the row level). This is inert
-  // behavior; the guard isn't needed in practice but the exemption is
-  // documented for future maintainers.
-  if (state.hiddenIds.size > 0) {
-    const hiddenIds = state.hiddenIds;
-    const filteredPinned = pinned.filter((r) => !hiddenIds.has(r.id));
-    const filteredMiddle = middleRows.filter((r) => !hiddenIds.has(r.id));
-    return {
-      activeSet: [],
-      pinned: filteredPinned,
-      middle: filteredMiddle,
-      rdpGroup,
-    };
-  }
-
+  // Removing the strip is also what makes the Hidden section survive a panel
+  // remount: the rows it needs are in the snapshot on every render rather than
+  // only in the brief pre-hydration window a per-instance accumulator could
+  // observe. Mobile unmounts the panel on every list→view navigation, so that
+  // window opened exactly once per page load and never again.
   return { activeSet: [], pinned, middle: middleRows, rdpGroup };
 }
 

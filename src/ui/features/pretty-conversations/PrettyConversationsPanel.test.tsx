@@ -2462,16 +2462,30 @@ describe("PrettyConversationsPanel: Hidden section (quick-260731-tgg)", () => {
     expect(rowsInSection.length).toBeGreaterThan(0);
   });
 
-  // (d) Hidden ids are FILTERED OUT of active-set / pinned / grouped tiers
-  it("Test (d): rows in hiddenIds do NOT appear in active-set / pinned / grouped tiers", () => {
-    // The store filters hidden ids from tiers in computeSnapshot. In this test
-    // we verify the panel renders the mock snapshot faithfully: no hidden-id rows
-    // appear in the three visible tiers when the mock already excludes them.
-    // We also verify the Hidden chip IS rendered (hiddenIds non-empty).
+  // (d) Hidden ids are excluded from the visible tiers but DO reach the
+  // Hidden section.
+  //
+  // Rewritten for the accumulator retirement: the store no longer strips hidden
+  // rows from the snapshot, so the visible-tier exclusion is now an explicit
+  // panel-side filter rather than something the mock has to pre-apply. Seeding
+  // the hidden rows in `grouped` is what exercises it. The prior version of
+  // this test passed `grouped: []` and then asserted the chip was ABSENT,
+  // documenting the missing-section bug as correct behavior.
+  it("Test (d): rows in hiddenIds are excluded from the visible tiers but render in the Hidden section", () => {
     setSnapshot({
       activeSet: [],
       pinned: [],
-      grouped: [],
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({ id: "hidden-a", label: "hidden-a", host: hostA }),
+            makeConversationRow({ id: "hidden-b", label: "hidden-b", host: hostA }),
+            makeConversationRow({ id: "visible-c", label: "visible-c", host: hostA }),
+          ],
+        },
+      ],
       hiddenIds: new Set(["hidden-a", "hidden-b"]),
     });
 
@@ -2479,21 +2493,129 @@ describe("PrettyConversationsPanel: Hidden section (quick-260731-tgg)", () => {
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // Neither hidden row should appear in the three tiers
+    // Hidden rows are absent from the middle tier...
+    const middleGroup = container.querySelector(
+      '[data-middle-group="true"]',
+    ) as HTMLElement;
     expect(
-      container.querySelector('[data-conversation-id="hidden-a"]'),
+      middleGroup.querySelector('[data-conversation-id="hidden-a"]'),
     ).toBeNull();
     expect(
-      container.querySelector('[data-conversation-id="hidden-b"]'),
+      middleGroup.querySelector('[data-conversation-id="hidden-b"]'),
     ).toBeNull();
-    // But the Hidden chip should be absent (no rows to resolve — knownRowsRef empty)
-    // because there are no rows in tiers to populate the accumulator.
-    // The chip itself only renders when hiddenRows.length > 0.
-    // With no rows in any tier, hiddenRows remains empty. This is correct behavior.
-    // The chip is absent. The hidden section remains hidden.
+    // ...while the unhidden sibling still renders there.
     expect(
-      container.querySelector('[data-testid="hidden-divider"]'),
-    ).toBeNull();
+      middleGroup.querySelector('[data-conversation-id="visible-c"]'),
+    ).toBeTruthy();
+
+    // ...and the Hidden section is present, holding both hidden rows once expanded.
+    const chip = container.querySelector(
+      '[data-testid="hidden-divider"]',
+    ) as HTMLElement | null;
+    expect(chip).toBeTruthy();
+    fireEvent.click(chip!);
+    const hiddenGroup = container.querySelector(
+      '[data-hidden-group="true"]',
+    ) as HTMLElement;
+    expect(
+      hiddenGroup.querySelector('[data-conversation-id="hidden-a"]'),
+    ).toBeTruthy();
+    expect(
+      hiddenGroup.querySelector('[data-conversation-id="hidden-b"]'),
+    ).toBeTruthy();
+  });
+
+  // (g) The Hidden section survives a panel unmount/remount.
+  //
+  // Mount-lifecycle coverage for the bug in bounty
+  // hidden-section-mobile-rendering-fix. It presented as "the Hidden section is
+  // missing on mobile", but nothing in the path is viewport-dependent: the
+  // section was resolved from a per-instance ref accumulator that captured rows
+  // as they passed through the visible tiers, and hiddenIds is module-scoped and
+  // outlives any mount. A remounted panel therefore started with an empty
+  // accumulator against an already-populated hiddenIds, and the store had
+  // already stripped those rows from the tiers, so it could never refill.
+  // Desktop's inline sidebar mounts once per page load and never hit it; the
+  // mobile flow unmounts the panel on every list→view navigation.
+  //
+  // NOTE: this test does NOT fail against the pre-fix source, because this file
+  // mocks the conversation store — setSnapshot hands back whatever rows the test
+  // supplies regardless of hiddenIds, so the accumulator always got seeded and
+  // the bug cannot reproduce here. The genuine regression coverage lives in
+  // conversation-store.test.ts (STORE-HIDDEN-01..03), which exercises the real
+  // computeSnapshot. This one guards the panel's remount behavior against future
+  // reintroduction of per-instance caching.
+  it("Test (g): Hidden section still renders after the panel unmounts and remounts", () => {
+    const hiddenRow = makeConversationRow({
+      id: "hidden-survivor",
+      label: "hidden-survivor",
+      host: hostA,
+    });
+    setSnapshot({
+      grouped: [{ hostId: "h1", hostName: "hostA", rows: [hiddenRow] }],
+      hiddenIds: new Set(["hidden-survivor"]),
+    });
+
+    const first = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    expect(
+      first.container.querySelector('[data-testid="hidden-divider"]'),
+    ).toBeTruthy();
+
+    first.unmount();
+
+    // Remount against the SAME store state — hiddenIds already populated.
+    const second = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const chip = second.container.querySelector(
+      '[data-testid="hidden-divider"]',
+    ) as HTMLElement | null;
+    expect(chip).toBeTruthy();
+    fireEvent.click(chip!);
+    const hiddenGroup = second.container.querySelector(
+      '[data-hidden-group="true"]',
+    ) as HTMLElement;
+    expect(
+      hiddenGroup.querySelector('[data-conversation-id="hidden-survivor"]'),
+    ).toBeTruthy();
+  });
+
+  // (h) Cold mount with hiddenIds already populated before the first render —
+  // the mobile PWA cold-start path, where no moment exists in which a hidden row
+  // appears in a visible tier. Same mocked-store caveat as Test (g): the real
+  // coverage is STORE-HIDDEN-02.
+  it("Test (h): Hidden section renders on a cold mount with hiddenIds pre-populated", () => {
+    setSnapshot({
+      grouped: [
+        {
+          hostId: "h1",
+          hostName: "hostA",
+          rows: [
+            makeConversationRow({ id: "cold-hidden", label: "cold-hidden", host: hostA }),
+          ],
+        },
+      ],
+      hiddenIds: new Set(["cold-hidden"]),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const chip = container.querySelector(
+      '[data-testid="hidden-divider"]',
+    ) as HTMLElement | null;
+    expect(chip).toBeTruthy();
+    fireEvent.click(chip!);
+    const hiddenGroup = container.querySelector(
+      '[data-hidden-group="true"]',
+    ) as HTMLElement;
+    expect(
+      hiddenGroup.querySelector('[data-conversation-id="cold-hidden"]'),
+    ).toBeTruthy();
   });
 
   // (e) Phase 107 Plan 04: Mount-hydration now derives hidden via deriveDiskHiddenIds
@@ -2525,6 +2647,12 @@ describe("PrettyConversationsPanel: Hidden section (quick-260731-tgg)", () => {
   // pin write is pinConversation() (not togglePinConversation) — for a row
   // with no targetTmuxSession, shadowFleetId is null and the canonical pin
   // id falls back to row.id.
+  //
+  // The row is reached through the Hidden section rather than the middle tier:
+  // a row in hiddenIds is excluded from the visible tiers (Test (d)), so the
+  // Hidden section is where it actually renders. The prior version of this test
+  // found it in the middle tier only because the test mock does not apply the
+  // hidden exclusion the panel now applies itself.
   it("Test (f): handleTogglePin on a hidden row calls unhideConversation THEN pinConversation", async () => {
     const row = makeConversationRow({ id: "row-to-pin-unhide", label: "test-row", host: hostA });
     setSnapshot({
@@ -2535,6 +2663,13 @@ describe("PrettyConversationsPanel: Hidden section (quick-260731-tgg)", () => {
     const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
+
+    // Expand the Hidden section so the row is in the DOM.
+    const hiddenChip = container.querySelector(
+      '[data-testid="hidden-divider"]',
+    ) as HTMLElement | null;
+    expect(hiddenChip).toBeTruthy();
+    fireEvent.click(hiddenChip!);
 
     const rowEl = container.querySelector(
       '[data-conversation-id="row-to-pin-unhide"]',
@@ -2636,6 +2771,14 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
+
+    // A hidden row renders in the Hidden section, not the middle tier — expand
+    // it so the row is in the DOM.
+    const hiddenChip = container.querySelector(
+      '[data-testid="hidden-divider"]',
+    ) as HTMLElement | null;
+    expect(hiddenChip).toBeTruthy();
+    fireEvent.click(hiddenChip!);
 
     const rowEl = container.querySelector('[data-conversation-id="fleet::1::hidden-row-h"]') as HTMLElement;
     const body = rowEl.querySelector('[role="button"]') as HTMLElement;

@@ -245,6 +245,23 @@ function canonicalHideIdForRow(row: ConversationRowShape): string | null {
   return null;
 }
 
+// Single hidden-membership predicate. The store's snapshot carries hidden rows
+// (it no longer strips them), so every consumer that walks the row collections
+// resolves hidden-ness through here.
+//
+// The canonical-id indirection is load-bearing, not defensive: hiddenIds stores
+// the `fleet::<hostId>::<name>` form that deriveDiskHiddenIds emits, but a row
+// for a currently-open chat carries a `tab-XXX` id. Testing `row.id` directly
+// misses exactly those rows — the bug the bounty-260912 canonicalization note
+// at handleToggleHide describes. Mirrors the expression the render sites use to
+// feed each row's `hidden` prop.
+function isRowHidden(
+  row: ConversationRowShape,
+  hiddenIds: ReadonlySet<string>,
+): boolean {
+  return hiddenIds.has(canonicalHideIdForRow(row) ?? row.id);
+}
+
 // Patch #137: micro-wrapper that reads the row's live isWorking state from
 // the session-working-store. Extracted so the store subscription sits at a
 // stable hook-call site (top of an instance component) rather than inside
@@ -925,94 +942,66 @@ export function PrettyConversationsPanel({
   //   - The former `displayedActiveSetRows` (D-06 exemption) is retired
   //     alongside the Tier 1 activeSet render tier; `activeSetRows` in the
   //     destructure is now always an empty array from the store snapshot.
+  //
+  // Hidden rows are excluded here rather than upstream in the store. The
+  // snapshot carries them so the Hidden section can render them; keeping them
+  // out of the two visible tiers is this pass's job.
+  const visiblePinned = pinned.filter((r) => !isRowHidden(r, hiddenIds));
+  const visibleMiddle = middle.filter((r) => !isRowHidden(r, hiddenIds));
   const displayedPinned = anyFilterOn
-    ? pinned.filter(matchesFilterForRow)
-    : pinned;
+    ? visiblePinned.filter(matchesFilterForRow)
+    : visiblePinned;
   const displayedMiddle = anyFilterOn
-    ? middle.filter(matchesFilterForRow)
-    : middle;
+    ? visibleMiddle.filter(matchesFilterForRow)
+    : visibleMiddle;
   const displayedRdpGroup = rdpGroup;
 
-  // quick-260731-tgg: resolve hidden rows for the Hidden section. We look up
-  // rows in the PRE-filter source (activeSetRows ∪ pinned ∪ grouped before the
-  // hiddenIds filter in the store removed them) by constructing the full union
-  // from the raw useConversations() output — but computeSnapshot() already
-  // stripped them. We work around this by holding a separate pre-filter source
-  // derived from the store's raw snapshot BEFORE the hidden-filter pass. Since
-  // the store filters hidden ids out of the tiers, hidden rows won't appear in
-  // activeSetRows/pinned/grouped at all. Instead, we resolve them from the
-  // hiddenIds set itself by finding matches in the currently-open conversations.
-  // The simplest correct approach: iterate hiddenIds and resolve each to a row
-  // object from ALL known rows (pre-filter union). Because the store already
-  // filtered them, we need a different source. We'll compute this from the
-  // store's own data that IS visible: the full union includes rows from all
-  // tiers, but hidden rows have been removed. We fetch hidden rows by iterating
-  // hiddenIds and checking openTabs/fleet data indirectly via what's available.
+  // The Hidden section's rows come straight out of the snapshot. The store no
+  // longer strips hidden rows, so every render — including the first render of a
+  // freshly-mounted panel — sees them.
   //
-  // In practice, the simplest approach that matches the plan spec: pre-filter
-  // union of activeSetRows ∪ pinned ∪ grouped from useConversations() BEFORE
-  // hiddenIds filter. Since computeSnapshot() already filters hidden ids, we
-  // need an unfiltered source. We therefore read from the panel's available
-  // data: the three tiers post-store-filter (which excludes hidden rows) do NOT
-  // include hidden rows. We need to reconstruct hidden rows. The plan says to
-  // resolve against "PRE-filter tiers" — but since the store filters them, we
-  // cannot get them from useConversations(). We solve this pragmatically:
-  // build hiddenRows from hiddenIds by constructing minimal ConversationRow
-  // stubs from what the store makes available. The store's hiddenIds are string
-  // ids; we don't have direct access to the raw rows once filtered. We therefore
-  // keep a ref that accumulates rows seen in any tier across renders (a row that
-  // becomes hidden stops appearing in tiers but we remember it).
-  //
-  // Simpler correct solution: The panel exposes hiddenIds from the store.
-  // For the Hidden section we need row objects. Since the store filters hidden
-  // rows from all tiers, the panel cannot reconstruct the full row shape without
-  // additional data. The plan's action block says: "resolve against the
-  // pre-filter tiers (i.e. resolve to the row object BEFORE the hiddenIds
-  // filter is applied)" — meaning we need the store to provide pre-filter data.
-  // However, looking at the store design, computeSnapshot IS the post-filter
-  // output. The plan approach requires us to have the pre-filter rows available.
-  //
-  // Correct implementation per plan §(3) action point: useMemo over
-  // [...activeSetRows, ...pinned, ...grouped.flatMap(g=>g.rows)] — BUT these
-  // are already post-filter (hidden rows removed). The plan's intent is that
-  // the panel renders hidden rows in the Hidden section using row objects from
-  // before filtering. Since the store doesn't expose pre-filter tiers, we
-  // use a ref-based accumulator that captures rows as they pass through the
-  // visible tiers — rows that transition from visible to hidden are still in
-  // the ref. On fresh mount they hydrate from the server via hydrateHiddenIds.
-  // For rows that were ALWAYS hidden (server-persisted), we won't have row
-  // objects immediately. This is an acceptable trade-off per the plan's note
-  // that "resolve to the row object BEFORE the hiddenIds filter is applied"
-  // — those rows appeared in the tiers on initial render before hydration.
-  //
-  // For now, use the ref-accumulator approach: accumulate all rows ever seen
-  // in any tier, key by id. Hidden section resolves from this accumulator.
-  // This is the idiomatic approach for this store architecture.
-  //
-  // NOTE: This ref is update-on-every-render (tiny cost; no closure issues).
-  const knownRowsRef = useRef(new Map<string, ConversationRowShape>());
-  // Accumulate rows from all currently-visible tiers on every render.
-  // Phase 41 Plan 01: walk `middle` (flat) + `rdpGroup.rows` (nullable) —
-  // replaces the retired grouped[].forEach walk.
-  for (const r of activeSetRows) knownRowsRef.current.set(r.id, r);
-  for (const r of pinned) knownRowsRef.current.set(r.id, r);
-  for (const r of middle) knownRowsRef.current.set(r.id, r);
-  if (rdpGroup !== null) {
-    for (const r of rdpGroup.rows) knownRowsRef.current.set(r.id, r);
-  }
-
+  // This replaces a ref-based accumulator that captured rows as they passed
+  // through the visible tiers. That only ever worked during the window between
+  // first paint and hiddenIds hydration, and only for the panel instance that
+  // observed it: hiddenIds lives in the module-scoped store and outlives any
+  // mount, so a remounted panel started with an empty accumulator against an
+  // already-populated hiddenIds and could never refill it. Desktop's inline
+  // sidebar mounts once per page load and never noticed; the mobile flow
+  // unmounts the panel on every list→view navigation, which emptied the
+  // accumulator and dropped the whole section from the DOM until a full reload.
   const hiddenRows = useMemo(() => {
     const out: ConversationRowShape[] = [];
     const seen = new Set<string>();
-    for (const id of hiddenIds) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const row = knownRowsRef.current.get(id);
-      if (row) out.push(row);
+    const consider = (row: ConversationRowShape) => {
+      if (seen.has(row.id)) return;
+      seen.add(row.id);
+      if (isRowHidden(row, hiddenIds)) out.push(row);
+    };
+    for (const r of activeSetRows) consider(r);
+    for (const r of pinned) consider(r);
+    for (const r of middle) consider(r);
+    // rdpGroup is deliberately not walked: canonicalHideIdForRow returns null
+    // for rdpHostRow rows, so they can never be members of hiddenIds.
+    return out;
+  }, [hiddenIds, activeSetRows, pinned, middle]);
+
+  // Current-render row lookup for the idle-deactivate sweep below, which
+  // resolves an active-set id back to a row object. Distinct from the retired
+  // hidden-section accumulator: this one is rebuilt from the live snapshot each
+  // render rather than accumulating across a mount's lifetime, so it holds no
+  // state that a remount could lose.
+  const rowsByIdRef = useRef(new Map<string, ConversationRowShape>());
+  const rowsById = useMemo(() => {
+    const out = new Map<string, ConversationRowShape>();
+    for (const r of activeSetRows) out.set(r.id, r);
+    for (const r of pinned) out.set(r.id, r);
+    for (const r of middle) out.set(r.id, r);
+    if (rdpGroup !== null) {
+      for (const r of rdpGroup.rows) out.set(r.id, r);
     }
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hiddenIds, activeSetRows, pinned, middle, rdpGroup]);
+  }, [activeSetRows, pinned, middle, rdpGroup]);
+  rowsByIdRef.current = rowsById;
 
   // Phase 41 Plan 02 (user 2026-08-14): label-only filter predicate.
   //
@@ -1093,6 +1082,11 @@ export function PrettyConversationsPanel({
     const pushIfMatches = (row: ConversationRowShape) => {
       if (seen.has(row.id)) return;
       seen.add(row.id);
+      // user lock #3 — hidden rows do NOT appear in filter matches. This was
+      // previously satisfied for free by the store stripping hidden rows before
+      // the panel saw them; now that the snapshot carries them it is an
+      // explicit exclusion.
+      if (isRowHidden(row, hiddenIds)) return;
       if (matchesSearch(row, trimmedSearchQuery)) out.push(row);
     };
     for (const r of activeSetRows) pushIfMatches(r);
@@ -1101,10 +1095,8 @@ export function PrettyConversationsPanel({
     if (rdpGroup !== null) {
       for (const r of rdpGroup.rows) pushIfMatches(r);
     }
-    // NOTE: hiddenRows deliberately NOT included (user lock #3 —
-    // hidden rows do NOT appear in filter matches).
     return out;
-  }, [trimmedSearchQuery, activeSetRows, pinned, middle, rdpGroup, matchesSearch]);
+  }, [trimmedSearchQuery, activeSetRows, pinned, middle, rdpGroup, matchesSearch, hiddenIds]);
 
   // quick-260802-pq2: swipe-coordination state (currentlySwipedId +
   // handleSwipeOpenChange + forceClosedFor) removed alongside the row's
@@ -1303,7 +1295,7 @@ export function PrettyConversationsPanel({
   // dependencies from refs so no stale-closure hazard exists. For each id in
   // the current active-set that (a) is NOT the currently-selected id, (b)
   // HAS a stamp in the map, and (c) whose stamp is older than the threshold,
-  // resolve the row via the existing `knownRowsRef` and call
+  // resolve the row via the current-render `rowsByIdRef` and call
   // `handleRowDeactivate(row)` — verbatim, no wrapper, no re-implementation.
   // Silent: no console log, no toast, no ARIA update.
   useEffect(() => {
@@ -1323,7 +1315,7 @@ export function PrettyConversationsPanel({
         const stamp = lastUnfocusedAtRef.current.get(id);
         if (stamp === undefined) continue; // never focused-then-unfocused in this tab
         if (now - stamp < IDLE_DEACTIVATE_THRESHOLD_MS) continue;
-        const row = knownRowsRef.current.get(id);
+        const row = rowsByIdRef.current.get(id);
         if (!row) continue; // row unknown to the panel — silently skip
         handleRowDeactivate(row);
         // Delete after firing so a still-active-set entry (e.g. reactivate
@@ -1860,7 +1852,7 @@ export function PrettyConversationsPanel({
                 row={row}
                 selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                 pinned={isRowPinned(row)}
-                hidden={hiddenIds.has(canonicalHideIdForRow(row) ?? row.id)}
+                hidden={isRowHidden(row, hiddenIds)}
                 variant={variant}
                 onSelect={() => handleRowSelect(row)}
                 onTogglePin={
@@ -1896,7 +1888,7 @@ export function PrettyConversationsPanel({
                   row={row}
                   selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                   pinned={true}
-                  hidden={hiddenIds.has(canonicalHideIdForRow(row) ?? row.id)}
+                  hidden={isRowHidden(row, hiddenIds)}
                   variant={variant}
                   onSelect={() => handleRowSelect(row)}
                   onTogglePin={() => handleTogglePin(row)}
@@ -1927,7 +1919,7 @@ export function PrettyConversationsPanel({
                     row={row}
                     selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                     pinned={isRowPinned(row)}
-                    hidden={hiddenIds.has(canonicalHideIdForRow(row) ?? row.id)}
+                    hidden={isRowHidden(row, hiddenIds)}
                     variant={variant}
                     onSelect={() => handleRowSelect(row)}
                     onTogglePin={() => handleTogglePin(row)}

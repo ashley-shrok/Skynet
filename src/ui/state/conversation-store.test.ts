@@ -32,6 +32,7 @@ import {
   hydratePinnedIdsFromServer,
   hideConversation,
   unhideConversation,
+  hydrateHiddenIdsFromServer,
   addToActiveSet,
   removeFromActiveSet,
   fleetRowId,
@@ -3864,5 +3865,98 @@ describe("conversation-store (Phase 97 UAT batch #8): rowFromTab pulls lastActiv
     expect(relayRow).toBeDefined();
     if (!relayRow) return;
     expect(relayRow.lastMessageAt).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// bounty hidden-section-mobile-rendering-fix — the snapshot carries hidden rows
+// ─────────────────────────────────────────────────────────────────────────────
+// computeSnapshot used to strip hiddenIds members out of pinned + middle. That
+// left the panel with no source for the rows its Hidden section needed to
+// render, so the panel reconstructed them from a per-instance ref that captured
+// rows as they passed through the visible tiers.
+//
+// That accumulator only worked for the panel instance that observed the window
+// between first paint and hiddenIds hydration. hiddenIds is module-scoped and
+// outlives any mount, so a remounted panel started empty against an
+// already-populated hiddenIds and could never refill — every hidden row had
+// already been stripped before it rendered. Desktop's inline sidebar mounts once
+// per page load and never noticed; the mobile flow unmounts the panel on each
+// list→view navigation, which dropped the whole section from the DOM.
+//
+// These tests lock the store side of the fix: hidden rows stay IN the snapshot.
+// Excluding them from the visible tiers is the panel's job now (it owns
+// canonicalHideIdForRow, which reconciles a row's `tab-XXX` open-chat id
+// against the `fleet::<hostId>::<name>` form hiddenIds stores).
+
+describe("hidden rows remain in the snapshot (bounty hidden-section-mobile-rendering-fix)", () => {
+  it("STORE-HIDDEN-01: a hidden row is still present in middle", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([
+        makeTab("fleet::1::tina", "terminal", hostA),
+        makeTab("fleet::1::nelly", "terminal", hostA),
+      ]);
+      updateFleetSessions([
+        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+        { hostId: 1, hostName: "alpha", sessionName: "nelly", created: 100, role: null },
+      ]);
+    });
+
+    act(() => hideConversation("fleet::1::tina"));
+
+    const snap = __getSnapshotForTest();
+    expect(snap.hiddenIds.has("fleet::1::tina")).toBe(true);
+    // The hidden row is NOT removed from the snapshot — this is the fix. Before
+    // it, computeSnapshot filtered it out and the panel had no row to render in
+    // its Hidden section.
+    const allRows = [...snap.pinned, ...snap.middle];
+    expect(allRows.some((r) => r.id === "fleet::1::tina")).toBe(true);
+    // The unhidden sibling is unaffected.
+    expect(allRows.some((r) => r.id === "fleet::1::nelly")).toBe(true);
+  });
+
+  it("STORE-HIDDEN-02: hidden rows are present on a cold derive with hiddenIds pre-populated", () => {
+    // The mobile cold-start shape: hiddenIds is already populated (hydrated from
+    // the disk sentinels) before the rows are ever derived, so there is no
+    // window in which a hidden row appears in a visible tier. The old strip made
+    // this case unrecoverable; now the row is simply in the snapshot.
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      hydrateHiddenIdsFromServer(["fleet::1::tina"]);
+    });
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
+      updateFleetSessions([
+        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      ]);
+    });
+
+    const snap = __getSnapshotForTest();
+    expect(snap.hiddenIds.has("fleet::1::tina")).toBe(true);
+    const allRows = [...snap.pinned, ...snap.middle];
+    expect(allRows.some((r) => r.id === "fleet::1::tina")).toBe(true);
+  });
+
+  it("STORE-HIDDEN-03: a hidden pinned row stays in the pinned tier", () => {
+    // Pin + hide are separate axes. The old strip removed hidden rows from
+    // pinned as well, so a pinned-then-hidden row vanished from both tiers.
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
+      updateFleetSessions([
+        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      ]);
+    });
+
+    act(() => pinConversation("fleet::1::tina"));
+    act(() => hideConversation("fleet::1::tina"));
+
+    const snap = __getSnapshotForTest();
+    const allRows = [...snap.pinned, ...snap.middle];
+    expect(allRows.some((r) => r.id === "fleet::1::tina")).toBe(true);
   });
 });
