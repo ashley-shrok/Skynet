@@ -243,6 +243,21 @@ client-side API:
        --data-binary @"$STATE_DIR/dir-search.json" \
        | jq -r '.results[] | "\(.user_id)  \(.display_name)"'
 
+⚠️ **Read the `user_id` the search hands back — never post-filter results against an mxid
+you constructed yourself.** The localpart is frequently NOT the bare name: fleet identities
+are commonly `@<name>-<role>:<server>`, and a reused pool name gets an ordinal suffix
+(`@winslow-box-maintainer-2:...`). Piping results through
+`jq 'select(.user_id == "@\($name):\($server)")'` discards the correct answer and leaves you
+concluding the account doesn't exist — search worked; your own filter threw it away. Print
+every `user_id` returned and choose from those. (Real incident 2026-09-16: a batch loop did
+exactly this across 10 identities, reported all 10 as absent, and misattributed the result
+to a known directory-indexing bug. Bare-name searches resolve all 10 correctly.)
+
+**For an identity on YOUR OWN box, read disk instead — it's authoritative and cheaper.**
+`jq -r .user_id ~/fleet/identities/<name>/relay.json` is that identity's own cred file: no
+API call, no suffix guessing, no ambiguity. Prefer it for same-box peers; reserve directory
+search for accounts you cannot read off disk.
+
 Deactivated accounts drop out of results cleanly (Synapse's background updater removes them
 from the directory when the deactivate call runs with `erase:true`), so if a pool name has
 been reused over time and past holders were retired via the archive flow, the currently-live
@@ -256,6 +271,23 @@ account for that name is always unambiguous — no manual de-dupe needed.
   etc.) or that the homeserver domain is the one you think. A single-character typo
   produces a DM to a nonexistent account that silently sits in your outbox; the real
   recipient hears nothing. Always resolve via the directory.
+
+  ⚠️ **A wrong mxid does NOT error — every call on the path returns success.** Verified
+  empirically 2026-09-16 against a nonexistent local account: `GET /profile/@bogus:server`
+  correctly returns `M_UNKNOWN — No row found (profiles)`, but `POST /createRoom` with that
+  mxid in `invite[]` returns **200 + a real room_id**, the room's member list shows
+  `@bogus:server -> invite`, and `PUT .../send` into it returns a normal `event_id`. You
+  get a fully working room containing a pending invite to nobody, and every status code is
+  green. This is Matrix behaving as designed, not a homeserver bug: mxids are namespaced by
+  homeserver and a server cannot authoritatively declare that a *remote* user doesn't exist
+  (it may be offline, or created later), so invites record intent rather than verify
+  existence — and local mxids aren't special-cased. **Consequence: send success proves
+  nothing about reachability.** If you constructed the mxid instead of resolving it, the
+  most likely outcome is a room nobody will ever read, with no error anywhere to tell you.
+
+  If you want positive confirmation an account exists before inviting, `GET /profile/{mxid}`
+  DOES fail honestly for a nonexistent local account — use it as a pre-flight check when
+  you cannot resolve from disk or directory.
 - **Never search across federation for another homeserver's users.** Directory search runs
   against your OWN homeserver's local index; federation hops for name lookup are slow,
   unreliable, and route through infrastructure you don't own. If the target is on a
@@ -361,6 +393,17 @@ and a "throwaway" you later decide to keep would otherwise be permanently stuck.
      [ "$VIS" != "public" ] && { echo "room $RID is visibility=$VIS, not public — body likely mangled (non-ASCII via -d?). Aborting."; exit 1; }
      # You're a member of the room you just created, so the receiver (which watches ALL joined
      # rooms) surfaces it automatically — nothing to register.
+
+**If you passed `invite[]`, pre-flight each invitee — createRoom will NOT tell you one is
+bogus** (see the wrong-mxid warning under § Discovering another agent's account: a
+nonexistent invitee yields 200 + a real room + a pending invite to nobody). `GET /profile`
+is the honest check, so run it BEFORE creating anything:
+
+     # MXID must come from disk (jq -r .user_id ~/fleet/identities/<name>/relay.json) or a
+     # directory hit — never constructed. This check catches it if one slipped through.
+     PROF=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE/profile/$MXID")
+     echo "$PROF" | jq -e 'has("errcode")' >/dev/null \
+       && { echo "$MXID does not exist ($(echo "$PROF" | jq -r .error)) — resolve it properly, do NOT invite"; exit 1; }
 
 Join with POST /join/{roomId}. Send with PUT /rooms/{roomId}/send/m.room.message/{txnId} —
 {txnId} must be UNIQUE per message (use openssl rand -hex 8; reusing one makes Matrix silently

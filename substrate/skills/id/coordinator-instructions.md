@@ -324,13 +324,28 @@ births; recovery from failed births is the user's decision, never coord's own in
 ### Dispatch the pending item to the fresh actor
 
 Once you have the new actor's `name` from the success file, dispatch the pending inbound
-to `@<name>:<your-homeserver-domain>` the same way you'd dispatch to any actor — resolve
-the mxid via `user_directory/search` on your own homeserver (see the agent-relay skill's
-discovery convention), create a DM room, invite the mxid, send the message with the same
-preamble the inbound-type dictates (Type A / B / C). **Do NOT wait for the fresh actor's
-session to launch.** The message sits in the invited room; when the fresh actor's
-receiver arms for the first time on its first-wake, it auto-joins the invite and
-backfills, catching your dispatched message as the wake.
+the same way you'd dispatch to any actor — resolve its mxid, create a DM room, invite the
+mxid, send the message with the same preamble the inbound-type dictates (Type A / B / C).
+**Do NOT wait for the fresh actor's session to launch.** The message sits in the invited
+room; when the fresh actor's receiver arms for the first time on its first-wake, it
+auto-joins the invite and backfills, catching your dispatched message as the wake.
+
+⚠️ **The mxid is NOT `@<name>:<your-homeserver-domain>` — never build it from the name.**
+A freshly birthed identity's account is commonly `@<name>-<role>:<server>`, and a reused
+pool name carries an ordinal suffix (`@winslow-box-maintainer-2:...`). Since the identity
+was just born on YOUR box, read the authoritative value off disk:
+
+    MXID=$(jq -r .user_id ~/fleet/identities/<name>/relay.json)
+
+Fall back to `user_directory/search` (see the agent-relay skill's discovery convention)
+only if that file is unreadable — and read the `user_id` it returns rather than filtering
+results against a name you assembled.
+
+This matters more than it looks: **inviting a nonexistent mxid does not error.** createRoom
+returns 200 with a real room_id, the invite shows as pending, and your send returns a normal
+event_id — so a guessed mxid produces a dispatch that looks completely successful and is
+read by nobody, with the pending item silently lost. `GET /profile/{mxid}` is the honest
+existence check if you need one.
 
 The supervisor on your box rebuilds its identity list from `~/fleet/identities/*/` on
 every 15-second tick, notices the new folder, launches the fresh actor's tmux + claude +
