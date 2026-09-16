@@ -102,9 +102,10 @@ import {
   navigateToView,
   navigateToList,
 } from "@/lib/mobile-flow";
-import { useIdentities } from "@/state/identities-store";
+import { useIdentities, mergeIdentityAppearance } from "@/state/identities-store";
 // Phase 34 Plan 06: fleet-status control WebSocket — boot-time singleton
 import { createFleetStatusClient } from "@/api/fleet-status-client";
+import type { SessionState } from "@/api/fleet-status-types";
 import {
   publishFleetStatusSessionState,
   publishFleetStatusSessionGone,
@@ -516,11 +517,28 @@ export function AppShell({
   // via the callbacks below.
   //
   // Callback wiring (per D-CTX § Composite state + Waiting bubble UX):
-  //   onSnapshot: for each SessionState → publishFleetStatusSessionState
-  //               + publishFleetStatusWaitingFor + publishFleetStatusTmuxSession
-  //   onUpdate:   same as onSnapshot but for a single state
+  //   onSnapshot: for each SessionState → applyFleetState (appearance FIRST, then
+  //               publishFleetStatusSessionState + publishFleetStatusWaitingFor
+  //               + publishFleetStatusTmuxSession)
+  //   onUpdate:   same as onSnapshot but for a single state (calls applyFleetState once)
   //   onGone:     publishFleetStatusSessionGone + publishFleetStatusWaitingFor(null)
-  //               + publishFleetStatusTmuxSessionGone
+  //               + publishFleetStatusTmuxSessionGone (Plan 111-05 territory — untouched here)
+  //
+  // Phase 111 Plan 04 — appearance-before-row ordering:
+  //   PrettyConversationRow resolves its hue/title/task from identities-store's
+  //   byHostKey composite map (NOT from SessionState directly). So appearance must
+  //   land in identities-store BEFORE anything can cause a row to paint.
+  //   mergeIdentityAppearance fires FIRST inside applyFleetState, before the three
+  //   existing publishFleetStatus* calls. This matches the ordering precedent in
+  //   fleet-status-client.ts's snapshot case (publishSessionContextPct fires BEFORE
+  //   onSnapshot is called, per the comment there). Appearance-before-row is what
+  //   keeps a pulse-created row (Plan 111-05) from painting undressed for one frame —
+  //   the correction-flicker the shape calls a failure even when the final state is right.
+  //
+  //   hostId coercion: SessionState.hostId is a STRING on the wire; Identity.hostId is a
+  //   NUMBER. parseInt once at this boundary — mirroring the Kill handler's pattern at
+  //   killTmuxSession(parseInt(row.host.id, 10), ...) — so no string leaks inward and the
+  //   `${hostIdNum}::${key}` composite key is always a number template join.
   //
   // Phase 41 Plan 01: session-tmux-store is an additional dispatch target.
   // SessionState.tmuxSession is already on the fleet-status wire — no backend
@@ -534,27 +552,48 @@ export function AppShell({
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const fleetStatusUrl = `${proto}//${window.location.host}/fleet-status/ws`;
 
+    // Phase 111 Plan 04 — shared per-state body for onSnapshot (loop) and
+    // onUpdate (single call). Appearance merges FIRST so byHostKey is populated
+    // before any downstream subscriber re-renders a row.
+    const applyFleetState = (fleetState: SessionState): void => {
+      // Coerce once at the boundary: SessionState.hostId is STRING on the wire;
+      // Identity.hostId is NUMBER. A naive template join (`${state.hostId}::key`)
+      // appears to work but silently drops entries when a typeof guard rejects
+      // the string — mirroring parseInt(row.host.id, 10) from the Kill handler.
+      const hostIdNum = parseInt(fleetState.hostId, 10);
+
+      // Appearance FIRST (Plan 111-04): land in identities-store before the row
+      // publish so PrettyConversationRow never sees a row without its cosmetics.
+      // The !=(null) check covers both null (host sent no appearance) and undefined
+      // (legacy path pre-Plan-111-02) — both mean "no appearance this tick" and
+      // must be a no-op, never a blank.
+      if (
+        fleetState.identityAppearance != null &&
+        fleetState.tmuxSession != null &&
+        Number.isFinite(hostIdNum)
+      ) {
+        mergeIdentityAppearance(hostIdNum, fleetState.tmuxSession, fleetState.identityAppearance);
+      }
+
+      // Then the three existing publishes — byte-identical to before Plan 111-04.
+      publishFleetStatusSessionState(fleetState.hostId, fleetState);
+      publishFleetStatusWaitingFor(
+        fleetState.hostId,
+        fleetState.tmuxSession,
+        fleetState.status === "waiting" ? fleetState.waitingFor ?? "input needed" : null,
+      );
+      publishFleetStatusTmuxSession(fleetState.hostId, fleetState.tmuxSession);
+    };
+
     const client = createFleetStatusClient({
       url: fleetStatusUrl,
       onSnapshot: (states) => {
-        for (const state of states) {
-          publishFleetStatusSessionState(state.hostId, state);
-          publishFleetStatusWaitingFor(
-            state.hostId,
-            state.tmuxSession,
-            state.status === "waiting" ? state.waitingFor ?? "input needed" : null,
-          );
-          publishFleetStatusTmuxSession(state.hostId, state.tmuxSession);
+        for (const fleetState of states) {
+          applyFleetState(fleetState);
         }
       },
-      onUpdate: (state) => {
-        publishFleetStatusSessionState(state.hostId, state);
-        publishFleetStatusWaitingFor(
-          state.hostId,
-          state.tmuxSession,
-          state.status === "waiting" ? state.waitingFor ?? "input needed" : null,
-        );
-        publishFleetStatusTmuxSession(state.hostId, state.tmuxSession);
+      onUpdate: (fleetState) => {
+        applyFleetState(fleetState);
       },
       onGone: (hostId, tmuxSession, sessionId) => {
         publishFleetStatusSessionGone(hostId, tmuxSession, sessionId);
