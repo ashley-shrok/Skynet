@@ -69,6 +69,7 @@ import {
   updateOpenTabs,
   updateFleetSessions,
   removeFleetSession,
+  upsertFleetSession,
   updateHostsFlat,
   updateIdentitiesByKey,
   useSelectedConversationId,
@@ -510,6 +511,13 @@ export function AppShell({
     return () => dbHealthMonitor.off("session-expired", handleSessionExpired);
   }, [onLogout]);
 
+  // Phase 111 Plan 05 — hostsByIdRef: a ref that tracks the live hostsById memo
+  // so applyFleetState (inside the mount-once [] effect below) can resolve hostName
+  // from the current host map without closing over a stale first-render value.
+  // The empty-dep-array effect is deliberate (one WS client per mount); a ref is
+  // how a live value reaches it without re-subscribing the socket.
+  const hostsByIdRef = useRef<Map<number, Host>>(new Map());
+
   // Phase 34 Plan 06: fleet-status control WebSocket — exactly one WS opened
   // at AppShell boot. Reconnects on drop via createFleetStatusClient's built-in
   // retry-with-backoff (mirrors patch #148 pattern). Dispatches snapshot/update/gone
@@ -519,21 +527,26 @@ export function AppShell({
   // Callback wiring (per D-CTX § Composite state + Waiting bubble UX):
   //   onSnapshot: for each SessionState → applyFleetState (appearance FIRST, then
   //               publishFleetStatusSessionState + publishFleetStatusWaitingFor
-  //               + publishFleetStatusTmuxSession)
+  //               + publishFleetStatusTmuxSession, THEN upsertFleetSession LAST)
   //   onUpdate:   same as onSnapshot but for a single state (calls applyFleetState once)
   //   onGone:     publishFleetStatusSessionGone + publishFleetStatusWaitingFor(null)
-  //               + publishFleetStatusTmuxSessionGone (Plan 111-05 territory — untouched here)
+  //               + publishFleetStatusTmuxSessionGone + removeFleetSession (Plan 111-05)
   //
-  // Phase 111 Plan 04 — appearance-before-row ordering:
+  // Phase 111 Plan 04 — appearance-before-row ordering (CONTRACT, not detail):
   //   PrettyConversationRow resolves its hue/title/task from identities-store's
   //   byHostKey composite map (NOT from SessionState directly). So appearance must
-  //   land in identities-store BEFORE anything can cause a row to paint.
-  //   mergeIdentityAppearance fires FIRST inside applyFleetState, before the three
-  //   existing publishFleetStatus* calls. This matches the ordering precedent in
-  //   fleet-status-client.ts's snapshot case (publishSessionContextPct fires BEFORE
-  //   onSnapshot is called, per the comment there). Appearance-before-row is what
-  //   keeps a pulse-created row (Plan 111-05) from painting undressed for one frame —
-  //   the correction-flicker the shape calls a failure even when the final state is right.
+  //   land in identities-store BEFORE the row upsert, or the row paints undressed
+  //   for one frame and dresses on the next — the correction-flicker the shape calls
+  //   a failure even when the final state is right. mergeIdentityAppearance fires
+  //   FIRST; upsertFleetSession fires LAST. Both writes are synchronous in one
+  //   callback body, so React batches them into a single render.
+  //
+  // Phase 111 Plan 05 — what makes the list live:
+  //   applyFleetState now also calls upsertFleetSession (as the LAST call) so a
+  //   pulse frame creates a dressed row without a page reload. onGone now also
+  //   calls removeFleetSession so a frame for a session that has ended removes
+  //   its row without a reload. Together these close the gap that left the list
+  //   frozen for the life of the tab.
   //
   //   hostId coercion: SessionState.hostId is a STRING on the wire; Identity.hostId is a
   //   NUMBER. parseInt once at this boundary — mirroring the Kill handler's pattern at
@@ -583,6 +596,26 @@ export function AppShell({
         fleetState.status === "waiting" ? fleetState.waitingFor ?? "input needed" : null,
       );
       publishFleetStatusTmuxSession(fleetState.hostId, fleetState.tmuxSession);
+
+      // Phase 111 Plan 05 — row create (LAST, after appearance, per the ordering
+      // contract above). Guard: a frame with no tmux session cannot become a row.
+      // hostIdNum is reused from the coercion above — one parseInt at the boundary.
+      if (fleetState.tmuxSession == null || fleetState.tmuxSession === "") return;
+      if (!Number.isFinite(hostIdNum)) return;
+      // Resolve hostName from the live hostsByIdRef so we get the current map
+      // rather than whatever was captured at mount time (the effect dep array is []).
+      const hostName = hostsByIdRef.current.get(hostIdNum)?.name ?? "";
+      // Appearance is already in identities-store (mergeIdentityAppearance fired above),
+      // so role is available via identityAppearance. Take it from there so the row's
+      // role axis is filled even before GET /identities returns.
+      const role = fleetState.identityAppearance?.role ?? null;
+      upsertFleetSession({
+        hostId: hostIdNum,
+        hostName,
+        sessionName: fleetState.tmuxSession,
+        created: Date.now(),
+        role,
+      });
     };
 
     const client = createFleetStatusClient({
@@ -596,9 +629,24 @@ export function AppShell({
         applyFleetState(fleetState);
       },
       onGone: (hostId, tmuxSession, sessionId) => {
+        // The three pre-existing publishes — mark per-session state. These are
+        // orthogonal to membership and must remain. Do NOT reorder.
         publishFleetStatusSessionGone(hostId, tmuxSession, sessionId);
         publishFleetStatusWaitingFor(hostId, tmuxSession, null);
         publishFleetStatusTmuxSessionGone(hostId, tmuxSession);
+
+        // Phase 111 Plan 05 — row remove. Guard: a gone frame's tmuxSession is
+        // nullable on the wire. A null would match nothing in removeFleetSession
+        // today (filter predicate requires both fields), but the explicit guard
+        // documents that and prevents a future `?? ""` from accidentally matching
+        // a malformed row with an empty sessionName.
+        if (tmuxSession == null || tmuxSession === "") return;
+        const goneHostId = parseInt(hostId, 10);
+        // Non-finite hostId coercion guard — same one-coercion-at-boundary discipline.
+        if (!Number.isFinite(goneHostId)) return;
+        // Relay-room rows are structurally immune: they carry no hostId and no
+        // sessionName, so removeFleetSession's tuple filter cannot match one.
+        removeFleetSession(goneHostId, tmuxSession);
       },
     });
 
@@ -850,6 +898,9 @@ export function AppShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stableHostTreeKey]);
   useEffect(() => {
+    // Phase 111 Plan 05 — keep ref live so applyFleetState can resolve hostName
+    // from the current map even though its enclosing effect has an empty dep array.
+    hostsByIdRef.current = hostsById;
     updateHostsFlat(hostsById);
   }, [hostsById]);
   useEffect(() => {
