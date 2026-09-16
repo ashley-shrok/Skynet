@@ -1132,11 +1132,21 @@ export function updateFleetSessions(sessions: FleetSession[]): void {
   // true. Nothing has changed — do NOT bump snapshotVersion.
   if (sessionsShallowEqual && !needsFlagFlip) return;
 
-  // Real mutation. Reuse the current sessions ref when the incoming array
-  // is a shallow no-op (avoids gratuitously bumping downstream reference
-  // equality checks on state.fleetSessions consumers). Always set the flag
-  // to true — this is unconditional per quick-260727-kbw.
-  const nextSessions = sessionsShallowEqual ? state.fleetSessions : sessions;
+  // Phase 111 additive-membership property: an empty-array bulk-replace
+  // MUST NOT blank rows already in state.fleetSessions. Callers pass [] in
+  // three shapes — a getSessionList() rejection (AppShell.tsx onCatch), a
+  // legitimate empty successful response, and a cold-cache seed. In all
+  // three, the pulse (upsertFleetSession) may have already populated rows;
+  // blanking them here would undo the whole "list arrives complete and
+  // stays live" contract on any network hiccup. Individual removal is the
+  // pulse's job via removeFleetSession (fired from onGone), not a bulk
+  // wipe. When the caller has no information (incoming is empty) but we
+  // already know some rows, keep the rows and only advance the flag.
+  const preservePulseRows =
+    sessions.length === 0 && state.fleetSessions.length > 0;
+  const nextSessions = sessionsShallowEqual || preservePulseRows
+    ? state.fleetSessions
+    : sessions;
   state = {
     ...state,
     fleetSessions: nextSessions,

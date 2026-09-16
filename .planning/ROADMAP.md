@@ -2482,7 +2482,7 @@ Plans:
 **Goal:** The conversation list arrives complete — right rows, right order, right appearance with inheritance resolved, pinned first and hidden absent — on first paint, and stays live without a page refresh. No row is ever seen in a state it then grows out of.
 **Requirements**: none mapped — coverage is driven by CONTEXT.md decisions D-01 through D-13
 **Depends on:** Phase 110
-**Plans:** 3/6 plans executed
+**Plans:** 5/6 plans executed
 Plans:
 **Wave 1**
 
@@ -2495,11 +2495,11 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 111-04-PLAN.md — mergeIdentityAppearance: an additive door that provably cannot set `loaded` or append; pinned/hidden re-projection; appearance-first ordering (D-09, D-10)
+- [x] 111-04-PLAN.md — mergeIdentityAppearance: an additive door that provably cannot set `loaded` or append; pinned/hidden re-projection; appearance-first ordering (D-09, D-10)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 111-05-PLAN.md — rows appear and disappear from the pulse via upsertFleetSession + onGone, without flipping fleetSessionsLoaded (D-05, D-06, D-08, D-10)
+- [x] 111-05-PLAN.md — rows appear and disappear from the pulse via upsertFleetSession + onGone, without flipping fleetSessionsLoaded (D-05, D-06, D-08, D-10)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 

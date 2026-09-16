@@ -158,7 +158,13 @@ beforeEach(() => {
   // (fleetSessions + hostsFlat are pure inputs — they don't feed selection
   // coercion the way openTabs does), but reset AFTER openTabs so a
   // hypothetical listener never sees a mid-clear state.
-  updateFleetSessions([]);
+  //
+  // Phase 111 hotfix: `updateFleetSessions([])` is no longer a bulk-empty —
+  // it is now additive on an empty incoming array (the "failing re-ask
+  // must not wipe pulse-added rows" invariant, case 13). Use the explicit
+  // reset primitive so tests still start from a known-clean state and
+  // rows from a prior test cannot leak forward.
+  __resetFleetSessionsForTest();
   updateHostsFlat(new Map());
   // Phase 25: reset identitiesByKey so a prior test's role injection does not
   // leak forward into the next test's sort output.
@@ -2652,8 +2658,15 @@ describe("fleetSessionsLoaded flag + useFleetSessionsLoaded hook (quick-260727-k
 
   it("subsequent updateFleetSessions([]) after flag already true is a full no-op (no notify)", () => {
     // The no-op path proof: sessions are shallow-equal (both empty) AND the
-    // flag is already true. Must NOT bump snapshotVersion. beforeEach already
-    // fired updateFleetSessions([]) so the flag is true here.
+    // flag is already true. Must NOT bump snapshotVersion.
+    //
+    // Phase 111 hotfix: this suite's beforeEach now uses
+    // __resetFleetSessionsForTest() which resets the flag to FALSE (post-fix
+    // updateFleetSessions([]) no longer clears the store, so it can't be the
+    // reset mechanism). Flip the flag explicitly first so the assertion
+    // captures the intended "already-true → no-op" path.
+    act(() => updateFleetSessions([]));
+
     const cb = vi.fn();
     const unsub = __subscribeForTest(cb);
 
@@ -4205,12 +4218,19 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
     expect(__getSnapshotForTest().fleetSessions.some((s) => s.sessionName === "willow")).toBe(true);
     expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
 
-    // Step 2: updateFleetSessions with a fresh array that does NOT contain it
-    // (simulating a fetch that cannot see the session yet — D-06 backstop case).
+    // Step 2: updateFleetSessions with a fresh NON-EMPTY array that does NOT
+    // contain it (simulating a fetch that saw a different session — D-06
+    // backstop case). Post-Phase-111-hotfix, an EMPTY array bulk-replace is
+    // no longer authoritative (that would wipe pulse rows on any failing
+    // re-ask; see case 13). A NON-EMPTY authoritative fetch still preserves
+    // its own snapshot semantics — that is the OQ-3 intent this case pins.
     act(() => {
-      updateFleetSessions([]);
+      updateFleetSessions([
+        { hostId: 7, hostName: "beelink", sessionName: "other", created: 2000, role: null },
+      ]);
     });
-    // Row is gone (fetch is authoritative for its snapshot), loaded is now true.
+    // Row is gone (a non-empty fetch is authoritative for its snapshot),
+    // loaded is now true.
     expect(__getSnapshotForTest().fleetSessions.some((s) => s.sessionName === "willow")).toBe(false);
     expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(true);
 
@@ -4262,6 +4282,52 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
     expect(__getSnapshotForTest().fleetSessions).toHaveLength(0);
     // Neither call should have touched fleetSessionsLoaded.
     expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
+  });
+
+  // Case 13 — Phase 111 hotfix: a failing /sessions/list re-ask (or any
+  // caller passing [] to updateFleetSessions) MUST NOT wipe rows the pulse
+  // has already populated. This is the single-most-important invariant of
+  // the "list arrives complete and stays live" contract: the failure path
+  // at AppShell.tsx onCatch calls updateFleetSessions([]) to clear the
+  // loading spinner, and pre-fix that call bulk-replaced fleetSessions
+  // with [] — blowing away every pulse-added row on any network hiccup.
+  //
+  // Load-bearing: removing the `preservePulseRows` guard in
+  // updateFleetSessions turns this test red (verified by deliberate
+  // breakage during the hotfix).
+  it("case 13 — failing /sessions/list re-ask does NOT wipe pulse-added rows", () => {
+    // Setup: pulse populates a row while the fetch has not yet completed.
+    // fleetSessionsLoaded starts false in this suite's beforeEach flow.
+    act(() => {
+      upsertFleetSession({
+        hostId: 5,
+        hostName: "beelink",
+        sessionName: "willow",
+        created: 5000,
+        role: "operator",
+      });
+    });
+
+    const beforeSnap = __getSnapshotForTest();
+    expect(beforeSnap.fleetSessions.length).toBe(1);
+    expect(beforeSnap.fleetSessions[0].sessionName).toBe("willow");
+    // fleetSessionsLoaded stays false — the pulse never flips it.
+    expect(beforeSnap.fleetSessionsLoaded).toBe(false);
+
+    // Simulate AppShell's fetch-error branch: getSessionList() rejects,
+    // onCatch fires updateFleetSessions([]).
+    act(() => {
+      updateFleetSessions([]);
+    });
+
+    const afterSnap = __getSnapshotForTest();
+    // The pulse's row survives.
+    expect(afterSnap.fleetSessions.length).toBe(1);
+    expect(afterSnap.fleetSessions[0].sessionName).toBe("willow");
+    expect(afterSnap.fleetSessions[0].hostId).toBe(5);
+    // The loading flag still advances so the "Loading agents…" spinner
+    // clears — the whole reason the failure branch existed.
+    expect(afterSnap.fleetSessionsLoaded).toBe(true);
   });
 
   // Case 12: Cache is synced but its key is not bumped.

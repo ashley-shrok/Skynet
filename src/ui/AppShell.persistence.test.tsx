@@ -113,7 +113,12 @@ beforeEach(() => {
   // Plan 07-01: reset the new fleet-native inputs so Test 4's store-contract
   // assertion starts from an empty fleet + empty hostsFlat. Tests 1-3 do
   // not consume these inputs, so their behavior is unchanged.
-  updateFleetSessions([]);
+  //
+  // Phase 111 hotfix: use the explicit reset primitive because
+  // `updateFleetSessions([])` is no longer a bulk-empty — it now preserves
+  // pulse-populated rows (failing-re-ask must not wipe). See case 13 in
+  // conversation-store.test.ts for the invariant.
+  __resetFleetSessionsForTest();
   updateHostsFlat(new Map());
   const snap = __getSnapshotForTest();
   expect(snap.pinned.length).toBe(0);
