@@ -666,6 +666,37 @@ def _reap_loop():
 
 
 # ---------------------------------------------------------------- go
+# Hold off before starting anything, so our first paste can't land on top of a paste
+# somebody else is already making into this pane.
+#
+# The supervisor starts us IMMEDIATELY before it drops .resume-complete, and Skynet's
+# frontend-send path blocks on exactly that marker (claude-session-server.ts, dormant
+# send) — so it is released to paste the user's message within milliseconds of our
+# launch. Two writers, one pane, no shared lock: _inject_lock serializes us against
+# ourselves only. Sleeping here moves our first injection clear of that window.
+#
+# Delaying startup (rather than just delaying delivery) is the deliberate choice: it
+# costs a few seconds of not-watching, which is indistinguishable from the dormancy we
+# already tolerate for minutes at a time, and every watcher is catch-up-safe anyway —
+# the receiver resumes from its persisted cursor, the scheduler fires a missed slot
+# once, the file-watch diffs against its baseline. Nothing is lost, only deferred.
+#
+# This NARROWS the race, it does not close it: an injection can always land on a
+# compose the user is mid-typing in, because pasting into a TUI has no delivery
+# semantics. Closing it needs a lock both writers take, or the messaging socket.
+#
+# Interruptible on purpose — signal handlers are armed above, so a SIGTERM during the
+# delay shuts us down cleanly instead of starting children we would immediately reap.
+STARTUP_DELAY_SECONDS = float(
+    os.environ.get("AMBIENT_MONITOR_STARTUP_DELAY_SECONDS", "5"))
+if STARTUP_DELAY_SECONDS > 0:
+    emit_diag("holding %gs before starting children (clears the supervisor/Skynet "
+              "pane-paste window)" % STARTUP_DELAY_SECONDS)
+    if shutting_down.wait(timeout=STARTUP_DELAY_SECONDS):
+        emit_diag("shutdown signalled during startup delay — exiting before starting "
+                  "children")
+        sys.exit(0)
+
 if not RELAY_ACCOUNTS:
     emit_wake(
         "⚠️ [ambient-monitor: %s] NO RELAY ACCOUNTS DISCOVERED — no *.json file in "

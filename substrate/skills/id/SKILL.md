@@ -485,6 +485,14 @@ preference.
 ### What this means for you in practice
 
 - **On wake: launch nothing, verify nothing.** Announce yourself and get to work.
+- **Your watchers hold off a few seconds before starting.** They are launched at the
+  moment the supervisor releases the pane, which is the same moment anything else
+  waiting to reach you (a message you were sent from the frontend) is released to
+  paste into it. The pause keeps their first event from landing on top of that. So a
+  wake-worthy thing that happened while you were down may surface a few seconds into
+  the session rather than instantly — that's the design, not a fault. Nothing is
+  lost: every watcher catches up (the receiver resumes from its cursor, the scheduler
+  fires a missed slot, the file-watch diffs against its baseline).
 - **If you think you may be deaf, don't fix it yourself.** Do not hand-start the
   ambient monitor, do not hand-start any of the four pieces, do not hand-edit
   anything under `~/.local/bin/`. All of it is distributor-managed, and a
