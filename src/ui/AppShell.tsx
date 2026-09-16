@@ -795,21 +795,101 @@ export function AppShell({
   // discovery snapshot (getSessionList()) and a flat hostId → Host lookup
   // derived from realHostTree.
   //
-  // TG-17 hard shape lock: fleet fetch is EXACTLY ONCE per page-load. No
-  // polling, no interval, no focus/visibility refetch, NOT wired to
-  // skynet:hosts-changed. Cross-device staleness acceptable — user
-  // refreshes to update. The empty-dep-array useEffect enforces the lock.
+  // TG-17 hard shape lock (Phase 111 D-07 amendment):
+  //   NO polling. NO interval. NOT wired to skynet:hosts-changed. Silent
+  //   try/catch on fetch failure. No toast, no retry, no user-visible surface.
   //
-  // Silent try/catch on fetch failure — a network error just leaves
-  // fleetSessions empty; the list falls back to Phase 6 openTabs-only
-  // rendering. No toast, no retry, no user-visible surface.
+  //   Phase 111 D-07 changes the TIMING RULE, not the existence of the fetch:
+  //   GET /sessions/list now fires on open AND on becoming visible again, via the
+  //   SAME fetchAndApplyFleetSessions path both times. This pairs with the WS
+  //   client's visibility reconnect (fleet-status-client.ts) so both halves of
+  //   "coming back shows what's current" fire on the same event.
+  //
+  //   The cache seed (readFleetSessionsCache) and the cold-start flag-flip
+  //   (updateFleetSessions([])) stay MOUNT-ONLY — they are not in the shared
+  //   fetch path because re-seeding from localStorage on a re-ask would push
+  //   OLDER data into the working store, and the flag-flip has no purpose once
+  //   fleetSessionsLoaded is already true.
+
+  // In-flight coalescing ref — a useRef<boolean> so rapid hidden/visible cycling
+  // on mobile does not stack concurrent fetches. Modeled on identities-store's
+  // refreshInflight. NOT a success-latch (this path must be repeatable);
+  // only CONCURRENCY is guarded. Set to true on fetch start, cleared in finally.
+  const fetchInflightRef = useRef<boolean>(false);
+
+  // mountedRef — guards the mount effect's try-branch from writing store state
+  // after unmount (React strict-mode double-invoke / fast unmounts). The re-ask
+  // path does not use a cancelled flag; the fetchInflightRef prevents stacked
+  // fetches so a concurrent resolve after unmount is structurally prevented.
+  const mountedRef = useRef<boolean>(false);
+
+  // fetchAndApplyFleetSessions — shared between mount and the visibility re-ask.
+  // opts.isColdStart distinguishes the first fetch from subsequent re-asks so
+  // the catch branch can apply the quick-260821-m36 flag-flip only when needed.
+  const fetchAndApplyFleetSessions = useCallback(async (opts: { isColdStart: boolean }) => {
+    if (fetchInflightRef.current) return; // coalesce concurrent fetches
+    fetchInflightRef.current = true;
+    try {
+      const sessions = await getSessionList();
+      if (opts.isColdStart && !mountedRef.current) return; // unmounted during cold-start fetch
+      const fresh = Array.isArray(sessions) ? sessions : [];
+      updateFleetSessions(fresh);
+      // Phase 44 Plan 04 — seed working-store from the fresh /sessions/list
+      // snapshot. Max-wins reconciliation in the working-store handles
+      // ordering vs. WS-live updates (which may arrive before or after this).
+      //
+      // Phase 47 Plan 04 — same loop now also seeds the aiTitle axis
+      // (Plan 47-03 LAST-WINS chokepoint). Distinct semantics from Axis B:
+      // ai-titles evolve as the session's topic drifts, so LAST-WINS is
+      // correct (freshest arrival replaces older). A WS frame arriving
+      // AFTER this seed will overwrite via the same chokepoint.
+      for (const s of fresh) {
+        seedSessionLastMessageAt(s.hostId, s.sessionName, s.lastMessageAt ?? null);
+        seedSessionAiTitle(s.hostId, s.sessionName, s.aiTitle ?? null); // Phase 47 Plan 04
+      }
+      // quick-260805-tub: persist the fresh snapshot for the next refresh.
+      // Both cold-start and re-ask update the cache — a successful re-ask
+      // is strictly good. Silent on write failure (see writeFleetSessionsCache).
+      writeFleetSessionsCache(fresh);
+    } catch {
+      if (opts.isColdStart) {
+        // quick-260821-m36: flag-flip on failure so cold-cache clients don't
+        // stay stuck at "Loading agents…". updateFleetSessions([]) is safe on
+        // cold start — the empty array is a shallow no-op on fleetSessions, but
+        // the fleetSessionsLoaded false→true transition is unconditional per
+        // quick-260727-kbw (conversation-store.ts). The `if (!mountedRef.current)`
+        // guard avoids writing store state after unmount.
+        //
+        // ⚠️ Re-ask path deliberately does NOT run this: fleetSessionsLoaded is
+        // already true on a re-ask, so the only effect would be wiping every row
+        // on a transient network blip — the "failed record read removes a
+        // conversation" failure mode. T-111-35 mitigation.
+        if (mountedRef.current) updateFleetSessions([]);
+      }
+      // Silent — no toast, no console.warn. Cache deliberately NOT touched on
+      // failure — the last known-good snapshot survives the network hiccup
+      // (writeFleetSessionsCache only runs in the try-branch above).
+      // T-07-01-04 mitigation.
+    } finally {
+      fetchInflightRef.current = false;
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mount effect — seed from localStorage cache THEN fetch (cold start only).
+  // TG-17: the empty dep array now enforces "the SEED is exactly once per mount"
+  // rather than "the fetch is" — the fetch now also fires on visibility (below).
   useEffect(() => {
+    mountedRef.current = true;
     // quick-260805-tub: seed the store from the localStorage cache BEFORE
     // the network fetch fires. This paints the last-known conversation-list
     // row set immediately on refresh; when the fetch returns it overwrites
     // with the fresh snapshot (see writeFleetSessionsCache below). On a cold
     // cache (first ever visit, cleared storage, corrupted JSON), read returns
     // [] — identical to today's cold-start behavior, no user-visible diff.
+    //
+    // MOUNT-ONLY: re-seeding from localStorage on a re-ask would push OLDER
+    // data into the working store, undressing rows that the WS snapshot just
+    // dressed. readFleetSessionsCache is called exactly once per mount.
     const cached = readFleetSessionsCache();
     if (cached.length > 0) {
       updateFleetSessions(cached);
@@ -829,55 +909,28 @@ export function AppShell({
         seedSessionAiTitle(s.hostId, s.sessionName, s.aiTitle ?? null); // Phase 47 Plan 04
       }
     }
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const sessions = await getSessionList();
-        if (cancelled) return;
-        const fresh = Array.isArray(sessions) ? sessions : [];
-        updateFleetSessions(fresh);
-        // Phase 44 Plan 04 — seed working-store from the fresh /sessions/list
-        // snapshot. Max-wins reconciliation in the working-store handles
-        // ordering vs. WS-live updates (which may arrive before or after this).
-        //
-        // Phase 47 Plan 04 — same loop now also seeds the aiTitle axis
-        // (Plan 47-03 LAST-WINS chokepoint). Distinct semantics from Axis B:
-        // ai-titles evolve as the session's topic drifts, so LAST-WINS is
-        // correct (freshest arrival replaces older). A WS frame arriving
-        // AFTER this seed will overwrite via the same chokepoint.
-        for (const s of fresh) {
-          seedSessionLastMessageAt(s.hostId, s.sessionName, s.lastMessageAt ?? null);
-          seedSessionAiTitle(s.hostId, s.sessionName, s.aiTitle ?? null); // Phase 47 Plan 04
-        }
-        // quick-260805-tub: persist the fresh snapshot for the next refresh.
-        // Silent on write failure (see writeFleetSessionsCache).
-        writeFleetSessionsCache(fresh);
-      } catch {
-        // quick-260821-m36: flag-flip on failure so cold-cache clients
-        // don't stay stuck at "Loading agents…". updateFleetSessions([])
-        // is safe — the empty array is a shallow no-op on the
-        // fleetSessions field, but the fleetSessionsLoaded false→true
-        // transition is unconditional per quick-260727-kbw (see
-        // conversation-store.ts:962-998). The `if (!cancelled)` guard
-        // mirrors the try-branch's own guard at L627 — avoids setting
-        // store state after the component unmounted (React strict-mode
-        // double-invoke + fast unmounts).
-        if (!cancelled) updateFleetSessions([]);
-        // Silent — no toast, no console.warn (matches existing quick-
-        // 260805-tub silent-catch pattern). fleetSessions stays empty;
-        // openTabs-only rendering (Phase 6 behavior) takes over.
-        // T-07-01-04 mitigation. Cache is deliberately NOT touched on
-        // fetch failure — the last known-good snapshot survives the
-        // network hiccup (writeFleetSessionsCache only runs in the
-        // try-branch above).
-      }
-    })();
+    void fetchAndApplyFleetSessions({ isColdStart: true });
     return () => {
-      cancelled = true;
+      mountedRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // EMPTY DEP ARRAY — TG-17 shape lock: exactly once per mount.
+  }, []); // EMPTY DEP ARRAY — TG-17 shape lock: the SEED is exactly once per mount.
+          // The fetch also fires on becoming-visible (see effect below).
+
+  // Visibility re-ask — fire GET /sessions/list on becoming visible (D-07).
+  // Pairs with fleet-status-client.ts's visibility reconnect so both halves
+  // of "coming back shows what's current" fire on the same event and cannot
+  // diverge. No isIosPwa() gate — D-12 wants re-ask on every platform.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      void fetchAndApplyFleetSessions({ isColdStart: false });
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchAndApplyFleetSessions]);
 
   // Flat hostId → Host lookup for the click-a-detached-row handler.
   // Reuses the NOTE-05 stableHostTreeKey thrash-guard: rebuilt only when

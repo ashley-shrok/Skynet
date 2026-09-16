@@ -551,3 +551,603 @@ describe("AppShell persistence contract — patch #35 tabNodesRef DOM-move (T-06
     expect(cacheWriteCallCount).toBe(0);
   });
 });
+
+// ─── Phase 111 Plan 06: fetchAndApplyFleetSessions re-ask contract ────────────
+//
+// Tests the D-07 amendment: GET /sessions/list fires on mount AND on becoming
+// visible again (via a shared fetchAndApplyFleetSessions path). Scaffold
+// pattern mirrors the one the main describe block uses — a minimal component
+// that reproduces AppShell's mount effect + visibility effect shape, tested
+// in isolation with controlled promises.
+//
+// Critical T-111-35 invariant: the re-ask (isColdStart: false) path MUST NOT
+// call updateFleetSessions([]) on failure. Only the cold-start path may do so.
+//
+// Helpers shared across the 8 cases:
+//   setVisibility() — mutates document.visibilityState + fires visibilitychange
+//   flushPromises() — drains microtask + macrotask queue so async effects settle
+
+function setVisibilityDoc(state: "visible" | "hidden"): void {
+  Object.defineProperty(document, "visibilityState", {
+    value: state,
+    configurable: true,
+  });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
+const flushP = (): Promise<void> => new Promise((res) => setTimeout(res, 0));
+
+describe("Phase 111 Plan 06: fetchAndApplyFleetSessions re-ask (D-07 / T-111-35)", () => {
+  beforeEach(() => {
+    // Restore document.visibilityState to "visible" so cases start clean.
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      configurable: true,
+    });
+    // Reset fleet store
+    __resetFleetSessionsForTest();
+  });
+
+  // ─── Case 1: mount fires exactly one getSessionList ──────────────────────
+  it("Case 1: mount fires exactly one getSessionList call (no more, no less)", async () => {
+    let fetchCount = 0;
+    const getSessionListShim = (): Promise<unknown[]> => {
+      fetchCount++;
+      return Promise.resolve([]);
+    };
+
+    function FetchHarness(): null {
+      const fetchInflightRef = useRef<boolean>(false);
+      const mountedRef = useRef<boolean>(false);
+
+      const fetchAndApply = useCallback(
+        async (opts: { isColdStart: boolean }) => {
+          if (fetchInflightRef.current) return;
+          fetchInflightRef.current = true;
+          try {
+            const sessions = await getSessionListShim();
+            if (opts.isColdStart && !mountedRef.current) return;
+            const fresh = Array.isArray(sessions) ? sessions : [];
+            updateFleetSessions(fresh);
+          } catch {
+            if (opts.isColdStart && mountedRef.current) updateFleetSessions([]);
+          } finally {
+            fetchInflightRef.current = false;
+          }
+        },
+        [],
+      ); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        mountedRef.current = true;
+        void fetchAndApply({ isColdStart: true });
+        return () => {
+          mountedRef.current = false;
+        };
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        const handler = () => {
+          if (document.visibilityState !== "visible") return;
+          void fetchAndApply({ isColdStart: false });
+        };
+        document.addEventListener("visibilitychange", handler);
+        return () => document.removeEventListener("visibilitychange", handler);
+      }, [fetchAndApply]);
+
+      return null;
+    }
+
+    await act(async () => {
+      render(<FetchHarness />);
+      await flushP();
+    });
+
+    expect(fetchCount).toBe(1);
+  });
+
+  // ─── Case 2: becoming visible fires a second getSessionList ──────────────
+  it("Case 2: becoming visible after mount fires a second getSessionList", async () => {
+    let fetchCount = 0;
+    const getSessionListShim = (): Promise<unknown[]> => {
+      fetchCount++;
+      return Promise.resolve([]);
+    };
+
+    function FetchHarness(): null {
+      const fetchInflightRef = useRef<boolean>(false);
+      const mountedRef = useRef<boolean>(false);
+
+      const fetchAndApply = useCallback(
+        async (opts: { isColdStart: boolean }) => {
+          if (fetchInflightRef.current) return;
+          fetchInflightRef.current = true;
+          try {
+            const sessions = await getSessionListShim();
+            if (opts.isColdStart && !mountedRef.current) return;
+            const fresh = Array.isArray(sessions) ? sessions : [];
+            updateFleetSessions(fresh);
+          } catch {
+            if (opts.isColdStart && mountedRef.current) updateFleetSessions([]);
+          } finally {
+            fetchInflightRef.current = false;
+          }
+        },
+        [],
+      ); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        mountedRef.current = true;
+        void fetchAndApply({ isColdStart: true });
+        return () => {
+          mountedRef.current = false;
+        };
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        const handler = () => {
+          if (document.visibilityState !== "visible") return;
+          void fetchAndApply({ isColdStart: false });
+        };
+        document.addEventListener("visibilitychange", handler);
+        return () => document.removeEventListener("visibilitychange", handler);
+      }, [fetchAndApply]);
+
+      return null;
+    }
+
+    await act(async () => {
+      render(<FetchHarness />);
+      await flushP();
+    });
+
+    expect(fetchCount).toBe(1);
+
+    // Simulate tab becoming visible (e.g. after Alt-Tab back)
+    await act(async () => {
+      setVisibilityDoc("hidden");
+      setVisibilityDoc("visible");
+      await flushP();
+    });
+
+    expect(fetchCount).toBe(2);
+  });
+
+  // ─── Case 3: re-ask does NOT touch readFleetSessionsCache ────────────────
+  it("Case 3: readFleetSessionsCache is mount-only — re-ask does not call it", async () => {
+    let cacheReadCount = 0;
+    const readCacheShim = (): unknown[] => {
+      cacheReadCount++;
+      return [];
+    };
+
+    function FetchHarness(): null {
+      const fetchInflightRef = useRef<boolean>(false);
+      const mountedRef = useRef<boolean>(false);
+
+      const fetchAndApply = useCallback(
+        async (_opts: { isColdStart: boolean }) => {
+          if (fetchInflightRef.current) return;
+          fetchInflightRef.current = true;
+          try {
+            await Promise.resolve([]);
+          } catch {
+            // no-op
+          } finally {
+            fetchInflightRef.current = false;
+          }
+        },
+        [],
+      ); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        mountedRef.current = true;
+        // Cache read is MOUNT-ONLY — inside this effect, not in fetchAndApply
+        readCacheShim();
+        void fetchAndApply({ isColdStart: true });
+        return () => {
+          mountedRef.current = false;
+        };
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        const handler = () => {
+          if (document.visibilityState !== "visible") return;
+          // Re-ask path — fetchAndApply is called but readCacheShim is NOT
+          void fetchAndApply({ isColdStart: false });
+        };
+        document.addEventListener("visibilitychange", handler);
+        return () => document.removeEventListener("visibilitychange", handler);
+      }, [fetchAndApply]);
+
+      return null;
+    }
+
+    await act(async () => {
+      render(<FetchHarness />);
+      await flushP();
+    });
+
+    expect(cacheReadCount).toBe(1); // mount only
+
+    await act(async () => {
+      setVisibilityDoc("hidden");
+      setVisibilityDoc("visible");
+      await flushP();
+    });
+
+    // Still 1 — re-ask did not call readCacheShim
+    expect(cacheReadCount).toBe(1);
+  });
+
+  // ─── Case 4: failing re-ask does NOT call updateFleetSessions([]) (T-111-35, load-bearing) ──
+  //
+  // If the re-ask catch branch unconditionally calls updateFleetSessions([]),
+  // every transient network blip wipes the conversation list. The
+  // opts.isColdStart guard ensures only the cold-start path calls it.
+  // This test tracks the call count of a shim to prove the guard is active.
+  //
+  // Load-bearing proof: making catch unconditional causes this test to fail.
+  it("Case 4: failing re-ask does NOT call updateFleetSessions([]) — T-111-35", async () => {
+    // Use a shim to count how many times the "empty wipe" path fires
+    let emptyUpdateCallCount = 0;
+    const emptyUpdateShim = (): void => {
+      emptyUpdateCallCount++;
+    };
+
+    let fetchCallCount = 0;
+    const getSessionListShim = (): Promise<unknown[]> => {
+      fetchCallCount++;
+      return Promise.reject(new Error("network blip"));
+    };
+
+    function FetchHarness(): null {
+      const fetchInflightRef = useRef<boolean>(false);
+      const mountedRef = useRef<boolean>(false);
+
+      const fetchAndApply = useCallback(
+        async (opts: { isColdStart: boolean }) => {
+          if (fetchInflightRef.current) return;
+          fetchInflightRef.current = true;
+          try {
+            await getSessionListShim();
+          } catch {
+            // T-111-35: ONLY cold-start path calls the empty-update shim.
+            // Re-ask path must NOT call it.
+            if (opts.isColdStart && mountedRef.current) emptyUpdateShim();
+          } finally {
+            fetchInflightRef.current = false;
+          }
+        },
+        [],
+      ); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        mountedRef.current = true;
+        void fetchAndApply({ isColdStart: true });
+        return () => {
+          mountedRef.current = false;
+        };
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        const handler = () => {
+          if (document.visibilityState !== "visible") return;
+          void fetchAndApply({ isColdStart: false });
+        };
+        document.addEventListener("visibilitychange", handler);
+        return () => document.removeEventListener("visibilitychange", handler);
+      }, [fetchAndApply]);
+
+      return null;
+    }
+
+    // Mount — cold-start fetch fails
+    await act(async () => {
+      render(<FetchHarness />);
+      await flushP();
+    });
+
+    expect(fetchCallCount).toBe(1);
+    // Cold-start failure fires the shim (isColdStart: true)
+    expect(emptyUpdateCallCount).toBe(1);
+
+    // Re-ask (visibility-triggered) — also fails
+    await act(async () => {
+      setVisibilityDoc("hidden");
+      setVisibilityDoc("visible");
+      await flushP();
+    });
+
+    expect(fetchCallCount).toBe(2);
+    // T-111-35: re-ask failure must NOT fire the empty-update shim
+    expect(emptyUpdateCallCount).toBe(1); // still 1, not 2
+  });
+
+  // ─── Case 5: failing cold-start still flips fleetSessionsLoaded ──────────
+  //
+  // quick-260821-m36 behaviour must survive the D-07 refactor. A cold-start
+  // failure must still flip fleetSessionsLoaded false→true so clients don't
+  // stay stuck at "Loading agents…".
+  it("Case 5: failing cold-start calls updateFleetSessions([]) — flips fleetSessionsLoaded (quick-260821-m36 survives D-07)", async () => {
+    __resetFleetSessionsForTest();
+    expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
+
+    function FetchHarness(): null {
+      const fetchInflightRef = useRef<boolean>(false);
+      const mountedRef = useRef<boolean>(false);
+
+      const fetchAndApply = useCallback(
+        async (opts: { isColdStart: boolean }) => {
+          if (fetchInflightRef.current) return;
+          fetchInflightRef.current = true;
+          try {
+            await Promise.reject(new Error("timeout"));
+          } catch {
+            if (opts.isColdStart && mountedRef.current) updateFleetSessions([]);
+          } finally {
+            fetchInflightRef.current = false;
+          }
+        },
+        [],
+      ); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        mountedRef.current = true;
+        void fetchAndApply({ isColdStart: true });
+        return () => {
+          mountedRef.current = false;
+        };
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        const handler = () => {
+          if (document.visibilityState !== "visible") return;
+          void fetchAndApply({ isColdStart: false });
+        };
+        document.addEventListener("visibilitychange", handler);
+        return () => document.removeEventListener("visibilitychange", handler);
+      }, [fetchAndApply]);
+
+      return null;
+    }
+
+    await act(async () => {
+      render(<FetchHarness />);
+      await flushP();
+    });
+
+    expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(true);
+  });
+
+  // ─── Case 6: rapid hidden/visible cycling produces at most one in-flight ──
+  //
+  // fetchInflightRef.current guard coalesces concurrent visibility events so
+  // rapid cycling (e.g. mobile backgrounding) does not stack concurrent
+  // network requests. The guard is NOT a success-latch — it clears in finally.
+  it("Case 6: rapid hidden/visible cycling fires at most one concurrent fetch (in-flight coalescing)", async () => {
+    let fetchCount = 0;
+
+    // Slow fetch — does not resolve until we control it
+    let resolveFetch!: (v: unknown[]) => void;
+    const pendingFetch = new Promise<unknown[]>((res) => {
+      resolveFetch = res;
+    });
+
+    const getSessionListShim = (): Promise<unknown[]> => {
+      fetchCount++;
+      return pendingFetch;
+    };
+
+    function FetchHarness(): null {
+      const fetchInflightRef = useRef<boolean>(false);
+      const mountedRef = useRef<boolean>(false);
+
+      const fetchAndApply = useCallback(
+        async (opts: { isColdStart: boolean }) => {
+          if (fetchInflightRef.current) return; // coalescing guard
+          fetchInflightRef.current = true;
+          try {
+            const sessions = await getSessionListShim();
+            if (opts.isColdStart && !mountedRef.current) return;
+            updateFleetSessions(Array.isArray(sessions) ? sessions : []);
+          } catch {
+            if (opts.isColdStart && mountedRef.current) updateFleetSessions([]);
+          } finally {
+            fetchInflightRef.current = false;
+          }
+        },
+        [],
+      ); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        mountedRef.current = true;
+        void fetchAndApply({ isColdStart: true });
+        return () => {
+          mountedRef.current = false;
+        };
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        const handler = () => {
+          if (document.visibilityState !== "visible") return;
+          void fetchAndApply({ isColdStart: false });
+        };
+        document.addEventListener("visibilitychange", handler);
+        return () => document.removeEventListener("visibilitychange", handler);
+      }, [fetchAndApply]);
+
+      return null;
+    }
+
+    // Mount — cold-start fetch starts (fetchInflightRef = true), stays pending
+    await act(async () => {
+      render(<FetchHarness />);
+      await flushP();
+    });
+
+    expect(fetchCount).toBe(1); // cold-start fired
+
+    // Rapid visible cycles while cold-start is still in-flight
+    await act(async () => {
+      setVisibilityDoc("hidden");
+      setVisibilityDoc("visible");
+      setVisibilityDoc("hidden");
+      setVisibilityDoc("visible");
+      setVisibilityDoc("hidden");
+      setVisibilityDoc("visible");
+      await flushP();
+    });
+
+    // Still 1 — coalescing guard blocked all re-asks while cold-start in-flight
+    expect(fetchCount).toBe(1);
+
+    // Resolve the cold-start fetch — fetchInflightRef clears in finally
+    await act(async () => {
+      resolveFetch([]);
+      await flushP();
+    });
+
+    // Now a new visibility event triggers a fresh fetch (guard is clear)
+    await act(async () => {
+      setVisibilityDoc("hidden");
+      setVisibilityDoc("visible");
+      await flushP();
+    });
+
+    // pendingFetch already resolved, so this second fetch also resolves immediately
+    expect(fetchCount).toBe(2);
+  });
+
+  // ─── Case 7: successful re-ask calls writeFleetSessionsCache ─────────────
+  it("Case 7: successful re-ask calls writeFleetSessionsCache", async () => {
+    let cacheWriteCount = 0;
+    const writeCacheShim = (): void => {
+      cacheWriteCount++;
+    };
+
+    function FetchHarness(): null {
+      const fetchInflightRef = useRef<boolean>(false);
+      const mountedRef = useRef<boolean>(false);
+
+      const fetchAndApply = useCallback(
+        async (opts: { isColdStart: boolean }) => {
+          if (fetchInflightRef.current) return;
+          fetchInflightRef.current = true;
+          try {
+            const sessions = await Promise.resolve([]);
+            if (opts.isColdStart && !mountedRef.current) return;
+            updateFleetSessions(Array.isArray(sessions) ? sessions : []);
+            writeCacheShim();
+          } catch {
+            if (opts.isColdStart && mountedRef.current) updateFleetSessions([]);
+          } finally {
+            fetchInflightRef.current = false;
+          }
+        },
+        [],
+      ); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        mountedRef.current = true;
+        void fetchAndApply({ isColdStart: true });
+        return () => {
+          mountedRef.current = false;
+        };
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        const handler = () => {
+          if (document.visibilityState !== "visible") return;
+          void fetchAndApply({ isColdStart: false });
+        };
+        document.addEventListener("visibilitychange", handler);
+        return () => document.removeEventListener("visibilitychange", handler);
+      }, [fetchAndApply]);
+
+      return null;
+    }
+
+    await act(async () => {
+      render(<FetchHarness />);
+      await flushP();
+    });
+
+    expect(cacheWriteCount).toBe(1); // cold-start wrote cache
+
+    await act(async () => {
+      setVisibilityDoc("hidden");
+      setVisibilityDoc("visible");
+      await flushP();
+    });
+
+    expect(cacheWriteCount).toBe(2); // re-ask also writes cache on success
+  });
+
+  // ─── Case 8: visibility listener removed on unmount ──────────────────────
+  it("Case 8: visibilitychange listener is removed when component unmounts", async () => {
+    let fetchCount = 0;
+    const getSessionListShim = (): Promise<unknown[]> => {
+      fetchCount++;
+      return Promise.resolve([]);
+    };
+
+    function FetchHarness(): null {
+      const fetchInflightRef = useRef<boolean>(false);
+      const mountedRef = useRef<boolean>(false);
+
+      const fetchAndApply = useCallback(
+        async (opts: { isColdStart: boolean }) => {
+          if (fetchInflightRef.current) return;
+          fetchInflightRef.current = true;
+          try {
+            const sessions = await getSessionListShim();
+            if (opts.isColdStart && !mountedRef.current) return;
+            updateFleetSessions(Array.isArray(sessions) ? sessions : []);
+          } catch {
+            if (opts.isColdStart && mountedRef.current) updateFleetSessions([]);
+          } finally {
+            fetchInflightRef.current = false;
+          }
+        },
+        [],
+      ); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        mountedRef.current = true;
+        void fetchAndApply({ isColdStart: true });
+        return () => {
+          mountedRef.current = false;
+        };
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+      useEffect(() => {
+        const handler = () => {
+          if (document.visibilityState !== "visible") return;
+          void fetchAndApply({ isColdStart: false });
+        };
+        document.addEventListener("visibilitychange", handler);
+        return () => document.removeEventListener("visibilitychange", handler);
+      }, [fetchAndApply]);
+
+      return null;
+    }
+
+    const { unmount } = render(<FetchHarness />);
+    await act(async () => { await flushP(); });
+
+    expect(fetchCount).toBe(1); // cold-start
+
+    // Unmount — cleanup runs, listener removed
+    unmount();
+
+    // Visibility event after unmount — must NOT trigger another fetch
+    await act(async () => {
+      setVisibilityDoc("hidden");
+      setVisibilityDoc("visible");
+      await flushP();
+    });
+
+    expect(fetchCount).toBe(1); // unchanged — listener was removed
+  });
+});
