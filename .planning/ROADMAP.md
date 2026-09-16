@@ -2184,7 +2184,6 @@ Plans:
 - [ ] 93-04-PLAN.md — Wave 4 (depends 93-03): dispatcher rewire (both `tabUtils.tsx:204` + `:314` early-return retirement) + delete standalone tree (17 files)
 - [ ] 93-05-PLAN.md — Wave 5 (depends 93-04): comment sweep (5 external ref sites, grep-enumerate-first) + optimistic-bubble parity test at composed level
 
-
 ### Phase 94: supervisor archive extension — daily archive-scan for 180-day dormant identities (Shape 2 of id-skill-revamp campaign)
 
 **Goal:** Teach the per-host agent-supervisor a second job alongside its existing keep-identities-alive role: on a daily cadence, walk the box's identities and retire the ones that have been genuinely dormant for 180 days. Retirement = (1) move the identity folder into an `archive/` sibling of the identities tree, (2) kill any live tmux session for the identity, (3) self-deactivate the identity's matrix account using its own credentials. All three steps local to the host; no admin credential, no cross-service coordination, no announcement (silent by design per shape). Shape 2 of 4 in the id-skill-revamp campaign; hard-depends on Phase 92's `.pinned` disk sentinel for guard D-03.
@@ -2213,7 +2212,6 @@ Plans:
 - [x] 95-03-PLAN.md — Wave 2 (Part B frontend deletion, depends 95-02): delete PlanPendingBubble.tsx + ComposeBox.plan-pending-disable.test.tsx whole; PrettyView.tsx 15 sites (import L35, state L632–L659, three setPlanPending resets, plan_pending case handler L2491–L2494, conditional render L3751–L3756, planPendingActive prop-drill L3972–L3982, 6 comment edits); ComposeBox.tsx 14 planPendingActive sites (prop docblock + destructure + 8 OR-in guards + prop-drill + duplicate cluster L3219+); claude-session-api.ts wire-type deletions (PlanPendingEvent + raw_keystrokes); 9 comment-only sibling edits (PrettyViewLoadingOverlay/RelayInboundBubble/AsideBubble/SessionHoldingOverlay/WaitingBubble docblock rewrite/use-auto-scroll/AgentBadgeWithAppendage/AppShell); RESEARCH G7 Ink Plan Mode split-send lesson preserved verbatim in SUMMARY.md before file rm
 - [x] 95-04-PLAN.md — Wave 3 (Part C substrate, depends 95-03): new src/backend/claude-session/pv-sweep-schema.ts (single-tier v1 schema — line_kind identity + identity + schema_version=1 + context_pct + jsonl_path; lenient parseSweepJsonl never throws; PV_SWEEP_SCHEMA_VERSION constant) + pv-sweep-schema.test.ts (8 tests including wire-contract grep-guard); new substrate/scripts/pv-context-pct-sweep.py (Python 3 stdlib-only, --identities argv, ports readContextPctFromJsonl TAIL_EXPANSION_STEPS + reverseScanForAssistantUsageSum + discover-identity-session-file.ts predicate server-side, exits 0 always, execute bit committed); distributor catalog row (bundledPath /app/fleet-substrate/scripts/pv-context-pct-sweep.py → installPath ~/.local/bin/pv-context-pct-sweep, restartHook null) + catalog.test.ts Test 1 22→23 + Test 6 scriptRows 8→9 + run-sweep.test.ts count bump; MEDIUM-confidence decision #2 (SSH-topology) LOCKED as Option 3 per-WS in Plan objective + SUMMARY — rationale: claude-session-server has no per-host shared SSH connection (each WS uses connectOneShot; RESEARCH G1), Option 1 (per-host coordinator) requires new connection-pool subsystem = scope creep, Option 3 delivers 4x per-WS collapse with zero new plumbing, user owns override
 - [x] 95-05-PLAN.md — Wave 3 (Part C caller rewire + close, depends 95-04): rewire contextPctTimer in claude-session-server.ts with computeContextPctBatch + computeContextPctLegacy helpers; add per-WS closure state sweepScriptPresent + sweepSchemaMismatch; presence probe (test -x ~/.local/bin/pv-context-pct-sweep) once per SSH-channel lifetime; sweep exec (~/.local/bin/pv-context-pct-sweep --identities <session>) with G6 belt-and-suspenders safe-char guard; null-exec forces re-probe next tick; schema-mismatch latches for channel lifetime; both dispatch branches emit context_pct (null passthrough); new structured log ops pv_context_pct_sweep_probe + pv_context_pct_batch_fallback; 6 regression tests in new claude-session-server.pv-sweep.test.ts (batch dispatch exec-count, legacy fallback, probe caching, null-exec recovery, schema-mismatch latch, strict batch-vs-legacy parity on emitted pct); user UAT gate (7 checks — sweep script installed per peer, sweep-probe log fired per WS, zero tail -c 10000/50000/200000/512000 on Skynet host under 5-tab PV load, batch_fallback ops rare, SFTP curl 20/20, cross-check UI pct vs sweep script pct within 1%, frontend regression sanity) MUST close with all-pass before Phase 95 completes (completed 2026-09-10)
-
 
 ### Phase 96: On-disk tree consolidation — consolidate identity metadata and each identity's working directory under one canonical ~/fleet/ tree with roles, identities, and identities-archive siblings; workspace sub-part inside each identity folder; per-box manual migration coordinated with substrate + Skynet code deploy; Shape 3 of id-skill-revamp campaign. Shape file at .planning/shapes/shape-on-disk-tree-consolidation.md
 
@@ -2288,7 +2286,6 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 98-10-PLAN.md — Wave 5 (deps 98-06, 98-08): Final Chatterbox kill — move getMatrixHomeserverBase from media-endpoints.ts to new src/backend/matrix/matrix-config.ts; rewire bridge-config-writer.ts import; delete src/backend/config/media-endpoints.ts + media-endpoints.test.ts; grep-sweep verifies zero residual Chatterbox references in live code
-
 
 ### Phase 99: spawn-request-watcher — Skynet-side noticing of coord-dropped request files: fleet-status observation-and-claim per-tick, in-memory backend queue, async birth-worker invoking existing identity-birth flow, success/failure response-file drops keyed by request-id. Shape 5 (final) of id-skill-revamp campaign. Shape file at .planning/shapes/shape-spawn-request-watcher.md. (rescue-rebased 97 → 98 → 99 after taylor P97 phase-93-uat-polish-arc + tabitha P98 more-versatile-stt-tts-support collisions; both peers mid-ship, tiebreak-1 gives both their slots)
 
@@ -2398,10 +2395,10 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
+
 - [ ] 104-01-PLAN.md — Wave 1 (parallel): Backend detector — new readIdentityTrappedWork(conn, identityKey) mirroring readIdentityBountyCounts + handleIdentityProbeTrappedWork WS handler + identity:probe-trapped-work route + tests (D-01, D-02, D-03, D-06, D-09)
 - [ ] 104-02-PLAN.md — Wave 1 (parallel, file-disjoint from 104-01): Frontend api + store + row indicator + badge indicator + CSS + poller mount + tests (D-03, D-05, D-06, D-07, D-08)
 - [ ] 104-03-PLAN.md — Wave 2 (deps 104-01 + 104-02): Full deletion pass — retire readIdentityBountyCounts + handleIdentityCountBounties + countIdentityBounties + bounty-counts-store + PrettyBountyCountBadge + panel bounty helpers + pinned/needs-desk filter menu items + all tests + all CSS bounty rules (D-04, D-11)
-
 
 ### Phase 105: pin-sentinel-migration — move identity pin state from Skynet DB to a `.pinned` on-disk sentinel per identity folder (matches `.no-dormancy` and `.recycle-requested` presence-based pattern); generalize the identity-birth SFTP wire into a per-identity file-touch primitive; drop the DB pin table in the same schema migration; existing pinned identities migrated manually per-box. Shape 1 of the id-skill-revamp multi-shape campaign. Shape file at `.planning/shapes/shape-pin-sentinel-migration.md`.
 
@@ -2427,6 +2424,7 @@ Plans:
 **Plans:** 3/4 plans executed
 
 Plans:
+
 - [x] 106-01-PLAN.md — Backend orchestrator refactor: retire tmux + harness, add wait-for-supervisor poll + ended.reason field + SSE keepalive (Wave 1)
 - [x] 106-02-PLAN.md — Frontend modal rework: delete BirthProgress; add spinner-in-Create-button + modal-lock + alert-on-failure (Wave 1, parallel with 106-01)
 - [ ] 106-03-PLAN.md — Backend test updates: remove step:3/4/5 assertions; add wait-poll success/timeout/error tests (Wave 2, depends on 106-01)
@@ -2440,6 +2438,7 @@ Plans:
 **Plans:** 3/4 plans executed
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 107 to break down)
 
 ### Phase 108: birth-pipeline-role-folder-existence-check — insert a pre-Step-1 target-host probe in identity-birth-orchestrator that verifies ~/fleet/roles/<role>/<role>.md exists on the target host before any durable side effect (Matrix registration, MXID composition, identity folder mkdir, identity file write). On miss, fail with a clean role_folder_not_found reason propagated through the existing response-file failure channel (mirror `identity already exists on this host` shape). Rescue-rebased from Phase 107 → 108 after peer vega P107 hide-identity-rows shipped first (pure slot collision, disjoint source files). Adjacent to Phase 106 (birth-flow Chunk 3) but orthogonal — fail-fast validation, not tmux/harness retirement.
@@ -2450,6 +2449,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
+
 - [ ] 108-01-PLAN.md — Insert role-folder probe into runStep(1) (local + remote branches), add 5 orchestrator tests + 1 worker processBirth test, update stale worker.ts comment, run D-15 scoped vitest gate (Wave 1)
 
 ### Phase 109: STT provider swap Amazon Transcribe to Amazon Nova Sonic on Bedrock (Nova 2 Sonic v1 default, cutover migration) — replace transcribe-adapter with a new nova-sonic-adapter using @aws-sdk/client-bedrock-runtime InvokeModelWithBidirectionalStreamCommand + NodeHttp2Handler, port the working Python event schema verbatim, feed LPCM 16kHz audio chunks paced at 5x real-time, filter role=USER textOutput for the ASR result, discard assistant text/audio. Add webmToPcm16k helper in audio-transcode.ts, rewire voice.ts handleTranscribe, drop the CHUNKED_THRESHOLD_BYTES branch, delete the Phase 100 chunked-orchestrator subsystem (transcribe-orchestrator + audio-chunker + word-stitcher + voice/semaphore + 4 test files, ~2200 lines) plus transcribe-adapter.ts + test, swap package.json deps. Client-side voice code + /voice/transcribe request contract untouched. Depends on Phase 108. Full recon at ~/fleet/roles/box-maintainer/bounties/stt-nova-sonic-migration/RECON.md.
@@ -2460,6 +2460,7 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
+
 - [x] 109-01-PLAN.md — Create nova-sonic-adapter.ts + unit tests (mocked SDK, event sequence, USER-only filter, clean teardown, IMDS-only credentials); swap package.json deps: -@aws-sdk/client-transcribe-streaming, +@aws-sdk/client-bedrock-runtime, +@smithy/node-http-handler (Wave 1)
 - [x] 109-02-PLAN.md — Add webmToPcm16k helper to audio-transcode.ts (delegates to runFfmpeg, reuses SILENCE_FILTER, LPCM 16 kHz s16le mono) + 5 new unit tests mirroring the webmToFlac test topology (Wave 1, parallel with 109-01)
 - [x] 109-03-PLAN.md — Rewire voice.ts handleTranscribe to call transcribeNovaSonic via webmToPcm16k; drop CHUNKED_THRESHOLD_BYTES + FLAC/OGG passthrough + mediaEncoding; rewrite voice.test.ts to mock the new adapter facade and delete the Phase 100 chunked-path describe block (Wave 2, depends on 109-01 + 109-02)
@@ -2473,6 +2474,7 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
+
 - [x] TBD (run /gsd-plan-phase 110 to break down) (completed 2026-09-13)
 
 ### Phase 111: conversation list arrives complete and stays live — one complete answer shape (existence + appearance + resolved inheritance + pinned + hidden) served to BOTH the opening request and the repeating fleet-status pulse, so the two moments cannot disagree; server answers the opening request from its already-held fleet picture rather than fanning out to hosts (browser becomes a viewer, not the trigger for discovery); appearance keeps exactly ONE write authority, additive never blanking, so a less-informed answer can never blank a better one; membership and appearance independent (a failed record read yields a plain row, NEVER a missing row); per-host answering stays independent so one slow host never delays the whole list; inheritance resolved with each role file read at most once per host per tick; includes fixing the give-up-forever WS reconnect (returning-to-current on phone depends on it) and a fresh-start full-re-read floor so a missed change degrades to slightly-stale rather than permanently-wrong. Explicitly REJECTS change-detection/mtime-gating cleverness on measurement, not oversight: added per-tick work measured ~1ms (2.1ms vs 1.1ms baseline, 73 identities) against 600-750ms already spent per host per tick on transcript-tail scanning; gating would trade a millisecond for a class of invisible staleness bugs. Bar: no row is ever seen in a state it then grows out of — the undressed window is GONE, not shortened. Out of scope: slow first-ever-load empty-cache waiting states (deferred by explicit user decision); making an individual conversation open faster. Supersedes all three declared shapes of campaign-conversation-list-live. Shape file: .planning/shapes/shape-conversation-list-complete-and-live.md — SEED CONTEXT.md FROM THAT SHAPE FILE rather than re-eliciting. Bounties: conversation-list-live-and-cached, client-cache-session-list, conversation-rows-render-colourless-silent-refresh-failure, sidebar-fleet-sessions-refresh-after-identity-create, conversation-list-scroll-delay-on-load.
@@ -2481,11 +2483,24 @@ Plans:
 **Requirements**: none mapped — coverage is driven by CONTEXT.md decisions D-01 through D-13
 **Depends on:** Phase 110
 **Plans:** 6 plans
-
 Plans:
+**Wave 1**
+
 - [ ] 111-01-PLAN.md — host-side sweep emits raw appearance + role + .pinned/.hidden at SCHEMA_VERSION 1 (D-01..D-04), plus the bash driver that covers the new stdlib frontmatter parser
 - [ ] 111-02-PLAN.md — one identity-over-role merge authority shared with publicIdentity(); widen SweepIdentityLine + SessionStateSchema + the browser mirror, both versions held (D-04, D-09)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 111-03-PLAN.md — thread appearance onto both publish sources; both fingerprints, three frame sites, four cache branches (D-01, D-02, D-09)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 111-04-PLAN.md — mergeIdentityAppearance: an additive door that provably cannot set `loaded` or append; pinned/hidden re-projection; appearance-first ordering (D-09, D-10)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 111-05-PLAN.md — rows appear and disappear from the pulse via upsertFleetSession + onGone, without flipping fleetSessionsLoaded (D-05, D-06, D-08, D-10)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 111-06-PLAN.md — indefinite slow reconnect, wake-on-visible on every platform, /sessions/list re-ask on the same event (D-05, D-07, D-11, D-12, D-13)

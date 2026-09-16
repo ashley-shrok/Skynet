@@ -1032,7 +1032,16 @@ Included because appearance-on-the-wire changes what runtime systems hold, even 
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All four resolved during planning 2026-09-16; resolutions live in the plans'
+> `resolved_open_questions` blocks. Summary: (Q1) merge in TypeScript via a shared
+> `identity-appearance.ts` that BOTH the route and the pulse call — not reimplemented
+> in Python — see 111-02; (Q2) `hostName` resolved from `hostsFlat` rather than
+> widened onto the wire — see 111-05; (Q3) NO `fleetSessionsLoaded` gate on
+> pulse-upsert, because a gate would suppress exactly the D-06 backstop case — see
+> 111-05; (Q4) yes, `SWEEP_FIELD_PARITY` gains B6..B9 to preserve typo protection —
+> see 111-02.
 
 1. **Where does the identity-over-role merge execute — Python or TypeScript?**
    - *What we know:* CONTEXT.md Discretion asks for wire field names matching `publicIdentity()` *"so the frontend merge is a straight field copy rather than a translation layer"* — which implies **pre-merged** values on the wire. The sweep is the only place with both files in hand cheaply (D-01), so merging there is natural. But `publicIdentity()` (`identities.ts:209-227`) is the canonical merge and CONTEXT.md § Reusable Assets warns that divergence *"would be a second authority by the back door."*
