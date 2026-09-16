@@ -30,24 +30,25 @@
  *   `systemctl --user daemon-reload` at the start of every sweep, so systemd
  *   has already re-read the unit before the restart hook fires.
  *
- * ROW-COUNT RECONCILIATION (17 items vs. 24 rows):
- *   The shape doc counts "15 items" — that's 7 single-file skills + 1 skill
+ * ROW-COUNT RECONCILIATION (16 items vs. 23 rows):
+ *   The shape doc counts "15 items" — that was 7 single-file skills + 1 skill
  *   with 1 companion (agent-relay: SKILL.md + recv.sh) + 1 skill with 3
  *   companions (id: SKILL.md + actor-status-prompt + clone-picker-prompt +
- *   coordinator-instructions) + 6 helper scripts. Phase 92 appends
- *   fleet-status-sweep and Phase 95 appends pv-context-pct-sweep, bringing
- *   the conceptual helper-script count to 8. The mega-monitor phase adds a
- *   ninth helper script — `ambient-monitor` — bringing the conceptual count
- *   to 17. (As of 2026-09-14 the agent-supervisor, not the agent, launches
- *   ambient-monitor; that changed the caller, not the row count.)
+ *   coordinator-instructions) + 6 helper scripts. claude-code-harness-auth
+ *   was subsequently removed, bringing the single-file skill count to 6.
+ *   Phase 92 appends fleet-status-sweep and Phase 95 appends
+ *   pv-context-pct-sweep, bringing the conceptual helper-script count to 8.
+ *   The mega-monitor phase adds a ninth helper script — `ambient-monitor` —
+ *   bringing the conceptual count to 16. (As of 2026-09-14 the
+ *   agent-supervisor, not the agent, launches ambient-monitor; that changed
+ *   the caller, not the row count.)
  *   The byte-compare mechanism in Plan 03 pushes files, not "items",
  *   so this catalog has one row per file. The bootstrap bounty adds 1 more
  *   row (agent-supervisor.service):
  *     - 4 rows for id/          (SKILL.md + 3 companions)
  *     - 2 rows for agent-relay/ (SKILL.md + recv.sh)
- *     - 7 rows for the single-file skills (backlog, bounty,
- *       claude-code-harness-auth, next-bounty, promote-to-coordinator,
- *       queue, role)
+ *     - 6 rows for the single-file skills (backlog, bounty, next-bounty,
+ *       promote-to-coordinator, queue, role)
  *     - 10 rows for helper scripts under scripts/
  *       (role-file-watch is one of the four ambient watchers, all four
  *       spawned as children of ambient-monitor rather than launched
@@ -56,7 +57,7 @@
  *       poller; pv-context-pct-sweep is the Phase 95 batch sweep for the
  *       PV context-pct poller)
  *     - 1 row for user-onboarding/agent-supervisor.service
- *   Total = 24.
+ *   Total = 23.
  */
 
 /**
@@ -155,13 +156,6 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     slug: "bounty-skill",
     bundledPath: "/app/fleet-substrate/skills/bounty/SKILL.md",
     installPath: "~/.claude/skills/bounty/SKILL.md",
-    restartHook: null,
-  },
-  {
-    slug: "claude-code-harness-auth-skill",
-    bundledPath:
-      "/app/fleet-substrate/skills/claude-code-harness-auth/SKILL.md",
-    installPath: "~/.claude/skills/claude-code-harness-auth/SKILL.md",
     restartHook: null,
   },
   {

@@ -32,12 +32,12 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 24 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase)", () => {
-    // 17 = 7 single-file skills + agent-relay (SKILL.md + recv.sh counted as
+  it("Test 1: contains exactly 23 entries (16 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase)", () => {
+    // 16 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor). Per-FILE row
     // layout is required by the byte-compare mechanism in Plan 03, so the
-    // array has 13 skill-side rows + 10 scripts-side rows + 1 user-onboarding
+    // array has 12 skill-side rows + 10 scripts-side rows + 1 user-onboarding
     // row (agent-supervisor.service).
     // role-file-watch is the 7th helper script (fourth ambient monitor alongside
     // wakeup-scheduler and context-watch). fleet-status-sweep is the 8th helper
@@ -46,7 +46,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // PrettyView context-pct poller). ambient-monitor is the 10th — the single
     // on-wake launcher that spawns the four ambient watchers under one Monitor
     // instead of four (mega-monitor phase).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(24);
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(23);
   });
 
   it("Test 2: every bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -103,8 +103,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       e.bundledPath.startsWith("/app/fleet-substrate/user-onboarding/"),
     );
 
-    // 13 skill-side files: 4 under id/ + 2 under agent-relay/ + 7 single-file skills
-    expect(skillRows.length).toBe(13);
+    // 12 skill-side files: 4 under id/ + 2 under agent-relay/ + 6 single-file skills
+    expect(skillRows.length).toBe(12);
     // 10 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + install-usage-reporter +
     // claude-usage-collector + fleet-status-sweep (Phase 92 batch sweep) +
@@ -126,11 +126,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     );
     expect(agentRelayRows.length).toBe(2);
 
-    // Seven single-file skills each contribute one entry.
+    // Six single-file skills each contribute one entry.
     const singleFileSkillSlugs = [
       "backlog",
       "bounty",
-      "claude-code-harness-auth",
       "next-bounty",
       "promote-to-coordinator",
       "queue",
