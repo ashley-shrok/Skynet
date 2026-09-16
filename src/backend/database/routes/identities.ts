@@ -1,4 +1,8 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
+import {
+  resolveIdentityAppearance,
+  capitalizeFirstIdentityKey,
+} from "../../fleet-status/identity-appearance.js";
 import express from "express";
 import multer from "multer";
 import { createHash } from "crypto";
@@ -102,18 +106,6 @@ function parseMultipartMetadata(req: Request): IdentityMetadata | null {
   }
 }
 
-/**
- * Phase 66 Plan 03 (moved from Plan 05 per checker B2): capitalizeFirst
- * safe-default helper. Mirrors the frontend withDisplayCap pattern at
- * src/ui/state/identities-store.ts L23-29 exactly. When disk cosmetics
- * are absent, displayName falls back to `capitalizeFirst(identityKey)`
- * so the frontend Identity type's non-nullable-string contract is
- * satisfied without widening the type.
- */
-function capitalizeFirst(s: string): string {
-  if (!s || s.length === 0) return s;
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 /**
  * Phase 68 Plan 68-02: publicIdentity rewired to (identityKey, hostId, cosmetics, role).
@@ -204,27 +196,20 @@ export function publicIdentity(
    *  to `pinned` above; independent axis. */
   hidden: boolean = false,
 ) {
-  // Phase 85: per-field merge — identity ?? role ?? null. The narrowing
-  // guards (typeof/range) live in extractCosmeticsFromFrontmatter; here we
-  // only need presence-check fall-through.
-  const mergedTitle =
-    typeof cosmetics.title === "string"
-      ? cosmetics.title
-      : typeof roleCosmetics?.title === "string"
-        ? roleCosmetics.title
-        : null;
-  const mergedColorHue =
-    typeof cosmetics.colorHue === "number"
-      ? cosmetics.colorHue
-      : typeof roleCosmetics?.colorHue === "number"
-        ? roleCosmetics.colorHue
-        : null;
-  const mergedVoice =
-    typeof cosmetics.voice === "string"
-      ? cosmetics.voice
-      : typeof roleCosmetics?.voice === "string"
-        ? roleCosmetics.voice
-        : null;
+  // Phase 111 Plan 111-02: delegate the identity-over-role merge to the single
+  // authority in `src/backend/fleet-status/identity-appearance.ts`. This keeps
+  // ONE cascade in the entire codebase (T-111-08 mitigation). The two carve-outs
+  // (task not inherited; displayName falls to capitalizeFirst not role.displayName)
+  // live in resolveIdentityAppearance, tested by identity-appearance.test.ts.
+  const resolved = resolveIdentityAppearance({
+    identityKey,
+    hostId,
+    cosmetics,
+    roleCosmetics,
+    role,
+    pinned,
+    hidden,
+  });
 
   return {
     identityKey,
@@ -233,46 +218,43 @@ export function publicIdentity(
     // without having to reverse-parse avatarUrl. Fixes cross-host cosmetics
     // collision when two identities share a name on different fleet hosts.
     hostId,
-    displayName:
-      typeof cosmetics.displayName === "string" && cosmetics.displayName.length > 0
-        ? cosmetics.displayName
-        : capitalizeFirst(identityKey),
-    title: mergedTitle,
-    colorHue: mergedColorHue,
-    voice: mergedVoice,
+    displayName: resolved.displayName,
+    title: resolved.title,
+    colorHue: resolved.colorHue,
+    voice: resolved.voice,
     // Phase 80 Plan 80-03: task surfaces on every identity object (D-05
     // write-once semantics — read straight from disk frontmatter via
     // extractCosmeticsFromFrontmatter's task narrowing). Not merged with
     // role: task is per-identity (D-05 write-once at birth).
-    task: typeof cosmetics.task === "string" ? cosmetics.task : null,
+    task: resolved.task,
     avatarMime:
       typeof cosmetics.avatarMime === "string" ? cosmetics.avatarMime : "",
     // Phase 68: hostId baked into avatarUrl so the frontend no longer needs
     // to append it via avatarUrlWithHost (Wave 3 removes that helper).
     // Phase 85: URL shape unchanged — backend does role-folder fallback
     // internally in GET /:identityKey/avatar handler.
-    avatarUrl: `/identities/${identityKey}/avatar?hostId=${hostId}`,
+    avatarUrl: resolved.avatarUrl,
     avatarEtag:
       typeof cosmetics.avatarEtag === "string" ? cosmetics.avatarEtag : "",
     // Phase 67 Plan 67-01: coordinator overlay. Absence = actor = false (safe-default).
-    coordinator: typeof cosmetics.coordinator === "boolean" ? cosmetics.coordinator : false,
-    role,
+    coordinator: resolved.coordinator,
+    role: resolved.role,
     // Phase 85 Plan 85-01: roleDefaults echoes the role's raw cosmetic
     // values so IdentityModal (Plan 85-05) can render inherit-vs-override
     // affordances. null when no role; {} when role has no cosmetics.
-    roleDefaults: roleCosmetics,
+    roleDefaults: resolved.roleDefaults,
     // Phase 92 Plan 92-02: pinned:boolean derived from on-demand disk read
     // of `.pinned` sentinel via identityFileExists at request time (D-03).
     // No DB mirror, no in-memory cache. Frontend Plan 04 rewires
     // conversation-store's pinnedIds derivation from GET /user-preferences
     // to this per-identity field.
-    pinned,
+    pinned: resolved.pinned,
     // Phase 107 Plan 107-02: hidden:boolean derived from on-demand disk read
     // of `.hidden` sentinel via identityFileExists at request time (D-03).
     // No DB mirror, no in-memory cache. Frontend Plan 04 rewires
     // conversation-store's hiddenIds derivation from GET /user-preferences
     // to this per-identity field.
-    hidden,
+    hidden: resolved.hidden,
   };
 }
 
