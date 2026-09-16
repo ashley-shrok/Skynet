@@ -1181,6 +1181,148 @@ export function removeFleetSession(hostId: number, sessionName: string): void {
   }
 }
 
+/**
+ * Pulse's single-row door — additive upsert for one FleetSession.
+ *
+ * Mirrors removeFleetSession's three contract properties:
+ *   1. Narrow (hostId, sessionName) tuple match — never blasts the whole array.
+ *   2. Idempotent no-op when the resulting entry would be field-for-field
+ *      identical to the current one — skips notify() AND cache write so an
+ *      upsert per identity per snapshot frame doesn't thrash row-list recompute
+ *      every couple of seconds (T-111-30).
+ *   3. Cache sync on mutation — same silent-failure policy as removeFleetSession.
+ *
+ * Deliberately does NOT flip `fleetSessionsLoaded`. That flag gates the
+ * PrettyConversationsPanel's both-loaded hydrate effect AND interacts with the
+ * pin-pruner. Flipping it from the pulse is the fleetSessionsLoaded twin of the
+ * D-10 `loaded` hazard in identities-store — same class of bug, different flag.
+ * Its absence from the state assignment below is the greppable proof.
+ *
+ * Rejects relay-room and malformed input at the door:
+ *   - kind === "relay-room": relay rows arrive ONLY via /sessions/list and are
+ *     appended server-side after the harness partition; the pulse must never
+ *     manufacture one (T-111-26).
+ *   - empty/undefined sessionName: would produce the fleet::undefined::undefined
+ *     malformed row recorded in the relay-room comment in computeSnapshot (T-111-26).
+ *   - non-finite hostId: same malformed-row prevention.
+ *
+ * Used by AppShell.applyFleetState (Phase 111 Plan 05) AFTER mergeIdentityAppearance
+ * so a pulse-created row always paints dressed on its first render (T-111-28).
+ */
+export function upsertFleetSession(session: FleetSession): void {
+  // Guard 1: reject relay-room sessions — they arrive only via /sessions/list,
+  // never from the pulse. The pulse emits harness-shaped frames only.
+  if (session.kind === "relay-room") return;
+
+  // Guard 2: reject missing/empty sessionName — would produce a malformed row
+  // with id "fleet::${hostId}::undefined" or "fleet::${hostId}::" (see relay-room
+  // comment in computeSnapshot).
+  if (!session.sessionName) return;
+
+  // Guard 3: reject non-finite hostId — same malformed-row prevention; also
+  // required for the composite (hostId::sessionName) key to be well-formed.
+  if (!Number.isFinite(session.hostId)) return;
+
+  const idx = state.fleetSessions.findIndex(
+    (s) => s.hostId === session.hostId && s.sessionName === session.sessionName,
+  );
+
+  let nextFleetSessions: FleetSession[];
+
+  if (idx === -1) {
+    // Absent → append. Appending is correct here, unlike in identities-store
+    // where appending on miss would poison the existence discriminator. fleetSessions
+    // is a pure membership list; the row-builder handles ordering downstream.
+    nextFleetSessions = [...state.fleetSessions, session];
+  } else {
+    // Present → additive field merge. List every FleetSession field explicitly
+    // (advanceSessionAiTitle pattern) so a future field addition is a visible
+    // review event rather than a silent pass-through. Principle: an answer that
+    // knows less must never blank one that knows more (D-09 / T-111-29).
+    const existing = state.fleetSessions[idx];
+    const next: FleetSession = {
+      // Identity tuple — unchanged by definition.
+      hostId: existing.hostId,
+      sessionName: existing.sessionName,
+      // hostName: take the incoming value when it is a non-empty string, else keep
+      // the existing. A pulse upsert whose hostsFlat lookup missed passes "", and
+      // that must not blank a good name the fetch supplied.
+      hostName:
+        typeof session.hostName === "string" && session.hostName.length > 0
+          ? session.hostName
+          : existing.hostName,
+      // created: keep the existing value always. The fetch's value is authoritative;
+      // bumping it on every tick would reshuffle ordering continuously.
+      created: existing.created,
+      // role: take the incoming value when it is a non-null string, else keep the
+      // existing. Same never-blank rule.
+      role:
+        typeof session.role === "string" && session.role !== null
+          ? session.role
+          : existing.role,
+      // lastMessageAt / aiTitle: keep the EXISTING values. The pulse does not
+      // carry them on this path; they flow through the working-store's own
+      // max-wins / last-wins chokepoints. Writing them here would be a second
+      // authority for axes that already have one.
+      lastMessageAt: existing.lastMessageAt,
+      aiTitle: existing.aiTitle,
+      // kind / roomId / roomTitle / id / lastActivityAt / createdAt / updatedAt:
+      // preserve existing verbatim. The pulse never sets these on harness frames.
+      kind: existing.kind,
+      roomId: existing.roomId,
+      roomTitle: existing.roomTitle,
+      id: existing.id,
+      lastActivityAt: existing.lastActivityAt,
+      createdAt: existing.createdAt,
+      updatedAt: existing.updatedAt,
+    };
+
+    // Idempotence guard: if every field is already identical, return with no
+    // state write, no notify(), and no cache write. Matters most here because
+    // the upsert runs for every identity on every snapshot frame.
+    if (
+      next.hostId === existing.hostId &&
+      next.sessionName === existing.sessionName &&
+      next.hostName === existing.hostName &&
+      next.created === existing.created &&
+      next.role === existing.role &&
+      next.lastMessageAt === existing.lastMessageAt &&
+      next.aiTitle === existing.aiTitle &&
+      next.kind === existing.kind &&
+      next.roomId === existing.roomId &&
+      next.roomTitle === existing.roomTitle &&
+      next.id === existing.id &&
+      next.lastActivityAt === existing.lastActivityAt &&
+      next.createdAt === existing.createdAt &&
+      next.updatedAt === existing.updatedAt
+    ) {
+      return;
+    }
+
+    nextFleetSessions = [
+      ...state.fleetSessions.slice(0, idx),
+      next,
+      ...state.fleetSessions.slice(idx + 1),
+    ];
+  }
+
+  // Write state WITHOUT touching fleetSessionsLoaded. That flag gates the
+  // panel's both-loaded hydrate effect and interacts with the pin-pruner, so
+  // flipping it from the pulse is the fleetSessionsLoaded twin of the D-10
+  // `loaded` hazard. Its absence from this object literal is the greppable proof.
+  state = { ...state, fleetSessions: nextFleetSessions };
+  notify();
+
+  // Cache sync matching removeFleetSession's policy exactly — silent on write
+  // failure, non-fatal, does not unwind the in-memory update.
+  try {
+    writeFleetSessionsCache(nextFleetSessions);
+  } catch {
+    // Silent — cache-write failure is non-fatal; next getSessionList() fetch
+    // on the next page load will re-persist the fresh snapshot.
+  }
+}
+
 // ─── FleetSession localStorage cache (quick-260805-tub) ──────────────────────
 // Persist the fleet snapshot across page refreshes so the first paint after a
 // reload shows the last-known conversation-list row set instead of an empty
