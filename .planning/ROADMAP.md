@@ -2474,3 +2474,13 @@ Plans:
 
 Plans:
 - [x] TBD (run /gsd-plan-phase 110 to break down) (completed 2026-09-13)
+
+### Phase 111: conversation list arrives complete and stays live — one complete answer shape (existence + appearance + resolved inheritance + pinned + hidden) served to BOTH the opening request and the repeating fleet-status pulse, so the two moments cannot disagree; server answers the opening request from its already-held fleet picture rather than fanning out to hosts (browser becomes a viewer, not the trigger for discovery); appearance keeps exactly ONE write authority, additive never blanking, so a less-informed answer can never blank a better one; membership and appearance independent (a failed record read yields a plain row, NEVER a missing row); per-host answering stays independent so one slow host never delays the whole list; inheritance resolved with each role file read at most once per host per tick; includes fixing the give-up-forever WS reconnect (returning-to-current on phone depends on it) and a fresh-start full-re-read floor so a missed change degrades to slightly-stale rather than permanently-wrong. Explicitly REJECTS change-detection/mtime-gating cleverness on measurement, not oversight: added per-tick work measured ~1ms (2.1ms vs 1.1ms baseline, 73 identities) against 600-750ms already spent per host per tick on transcript-tail scanning; gating would trade a millisecond for a class of invisible staleness bugs. Bar: no row is ever seen in a state it then grows out of — the undressed window is GONE, not shortened. Out of scope: slow first-ever-load empty-cache waiting states (deferred by explicit user decision); making an individual conversation open faster. Supersedes all three declared shapes of campaign-conversation-list-live. Shape file: .planning/shapes/shape-conversation-list-complete-and-live.md — SEED CONTEXT.md FROM THAT SHAPE FILE rather than re-eliciting. Bounties: conversation-list-live-and-cached, client-cache-session-list, conversation-rows-render-colourless-silent-refresh-failure, sidebar-fleet-sessions-refresh-after-identity-create, conversation-list-scroll-delay-on-load.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 110
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 111 to break down)
