@@ -2482,7 +2482,7 @@ Plans:
 **Goal:** The conversation list arrives complete — right rows, right order, right appearance with inheritance resolved, pinned first and hidden absent — on first paint, and stays live without a page refresh. No row is ever seen in a state it then grows out of.
 **Requirements**: none mapped — coverage is driven by CONTEXT.md decisions D-01 through D-13
 **Depends on:** Phase 110
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 Plans:
 **Wave 1**
 
@@ -2503,4 +2503,4 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 111-06-PLAN.md — indefinite slow reconnect, wake-on-visible on every platform, /sessions/list re-ask on the same event (D-05, D-07, D-11, D-12, D-13)
+- [x] 111-06-PLAN.md — indefinite slow reconnect, wake-on-visible on every platform, /sessions/list re-ask on the same event (D-05, D-07, D-11, D-12, D-13)
