@@ -69,6 +69,14 @@ import {
 // for byte-parallel consumers in `src/backend/database/routes/sessions.ts`
 // (D-08); only the in-file `derivedLastMessageAt` derivation retires from it.
 import { getIdentityLastSend } from "./identity-send-log-store.js";
+// Phase 111 Plan 03 — single appearance merge authority. `appearanceFromIdentityLine`
+// (module-scope helper below) calls `resolveIdentityAppearance` exactly ONCE per
+// identity per tick; both source-A and source-B adapters share that one call site.
+import {
+  resolveIdentityAppearance,
+  type RawCosmetics,
+} from "./identity-appearance.js";
+import type { IdentityAppearance } from "./wire-protocol.js";
 import type { PendingBirth } from "../spawn-requests/types.js";
 // Slim import — parse-request-body.ts is a dependency-free extraction that
 // avoids pulling worker.ts's heavy transitive graph (birthIdentity, matrix
@@ -367,6 +375,16 @@ interface PidCacheEntry {
   // -------------------------------------------------------------------------
   activityMtime: number | null;
   stoppedMtime: number | null;
+  // Phase 111 Plan 03 — resolved identity appearance, joined from the identity
+  // line the sweep emits on the SAME exec that delivers PID state (D-01: zero
+  // additional SSH channels). Stamped on BOTH the publish branch AND the
+  // suppress branch so the cache stays lockstep with derivation (Research
+  // § Pitfall 3 — missing either branch would silently re-compare against a
+  // stale appearance value on the next tick).
+  //
+  // Semantics: object → resolved this tick; null → the emitting host sent no
+  // appearance keys (pre-Plan-111-01) or this is the legacy path.
+  identityAppearance: IdentityAppearance | null;
 }
 
 // quick-260823-73o — source B per-identity cache entry. Replaces the prior
@@ -385,9 +403,16 @@ interface PidCacheEntry {
 //   staleTailTickCount        — count of consecutive ticks where the tail-scan
 //                                returned null while the cached Layer 1 was true;
 //                                threshold trip nulls jsonlPath for re-discovery.
-//   lastPublishedFingerprint  — the (dormant|recycling) tuple last published for
-//                                this identity; fingerprint-suppression compares
-//                                against this on every tick.
+//   lastPublishedFingerprint  — the (dormant|recycling|appearance) tuple last
+//                                published for this identity; fingerprint-
+//                                suppression compares against this on every tick.
+//   identityAppearance        — Phase 111 Plan 03: resolved appearance from the
+//                                sweep line's appearance keys. Stamped on BOTH
+//                                the publish branch AND the suppress branch so the
+//                                cache stays lockstep with derivation (Pitfall 3).
+//                                Semantics: object → resolved this tick; null →
+//                                the emitting host sent no appearance keys
+//                                (pre-Plan-111-01) or this is the legacy path.
 interface IdentityRecycleCacheEntry {
   dormant: boolean;
   recycling: boolean;
@@ -395,6 +420,7 @@ interface IdentityRecycleCacheEntry {
   jsonlPath: string | null;
   staleTailTickCount: number;
   lastPublishedFingerprint: string;
+  identityAppearance: IdentityAppearance | null;
 }
 
 interface PerHostState {
@@ -534,6 +560,16 @@ interface PerPidFetchedState {
    * scanTailForLatestAiTitle unchanged.
    */
   jsonlTail: string | null;
+  /**
+   * Phase 111 Plan 03 — resolved identity appearance, joined from the identity
+   * line the sweep emits. The shared `appearanceFromIdentityLine` helper calls
+   * `resolveIdentityAppearance` exactly once per identity per tick; the result
+   * rides here so composeAndPublishPerPid can stamp it on the frame and cache.
+   *
+   * Semantics: object → resolved this tick; null → the emitting host sent no
+   * appearance keys (pre-Plan-111-01) or this is the legacy path.
+   */
+  identityAppearance: IdentityAppearance | null;
 }
 
 /**
@@ -565,6 +601,15 @@ interface PerIdentityFetchedState {
    * not apply). Consumed by compose for the cache write.
    */
   nextStaleTailTickCount: number;
+  /**
+   * B6..B9 — Phase 111 Plan 03: resolved appearance from the sweep line's
+   * appearance keys. The shared `appearanceFromIdentityLine` helper calls
+   * `resolveIdentityAppearance` exactly once per identity per tick.
+   *
+   * Semantics: object → resolved this tick; null → the emitting host sent no
+   * appearance keys (pre-Plan-111-01) or this is the legacy path.
+   */
+  identityAppearance: IdentityAppearance | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -978,7 +1023,146 @@ function computeFingerprint(state: SessionState): string {
   // lastStatusChangeAt + every other axis is unchanged. Segments appended
   // at the END so any future axis is added after these without disturbing
   // the existing delta contract.
-  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}|${state.activityMtime ?? ""}|${state.stoppedMtime ?? ""}`;
+  // Phase 111 Plan 03: identityAppearance is a distinct axis of the fingerprint
+  // — a change in any visible appearance field (displayName, title, colorHue,
+  // voice, task, coordinator, role, pinned, hidden, roleDefaults) publishes a
+  // new frame even when every other axis is unchanged. The segment is appended
+  // at the END per the append-at-END rule stated twice above. avatarUrl is
+  // deliberately OMITTED: it is a pure function of (identityKey, hostId), both
+  // fixed for a given frame, so it can never change and is a constant segment.
+  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}|${state.activityMtime ?? ""}|${state.stoppedMtime ?? ""}|${appearanceFingerprintSegment(state.identityAppearance ?? null)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 111 Plan 03 — appearance fingerprint segment helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Produce the fingerprint contribution for an `IdentityAppearance` value.
+ *
+ * Returns "" when `a === null` so the cold / no-appearance case is
+ * distinguishable from a resolved-but-default appearance.
+ *
+ * Otherwise returns a "|"-joined string covering EVERY field that can change
+ * what a conversation-list row looks like. A field omitted here is a change
+ * that gets read from disk, carried on the wire, and then silently suppressed —
+ * this segment is exactly what makes appearance-only changes publish.
+ *
+ * Normalization conventions (matching computeFingerprint verbatim):
+ *   - strings / numbers → `?? ""`
+ *   - booleans → tri-valued `x === true ? "1" : x === false ? "0" : ""`
+ *     so a first-time-undefined publish is distinguishable from cold cache.
+ *
+ * `roleDefaults` is serialized with SORTED KEYS so two structurally-equal
+ * objects always produce the same segment. `JSON.stringify` is NOT used
+ * directly because key order is not guaranteed identical across two separate
+ * Object.assign / spread operations — non-deterministic key order would
+ * produce a spurious publish every tick (T-111-17 mitigation).
+ *
+ * `avatarUrl` is deliberately OMITTED: it is a pure function of
+ * (identityKey, hostId), both fixed for a given frame, so it is a constant
+ * segment that can never change.
+ */
+function appearanceFingerprintSegment(a: IdentityAppearance | null): string {
+  if (a === null) return "";
+  // Serialize roleDefaults with sorted keys for deterministic output.
+  // null → ""; object → sorted key=value pairs.
+  let roleDefaultsSeg = "";
+  if (a.roleDefaults !== null && a.roleDefaults !== undefined) {
+    const sorted = Object.keys(a.roleDefaults).sort();
+    roleDefaultsSeg = sorted.map((k) => `${k}=${String((a.roleDefaults as Record<string, unknown>)[k] ?? "")}`).join(",");
+  }
+  return [
+    a.displayName ?? "",
+    a.title ?? "",
+    a.colorHue ?? "",
+    a.voice ?? "",
+    a.task ?? "",
+    a.coordinator === true ? "1" : a.coordinator === false ? "0" : "",
+    a.role ?? "",
+    a.pinned === true ? "1" : a.pinned === false ? "0" : "",
+    a.hidden === true ? "1" : a.hidden === false ? "0" : "",
+    roleDefaultsSeg,
+  ].join("|");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 111 Plan 03 — shared appearance resolver helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve appearance from a `SweepIdentityLine`'s raw cosmetics.
+ *
+ * This is the ONLY place a `SweepIdentityLine`'s raw cosmetics become a
+ * resolved `IdentityAppearance`. The cascade itself (`identity ?? role ?? null`)
+ * lives in `identity-appearance.ts` via `resolveIdentityAppearance` and is
+ * NOT duplicated here.
+ *
+ * Both the source-A adapter (`pidLineToPerPidFetched`) and the source-B adapter
+ * (`identityLineToPerIdentityFetched`) call this helper so appearance is resolved
+ * at exactly one call site even though there are two consumers.
+ *
+ * Design:
+ *   - `identityLine === undefined` → return null (a pid line whose identity has
+ *     no matching identity line; the sweep guarantees one exists, so this is a
+ *     defensive branch for future invariant violations — plain row, no drop).
+ *   - "Host sent no appearance keys at all" is distinguished from "keys present,
+ *     read failed". If all four of `identity_cosmetics`, `role_cosmetics`,
+ *     `pinned`, `hidden` are `undefined`, the emitting host predates Plan 111-01
+ *     → return null WITHOUT calling the resolver. Collapsing "no keys" and
+ *     "resolved from nothing" would let a mid-distribution host blank appearance
+ *     a previous tick had carried.
+ *   - Pinned/hidden use `=== true` (fail-closed): a stat error or missing key
+ *     must NEVER paint an identity as pinned or hidden by mistake. This mirrors
+ *     Phase 107's `.catch(() => false)` discipline on the .pinned/.hidden sentinels.
+ */
+function appearanceFromIdentityLine(
+  identityLine: SweepIdentityLine | undefined,
+  hostIdRaw: string,
+  identityName: string,
+): IdentityAppearance | null {
+  if (identityLine === undefined) return null;
+
+  // Distinguish "host predates Plan 111-01 (no appearance keys)" from
+  // "keys present but empty". All four undefined → pre-111-01 host → null.
+  const hasAnyAppearanceKey =
+    identityLine.identity_cosmetics !== undefined ||
+    identityLine.role_cosmetics !== undefined ||
+    identityLine.pinned !== undefined ||
+    identityLine.hidden !== undefined;
+  if (!hasAnyAppearanceKey) return null;
+
+  // Coerce the host id ONCE here. On unparseable hostId, resolve with 0 and
+  // emit one warn — avatarUrl will be wrong but every other field is right
+  // (a plain-but-present appearance beats a dropped one; D-01 + T-111-16).
+  const parsedHostId = parseInt(hostIdRaw, 10);
+  let hostId: number;
+  if (!Number.isFinite(parsedHostId)) {
+    hostId = 0;
+    systemLogger.warn("Fleet-status: appearance hostId unparseable — resolving with 0", {
+      operation: "fleet_status_appearance_hostid_unparseable",
+      rawHostId: hostIdRaw,
+      identityName,
+    });
+  } else {
+    hostId = parsedHostId;
+  }
+
+  const resolved = resolveIdentityAppearance({
+    identityKey: identityName,
+    hostId,
+    cosmetics: (identityLine.identity_cosmetics as RawCosmetics | null | undefined) ?? null,
+    roleCosmetics: (identityLine.role_cosmetics as RawCosmetics | null | undefined) ?? null,
+    role: identityLine.role ?? null,
+    // Fail-closed on pinned/hidden: === true means a missing/undefined key
+    // defaults to false. This is Phase 107's .catch(() => false) discipline
+    // carried onto this path — a stat error must NEVER paint an identity as
+    // pinned or hidden by mistake.
+    pinned: identityLine.pinned === true,
+    hidden: identityLine.hidden === true,
+  });
+
+  return resolved;
 }
 
 // ---------------------------------------------------------------------------
@@ -1529,7 +1713,7 @@ export function createSshPollOrchestrator(
     // Source A — dispatch each SweepPidLine into the SAME compose helper the
     // legacy path uses. writeSessionFileCache fires here (compose G8).
     for (const pidLine of parsed.pidLines) {
-      const fetched = pidLineToPerPidFetched(pidLine, identityLineByName);
+      const fetched = pidLineToPerPidFetched(pidLine, identityLineByName, host.id);
       await composeAndPublishPerPid(hostState, pidLine.pid, fetched);
     }
 
@@ -1573,6 +1757,11 @@ export function createSshPollOrchestrator(
   function pidLineToPerPidFetched(
     pidLine: SweepPidLine,
     identityLineByName: Map<string, SweepIdentityLine>,
+    // Phase 111 Plan 03: hostIdRaw is the string host.id from hostState.host.id.
+    // Passed here so appearanceFromIdentityLine can coerce it once, consistently.
+    // Note: `identityLine` here is the SAME joined line the A11 `jsonl_path`
+    // fold already uses — no new lookup, no new SSH read.
+    hostIdRaw: string,
   ): PerPidFetchedState {
     const identityLine = identityLineByName.get(pidLine.identity);
     return {
@@ -1592,6 +1781,9 @@ export function createSshPollOrchestrator(
         ? (identityLine?.jsonl_path ?? null)
         : (identityLine?.jsonl_path ?? null),
       jsonlTail: pidLine.jsonl_tail,
+      // Phase 111 Plan 03: appearance resolved via the shared helper once per
+      // identity per tick. The joined identityLine is the same line A11 uses.
+      identityAppearance: appearanceFromIdentityLine(identityLine, hostIdRaw, pidLine.identity),
     };
   }
 
@@ -1628,6 +1820,9 @@ export function createSshPollOrchestrator(
       // Batch-path scripts perform per-tick discovery server-side; the multi-
       // tick rotation defense does not apply here.
       nextStaleTailTickCount: 0,
+      // Phase 111 Plan 03: appearance resolved via the shared helper once per
+      // identity per tick. hostState.host.id carries the string host id.
+      identityAppearance: appearanceFromIdentityLine(identityLine, hostState.host.id, identityLine.identity),
     };
   }
 
@@ -1842,6 +2037,10 @@ export function createSshPollOrchestrator(
       layer1RecyclingCached,
       jsonlPath,
       nextStaleTailTickCount,
+      // Legacy path (pre-Phase-92 exec fan-out) has no appearance source; adding
+      // one would mean new SSH channels, which D-01 exists to avoid. Legacy
+      // contributes plain rows — today's behaviour, honest degradation.
+      identityAppearance: null,
     };
   }
 
@@ -1872,6 +2071,10 @@ export function createSshPollOrchestrator(
       nextStaleTailTickCount,
     } = fetched;
 
+    // Phase 111 Plan 03: appearance carried from the fetched struct (resolved
+    // by the shared appearanceFromIdentityLine helper in both adapters).
+    const identityAppearance = fetched.identityAppearance;
+
     // Phase 4 — OR compose. Three axes match source A's pre-migration
     // semantics.
     const isRecycling = layer1RecyclingCached || isRecycleRequested || isRecycledAt;
@@ -1887,6 +2090,9 @@ export function createSshPollOrchestrator(
     if (liveTmuxSet.has(name) && !isRecycling) {
       const cachedRecycling = cached?.recycling ?? false;
       if (cachedRecycling) {
+        // Phase 111 Plan 03: two construction sites, no factory — deliberate,
+        // see 111-03. Appearance carried on this pre-evict frame so no frame
+        // blanks appearance that a neighbouring frame carries (D-09).
         const state: SessionState = {
           hostId: host.id,
           tmuxSession: name,
@@ -1900,6 +2106,7 @@ export function createSshPollOrchestrator(
           aiTitle: null,
           dormant: isDormant,
           recycling: false,
+          identityAppearance: fetched.identityAppearance,
         };
         deps.registry.publishSessionState(host.id, state);
         systemLogger.info(
@@ -1912,6 +2119,7 @@ export function createSshPollOrchestrator(
             recycling: false,
             previousDormant: cached?.dormant ?? null,
             previousRecycling: cached?.recycling ?? null,
+            identityAppearanceResolved: state.identityAppearance !== null,
           },
         );
       }
@@ -1920,11 +2128,17 @@ export function createSshPollOrchestrator(
     }
 
     // Phase 6 — fingerprint + publish/suppress.
-    const fingerprint = `${isDormant ? "1" : "0"}|${isRecycling ? "1" : "0"}`;
+    // Phase 111 Plan 03: appearance segment appended at END per the append-at-END
+    // rule. No commit in this repo's history widened this fingerprint before
+    // this plan — this is the first extension of source B's inline fingerprint.
+    const fingerprint = `${isDormant ? "1" : "0"}|${isRecycling ? "1" : "0"}|${appearanceFingerprintSegment(identityAppearance)}`;
 
     if (cached !== undefined && cached.lastPublishedFingerprint === fingerprint) {
       // Cache hit — fingerprint identical → advance internal state but skip
       // publish (source B fingerprint suppression contract).
+      // Phase 111 Plan 03: identityAppearance stamped here (suppress branch) so
+      // the cache stays lockstep with derivation (Pitfall 3 — missing this
+      // branch would silently stale-compare on the next tick that changes appearance).
       identityRecycleState.set(name, {
         dormant: isDormant,
         recycling: isRecycling,
@@ -1932,6 +2146,7 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         lastPublishedFingerprint: fingerprint,
+        identityAppearance,
       });
       return;
     }
@@ -1940,6 +2155,7 @@ export function createSshPollOrchestrator(
     const previousDormant = cached?.dormant ?? null;
     const previousRecycling = cached?.recycling ?? null;
 
+    // Phase 111 Plan 03: identityAppearance stamped here (publish branch).
     identityRecycleState.set(name, {
       dormant: isDormant,
       recycling: isRecycling,
@@ -1947,8 +2163,12 @@ export function createSshPollOrchestrator(
       jsonlPath,
       staleTailTickCount: nextStaleTailTickCount,
       lastPublishedFingerprint: fingerprint,
+      identityAppearance,
     });
 
+    // Phase 111 Plan 03: two construction sites, no factory — deliberate, see
+    // 111-03. Appearance carried on this normal source-B frame (D-09: every
+    // frame-construction site carries appearance).
     const state: SessionState = {
       hostId: host.id,
       tmuxSession: name,
@@ -1962,6 +2182,7 @@ export function createSshPollOrchestrator(
       aiTitle: null,
       dormant: isDormant,
       recycling: isRecycling,
+      identityAppearance: fetched.identityAppearance,
     };
     deps.registry.publishSessionState(host.id, state);
 
@@ -1973,6 +2194,7 @@ export function createSshPollOrchestrator(
       recycling: isRecycling,
       previousDormant,
       previousRecycling,
+      identityAppearanceResolved: state.identityAppearance !== null,
     });
 
     // Phase 7 — arm log.
@@ -2090,6 +2312,9 @@ export function createSshPollOrchestrator(
 
     // If session JSON is missing/mid-write, short-circuit — compose will see
     // sessionJsonRaw === null and return early (no state to compute).
+    // identityAppearance: null — the legacy path has no appearance source; adding
+    // one would mean new SSH channels, which D-01 exists to avoid. Legacy
+    // contributes plain rows — today's behaviour, honest degradation.
     if (sessionJsonRaw === null || sessionJsonRaw.trim() === "") {
       return {
         sessionJsonRaw,
@@ -2103,6 +2328,7 @@ export function createSshPollOrchestrator(
         freshDormant: null,
         jsonlPath: cached?.jsonlPath ?? null,
         jsonlTail: null,
+        identityAppearance: null,
       };
     }
 
@@ -2124,6 +2350,7 @@ export function createSshPollOrchestrator(
         freshDormant: null,
         jsonlPath: cached?.jsonlPath ?? null,
         jsonlTail: null,
+        identityAppearance: null,
       };
     }
 
@@ -2248,6 +2475,9 @@ export function createSshPollOrchestrator(
       freshDormant,
       jsonlPath,
       jsonlTail,
+      // Legacy path has no appearance source; adding one would mean new SSH
+      // channels, which D-01 exists to avoid. Legacy contributes plain rows.
+      identityAppearance: null,
     };
   }
 
@@ -2330,6 +2560,11 @@ export function createSshPollOrchestrator(
       derivedLastStopAt = null;
       derivedActivityMtime = null;
       derivedStoppedMtime = null;
+      // Phase 111 Plan 03: appearance is deliberately NOT reset on sessionId
+      // rotation. Appearance is IDENTITY-scoped, not session-scoped: a
+      // compaction/resume does not change what the agent looks like. The
+      // block's shape (resetting the three mtime axes) invites adding every
+      // new axis here — that would be wrong for appearance.
     }
 
     let derivedLastStatusChangeAt: number;
@@ -2468,6 +2703,7 @@ export function createSshPollOrchestrator(
     }
 
     // Compose SessionState — same shape as pre-refactor processPid.
+    // Phase 111 Plan 03: identityAppearance carried from the fetched struct.
     const state: SessionState = {
       hostId: host.id,
       tmuxSession,
@@ -2487,6 +2723,7 @@ export function createSshPollOrchestrator(
       lastStatusChangeAt: derivedLastStatusChangeAt,
       activityMtime: derivedActivityMtime,
       stoppedMtime: derivedStoppedMtime,
+      identityAppearance: fetched.identityAppearance,
     };
 
     // Delta semantics — only publish if fingerprint changed.
@@ -2506,7 +2743,9 @@ export function createSshPollOrchestrator(
         lastStatusChangeAt: state.lastStatusChangeAt,
         activityMtime: state.activityMtime,
         stoppedMtime: state.stoppedMtime,
+        identityAppearanceResolved: state.identityAppearance !== null,
       });
+      // Phase 111 Plan 03: identityAppearance stamped here (publish branch).
       livenessMap.set(pid, {
         sessionId: sessionJson.sessionId,
         tmuxSession,
@@ -2522,11 +2761,13 @@ export function createSshPollOrchestrator(
         lastStopAt: derivedLastStopAt,
         activityMtime: derivedActivityMtime,
         stoppedMtime: derivedStoppedMtime,
+        identityAppearance: fetched.identityAppearance,
       });
     } else {
       // Update procStart + tmux + fresh derivations in case they changed
       // without a state-change (Research § Pitfall 3 — every axis MUST be
       // stamped on both branches so the cache stays lockstep with derivation).
+      // Phase 111 Plan 03: identityAppearance stamped here (suppress branch).
       livenessMap.set(pid, {
         ...(livenessMap.get(pid) as PidCacheEntry),
         procStart: sessionJson.procStart,
@@ -2542,6 +2783,7 @@ export function createSshPollOrchestrator(
         lastStopAt: derivedLastStopAt,
         activityMtime: derivedActivityMtime,
         stoppedMtime: derivedStoppedMtime,
+        identityAppearance: fetched.identityAppearance,
       });
     }
   }
