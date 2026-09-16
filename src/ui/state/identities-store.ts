@@ -8,6 +8,8 @@ import { listIdentities, type Identity } from "@/api/identities-api";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import {
   getFleetSessionsSnapshot,
+  hydratePinnedIdsFromServer,
+  hydrateHiddenIdsFromServer,
   subscribeConversationStore,
   type FleetSession,
 } from "./conversation-store";
@@ -61,8 +63,23 @@ function withDisplayCap(i: Identity): Identity {
   return { ...i, displayName: capped + i.displayName.slice(1) };
 }
 
-function setIdentities(list: Identity[]) {
-  const normalized = list.map(withDisplayCap);
+/**
+ * Phase 111 Plan 04 — shared normalization + index-rebuild tail used by BOTH
+ * `setIdentities` (the full-replacement door) and `mergeIdentityAppearance`
+ * (the additive-merge door). Keeping both doors in sync means one place to
+ * audit for correctness: normalization, the composite-key guard, and the
+ * `byKey`/`byHostKey` dual build all live here.
+ *
+ * Returns a new `{ identities, byKey, byHostKey }` triple; the caller decides
+ * the value of `loaded` and spreads accordingly. This is what satisfies D-09's
+ * "one normalization tail" while satisfying D-10's "the pulse must not set
+ * loaded": setIdentities spreads `loaded: true`; mergeIdentityAppearance
+ * spreads `loaded: state.loaded`.
+ */
+function reindex(
+  list: Identity[],
+): Pick<State, "identities" | "byKey" | "byHostKey"> {
+  const identities = list.map(withDisplayCap);
   // byKey is bare-name — retained additively for existence-check consumers
   // (AppShell pane discriminator, IdentityBadge, tabUtils, IdentitySessionPane,
   // conversation-store role fallback, relay-mxid-resolve). With the backend
@@ -73,7 +90,7 @@ function setIdentities(list: Identity[]) {
   // use byHostKey — see quick-260912-0t4 rationale.
   const byKey = new Map<string, Identity>();
   const byHostKey = new Map<string, Identity>();
-  for (const i of normalized) {
+  for (const i of identities) {
     const nameLc = i.identityKey.toLowerCase();
     byKey.set(nameLc, i);
     // Only index rows that carry a hostId — pre-quick-260912-0t4 fixtures
@@ -84,12 +101,11 @@ function setIdentities(list: Identity[]) {
       byHostKey.set(`${i.hostId}::${nameLc}`, i);
     }
   }
-  state = {
-    identities: normalized,
-    byKey,
-    byHostKey,
-    loaded: true,
-  };
+  return { identities, byKey, byHostKey };
+}
+
+function setIdentities(list: Identity[]) {
+  state = { ...reindex(list), loaded: true };
   notify();
 }
 
@@ -445,6 +461,261 @@ export function patchIdentityFlag(
   });
   if (!changed) return;
   setIdentities(nextList);
+}
+
+// ─── Private helper: sorted-key JSON serialization for roleDefaults ──────────
+// Used by mergeIdentityAppearance to compare roleDefaults structurally rather
+// than by reference. Mirrors the sorted-key serialization the backend's
+// appearanceFingerprintSegment (Plan 111-03) uses for the wire fingerprint —
+// same determinism requirement.
+function sortedKeyJson(obj: Record<string, unknown> | null | undefined): string {
+  if (obj == null) return "null";
+  const keys = Object.keys(obj).sort();
+  const sorted: Record<string, unknown> = {};
+  for (const k of keys) sorted[k] = obj[k];
+  return JSON.stringify(sorted);
+}
+
+// ─── Private helper: re-project pinned/hidden into conversation-store rows ───
+/**
+ * Phase 111 Plan 04 — re-project each identity's `pinned`/`hidden` fields into
+ * the conversation-row id space. Called by `mergeIdentityAppearance` ONLY when
+ * `pinned` or `hidden` actually changed, to move a row without touching
+ * PrettyConversationsPanel.tsx (freshly fixed, 4,906 lines, "prefer not to
+ * touch").
+ *
+ * Mirrors the panel's own hydrate effect body exactly, so the two paths are
+ * always in sync: buildIdentityHostsFromFleet → deriveDiskPinnedIds →
+ * hydratePinnedIdsFromServer → deriveDiskHiddenIds → hydrateHiddenIdsFromServer.
+ *
+ * GATED on state.loaded — see quick-260912-5q2. Before the `GET /identities`
+ * fetch has landed, state.identities is a partial picture. hydratePinnedIdsFromServer
+ * REPLACES the row-id set wholesale — projecting from a partial store would wipe
+ * pins for every identity not yet fetched. A pulse merge on a not-yet-loaded
+ * store is already a no-op (absent-key guard in mergeIdentityAppearance), so this
+ * gate costs nothing.
+ *
+ * Uses buildIdentityHostsFromFleet, never a hand-rolled iteration. Its H2
+ * invariant (sessionMatchKey null-return filters relay rooms + undefined
+ * sessionName) is exactly the protection against crashes on relay-room sessions.
+ */
+function reprojectDiskPinHideIntoRows(): void {
+  // quick-260912-5q2: a partial store projection wipes pins for every identity
+  // not yet in state.identities. Only re-project once the full picture is live.
+  if (!state.loaded) return;
+  const identityHosts = buildIdentityHostsFromFleet(getFleetSessionsSnapshot());
+  hydratePinnedIdsFromServer(deriveDiskPinnedIds(identityHosts));
+  hydrateHiddenIdsFromServer(deriveDiskHiddenIds(identityHosts));
+}
+
+/**
+ * Phase 111 Plan 04 — additive-merge door for the fleet-status pulse.
+ *
+ * PURPOSE + WHY A NEW DOOR IS NEEDED (D-10, bounty terminal-first-flash-on-
+ * reload-plus-listener-leak):
+ *   `identities-store` answers TWO questions with one piece of data: "what does
+ *   this identity look like?" AND "is this an agent at all?" The second drives
+ *   `isIdentityPane` in `tabUtils.tsx` — the expression
+ *   `identitiesByKey.has(identityKey) || !identitiesLoaded`. If `loaded` flips
+ *   true while `byKey` is missing any key, every other identity pane hits
+ *   `false && true` → the false-Terminal branch → N xterms + N real SSH WS
+ *   connections boot and unmount, leaking listeners. The 2026-09-08 comment
+ *   block in fetchOnce exists solely to document this; the empty-map skip-guard
+ *   below it exists solely to prevent it.
+ *
+ *   This function MUST NOT write `state.loaded`. The word `loaded` does not
+ *   appear in this function's body except as `loaded: state.loaded` (carry-
+ *   forward). `setIdentities` is never called from here.
+ *
+ * D-09 — ADDITIVE MERGE:
+ *   An answer that knows less must never blank one that knew more. Both
+ *   `undefined` AND `null` incoming fields are SKIPPED (never written). This
+ *   means a title genuinely cleared on disk will not disappear from the list
+ *   until the next `GET /identities` — the correct side to err on: a stale-
+ *   but-dressed row is invisible to the user, while an undressed row is the
+ *   bug this phase exists to remove.
+ *
+ * D-09 — ABSENT KEY IS NO-OP, NOT STAGING MAP:
+ *   A side map would be a second place appearance lives — a second authority.
+ *   The no-op is correct because `GET /identities` reads the same disk
+ *   frontmatter through `publicIdentity()`, which calls the same merge
+ *   authority (`identity-appearance.ts`), so the row arrives fully dressed
+ *   from the fetch. The pulse's job is keeping it current, not bootstrapping.
+ *
+ * FIELD SET:
+ *   Exactly the eleven the wire carries: displayName, title, colorHue, voice,
+ *   task, coordinator, role, roleDefaults, avatarUrl, pinned, hidden.
+ *   NOT avatarMime or avatarEtag (sweep has no source for them).
+ *   NOT identityKey or hostId (those identify the row, not its appearance).
+ *
+ * pinned / hidden:
+ *   These ARE written on a true→false transition. They are membership and
+ *   position axes, not cosmetics — a `false` here is a real sentinel-probe
+ *   fact, not an absence. The fail-closed handling already happened server-
+ *   side (=== true in Plan 111-03), so values arriving here are definite
+ *   booleans.
+ */
+export function mergeIdentityAppearance(
+  hostId: number,
+  identityKey: string,
+  appearance: Partial<
+    Pick<
+      Identity,
+      | "displayName"
+      | "title"
+      | "colorHue"
+      | "voice"
+      | "task"
+      | "coordinator"
+      | "role"
+      | "roleDefaults"
+      | "avatarUrl"
+      | "pinned"
+      | "hidden"
+    >
+  >,
+): void {
+  // 1. Guard inputs. A non-finite hostId cannot key byHostKey and would
+  //    silently mis-serve lookups.
+  if (!Number.isFinite(hostId) || !identityKey) return;
+
+  const keyLc = identityKey.toLowerCase();
+
+  // 2. Locate by composite key ONLY — never bare byKey. byKey collides by
+  //    design (last wire-order wins) and is only safe for existence checks.
+  //    A bare-name lookup here would serve host A's appearance to a same-named
+  //    identity on host B. Copy the findIndex composite shape from
+  //    applyIdentityChange's locate half — but NOT its bare-name fallback and
+  //    NOT anything after the locate.
+  const idx = state.identities.findIndex(
+    (i) => i.identityKey.toLowerCase() === keyLc && i.hostId === hostId,
+  );
+
+  // 3. Absent → no-op + debug log. Do NOT append. Appending a partial row is
+  //    the path that poisons byKey while loaded is true, which causes every
+  //    other identity pane to hit the false-Terminal branch in isIdentityPane
+  //    (tabUtils.tsx), booting N xterms + N real SSH WS connections that then
+  //    unmount and leak listeners — see the 2026-09-08 block in fetchOnce.
+  //    The fuller GET /identities will bring the row fully dressed because it
+  //    goes through the same merge authority (identity-appearance.ts, Plan
+  //    111-02), so nothing is lost by dropping this write.
+  if (idx === -1) {
+    console.debug({
+      operation: "identities_store_appearance_merge_no_row",
+      hostId,
+      identityKey,
+    });
+    return;
+  }
+
+  // 4. Additive field-wise merge. Per-field equality check before assignment.
+  const existing = state.identities[idx];
+  let changed = false;
+  let next = { ...existing };
+
+  // null is skipped, not written (D-09). `identityAppearance.title === null`
+  // means "this identity has no title right now", but it also arrives when the
+  // identity file could not be read this tick — the two are indistinguishable
+  // at this boundary. Skipping means a row never undresses. Tradeoff: a title
+  // genuinely CLEARED on disk will not disappear from the list until the next
+  // GET /identities. That is the correct side to err on.
+
+  if (appearance.displayName !== undefined && appearance.displayName !== null) {
+    if (next.displayName !== appearance.displayName) {
+      next.displayName = appearance.displayName;
+      changed = true;
+    }
+  }
+  if (appearance.title !== undefined && appearance.title !== null) {
+    if (next.title !== appearance.title) {
+      next.title = appearance.title;
+      changed = true;
+    }
+  }
+  if (appearance.colorHue !== undefined && appearance.colorHue !== null) {
+    if (next.colorHue !== appearance.colorHue) {
+      next.colorHue = appearance.colorHue;
+      changed = true;
+    }
+  }
+  if (appearance.voice !== undefined && appearance.voice !== null) {
+    if (next.voice !== appearance.voice) {
+      next.voice = appearance.voice;
+      changed = true;
+    }
+  }
+  if (appearance.task !== undefined && appearance.task !== null) {
+    if (next.task !== appearance.task) {
+      next.task = appearance.task;
+      changed = true;
+    }
+  }
+  if (appearance.coordinator !== undefined && appearance.coordinator !== null) {
+    if (next.coordinator !== appearance.coordinator) {
+      next.coordinator = appearance.coordinator;
+      changed = true;
+    }
+  }
+  if (appearance.role !== undefined && appearance.role !== null) {
+    if (next.role !== appearance.role) {
+      next.role = appearance.role;
+      changed = true;
+    }
+  }
+  // roleDefaults is an object — compare by sorted-key serialization for
+  // deterministic structural equality, matching the backend fingerprint's
+  // discipline (Plan 111-03 appearanceFingerprintSegment). A redundant
+  // reference-unequal but structurally-equal re-merge must NOT notify.
+  if (appearance.roleDefaults !== undefined && appearance.roleDefaults !== null) {
+    if (sortedKeyJson(appearance.roleDefaults as Record<string, unknown>) !== sortedKeyJson(next.roleDefaults as Record<string, unknown> | null | undefined)) {
+      next.roleDefaults = appearance.roleDefaults;
+      changed = true;
+    }
+  }
+  if (appearance.avatarUrl !== undefined && appearance.avatarUrl !== null) {
+    if (next.avatarUrl !== appearance.avatarUrl) {
+      next.avatarUrl = appearance.avatarUrl;
+      changed = true;
+    }
+  }
+  // pinned / hidden are membership axes, not cosmetics. A `false` here is a
+  // real fact from a sentinel probe — not an absence. DO write on true→false
+  // transitions. The `undefined || null` skip only prevents "no data this tick"
+  // from blanking "known data from before".
+  let pinHidChanged = false;
+  if (appearance.pinned !== undefined && appearance.pinned !== null) {
+    if (next.pinned !== appearance.pinned) {
+      next.pinned = appearance.pinned;
+      changed = true;
+      pinHidChanged = true;
+    }
+  }
+  if (appearance.hidden !== undefined && appearance.hidden !== null) {
+    if (next.hidden !== appearance.hidden) {
+      next.hidden = appearance.hidden;
+      changed = true;
+      pinHidChanged = true;
+    }
+  }
+
+  // 5. No-op suppression — copy patchIdentityFlag's shape. No state write,
+  //    no notify when nothing changed.
+  if (!changed) return;
+
+  // 6. Write state WITHOUT setIdentities. Use reindex to normalize and rebuild
+  //    both maps. Carry loaded forward — NEVER set it here.
+  const nextList = state.identities.slice();
+  nextList[idx] = next;
+  state = { ...reindex(nextList), loaded: state.loaded };
+  notify();
+
+  // 7. Re-project pinned/hidden into conversation-store row-id sets only when
+  //    a sentinel actually moved. Cosmetics-only merges must not pay the cost
+  //    of two set rebuilds. Gate is in reprojectDiskPinHideIntoRows itself
+  //    (gated on state.loaded per quick-260912-5q2).
+  if (pinHidChanged) {
+    reprojectDiskPinHideIntoRows();
+  }
 }
 
 export function useIdentities(): {
