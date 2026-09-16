@@ -2477,10 +2477,15 @@ Plans:
 
 ### Phase 111: conversation list arrives complete and stays live — one complete answer shape (existence + appearance + resolved inheritance + pinned + hidden) served to BOTH the opening request and the repeating fleet-status pulse, so the two moments cannot disagree; server answers the opening request from its already-held fleet picture rather than fanning out to hosts (browser becomes a viewer, not the trigger for discovery); appearance keeps exactly ONE write authority, additive never blanking, so a less-informed answer can never blank a better one; membership and appearance independent (a failed record read yields a plain row, NEVER a missing row); per-host answering stays independent so one slow host never delays the whole list; inheritance resolved with each role file read at most once per host per tick; includes fixing the give-up-forever WS reconnect (returning-to-current on phone depends on it) and a fresh-start full-re-read floor so a missed change degrades to slightly-stale rather than permanently-wrong. Explicitly REJECTS change-detection/mtime-gating cleverness on measurement, not oversight: added per-tick work measured ~1ms (2.1ms vs 1.1ms baseline, 73 identities) against 600-750ms already spent per host per tick on transcript-tail scanning; gating would trade a millisecond for a class of invisible staleness bugs. Bar: no row is ever seen in a state it then grows out of — the undressed window is GONE, not shortened. Out of scope: slow first-ever-load empty-cache waiting states (deferred by explicit user decision); making an individual conversation open faster. Supersedes all three declared shapes of campaign-conversation-list-live. Shape file: .planning/shapes/shape-conversation-list-complete-and-live.md — SEED CONTEXT.md FROM THAT SHAPE FILE rather than re-eliciting. Bounties: conversation-list-live-and-cached, client-cache-session-list, conversation-rows-render-colourless-silent-refresh-failure, sidebar-fleet-sessions-refresh-after-identity-create, conversation-list-scroll-delay-on-load.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** The conversation list arrives complete — right rows, right order, right appearance with inheritance resolved, pinned first and hidden absent — on first paint, and stays live without a page refresh. No row is ever seen in a state it then grows out of.
+**Requirements**: none mapped — coverage is driven by CONTEXT.md decisions D-01 through D-13
 **Depends on:** Phase 110
-**Plans:** 0 plans
+**Plans:** 6 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 111 to break down)
+- [ ] 111-01-PLAN.md — host-side sweep emits raw appearance + role + .pinned/.hidden at SCHEMA_VERSION 1 (D-01..D-04), plus the bash driver that covers the new stdlib frontmatter parser
+- [ ] 111-02-PLAN.md — one identity-over-role merge authority shared with publicIdentity(); widen SweepIdentityLine + SessionStateSchema + the browser mirror, both versions held (D-04, D-09)
+- [ ] 111-03-PLAN.md — thread appearance onto both publish sources; both fingerprints, three frame sites, four cache branches (D-01, D-02, D-09)
+- [ ] 111-04-PLAN.md — mergeIdentityAppearance: an additive door that provably cannot set `loaded` or append; pinned/hidden re-projection; appearance-first ordering (D-09, D-10)
+- [ ] 111-05-PLAN.md — rows appear and disappear from the pulse via upsertFleetSession + onGone, without flipping fleetSessionsLoaded (D-05, D-06, D-08, D-10)
+- [ ] 111-06-PLAN.md — indefinite slow reconnect, wake-on-visible on every platform, /sessions/list re-ask on the same event (D-05, D-07, D-11, D-12, D-13)
