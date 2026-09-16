@@ -746,7 +746,7 @@ export function useIdentities(): {
   };
 }
 
-// ─── Test-only helper ────────────────────────────────────────────────────────
+// ─── Test-only helpers ───────────────────────────────────────────────────────
 // Phase 66 Plan 05 — reset the module-scoped state (identities snapshot +
 // inflight promise + refresh-after-fleet-load guard) for identities-store
 // enrichment tests. Not part of the public API; keeps prior test's state from
@@ -760,5 +760,34 @@ export function __resetIdentitiesStoreForTest(): void {
   };
   inflight = null;
   hasRefreshedAfterFleetLoad = false;
+  notify();
+}
+
+// Phase 111 Plan 04 — read-only snapshot of the module-scoped state for
+// identities-store enrichment tests. Exposes `loaded`, `identities`, `byKey`,
+// and `byHostKey` so tests can assert D-10/D-09 invariants without going
+// through the React hook (which needs a component + act()). Not part of the
+// public API.
+export function __getIdentitiesStoreSnapshotForTest(): {
+  loaded: boolean;
+  identities: Identity[];
+  byKey: Map<string, Identity>;
+  byHostKey: Map<string, Identity>;
+} {
+  return {
+    loaded: state.loaded,
+    identities: state.identities,
+    byKey: state.byKey,
+    byHostKey: state.byHostKey,
+  };
+}
+
+// Phase 111 Plan 04 — seed identities WITHOUT setting loaded=true, for testing
+// that mergeIdentityAppearance's loaded:state.loaded carry-forward is the ONLY
+// thing preventing the D-10 violation when a merge fires before GET /identities
+// has returned. Only used by the D-10 load-bearing breakage proof in Case 1.
+// Not part of the public API.
+export function __seedIdentitiesLoadedFalseForTest(list: Identity[]): void {
+  state = { ...reindex(list), loaded: false };
   notify();
 }
