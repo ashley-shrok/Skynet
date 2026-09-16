@@ -1,12 +1,20 @@
-// Tests for the interrupt-button double-tap throttle.
+// Tests for the interrupt-button client-side fast-path throttle.
 //
 // Motivation: the interrupt button sends a WS `interrupt` message that the
-// backend translates to a single `Escape` keystroke into the tmux pane.
-// Pretty-view users don't see the Claude Code TUI directly, so if a fast
-// double-tap sends Escape twice, the second Escape at an empty prompt opens
-// Claude Code's rewind menu — which pretty-view users have no way to dismiss.
-// The button throttles onClick to at most one fire per INTERRUPT_THROTTLE_MS
-// (1000ms) while keeping the button visually clickable.
+// backend fires as a single `tmux send-keys ... C-c` into the tmux pane.
+// Ctrl-C is used because it is the only keystroke that both interrupts work
+// and clears the entire multi-line draft in ONE press (measured 2026-09-16).
+// The hazard it reintroduces — two presses inside Claude Code's ~0.8s
+// exit-confirm window terminate the harness — is handled by the server-side
+// per-pane throttle in claude-session-server.ts, not by this client ref.
+// These tests cover only the client fast-path (2500ms window). They do NOT
+// and cannot prove the real guarantee against harness death; the backend
+// tests in claude-session-server.compose-send.test.ts do that.
+//
+// Historical note: the former comment claimed a double-Escape would open
+// Claude Code's rewind menu that pretty-view users could not dismiss.
+// Measured: the menu renders `Esc to cancel` and a single Escape dismisses
+// it cleanly — the rationale was false. Post-change it is moot regardless.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
@@ -38,13 +46,13 @@ describe("ComposeBox — interrupt button double-tap throttle", () => {
     vi.restoreAllMocks();
   });
 
-  it("rapid double-click within 1s fires onInterrupt exactly once", () => {
+  it("rapid double-click within 2500ms fires onInterrupt exactly once", () => {
     const onInterrupt = vi.fn();
     render(<ComposeBox {...baseProps({ onInterrupt })} />);
     const btn = screen.getByRole("button", { name: "Interrupt" });
 
     fireEvent.click(btn);
-    // 50ms later — inside the 1000ms window
+    // 50ms later — inside the 2500ms window
     act(() => {
       vi.advanceTimersByTime(50);
     });
@@ -69,22 +77,22 @@ describe("ComposeBox — interrupt button double-tap throttle", () => {
     expect(btn.getAttribute("disabled")).toBeNull();
   });
 
-  it("second click AFTER the 1s window fires onInterrupt a second time", () => {
+  it("second click AFTER the 2500ms window fires onInterrupt a second time", () => {
     const onInterrupt = vi.fn();
     render(<ComposeBox {...baseProps({ onInterrupt })} />);
     const btn = screen.getByRole("button", { name: "Interrupt" });
 
     fireEvent.click(btn);
-    // 1100ms later — outside the 1000ms window
+    // 2600ms later — outside the 2500ms window
     act(() => {
-      vi.advanceTimersByTime(1100);
+      vi.advanceTimersByTime(2600);
     });
     fireEvent.click(btn);
 
     expect(onInterrupt).toHaveBeenCalledTimes(2);
   });
 
-  it("triple-click within 1s still fires onInterrupt exactly once", () => {
+  it("triple-click within 2500ms still fires onInterrupt exactly once", () => {
     const onInterrupt = vi.fn();
     render(<ComposeBox {...baseProps({ onInterrupt })} />);
     const btn = screen.getByRole("button", { name: "Interrupt" });

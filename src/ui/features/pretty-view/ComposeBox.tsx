@@ -172,12 +172,15 @@ function getBatchFailureUserMessage(reason: BatchFailureReasonForCompose): strin
   }
 }
 
-// Interrupt-button throttle window. See interruptLastFireRef declaration
-// for the full rationale (double-Escape opens Claude Code's rewind menu,
-// pretty-view users can't dismiss it). 1s comfortably exceeds any human
-// panic-double-tap (~150–300ms) while keeping a legitimate "did it work?
-// try again" retry feeling immediate.
-const INTERRUPT_THROTTLE_MS = 1000;
+// Interrupt-button fast-path throttle window. Matches the server-side
+// INTERRUPT_THROTTLE_MS (2500ms) so this client guard never lets through a
+// tap the server would only drop anyway — measured basis: Claude Code's
+// exit-confirm window is ~0.8s (v2.1.150, 2026-09-16); two Ctrl-C presses
+// inside it terminate the harness; 2500ms is ~3× that for margin. Note: this
+// client ref is only a cheap fast-path. The AUTHORITATIVE guard is the
+// server-side per-pane throttle in claude-session-server.ts — see
+// interruptLastFireRef below for why the client ref cannot be the guarantee.
+const INTERRUPT_THROTTLE_MS = 2500;
 
 export interface ComposeBoxProps {
   // Called when the user presses Enter (no shift) with non-empty text.
@@ -248,19 +251,21 @@ export interface ComposeBoxProps {
   // Optional: omitted when PrettyView is read-only (no onSend prop supplied).
   onGoodToGo?: () => void;
   // Patch #120: optional interrupt callback. When provided, renders a
-  // Square-icon "stop" button to the left of the ThumbsUp button that
-  // sends Escape into the attached tmux session via a WS `interrupt`
-  // message (backend fires `tmux send-keys ... Escape`). Escape is used
-  // instead of Ctrl-C because Ctrl-C at Claude Code's idle prompt starts
-  // the exit flow (first press → "Press Ctrl+C again to exit"; second
-  // press → terminates the harness), and this control must never be a
-  // path to close the harness. Escape interrupts mid-turn work and is a
-  // benign no-op at idle. The button also throttles onClick to at most
-  // one fire per INTERRUPT_THROTTLE_MS (see interruptLastFireRef) so a
-  // double-tap cannot send Escape twice — a double-Escape at empty
-  // prompt would open Claude Code's rewind menu, which pretty-view
-  // users have no way to dismiss. When omitted the button does not
-  // render — read-only PrettyView callers stay clean.
+  // Square-icon "stop" button to the left of the ThumbsUp button. On
+  // click it sends a WS `interrupt` message; the backend fires
+  // `tmux send-keys ... C-c` into the attached tmux session. Ctrl-C is
+  // used because it is the only keystroke that both interrupts mid-turn
+  // work AND clears the entire multi-line draft in ONE press (measured:
+  // 1x Ctrl-C cleared a 3-line draft; Escape needs a fast double-press
+  // and the throttle blocks that, so it was never reachable). The
+  // hazard Ctrl-C carries — two presses inside Claude Code's ~0.8s
+  // exit-confirm window terminate the harness — is handled by the
+  // server-side per-pane throttle in claude-session-server.ts, not by
+  // this client ref. The button throttles onClick to at most one fire
+  // per INTERRUPT_THROTTLE_MS as a cheap fast-path (see
+  // interruptLastFireRef), but that is NOT the authoritative guard.
+  // When omitted the button does not render — read-only PrettyView
+  // callers stay clean.
   onInterrupt?: () => void;
   // When false, Enter is still accepted for typing (textarea not disabled)
   // but Send button is visually disabled. The send attempt will fail and
@@ -612,16 +617,29 @@ export function ComposeBox({
   // file to be re-picked later — some browsers otherwise no-op a repeat
   // selection because the "value hasn't changed."
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Interrupt-button double-tap guard. The interrupt button sends a WS
-  // `interrupt` message that translates to a single `Escape` keystroke
-  // into the tmux pane. Pretty-view users don't see the Claude Code TUI
-  // directly, so if a fast double-tap sends Escape twice, the second
-  // Escape at an empty prompt opens Claude Code's rewind menu — which
-  // pretty-view users have no way to dismiss (no visible TUI to click
-  // in, no way to escape the menu from the bubble surface). This ref
-  // holds the last-fire timestamp; onClick silently no-ops any tap
-  // within INTERRUPT_THROTTLE_MS of the previous fire. Button stays
-  // visually clickable so it still feels responsive to a panic tap.
+  // Interrupt-button fast-path double-tap guard. Holds the last-fire
+  // timestamp; onClick silently no-ops any tap within
+  // INTERRUPT_THROTTLE_MS of the previous fire. Button stays visually
+  // clickable so it still feels responsive to a panic tap.
+  //
+  // WHY THIS REF CANNOT BE THE AUTHORITATIVE GUARD:
+  //   1. Per-view, not per-pane: each ComposeBox instance holds its own
+  //      ref. Phone + desktop on the same conversation are two independent
+  //      refs; each can individually respect the window while still
+  //      landing two Ctrl-Cs ~200ms apart at the same pane.
+  //   2. It times the click, not the arrival: execCommand has no timeout
+  //      and unbounded latency, so jitter can compress a compliant pair
+  //      below the ~0.8s harness-death threshold in flight.
+  //   3. A stale bundle enforces whatever constant it shipped with.
+  // The AUTHORITATIVE guard is the server-side per-pane throttle in
+  // claude-session-server.ts, keyed by (hostId, tmuxSession).
+  //
+  // Historical note: the original comment claimed a double-Escape would
+  // open Claude Code's rewind menu "which pretty-view users have no way
+  // to dismiss." Measured: the menu renders `Esc to cancel` and a single
+  // Escape dismisses it — self-healing from the bubble surface. That
+  // rationale was false. Post-change it is moot: the hazard is now
+  // harness death via double Ctrl-C.
   const interruptLastFireRef = useRef<number>(0);
   // Quick 260803-05i: records which target owns the currently-open file picker.
   // The main-composebox paperclip sets this to "primary" on click; each queued
