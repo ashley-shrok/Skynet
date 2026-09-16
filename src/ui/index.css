@@ -309,6 +309,19 @@ input[type="radio"] {
   html {
     @apply font-mono;
   }
+  /* Tailwind v4's preflight drops the UA `cursor: pointer` on <button>, so
+   * every clickable in the app rendered an arrow. Lives in @layer base rather
+   * than the Button component's class list: base loses to every utility, so
+   * per-call cursor-default / cursor-not-allowed / cursor-grab still win
+   * without tailwind-merge conflicts. `:not(:disabled)` keeps disabled
+   * controls on the arrow. The :has() rule catches the sr-only-file-input
+   * pattern where the label is the clickable, not a button. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  label:has(> input[type="file"]),
+  summary {
+    cursor: pointer;
+  }
 }
 
 /* Patch #144 Fix (c): iOS PWA safe-area-inset-bottom is painted with the
