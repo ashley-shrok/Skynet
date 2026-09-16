@@ -142,6 +142,27 @@ app.set("trust proxy", true);
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 const requireAdmin = authManager.createAdminMiddleware();
+
+// Phase 103 D-24 mount order: cookieParser + subdomain-dispatch + serveUrlHandler
+// MUST run BEFORE express.json/bodyParser/bodyParser.raw. http-proxy-middleware v4
+// streams the raw request body to the upstream target, so any middleware that
+// consumes the request stream (bodyParser.*) upstream of the proxy truncates
+// POST bodies to zero bytes. cookieParser runs first because it reads
+// req.headers.cookie (header-only, no body consumption) and subdomain-dispatch
+// needs req.cookies to run the JWT check for *.serve.term.<domain> traffic.
+//
+// These ALSO run before createCorsMiddleware: the D-07 deny in cors-config.ts
+// rejects every *.serve.term.<domain> origin as the primary domain's CSRF
+// defense, which would otherwise judge tunnel-bound traffic that never touches
+// the primary API. Browsers attach Origin to ES-module script fetches even
+// same-origin, so with CORS first every module request from a dev server behind
+// a serve URL 500s while the HTML shell (no Origin on subresources) loads fine.
+// Serve traffic terminates in serveUrlHandler, so it never reaches the deny;
+// primary-domain traffic falls through both and is judged by CORS unchanged.
+app.use(cookieParser());
+app.use(createSubdomainDispatchMiddleware());
+app.use(serveUrlHandler);
+
 app.use(createCorsMiddleware());
 
 const uploadsDir = path.join(process.env.DATA_DIR || "./db/data", "uploads");
@@ -283,16 +304,6 @@ async function fetchGitHubAPI<T>(
   }
 }
 
-// Phase 103 D-24 mount order: cookieParser + subdomain-dispatch + serveUrlHandler
-// MUST run BEFORE express.json/bodyParser/bodyParser.raw. http-proxy-middleware v4
-// streams the raw request body to the upstream target, so any middleware that
-// consumes the request stream (bodyParser.*) upstream of the proxy truncates
-// POST bodies to zero bytes. cookieParser runs first because it reads
-// req.headers.cookie (header-only, no body consumption) and subdomain-dispatch
-// needs req.cookies to run the JWT check for *.serve.term.<domain> traffic.
-app.use(cookieParser());
-app.use(createSubdomainDispatchMiddleware());
-app.use(serveUrlHandler);
 app.use(bodyParser.json({ limit: "1gb" }));
 app.use(bodyParser.urlencoded({ limit: "1gb", extended: true }));
 app.use(bodyParser.raw({ limit: "5gb", type: "application/octet-stream" }));
