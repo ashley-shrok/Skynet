@@ -500,7 +500,7 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
   // Phase 106 Plan 106-03 (D-05/D-06): discoverIdentitySessionFile dep for
   // the wait-for-supervisor poll — wired from claude-session/discover-identity-
   // session-file.js. The orchestrator's wait-block calls this dep every 2s
-  // (WAIT_FOR_SUPERVISOR_POLL_MS) until it returns non-null or the 120s
+  // (WAIT_FOR_SUPERVISOR_POLL_MS) until it returns non-null or the 300s
   // (WAIT_FOR_SUPERVISOR_TIMEOUT_MS) ceiling is hit.
   expect(typeof d.discoverIdentitySessionFile).toBe("function");
   // 2026-09-11: relayJsonHomeserverBase wired from creds.hostSideBase ??

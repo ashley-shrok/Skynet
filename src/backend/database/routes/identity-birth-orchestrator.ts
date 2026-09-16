@@ -97,22 +97,28 @@ export const STEP_3_SLEEP_MS = 2000;
  * Phase 106 (D-07): poll cadence for the wait-for-supervisor block. 2s matches
  * fleet-status orchestrator default granularity. Every tick runs one
  * `discoverIdentitySessionFile` SSH exec on the same connection the birth
- * request opened (no new connect). Cheap enough at 60 iterations over the full
- * 120s window because the discovery script is a single find+head+grep chain.
+ * request opened (no new connect). Cheap enough at 150 iterations over the full
+ * 300s window because the discovery script is a single find+head+grep chain.
  */
 export const WAIT_FOR_SUPERVISOR_POLL_MS = 2000;
 
 /**
- * Phase 106 (D-08): hard ceiling on the wait-for-supervisor block. 120s = 2×
- * buffer over worst-case supervisor tick (15s) + agent boot chain
- * (~30-40s: tmux launch + REPL-up + 7-Enter settle + `/id` load = ~45-60s
- * realistic ceiling). Timeout emits ended{ok:false,
+ * Hard ceiling on the wait-for-supervisor block. Timeout emits ended{ok:false,
  * reason:"supervisor_wait_timeout"} and stops — NO rollback (Q2 lock, per
  * shape file §"What would make it wrong" bullet 4). The identity may still
  * come alive after we've given up waiting; the operator sees the alert, the
  * log captures the operation-key `identity_birth_supervisor_wait_timeout`.
+ *
+ * The supervisor's reconcile tick is 15s, but launches are SERIALIZED and each
+ * fresh launch costs ~16s (tmux + REPL-up + `/id` submit train), so queue
+ * latency — not the tick — sets the real worst case. On a loaded host the wait
+ * must absorb that queue depth: a 2026-09-16 batch of 10 births on a box with
+ * 67 tmux sessions at load ~9.8 saw the supervisor start one identity's launch
+ * 141s after its folder appeared, 20s AFTER the then-120s ceiling had already
+ * reported birth_failed for an identity that came up healthy moments later.
+ * 300s covers that observed depth with headroom.
  */
-export const WAIT_FOR_SUPERVISOR_TIMEOUT_MS = 120000;
+export const WAIT_FOR_SUPERVISOR_TIMEOUT_MS = 300000;
 
 /** SSH connect timeout. */
 export const SSH_CONNECT_TIMEOUT_MS = 30000;
@@ -1560,7 +1566,7 @@ export async function birthIdentity(
     // per shape file §"What would make it wrong" bullet 7.
     //
     // Cadence (D-07): every WAIT_FOR_SUPERVISOR_POLL_MS (2s).
-    // Timeout (D-08): after WAIT_FOR_SUPERVISOR_TIMEOUT_MS (120s), emit
+    // Timeout: after WAIT_FOR_SUPERVISOR_TIMEOUT_MS (300s), emit
     //   ended{ok:false, reason:"supervisor_wait_timeout"} and stop.
     //
     // Q2 no-rollback lock (shape file §"What would make it wrong" bullet 4):

@@ -386,8 +386,8 @@ describe("exported constants (Nelly-verbatim)", () => {
     expect(WAIT_FOR_SUPERVISOR_POLL_MS).toBe(2000);
   });
 
-  it("WAIT_FOR_SUPERVISOR_TIMEOUT_MS is 120000 (Phase 106 D-08)", () => {
-    expect(WAIT_FOR_SUPERVISOR_TIMEOUT_MS).toBe(120000);
+  it("WAIT_FOR_SUPERVISOR_TIMEOUT_MS is 300000", () => {
+    expect(WAIT_FOR_SUPERVISOR_TIMEOUT_MS).toBe(300000);
   });
 });
 
@@ -890,7 +890,7 @@ it("Test B (Phase 106): emits ended:ok:false reason:supervisor_wait_timeout afte
     "supervisor_wait_timeout",
   );
 
-  // Mock was called ~60 times over the 120s window at 2s cadence. The exact
+  // Mock was called ~150 times over the 300s window at 2s cadence. The exact
   // count depends on when Date.now() ticks over the timeout boundary — allow
   // an off-by-one window rather than pinning the exact integer.
   const expectedCalls = Math.floor(

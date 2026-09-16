@@ -358,7 +358,7 @@ router.post(
     // Phase 106 (D-09): 30s SSE comment-frame keepalive.
     //
     // The birth stream holds open up to WAIT_FOR_SUPERVISOR_TIMEOUT_MS
-    // (120s in identity-birth-orchestrator.ts) during the wait-for-supervisor
+    // (300s in identity-birth-orchestrator.ts) during the wait-for-supervisor
     // poll after Step 8. Intermediary idle-timeout defaults (nginx 60s, Caddy
     // 30s per docker/nginx.conf + docker/nginx-https.conf) would kill the
     // stream mid-wait without a periodic frame. The `:keepalive` leading-colon
