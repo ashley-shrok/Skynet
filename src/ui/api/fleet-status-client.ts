@@ -339,9 +339,10 @@ export function createFleetStatusClient(
   // Open immediately
   connect();
 
-  return {
+  const client: FleetStatusClient = {
     dispose(): void {
       disposed = true;
+      _activeClients.delete(client);
 
       if (retryTimer !== null) {
         clearTimeout(retryTimer);
@@ -368,6 +369,34 @@ export function createFleetStatusClient(
       });
     },
   };
+
+  _activeClients.add(client);
+  return client;
+}
+
+// ---------------------------------------------------------------------------
+// TEST ONLY — module-level registry for test isolation.
+//
+// Tests that create clients via createFleetStatusClient and don't dispose them
+// (intentionally, e.g. jitter tests that verify a single close) leave their
+// visibilitychange listeners registered on document. This registry allows a
+// test's beforeEach to dispose all previously-created clients before adding
+// its own, ensuring visibility events don't trigger stale handlers.
+// ---------------------------------------------------------------------------
+
+/** @internal TEST ONLY — not part of the public API. */
+const _activeClients = new Set<FleetStatusClient>();
+
+/**
+ * TEST ONLY — dispose every client currently in the module-level registry
+ * and clear it. Call from a describe's beforeEach before creating new clients
+ * to ensure visibilitychange listeners from prior tests don't fire.
+ */
+export function __disposeAllClientsForTest(): void {
+  for (const client of _activeClients) {
+    client.dispose();
+  }
+  _activeClients.clear();
 }
 
 // ---------------------------------------------------------------------------
