@@ -22,6 +22,7 @@ import {
   updateOpenTabs,
   updateFleetSessions,
   removeFleetSession,
+  upsertFleetSession,
   updateHostsFlat,
   updateIdentitiesByKey,
   selectConversation,
@@ -3958,5 +3959,328 @@ describe("hidden rows remain in the snapshot (bounty hidden-section-mobile-rende
     const snap = __getSnapshotForTest();
     const allRows = [...snap.pinned, ...snap.middle];
     expect(allRows.some((r) => r.id === "fleet::1::tina")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 111 Plan 05 — upsertFleetSession: pulse row-appear contract
+// Twelve cases pin the behaviour of the pulse's single-row door. Three are
+// proven load-bearing by deliberate temporary breakage (cases 2, 5, 8).
+// ─────────────────────────────────────────────────────────────────────────────
+describe("upsertFleetSession — pulse row-appear contract", () => {
+  const FLEET_CACHE_KEY_V4 = "skynet:convo-fleet-cache:v4";
+
+  // Case 1: Appear — empty fleetSessions, upsert one harness session → row exists
+  it("case 1 — appear: upsert into empty fleetSessions creates a row with correct composite id", () => {
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: Date.now(), role: null });
+    });
+
+    const snap = __getSnapshotForTest();
+    expect(snap.fleetSessions).toHaveLength(1);
+    expect(snap.fleetSessions[0].sessionName).toBe("willow");
+    expect(snap.fleetSessions[0].hostId).toBe(6);
+
+    // computeSnapshot builds the row id as fleet::${hostId}::${sessionName}
+    const rows = __getFleetOnlyRowsForTest();
+    expect(rows.some((r) => r.id === "fleet::6::willow")).toBe(true);
+  });
+
+  // Case 2: fleetSessionsLoaded is NOT flipped — the plan's central invariant.
+  // PROVEN LOAD-BEARING: temporarily adding fleetSessionsLoaded: true to the
+  // state assignment in upsertFleetSession makes this test go RED.
+  it("case 2 — fleetSessionsLoaded NOT flipped: starts false, upsert, stays false", () => {
+    // beforeEach calls updateFleetSessions([]) which flips the loaded flag.
+    // Use __resetFleetSessionsForTest to restore the flag to false for this
+    // specific invariant test — its comment explains the flag-flip subtlety.
+    act(() => __resetFleetSessionsForTest());
+    const snap1 = __getSnapshotForTest();
+    expect(snap1.fleetSessionsLoaded).toBe(false);
+
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: Date.now(), role: null });
+    });
+
+    const snap2 = __getSnapshotForTest();
+    // Must STILL be false. This is what guards the panel's hydrate effect and
+    // the pin-pruner from running against a partially-populated store.
+    expect(snap2.fleetSessionsLoaded).toBe(false);
+  });
+
+  // Case 3: Idempotent re-upsert does not notify.
+  it("case 3 — idempotent: upsert identical session twice fires notify once", () => {
+    const session: FleetSession = {
+      hostId: 6,
+      hostName: "t1000",
+      sessionName: "willow",
+      created: 1000,
+      role: null,
+    };
+
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    act(() => {
+      upsertFleetSession(session);
+    });
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      upsertFleetSession(session); // identical — should be a no-op
+    });
+    expect(cb).toHaveBeenCalledTimes(1); // still once
+
+    unsub();
+  });
+
+  // Case 4: Additive merge preserves lastMessageAt and aiTitle.
+  it("case 4 — additive: merge preserves lastMessageAt and aiTitle from a richer existing row", () => {
+    // Seed via updateFleetSessions (the authoritative path) with a session
+    // carrying both lastMessageAt and aiTitle.
+    act(() => {
+      updateFleetSessions([
+        {
+          hostId: 6,
+          hostName: "t1000",
+          sessionName: "willow",
+          created: 1000,
+          role: null,
+          lastMessageAt: 999_000,
+          aiTitle: "building the tower",
+        },
+      ]);
+    });
+
+    // Upsert the same tuple but without lastMessageAt / aiTitle.
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+    });
+
+    const snap = __getSnapshotForTest();
+    const s = snap.fleetSessions.find((x) => x.hostId === 6 && x.sessionName === "willow");
+    expect(s?.lastMessageAt).toBe(999_000);
+    expect(s?.aiTitle).toBe("building the tower");
+  });
+
+  // Case 5: Additive merge preserves `created`.
+  // PROVEN LOAD-BEARING: temporarily changing created to take the incoming
+  // value makes this test go RED.
+  it("case 5 — additive: merge preserves existing created even when incoming differs", () => {
+    act(() => {
+      updateFleetSessions([
+        { hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null },
+      ]);
+    });
+
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 9999, role: null });
+    });
+
+    const snap = __getSnapshotForTest();
+    const s = snap.fleetSessions.find((x) => x.hostId === 6 && x.sessionName === "willow");
+    // Must remain 1000 — the fetch's value is authoritative; bumping it on
+    // every tick would reshuffle middle-zone ordering continuously.
+    expect(s?.created).toBe(1000);
+  });
+
+  // Case 6: hostName never blanks, but does update to a better value.
+  it("case 6 — hostName: empty string does not blank good name; non-empty string updates", () => {
+    act(() => {
+      updateFleetSessions([
+        { hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null },
+      ]);
+    });
+
+    // Empty string must not blank the existing good name.
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "", sessionName: "willow", created: 1000, role: null });
+    });
+    let s = __getSnapshotForTest().fleetSessions.find((x) => x.hostId === 6 && x.sessionName === "willow");
+    expect(s?.hostName).toBe("t1000");
+
+    // Non-empty string should update to the new name.
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000-renamed", sessionName: "willow", created: 1000, role: null });
+    });
+    s = __getSnapshotForTest().fleetSessions.find((x) => x.hostId === 6 && x.sessionName === "willow");
+    expect(s?.hostName).toBe("t1000-renamed");
+  });
+
+  // Case 7: role never blanks but does update.
+  it("case 7 — role: null does not blank existing role; non-null string updates", () => {
+    act(() => {
+      updateFleetSessions([
+        { hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: "box-maintainer" },
+      ]);
+    });
+
+    // Upsert with null role — must preserve existing.
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+    });
+    let s = __getSnapshotForTest().fleetSessions.find((x) => x.hostId === 6 && x.sessionName === "willow");
+    expect(s?.role).toBe("box-maintainer");
+
+    // Upsert with a different non-null role — must update.
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: "auditor" });
+    });
+    s = __getSnapshotForTest().fleetSessions.find((x) => x.hostId === 6 && x.sessionName === "willow");
+    expect(s?.role).toBe("auditor");
+  });
+
+  // Case 8: Relay-room input is rejected.
+  // PROVEN LOAD-BEARING: temporarily removing the relay-room guard from
+  // upsertFleetSession makes this test go RED.
+  it("case 8 — relay-room rejected: upsert with kind='relay-room' is rejected; existing relay-room row from updateFleetSessions is preserved and well-formed", () => {
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    // Upserting a relay-room session must be a no-op (no state write, no notify).
+    act(() => {
+      upsertFleetSession({
+        hostId: 6,
+        hostName: "t1000",
+        sessionName: "willow",
+        created: 1000,
+        role: null,
+        kind: "relay-room",
+        roomId: "!abc:matrix.org",
+        roomTitle: "my relay",
+      });
+    });
+    expect(cb).toHaveBeenCalledTimes(0);
+    expect(__getSnapshotForTest().fleetSessions).toHaveLength(0);
+    unsub();
+
+    // Seed a relay-room row through updateFleetSessions (its legitimate path).
+    const relaySession: FleetSession = {
+      hostId: undefined as unknown as number, // relay-rooms carry no hostId on the wire
+      hostName: "",
+      sessionName: undefined as unknown as string, // relay-rooms carry no sessionName
+      created: 0,
+      role: null,
+      kind: "relay-room",
+      roomId: "!abc:matrix.org",
+      roomTitle: "my relay",
+      id: "relay::!abc:matrix.org",
+    };
+    act(() => {
+      updateFleetSessions([relaySession]);
+    });
+
+    // Now upsert a HARNESS session — relay row must be unaffected.
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+    });
+
+    // Relay row is still present, still well-formed (its id is the relay id, not fleet::undefined::undefined).
+    const snap = __getSnapshotForTest();
+    expect(snap.fleetSessions).toHaveLength(2);
+    const relayRow = snap.fleetSessions.find((s) => s.kind === "relay-room");
+    expect(relayRow).toBeDefined();
+    expect(relayRow?.id).toBe("relay::!abc:matrix.org");
+    // The harness row is also present.
+    const harnessRow = snap.fleetSessions.find((s) => s.sessionName === "willow");
+    expect(harnessRow).toBeDefined();
+    expect(harnessRow?.hostId).toBe(6);
+  });
+
+  // Case 9: Pulse-upsert then fetch — the Open-Question-3 interaction.
+  // This test exists to make the self-healing behaviour a decision of record.
+  it("case 9 — OQ-3 interaction: upsert → fetch-without-it → gone → re-upsert → present", () => {
+    // Deliberate self-healing behaviour (Open Question 3, resolved):
+    // The fetch is authoritative for its own snapshot; the pulse re-adds on the
+    // next tick. The transient is invisible to the user (one round-trip at most).
+    // Gating the upsert on fleetSessionsLoaded would be strictly worse — it would
+    // suppress exactly the D-06 backstop case (a session the fetch cannot see yet).
+
+    // Reset the loaded flag (beforeEach's updateFleetSessions([]) flips it).
+    act(() => __resetFleetSessionsForTest());
+
+    // Step 1: Upsert a pulse-only session.
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+    });
+    expect(__getSnapshotForTest().fleetSessions.some((s) => s.sessionName === "willow")).toBe(true);
+    expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
+
+    // Step 2: updateFleetSessions with a fresh array that does NOT contain it
+    // (simulating a fetch that cannot see the session yet — D-06 backstop case).
+    act(() => {
+      updateFleetSessions([]);
+    });
+    // Row is gone (fetch is authoritative for its snapshot), loaded is now true.
+    expect(__getSnapshotForTest().fleetSessions.some((s) => s.sessionName === "willow")).toBe(false);
+    expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(true);
+
+    // Step 3: Re-upsert (the pulse ticks again) — the row returns.
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+    });
+    expect(__getSnapshotForTest().fleetSessions.some((s) => s.sessionName === "willow")).toBe(true);
+  });
+
+  // Case 10: Malformed input rejected.
+  it("case 10 — malformed: empty sessionName and non-finite hostId are both rejected without throwing", () => {
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    // Empty sessionName.
+    act(() => {
+      expect(() => upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "", created: 1000, role: null })).not.toThrow();
+    });
+    expect(cb).toHaveBeenCalledTimes(0);
+    expect(__getSnapshotForTest().fleetSessions).toHaveLength(0);
+
+    // Non-finite hostId (NaN from a failed parseInt).
+    act(() => {
+      expect(() => upsertFleetSession({ hostId: NaN, hostName: "t1000", sessionName: "willow", created: 1000, role: null })).not.toThrow();
+    });
+    expect(cb).toHaveBeenCalledTimes(0);
+    expect(__getSnapshotForTest().fleetSessions).toHaveLength(0);
+
+    unsub();
+  });
+
+  // Case 11: Removal via the existing door.
+  it("case 11 — removal: upsert then removeFleetSession removes the row; fleetSessionsLoaded unchanged by either call", () => {
+    // Reset the loaded flag (beforeEach's updateFleetSessions([]) flips it) so
+    // we can assert that neither upsert nor remove touches it.
+    act(() => __resetFleetSessionsForTest());
+    expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
+
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+    });
+    expect(__getSnapshotForTest().fleetSessions).toHaveLength(1);
+    expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
+
+    act(() => {
+      removeFleetSession(6, "willow");
+    });
+    expect(__getSnapshotForTest().fleetSessions).toHaveLength(0);
+    // Neither call should have touched fleetSessionsLoaded.
+    expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
+  });
+
+  // Case 12: Cache is synced but its key is not bumped.
+  it("case 12 — cache: upsert persists to localStorage under the v4 key, key is unbumped", () => {
+    const spy = vi.spyOn(Storage.prototype, "setItem");
+
+    act(() => {
+      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+    });
+
+    // Cache was written under the v4 key (not v5 or anything else).
+    const writes = spy.mock.calls.filter(([k]) => k === FLEET_CACHE_KEY_V4);
+    expect(writes.length).toBeGreaterThanOrEqual(1);
+
+    // The written value contains the new session.
+    const lastWrite = writes[writes.length - 1];
+    const parsed = JSON.parse(lastWrite[1] as string) as unknown[];
+    expect(parsed.some((s: unknown) => (s as { sessionName: string }).sessionName === "willow")).toBe(true);
+
+    spy.mockRestore();
   });
 });
