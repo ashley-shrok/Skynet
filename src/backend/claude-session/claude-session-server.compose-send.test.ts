@@ -25,7 +25,12 @@
  *   - sshConn null → no execCommand, no throw
  *   - currentTmuxSession null → no execCommand, no throw
  *   - happy path → ONE execCommand with C-c, no -l, no Enter
+ *   - regression guard — must NOT send Escape (Escape needs a fast double-press to clear
+ *     a draft, and the throttle blocks that; Ctrl-C clears in one press — that is the fix)
  *   - execCommand throws → caught; no rethrow; sshLogger.warn
+ *   - same-pane collapse: second interrupt within 2500ms → ONE keystroke + interrupt_throttled warn
+ *   - cross-pane independence: two interrupts at same instant on different panes → BOTH send
+ *   - post-window release: second interrupt after 2500ms → TWO keystrokes, no throttle
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
@@ -66,6 +71,7 @@ import {
   __applyInputMessageForTests,
   __applyInterruptMessageForTests,
   __applyOnLineNotifyForTests,
+  __interruptThrottleForTests,
 } from "./claude-session-server.js";
 import {
   armPvSendWatchdog,
@@ -433,6 +439,12 @@ describe("__applyInputMessageForTests", () => {
 // ─── __applyInterruptMessageForTests ─────────────────────────────────────────
 
 describe("__applyInterruptMessageForTests", () => {
+  beforeEach(() => {
+    // The throttle Map is module-scope and persists across tests. Clear it
+    // before every test so state from one test cannot leak into the next.
+    __interruptThrottleForTests.clear();
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
@@ -464,7 +476,7 @@ describe("__applyInterruptMessageForTests", () => {
     expect(exec).not.toHaveBeenCalled();
   });
 
-  it("interrupt: happy path → exactly ONE execCommand with Escape; no -l flag; no Enter", async () => {
+  it("interrupt: happy path → exactly ONE execCommand with C-c; no -l flag; no Enter", async () => {
     const exec = vi.fn().mockResolvedValue("");
     await __applyInterruptMessageForTests({
       sshConn: fakeConn,
@@ -475,15 +487,21 @@ describe("__applyInterruptMessageForTests", () => {
     expect(exec).toHaveBeenCalledTimes(1);
     const cmd = exec.mock.calls[0][1] as string;
     expect(cmd).toContain("send-keys");
-    // Escape is a tmux key name — no -l literal flag
+    // C-c is a tmux key name — no -l literal flag (key name, not literal bytes)
     expect(cmd).not.toContain("-l");
     expect(cmd).toContain("-t 'legit-session'");
-    expect(cmd).toContain("Escape");
+    expect(cmd).toContain("C-c");
+    // The old Escape keystroke must no longer appear
+    expect(cmd).not.toContain("Escape");
     // Must NOT have Enter (that would be a different command)
     expect(cmd).not.toMatch(/\sEnter\s*$/);
   });
 
-  it("interrupt: regression guard — MUST NOT send C-c (Ctrl-C at Claude Code idle prompt starts exit flow — can close the harness)", async () => {
+  it("interrupt: regression guard — MUST NOT send Escape (Escape needs a fast double-press to clear a draft; the throttle blocks that double-press by design, so Escape can never clear — that is the capability gap this change closes)", async () => {
+    // Deliberate inversion of the former 'MUST NOT send C-c' guard.
+    // The harness-death hazard of Ctrl-C (two presses inside Claude Code's
+    // ~0.8s exit-confirm window terminates the harness) is now handled by
+    // the server-side per-pane throttle, not by keystroke choice.
     const exec = vi.fn().mockResolvedValue("");
     await __applyInterruptMessageForTests({
       sshConn: fakeConn,
@@ -493,9 +511,7 @@ describe("__applyInterruptMessageForTests", () => {
     });
     expect(exec).toHaveBeenCalledTimes(1);
     const cmd = exec.mock.calls[0][1] as string;
-    // The interrupt button must never send a key sequence that Claude Code
-    // interprets as "start closing the harness". Ctrl-C at idle prompt does.
-    expect(cmd).not.toContain("C-c");
+    expect(cmd).not.toContain("Escape");
   });
 
   it("interrupt: execCommand throws → caught; no rethrow; sshLogger.warn called with operation interrupt_send_error", async () => {
@@ -510,6 +526,138 @@ describe("__applyInterruptMessageForTests", () => {
     ).resolves.toBeUndefined();
     // Log-and-swallow: function resolves, does not rethrow
     expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it("interrupt throttle — same-pane collapse: second interrupt within 2500ms sends ONE keystroke and emits interrupt_throttled warn", async () => {
+    // Injects a manual clock so we control time without fake timers.
+    let t = 1_000_000;
+    const now = () => t;
+
+    const exec = vi.fn().mockResolvedValue("");
+    vi.mocked(sshLogger.warn).mockClear();
+
+    // First interrupt — should send C-c
+    await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "throttle-test-same",
+      currentHostId: 42,
+      execCommand: exec,
+      now,
+    });
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sshLogger.warn)).not.toHaveBeenCalled();
+
+    // 500ms later — still inside the 2500ms window
+    t += 500;
+
+    // Second interrupt — must be dropped
+    await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "throttle-test-same",
+      currentHostId: 42,
+      execCommand: exec,
+      now,
+    });
+    expect(exec).toHaveBeenCalledTimes(1); // still exactly ONE
+    expect(vi.mocked(sshLogger.warn)).toHaveBeenCalledTimes(1);
+    const [, payload] = vi.mocked(sshLogger.warn).mock.calls[0];
+    expect(payload).toMatchObject({
+      operation: "interrupt_throttled",
+      hostId: 42,
+      tmuxSession: "throttle-test-same",
+    });
+    expect((payload as { elapsedMs: number }).elapsedMs).toBe(500);
+  });
+
+  it("interrupt throttle — cross-pane independence: two interrupts at same instant on different panes BOTH send; no throttle warn", async () => {
+    const t = 2_000_000;
+    const now = () => t;
+    vi.mocked(sshLogger.warn).mockClear();
+
+    const execA = vi.fn().mockResolvedValue("");
+    const execB = vi.fn().mockResolvedValue("");
+
+    // Different tmuxSession, same hostId
+    await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "pane-alpha",
+      currentHostId: 10,
+      execCommand: execA,
+      now,
+    });
+    await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "pane-beta",
+      currentHostId: 10,
+      execCommand: execB,
+      now,
+    });
+
+    // Both panes receive a keystroke
+    expect(execA).toHaveBeenCalledTimes(1);
+    expect(execB).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sshLogger.warn)).not.toHaveBeenCalled();
+
+    // Different hostId, same tmuxSession
+    const execC = vi.fn().mockResolvedValue("");
+    const execD = vi.fn().mockResolvedValue("");
+
+    await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "shared-session-name",
+      currentHostId: 20,
+      execCommand: execC,
+      now,
+    });
+    await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "shared-session-name",
+      currentHostId: 21,
+      execCommand: execD,
+      now,
+    });
+
+    expect(execC).toHaveBeenCalledTimes(1);
+    expect(execD).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sshLogger.warn)).not.toHaveBeenCalled();
+  });
+
+  it("interrupt throttle — post-window release: second interrupt after 2600ms sends normally (two keystrokes)", async () => {
+    let t = 3_000_000;
+    const now = () => t;
+
+    const exec = vi.fn().mockResolvedValue("");
+    vi.mocked(sshLogger.warn).mockClear();
+
+    // First interrupt
+    await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "post-window-pane",
+      currentHostId: 99,
+      execCommand: exec,
+      now,
+    });
+    expect(exec).toHaveBeenCalledTimes(1);
+
+    // 2600ms later — outside the 2500ms window
+    t += 2600;
+
+    // Second interrupt — must send normally
+    await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "post-window-pane",
+      currentHostId: 99,
+      execCommand: exec,
+      now,
+    });
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(sshLogger.warn)).not.toHaveBeenCalled();
+
+    // Both commands contain C-c
+    const cmd1 = exec.mock.calls[0][1] as string;
+    const cmd2 = exec.mock.calls[1][1] as string;
+    expect(cmd1).toContain("C-c");
+    expect(cmd2).toContain("C-c");
   });
 });
 
