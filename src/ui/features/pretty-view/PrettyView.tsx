@@ -1352,11 +1352,20 @@ export function PrettyView({
     null,
   );
 
-  // Content-collapse helper: mirrors ComposeBox's collapseNewlinesForSend
-  // so head-match content-string equality stays byte-identical to the
-  // payload the parser emits (D-50 newline policy).
-  const collapseNewlinesForMatch = useCallback((s: string): string => {
-    return s.replace(/\r?\n/g, " ");
+  // Mirrors ComposeBox's normalizeNewlinesForSend (CR eliminated, LF
+  // preserved) so the optimistic bubble renders the same text the user
+  // actually sent, newlines included.
+  //
+  // Formerly collapseNewlinesForMatch, which collapsed newlines to spaces to
+  // keep head-match content equality byte-identical with the parser-emitted
+  // payload. That contract is GONE: quick-260823-fzy replaced content
+  // equality with FIFO-only head-matching (see the "message" case in the WS
+  // handler), because byte equality was losing to every Claude Code input
+  // transformation. This value is now used ONLY as the pending bubble's
+  // rendered content, so collapsing would just flatten a multi-line message
+  // in the transcript.
+  const normalizeNewlinesForBubble = useCallback((s: string): string => {
+    return s.replace(/\r\n?/g, "\n");
   }, []);
 
   // flipToFailed: called by the 20s timer, by the paste_send_failed WS
@@ -1428,7 +1437,7 @@ export function PrettyView({
       // would silently clear an unrelated in-flight pending (code-review M2,
       // 2026-09-07 — /id-with-attachment corner case).
       if (isIdCommand(payload) && !(attachments && attachments.length > 0)) { return; }
-      const collapsed = collapseNewlinesForMatch(payload);
+      const normalized = normalizeNewlinesForBubble(payload);
       if (immediateFailure) {
         // D-20: WS was not open on the ComposeBox side — this callback
         // fires AFTER the first onOptimisticSend that seeded the record.
@@ -1454,7 +1463,7 @@ export function PrettyView({
             ...prev,
             {
               mqid,
-              content: collapsed,
+              content: normalized,
               sentAt: Date.now(),
               state: "failed",
               timer: null,
@@ -1482,7 +1491,7 @@ export function PrettyView({
       const timeoutReason = armedDormant
         ? "client_timeout_220s_dormant"
         : "client_timeout_90s_normal";
-      console.info(`[diag-dormant-send] arm mqid=${mqid} dormant=${armedDormant} timeoutMs=${timeoutMs} arm_reason=${timeoutReason} collapsedLen=${collapsed.length} pendingCount=${pendingSendsRef.current.length} now=${Date.now()} attachmentCount=${attachments?.length ?? 0}`);
+      console.info(`[diag-dormant-send] arm mqid=${mqid} dormant=${armedDormant} timeoutMs=${timeoutMs} arm_reason=${timeoutReason} normalizedLen=${normalized.length} pendingCount=${pendingSendsRef.current.length} now=${Date.now()} attachmentCount=${attachments?.length ?? 0}`);
       const armSentAt = Date.now();
       const timerHandle = window.setTimeout(() => {
         console.info(`[diag-dormant-send] fire mqid=${mqid} elapsedMs=${Date.now() - armSentAt} dormant_at_arm=${armedDormant} dormant_at_fire=${dormantRef.current === true} branch=${armedDormant ? "widened" : "normal"} pendingCount=${pendingSendsRef.current.length} stillPending=${pendingSendsRef.current.some((p) => p.mqid === mqid && p.state === "sending")}`);
@@ -1492,7 +1501,7 @@ export function PrettyView({
         ...prev,
         {
           mqid,
-          content: collapsed,
+          content: normalized,
           sentAt: Date.now(),
           state: "sending",
           timer: timerHandle,
@@ -1504,7 +1513,7 @@ export function PrettyView({
         },
       ]);
     },
-    [collapseNewlinesForMatch, flipToFailed],
+    [normalizeNewlinesForBubble, flipToFailed],
   );
 
   // handleOverrideTextConsumed: ComposeBox's useEffect fires this the same

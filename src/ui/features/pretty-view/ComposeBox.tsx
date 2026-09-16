@@ -54,8 +54,9 @@ import { RecordingControls } from "./RecordingControls";
 //    arrives. On success: clear textarea. On failure: keep text and show
 //    error (PrettyView also flips the pending bubble to red per D-20).
 //
-// 5. Newlines collapsed to spaces on send (per D-50 policy — Ink
-//    safety; mirrors MessageQueueDrawer's established behavior).
+// 5. Newlines normalized on send: LF preserved, CR eliminated (Ink
+//    safety). Supersedes D-50's collapse-to-spaces — see
+//    normalizeNewlinesForSend for the full rationale.
 //
 // 6. Draft body persistence (patch #57).
 //
@@ -70,7 +71,7 @@ import { RecordingControls } from "./RecordingControls";
 // provided, it is used as the send payload instead of the current `text` state.
 // This lets voice.endSend pass the glued transcript synchronously without
 // fighting React's async setState batching. ALL handleSend behavior (attachment
-// branching, D-50 newline collapse, Phase 50 D-18 optimistic-bubble seeding)
+// branching, newline normalization, Phase 50 D-18 optimistic-bubble seeding)
 // still applies.
 //
 // Sync-getUserMedia constraint (D-16-02): the hook's `start()` is a plain
@@ -180,8 +181,9 @@ const INTERRUPT_THROTTLE_MS = 1000;
 
 export interface ComposeBoxProps {
   // Called when the user presses Enter (no shift) with non-empty text.
-  // The caller collapses newlines to spaces before calling onSend, so
-  // this always receives a single-line payload.
+  // The caller normalizes newlines before calling onSend (CR eliminated, LF
+  // preserved), so this may receive a MULTI-LINE payload containing LFs but
+  // never a CR.
   // Return true if the send WAS DISPATCHED to the underlying transport;
   // return false if the transport was unavailable (e.g., WS disconnected).
   // The component uses the return to decide whether to clear the textarea
@@ -1299,8 +1301,8 @@ export function ComposeBox({
   // Vehicle C v2 (2026-08-01): dispatch queue[0] (head-of-FIFO) when the
   // idle watchdog fires. Only ONE entry per idle event — sequential cadence
   // across N armed textareas emerges from the session cycling working→idle
-  // between dispatches. D-50 Ink safety: collapse newlines to spaces before
-  // send, matching handleSend. Fail-loud on dispatch failure per user
+  // between dispatches. Ink safety: normalize newlines (CR out, LF kept)
+  // before send, matching handleSend. Fail-loud on dispatch failure per user
   // 2026-07-19 (do NOT retry silently). Source-specific cleanup on success:
   // primary → clear text + clearAfterSend(); slot → drop slot from
   // queueSlots + scheduleAutosave. useCallback is REQUIRED — the watchdog
@@ -1329,7 +1331,7 @@ export function ComposeBox({
       const slotTarget = `queued:${slotId}`;
       const slotAttachments = getStagedAttachmentsForTarget?.(slotTarget) ?? [];
       if (slotAttachments.length > 0) {
-        const captionPayload = collapseNewlinesForSend(head.text);
+        const captionPayload = normalizeNewlinesForSend(head.text);
         console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${head.text.length} attachmentCount=${slotAttachments.length} trigger=queue-item path=attachment mqid=pending target=${slotTarget}`);
         void (async () => {
           const outcome = await onSendWithAttachments!(captionPayload, slotTarget);
@@ -1354,7 +1356,7 @@ export function ComposeBox({
       }
     }
 
-    const payload = collapseNewlinesForSend(head.text);
+    const payload = normalizeNewlinesForSend(head.text);
     // Phase 68 follow-up: route the arm-idle drainer's text-only branch through
     // the funnel so cadence-fired queue sends get optimistic bubbles + dormancy
     // wake, matching every other user-initiated send affordance.
@@ -1536,15 +1538,38 @@ export function ComposeBox({
   // above); each textarea has its own Arm button and click-to-cancel
   // overlay. See the primary/queueSlot render blocks below for wiring.
 
-  // D-50 policy helper: collapse newlines to spaces on send. Ink safety.
+  // Newline policy helper: preserve LF, eliminate CR. Ink safety.
   // Extracted from handleSend so queue-slot sends reuse the same logic.
-  function collapseNewlinesForSend(s: string): string {
-    return s.replace(/\r?\n/g, " ");
+  //
+  // Supersedes the original D-50 rule (collapse ALL newlines to spaces,
+  // 2026-07-17). D-50's stated hazard was Ink's REPL treating an embedded
+  // *CR* as a mid-message submit, and it landed BEFORE patch #118
+  // (2026-07-22) made the transport multi-line-safe by dispatching Enter as
+  // a real key event over a separate `tmux send-keys` exec channel. Since
+  // #118, terminal.ts:680-683 has stated that internal CRs/LFs survive in
+  // the body write so a multi-line message arrives as one submit. The
+  // frontend collapse was never revisited and had become vestigial for LF.
+  //
+  // Re-verified empirically 2026-09-16 against live claude v2.1.150 on
+  // tmux 3.4: an LF-bearing body sent via `send-keys -l` renders as real
+  // lines in the composer with NO premature submit, and a following
+  // separate `send-keys Enter` submits it as ONE message. A bare CR does
+  // the opposite — it fires a submit at the CR, splitting one user message
+  // into two. So CR is the actual hazard and LF is safe.
+  //
+  // Hence: map CRLF and lone CR to LF, leave LF alone. The trailing-CR
+  // submit sentinel is NOT affected — it is appended downstream at
+  // IdentitySessionPane.tsx:369 (`send(text + "\r", mqid)`), after this
+  // transform, and the backend split gate reads it there
+  // (claude-session-server.ts:3227). This helper only ever sees interior
+  // newlines.
+  function normalizeNewlinesForSend(s: string): string {
+    return s.replace(/\r\n?/g, "\n");
   }
 
   // Bounty message-queue-in-pretty-view: per-slot send handler.
   // Routes through the same onSend(text) prop the primary uses:
-  // - D-50 newline collapse applied
+  // - newline normalization applied (CR out, LF preserved)
   // - Phase 50 D-18: primary handleSend seeds an optimistic bubble via
   //   onOptimisticSend; queue-slot sends currently do NOT (out of scope
   //   for phase 50 — queue slots have their own visual affordance in the
@@ -1573,7 +1598,7 @@ export function ComposeBox({
     const slotAttachments = getStagedAttachmentsForTarget?.(slotTarget) ?? [];
     if (slotAttachments.length > 0 && onSendWithAttachments) {
       setErrorMessage(null);
-      const captionPayload = collapseNewlinesForSend(trimmed);
+      const captionPayload = normalizeNewlinesForSend(trimmed);
       console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} attachmentCount=${slotAttachments.length} trigger=send-button path=attachment mqid=pending target=${slotTarget}`);
       const runSlotAttachmentSend = async (): Promise<void> => {
         const outcome = await onSendWithAttachments!(captionPayload, slotTarget);
@@ -1598,7 +1623,7 @@ export function ComposeBox({
 
     setErrorMessage(null);
 
-    const payload = collapseNewlinesForSend(trimmed);
+    const payload = normalizeNewlinesForSend(trimmed);
     // Phase 68 Plan 02: route through the funnel so queue-slot sends carry
     // an mqid (D-03 invariant — backend Phase 56 wake gate fires on all
     // pretty-view sends) and seed an optimistic bubble (D-01).
@@ -1619,7 +1644,7 @@ export function ComposeBox({
   // transcript here so it reaches the send path synchronously, bypassing
   // React's async setState batching on text. When present it is used in place
   // of the current `text` state. All other handleSend logic (attachment
-  // branching, D-50 newline collapse, Phase 50 D-18 optimistic-bubble
+  // branching, newline normalization, Phase 50 D-18 optimistic-bubble
   // seeding) still applies.
   function handleSend(overridePayload?: string, trigger: "enter-key" | "send-button" | "queue-item" | "unknown" = "unknown") {
     // Vehicle C v2: source-scoped cancel — send on primary dequeues
@@ -1661,7 +1686,7 @@ export function ComposeBox({
     // log-assertion contracts across 7+ sibling tests).
     if (hasAttachments && onSendWithAttachments) {
       setErrorMessage(null);
-      const captionPayload = collapseNewlinesForSend(trimmed);
+      const captionPayload = normalizeNewlinesForSend(trimmed);
       // Phase 31 D-02 + quick-260823-8ji: compose submit instrumentation —
       // attachment path. mqid isn't known until the batch is minted inside
       // the hook; the submit-entry line logs mqid=pending and the follow-up
@@ -1697,8 +1722,8 @@ export function ComposeBox({
 
     setErrorMessage(null); // clear any prior error
 
-    // D-50 policy: collapse newlines to spaces on send. Ink safety.
-    const payload = collapseNewlinesForSend(trimmed);
+    // Newline policy: preserve LF, eliminate CR on send. Ink safety.
+    const payload = normalizeNewlinesForSend(trimmed);
 
     // Phase 68 Plan 01: delegate to the co-located useComposeSend hook.
     // The funnel handles mqid generation, onOptimisticSend seed (pre-send +
@@ -1786,7 +1811,7 @@ export function ComposeBox({
         // quick 260808-cd6: same treatment during dormant/waking — text lands, no auto-send.
         if (!recycleActive && !reconnectingActive) {
           // D-16-05: route through the SAME handleSend — attachment branching,
-          // D-50 newline collapse, Phase 50 D-18 optimistic-bubble seeding
+          // newline normalization, Phase 50 D-18 optimistic-bubble seeding
           // all still apply.
           handleSend(result.glued, "queue-item");
         }
@@ -1803,7 +1828,7 @@ export function ComposeBox({
         if (!recycleActive && !reconnectingActive) {
           // handleQueueSlotSend reads from queueSlots state, but due to async
           // batching we pass the glued text directly via onSend to avoid stale reads.
-          const payload = collapseNewlinesForSend(result.glued.trim());
+          const payload = normalizeNewlinesForSend(result.glued.trim());
           if (payload) {
             // quick-260829-nt9: attachment branch for voice-slot sends — mirrors
             // handleQueueSlotSend's attachment branch. If this slot has staged
@@ -3054,8 +3079,8 @@ export function ComposeBox({
             patch #121 — user wants ChatGPT/iMessage-quiet here.
             LEAVE the VISUAL-08 comment block above (~line 1240) ALONE.
             onClick routes ALL send behavior through the existing
-            handleSend() at line ~652 (attachment branching, D-50
-            newline collapse, Phase 50 D-01 optimistic-bubble seeding,
+            handleSend() at line ~652 (attachment branching, newline
+            normalization, Phase 50 D-01 optimistic-bubble seeding,
             clear-on-success — nothing duplicated). */}
         {/* Phase 16 + quick 260729-3y1: send-button slot — co-render pattern.
             The slot hosts RecordingControls ALONE while voice.state==="recording";

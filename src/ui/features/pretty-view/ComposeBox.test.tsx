@@ -1885,3 +1885,77 @@ describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", (
     expect(call[1]).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Newline policy: LF preserved, CR eliminated.
+//
+// Supersedes the original D-50 rule (collapse ALL newlines to spaces). D-50's
+// stated hazard was Ink's REPL treating an embedded CR as a mid-message
+// submit, and it predated patch #118, which made the transport multi-line-safe
+// by dispatching Enter as a real key event over a separate `tmux send-keys`
+// channel. Re-verified empirically 2026-09-16 against live claude v2.1.150:
+// an LF-bearing body renders as real lines in the composer with NO premature
+// submit, while a bare CR fires a submit at the CR and splits one user message
+// into two. So CR is the hazard; LF is safe and must survive.
+//
+// The trailing-CR submit sentinel is NOT this helper's business — it is
+// appended downstream at IdentitySessionPane.tsx (`send(text + "\r", mqid)`),
+// so onSend here only ever receives interior newlines.
+// ---------------------------------------------------------------------------
+describe("ComposeBox — newline normalization on send (LF kept, CR dropped)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  async function sendAndCapture(value: string): Promise<string> {
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+    const textarea = screen.getByPlaceholderText(
+      /^Message/,
+    ) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    await Promise.resolve();
+    expect(onSend).toHaveBeenCalledTimes(1);
+    return onSend.mock.calls[0]![0] as string;
+  }
+
+  it("preserves interior LFs — a multi-line message reaches onSend with newlines intact", async () => {
+    const payload = await sendAndCapture("LINE-ONE\nLINE-TWO\nLINE-THREE");
+    expect(payload).toBe("LINE-ONE\nLINE-TWO\nLINE-THREE");
+    // The load-bearing assertion: this is what the old collapse destroyed.
+    expect(payload).toContain("\n");
+    expect(payload).not.toBe("LINE-ONE LINE-TWO LINE-THREE");
+  });
+
+  it("normalizes CRLF to a bare LF", async () => {
+    const payload = await sendAndCapture("WIN-ONE\r\nWIN-TWO");
+    expect(payload).toBe("WIN-ONE\nWIN-TWO");
+    expect(payload).not.toContain("\r");
+  });
+
+  it("converts a lone interior CR to LF — no CR survives to the transport", async () => {
+    // A bare CR is the actual Ink hazard: it fires a premature submit and
+    // splits one message in two. It must never reach send-keys.
+    const payload = await sendAndCapture("CR-ONE\rCR-TWO");
+    expect(payload).not.toContain("\r");
+    expect(payload).toBe("CR-ONE\nCR-TWO");
+  });
+
+  it("leaves a single-line message byte-identical (no regression for the common case)", async () => {
+    const payload = await sendAndCapture("just one line");
+    expect(payload).toBe("just one line");
+  });
+
+  it("preserves blank lines inside a multi-line message (paragraph breaks survive)", async () => {
+    const payload = await sendAndCapture("PARA-ONE\n\nPARA-TWO");
+    expect(payload).toBe("PARA-ONE\n\nPARA-TWO");
+  });
+
+  it("mixed CRLF + LF + lone CR all normalize to LF uniformly", async () => {
+    const payload = await sendAndCapture("a\r\nb\nc\rd");
+    expect(payload).toBe("a\nb\nc\nd");
+    expect(payload).not.toContain("\r");
+  });
+});
