@@ -27,16 +27,22 @@
  * ## D-13: registry rooms are added to the admin_rooms ignore-list at
  * creation time — the observation loop skips materializing them per D-16.
  *
- * ## D-10 planner-locked concrete strings
+ * ## Room name + alias strings
  *
- *   Agents room: name = "Skynet agents directory (internal)",
- *                roomAliasName = "_skynet_agents_directory"
- *   Humans room: name = "Skynet humans directory (internal)",
- *                roomAliasName = "_skynet_humans_directory"
+ *   Agents room: name = "Agents directory (internal)",
+ *                roomAliasName = "_agents_directory"
+ *   Humans room: name = "Humans directory (internal)",
+ *                roomAliasName = "_humans_directory"
  *
  * The leading underscore + "(internal)" parenthetical are internal-flavored
- * markers so a human who somehow stumbles in won't be confused. Concrete
- * names are locked here — do NOT re-question.
+ * markers so a human who somehow stumbles in won't be confused.
+ *
+ * Both strings are consumed ONLY by createRoom at first-boot creation. Lookup
+ * is always by room ID read from the settings table, and the alias is never
+ * resolved back to an ID, so these can be changed freely: existing instances
+ * keep whatever name their rooms were born with and nothing rebinds. Renaming
+ * an already-created room would take a Matrix state event this module does not
+ * send (originally D-10, unbranded 2026-09-16).
  *
  * ## Crown-jewel forceSave discipline
  *
@@ -75,11 +81,12 @@ export const SETTINGS_KEY_AGENTS_REGISTRY = "agents_registry_room_id";
  */
 export const SETTINGS_KEY_HUMANS_REGISTRY = "humans_registry_room_id";
 
-// D-10 planner-locked concrete room-config strings.
-const AGENTS_ROOM_NAME = "Skynet agents directory (internal)";
-const AGENTS_ROOM_ALIAS_LOCALPART = "_skynet_agents_directory";
-const HUMANS_ROOM_NAME = "Skynet humans directory (internal)";
-const HUMANS_ROOM_ALIAS_LOCALPART = "_skynet_humans_directory";
+// Creation-time only — nothing resolves a registry room by name or alias, so
+// changing these affects new instances without touching existing rooms.
+const AGENTS_ROOM_NAME = "Agents directory (internal)";
+const AGENTS_ROOM_ALIAS_LOCALPART = "_agents_directory";
+const HUMANS_ROOM_NAME = "Humans directory (internal)";
+const HUMANS_ROOM_ALIAS_LOCALPART = "_humans_directory";
 
 // ---------------------------------------------------------------------------
 // Read accessors

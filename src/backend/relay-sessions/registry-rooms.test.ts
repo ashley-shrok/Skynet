@@ -224,13 +224,13 @@ describe("ensureRegistryRoomsExist", () => {
     });
     expect(createRoomSpy).toHaveBeenCalledTimes(2);
 
-    // Verify names / preset / visibility per D-10 planner-locked strings.
+    // Verify names / preset / visibility per D-10.
     const call0 = createRoomSpy.mock.calls[0][0];
     const call1 = createRoomSpy.mock.calls[1][0];
     const names = [call0.name, call1.name].sort();
     expect(names).toEqual([
-      "Skynet agents directory (internal)",
-      "Skynet humans directory (internal)",
+      "Agents directory (internal)",
+      "Humans directory (internal)",
     ]);
     // Both must be preset=private_chat, visibility=private per D-10.
     for (const call of [call0, call1]) {
@@ -294,7 +294,7 @@ describe("ensureRegistryRoomsExist", () => {
     expect(createRoomSpy).toHaveBeenCalledTimes(1);
     // The single createRoom call is for the humans room.
     expect(createRoomSpy.mock.calls[0][0].name).toBe(
-      "Skynet humans directory (internal)",
+      "Humans directory (internal)",
     );
     // addAdminRoom fires only for the newly-created humans room.
     expect(addAdminRoomSpy).toHaveBeenCalledTimes(1);
