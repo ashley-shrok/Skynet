@@ -1085,6 +1085,37 @@ function sessionKey(hostId: number, tmuxSession: string): string {
   return `${hostId}::${tmuxSession}`;
 }
 
+// INTERRUPT_THROTTLE_MS — the minimum gap between two Ctrl-C keystrokes
+// dispatched to the SAME tmux pane before the second is dropped.
+//
+// Empirical basis (measured 2026-09-16, Claude Code v2.1.150):
+//   Claude Code's exit-confirm window is ~0.8s. Two Ctrl-C presses at gaps
+//   of 0.3 / 0.4 / 0.6 / 0.7 / 0.75s KILLED the harness across repeated
+//   trials; 0.8s / 0.85s / 1.0s survived. 2500ms is ~3× the measured window,
+//   chosen for margin against execCommand's unbounded latency.
+//
+// This number is harness-version-specific. Re-measure after any Claude Code
+// upgrade — the exit-confirm window is owned by Claude Code and can change.
+const INTERRUPT_THROTTLE_MS = 2500;
+
+// interruptThrottleByPane — AUTHORITATIVE per-pane interrupt guard.
+//
+// Maps sessionKey(hostId, tmuxSession) → last-fire epoch ms. A second
+// interrupt arriving within INTERRUPT_THROTTLE_MS of the last is dropped
+// silently server-side, regardless of which client sent it.
+//
+// Why the client-side ref in ComposeBox cannot be the guarantee:
+//   1. It is per-view: two open views (phone + desktop) each hold an
+//      independent ref and can individually respect the window while still
+//      landing two Ctrl-Cs ~200ms apart at the same pane.
+//   2. It times the click, not the arrival: execCommand has no timeout and
+//      unbounded latency, so jitter can compress a compliant pair below 0.8s
+//      in flight.
+//   3. A stale bundle enforces whatever constant it shipped with.
+// Only this server-side Map — keyed by the connection-scoped pane identity
+// the interrupt handler already trusts — can hold the real guarantee.
+const interruptThrottleByPane = new Map<string, number>();
+
 // broadcastAsideDismissed — atomic fan-out for the dismiss signal.
 // LOAD-BEARING per CONTEXT.md § Backend per-connection state (2026-07-26 lock):
 // MUST perform BOTH steps for every OPEN peer in activeViewers.get(key):
@@ -1153,6 +1184,7 @@ export const __pvSweepSeamRegistry = new Map<
   __PvSweepSeamForTests
 >();
 export const __sessionKeyForTests = sessionKey;
+export const __interruptThrottleForTests = interruptThrottleByPane;
 export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 
 
@@ -3622,13 +3654,20 @@ export function __applyQueueDedupForTests(deps: {
  * Mirrors the input-handler seam shape (Tests D/E/F from dormant-poll.test.ts)
  * — the sibling wake-message test seam was DELETED in Phase 56 Plan 03.
  *
- * Fires a single `tmux send-keys -t <session> C-c` to send Ctrl-C into the pane.
- * Original safety-valve Ctrl-C was patch #120 on the terminal WS (Terminal.tsx:3300-3311).
+ * Fires a single `tmux send-keys -t <session> C-c` to send Ctrl-C into the
+ * pane, subject to the per-pane throttle (see interruptThrottleByPane). If a
+ * previous interrupt was dispatched to the SAME pane within INTERRUPT_THROTTLE_MS,
+ * the call is silently dropped and a `interrupt_throttled` warn is emitted — NO
+ * keystroke reaches the pane. This is the AUTHORITATIVE guard against harness
+ * death (two Ctrl-Cs inside Claude Code's ~0.8s exit-confirm window terminate
+ * the harness); the client-side ref is a cheap fast-path only.
  *
  * @param deps.sshConn              - SSH connection (null if not connected)
  * @param deps.currentTmuxSession   - current pane tmux session name (null if none)
- * @param deps.currentHostId        - connection-scoped host ID (for logging)
+ * @param deps.currentHostId        - connection-scoped host ID (null if pane torn down)
  * @param deps.execCommand          - injectable SSH exec helper
+ * @param deps.now                  - injectable clock (defaults to Date.now); lets
+ *                                    tests drive time deterministically without fake timers
  */
 export async function __applyInterruptMessageForTests(deps: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3636,19 +3675,60 @@ export async function __applyInterruptMessageForTests(deps: {
   currentTmuxSession: string | null;
   currentHostId: number | null;
   execCommand: (conn: unknown, cmd: string) => Promise<string>;
+  now?: () => number;
 }): Promise<void> {
-  const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
-  if (!sshConn || !currentTmuxSession) return;
+  const { sshConn, currentTmuxSession, currentHostId, execCommand: exec, now = Date.now } = deps;
+  // Fail-closed: without a full pane identity there is no throttle key, and
+  // given the stakes (harness death) the correct posture is to refuse rather
+  // than send an unthrottled Ctrl-C. In production this branch is unreachable:
+  // currentHostId is nulled in teardownPane in lockstep with currentTmuxSession,
+  // so `sshConn && currentTmuxSession` already implies a non-null hostId.
+  if (!sshConn || !currentTmuxSession || currentHostId == null) return;
+
+  const key = sessionKey(currentHostId, currentTmuxSession);
+  const nowMs = now();
+
+  // Throttle check — drop the interrupt if the pane was sent one recently.
+  const last = interruptThrottleByPane.get(key);
+  if (last !== undefined && nowMs - last < INTERRUPT_THROTTLE_MS) {
+    sshLogger.warn("interrupt throttled — second Ctrl-C inside the exit-confirm window", {
+      operation: "interrupt_throttled",
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      elapsedMs: nowMs - last,
+      windowMs: INTERRUPT_THROTTLE_MS,
+    });
+    return;
+  }
+
+  // Prune stale entries before recording the fresh one so the new entry is
+  // never swept. Entries older than INTERRUPT_THROTTLE_MS can never throttle
+  // anything — they exist only for panes that were interrupted more than
+  // 2500ms ago and whose teardown hooks have not yet fired (T-9o3-03).
+  for (const [k, ts] of interruptThrottleByPane) {
+    if (nowMs - ts >= INTERRUPT_THROTTLE_MS) {
+      interruptThrottleByPane.delete(k);
+    }
+  }
+
+  // Record BEFORE awaiting exec — execCommand has no timeout and unbounded
+  // latency. Recording after the await would let two concurrent in-flight
+  // interrupts both pass the gate, defeating the throttle's purpose.
+  interruptThrottleByPane.set(key, nowMs);
+
   try {
-    // Escape (not C-c): Claude Code treats Ctrl-C at its idle prompt as
-    // "start exit flow" — the first press renders a "Press Ctrl+C again
-    // to exit" confirmation and a second press terminates the harness.
-    // Interrupt must never be a path to close the harness, so we send
-    // Escape, which Claude Code interprets as "interrupt current work"
-    // mid-turn and as a benign no-op at idle. Escape is a tmux key name —
-    // no -l flag (it's a key name, not literal bytes) and no shellQuote
-    // around Escape (it's a fixed constant from our code, not user input).
-    await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} Escape`);
+    // Ctrl-C is REQUIRED: it is the only keystroke that both interrupts
+    // mid-turn work AND clears the entire multi-line prompt draft in ONE press
+    // (measured: 1x Ctrl-C cleared a 3-line draft; Escape needs a fast
+    // double-press, which the throttle blocks by design — that was the
+    // capability gap this change closes; Ctrl-U cleared only 1 of 3 lines
+    // even at 4x spaced 0.3s — unreliable). The exit-flow hazard Ctrl-C
+    // reintroduces (harness death on second press inside ~0.8s) is contained
+    // by the server-side per-pane throttle above — NOT by trusting clients.
+    // C-c is a tmux key name from our own source — no -l flag (key name, not
+    // literal bytes) and no shellQuote around C-c (fixed constant, not user
+    // input), exactly as Escape was handled before this change.
+    await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} C-c`);
   } catch (err) {
     sshLogger.warn("interrupt send failed", {
       operation: "interrupt_send_error",
@@ -4534,7 +4614,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const priorPeers = activeViewers.get(priorKey);
       if (priorPeers) {
         priorPeers.delete(ws);
-        if (priorPeers.size === 0) activeViewers.delete(priorKey);
+        if (priorPeers.size === 0) {
+          activeViewers.delete(priorKey);
+          // T-9o3-03: drop the throttle entry when the last viewer on this pane
+          // disconnects. Conditional on the peer set emptying — while another
+          // viewer remains attached the throttle MUST survive (multi-viewer
+          // collision is precisely what this guard defends against).
+          interruptThrottleByPane.delete(priorKey);
+        }
       }
     }
     harnessTasksLastSerialized = null;
@@ -5563,6 +5650,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
     for (const [key, peers] of activeViewers) {
       if (peers.delete(ws) && peers.size === 0) {
         activeViewers.delete(key);
+        // T-9o3-03: drop the throttle entry when the last viewer on this pane
+        // disconnects. Mirrors the identical condition in teardownPane above —
+        // delete only when the peer Set just emptied, so another still-attached
+        // viewer keeps the throttle alive.
+        interruptThrottleByPane.delete(key);
       }
     }
     sshLogger.info("Claude session WebSocket disconnected", {
