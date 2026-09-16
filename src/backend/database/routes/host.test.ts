@@ -454,13 +454,18 @@ describe("POST /db/host — credentialId guard (P1-P6)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 103-02 D-12: hostname collision with serve URL grammar
+// Phase 103-02 D-12 (revised): host name must be a single DNS label
 //
-// POST /db/host must reject any hostname ending in -<digits> because the
-// serve URL grammar `<host>-<port>.serve.term.<domain>` splits on the last
-// dash of the leftmost label. A hostname like "foo-42" would collide with
-// a serve URL for host "foo" on port 42. Enforce at registration so the
-// ambiguity never enters the DB.
+// POST /db/host must reject any hostname containing a dot. Serve-URL dispatch
+// reads only the LEFTMOST label of the subdomain, so a dotted name like
+// "foo.bar" is structurally unreachable over a serve URL.
+//
+// This supersedes the original D-12 check (reject names ending in -<digits>),
+// which was redundant — the port is all-digits so it contains no dash, making
+// D-11's last-dash split unambiguous by construction — and aimed wrong: it
+// rejected AWS-default names like `ip-172-31-209-239` that work fine, while
+// admitting `foo.bar`, which does not. Hence the accept cases below assert
+// specifically that a `-<digits>` suffix is now ALLOWED.
 //
 // Negative assertions on the accept cases use "does NOT contain the D-12
 // error substring" rather than a full 200 assertion — those cases may still
@@ -468,12 +473,12 @@ describe("POST /db/host — credentialId guard (P1-P6)", () => {
 // matters here is the D-12 check specifically does not fire.
 // ---------------------------------------------------------------------------
 
-describe("POST /db/host — D-12 hostname-collision-with-serve-url-grammar", () => {
-  const D12_ERR = "reserved for serve URL grammar";
+describe("POST /db/host — D-12 host-name-not-a-single-dns-label", () => {
+  const D12_ERR = "single DNS label";
 
-  it("rejects hostname ending -<digits> with 400", async () => {
+  it("rejects dotted hostname with 400 (foo.bar)", async () => {
     const req = makePostReq({
-      name: "foo-42",
+      name: "foo.bar",
       ip: "1.1.1.1",
       port: 22,
       runsFleetSubstrate: false,
@@ -486,6 +491,56 @@ describe("POST /db/host — D-12 hostname-collision-with-serve-url-grammar", () 
     expect(res._status).toBe(400);
     expect((res._body as { error: string }).error).toContain(D12_ERR);
     expect(SimpleDBOps.insert).not.toHaveBeenCalled();
+  });
+
+  it("rejects fully-qualified hostname with 400 (host.example.com)", async () => {
+    const req = makePostReq({
+      name: "host.example.com",
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      password: "x",
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    expect(res._status).toBe(400);
+    expect((res._body as { error: string }).error).toContain(D12_ERR);
+    expect(SimpleDBOps.insert).not.toHaveBeenCalled();
+  });
+
+  it("accepts AWS-default name ending -<digits> (ip-172-31-209-239)", async () => {
+    // The case the old D-12 wrongly rejected — T800's exec VMs get this shape.
+    const req = makePostReq({
+      name: "ip-172-31-209-239",
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      password: "x",
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    const body = res._body as { error?: string } | null;
+    expect(body?.error ?? "").not.toContain(D12_ERR);
+  });
+
+  it("accepts short name ending -<digits> (foo-42)", async () => {
+    const req = makePostReq({
+      name: "foo-42",
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      password: "x",
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    const body = res._body as { error?: string } | null;
+    expect(body?.error ?? "").not.toContain(D12_ERR);
   });
 
   it("accepts hostname with non-terminal digit (aither-cloud2)", async () => {
@@ -508,22 +563,6 @@ describe("POST /db/host — D-12 hostname-collision-with-serve-url-grammar", () 
   it("accepts hostname without dash (t800)", async () => {
     const req = makePostReq({
       name: "t800",
-      ip: "1.1.1.1",
-      port: 22,
-      runsFleetSubstrate: false,
-      password: "x",
-    });
-    const res = makeMockRes();
-
-    await postHandler!(req, res);
-
-    const body = res._body as { error?: string } | null;
-    expect(body?.error ?? "").not.toContain(D12_ERR);
-  });
-
-  it("accepts hostname with dash and non-digit suffix (foo-bar)", async () => {
-    const req = makePostReq({
-      name: "foo-bar",
       ip: "1.1.1.1",
       port: 22,
       runsFleetSubstrate: false,

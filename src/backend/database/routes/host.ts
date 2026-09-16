@@ -255,22 +255,34 @@ router.post(
       return res.status(400).json({ error: "Invalid SSH data" });
     }
 
-    // Phase 103 D-12: hostname cannot end -<digits> to avoid ambiguity with
-    // serve URL grammar <host>-<port>.serve.term.<domain> (split on the last
-    // dash of the leftmost label per D-11). CREATE path only — PUT is
-    // untouched per PATTERNS.md host-record-trap warning.
-    if (typeof name === "string" && /-\d+$/.test(name)) {
-      sshLogger.warn(
-        "[host-db] host-name-collision-with-serve-url-grammar",
-        {
-          operation: "host_create",
-          userId,
-          name,
-        },
-      );
+    // Phase 103 D-12 (revised): the host name must be a SINGLE DNS label —
+    // no dots. Serve-URL dispatch reads only the LEFTMOST label of the
+    // subdomain (`subdomainHeader.split(".")[0]`, subdomain-dispatch.ts), so
+    // a dotted name like `foo.bar` is structurally unreachable over a serve
+    // URL: dispatch would only ever see `foo`.
+    //
+    // This REPLACES the original D-12 check, which rejected names ending in
+    // `-<digits>`. That check was redundant: the port is validated all-digits,
+    // so it never contains a dash, so the joining dash in
+    // `<host>-<port>.serve.<domain>` is ALWAYS the last dash of the label and
+    // D-11's last-dash split recovers the boundary uniquely. It was also aimed
+    // wrong — it rejected names that work (`ip-172-31-209-239`, the AWS default
+    // on T800's exec VMs) while admitting names that genuinely break
+    // (`foo.bar`). Dottedness is the property actually worth guarding.
+    //
+    // CREATE path only — PUT is untouched per PATTERNS.md host-record-trap
+    // warning (a rename via PUT nulls the host's SSH key), so this is not a
+    // guarantee about stored data.
+    if (typeof name === "string" && name.includes(".")) {
+      sshLogger.warn("[host-db] host-name-not-a-single-dns-label", {
+        operation: "host_create",
+        userId,
+        name,
+      });
       return res.status(400).json({
         error:
-          "Hostname cannot end in -<number> (reserved for serve URL grammar)",
+          "Hostname must be a single DNS label (no dots) — serve URL dispatch " +
+          "only reads the leftmost label",
       });
     }
 
