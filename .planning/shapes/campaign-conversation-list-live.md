@@ -1,7 +1,7 @@
 # Campaign: the conversation list should open fully populated and never lag behind
 
 **Opened:** 2026-09-16
-**Status:** in_progress
+**Status:** in_progress (shapes collapsed into one — see Shapes note)
 **Workspace:** `/home/ubuntu/fleet/identities/pixel/workspace/.planning/shapes/`
 
 ## Concept
@@ -94,7 +94,34 @@ tell the client.
 
 ## Shapes
 
-- **[declared] shape-conversation-list-dequeue-cosmetics** — Stop the cosmetics
+> **⚠️ Superseded 2026-09-16 — all three shapes below are collapsed into a
+> single shape: `shape-conversation-list-complete-and-live.md`.**
+>
+> The three-shape sequence assumed the added per-tick reading (appearance,
+> inheritance, pinned, hidden) was expensive enough that it had to be staged.
+> Measurement this session disproved that: the added work is ~1ms against a
+> pulse already spending 600-750ms per host per tick on transcript-tail
+> scanning — about a thousandth of the existing cost, on a host with 73
+> identities (far above the small-host target).
+>
+> That collapses the sequence. Once the pulse carries one complete answer and
+> the server answers the opening request from the picture it already holds,
+> de-queueing is a *consequence* rather than a step, and browser-side caching
+> of appearance becomes largely unnecessary. The user's framing drove this:
+> *"would it be simplest just to request everything needed to render the list
+> correctly initially and then just request that same set of stuff every time
+> we poll so that it updates when needed and that's the whole story?"* — yes,
+> and it is affordable by three orders of magnitude.
+>
+> Also settled during that session, and carried into the new shape: "fully
+> dressed" includes inheritance AND position/membership (pin + hide) — the
+> user's words: *"how can the list arrive without all the info needed?"*
+> Appearance keeps exactly one authority. Change-detection cleverness is
+> explicitly rejected on evidence rather than deferred.
+>
+> The three entries below are retained as the record of the original plan.
+
+- **[superseded] shape-conversation-list-dequeue-cosmetics** — Stop the cosmetics
   request from queueing behind the session-list request. The server already has
   the identity-to-host mapping when it answers the session list; having the
   client learn it and then ask again is a round-trip that exists for no reason.
@@ -102,13 +129,13 @@ tell the client.
   without being told the mapping. This alone removes the undressed window on a
   cold load. Contained, and it makes the next shape trivially correct. — status:
   in_progress
-- **[declared] shape-conversation-list-cache-cosmetics** — Persist appearance
+- **[superseded] shape-conversation-list-cache-cosmetics** — Persist appearance
   alongside identity in the stored snapshot, so opening from cache looks
   finished rather than looking like plain terminals. Deliberately second: the
   cache's job is defined by what corrects it, so building it before the
   correction path means guessing. Small once the first shape has landed — the
   data is already flowing, it just isn't written down. — status: in_progress
-- **[declared] shape-conversation-list-live-updates** — Make the list a live
+- **[superseded] shape-conversation-list-live-updates** — Make the list a live
   thing rather than a fetched thing, by widening what the existing two-second
   pulse reports and what it may say: appearing sessions create rows,
   disappearing sessions remove them, and changed identity files update
