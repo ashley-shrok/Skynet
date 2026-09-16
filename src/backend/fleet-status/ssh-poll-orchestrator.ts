@@ -2071,10 +2071,6 @@ export function createSshPollOrchestrator(
       nextStaleTailTickCount,
     } = fetched;
 
-    // Phase 111 Plan 03: appearance carried from the fetched struct (resolved
-    // by the shared appearanceFromIdentityLine helper in both adapters).
-    const identityAppearance = fetched.identityAppearance;
-
     // Phase 4 — OR compose. Three axes match source A's pre-migration
     // semantics.
     const isRecycling = layer1RecyclingCached || isRecycleRequested || isRecycledAt;
@@ -2131,7 +2127,7 @@ export function createSshPollOrchestrator(
     // Phase 111 Plan 03: appearance segment appended at END per the append-at-END
     // rule. No commit in this repo's history widened this fingerprint before
     // this plan — this is the first extension of source B's inline fingerprint.
-    const fingerprint = `${isDormant ? "1" : "0"}|${isRecycling ? "1" : "0"}|${appearanceFingerprintSegment(identityAppearance)}`;
+    const fingerprint = `${isDormant ? "1" : "0"}|${isRecycling ? "1" : "0"}|${appearanceFingerprintSegment(fetched.identityAppearance)}`;
 
     if (cached !== undefined && cached.lastPublishedFingerprint === fingerprint) {
       // Cache hit — fingerprint identical → advance internal state but skip
@@ -2146,7 +2142,7 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         lastPublishedFingerprint: fingerprint,
-        identityAppearance,
+        identityAppearance: fetched.identityAppearance,
       });
       return;
     }
@@ -2163,7 +2159,7 @@ export function createSshPollOrchestrator(
       jsonlPath,
       staleTailTickCount: nextStaleTailTickCount,
       lastPublishedFingerprint: fingerprint,
-      identityAppearance,
+      identityAppearance: fetched.identityAppearance,
     });
 
     // Phase 111 Plan 03: two construction sites, no factory — deliberate, see
