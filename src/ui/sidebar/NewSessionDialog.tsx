@@ -925,7 +925,6 @@ export function NewSessionDialog({
     defaultValue:
       "Use letters, numbers, underscores, or dashes (max 64 characters).",
   });
-  const cancelLabel = t("common.cancel", { defaultValue: "Cancel" });
   const openLabel = t("common.create", { defaultValue: "Create" });
   const emptyHostsLabel = t("nav.newSessionNoHosts", {
     defaultValue: "No hosts available",
@@ -1261,14 +1260,6 @@ export function NewSessionDialog({
         </div>
 
         <DialogFooter>
-          {/* Cancel button — Phase 106 Plan 106-02 (D-15): rendered always but
-              disabled during birthing so the button doesn't jump-vanish while
-              the Create button spins. Mirrors the form-field disabled pattern.
-              The Dialog's onOpenChange handler above is the actual close-lock
-              gate — this disabled attribute is the visual affordance side. */}
-          <Button variant="ghost" onClick={onClose} disabled={birthing}>
-            {cancelLabel}
-          </Button>
           <Button
             variant="outline"
             disabled={!canOpen}

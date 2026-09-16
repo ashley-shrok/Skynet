@@ -233,10 +233,10 @@ beforeEach(() => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 2: dialog Cancel closes without emitting onCreate
+// Test 2: dialog close affordance closes without emitting onCreate
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: cancel", () => {
-  it("Test 2: clicking Cancel calls onClose and does NOT call onCreate", () => {
+  it("Test 2: clicking Close calls onClose and does NOT call onCreate", () => {
     const onClose = vi.fn();
     const onCreate = vi.fn();
     const { getByRole } = render(
@@ -247,8 +247,8 @@ describe("NewSessionDialog: cancel", () => {
         onCreate={onCreate}
       />,
     );
-    const cancelBtn = getByRole("button", { name: /cancel/i });
-    fireEvent.click(cancelBtn);
+    const closeBtn = getByRole("button", { name: /close/i });
+    fireEvent.click(closeBtn);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onCreate).not.toHaveBeenCalled();
   });
@@ -1096,7 +1096,7 @@ describe("NewSessionDialog: Test 106A — Create button shows spinner during bir
 // Test 106B: modal fully locked during birthing (D-15)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test 106B — modal is fully locked during birthing", () => {
-  it("Test 106B: while birthing → Cancel button disabled; pressing Escape does NOT fire onClose", async () => {
+  it("Test 106B: while birthing → Create button disabled; pressing Escape does NOT fire onClose", async () => {
     // Same stuck-stream mock as Test 106A so `birthing===true` is stable.
     let resolveStream!: () => void;
     const neverEnds = new Promise<void>((res) => { resolveStream = res; });
@@ -1113,11 +1113,10 @@ describe("NewSessionDialog: Test 106B — modal is fully locked during birthing"
     }) as HTMLButtonElement;
     fireEvent.click(createBtn);
 
-    // Wait for birthing to flip on (visible via disabled Cancel button —
-    // D-15's rendered-always-but-disabled treatment per plan 106-02).
-    const cancelBtn = utils.getByRole("button", { name: /cancel/i }) as HTMLButtonElement;
+    // Wait for birthing to flip on. The Cancel button is gone, so the
+    // detector is the Create button going disabled while it spins.
     await waitFor(() => {
-      expect(cancelBtn.disabled).toBe(true);
+      expect(createBtn.disabled).toBe(true);
     });
 
     // ESC keypress on the dialog should NOT invoke onClose — the Dialog's
@@ -1126,8 +1125,8 @@ describe("NewSessionDialog: Test 106B — modal is fully locked during birthing"
     fireEvent.keyDown(document.body, { key: "Escape", code: "Escape" });
     expect(onClose).not.toHaveBeenCalled();
 
-    // Clicking the (disabled) Cancel button should also not trigger onClose.
-    fireEvent.click(cancelBtn);
+    // The X close affordance is also inert while birthing (same D-15 gate).
+    fireEvent.click(utils.getByRole("button", { name: /close/i }));
     expect(onClose).not.toHaveBeenCalled();
 
     // Cleanup

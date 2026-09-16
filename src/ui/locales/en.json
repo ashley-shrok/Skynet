@@ -145,7 +145,7 @@
       "loading": "Loading agents…"
     },
     "newSessionTitle": "Create a new agent conversation",
-    "newSessionDescription": "Pick a role and (optionally) name the agent.",
+    "newSessionDescription": "Agents are the workers you chat with. Each one adopts a role that shapes what they know and how they help.",
     "newSessionSearchHosts": "Search hosts",
     "newSessionNameLabel": "Agent name (optional)",
     "newSessionNamePlaceholder": "auto",
