@@ -132,6 +132,12 @@ import {
   type RoleSummary,
 } from "@/api/identities-api";
 import { refreshIdentities } from "@/state/identities-store";
+import { roleDisplayName } from "@/lib/role-display-name";
+
+// Chrome/Linux renders the <option> popup with browser defaults, not the parent
+// <select>'s classes — light-on-light without this. Same fix as VoicePicker's
+// options and the GlobalFilesModal/SkillsEditorModal host pickers.
+const ROLE_OPTION_STYLE = { background: "#1a1c26", color: "#f0ebe0" } as const;
 
 // Client-side session-name pattern — defense-in-depth (T-06-04-01). Word
 // characters and dashes, 0-64 chars. Empty string matches (Open enabled +
@@ -1152,14 +1158,14 @@ export function NewSessionDialog({
                     value={selectedRole}
                     onChange={(e) => setSelectedRole(e.target.value)}
                     disabled={formDisabled || rolesLoading}
-                    className="w-full rounded-sm border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] px-3 py-2 text-xs text-[color:var(--color-pv-fg)] outline-none disabled:opacity-50"
+                    className="w-full rounded-sm border border-[color:var(--color-pv-border-quiet-strong)] bg-white/[0.06] px-3 py-2 text-xs text-[color:var(--color-pv-fg)] outline-none disabled:opacity-50"
                   >
-                    <option value="" disabled>
+                    <option value="" disabled style={ROLE_OPTION_STYLE}>
                       {rolesLoading ? "Loading roles..." : "Pick a role…"}
                     </option>
                     {rolesForHost.map((r) => (
-                      <option key={r.name} value={r.name}>
-                        {r.name}
+                      <option key={r.name} value={r.name} style={ROLE_OPTION_STYLE}>
+                        {roleDisplayName(r.name, r.displayName)}
                       </option>
                     ))}
                   </select>

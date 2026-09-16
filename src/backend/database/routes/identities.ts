@@ -180,6 +180,7 @@ export function publicIdentity(
    *  cosmetic frontmatter fields. */
   roleCosmetics: {
     title?: string;
+    displayName?: string;
     colorHue?: number;
     voice?: string;
     avatar?: string;

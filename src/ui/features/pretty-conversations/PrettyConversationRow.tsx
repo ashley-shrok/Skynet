@@ -147,6 +147,7 @@ import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { cn } from "@/lib/utils";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
+import { roleDisplayName } from "@/lib/role-display-name";
 
 import {
   PrettyConversationContextMenu,
@@ -1286,7 +1287,9 @@ export function PrettyConversationRow({
             <>
               <span className="pv-label">{identity.task}</span>
               <span className="pv-ai-title">
-                <strong>{identity.role}</strong>{" "}
+                <strong>
+                  {roleDisplayName(identity.role ?? "", identity.roleDefaults?.displayName)}
+                </strong>{" "}
                 <span className="pv-hostname-suffix">({identity.displayName})</span>
               </span>
             </>

@@ -74,6 +74,7 @@ import { RunbooksTab } from "./RunbooksTab";
 import { WakeupsTab } from "./WakeupsTab";
 import { RoleBountiesTab } from "./RoleBountiesTab";
 import { RoleCosmeticEditBlock } from "./RoleCosmeticEditBlock";
+import { roleDisplayName } from "@/lib/role-display-name";
 
 // D-05 fallback hue (app accent) — used when the role has no colorHue key.
 const FALLBACK_HUE = 190;
@@ -87,16 +88,6 @@ const NAV_SECTIONS = [
   { value: "bounties", label: "Bounties", Icon: Target },
   { value: "role-wakeups", label: "Wakeups", Icon: AlarmClock },
 ] as const;
-
-// Title-case a kebab-case role slug — display-name fallback per D-05
-// "displayName ?? titleCased(slug)".
-function titleCase(slug: string): string {
-  if (!slug) return "";
-  return slug
-    .split("-")
-    .map((word) => (word.length === 0 ? word : word[0].toUpperCase() + word.slice(1)))
-    .join(" ");
-}
 
 /**
  * Merge the cosmetic drafts into the frontmatter block of the current
@@ -238,7 +229,7 @@ export function RoleModal({
   onOpenRunbook,
 }: RoleModalProps): JSX.Element {
   const hue = roleCosmetics.colorHue ?? FALLBACK_HUE;
-  const displayName = roleCosmetics.displayName ?? titleCase(roleName);
+  const displayName = roleDisplayName(roleName, roleCosmetics.displayName);
 
   const [activeTab, setActiveTab] = useState<string>("role");
   const [roleFileState, setRoleFileState] = useState<TabState<string>>({

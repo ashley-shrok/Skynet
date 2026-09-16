@@ -174,9 +174,10 @@ describe("PrettyConversationRow: task-primary body render (Phase 80 Plan 08)", (
     expect(label!.textContent?.trim()).toBe("build the pool endpoint");
 
     // Subtitle: .pv-ai-title span (reused per D-03) carries role + parens.
+    // Role renders through roleDisplayName, so the kebab slug shows title-cased.
     const subtitle = container.querySelector(".pv-ai-title") as HTMLElement | null;
     expect(subtitle).toBeTruthy();
-    expect(subtitle!.textContent).toContain("skynet-maintainer");
+    expect(subtitle!.textContent).toContain("Skynet Maintainer");
     expect(subtitle!.textContent).toContain("(Willow)");
 
     // aiTitle text MUST NOT appear anywhere — the task-primary branch drops
@@ -276,7 +277,28 @@ describe("PrettyConversationRow: role prominence in task-primary subtitle", () =
     const strong = subtitle.querySelector("strong");
     expect(strong).toBeTruthy();
     expect(strong!.tagName).toBe("STRONG");
-    expect(strong!.textContent).toBe("skynet-maintainer");
+    expect(strong!.textContent?.trim()).toBe("Skynet Maintainer");
+  });
+
+  it("TP4b: role's own displayName frontmatter wins over the title-cased slug", () => {
+    currentIdentity = makeIdentityWithTask({
+      task: "ship the pill",
+      role: "skynet-maintainer",
+      roleDefaults: { displayName: "Skynet Ops" },
+    });
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    const strong = container.querySelector(".pv-ai-title strong");
+    expect(strong!.textContent?.trim()).toBe("Skynet Ops");
   });
 });
 

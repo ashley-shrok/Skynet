@@ -46,6 +46,7 @@ import {
   type RoleSummary,
 } from "@/api/identities-api";
 import type { TabState } from "./IdentityFileTab";
+import { roleDisplayName } from "@/lib/role-display-name";
 
 // Chrome/Linux desktop <option> popup — same OPTION_STYLE that
 // GlobalFilesModal.tsx L33 pins for popup contrast.
@@ -74,14 +75,7 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 // `displayName`, we title-case the kebab-slug (e.g. `box-maintainer` →
 // `Box Maintainer`).
 function displayNameFor(role: RoleSummary): string {
-  if (role.displayName && role.displayName.trim().length > 0) {
-    return role.displayName;
-  }
-  return role.name
-    .split("-")
-    .filter((s) => s.length > 0)
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join(" ");
+  return roleDisplayName(role.name, role.displayName);
 }
 
 // D-05: hue selector — role's `colorHue` when present, else fallback 190.

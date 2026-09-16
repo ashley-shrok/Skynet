@@ -166,6 +166,7 @@ import type { CreateRelayRoomResponse } from "./participant-types";
 // hardcoded inline-SVG logo import removed — no remaining consumers in this
 // file after the JSX below switched to <img src={brandingConfig.iconPath}>.
 import { useBrandingConfig } from "@/branding/branding-store";
+import { getBasePath } from "@/lib/base-path";
 
 // Phase 41 Plan 02: sessionStorage sentinel key for the one-shot cold-load
 // search-input scroll-hide effect. Mirrors the pv-conv-active-set pattern at
@@ -1693,17 +1694,27 @@ export function PrettyConversationsPanel({
             className="pv-title"
             style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
           >
-            <img
-              src={brandingConfig.iconPath}
-              alt=""
-              aria-hidden="true"
-              className="pv-header-logo"
-            />
-            <img
-              src={brandingConfig.wordmarkPath}
-              alt={brandingConfig.appName}
-              className="pv-header-wordmark"
-            />
+            {/* Whole lockup (icon + wordmark) is the home link. There is no
+                router in this app, so this is a real navigation to the app
+                root — getBasePath keeps it correct under a sub-path deploy. */}
+            <a
+              href={`${getBasePath()}/`}
+              aria-label={`${brandingConfig.appName} home`}
+              data-testid="pv-header-home-link"
+              style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+            >
+              <img
+                src={brandingConfig.iconPath}
+                alt=""
+                aria-hidden="true"
+                className="pv-header-logo"
+              />
+              <img
+                src={brandingConfig.wordmarkPath}
+                alt={brandingConfig.appName}
+                className="pv-header-wordmark"
+              />
+            </a>
           </span>
           <div className="pv-header-actions">
             {/* quick-260914-liu: four header icon buttons share a single showPencilButton

@@ -69,6 +69,7 @@ export interface Identity {
    *  identity's own frontmatter. */
   roleDefaults?: {
     title?: string;
+    displayName?: string;
     colorHue?: number;
     voice?: string;
     avatar?: string;
