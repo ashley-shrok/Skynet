@@ -2482,16 +2482,16 @@ Plans:
 **Goal:** The conversation list arrives complete — right rows, right order, right appearance with inheritance resolved, pinned first and hidden absent — on first paint, and stays live without a page refresh. No row is ever seen in a state it then grows out of.
 **Requirements**: none mapped — coverage is driven by CONTEXT.md decisions D-01 through D-13
 **Depends on:** Phase 110
-**Plans:** 6 plans
+**Plans:** 3/6 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 111-01-PLAN.md — host-side sweep emits raw appearance + role + .pinned/.hidden at SCHEMA_VERSION 1 (D-01..D-04), plus the bash driver that covers the new stdlib frontmatter parser
-- [ ] 111-02-PLAN.md — one identity-over-role merge authority shared with publicIdentity(); widen SweepIdentityLine + SessionStateSchema + the browser mirror, both versions held (D-04, D-09)
+- [x] 111-01-PLAN.md — host-side sweep emits raw appearance + role + .pinned/.hidden at SCHEMA_VERSION 1 (D-01..D-04), plus the bash driver that covers the new stdlib frontmatter parser
+- [x] 111-02-PLAN.md — one identity-over-role merge authority shared with publicIdentity(); widen SweepIdentityLine + SessionStateSchema + the browser mirror, both versions held (D-04, D-09)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 111-03-PLAN.md — thread appearance onto both publish sources; both fingerprints, three frame sites, four cache branches (D-01, D-02, D-09)
+- [x] 111-03-PLAN.md — thread appearance onto both publish sources; both fingerprints, three frame sites, four cache branches (D-01, D-02, D-09)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
