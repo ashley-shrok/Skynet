@@ -113,6 +113,14 @@ SCHEMA_VERSION = 1
 # path-traversal defense.
 SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
+# Role name validation — mirrors ambient-monitor.py's _ROLE_NAME_OK and the
+# path-traversal guard in src/backend/claude-session/identity-artifact-reader.ts.
+# A valid role name is all-lowercase alphanumeric with hyphens/underscores.
+# This regex is applied BEFORE any os.path.join using the role name so a
+# malformed role like `../../tmp` is rejected rather than becoming a path
+# traversal (T-111-01).
+ROLE_NAME_OK = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
 # ---------------------------------------------------------------------------
 # Phase 32 discovery — mirrors discover-identity-session-file.ts.
 # ---------------------------------------------------------------------------
@@ -128,6 +136,14 @@ DISCOVERY_DELIMITER_SET = frozenset(("<", " ", "\r"))
 # port produces the same candidate set (see buildDiscoveryScript's
 # `head -c 4096` in discover-identity-session-file.ts:209).
 DISCOVERY_HEAD_BYTES = 4096
+
+# Cap for frontmatter head-reads. Identity files are ~5-7 KB but role files
+# reach 44,642 bytes (box-maintainer.md) while containing only ~4 lines of
+# frontmatter. Reading at most this many characters (text-mode, NOT bytes)
+# avoids buffering whole files. A file whose closing `---` fence falls beyond
+# 4096 chars is treated as having no frontmatter → None → plain row. That
+# fail-closed behaviour is intentional, not a bug (T-111-03).
+FRONTMATTER_HEAD_BYTES = 4096
 
 # ---------------------------------------------------------------------------
 # JSONL tail width — mirrors A12 / B5 exec sites in ssh-poll-orchestrator.ts.
@@ -603,6 +619,148 @@ def _read_text_file(path):
     except OSError:
         return None
     return data.decode("utf-8", errors="replace")
+
+
+def _read_frontmatter_cosmetics(path, allowed_keys):
+    """Return (cosmetics_dict_or_None, role_or_None) from a markdown file's YAML frontmatter.
+
+    Reads at most FRONTMATTER_HEAD_BYTES characters (text-mode, utf-8-sig to
+    strip BOM) and scans line-by-line between the first two `---` fence lines.
+    Returns (None, None) on any read error or if no valid frontmatter block is
+    found. Returns ({}, None) if frontmatter was found but no cosmetic keys or
+    role line were present — the caller can distinguish "file missing / no
+    frontmatter" from "file read, frontmatter present but empty".
+
+    Security: `role:` is extracted and validated against ROLE_NAME_OK BEFORE
+    it is ever used in an os.path.join. A malformed role like `../../tmp` is
+    rejected here, never reaching path construction (T-111-01).
+
+    Encoding: text mode with `utf-8-sig` so a UTF-8 BOM (Windows-style) does
+    not silently prevent the first `---` fence from matching (mirrors
+    ambient-monitor.py:257).
+
+    Cap behaviour: if the closing `---` fence falls beyond FRONTMATTER_HEAD_BYTES
+    characters, the capped read produces fewer than two fences → returns
+    (None, None). This is the intended fail-closed behaviour, not a bug: the
+    cap bounds the read of large role files (44 KB measured) and frontmatter
+    that does not fit in 4096 chars is assumed absent.
+
+    `task` values are free-form user prose and are the single most likely field
+    to contain a `:` or a `#`. Because this is a line-oriented fence scan, not
+    a YAML parser, `task` takes everything after the FIRST `:` and strips only
+    trailing whitespace. Trailing `#...` comments are NOT stripped from `task`
+    since a `#` inside prose is legitimate. All other fields DO have trailing
+    YAML comments stripped. This asymmetry is intentional and documented here
+    so it is not "fixed" by a future reader.
+
+    `allowed_keys` governs which cosmetic keys are extracted (e.g. identity
+    files allow `task` and `coordinator`; role files do not). `role:` is always
+    extracted regardless of `allowed_keys`.
+    """
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            raw = fh.read(FRONTMATTER_HEAD_BYTES)
+    except OSError:
+        return None, None
+    except UnicodeDecodeError:
+        # A binary file in an identity folder must not raise.
+        return None, None
+
+    lines = raw.split("\n")
+    fences = [i for i, ln in enumerate(lines) if ln.strip() == "---"]
+    if len(fences) < 2:
+        return None, None
+
+    cosmetics = {}
+    role = None
+
+    for line in lines[fences[0] + 1: fences[1]]:
+        # Skip full-line comments (col-0-anchored check via lstrip).
+        if line.lstrip().startswith("#"):
+            continue
+
+        # --- role: (always extracted; validated before any path use) ---
+        m_role = re.match(r"^role:\s*(.+?)\s*(#.*)?$", line.rstrip("\n"))
+        if m_role and role is None:
+            raw_role = m_role.group(1).strip().strip('"').strip("'").strip()
+            if ROLE_NAME_OK.match(raw_role):
+                role = raw_role
+            continue
+
+        # --- coordinator: true (only true is ever emitted; absence = false) ---
+        if "coordinator" in allowed_keys:
+            if re.match(r"^coordinator:\s*true\s*(#.*)?$", line.rstrip("\n")):
+                cosmetics["coordinator"] = True
+                continue
+
+        # --- task: free-form prose (no trailing comment strip; # is legitimate) ---
+        if "task" in allowed_keys:
+            m_task = re.match(r"^task:\s*(.+)$", line.rstrip("\n"))
+            if m_task:
+                val = m_task.group(1).rstrip()
+                if val:
+                    cosmetics["task"] = val
+                continue
+
+        # --- colorHue: int, must be in 0..359 (mirrors identity-artifact-reader.ts) ---
+        if "colorHue" in allowed_keys:
+            m_hue = re.match(r"^colorHue:\s*([^\s#]+)\s*(#.*)?$", line.rstrip("\n"))
+            if m_hue:
+                try:
+                    hue_val = int(m_hue.group(1))
+                    if 0 <= hue_val <= 359:
+                        cosmetics["colorHue"] = hue_val
+                except ValueError:
+                    pass
+                continue
+
+        # --- string fields: displayName, title, voice, avatar ---
+        for key in ("displayName", "title", "voice", "avatar"):
+            if key not in allowed_keys:
+                continue
+            m_str = re.match(
+                r"^" + re.escape(key) + r":\s*(.+?)\s*(#.*)?$",
+                line.rstrip("\n"),
+            )
+            if m_str:
+                val = m_str.group(1).strip().strip('"').strip("'").strip()
+                if val:
+                    cosmetics[key] = val
+                break
+
+    return cosmetics, role
+
+
+def _read_role_cosmetics(role, home, role_memo):
+    """Return role cosmetics dict or None for `role`, memoizing the result.
+
+    Returns None immediately when `role` is None (nothing to resolve).
+
+    Uses `in role_memo` membership test (not .get()) so a memoized None is a
+    cache HIT that prevents a second read — the "at most once per host per
+    tick" requirement (D-02) must hold for missing role files just as strictly
+    as for files that read fine.
+
+    Builds the role file path as ~/fleet/roles/<role>/<role>.md. `role` has
+    already passed ROLE_NAME_OK validation in _read_frontmatter_cosmetics, so
+    no path traversal is possible.
+
+    Logs a single _log line to stderr when the role file cannot be read — a
+    role file that does not exist is a real configuration fact, not a silent
+    no-op.
+    """
+    if role is None:
+        return None
+    if role in role_memo:
+        return role_memo[role]
+    role_path = os.path.join(home, "fleet", "roles", role, role + ".md")
+    cosmetics, _ignored_role = _read_frontmatter_cosmetics(
+        role_path, ("title", "displayName", "colorHue", "voice", "avatar"),
+    )
+    if cosmetics is None:
+        _log("role_cosmetics_unreadable", role=role[:40])
+    role_memo[role] = cosmetics
+    return cosmetics
 
 
 # ---------------------------------------------------------------------------
