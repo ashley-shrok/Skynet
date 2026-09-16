@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import QRCode from "qrcode";
 import speakeasy from "speakeasy";
+import { loadBrandingConfig } from "../../branding/branding-config-loader.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { LazyFieldEncryption } from "../../utils/lazy-field-encryption.js";
 import { authLogger } from "../../utils/logger.js";
@@ -60,8 +61,9 @@ export function registerUserTotpRoutes(
         return res.status(400).json({ error: "TOTP is already enabled" });
       }
 
+      const branding = await loadBrandingConfig();
       const secret = speakeasy.generateSecret({
-        name: `Skynet (${userRecord.username})`,
+        name: `${branding.appName} (${userRecord.username})`,
         length: 32,
       });
 

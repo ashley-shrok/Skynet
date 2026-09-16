@@ -297,9 +297,7 @@ export default function GlobalFilesModal({
               <div className="text-xs opacity-70">
                 Edit{" "}
                 <code className="px-1 rounded bg-black/30">/app/data/global-files.json</code>{" "}
-                on the Skynet server to add entries. See{" "}
-                <code className="px-1 rounded bg-black/30">23-BOOTSTRAP.md</code> in the
-                phase folder.
+                on the server to add entries.
               </div>
             </div>
           ) : (

@@ -532,7 +532,7 @@ function errorTextBody(errorClass: string): string {
     case "path_forbidden":
       return "path_forbidden: /proc, /sys, and /dev are not accessible via file URLs";
     case "unknown_host":
-      return "unknown_host: host is not registered in this Skynet or you do not have access to it";
+      return "unknown_host: host is not registered on this server or you do not have access to it";
     case "permission_denied":
       return "permission_denied: you do not have read access to this file on this host";
     case "not_a_file":

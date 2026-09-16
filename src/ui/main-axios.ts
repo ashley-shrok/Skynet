@@ -1119,7 +1119,7 @@ export function handleApiError(error: unknown, operation: string): never {
           errorContext,
         );
         throw new ApiError(
-          "No server configured. Please configure a Skynet server first.",
+          "No server configured. Please configure a server first.",
           0,
           "NO_SERVER_CONFIGURED",
         );

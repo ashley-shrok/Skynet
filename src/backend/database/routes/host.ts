@@ -515,7 +515,7 @@ router.post(
               effectiveUserId,
             });
             return res.status(400).json({
-              error: "Target user not logged in — Skynet cannot encrypt on their behalf. Ask them to log in first.",
+              error: "Target user not logged in — the server cannot encrypt on their behalf. Ask them to log in first.",
             });
           }
           throw insertErr;
@@ -1312,7 +1312,7 @@ router.put(
               hostId: parseInt(hostId),
             });
             return res.status(400).json({
-              error: "Target user not logged in — Skynet cannot encrypt on their behalf. Ask them to log in first.",
+              error: "Target user not logged in — the server cannot encrypt on their behalf. Ask them to log in first.",
             });
           }
           throw updateErr;

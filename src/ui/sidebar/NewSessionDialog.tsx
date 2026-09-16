@@ -133,6 +133,7 @@ import {
 } from "@/api/identities-api";
 import { refreshIdentities } from "@/state/identities-store";
 import { roleDisplayName } from "@/lib/role-display-name";
+import { useBrandingConfig } from "@/branding/branding-store";
 
 // Chrome/Linux renders the <option> popup with browser defaults, not the parent
 // <select>'s classes — light-on-light without this. Same fix as VoicePicker's
@@ -289,6 +290,7 @@ export function NewSessionDialog({
   isAdmin?: boolean;
 }) {
   const { t } = useTranslation();
+  const brandingConfig = useBrandingConfig();
   const [selectedHost, setSelectedHost] = useState<Host | null>(null);
   const [sessionName, setSessionName] = useState("");
   const [search, setSearch] = useState("");
@@ -1232,7 +1234,7 @@ export function NewSessionDialog({
                 )}
                 {skynetCollision && (
                   <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                    Already exists in Skynet
+                    Already exists in {brandingConfig.appName}
                   </span>
                 )}
                 {hostCollision && selectedHost && (

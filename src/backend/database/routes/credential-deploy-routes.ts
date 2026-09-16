@@ -5,6 +5,7 @@ import type {
 import type { Request, RequestHandler, Response, Router } from "express";
 import { eq } from "drizzle-orm";
 import ssh2Pkg from "ssh2";
+import { loadBrandingConfig } from "../../branding/branding-config-loader.js";
 import { db } from "../db/index.js";
 import { hosts, sshCredentials } from "../db/schema.js";
 
@@ -115,6 +116,8 @@ async function deploySSHKeyToHost(
           return;
         }
 
+        const brandingAppName = (await loadBrandingConfig()).appName;
+
         await new Promise<void>((resolveAdd, rejectAdd) => {
           const addTimeout = setTimeout(() => {
             rejectAdd(new Error("Key add timeout"));
@@ -136,9 +139,12 @@ async function deploySSHKeyToHost(
           const escapedName = credData.name
             .replace(/\\/g, "\\\\")
             .replace(/'/g, "'\\''");
+          const escapedAppName = brandingAppName
+            .replace(/\\/g, "\\\\")
+            .replace(/'/g, "'\\''");
 
           conn.exec(
-            `printf '%s\n' '${escapedKey} ${escapedName}@Skynet' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`,
+            `printf '%s\n' '${escapedKey} ${escapedName}@${escapedAppName}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`,
             (err, stream) => {
               if (err) {
                 clearTimeout(addTimeout);

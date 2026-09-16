@@ -91,7 +91,7 @@ const FILE_URL_ERROR_COPY: Record<string, ErrorCopy> = {
   },
   unknown_host: {
     heading: "Unknown host",
-    body: "That host is not registered in this Skynet, or you don't have access to it.",
+    body: "That host is not registered on this server, or you don't have access to it.",
   },
   ssh_timeout: {
     heading: "SSH timeout",
@@ -139,7 +139,7 @@ function classifyModalError(
     const host = hostMatch ? hostMatch[1] : "the host";
     return {
       heading: "Permission denied",
-      body: `The Skynet SSH user can't read this file on ${host}. Ask the box owner to widen access.`,
+      body: `The server's SSH user can't read this file on ${host}. Ask the box owner to widen access.`,
     };
   }
   const copy = FILE_URL_ERROR_COPY[message];
