@@ -136,6 +136,42 @@ ensure_agent_teams_env() {
   return 0
 }
 
+# ---- fleet baseline: ensure inotifywait is present for role-file-watch ----
+# role-file-watch shells out to inotifywait; without it, every identity on the box falls back to a
+# 2s mtime poll (works, but 2s-granular and misses same-second edits). Best-effort + idempotent in
+# the shape of ensure_agent_teams_env: never fails the supervisor, silent no-op once present.
+# Requires non-interactive root — a --user service has no TTY, so a sudo that would prompt is
+# treated as "can't" and skipped rather than left to hang. Boxes that can't install keep the
+# documented polling fallback (e.g. Bazzite, where the harness user's sudo is command-scoped).
+ensure_inotifywait() {
+  command -v inotifywait >/dev/null 2>&1 && return 0
+
+  local SUDO=""
+  if [ "$(id -u)" != 0 ]; then
+    sudo -n true 2>/dev/null || {
+      log "inotifywait missing and no non-interactive root — role-file-watch will use 2s polling"
+      return 0
+    }
+    SUDO="sudo -n"
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y inotify-tools >/dev/null 2>&1
+  elif command -v dnf >/dev/null 2>&1; then
+    $SUDO dnf install -y inotify-tools >/dev/null 2>&1
+  else
+    log "inotifywait missing and no known package manager — role-file-watch will use 2s polling"
+    return 0
+  fi
+
+  if command -v inotifywait >/dev/null 2>&1; then
+    log "installed inotify-tools — role-file-watch now event-driven"
+  else
+    log "inotify-tools install did not take — role-file-watch will use 2s polling"
+  fi
+  return 0
+}
+
 # ---- source-of-truth prompt + auto-compact skipping ----
 # Modern Claude Code fires two blocking prompts on the resume path that the scrape loop in drive()
 # has to answer by hand, PLUS runs an auto-compact operation that eats restored context:
@@ -165,7 +201,10 @@ CLAUDE_LAUNCH_ENV="CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RES
 # The model flag is conditional on $CLAUDE_MODEL (see § config) so a box can pin a different model or
 # opt out of pinning altogether — an empty value omits `--model` and lets the harness pick its own default.
 CLAUDE_LAUNCH_FLAGS="${CLAUDE_MODEL:+--model $CLAUDE_MODEL }--dangerously-skip-permissions"
-log "claude-model: $([ -n "$CLAUDE_MODEL" ] && echo "pinned to '$CLAUDE_MODEL'" || echo "unpinned (CLAUDE_MODEL empty) — harness default applies")"
+# Silent when sourced as a library: this is a module-scope log, so under LIB_ONLY it lands inside
+# the test driver's $(...) captures and corrupts every asserted value.
+[ "${AGENT_SUPERVISOR_LIB_ONLY:-0}" = 1 ] || \
+  log "claude-model: $([ -n "$CLAUDE_MODEL" ] && echo "pinned to '$CLAUDE_MODEL'" || echo "unpinned (CLAUDE_MODEL empty) — harness default applies")"
 
 # ---- memory cap (2026-08-06) — wrap claude launches in a systemd scope with MemoryHigh ----
 # Rationale: claude's baseline is ~500 MB RSS per session (Ink React TUI + Node/V8, architectural).
@@ -1722,6 +1761,7 @@ reconcile() {
 
 # ---- main ----
 ensure_agent_teams_env
+ensure_inotifywait
 resolve_memory_wrapper
 case "${1:-}" in
   --once) VERBOSE=1 reconcile ;;
