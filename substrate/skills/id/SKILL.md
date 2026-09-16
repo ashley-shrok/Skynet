@@ -69,13 +69,9 @@ instead of one ever-growing dumping ground.
 
 - **`handoff.md` — single file, fully OVERWRITTEN at each `/id save`.**
   Per-identity (never role-scoped, because where-I-left-off is per-instance
-  state). Holds the latest session summary, any items the user
-  pre-authorized to start on next wake, and this identity's currently-open
-  multi-session plans (one line each, pointing at the bounty slug that
-  holds the detail). Read at session start, it's how the next session
-  knows where THIS identity left off without asking. See § The two lanes
-  in the handoff below for the load-bearing distinction between "start
-  on wake" and "open plans."
+  state). Names the next action and compacts the session that just ended.
+  Read at session start, it's how the next session knows where THIS
+  identity left off without asking. See § The handoff below.
 
 Also per-identity but not in the four-artifact set: the slim
 `<name>.md` pointer (metadata — a `role:` frontmatter line naming the
@@ -88,10 +84,9 @@ rule. Small, low-content files that support this specific identity.
 
 **The load-bearing rule:** anything substantive is a **bounty**.
 `history.md` and `handoff.md` are the thin connective tissue — a
-one-line index and a where-we-left-off carry. If a plan lives only in
-the handoff and a session forgets to carry it forward, you lose a
-little continuity; if it's a bounty, it's on disk regardless. So when
-in doubt, it's a bounty.
+one-line index and a where-we-left-off carry. A bounty is on disk
+regardless of what any session remembers to write. So when in doubt,
+it's a bounty.
 
 ALWAYS KEEP THESE UP TO DATE — but each in its own lane.
 
@@ -146,52 +141,79 @@ belongs with the human, not automated at load-time.
 
 ---
 
-## The two lanes in the handoff — "Start on wake" vs "Open plans"
+## The handoff
 
-`handoff.md` carries pending work in **two lanes**, and mixing them up is the
-recurring failure mode this section exists to prevent (an agent files a user-authorized
-start directive as "awaiting greenlight," then re-asks permission on next wake, and the
-user has to say "just do it" all over again).
+`~/fleet/identities/<name>/handoff.md` is where a session tells its successor what
+happened. It is overwritten every save — it describes one session, not the whole
+history of the identity.
 
-- **`## Start on wake`** — items the USER EXPLICITLY authorized to start on the next
-  session **without asking again**. Populated only when the user actually said so
-  ("just do it next session", "start X on wake", "you don't need to ask again",
-  greenlit-and-told-me-to-begin). On load, **act on these items** — that's their whole
-  point; asking permission again defeats it. If the item is done or superseded, drop it;
-  otherwise carry it forward until it's actioned.
+It does exactly two things:
 
-- **`## Open plans (carry forward)`** — plans the handoff MUST hold because no other file
-  does. The load-bearing case: a plan that spans multiple bounties (e.g. "work through
-  bounties A, B, C then deploy" — no one bounty holds the "then deploy" step, so the plan
-  itself lives here). Also here: pending threads waiting on the user / on someone else / on
-  a trigger that don't already have a bounty. Do NOT act on these on load — they're the
-  agenda, not the marching orders.
+**1. It names the next action.** First thing in the file, phrased as an instruction with
+a real first command. Quote the user's authorization in their words, with the date, so a
+later session can tell a fresh "go" from one granted six sessions ago.
 
-  ⚠️ **The failure mode to avoid: enumerating open bounties as "open plans."** A bounty
-  existing is NOT an open plan — the bounty is its own record and already gets surfaced by
-  the load-time enumeration; restating it here duplicates that surfacing and clutters the
-  handoff. Include a bounty in Open plans ONLY when there's cross-bounty context the plan
-  needs (sequencing, dependencies, a wrapper goal) that no single bounty holds. If you can
-  drop the line and lose no information, drop it.
+**2. It compacts the session** — what's done, what's mid-flight, what was tried and
+rejected, and anything hard to reconstruct (paths, SHAs, error strings, exact commands).
 
-  ⚠️ **Unless a plan here has finished, it MUST persist in every newly-written handoff
-  until it's done — or it might get dropped.** Since no other file is holding it, forgetting
-  to restate an unfinished plan in the next save erases it from the record. Carry each
-  survivor forward every time.
+That's it. **Plans do not live here.** A plan you're carrying across sessions goes in a
+bounty, and the handoff just names the slug. If it doesn't have a bounty yet, make one —
+that's what carrying it means. A line of prose survives only if the next session retypes
+it; a bounty survives because it's a file. Restating plans in a file that gets overwritten
+is how they quietly rot into text nobody acts on.
 
-**⚠️ The load-bearing distinction: "start without asking" ≠ "decide without asking."**
-Start-on-wake is a slot for the user's *authorization to begin work already agreed on*,
-NOT a license to promote judgment calls the user would normally weigh in on into
-"just start." If in doubt whether the user actually authorized start-without-asking,
-it belongs in Open plans. Never move an item into Start-on-wake on your own reasoning
-that it's "obviously the next thing" — that's exactly the class of decision the user
-kept for themselves.
+### Shape
 
-Save-time discipline: as you write the handoff, review the session for language like
-"just do it next session" / "start X on wake" / "you don't need to ask again" /
-explicit greenlight-and-begin, and route those items into **Start on wake** — never
-into "Open plans." An authorized start recorded as "awaiting greenlight" is the exact
-bug this lane exists to close.
+```
+# Handoff — <ISO date>
+
+## Do this first
+- <imperative + literal first command>. Authorized <date>: "<their words>"
+
+## Where things stand
+- <done / in-flight / blocked>
+
+## Tried and rejected
+- <approach> — <why it failed>
+
+## Worth knowing
+- <environment quirk, verified fact, gotcha a successor would waste time rediscovering>
+
+## Bounties I'm carrying
+- <slug> — <where it stands>
+```
+
+`## Bounties I'm carrying` means the handful *this identity* is actually mid-flight on —
+not an inventory of the role's pool. The pool is shared and often large; you already see
+its count when you load. Listing bounties you aren't working buries the ones you are.
+
+Drop any section you have nothing for. `## Do this first` empty means there's nothing
+pre-authorized — that's information, not an omission.
+
+### What to keep exact
+
+Keep **exact**: what the user authorized, decided, ruled out, or set as a preference or
+boundary; and specifics that are painful to reconstruct — names, numbers, dates, paths,
+SHAs, links, command strings, error text. Paraphrasing these silently rewrites what they
+said into what you took them to mean, and the next session reads your paraphrase as their
+words.
+
+Your own reasoning is the one thing you can safely shorten — what you concluded matters
+more than how you got there. Everything else, include it. Length is not the problem a
+handoff has; a successor asking a question you already had the answer to is. If you're
+weighing whether something is worth a line, that hesitation means write it.
+
+### On reading it
+
+`## Do this first` is pre-authorized. Act on it in the same turn you load — the first
+step is part of loading, not the next thing after it. Don't recap the handoff back, don't
+ask whether to proceed, don't open with "ready when you are." Asking again is the failure
+this section exists to prevent; they already said yes. If the item is a discussion, open
+the discussion with something substantive.
+
+If it's plainly done, superseded, or stale, say so and move on. Judgment is allowed —
+"start without asking" is not "decide without asking," and it never authorizes a call
+the user would normally want to make themselves.
 
 ---
 
@@ -293,25 +315,10 @@ step in the picker prompt and the announce line below).
    (not now — those load when you actually work on that subsystem).
 
 Read **`~/fleet/identities/<name>/handoff.md`** — your where-we-left-off carry from
-the last session (session summary + still-open multi-session plans + any
-**Start-on-wake** items the user pre-authorized). Handoff is per-identity, in the
-identity folder. Hold onto its carried-forward plan list; you'll re-state the survivors
-at the next `/id save` (see § On `/id save`).
-
-If the handoff has a **`## Start on wake`** section with items, those are pre-authorized
-by the user — **act on them, do not re-ask permission**. See § The two lanes in the
-handoff for the distinction from Open plans. Surface each one in the announce line so
-it's visible you saw them, then **immediately begin acting on them in the SAME turn** —
-the first action of the pre-authorized item is part of this load turn, not the next one.
-
-⚠️ **The re-ask trap: do NOT close your load turn with a question about whether to
-proceed** ("want to dive into X?", "shall I start on X?", "ready when you are?"). That
-IS re-asking permission, dressed up as invitation, and it is the exact failure mode this
-rule exists to prevent. If the pre-authorized item is a discussion ("let's talk about X"),
-your load turn OPENS the discussion — ask the first substantive question or state the
-first substantive point — rather than closing with a meta "want to talk about X?" prompt.
-If it's a task, your load turn begins the task. The user already said yes; asking again
-defeats the whole point.
+the last session. Handoff is per-identity, in the identity folder. See § The handoff
+for what it holds and how to act on it: anything under `## Do this first` is
+pre-authorized, so surface it in the announce line and begin it in this same turn
+rather than asking whether to proceed.
 
 Then enumerate the bounty folders directly under `~/fleet/roles/<role>/bounties/`
 (ignore the `archive/` subfolder) and count those whose `status` is not `done` or
@@ -1020,10 +1027,9 @@ see a number that looks high, you likely have more runway than the meter suggest
 context-watch nudge at 80% is the authoritative signal to recycle; a scary-looking
 percentage on its own is not.
 
-**Keep every write short — detail lives in bounties, not here.** `save` is the continuity
-mechanism, not a session transcript: history lines are one-liners, the handoff is a brief
-carry, and the substantive record goes in the relevant bounties. Short doesn't mean
-rushed — it means each write goes in its right lane.
+**Each write goes in its own lane.** History lines are one-liners. The substantive record
+goes in the relevant bounties. The handoff names the next action and compacts this session
+(§ The handoff). Getting the lane right matters more than getting any of them short.
 
 When invoked:
 
@@ -1049,30 +1055,10 @@ When invoked:
    line, just no slug). History is shared across identities — no per-identity attribution;
    the role's story is one story.
 6. **Overwrite `~/fleet/identities/<name>/handoff.md`** (the identity folder —
-   handoff is per-identity) with the new session summary, any **Start-on-wake** items
-   the user pre-authorized this session, and your current set of open multi-session
-   plans. The open-plans set = the still-open survivors from the handoff you read at
-   session start (carry-forward-by-restatement) PLUS anything opened this session;
-   resolved ones just drop off. One line each, each pointing at its bounty slug.
-   ⚠️ Unfinished open plans MUST be carried forward every rewrite — dropping one silently
-   erases it, since no bounty is holding it. And Open plans is for plans the handoff has
-   to hold (cross-bounty sequencing, plans without a bounty), NOT a list of every open
-   bounty — see § The two lanes in the handoff for the anti-pattern.
-   ⚠️ Route any user-authorized start-without-asking directives into `## Start on wake`,
-   **never** into `## Open plans` — see § The two lanes in the handoff for the rule.
-
-   ```
-   # Handoff — <ISO date>
-   ## Session summary
-   - <2–5 short bullets: what happened, key decisions>
-   ## Start on wake (pre-authorized — act, don't re-ask)
-   - <item>: <one line of what to start>  (bounty: <slug>)
-   ## Open plans (carry forward)
-   - <plan>: <one line of where it stands>  (bounty: <slug>)
-   ```
-
-   Omit the `## Start on wake` section entirely if there are no pre-authorized items —
-   its presence is the signal.
+   handoff is per-identity) following § The handoff. Any plan you're carrying past this
+   session needs a bounty holding it; if it doesn't have one, make it now — that's step 4.
+   Route anything the user authorized starting-without-asking into `## Do this first`,
+   quoted and dated.
 
 7. **Trim `~/fleet/roles/<role>/history.md`** to the last 80 lines, as the final step:
    `tail -n 80 ~/fleet/roles/<role>/history.md > /tmp/h.$$ && mv /tmp/h.$$ ~/fleet/roles/<role>/history.md`
