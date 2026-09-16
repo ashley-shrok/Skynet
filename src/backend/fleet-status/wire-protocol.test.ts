@@ -607,3 +607,80 @@ describe("wire-protocol Phase 62 additive axes — activityMtime + stoppedMtime"
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 111 Plan 111-02 — identityAppearance field tests
+// ---------------------------------------------------------------------------
+
+describe("Phase 111 Plan 111-02 — identityAppearance on SessionStateSchema", () => {
+  const validAppearance = {
+    displayName: "Pixel",
+    title: "Skynet",
+    colorHue: 324,
+    voice: null,
+    task: "Building things",
+    coordinator: false,
+    role: "box-maintainer",
+    roleDefaults: { title: "Skynet", colorHue: 324 },
+    avatarUrl: "/identities/pixel/avatar?hostId=6",
+    pinned: false,
+    hidden: false,
+  };
+
+  it("Test P111-02 A: FRAME_SCHEMA_VERSION is still 1 (eighth additive-optional iteration, D-04)", () => {
+    // Eighth iteration of the T-41-03-05 mitigation.
+    // If this fails, FRAME_SCHEMA_VERSION was bumped — that rejects all frames
+    // simultaneously rather than degrading gracefully (DO NOT bump).
+    expect(FRAME_SCHEMA_VERSION).toBe(1);
+  });
+
+  it("Test P111-02 B: SessionStateSchema accepts state with fully-populated identityAppearance", () => {
+    const result = SessionStateSchema.safeParse({
+      ...validSessionState,
+      identityAppearance: validAppearance,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.identityAppearance).toEqual(validAppearance);
+    }
+  });
+
+  it("Test P111-02 C: SessionStateSchema accepts identityAppearance: null (fail-closed / hold-last signal)", () => {
+    const result = SessionStateSchema.safeParse({
+      ...validSessionState,
+      identityAppearance: null,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.identityAppearance).toBeNull();
+    }
+  });
+
+  it("Test P111-02 D: SessionStateSchema accepts identityAppearance absent entirely (pre-Plan-111-01 host or source-A frame)", () => {
+    // validSessionState at top-of-file does NOT carry identityAppearance —
+    // must parse as undefined (optional field).
+    const result = SessionStateSchema.safeParse(validSessionState);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.identityAppearance).toBeUndefined();
+    }
+  });
+
+  it("Test P111-02 E: SessionStateSchema REJECTS identityAppearance with numeric displayName (nested schema validates, not z.unknown())", () => {
+    // This test proves the nested IdentityAppearanceSchema actually validates
+    // rather than being a pass-through z.unknown(). If someone swaps the nested
+    // schema to z.unknown(), this test will catch it.
+    const result = SessionStateSchema.safeParse({
+      ...validSessionState,
+      identityAppearance: {
+        ...validAppearance,
+        displayName: 42, // number, should be string
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("displayName"))).toBe(true);
+    }
+  });
+});

@@ -61,6 +61,31 @@ export type SweepStatResult =
   | { ok: false; reason: "enoent" | "transport" };
 
 // ---------------------------------------------------------------------------
+// SweepRawCosmetics — raw cosmetics shape as emitted by the sweep script
+// ---------------------------------------------------------------------------
+
+/**
+ * Raw cosmetics shape emitted by the Plan 111-01 sweep script's frontmatter
+ * parser. Every field is optional because identity and role files may omit any
+ * subset. Field names and types are BYTE-IDENTICAL to the Python emission
+ * (sweep script rule: "Field names + types below must be BYTE-IDENTICAL to
+ * the TypeScript").
+ *
+ * Used by SweepIdentityLine.identity_cosmetics and SweepIdentityLine.role_cosmetics.
+ * NOT the same as RawCosmetics in identity-appearance.ts — that type is used
+ * after the merge; this one is the pre-merge wire shape.
+ */
+export interface SweepRawCosmetics {
+  displayName?: string;
+  title?: string;
+  colorHue?: number;
+  voice?: string;
+  task?: string;
+  avatar?: string;
+  coordinator?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // SweepIdentityLine — one per identity folder under ~/.claude/identities/
 // ---------------------------------------------------------------------------
 
@@ -75,6 +100,13 @@ export type SweepStatResult =
  *   • jsonl_path        ↔ B4 (Phase 32 discovery result, null when no match)
  *   • layer1_recycling  ↔ B5 (tail-scan verdict; null = tail unreadable this
  *                          tick, caller preserves cached value — fail-open)
+ *   • identity_cosmetics ↔ B6 (Plan 111-01: raw identity frontmatter cosmetics;
+ *                          `role` from the same read also arrives here — see B6
+ *                          comment in SWEEP_FIELD_PARITY)
+ *   • role_cosmetics    ↔ B7 (Plan 111-01: raw role frontmatter cosmetics,
+ *                          resolved via per-tick memo; null when no role)
+ *   • pinned            ↔ B8 (Plan 111-01: `.pinned` sentinel present)
+ *   • hidden            ↔ B9 (Plan 111-01: `.hidden` sentinel present)
  */
 export interface SweepIdentityLine {
   line_kind: "identity";
@@ -85,6 +117,18 @@ export interface SweepIdentityLine {
   recycle_requested: boolean;
   jsonl_path: string | null;
   layer1_recycling: boolean | null;
+  // Phase 111 Plan 111-01: appearance fields — optional (?: not required) so
+  // a mid-distribution older box that emits a line without these keys still
+  // parses without error. isSweepLineOfCurrentSchema checks only schema_version
+  // and line_kind; the bare cast at the parse loop admits lines with these keys
+  // absent, yielding undefined values. The source-B adapter in
+  // ssh-poll-orchestrator treats undefined appearance identically to null
+  // (fail-open: hold the last resolved appearance, never blank the row).
+  role?: string | null;
+  identity_cosmetics?: SweepRawCosmetics | null;
+  role_cosmetics?: SweepRawCosmetics | null;
+  pinned?: boolean;
+  hidden?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +346,11 @@ export const SWEEP_FIELD_PARITY: Record<
   | "B2"
   | "B3"
   | "B4"
-  | "B5",
+  | "B5"
+  | "B6"
+  | "B7"
+  | "B8"
+  | "B9",
   SweepFieldParityEntry
 > = {
   // --- Per-host source-A / source-B enumeration drivers ---
@@ -353,4 +401,12 @@ export const SWEEP_FIELD_PARITY: Record<
   B3: { field: "recycle_requested" },
   B4: { field: "jsonl_path" },
   B5: { field: "layer1_recycling" },
+  // Phase 111 Plan 111-01 appearance fields (Plan 111-02 adds TypeScript coverage).
+  // Note for B6: the `role` field on SweepIdentityLine also arrives from the same
+  // identity-frontmatter read (B6 exec site). A separate B10 was not invented
+  // because `role` is a side-effect of the same read as identity_cosmetics.
+  B6: { field: "identity_cosmetics" },
+  B7: { field: "role_cosmetics" },
+  B8: { field: "pinned" },
+  B9: { field: "hidden" },
 };

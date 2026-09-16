@@ -316,6 +316,73 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Phase 111 Plan 111-02 (2026-09-16): added `identityAppearance` as an
+// OPTIONAL, NULLABLE nested object carrying the resolved identity cosmetics +
+// role inheritance — the appearance the conversation list row needs to dress
+// itself without a separate GET /identities round-trip.
+//
+// What and when: Phase 111 appearance resolved from the host-side sweep's raw
+// identity + role frontmatter (Plan 111-01 widened the sweep to emit
+// `identity_cosmetics`, `role_cosmetics`, `role`, `pinned`, `hidden`). The
+// merge (`identity ?? role ?? null`, with the D-05 carve-outs) is applied
+// server-side in `ssh-poll-orchestrator`'s source-B adapter (Plan 111-03)
+// via `resolveIdentityAppearance` from `fleet-status/identity-appearance.ts`.
+//
+// Source of the value: the sweep's `identity_cosmetics` / `role_cosmetics` /
+// `role` / `pinned` / `hidden` fields on each `SweepIdentityLine`, merged in
+// the source-B adapter. The resolved object is placed on `SessionState.identityAppearance`
+// and flows through `publishSessionState` → `subscription-registry` → snapshot
+// and update frames untouched. NOT re-stamped by `subscription-registry`
+// (unlike `contextPct` which re-stamps because its source is an out-of-band
+// store) — appearance arrives ON the frame already resolved, so re-stamping
+// would require a second server-side appearance store, a second authority, which
+// D-09 (Plan 111 CONTEXT.md) explicitly forbids.
+//
+// Semantics (three-valued):
+//   - object    → appearance fully resolved from sweep line this tick (Plan
+//                 111-04 frontend merge: write these fields onto the identity
+//                 row using the names verbatim from `publicIdentity()`).
+//   - null      → identity file could not be read on this tick (fail-closed).
+//                 Consumer holds its last known appearance and NEVER blanks the
+//                 row — an answer that knows less must never blank one that
+//                 knew more (D-09). Null is a "hold" signal, not a "clear" signal.
+//   - undefined → emitting host predates Plan 111-01 (no appearance fields on
+//                 sweep line) OR this is a source-A frame (PID-keyed, not
+//                 identity-keyed). Frontend consumer treats undefined identically
+//                 to null: hold last, never blank.
+//
+// Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1
+// — eighth iteration of the T-41-03-05 mitigation. Lineage:
+//   Phase 41 lastMessageAt                       → held at 1
+//   Phase 47 aiTitle                             → held at 1
+//   Phase 52 dormant                             → held at 1
+//   Phase 53 recycling                           → held at 1
+//   Phase 59 lastStopAt + lastStatusChangeAt     → held at 1
+//   Phase 62 activityMtime + stoppedMtime        → held at 1
+//   Phase 90 contextPct  (2026-09-08)            → held at 1
+//   Phase 111 identityAppearance (2026-09-16)    → held at 1 (this)
+// ---------------------------------------------------------------------------
+
+export const IdentityAppearanceSchema = z.object({
+  // Field names are publicIdentity()'s names verbatim so the frontend merge
+  // (Plan 111-04) is a straight field copy, not a translation layer.
+  displayName: z.string(),
+  title: z.string().nullable(),
+  colorHue: z.number().nullable(),
+  voice: z.string().nullable(),
+  task: z.string().nullable(),
+  coordinator: z.boolean(),
+  role: z.string().nullable(),
+  // Three-valued semantics: null → no role; {} → role with no cosmetics; {...} → role values.
+  roleDefaults: z.record(z.string(), z.unknown()).nullable(),
+  avatarUrl: z.string(),
+  pinned: z.boolean(),
+  hidden: z.boolean(),
+});
+
+export type IdentityAppearance = z.infer<typeof IdentityAppearanceSchema>;
+
+// ---------------------------------------------------------------------------
 // Phase 59 Plan 01 (2026-08-29): added `lastStopAt` and `lastStatusChangeAt`
 // as OPTIONAL, NULLABLE numeric fields carrying the two axes that back the
 // WIP-shell-idle-gate predicate on the frontend.
@@ -386,6 +453,8 @@ export const SessionStateSchema = z.object({
   // which is dual-written by the two `context_pct` WS emission sites in
   // claude-session-server.ts. See block comment above.
   contextPct: z.number().nullable().optional(),
+  // Phase 111 Plan 111-02 — resolved identity appearance (see block comment above).
+  identityAppearance: IdentityAppearanceSchema.nullable().optional(),
 });
 
 export type SessionState = z.infer<typeof SessionStateSchema>;

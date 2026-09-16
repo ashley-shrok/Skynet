@@ -82,6 +82,35 @@ export type BackgroundTask =
   | UnknownTask;
 
 // ---------------------------------------------------------------------------
+// IdentityAppearance — resolved identity cosmetics carried on SessionState
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolved identity appearance after applying the identity-over-role merge
+ * in `resolveIdentityAppearance` (identity-appearance.ts).
+ *
+ * Field names are publicIdentity()'s names verbatim so the Plan 111-04
+ * frontend merge is a straight field copy, not a translation layer.
+ *
+ * Mirrors backend `SessionStateSchema.identityAppearance` (wire-protocol.ts).
+ * MUST stay in lockstep with the backend schema.
+ */
+export interface IdentityAppearance {
+  displayName: string;
+  title: string | null;
+  colorHue: number | null;
+  voice: string | null;
+  task: string | null;
+  coordinator: boolean;
+  role: string | null;
+  /** Three-valued: null = no role; {} = role with no cosmetics; {...} = role values. */
+  roleDefaults: Record<string, unknown> | null;
+  avatarUrl: string;
+  pinned: boolean;
+  hidden: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // SessionState — published state for a (host, tmuxSession)
 // ---------------------------------------------------------------------------
 
@@ -228,6 +257,18 @@ export interface SessionState {
   // consumer); `undefined` → emitting backend pre-dates Phase 90 Plan 00,
   // frontend treats as null. Mirrors backend `SessionStateSchema.contextPct`.
   contextPct?: number | null;
+  // Phase 111 Plan 111-02 (2026-09-16): resolved identity appearance from the
+  // host-side sweep — display name, title, colorHue, voice, task, coordinator,
+  // role, roleDefaults, avatarUrl, pinned, hidden. Populated by
+  // ssh-poll-orchestrator's source-B adapter via resolveIdentityAppearance;
+  // flows through the registry untouched (NOT re-stamped).
+  //
+  // Semantics: object → fully resolved; null → identity file unreadable this
+  // tick (hold last, never blank — D-09); undefined → emitting backend predates
+  // Plan 111-01 or this is a source-A frame (treat as null at consumer).
+  // Mirrors backend `SessionStateSchema.identityAppearance`. MUST stay in
+  // lockstep with the backend schema.
+  identityAppearance?: IdentityAppearance | null;
 }
 
 // ---------------------------------------------------------------------------

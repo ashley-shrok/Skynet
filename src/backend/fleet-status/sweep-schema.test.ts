@@ -266,8 +266,9 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
   //   A0                       — per-host source-A enumeration driver
   //   A1..A12                  — per-PID source-A exec sites
   //   B0                       — per-host source-B enumeration driver
-  //   B1..B5                   — per-identity source-B exec sites
-  // Total: 2 + 12 + 5 = 19 keys.
+  //   B1..B9                   — per-identity source-B exec sites
+  // Total: 2 + 12 + 9 = 23 keys.
+  // (B6..B9 added by Plan 111-01/111-02: appearance fields on SweepIdentityLine)
   const EXPECTED_KEYS: readonly string[] = [
     "A0",
     "A1",
@@ -288,6 +289,10 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
     "B3",
     "B4",
     "B5",
+    "B6",
+    "B7",
+    "B8",
+    "B9",
   ];
 
   it("covers every RESEARCH.md source-A / source-B row", () => {
@@ -307,6 +312,12 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
       "recycle_requested",
       "jsonl_path",
       "layer1_recycling",
+      // Phase 111 Plan 111-01/111-02 appearance fields:
+      "role",
+      "identity_cosmetics",
+      "role_cosmetics",
+      "pinned",
+      "hidden",
     ]);
     const pidFields = new Set<string>([
       "line_kind",
@@ -365,5 +376,90 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
     expect(SWEEP_FIELD_PARITY.A4.skipped_reason).toBeTruthy();
     expect(SWEEP_FIELD_PARITY.A5.field).toBeNull();
     expect(SWEEP_FIELD_PARITY.A5.skipped_reason).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 111 Plan 111-01/111-02: mid-distribution older-box case
+// ---------------------------------------------------------------------------
+//
+// When the Plan 111-01 sweep script has NOT yet been distributed to a box,
+// that box emits identity lines WITHOUT the appearance fields (role,
+// identity_cosmetics, role_cosmetics, pinned, hidden). The parser must:
+//   (a) not set schemaMismatch (schema_version is still 1)
+//   (b) return BOTH lines (the carrying line and the omitting line)
+//   (c) the carrying line's identity_cosmetics is readable
+//   (d) the omitting line's identity_cosmetics is strictly undefined
+//
+// This is the rollout safety test: a mixed fleet (some boxes updated,
+// some not) must not cause parse failures or dropped lines.
+
+describe("Phase 111 mid-distribution: older-box line (no appearance keys) parses cleanly", () => {
+  it("one line carrying appearance + one line omitting appearance — both parse, schemaMismatch=false", () => {
+    // A newer box emits the full line with appearance keys.
+    const carryingLine = {
+      line_kind: "identity",
+      schema_version: 1,
+      identity: "pixel",
+      dormant: false,
+      recycled_at: false,
+      recycle_requested: false,
+      jsonl_path: "/home/ubuntu/.claude/projects/abcd.jsonl",
+      layer1_recycling: false,
+      role: "box-maintainer",
+      identity_cosmetics: { displayName: "Pixel", task: "Building things" },
+      role_cosmetics: { title: "Skynet", colorHue: 324 },
+      pinned: false,
+      hidden: false,
+    };
+
+    // An older box (pre-Plan-111-01 distribution) emits without appearance keys.
+    const omittingLine = {
+      line_kind: "identity",
+      schema_version: 1,
+      identity: "tabitha",
+      dormant: false,
+      recycled_at: false,
+      recycle_requested: false,
+      jsonl_path: null,
+      layer1_recycling: null,
+      // No role, identity_cosmetics, role_cosmetics, pinned, hidden keys.
+    };
+
+    const blob = [carryingLine, omittingLine]
+      .map((x) => JSON.stringify(x))
+      .join("\n");
+
+    const result = parseSweepJsonl(blob);
+
+    // Schema mismatch must be false — both lines carry schema_version: 1.
+    expect(result.schemaMismatch).toBe(false);
+
+    // Both identity lines must be present.
+    expect(result.identityLines).toHaveLength(2);
+
+    // Find the carrying and omitting lines.
+    const carrying = result.identityLines.find((l) => l.identity === "pixel");
+    const omitting = result.identityLines.find((l) => l.identity === "tabitha");
+    expect(carrying).toBeDefined();
+    expect(omitting).toBeDefined();
+
+    // The carrying line's identity_cosmetics must be readable.
+    expect(carrying!.identity_cosmetics).toEqual({
+      displayName: "Pixel",
+      task: "Building things",
+    });
+    expect(carrying!.role).toBe("box-maintainer");
+    expect(carrying!.role_cosmetics).toEqual({ title: "Skynet", colorHue: 324 });
+    expect(carrying!.pinned).toBe(false);
+    expect(carrying!.hidden).toBe(false);
+
+    // The omitting line's identity_cosmetics must be strictly undefined (not null,
+    // not an empty object — just absent from the line entirely).
+    expect(omitting!.identity_cosmetics).toBeUndefined();
+    expect(omitting!.role).toBeUndefined();
+    expect(omitting!.role_cosmetics).toBeUndefined();
+    expect(omitting!.pinned).toBeUndefined();
+    expect(omitting!.hidden).toBeUndefined();
   });
 });
