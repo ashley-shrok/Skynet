@@ -591,20 +591,58 @@ export function mergeIdentityAppearance(
     (i) => i.identityKey.toLowerCase() === keyLc && i.hostId === hostId,
   );
 
-  // 3. Absent → no-op + debug log. Do NOT append. Appending a partial row is
-  //    the path that poisons byKey while loaded is true, which causes every
-  //    other identity pane to hit the false-Terminal branch in isIdentityPane
-  //    (tabUtils.tsx), booting N xterms + N real SSH WS connections that then
-  //    unmount and leak listeners — see the 2026-09-08 block in fetchOnce.
-  //    The fuller GET /identities will bring the row fully dressed because it
-  //    goes through the same merge authority (identity-appearance.ts, Plan
-  //    111-02), so nothing is lost by dropping this write.
+  // 3. Absent → APPEND (Phase 111 hotfix, 2026-09-16). The original guard here
+  //    returned early on idx === -1 out of fear of the D-10 bug (partial row
+  //    poisons byKey while loaded is true, causing every other identity pane
+  //    to hit the false-Terminal branch in isIdentityPane and boot N xterms +
+  //    N real SSH WS connections that then unmount and leak listeners — see
+  //    the 2026-09-08 block in fetchOnce).
+  //
+  //    That fear was wrong for THIS function: D-10 fires only when `loaded`
+  //    is TRUE and byKey is missing an expected identity — the discriminator
+  //    `byKey.has(k) || !loaded` collapses to false and the wrong branch
+  //    fires. `mergeIdentityAppearance` never touches `loaded`; carrying it
+  //    forward from `state.loaded` means an append here happens with loaded
+  //    still false (cold boot before /identities lands) and the discriminator
+  //    stays true regardless of byKey contents. Appending is safe.
+  //
+  //    The user-visible bug the old guard caused: on cold reload, `state.
+  //    identities` is empty. The pulse arrives with appearance for every
+  //    running identity, every lookup returns -1, every update is dropped,
+  //    and the list renders undressed for ~8 seconds until GET /identities
+  //    lands. That defeats Phase 111's stated goal ("list arrives complete
+  //    on first paint"). This append restores it.
   if (idx === -1) {
-    console.debug({
-      operation: "identities_store_appearance_merge_no_row",
+    const displayNameSafe =
+      typeof appearance.displayName === "string" && appearance.displayName.length > 0
+        ? appearance.displayName
+        : identityKey.charAt(0).toUpperCase() + identityKey.slice(1);
+    const appended: Identity = {
+      identityKey: keyLc,
       hostId,
-      identityKey,
-    });
+      displayName: displayNameSafe,
+      title: typeof appearance.title === "string" ? appearance.title : null,
+      colorHue: typeof appearance.colorHue === "number" ? appearance.colorHue : null,
+      voice: typeof appearance.voice === "string" ? appearance.voice : null,
+      role: typeof appearance.role === "string" ? appearance.role : null,
+      avatarMime: "",
+      avatarUrl:
+        typeof appearance.avatarUrl === "string"
+          ? appearance.avatarUrl
+          : `/identities/${keyLc}/avatar?hostId=${hostId}`,
+      avatarEtag: "",
+      coordinator: appearance.coordinator === true,
+      task: typeof appearance.task === "string" ? appearance.task : null,
+      roleDefaults: appearance.roleDefaults ?? null,
+      pinned: appearance.pinned === true,
+      hidden: appearance.hidden === true,
+    };
+    const nextList = state.identities.concat(appended);
+    // Reindex byKey/byHostKey from the new list; carry `loaded` forward so
+    // this append CANNOT flip false→true (D-10 guard preserved). The
+    // reindex helper is the SAME one setIdentities uses — no divergence.
+    state = { ...reindex(nextList), loaded: state.loaded };
+    notify();
     return;
   }
 

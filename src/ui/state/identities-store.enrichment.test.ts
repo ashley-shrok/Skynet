@@ -630,18 +630,85 @@ describe("mergeIdentityAppearance — D-09/D-10 contract", () => {
     expect(__getIdentitiesStoreSnapshotForTest().loaded).toBe(true);
   });
 
-  // Case 2 — D-10: absent key does not append (the amplified terminal-flash
-  // prevention — a one-entry byKey while loaded=true sends every OTHER identity
-  // pane down the false-Terminal branch)
-  it("Case 2: absent key does not append a row (D-10 amplified-bug path)", async () => {
+  // Case 2 — Phase 111 hotfix, 2026-09-16: absent key APPENDS with `loaded`
+  // carried forward from state (D-10 preserved). The original Case 2 asserted
+  // no-append out of fear of the D-10 amplified-bug path (one-entry byKey
+  // while loaded=true sending every other identity pane down the false-
+  // Terminal branch). That fear was wrong: mergeIdentityAppearance never
+  // touches `loaded`, so appending while loaded=false is safe (the
+  // discriminator `byKey.has(k) || !loaded` returns true regardless of byKey
+  // contents when loaded is false). Appending while loaded=true is also
+  // safe: it ADDS an entry to byKey, which can only make `byKey.has(k)` more
+  // permissive, never less — the discriminator's answer for other identities
+  // is unchanged.
+  //
+  // The user-visible bug the no-append guard caused: on cold reload, `state.
+  // identities` was empty. The pulse arrived with appearance for every
+  // running identity, every lookup returned -1, every update was dropped,
+  // and the list rendered undressed for ~8 seconds until GET /identities
+  // landed. This test now locks the correct behavior — the append.
+  it("Case 2: absent key APPENDS a row with `loaded` carried forward (Phase 111 hotfix)", async () => {
     await seedIdentities([makeIdentityFull("pixel", 5)]);
     const before = __getIdentitiesStoreSnapshotForTest().identities.length;
+    const loadedBefore = __getIdentitiesStoreSnapshotForTest().loaded;
 
-    mergeIdentityAppearance(9, "ghost", { colorHue: 80 });
+    mergeIdentityAppearance(9, "ghost", { colorHue: 80, displayName: "Ghost" });
 
     const snap = __getIdentitiesStoreSnapshotForTest();
-    expect(snap.identities.length).toBe(before);
-    expect(snap.byKey.has("ghost")).toBe(false);
+    // Row appended
+    expect(snap.identities.length).toBe(before + 1);
+    // Composite key populated (D-06 cross-host disambiguation preserved)
+    expect(snap.byHostKey.get("9::ghost")?.colorHue).toBe(80);
+    expect(snap.byHostKey.get("9::ghost")?.displayName).toBe("Ghost");
+    expect(snap.byHostKey.get("9::ghost")?.hostId).toBe(9);
+    // Bare-name byKey also populated (for existence-check consumers)
+    expect(snap.byKey.has("ghost")).toBe(true);
+    // ⚠️ D-10 GUARD: loaded stays exactly what state.loaded was — the append
+    // does NOT flip false→true. This is the load-bearing property that
+    // protects against the terminal-flash + listener-leak bug.
+    expect(snap.loaded).toBe(loadedBefore);
+  });
+
+  // Case 2b — Phase 111 hotfix regression: cold-boot merge produces a
+  // dressed row IMMEDIATELY, not undressed. This test IS the "list arrives
+  // complete on first paint" property. Reverting the append restores the
+  // 8-second undressed flash — pre-hotfix this test asserted the exact
+  // opposite (no-append). LOAD-BEARING: turn the append branch back into
+  // `return` and this case goes RED.
+  it("Case 2b: cold-boot merge for absent identity produces a fully-dressed row (kills the 8s flash)", () => {
+    // Cold store — state.identities is empty, loaded=false. Mirrors what a
+    // browser sees on a hard reload BEFORE GET /identities returns.
+    const cold = __getIdentitiesStoreSnapshotForTest();
+    expect(cold.identities.length).toBe(0);
+    expect(cold.loaded).toBe(false);
+
+    // The pulse arrives with appearance for an identity the store has never
+    // seen. Pre-hotfix, this update would be silently dropped and the row
+    // would render undressed until /identities landed several seconds later.
+    mergeIdentityAppearance(6, "tanya", {
+      displayName: "Tanya",
+      title: "Skynet",
+      colorHue: 324,
+      role: "box-maintainer",
+      roleDefaults: { title: "Skynet", colorHue: 324, avatar: "box-maintainer.webp" },
+      task: null,
+      pinned: false,
+      hidden: false,
+    });
+
+    const snap = __getIdentitiesStoreSnapshotForTest();
+    const entry = snap.byHostKey.get("6::tanya");
+    expect(entry).toBeDefined();
+    // Fully dressed on FIRST arrival — colour, name, title, role all present.
+    // No round-trip to /identities required. This is the property the phase
+    // exists to deliver.
+    expect(entry?.colorHue).toBe(324);
+    expect(entry?.displayName).toBe("Tanya");
+    expect(entry?.title).toBe("Skynet");
+    expect(entry?.role).toBe("box-maintainer");
+    // D-10: loaded is still false — the append did not lie about roster
+    // completeness. Later /identities will flip it via setIdentities.
+    expect(snap.loaded).toBe(false);
   });
 
   // Case 3 — D-09: undefined field is skipped (existing value preserved)
