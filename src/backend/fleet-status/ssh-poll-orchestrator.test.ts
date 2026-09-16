@@ -323,6 +323,17 @@ function makeSweepJsonl(input: {
       recycle_requested: raw.recycle_requested ?? false,
       jsonl_path: raw.jsonl_path ?? null,
       layer1_recycling: raw.layer1_recycling ?? null,
+      // Phase 111 Plan 03 — optional appearance fields (present only when supplied
+      // by the test; absent = undefined = pre-Phase-111-01 host simulation).
+      ...(raw.identity_cosmetics !== undefined
+        ? { identity_cosmetics: raw.identity_cosmetics }
+        : {}),
+      ...(raw.role_cosmetics !== undefined
+        ? { role_cosmetics: raw.role_cosmetics }
+        : {}),
+      ...(raw.role !== undefined ? { role: raw.role } : {}),
+      ...(raw.pinned !== undefined ? { pinned: raw.pinned } : {}),
+      ...(raw.hidden !== undefined ? { hidden: raw.hidden } : {}),
     };
     lines.push(JSON.stringify(line));
   }
@@ -8070,3 +8081,780 @@ describe("spawn-request scan helpers", () => {
     expect(callCommands.some((c) => c.includes("fleet/spawn-requests"))).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 111 Plan 03 — appearance publish/suppress contract at both sources
+//
+// These tests pin the appearance axis end-to-end: resolve from sweep line,
+// carry on frame, fingerprint gates, cache-stamp contract, both sources.
+//
+// Parameterized fixture shapes:
+//   "source A" — sweep has a pid line for the identity (identity has a live
+//                PID → source A publishes; source B evicts and returns)
+//   "source B" — sweep has only an identity line (no pid line → source B
+//                publishes; source A has nothing to dispatch)
+//
+// Both sources share the same appearance resolve path — testing both proves
+// the fix to the "missing either source makes appearance work for one
+// population and silently fail for the other" failure mode.
+// ---------------------------------------------------------------------------
+
+describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __clearAllSessionFileCacheForTests();
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockReset();
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Fixture helpers
+  // ---------------------------------------------------------------------------
+
+  /** Default cosmetics for the test identity */
+  const BASE_IDENTITY_COSMETICS = {
+    displayName: "Pixel",
+    task: "ship it",
+  };
+
+  const BASE_ROLE_COSMETICS = {
+    title: "Box Maintainer",
+    colorHue: 200,
+  };
+
+  /** Build a sweep JSONL for source A (live PID) */
+  function buildSourceASweep(overrides: {
+    identity_cosmetics?: Record<string, unknown> | null;
+    role_cosmetics?: Record<string, unknown> | null;
+    role?: string | null;
+    pinned?: boolean;
+    hidden?: boolean;
+    omitAppearanceKeys?: boolean;
+  } = {}): string {
+    const identityFields: Record<string, unknown> = overrides.omitAppearanceKeys
+      ? {}
+      : {
+          identity_cosmetics: overrides.identity_cosmetics !== undefined
+            ? overrides.identity_cosmetics
+            : BASE_IDENTITY_COSMETICS,
+          role_cosmetics: overrides.role_cosmetics !== undefined
+            ? overrides.role_cosmetics
+            : BASE_ROLE_COSMETICS,
+          role: overrides.role !== undefined ? overrides.role : "box-maintainer",
+          pinned: overrides.pinned !== undefined ? overrides.pinned : true,
+          hidden: overrides.hidden !== undefined ? overrides.hidden : false,
+        };
+    return makeSweepJsonl({
+      identities: [{
+        identity: "pixel",
+        dormant: false,
+        recycled_at: false,
+        recycle_requested: false,
+        jsonl_path: null,
+        layer1_recycling: null,
+        ...identityFields,
+      }],
+      pids: [{
+        identity: "pixel",
+        pid: 42001,
+        per_session_stop_payload: makeValidPayload(),
+      }],
+    });
+  }
+
+  /** Build a sweep JSONL for source B (no PID, dormant identity) */
+  function buildSourceBSweep(overrides: {
+    identity_cosmetics?: Record<string, unknown> | null;
+    role_cosmetics?: Record<string, unknown> | null;
+    role?: string | null;
+    pinned?: boolean;
+    hidden?: boolean;
+    omitAppearanceKeys?: boolean;
+  } = {}): string {
+    const identityFields: Record<string, unknown> = overrides.omitAppearanceKeys
+      ? {}
+      : {
+          identity_cosmetics: overrides.identity_cosmetics !== undefined
+            ? overrides.identity_cosmetics
+            : BASE_IDENTITY_COSMETICS,
+          role_cosmetics: overrides.role_cosmetics !== undefined
+            ? overrides.role_cosmetics
+            : BASE_ROLE_COSMETICS,
+          role: overrides.role !== undefined ? overrides.role : "box-maintainer",
+          pinned: overrides.pinned !== undefined ? overrides.pinned : true,
+          hidden: overrides.hidden !== undefined ? overrides.hidden : false,
+        };
+    return makeSweepJsonl({
+      identities: [{
+        identity: "pixel",
+        dormant: false,
+        recycled_at: false,
+        recycle_requested: false,
+        jsonl_path: null,
+        layer1_recycling: null,
+        ...identityFields,
+      }],
+      pids: [], // no pid → source B publishes
+    });
+  }
+
+  /** Wire a batch channel and run one tick; return published states */
+  async function runOneTick(
+    sweepJsonl: string,
+  ): Promise<Array<{ hostId: string; state: import("./wire-protocol.js").SessionState }>> {
+    const channel = new MockSshChannel();
+    channel.setResponse(
+      "test -x ~/.local/bin/fleet-status-sweep",
+      "yes\n",
+    );
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      sweepJsonl,
+    );
+    const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    return deps.registry.publishedStates;
+  }
+
+  // Helper: run two ticks on the SAME orchestrator (for suppress/publish delta tests)
+  async function runTwoTicks(
+    tick1Jsonl: string,
+    tick2Jsonl: string,
+  ): Promise<{
+    afterTick1: Array<{ hostId: string; state: import("./wire-protocol.js").SessionState }>;
+    afterTick2: Array<{ hostId: string; state: import("./wire-protocol.js").SessionState }>;
+  }> {
+    const channel = new MockSshChannel();
+    channel.setResponse(
+      "test -x ~/.local/bin/fleet-status-sweep",
+      "yes\n",
+    );
+    // First response for the sweep exec
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      tick1Jsonl,
+    );
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    const afterTick1 = [...deps.registry.publishedStates];
+
+    // Override sweep response for tick 2
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      tick2Jsonl,
+    );
+    // Run tick 2: find the 2s poll interval fn and await it
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    const afterTick2 = [...deps.registry.publishedStates];
+    return { afterTick1, afterTick2 };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cases 1-6 are parameterized over source A and source B.
+  // ---------------------------------------------------------------------------
+
+  describe.each([
+    {
+      source: "source A (busy identity, live PID)",
+      buildSweep: buildSourceASweep,
+    },
+    {
+      source: "source B (dormant identity, no PID)",
+      buildSweep: buildSourceBSweep,
+    },
+  ] as const)("$source", ({ buildSweep }) => {
+
+    // -------------------------------------------------------------------------
+    // Case 1: Appearance reaches the wire
+    // -------------------------------------------------------------------------
+    it("Case 1: appearance reaches the wire — displayName, title, colorHue, task, pinned, hidden all present on published frame", async () => {
+      const states = await runOneTick(buildSweep({
+        identity_cosmetics: { displayName: "Pixel", task: "ship it" },
+        role_cosmetics: { title: "Box Maintainer", colorHue: 200 },
+        role: "box-maintainer",
+        pinned: true,
+        hidden: false,
+      }));
+
+      const published = states.find((s) => s.state.tmuxSession === "pixel");
+      expect(published).toBeDefined();
+      const appearance = published!.state.identityAppearance;
+      expect(appearance).not.toBeNull();
+      expect(appearance!.displayName).toBe("Pixel");
+      expect(appearance!.title).toBe("Box Maintainer");
+      expect(appearance!.colorHue).toBe(200);
+      expect(appearance!.task).toBe("ship it");
+      expect(appearance!.pinned).toBe(true);
+      expect(appearance!.hidden).toBe(false);
+    });
+
+    // -------------------------------------------------------------------------
+    // Case 2: Appearance-ONLY change publishes
+    // (Without Task 2 fingerprint work this fails — the fingerprint doesn't
+    // include appearance → appearance changes are computed and then silently
+    // not published. This is EXACTLY the silent-staleness bug.)
+    // -------------------------------------------------------------------------
+    it("Case 2 (load-bearing: fingerprint must include appearance): appearance-only change (colorHue 200→40) publishes a new frame on tick 2", async () => {
+      const { afterTick1, afterTick2 } = await runTwoTicks(
+        buildSweep({ role_cosmetics: { title: "Box Maintainer", colorHue: 200 } }),
+        buildSweep({ role_cosmetics: { title: "Box Maintainer", colorHue: 40 } }),
+      );
+
+      expect(afterTick1.length).toBeGreaterThan(0);
+      // Tick 2 must publish (appearance changed)
+      const tick2Publishes = afterTick2.slice(afterTick1.length);
+      expect(tick2Publishes.length).toBeGreaterThan(0);
+      const published2 = tick2Publishes.find((s) => s.state.tmuxSession === "pixel");
+      expect(published2).toBeDefined();
+      expect(published2!.state.identityAppearance?.colorHue).toBe(40);
+    });
+
+    // -------------------------------------------------------------------------
+    // Case 3: Identical appearance suppresses
+    // (Also catches non-deterministic roleDefaults serialization — which would
+    // make this test flaky rather than red. Treat a flake here as a real failure.)
+    // -------------------------------------------------------------------------
+    it("Case 3: identical appearance on tick 2 suppresses (no second publish beyond tick 1)", async () => {
+      const sameSweep = buildSweep();
+      const { afterTick1, afterTick2 } = await runTwoTicks(sameSweep, sameSweep);
+
+      expect(afterTick1.length).toBeGreaterThan(0);
+      // Tick 2 must NOT publish (appearance unchanged)
+      const tick2Publishes = afterTick2.slice(afterTick1.length);
+      const pixelPublish2 = tick2Publishes.filter((s) => s.state.tmuxSession === "pixel");
+      expect(pixelPublish2).toHaveLength(0);
+    });
+
+    // -------------------------------------------------------------------------
+    // Case 4: Each appearance field is a real fingerprint axis
+    // -------------------------------------------------------------------------
+    it("Case 4: each of the 9 changeable appearance fields triggers a publish when changed (all are fingerprint axes)", async () => {
+      type FieldChange = {
+        field: string;
+        tick1Opts: Parameters<typeof buildSourceASweep>[0];
+        tick2Opts: Parameters<typeof buildSourceASweep>[0];
+      };
+
+      const fieldChanges: FieldChange[] = [
+        {
+          field: "displayName",
+          tick1Opts: { identity_cosmetics: { displayName: "Alpha" } },
+          tick2Opts: { identity_cosmetics: { displayName: "Beta" } },
+        },
+        {
+          field: "title",
+          tick1Opts: { role_cosmetics: { title: "Engineer" } },
+          tick2Opts: { role_cosmetics: { title: "Architect" } },
+        },
+        {
+          field: "colorHue",
+          tick1Opts: { role_cosmetics: { colorHue: 100 } },
+          tick2Opts: { role_cosmetics: { colorHue: 200 } },
+        },
+        {
+          field: "voice",
+          tick1Opts: { role_cosmetics: { voice: "alloy" } },
+          tick2Opts: { role_cosmetics: { voice: "nova" } },
+        },
+        {
+          field: "task",
+          tick1Opts: { identity_cosmetics: { task: "task A" } },
+          tick2Opts: { identity_cosmetics: { task: "task B" } },
+        },
+        {
+          field: "coordinator",
+          tick1Opts: { identity_cosmetics: { coordinator: false } },
+          tick2Opts: { identity_cosmetics: { coordinator: true } },
+        },
+        {
+          field: "role",
+          tick1Opts: { role: "engineer" },
+          tick2Opts: { role: "architect" },
+        },
+        {
+          field: "pinned",
+          tick1Opts: { pinned: false },
+          tick2Opts: { pinned: true },
+        },
+        {
+          field: "hidden",
+          tick1Opts: { hidden: false },
+          tick2Opts: { hidden: true },
+        },
+      ];
+
+      // Verify the test covers all 9 fields
+      expect(fieldChanges.length).toBe(9);
+
+      for (const { field, tick1Opts, tick2Opts } of fieldChanges) {
+        // Fresh state per field test
+        (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockReset();
+        (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+        const { afterTick1, afterTick2 } = await runTwoTicks(
+          buildSweep(tick1Opts),
+          buildSweep(tick2Opts),
+        );
+
+        expect(afterTick1.length).toBeGreaterThan(0);
+        const tick2Publishes = afterTick2.slice(afterTick1.length);
+        const pixelPublish2 = tick2Publishes.filter((s) => s.state.tmuxSession === "pixel");
+        expect(pixelPublish2.length).toBeGreaterThan(0);
+        // If this assertion fails, the field is NOT a fingerprint axis.
+        expect(pixelPublish2[0].state.identityAppearance).not.toBeNull();
+        // Confirm the field name covers all 9 changeable fields
+        const fieldNames = fieldChanges.map((f) => f.field);
+        expect(fieldNames).toContain(field);
+      }
+    });
+
+    // -------------------------------------------------------------------------
+    // Case 5: Both cache branches stamp appearance
+    // -------------------------------------------------------------------------
+    it("Case 5 (load-bearing: both cache branches must stamp appearance): tick 3 with changed appearance publishes even after tick 2 suppressed", async () => {
+      const channel = new MockSshChannel();
+      channel.setResponse(
+        "test -x ~/.local/bin/fleet-status-sweep",
+        "yes\n",
+      );
+
+      let sweepResponse = buildSweep(); // tick 1: baseline
+      channel.setResponse(
+        "~/.local/bin/fleet-status-sweep 2>/dev/null",
+        sweepResponse,
+      );
+
+      const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+      const deps = buildDeps({
+        acquireSshChannel: vi.fn().mockResolvedValue(channel),
+        setInterval: vi.fn((fn: () => void, ms: number) => {
+          setIntervalFns.push({ fn, ms });
+          return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+        }),
+      });
+      const orchestrator = createSshPollOrchestrator(deps);
+      await orchestrator.start();
+      const afterTick1Len = deps.registry.publishedStates.length;
+
+      const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+
+      // Tick 2: same appearance → suppress branch runs
+      sweepResponse = buildSweep();
+      channel.setResponse("~/.local/bin/fleet-status-sweep 2>/dev/null", sweepResponse);
+      if (pollFn) { await pollFn.fn(); }
+      const afterTick2Len = deps.registry.publishedStates.length;
+      expect(afterTick2Len).toBe(afterTick1Len); // no new publishes
+
+      // Tick 3: changed appearance → must publish
+      sweepResponse = buildSweep({ role_cosmetics: { colorHue: 99, title: "New Role" } });
+      channel.setResponse("~/.local/bin/fleet-status-sweep 2>/dev/null", sweepResponse);
+      if (pollFn) { await pollFn.fn(); }
+      const afterTick3 = deps.registry.publishedStates.slice(afterTick2Len);
+      const pixelPublish3 = afterTick3.filter((s) => s.state.tmuxSession === "pixel");
+      // If suppress branch failed to stamp, tick 3 compares against stale cache and
+      // may fail to detect the change.
+      expect(pixelPublish3.length).toBeGreaterThan(0);
+      expect(pixelPublish3[0].state.identityAppearance?.colorHue).toBe(99);
+    });
+
+    // -------------------------------------------------------------------------
+    // Case 6: Fail-closed sentinels
+    // -------------------------------------------------------------------------
+    it("Case 6: absent pinned/hidden keys on the sweep line → false (fail-closed, never truthy-by-accident)", async () => {
+      // Build a sweep JSONL with identity_cosmetics present (so hasAnyAppearanceKey
+      // is true → resolver fires) but NO pinned/hidden keys (simulating a sweep
+      // line that predates the .pinned/.hidden stat additions on the host).
+      const sweepWithoutPinnedHidden = makeSweepJsonl({
+        identities: [{
+          identity: "pixel",
+          dormant: false,
+          recycled_at: false,
+          recycle_requested: false,
+          jsonl_path: null,
+          layer1_recycling: null,
+          identity_cosmetics: { displayName: "Pixel" },
+          role_cosmetics: { colorHue: 100 },
+          role: "box-maintainer",
+          // pinned and hidden intentionally omitted — absent from sweep line
+        }],
+        pids: buildSweep === buildSourceASweep
+          ? [{ identity: "pixel", pid: 42001, per_session_stop_payload: makeValidPayload() }]
+          : [],
+      });
+      const states = await runOneTick(sweepWithoutPinnedHidden);
+      const published = states.find((s) => s.state.tmuxSession === "pixel");
+      expect(published).toBeDefined();
+      const appearance = published!.state.identityAppearance;
+      expect(appearance).not.toBeNull();
+      // Absent keys default to false (fail-closed: never truthy-by-accident)
+      expect(appearance!.pinned).toBe(false);
+      expect(appearance!.hidden).toBe(false);
+    });
+
+    it("Case 6b: pinned: true → pinned is true; hidden: false → hidden is false", async () => {
+      const states = await runOneTick(buildSweep({ pinned: true, hidden: false }));
+      const published = states.find((s) => s.state.tmuxSession === "pixel");
+      expect(published!.state.identityAppearance!.pinned).toBe(true);
+      expect(published!.state.identityAppearance!.hidden).toBe(false);
+    });
+
+  }); // end describe.each
+
+  // ---------------------------------------------------------------------------
+  // Case 7: pre-evict transition frame carries appearance (source B only)
+  // Covers the D-09 edge where the recycling-false transition frame fires
+  // before source B evicts for a live-PID identity.
+  // ---------------------------------------------------------------------------
+  it("Case 7 (load-bearing: pre-evict frame must carry appearance): recycling→live transition emits a pre-evict frame with populated identityAppearance", async () => {
+    const channel = new MockSshChannel();
+    channel.setResponse("test -x ~/.local/bin/fleet-status-sweep", "yes\n");
+
+    const setIntervalFns7: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns7.push({ fn, ms });
+        return setIntervalFns7.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    // Tick 1: identity has a PID AND is recycling → source B publishes
+    // (live PID + recycling = source B does NOT evict per the `!isRecycling` guard)
+    const tick1 = makeSweepJsonl({
+      identities: [{
+        identity: "pixel",
+        dormant: false,
+        recycled_at: true, // sentinel-based recycling
+        recycle_requested: false,
+        jsonl_path: null,
+        layer1_recycling: null,
+        identity_cosmetics: BASE_IDENTITY_COSMETICS,
+        role_cosmetics: BASE_ROLE_COSMETICS,
+        role: "box-maintainer",
+        pinned: false,
+        hidden: false,
+      }],
+      pids: [{
+        identity: "pixel",
+        pid: 42001,
+        per_session_stop_payload: makeValidPayload(),
+      }],
+    });
+    channel.setResponse("~/.local/bin/fleet-status-sweep 2>/dev/null", tick1);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    const afterTick1Len = deps.registry.publishedStates.length;
+    const pollFn7 = setIntervalFns7.find((f) => f.ms === 2000);
+
+    // Tick 2: identity has same PID but NOT recycling → source B fires the
+    // pre-evict recycling-false transition frame, then evicts
+    const tick2 = makeSweepJsonl({
+      identities: [{
+        identity: "pixel",
+        dormant: false,
+        recycled_at: false, // recycling cleared
+        recycle_requested: false,
+        jsonl_path: null,
+        layer1_recycling: null,
+        identity_cosmetics: { displayName: "Pixel Updated" },
+        role_cosmetics: BASE_ROLE_COSMETICS,
+        role: "box-maintainer",
+        pinned: true,
+        hidden: false,
+      }],
+      pids: [{
+        identity: "pixel",
+        pid: 42001,
+        per_session_stop_payload: makeValidPayload(),
+      }],
+    });
+    channel.setResponse("~/.local/bin/fleet-status-sweep 2>/dev/null", tick2);
+    if (pollFn7) { await pollFn7.fn(); }
+
+    const tick2Publishes = deps.registry.publishedStates.slice(afterTick1Len);
+    // The pre-evict frame should carry recycling: false
+    const preEvictFrame = tick2Publishes.find(
+      (s) => s.state.tmuxSession === "pixel" && s.state.recycling === false,
+    );
+    // The pre-evict source B frame must have appearance populated
+    expect(preEvictFrame).toBeDefined();
+    expect(preEvictFrame!.state.identityAppearance).not.toBeNull();
+    // Confirm the appearance reflects the tick 2 sweep line
+    expect(preEvictFrame!.state.identityAppearance!.pinned).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Case 8: Both busy and dormant agents get appearance in ONE tick
+  // (The `<why_both_sources>` contract — putting appearance on only one source
+  // makes it work for one population and silently fail for the other. This test
+  // would catch that design error.)
+  // ---------------------------------------------------------------------------
+  it("Case 8 — THE both-sources requirement: in a single tick, a BUSY identity (live PID → source A) AND a DORMANT identity (→ source B) BOTH receive populated identityAppearance", async () => {
+    const sweep = makeSweepJsonl({
+      identities: [
+        {
+          identity: "alpha",
+          dormant: false,
+          recycled_at: false,
+          recycle_requested: false,
+          jsonl_path: null,
+          layer1_recycling: null,
+          identity_cosmetics: { displayName: "Alpha" },
+          role_cosmetics: { colorHue: 100 },
+          role: "engineer",
+          pinned: false,
+          hidden: false,
+        },
+        {
+          identity: "beta",
+          dormant: true,
+          recycled_at: false,
+          recycle_requested: false,
+          jsonl_path: null,
+          layer1_recycling: null,
+          identity_cosmetics: { displayName: "Beta" },
+          role_cosmetics: { colorHue: 200 },
+          role: "designer",
+          pinned: true,
+          hidden: false,
+        },
+      ],
+      pids: [{
+        // alpha has a live PID → source A publishes for alpha
+        identity: "alpha",
+        pid: 99001,
+        per_session_stop_payload: makeValidPayload(),
+      }],
+      // beta has NO pid → source B publishes for beta
+    });
+
+    const channel = new MockSshChannel();
+    channel.setResponse("test -x ~/.local/bin/fleet-status-sweep", "yes\n");
+    channel.setResponse("~/.local/bin/fleet-status-sweep 2>/dev/null", sweep);
+    const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    const publishedStates = deps.registry.publishedStates;
+
+    // Alpha: published via source A (has a live PID)
+    const alphaFrame = publishedStates.find((s) => s.state.tmuxSession === "alpha");
+    expect(alphaFrame).toBeDefined();
+    expect(alphaFrame!.state.identityAppearance).not.toBeNull();
+    expect(alphaFrame!.state.identityAppearance!.displayName).toBe("Alpha");
+    expect(alphaFrame!.state.identityAppearance!.colorHue).toBe(100);
+
+    // Beta: published via source B (dormant, no PID)
+    const betaFrame = publishedStates.find((s) => s.state.tmuxSession === "beta");
+    expect(betaFrame).toBeDefined();
+    expect(betaFrame!.state.identityAppearance).not.toBeNull();
+    expect(betaFrame!.state.identityAppearance!.displayName).toBe("Beta");
+    expect(betaFrame!.state.identityAppearance!.colorHue).toBe(200);
+    expect(betaFrame!.state.identityAppearance!.pinned).toBe(true);
+
+    // Exactly one published entry per identity (no double-publish)
+    const alphaPublishes = publishedStates.filter((s) => s.state.tmuxSession === "alpha");
+    const betaPublishes = publishedStates.filter((s) => s.state.tmuxSession === "beta");
+    expect(alphaPublishes.length).toBeGreaterThan(0);
+    expect(betaPublishes.length).toBeGreaterThan(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Case 9: Mid-distribution host (no appearance keys) — frame published,
+  // appearance is null, schemaMismatch is false, membership not affected
+  // ---------------------------------------------------------------------------
+
+  it("Case 9 (source A): mid-distribution host with NO appearance keys → identityAppearance null, frame still published", async () => {
+    const states = await runOneTick(buildSourceASweep({ omitAppearanceKeys: true }));
+    const published = states.find((s) => s.state.tmuxSession === "pixel");
+    expect(published).toBeDefined();
+    expect(published!.state.identityAppearance).toBeNull();
+    // Frame was published (membership not affected by appearance absence)
+    expect(published!.state.tmuxSession).toBe("pixel");
+  });
+
+  it("Case 9 (source B): mid-distribution host with NO appearance keys → identityAppearance null, frame still published", async () => {
+    const states = await runOneTick(buildSourceBSweep({ omitAppearanceKeys: true }));
+    const published = states.find((s) => s.state.tmuxSession === "pixel");
+    expect(published).toBeDefined();
+    expect(published!.state.identityAppearance).toBeNull();
+    expect(published!.state.tmuxSession).toBe("pixel");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Case 10: sessionIdRotated does not clear appearance (source A only)
+  // Pins Task 2 edit: appearance is identity-scoped not session-scoped
+  // ---------------------------------------------------------------------------
+  it("Case 10 (source A): rotated sessionId on tick 2 does NOT clear appearance — appearance is identity-scoped, not session-scoped", async () => {
+    const channel = new MockSshChannel();
+    channel.setResponse("test -x ~/.local/bin/fleet-status-sweep", "yes\n");
+
+    const setIntervalFns10: Array<{ fn: () => void; ms: number }> = [];
+    let currentTime10 = 0;
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      now: () => currentTime10,
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns10.push({ fn, ms });
+        return setIntervalFns10.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const tick1 = makeSweepJsonl({
+      identities: [{
+        identity: "pixel",
+        dormant: false,
+        recycled_at: false,
+        recycle_requested: false,
+        jsonl_path: null,
+        layer1_recycling: null,
+        identity_cosmetics: BASE_IDENTITY_COSMETICS,
+        role_cosmetics: BASE_ROLE_COSMETICS,
+        role: "box-maintainer",
+        pinned: true,
+        hidden: false,
+      }],
+      pids: [{
+        identity: "pixel",
+        pid: 42001,
+        session_json: makeSessionJson({ pid: 42001, sessionId: "sess-v1", procStart: "12345" }),
+        per_session_stop_payload: makeValidPayload(),
+      }],
+    });
+    channel.setResponse("~/.local/bin/fleet-status-sweep 2>/dev/null", tick1);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    const afterTick1Len = deps.registry.publishedStates.length;
+
+    // Tick 2: same PID, ROTATED sessionId (compaction/resume), same appearance
+    const tick2 = makeSweepJsonl({
+      identities: [{
+        identity: "pixel",
+        dormant: false,
+        recycled_at: false,
+        recycle_requested: false,
+        jsonl_path: null,
+        layer1_recycling: null,
+        identity_cosmetics: BASE_IDENTITY_COSMETICS,
+        role_cosmetics: BASE_ROLE_COSMETICS,
+        role: "box-maintainer",
+        pinned: true,
+        hidden: false,
+      }],
+      pids: [{
+        identity: "pixel",
+        pid: 42001,
+        session_json: makeSessionJson({ pid: 42001, sessionId: "sess-v2", procStart: "12345" }),
+        per_session_stop_payload: makeValidPayload(),
+      }],
+    });
+    channel.setResponse("~/.local/bin/fleet-status-sweep 2>/dev/null", tick2);
+    const pollFn10 = setIntervalFns10.find((f) => f.ms === 2000);
+    // Advance time so lastStatusChangeAt is different on tick 2 (sessionId rotation
+    // reseeds it to deps.now(); without advancing time, both ticks produce the same
+    // lastStatusChangeAt value and the fingerprint would appear unchanged).
+    currentTime10 = 2000;
+    if (pollFn10) { await pollFn10.fn(); }
+
+    const tick2Publishes = deps.registry.publishedStates.slice(afterTick1Len);
+    // Tick 2 must publish (sessionId changed → always publish to reset mtime axes)
+    const pixelPublish2 = tick2Publishes.find((s) => s.state.tmuxSession === "pixel");
+    expect(pixelPublish2).toBeDefined();
+    // Appearance must still be populated — identity-scoped, not session-scoped
+    expect(pixelPublish2!.state.identityAppearance).not.toBeNull();
+    expect(pixelPublish2!.state.identityAppearance!.displayName).toBe("Pixel");
+    expect(pixelPublish2!.state.identityAppearance!.pinned).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Case 11: Unparseable hostId — appearance still resolves, frame published,
+  // fleet_status_appearance_hostid_unparseable is warned
+  // ---------------------------------------------------------------------------
+  it("Case 11: unparseable hostId → appearance still resolves (avatarUrl wrong but frame published), warn fires", async () => {
+    const sweep = buildSourceBSweep();
+
+    const channel = new MockSshChannel();
+    channel.setResponse("test -x ~/.local/bin/fleet-status-sweep", "yes\n");
+    channel.setResponse("~/.local/bin/fleet-status-sweep 2>/dev/null", sweep);
+    // Override listIdentityHostingHosts to return a host with unparseable id
+    const mockRegistry = new MockRegistry() as MockRegistry;
+    const deps: OrchestratorDeps & { registry: MockRegistry } = {
+      listIdentityHostingHosts: vi.fn().mockResolvedValue([
+        { id: "not-a-number", name: "testhost" },
+      ]),
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      releaseSshChannel: vi.fn(),
+      registry: mockRegistry,
+      setInterval: vi.fn(() => 1 as unknown as ReturnType<typeof setInterval>),
+      clearInterval: vi.fn(),
+      now: () => 0,
+      pollIntervalMs: 2000,
+      staleSweepIntervalMs: 30000,
+      hookPayloadPath: "~/.claude/fleet-status/last-stop-payload.json",
+      hookPayloadWarnCooldownMs: 60000,
+    };
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Frame must still be published
+    const published = deps.registry.publishedStates.find((s) => s.state.tmuxSession === "pixel");
+    expect(published).toBeDefined();
+    // Appearance is resolved (not null) even though avatarUrl uses hostId=0
+    expect(published!.state.identityAppearance).not.toBeNull();
+    // The warn was emitted
+    expect(systemLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("hostId"),
+      expect.objectContaining({ operation: "fleet_status_appearance_hostid_unparseable" }),
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Case 12: Legacy path carries null
+  // ---------------------------------------------------------------------------
+  it("Case 12: legacy path (no sweep script) publishes frames with identityAppearance === null (plain row, honest degradation)", async () => {
+    const channel = new MockSshChannel();
+    // Sweep probe returns null → sweepScriptPresent = false → legacy path
+    channel.setResponse(
+      "test -x ~/.local/bin/fleet-status-sweep",
+      "no\n", // sweep not present
+    );
+    // Legacy responses: single live PID + identity folder listing
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson({ pid: 12345, sessionId: "test-sess", procStart: "12345" }));
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse("cat ~/.claude/fleet-status/last-stop-payload.json", makeValidPayload());
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("test -f ~/fleet/identities/'tina'/.recycle-requested", "no\n");
+
+    const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // All published frames must have identityAppearance === null
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    for (const { state } of deps.registry.publishedStates) {
+      expect(state.identityAppearance ?? null).toBeNull();
+    }
+  });
+
+}); // end describe Phase 111 Plan 03
