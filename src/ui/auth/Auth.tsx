@@ -2,7 +2,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
-import { Separator } from "@/components/separator";
 import { toast } from "sonner";
 import {
   Eye,
@@ -1348,23 +1347,6 @@ export function Auth({ onLogin }: AuthProps) {
                   </form>
                 )}
 
-                <Separator />
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-xs text-[color:var(--color-pv-fg-muted)]">
-                    {t("common.language")}
-                  </span>
-                  <select
-                    value={language}
-                    onChange={(e) => handleLanguageChange(e.target.value)}
-                    className="px-2.5 py-1.5 text-xs bg-[color:var(--color-pv-base)] border border-[color:var(--color-pv-border-quiet-strong)] text-[color:var(--color-pv-fg)] outline-none focus:ring-1 focus:ring-[hsla(var(--pv-hue,35),70%,55%,0.35)]"
-                  >
-                    {LANGUAGES.map((lang) => (
-                      <option key={lang.code} value={lang.code}>
-                        {lang.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
               </div>
             )}
           </div>

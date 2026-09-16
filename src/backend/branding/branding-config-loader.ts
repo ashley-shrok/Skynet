@@ -76,8 +76,8 @@ const MAX_CONFIG_BYTES = 256 * 1024;
  * must match docker/branding-defaults/branding.json exactly so a no-config
  * deploy on t1000 preserves current behavior byte-for-byte (D-14). */
 const HARDCODED_FALLBACK: BrandingConfig = {
-  appName: "Skynet",
-  shortName: "Skynet",
+  appName: "SKYNET",
+  shortName: "SKYNET",
   iconPath: "/branding/icon.png",
   wordmarkPath: "/branding/wordmark.png",
   faviconPath: "/branding/favicon.svg",

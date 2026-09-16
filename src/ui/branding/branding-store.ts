@@ -20,7 +20,7 @@
 // against /api/branding (which is Cache-Control: no-store per Plan 70-01).
 //
 // Initial state: bundled-default sentinel that matches
-// docker/branding-defaults/branding.json byte-for-byte (appName="Skynet", etc.
+// docker/branding-defaults/branding.json byte-for-byte (appName="SKYNET", etc.
 // per Plan 70-01 D-14). First-paint is defensible even if the fetch never
 // resolves — the sentinel keeps the store readable and consistent from tick 0.
 // This is the Pitfall 5 mitigation from 70-RESEARCH.md.
@@ -77,8 +77,8 @@ export type BrandingConfig = {
 
 function getBundledDefaultsSentinel(): BrandingConfig {
   return {
-    appName: "Skynet",
-    shortName: "Skynet",
+    appName: "SKYNET",
+    shortName: "SKYNET",
     iconPath: "/branding/icon.png",
     wordmarkPath: "/branding/wordmark.png",
     faviconPath: "/branding/favicon.svg",

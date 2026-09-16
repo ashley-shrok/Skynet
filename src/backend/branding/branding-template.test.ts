@@ -7,10 +7,20 @@
  *   3. Missing index.html returns empty string (never throws)
  */
 
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
+
+// The bundled default appName is "SKYNET" — the same literal the template
+// substitutes — so an unmocked loader would make substitution invisible.
+// Mocking it to a distinct operator name is what proves the swap happened.
+const OPERATOR_APP_NAME = "Acme Ops";
+
+vi.mock("./branding-config-loader.js", () => ({
+  loadBrandingConfig: vi.fn(async () => ({ appName: OPERATOR_APP_NAME })),
+}));
+
 import {
   getBrandedIndexHtml,
   __resetIndexCacheForTest,
@@ -46,8 +56,8 @@ describe("branding-template getBrandedIndexHtml", () => {
 
     expect(out).not.toContain("<title>SKYNET</title>");
     expect(out).not.toContain('content="SKYNET"');
-    expect(out).toContain("<title>Skynet</title>");
-    expect(out).toContain('content="Skynet"');
+    expect(out).toContain(`<title>${OPERATOR_APP_NAME}</title>`);
+    expect(out).toContain(`content="${OPERATOR_APP_NAME}"`);
   });
 
   it("passes through unchanged when there are no SKYNET literals to substitute", async () => {

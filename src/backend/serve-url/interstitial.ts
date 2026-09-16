@@ -109,7 +109,7 @@ function renderHtmlPage(params: {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title} — Skynet</title>
+<title>${title}</title>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: #0d1117; color: #e6edf3; }
   body { display: flex; align-items: center; justify-content: center; padding: 2rem; box-sizing: border-box;
@@ -129,7 +129,7 @@ function renderHtmlPage(params: {
 <h1>${title}</h1>
 <p>${message}</p>
 <a class="retry" href="${returnHref}">Try again</a>
-<footer>skynet serve URL</footer>
+<footer>serve URL</footer>
 </main>
 </body>
 </html>
@@ -183,7 +183,7 @@ export function renderInterstitial(
         status: 502,
         body: renderHtmlPage({
           title: "host unreachable",
-          message: `${safeHost} may be offline. Skynet couldn't open a connection to it.`,
+          message: `${safeHost} may be offline. The server couldn't open a connection to it.`,
           originalUrl,
         }),
         headers: { ...HTML_HEADERS },
@@ -205,7 +205,7 @@ export function renderInterstitial(
         status: 502,
         body: renderHtmlPage({
           title: "ssh tunnel failure",
-          message: `SSH tunnel to ${safeHost} failed to establish. The box may be up but its sshd could not authenticate the Skynet backend.`,
+          message: `SSH tunnel to ${safeHost} failed to establish. The box may be up but its sshd could not authenticate the backend.`,
           originalUrl,
         }),
         headers: { ...HTML_HEADERS },

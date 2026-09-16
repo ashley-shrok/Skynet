@@ -1366,11 +1366,11 @@ describe("PrettyConversationsPanel: desktop header title", () => {
     );
     // Phase 70 Plan 04: brand lockup is now two <img> tags driven by the
     // branding store (Plan 70-03). Bundled-default sentinel gives:
-    //   - wordmark: src="/branding/wordmark.png", alt="Skynet" (from
+    //   - wordmark: src="/branding/wordmark.png", alt="SKYNET" (from
     //     brandingConfig.appName default)
     //   - icon:     src="/branding/icon.png" as <img class="pv-header-logo"
     //               aria-hidden="true"> — SVG component retired at Phase 70.
-    const wordmark = queryByAltText("Skynet") as HTMLImageElement | null;
+    const wordmark = queryByAltText("SKYNET") as HTMLImageElement | null;
     expect(wordmark).toBeTruthy();
     expect(wordmark!.tagName).toBe("IMG");
     expect(wordmark!.getAttribute("src")).toBe("/branding/wordmark.png");
@@ -1418,9 +1418,9 @@ describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
     );
     // Phase 70 Plan 04: mobile + desktop render identical header brand-lockup
     // shape — two <img> tags driven by brandingConfig. Bundled-default sentinel
-    // renders wordmark alt="Skynet" src="/branding/wordmark.png" and icon
+    // renders wordmark alt="SKYNET" src="/branding/wordmark.png" and icon
     // src="/branding/icon.png" aria-hidden. Mobile mirrors Test 7's contract.
-    const wordmark = queryByAltText("Skynet") as HTMLImageElement | null;
+    const wordmark = queryByAltText("SKYNET") as HTMLImageElement | null;
     expect(wordmark).toBeTruthy();
     expect(wordmark!.tagName).toBe("IMG");
     expect(wordmark!.getAttribute("src")).toBe("/branding/wordmark.png");
