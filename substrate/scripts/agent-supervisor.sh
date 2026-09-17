@@ -69,6 +69,13 @@ declare -A CLAUDE_RUNNING_SNAPSHOT=()
 # identity has a wakeup spec firing within FALSE_KILL_MINUTES. schedule_peek() reads this map.
 declare -A SCHEDULE_PEEK_SNAPSHOT=()
 
+# Per-tick snapshot of matrix_peek results across all dormant identities. Populated by
+# snapshot_matrix_peek() at the top of reconcile() via xargs -P 20 parallel matrix_peek calls.
+# Serial baseline for 80 dormant identities is ~4.75s wall (60ms/curl × 80); parallel drops it
+# to ~0.5s. Zero rate-limit hits observed on this fleet's Synapse at either -P 20 or -P 80;
+# -P 20 is the empirical sweet spot (marginally faster than -P 80 and lighter on the homeserver).
+declare -A MATRIX_PEEK_SNAPSHOT=()
+
 # ---- config ----
 # IDENTITIES is derived from disk in resolve_identities() on every reconcile;
 # initialized empty here.
@@ -1396,6 +1403,54 @@ matrix_peek() {
   return "$wake"
 }
 
+# matrix_peek_cached: reconcile hot-path lookup on the per-tick snapshot populated by
+# snapshot_matrix_peek(). Returns 0 iff matrix_peek() reported a wake for this identity on
+# THIS reconcile pass. Callers that need real-time freshness should call matrix_peek() directly
+# — but the reconcile dormant-branch never needed real-time (the snapshot is < 1s stale in
+# parallel mode, which is well below the tick cadence).
+matrix_peek_cached() {
+  [ -n "${MATRIX_PEEK_SNAPSHOT[$1]:-}" ]
+}
+
+# snapshot_matrix_peek: parallelize matrix_peek across all currently-dormant identities via
+# xargs -P 20. Was ~4.75s serial for ~80 dormant on this box; parallel drops it to ~0.5s.
+# Side effects (token refresh on 401) still happen per-account, run inside each worker.
+#
+# Concurrency knob: MATRIX_PEEK_PARALLEL (default 20). Empirical test 2026-09-17 showed
+# -P 20 and -P 80 both zero rate-limits on this fleet's Synapse; -P 20 was marginally
+# faster and lighter on the homeserver worker pool, so it's the default.
+snapshot_matrix_peek() {
+  MATRIX_PEEK_SNAPSHOT=()
+  [ "$DORMANCY" = "on" ] || return 0
+  local dormant_list=() name
+  for name in "${IDENTITIES[@]}"; do
+    [ -f "$IDENTITIES_DIR/$name/.dormant" ] || continue
+    [ -f "$IDENTITIES_DIR/$name/.no-dormancy" ] && continue    # exempt: identity opted out
+    dormant_list+=("$name")
+  done
+  [ ${#dormant_list[@]} -eq 0 ] && return 0
+  local par="${MATRIX_PEEK_PARALLEL:-20}"
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  # Export the functions the worker calls + the env vars they read. Set -u/pipefail carry
+  # into the subshell; matrix_peek + _matrix_peek_one are already -u-safe.
+  export -f matrix_peek _matrix_peek_one metric
+  export IDENTITIES_DIR METRICS_LOG SELF_PATH
+  # Each worker writes a sentinel file `<name>` to tmpdir on wake. Non-wake writes nothing.
+  # The worker exits 0 regardless so an individual failure doesn't abort xargs.
+  printf '%s\n' "${dormant_list[@]}" | xargs -P "$par" -I{} bash -c '
+    if matrix_peek "$1" >/dev/null 2>&1; then
+      : > "$2/$1"
+    fi
+    exit 0
+  ' _ {} "$tmpdir"
+  # Collect wakes
+  for name in "${dormant_list[@]}"; do
+    [ -e "$tmpdir/$name" ] && MATRIX_PEEK_SNAPSHOT["$name"]=1
+  done
+  rm -rf "$tmpdir"
+}
+
 # schedule_peek: returns 0 if the identity has a wakeup spec firing within FALSE_KILL_MINUTES.
 # Lookup on SCHEDULE_PEEK_SNAPSHOT populated once per reconcile tick by snapshot_schedule_peek().
 # The heavy lifting (interpreter start + JSON parse + spec walk) runs ONCE for the whole fleet
@@ -1725,6 +1780,7 @@ reconcile() {
   run_archive_scan_if_due                          # Phase 94: daily archive-scan branch (24h gate; fast-path no-op on most ticks)
   resolve_identities
   snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).
+  snapshot_matrix_peek                             # parallel curls (default -P 20) to Matrix homeservers for all dormant identities; matrix_peek_cached reads from MATRIX_PEEK_SNAPSHOT.
   if [ "${#IDENTITIES[@]}" -eq 0 ]; then log "no identities to supervise (no <name>/<name>.md folders under $IDENTITIES_DIR)"; return 0; fi
   local name slugname actual sentinel launched=0
   for name in "${IDENTITIES[@]}"; do
@@ -1789,7 +1845,7 @@ reconcile() {
       local dormant_sentinel="$IDENTITIES_DIR/$name/.dormant"
       if [ -f "$dormant_sentinel" ]; then
         local _trig=""
-        if matrix_peek "$name";   then _trig="matrix"
+        if matrix_peek_cached "$name";   then _trig="matrix"
         elif schedule_peek "$name"; then _trig="schedule"
         fi
         if [ -n "$_trig" ]; then
