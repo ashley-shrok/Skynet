@@ -49,6 +49,12 @@ log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
 # obvious in the log. Behavior is untouched — user chose visibility over defense (2026-07-23).
 declare -A LAST_RECYCLE_AT=()
 
+# Per-tick snapshot of all tmux session names, populated once by snapshot_sessions() at the top of
+# reconcile() and consumed by match_session() as an in-memory lookup. Replaces 88× per-tick
+# `tmux ls` invocations with a single call. Keys are lowercased session names; values are the
+# real (case-preserved) session names — match_session's case-insensitive lookup needs that map.
+declare -A SESSIONS_SNAPSHOT=()
+
 # ---- config ----
 # IDENTITIES is derived from disk in resolve_identities() on every reconcile;
 # initialized empty here.
@@ -552,13 +558,26 @@ run_archive_scan_if_due() {
 # Find the ACTUAL existing tmux session name matching $1 CASE-INSENSITIVELY (tmux names are
 # case-sensitive, but a human may name a session 'hilda' for identity 'Hilda' — a case difference
 # must NOT cause a duplicate). Prints the real session name if found, else nothing.
+#
+# Reads from SESSIONS_SNAPSHOT, populated once per reconcile by snapshot_sessions() from a
+# single tmux ls call. In-memory lookup — no tmux invocation per identity.
 match_session() {
-  local want s; want="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  local want; want="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  local real="${SESSIONS_SNAPSHOT[$want]:-}"
+  [ -n "$real" ] && { printf '%s' "$real"; return 0; }
+  return 1
+}
+
+# snapshot_sessions: one tmux ls per reconcile tick, populate SESSIONS_SNAPSHOT for match_session.
+# Called at the top of reconcile(). Clears any prior snapshot first so a session that disappeared
+# between ticks doesn't stay visible.
+snapshot_sessions() {
+  SESSIONS_SNAPSHOT=()
+  local s
   while IFS= read -r s; do
     [ -n "$s" ] || continue
-    [ "$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')" = "$want" ] && { printf '%s' "$s"; return 0; }
+    SESSIONS_SNAPSHOT["$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')"]="$s"
   done < <(timeout -k 5 10 tmux ls -F '#{session_name}' 2>/dev/null)
-  return 1
 }
 
 # SAFETY: the supervisor NEVER kills a session. Sessions are SHELL sessions (claude runs inside,
@@ -1592,6 +1611,7 @@ do_wake() {
 
 reconcile() {
   sample_memory                                    # dashboard sampler — one line per cycle
+  snapshot_sessions                                # one tmux ls per tick; match_session reads from the snapshot. MUST run before archive-scan (which calls match_session via retire_identity).
   run_archive_scan_if_due                          # Phase 94: daily archive-scan branch (24h gate; fast-path no-op on most ticks)
   resolve_identities
   if [ "${#IDENTITIES[@]}" -eq 0 ]; then log "no identities to supervise (no <name>/<name>.md folders under $IDENTITIES_DIR)"; return 0; fi
