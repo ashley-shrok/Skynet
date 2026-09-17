@@ -166,6 +166,7 @@ import type { CreateRelayRoomResponse } from "./participant-types";
 // file after the JSX below switched to <img src={brandingConfig.iconPath}>.
 import { useBrandingConfig } from "@/branding/branding-store";
 import { getBasePath } from "@/lib/base-path";
+import { roleDisplayName } from "@/lib/role-display-name";
 
 // Phase 41 Plan 02: sessionStorage sentinel key for the one-shot cold-load
 // search-input scroll-hide effect. Mirrors the pv-conv-active-set pattern at
@@ -1062,8 +1063,20 @@ export function PrettyConversationsPanel({
       let primary: string;
       let sublabel: string;
       if (!isRdp && identity) {
-        primary = String(identity.displayName ?? row.label ?? "");
-        sublabel = String(identity.title ?? identity.displayName ?? "");
+        // Mirror PrettyConversationRow.tsx:1286-1294 task-primary swap:
+        // when identity.task is truthy the top line renders identity.task
+        // and the subtitle renders the role's display name. Otherwise the
+        // top line is identity.displayName and subtitle is identity.title.
+        if (identity.task) {
+          primary = String(identity.task);
+          sublabel = roleDisplayName(
+            identity.role ?? "",
+            identity.roleDefaults?.displayName,
+          );
+        } else {
+          primary = String(identity.displayName ?? row.label ?? "");
+          sublabel = String(identity.title ?? identity.displayName ?? "");
+        }
       } else {
         // RDP rows OR non-RDP rows without a resolved identity: fall through
         // to the "hostname" mode — primary is row.label, sublabel is the
