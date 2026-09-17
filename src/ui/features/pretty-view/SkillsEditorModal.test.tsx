@@ -45,6 +45,7 @@ vi.mock("@/api/skills-api", async (importOriginal) => {
     }),
     writeSkillFile: vi.fn().mockResolvedValue({ mtime: 1_700_000_099 }),
     createSkillFile: vi.fn().mockResolvedValue({ path: "new.md", mtime: 1_700_000_101 }),
+    createSkill: vi.fn().mockResolvedValue({ slug: "new-skill", mtime: 1_700_000_200 }),
     deleteSkillFile: vi.fn().mockResolvedValue(undefined),
     deleteSkill: vi.fn().mockResolvedValue(undefined),
   };
