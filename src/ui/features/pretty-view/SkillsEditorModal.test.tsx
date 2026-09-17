@@ -323,6 +323,207 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     promptSpy.mockRestore();
   });
 
+  // ── Phase 113 D-28: + New skill behavior tests (Task 2 / plan 113-04) ────────
+  //
+  // Five cases cover the chained-prompt UX register:
+  //   (A) chained prompt happy path (name → description) with slugification +
+  //       post-create refetch + auto-select of the new skill (D-05).
+  //   (B) button disabled when defaultHostId=null on a multi-host tree.
+  //   (C) cancel on name prompt aborts the whole flow (no createSkill call).
+  //   (D) cancel on description prompt aborts the whole flow (no createSkill call).
+  //   (E) empty description re-prompts DESCRIPTION only; the typed name is
+  //       retained across the re-prompt (D-04).
+
+  it("+ New skill: chained prompt (name → description) calls createSkill and auto-selects", async () => {
+    const promptSpy = vi
+      .spyOn(window, "prompt")
+      .mockReturnValueOnce("My Cool Skill") // name prompt
+      .mockReturnValueOnce("A cool skill."); // description prompt
+
+    // createSkill returns the slugified form of the raw name.
+    (skillsApi.createSkill as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      slug: "my-cool-skill",
+      mtime: 1_700_000_200,
+    });
+    // listSkills fires TWICE: once on host-pick, again after createSkill success.
+    // Second resolution includes the newly-created skill so the picker can
+    // auto-select it once setSelectedSkillName(result.slug) fires (D-05).
+    (skillsApi.listSkills as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([{ name: "build" }, { name: "explain" }])
+      .mockResolvedValueOnce([
+        { name: "build" },
+        { name: "explain" },
+        { name: "my-cool-skill" },
+      ]);
+
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /\+ new skill/i })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
+
+    await waitFor(() => {
+      expect(skillsApi.createSkill).toHaveBeenCalledWith(1, "my-cool-skill", "A cool skill.");
+    });
+
+    // Auto-select verification (D-05, WARN 3 fix):
+    // listSkills fires twice — once on host-pick, once on post-create refetch.
+    await waitFor(() =>
+      expect(skillsApi.listSkills).toHaveBeenCalledTimes(2),
+    );
+    // …and the skill combobox transitions to the new slug (setSelectedSkillName).
+    await waitFor(() => {
+      const skillCombo = screen.getByRole("combobox", {
+        name: /skill/i,
+      }) as HTMLSelectElement;
+      expect(skillCombo.value).toBe("my-cool-skill");
+    });
+
+    promptSpy.mockRestore();
+  });
+
+  it("+ New skill button is disabled when defaultHostId is null (host not auto-picked)", async () => {
+    // Multi-host tree fixture — auto-select effect skips (flatHosts.length > 1),
+    // so defaultHostId=null leaves selectedHostId as null and the button is
+    // disabled per D-01.
+    const multi: HostFolder = {
+      name: "root",
+      children: [
+        HOST_TREE.children[0],
+        { ...HOST_TREE.children[0], id: "2", name: "second-host" },
+      ],
+    };
+
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={multi}
+        defaultHostId={null}
+        container={document.body}
+      />,
+    );
+
+    const btn = screen.getByRole("button", {
+      name: /\+ new skill/i,
+    }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it("+ New skill: cancel on name prompt → no createSkill call, no state change", async () => {
+    const promptSpy = vi
+      .spyOn(window, "prompt")
+      .mockReturnValueOnce(null); // cancel on the name prompt
+
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /\+ new skill/i })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
+
+    // Only one prompt fires (the name); description prompt never fires;
+    // createSkill is never called.
+    await waitFor(() => expect(promptSpy.mock.calls.length).toBe(1));
+    expect(skillsApi.createSkill).not.toHaveBeenCalled();
+
+    promptSpy.mockRestore();
+  });
+
+  it("+ New skill: cancel on description prompt → no createSkill call", async () => {
+    const promptSpy = vi
+      .spyOn(window, "prompt")
+      .mockReturnValueOnce("My Skill") // name — accept
+      .mockReturnValueOnce(null); // description — cancel
+
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /\+ new skill/i })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
+
+    // Exactly two prompts fire (name + description); createSkill never called.
+    await waitFor(() => expect(promptSpy.mock.calls.length).toBe(2));
+    expect(skillsApi.createSkill).not.toHaveBeenCalled();
+
+    promptSpy.mockRestore();
+  });
+
+  it("+ New skill: empty description re-prompts description ONLY; name is retained", async () => {
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const promptSpy = vi
+      .spyOn(window, "prompt")
+      .mockReturnValueOnce("My Skill") // name — accept (slugifies to "my-skill")
+      .mockReturnValueOnce("   ") // description — empty after trim → re-prompt
+      .mockReturnValueOnce("Fine desc"); // description retry — accept
+
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /\+ new skill/i })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
+
+    // createSkill is called with the slugified name + the retried description.
+    // The name is NOT re-prompted despite the description re-prompt (D-04:
+    // the outer-loop closure retains the name across the inner-loop re-prompt).
+    await waitFor(() => {
+      expect(skillsApi.createSkill).toHaveBeenCalledWith(1, "my-skill", "Fine desc");
+    });
+
+    // Name prompt fired exactly ONCE; description prompt fired exactly TWICE.
+    const nameCalls = promptSpy.mock.calls.filter((c) =>
+      /skill name/i.test(c[0] as string),
+    );
+    const descCalls = promptSpy.mock.calls.filter((c) =>
+      /Description/.test(c[0] as string),
+    );
+    expect(nameCalls).toHaveLength(1);
+    expect(descCalls).toHaveLength(2);
+
+    // window.alert fired at least once with a "description is required"-ish message.
+    expect(alertSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/description is required/i),
+    );
+
+    promptSpy.mockRestore();
+    alertSpy.mockRestore();
+  });
+
   it("delete-file confirm dialog opens and DELETE fires on confirm", async () => {
     render(
       <SkillsEditorModal
