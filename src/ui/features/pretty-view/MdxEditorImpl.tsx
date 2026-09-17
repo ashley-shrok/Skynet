@@ -55,7 +55,7 @@ export function MdxEditorImpl({
       onChange={onChange}
       readOnly={disabled}
       className="dark-theme skynet-mdxeditor"
-      contentEditableClassName="mdx-prose"
+      contentEditableClassName="mdx-prose prose prose-sm prose-invert max-w-none prose-code:before:content-none prose-code:after:content-none"
       plugins={[
         toolbarPlugin({
           toolbarContents: () => (

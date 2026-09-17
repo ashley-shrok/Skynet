@@ -50,6 +50,43 @@ vi.mock("@/api/skills-api", async (importOriginal) => {
   };
 });
 
+// Stub MDXEditor with a controlled textarea so getByRole("textbox") keeps
+// working after the .md filetype gate routes through the WYSIWYG branch (Phase
+// 112). Mirrors the mock in EditableFileModal.test.tsx.
+vi.mock("@mdxeditor/editor", () => ({
+  MDXEditor: (props: {
+    markdown: string;
+    onChange?: (v: string) => void;
+    readOnly?: boolean;
+  }) => (
+    <textarea
+      value={props.markdown}
+      onChange={(e) => props.onChange?.(e.target.value)}
+      disabled={props.readOnly}
+      data-testid="mdxeditor"
+    />
+  ),
+  headingsPlugin: () => ({}),
+  listsPlugin: () => ({}),
+  quotePlugin: () => ({}),
+  thematicBreakPlugin: () => ({}),
+  markdownShortcutPlugin: () => ({}),
+  linkPlugin: () => ({}),
+  linkDialogPlugin: () => ({}),
+  tablePlugin: () => ({}),
+  codeBlockPlugin: () => ({}),
+  codeMirrorPlugin: () => ({}),
+  frontmatterPlugin: () => ({}),
+  toolbarPlugin: () => ({}),
+  UndoRedo: () => null,
+  BoldItalicUnderlineToggles: () => null,
+  BlockTypeSelect: () => null,
+  CreateLink: () => null,
+  InsertTable: () => null,
+  ListsToggle: () => null,
+  InsertFrontmatter: () => null,
+}));
+
 // ── Late imports (after mocks are registered) ────────────────────────────────
 import SkillsEditorModal from "./SkillsEditorModal";
 import * as skillsApi from "@/api/skills-api";

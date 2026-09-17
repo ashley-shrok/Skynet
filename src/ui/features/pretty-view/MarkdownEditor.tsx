@@ -77,21 +77,17 @@ export function MarkdownEditor({
     );
   }
 
-  // Suspense fallback preserves layout to avoid a jump while the ~1.5MB
-  // MDXEditor chunk loads (RESEARCH §Pattern 1). The fallback is a
-  // read-only textarea styled identically to the raw branch so users see
-  // their content immediately.
+  // Suspense fallback: an empty panel that reserves layout without
+  // rendering a raw textarea. The original D-02 fallback rendered the
+  // textarea itself for content-continuity, but on first open (before the
+  // ~1.5MB chunk is cached) the visible textarea flash was worse UX than
+  // a clean loading state.
   return (
     <Suspense
       fallback={
-        <textarea
-          value={content}
-          onChange={() => {}}
-          className={RAW_TEXTAREA_CLASS}
-          spellCheck={false}
-          disabled
-          readOnly
-        />
+        <div className="w-full h-full min-h-[400px] rounded-md bg-black/20 border border-white/10 flex items-center justify-center text-white/40 text-sm">
+          Loading editor…
+        </div>
       }
     >
       <MdxEditorImpl

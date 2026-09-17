@@ -91,3 +91,89 @@
   border-radius: 4px;
   padding: 4px 8px;
 }
+
+/* Dialog panel opacity + z-index (defect fix — see handoff): my --baseBgSubtle
+ * remapping above lands MDXEditor's default _largeDialogContent background
+ * at ~4% white, so the dialog reads as invisible on top of its own darkening
+ * overlay. Skynet's outer modal is a Radix Dialog whose Content uses
+ * `translate(-50%, -50%)`, which creates a transform ancestor — inside that
+ * ancestor `position: fixed` behaves like `position: absolute`, so the
+ * frontmatter dialog visually centers within the outer modal (correct UX)
+ * but still needs an opaque panel + a defensive z-index so nothing in the
+ * outer modal chrome stacks over it. Overlay gets a solid darkening on the
+ * same stacking layer. Attribute selector `[role="dialog"]` targets the
+ * Radix Dialog.Content; the sibling overlay carries `data-state` but no role,
+ * hence the paired `[data-state][data-side]` fallback for the Portal wrapper
+ * and the direct-child rule for the overlay div. */
+.mdxeditor.skynet-mdxeditor [role="dialog"] {
+  background: #1a1d26;
+  border: 1px solid rgba(220, 225, 245, 0.18);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  z-index: 70;
+  padding: 20px;
+}
+.mdxeditor.skynet-mdxeditor > div > div[data-state="open"]:not([role]) {
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 69;
+}
+
+/* Toolbar tooltips (defect fix): MDXEditor's ._tooltipContent defaults to
+ * `background-color: var(--baseText); color: var(--baseBase);` — with my
+ * --baseText remapped to #e8e4d8 (light) and the .dark-theme --baseBase
+ * landing on a near-black slate, the pairing is technically legible but the
+ * ambient portal container + z-index: 2 leaves it hidden behind sibling
+ * toolbar chrome. Override with a solid opaque dark panel + light text + a
+ * high enough z-index to clear the toolbar's stacking context. */
+.mdxeditor.skynet-mdxeditor [class*="_tooltipContent_"] {
+  background-color: #1a1d26 !important;
+  color: #e8e4d8 !important;
+  border: 1px solid rgba(220, 225, 245, 0.18);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  z-index: 80 !important;
+}
+
+/* Prose typography (defect fix — was defect #4): MDXEditor ships no
+ * heading/list styles, and Tailwind's preflight resets browser UA defaults.
+ * We add "prose prose-sm prose-invert max-w-none" to the contentEditable
+ * className (see MdxEditorImpl.tsx), which pulls in @tailwindcss/typography's
+ * heading/list/blockquote sizing — same engine as ChatMessage read view.
+ * A few targeted overrides tune the result for the editor context:
+ *  - `prose-invert` is unconditional here because pretty-view is always
+ *    dark; matches ChatMessage's `dark:prose-invert` behavior on that view.
+ *  - `max-w-none` because prose defaults to ~65ch which would visually
+ *    truncate the writable area inside the file tab panel.
+ *  - prose's inline `code` adds `::before`/`::after` backticks that look
+ *    wrong in a WYSIWYG surface; stripped via prose-code:before/after in
+ *    the className, mirroring the ChatMessage override.
+ *  - prose sets bold headings; MDXEditor's Lexical DOM renders headings
+ *    inside .mdx-prose so those rules apply naturally.
+ *  - The MDXEditor CodeMirror styling above (.cm-editor) sits inside prose
+ *    but its container is not a `<pre>`, so prose's pre rules don't fight
+ *    it. */
+.mdxeditor.skynet-mdxeditor .mdx-prose h1,
+.mdxeditor.skynet-mdxeditor .mdx-prose h2,
+.mdxeditor.skynet-mdxeditor .mdx-prose h3,
+.mdxeditor.skynet-mdxeditor .mdx-prose h4,
+.mdxeditor.skynet-mdxeditor .mdx-prose h5,
+.mdxeditor.skynet-mdxeditor .mdx-prose h6 {
+  color: #f0ebe0;
+}
+.mdxeditor.skynet-mdxeditor .mdx-prose ul {
+  list-style-type: disc;
+}
+.mdxeditor.skynet-mdxeditor .mdx-prose ol {
+  list-style-type: decimal;
+}
+.mdxeditor.skynet-mdxeditor .mdx-prose ul,
+.mdxeditor.skynet-mdxeditor .mdx-prose ol {
+  padding-left: 1.5rem;
+}
+.mdxeditor.skynet-mdxeditor .mdx-prose blockquote {
+  border-inline-start: 3px solid rgba(220, 225, 245, 0.25);
+  padding-inline-start: 1rem;
+  color: #b8b4a8;
+  font-style: italic;
+}
