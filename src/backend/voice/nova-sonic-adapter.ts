@@ -209,7 +209,10 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
 
     // 2. promptStart — both textOutputConfiguration AND audioOutputConfiguration
     //    REQUIRED (D-AUDIOOUT: Amazon rejects without audioOutputConfiguration
-    //    even when we discard the audio output)
+    //    even when we discard the audio output). turnDetectionConfiguration
+    //    pins endpointing to HIGH (1.5s pause) — Nova 2's default is MEDIUM
+    //    (1.75s). Pinning HIGH lets the tail-silence pad below run at 0.9s of
+    //    content without VAD truncation.
     yield frame({
       promptStart: {
         promptName,
@@ -224,6 +227,9 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
           voiceId: "matthew",
           encoding: "base64",
           audioType: "SPEECH",
+        },
+        turnDetectionConfiguration: {
+          endpointingSensitivity: "HIGH",
         },
       },
     });
@@ -300,12 +306,16 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
     //     while the model is still mid-ASR and it emits contentEnd
     //     `stopReason: PARTIAL_TURN` truncating the last N words (observed
     //     hotfix-5 UAT, 2026-09-13 13:19 — user lost the trailing ~6 words
-    //     of a 10s clip). Send ~1.5s of zero-filled PCM chunks paced at 1x
-    //     real-time so the tail-silence window is genuinely 1.5s of clock
-    //     time — this is where we spend the latency we saved from 5x send.
+    //     of a 10s clip). Tuned 2026-09-17 (bounty nova-sonic-latency-shave)
+    //     to 15 chunks × 30ms pace = 0.9s of content in 0.45s wallclock, with
+    //     turnDetectionConfiguration=HIGH pinning endpointing to a 1.5s pause
+    //     threshold. Bench-validated 22/22 WER 0 across short/medium/long/
+    //     middle-pause fixtures and 10/10 WER 0 on 25s fixture. Combining
+    //     these two changes with an audio-pace bump (10x) was a trap —
+    //     silently truncates on ≥10s clips even though ≤10s bench looked fine.
     const SILENCE_CHUNK = Buffer.alloc(CHUNK_BYTES); // 60 ms of s16le zeros
     const SILENCE_CHUNK_B64 = SILENCE_CHUNK.toString("base64");
-    const TAIL_SILENCE_CHUNKS = 25; // 25 × 60 ms = 1.5 s
+    const TAIL_SILENCE_CHUNKS = 15; // 15 × 60 ms = 0.9 s of silence content
     for (let i = 0; i < TAIL_SILENCE_CHUNKS; i++) {
       yield frame({
         audioInput: {
@@ -314,7 +324,7 @@ export async function transcribeNovaSonic(pcmBuffer: Buffer): Promise<string> {
           content: SILENCE_CHUNK_B64,
         },
       });
-      await new Promise<void>((r) => setTimeout(r, 60)); // 1x real-time
+      await new Promise<void>((r) => setTimeout(r, 30)); // 2x real-time
     }
 
     // 8. USER contentEnd (D-EVENTS step 4)

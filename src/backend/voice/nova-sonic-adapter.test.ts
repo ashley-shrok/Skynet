@@ -286,16 +286,16 @@ describe("nova-sonic-adapter — command shape + event sequence", () => {
       (e) => "audioInput" in (e as Record<string, unknown>),
     ) as Array<{ audioInput: { content: string } }>;
 
-    // 5 real audio chunks + 25 tail-silence chunks (hotfix-6 tail pad —
-    // Nova Sonic VAD needs trailing silence to detect end-of-utterance
-    // cleanly at 5x pace; without it, contentEnd fires mid-ASR).
-    expect(audioInputEvents).toHaveLength(30);
+    // 5 real audio chunks + 15 tail-silence chunks (hotfix-6 tail pad —
+    // Nova Sonic VAD needs trailing silence to detect end-of-utterance;
+    // tuned 2026-09-17 to 15 chunks with turnDetectionConfiguration=HIGH).
+    expect(audioInputEvents).toHaveLength(20);
     // First 5 chunks are the real input, all 1920 bytes each.
     for (const ae of audioInputEvents.slice(0, 5)) {
       const decoded = Buffer.from(ae.audioInput.content, "base64");
       expect(decoded.length).toBe(1920);
     }
-    // Last 25 chunks are all-zero silence pad — 1920 bytes each, all zeros.
+    // Last 15 chunks are all-zero silence pad — 1920 bytes each, all zeros.
     for (const ae of audioInputEvents.slice(5)) {
       const decoded = Buffer.from(ae.audioInput.content, "base64");
       expect(decoded.length).toBe(1920);
