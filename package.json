@@ -44,9 +44,9 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.784.0",
     "@aws-sdk/client-polly": "^3.1129.0",
-    "@smithy/node-http-handler": "^4.0.4",
     "@fontsource-variable/inter": "^5.2.8",
     "@mdxeditor/editor": "^4.2.5",
+    "@smithy/node-http-handler": "^4.0.4",
     "@tailwindcss/typography": "^0.5.20",
     "axios": "^1.15.2",
     "bcryptjs": "^3.0.3",
@@ -68,6 +68,7 @@
     "multer": "^2.1.1",
     "nanoid": "^5.1.9",
     "qrcode": "^1.5.4",
+    "remark-breaks": "^4.0.0",
     "sharp": "^0.34.5",
     "socks": "^2.8.7",
     "speakeasy": "^2.0.0",

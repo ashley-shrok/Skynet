@@ -695,3 +695,37 @@ describe("ChatMessage pending-with-attachments (Phase 80)", () => {
     expect(chip.innerHTML).toContain("&lt;script&gt;evil.txt");
   });
 });
+
+describe("ChatMessage — multi-line preservation in markdown render", () => {
+  // Companion to the compose-box send-side newline preservation (bounty
+  // preserve-newlines-in-composebox-sent-text). The wire content carries
+  // literal \n between lines; the render must show them as visible line
+  // breaks. Default CommonMark collapses a single \n to a space, so the
+  // fix adds remark-breaks alongside remark-gfm.
+  it("renders a single \\n between two lines as a <br> so the bubble shows both lines", () => {
+    const { container } = render(
+      <ChatMessage role="user" content={"line one\nline two"} />,
+    );
+    // remark-breaks emits a <br> for each single newline inside a paragraph.
+    expect(container.querySelectorAll("br").length).toBeGreaterThanOrEqual(1);
+    // Both lines are still present as text in the bubble.
+    expect(container.textContent).toContain("line one");
+    expect(container.textContent).toContain("line two");
+  });
+
+  it("does not spuriously insert <br> for a plain single-line message", () => {
+    const { container } = render(
+      <ChatMessage role="user" content={"just one line"} />,
+    );
+    expect(container.querySelectorAll("br").length).toBe(0);
+  });
+
+  it("applies to assistant bubbles too (both roles share the render path)", () => {
+    const { container } = render(
+      <ChatMessage role="assistant" content={"top\nbottom"} />,
+    );
+    expect(container.querySelectorAll("br").length).toBeGreaterThanOrEqual(1);
+    expect(container.textContent).toContain("top");
+    expect(container.textContent).toContain("bottom");
+  });
+});
