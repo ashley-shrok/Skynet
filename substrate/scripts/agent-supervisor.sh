@@ -429,8 +429,13 @@ retire_identity() {
   body=$(jq -nc --arg u "$mxid" --arg p "$password" \
     '{"auth":{"type":"m.login.password","user":$u,"password":$p},"erase":true}')
   local resp http_code
+  # Phase 115 hotfix (2026-09-17 sky-UAT): $base in relay.json already contains
+  # the "/_matrix/client/v3" prefix (fleet convention — see recv.sh's $BASE/account/whoami
+  # pattern; verified 100% of production identities). Append only the trailing endpoint
+  # to avoid a double-prefix 404. Prior code did `$base/_matrix/client/v3/account/deactivate`
+  # which produced `.../_matrix/client/v3/_matrix/client/v3/account/deactivate` → 404.
   resp=$(curl -sS -w '\n%{http_code}' --max-time 30 \
-    -X POST "$base/_matrix/client/v3/account/deactivate" \
+    -X POST "$base/account/deactivate" \
     -H "Authorization: Bearer $access_token" \
     -H "Content-Type: application/json" \
     -d "$body" 2>/dev/null)
@@ -702,6 +707,14 @@ scan_archive_requested_sentinels() {
     [ -d "$d" ] || continue                          # guard against nullglob miss (no match → literal *)
     name="$(basename "$d")"
     [ -f "$d/.archive-requested" ] || continue
+
+    # Phase 115 hotfix (2026-09-17 sky-UAT): if retire-stuck sentinel is already dropped for
+    # this identity, SKIP retry — do not hammer a known-broken retire every 15s tick. The
+    # sentinel is a manual-intervention signal; clearing it (rm the sentinel + fail counter)
+    # is the operator's decision to retry, not an automated one.
+    if [ -f "$IDENTITIES_ARCHIVE_DIR/$name/retire-stuck" ]; then
+      continue
+    fi
 
     # D-11: BYPASS guards. Do NOT check .pinned, .no-dormancy, is_coordinator, or freshness.
     # A direct user click is not automated — the guards exist to protect against AUTOMATED
