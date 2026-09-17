@@ -4,7 +4,12 @@ import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/checkbox";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
-import { Textarea } from "@/components/textarea";
+// Phase 112 Plan 03: BountyCard premise field adopts the shared MarkdownEditor
+// with a synthetic `filename="premise.md"` that forces the pretty (MDXEditor)
+// branch of the D-06 filetype gate. Bounty premise is markdown-content by
+// contract (per phase CONTEXT §Phase Boundary). Textarea import removed — the
+// premise field was its sole call site in this file.
+import { MarkdownEditor } from "./MarkdownEditor";
 import { Badge } from "@/components/badge";
 import {
   BOUNTY_PRIORITY_VALUES,
@@ -499,7 +504,13 @@ export function BountyCard({
     }
   }
 
-  function onPremiseKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+  // Phase 112 Plan 03: shortcut listener now hangs on the outer wrapper <div>
+  // (Option A per plan / RESEARCH-derived). MDXEditor doesn't expose an
+  // onKeyDown passthrough, so we let keydown bubble from the focused editor
+  // to the wrapper — Escape cancels, Cmd/Ctrl+Enter saves. Element type
+  // widened from HTMLTextAreaElement to HTMLDivElement to match the new
+  // handler surface.
+  function onPremiseKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key === "Escape") { e.preventDefault(); cancelEditPremise(); }
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); void savePremise(); }
   }
@@ -1057,15 +1068,17 @@ export function BountyCard({
                 )}
               </div>
               {editingPremise ? (
-                <>
-                  <Textarea
-                    value={premiseDraft}
-                    onChange={(e) => setPremiseDraft(e.target.value)}
-                    onKeyDown={onPremiseKeyDown}
+                /* Phase 112 Plan 03: outer wrapper hangs onPremiseKeyDown so
+                   Escape / Cmd+Enter still bubble up from the MarkdownEditor
+                   (Option A per plan — MDXEditor doesn't expose an onKeyDown
+                   passthrough, but keydown bubbles from the focused editor to
+                   this wrapper). */
+                <div onKeyDown={onPremiseKeyDown}>
+                  <MarkdownEditor
+                    filename="premise.md"
+                    content={premiseDraft}
+                    onChange={setPremiseDraft}
                     disabled={savingPremise}
-                    rows={8}
-                    autoFocus
-                    className="text-sm font-mono bg-white/5 border-white/20 text-[#f0ebe0] resize-y"
                   />
                   <div className="flex gap-2">
                     <Button
@@ -1092,7 +1105,7 @@ export function BountyCard({
                   {premiseError && (
                     <div className="text-xs text-rose-300 mt-1">{premiseError}</div>
                   )}
-                </>
+                </div>
               ) : bounty.premise ? (
                 <div>
                   <div

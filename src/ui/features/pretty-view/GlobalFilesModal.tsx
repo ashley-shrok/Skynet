@@ -318,6 +318,7 @@ export default function GlobalFilesModal({
                     onSave={(content, expectedMtime) =>
                       handleSave(file.path, content, expectedMtime)
                     }
+                    filename={file.path}
                   />
                 </TabsContent>
               ))}

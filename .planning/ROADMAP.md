@@ -2504,3 +2504,27 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 111-06-PLAN.md — indefinite slow reconnect, wake-on-visible on every platform, /sessions/list re-ask on the same event (D-05, D-07, D-11, D-12, D-13)
+
+### Phase 112: pretty markdown editing across all frontend markdown-editing surfaces (WYSIWYG via MDXEditor)
+
+**Goal:** Replace the raw `<textarea>` in all eight markdown-editing surfaces of the Skynet frontend with a WYSIWYG rich editor (engine: MDXEditor), with a filename-based gate on the two mixed-content surfaces so `.md` files get the pretty editor and other file types keep the plain textarea. Dark-theme styling matching Skynet's chrome, including inline code and fenced code blocks, is part of the work. Round-trip preservation of the frontmatter block is a load-bearing invariant.
+**Requirements**: none mapped — coverage is driven by CONTEXT.md decisions D-01 through D-16
+**Depends on:** Phase 110
+**Plans:** 5/5 plans complete
+
+*(Cedar's Phase 111 was rescue-rebased 111 → 112 on 2026-09-17 after a cross-tree slot collision with anthem's Phase 111 (conversation-list-live) — pure slot collision, disjoint source files (mine: `src/ui/features/pretty-view/*` + `tests/e2e/mdxeditor-frontmatter-roundtrip.spec.ts`; anthem's: identity-store + fleet-status + conversation-list). Per fleet rule the later-mover (me) renumbers.)*
+
+Plans:
+**Wave 1**
+
+- [x] 112-01-PLAN.md — shared `MarkdownEditor` component + lazy `MdxEditorImpl` + `mdxeditor.dark.css` + unit tests + `@mdxeditor/editor` dependency add
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 112-02a-PLAN.md — adopt `MarkdownEditor` in Global + Skill file tabs (filetype-gate side); thread `filename` from 4 modals (GlobalFilesModal, SkillsEditorModal, RunbookEditorModal, EditableFileModal)
+- [x] 112-02b-PLAN.md — adopt `MarkdownEditor` in Identity + Role file tabs (always-.md side)
+- [x] 112-03-PLAN.md — adopt `MarkdownEditor` in BountyCard premise + AddWakeupDialog instruction (synthetic filenames)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 112-04-PLAN.md — backend byte-transparency grep + self-contained Playwright frontmatter round-trip fixture + 8-surface UAT with D-05 close-the-loop (Tasks 1+2 complete; Task 3 awaiting user UAT on the deployed site)

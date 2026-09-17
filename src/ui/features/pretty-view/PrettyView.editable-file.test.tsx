@@ -97,6 +97,44 @@ vi.mock("@/api/editable-file-api", () => ({
   fetchTailnetUrl: vi.fn(),
 }));
 
+// Stub MDXEditor with a controlled textarea so getByRole("textbox") + fireEvent.change
+// keep working after the .md filetype gate routes through the WYSIWYG branch (Phase 112
+// Plan 02a — filename threaded through GlobalFileTab → MarkdownEditor). The stub covers
+// every named export the impl imports; only MDXEditor renders anything.
+vi.mock("@mdxeditor/editor", () => ({
+  MDXEditor: (props: {
+    markdown: string;
+    onChange?: (v: string) => void;
+    readOnly?: boolean;
+  }) => (
+    <textarea
+      value={props.markdown}
+      onChange={(e) => props.onChange?.(e.target.value)}
+      disabled={props.readOnly}
+      data-testid="mdxeditor"
+    />
+  ),
+  headingsPlugin: () => ({}),
+  listsPlugin: () => ({}),
+  quotePlugin: () => ({}),
+  thematicBreakPlugin: () => ({}),
+  markdownShortcutPlugin: () => ({}),
+  linkPlugin: () => ({}),
+  linkDialogPlugin: () => ({}),
+  tablePlugin: () => ({}),
+  codeBlockPlugin: () => ({}),
+  codeMirrorPlugin: () => ({}),
+  frontmatterPlugin: () => ({}),
+  toolbarPlugin: () => ({}),
+  UndoRedo: () => null,
+  BoldItalicUnderlineToggles: () => null,
+  BlockTypeSelect: () => null,
+  CreateLink: () => null,
+  InsertTable: () => null,
+  ListsToggle: () => null,
+  InsertFrontmatter: () => null,
+}));
+
 vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),

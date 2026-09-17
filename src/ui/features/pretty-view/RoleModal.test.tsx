@@ -28,6 +28,46 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
+// Phase 112 / Plan 02b: RoleFileTab now renders <MarkdownEditor filename="role.md">
+// in edit mode (D-08 consolidation) instead of a raw <textarea>. To keep the
+// integration-level save wiring tests (G, K, L below) working under jsdom, we
+// stub @mdxeditor/editor with a real <textarea data-testid="mdxeditor"> that
+// wires props.onChange to the DOM change event — same shape used at
+// RoleFileTab.test.tsx and MarkdownEditor.test.tsx (RESEARCH §Pitfall 5).
+vi.mock("@mdxeditor/editor", () => ({
+  MDXEditor: (props: {
+    markdown: string;
+    onChange?: (next: string) => void;
+    readOnly?: boolean;
+  }) => (
+    <textarea
+      data-testid="mdxeditor"
+      value={props.markdown}
+      onChange={(e) => props.onChange?.(e.target.value)}
+      readOnly={props.readOnly}
+    />
+  ),
+  headingsPlugin: () => ({}),
+  listsPlugin: () => ({}),
+  quotePlugin: () => ({}),
+  thematicBreakPlugin: () => ({}),
+  markdownShortcutPlugin: () => ({}),
+  linkPlugin: () => ({}),
+  linkDialogPlugin: () => ({}),
+  tablePlugin: () => ({}),
+  codeBlockPlugin: () => ({}),
+  codeMirrorPlugin: () => ({}),
+  frontmatterPlugin: () => ({}),
+  toolbarPlugin: () => ({}),
+  UndoRedo: () => null,
+  BoldItalicUnderlineToggles: () => null,
+  BlockTypeSelect: () => null,
+  CreateLink: () => null,
+  InsertTable: () => null,
+  ListsToggle: () => null,
+  InsertFrontmatter: () => null,
+}));
+
 // Plan 90-10 refactor: RoleModal no longer opens websockets directly. Each
 // read/write routes through the role-name-keyed helpers in claude-session-api
 // (Plan 90-09) and identities-api (Plan 90-09 avatar upload). Tests mock the
@@ -234,11 +274,15 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
 
     // Type into the RoleFileTab's textarea (font-mono, distinct from the
     // Title <input>) so the Save button becomes enabled (draft !== state.data).
+    // Phase 112 / Plan 02b: RoleFileTab edit-mode body is now the mocked
+    // MarkdownEditor (data-testid="mdxeditor" — see vi.mock above); the raw
+    // `textarea.font-mono` selector no longer applies. The mock exposes a
+    // real <textarea> so fireEvent.change keeps working.
     const textarea = await waitFor(() => {
       const el = document.querySelector(
-        'textarea.font-mono',
+        '[data-testid="mdxeditor"]',
       ) as HTMLTextAreaElement | null;
-      if (!el) throw new Error("RoleFileTab textarea not yet present");
+      if (!el) throw new Error("RoleFileTab MarkdownEditor not yet present");
       return el;
     });
     fireEvent.change(textarea, {
@@ -381,11 +425,13 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
     // Enter edit mode + trigger a save.
     const editBtn = await screen.findByRole("button", { name: /^edit$/i });
     fireEvent.click(editBtn);
+    // Phase 112 / Plan 02b: see the vi.mock('@mdxeditor/editor') block above —
+    // the raw textarea is replaced by MarkdownEditor's mocked child.
     const textarea = (await waitFor(() => {
       const el = document.querySelector(
-        "textarea.font-mono",
+        '[data-testid="mdxeditor"]',
       ) as HTMLTextAreaElement | null;
-      if (!el) throw new Error("RoleFileTab textarea not yet present");
+      if (!el) throw new Error("RoleFileTab MarkdownEditor not yet present");
       return el;
     })) as HTMLTextAreaElement;
     // Perturb the body so the Save button becomes enabled.
@@ -432,11 +478,13 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
     // Enter edit mode and save.
     const editBtn = await screen.findByRole("button", { name: /^edit$/i });
     fireEvent.click(editBtn);
+    // Phase 112 / Plan 02b: see the vi.mock('@mdxeditor/editor') block above —
+    // the raw textarea is replaced by MarkdownEditor's mocked child.
     const textarea = (await waitFor(() => {
       const el = document.querySelector(
-        "textarea.font-mono",
+        '[data-testid="mdxeditor"]',
       ) as HTMLTextAreaElement | null;
-      if (!el) throw new Error("RoleFileTab textarea not yet present");
+      if (!el) throw new Error("RoleFileTab MarkdownEditor not yet present");
       return el;
     })) as HTMLTextAreaElement;
     // Perturb body so Save enables.

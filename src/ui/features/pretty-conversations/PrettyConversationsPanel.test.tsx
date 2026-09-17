@@ -341,7 +341,7 @@ vi.mock("@/api/relay-room-create-api", () => ({
   createRelayRoom: vi.fn(async () => ({ ok: true, roomId: "!r:s", sessionId: "s1", roomTitle: "T" })),
 }));
 vi.mock("@/state/viewing-user-store", () => ({
-  useViewingUserMxid: vi.fn(() => "@ashley:thenasty.taild9b663.ts.net"),
+  useViewingUserMxid: vi.fn(() => "@the-operator:thenasty.taild9b663.ts.net"),
   useViewingUserId: vi.fn(() => "u-user"),
 }));
 
@@ -1891,7 +1891,7 @@ describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hy
 // ─────────────────────────────────────────────────────────────────────────────
 // quick-260912-5q2 — mount hydration race: identities gate
 // ─────────────────────────────────────────────────────────────────────────────
-// Regression trap for the cold-reload pin-loss race Ashley reproduced on
+// Regression trap for the cold-reload pin-loss race the operator reproduced on
 // t1000: the hydrate effect fired on the fleetSessionsLoaded false→true flip
 // BEFORE any identity data was in the store, causing deriveDiskPinnedIds to
 // read an empty state.identities and return []. The original hydratedRef

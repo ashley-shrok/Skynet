@@ -46,6 +46,7 @@
     "@aws-sdk/client-polly": "^3.1129.0",
     "@smithy/node-http-handler": "^4.0.4",
     "@fontsource-variable/inter": "^5.2.8",
+    "@mdxeditor/editor": "^4.2.5",
     "@tailwindcss/typography": "^0.5.20",
     "axios": "^1.15.2",
     "bcryptjs": "^3.0.3",

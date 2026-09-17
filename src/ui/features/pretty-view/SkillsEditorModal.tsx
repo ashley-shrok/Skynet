@@ -576,6 +576,7 @@ export default function SkillsEditorModal({
                       setDeleteFileError(null);
                       setDeleteFileConfirm({ path: file.path });
                     }}
+                    filename={file.path}
                   />
                 </TabsContent>
               ))}

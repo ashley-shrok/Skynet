@@ -4,6 +4,16 @@
  * truly-empty file (content="" && mtime===0) renders the editable textarea
  * and the user can type + save to CREATE the file.
  *
+ * Phase 112 Plan 02a additions:
+ *   - Filetype-gate integration tests (D-06): .md filenames route to the
+ *     mocked MDXEditor pretty branch; non-.md filenames stay on the raw
+ *     <textarea>. Requires the same @mdxeditor/editor vi.mock as
+ *     MarkdownEditor.test.tsx (RESEARCH.md §Pitfall 5).
+ *   - Existing tests that assert `getByRole('textbox')` on the ready branch
+ *     now pass a non-.md filename (e.g. "settings.json", "note.txt") so
+ *     they continue to hit the textarea branch after GlobalFileTab adopts
+ *     MarkdownEditor. The intent of each test is preserved.
+ *
  * Tests:
  *   1. loading state renders Skeleton (no textarea)
  *   2. error state renders error message (no textarea)
@@ -15,6 +25,36 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+
+// Stub the entire @mdxeditor/editor surface (mirrors MarkdownEditor.test.tsx).
+// Sidesteps jsdom + Lexical contentEditable friction (RESEARCH.md §Pitfall 5).
+// MDXEditor renders a testid div echoing props.markdown so tests can inspect
+// what the parent piped through. Plugin/component exports are minimal no-ops.
+vi.mock("@mdxeditor/editor", () => ({
+  MDXEditor: (props: { markdown: string }) => (
+    <div data-testid="mdxeditor">{props.markdown}</div>
+  ),
+  headingsPlugin: () => ({}),
+  listsPlugin: () => ({}),
+  quotePlugin: () => ({}),
+  thematicBreakPlugin: () => ({}),
+  markdownShortcutPlugin: () => ({}),
+  linkPlugin: () => ({}),
+  linkDialogPlugin: () => ({}),
+  tablePlugin: () => ({}),
+  codeBlockPlugin: () => ({}),
+  codeMirrorPlugin: () => ({}),
+  frontmatterPlugin: () => ({}),
+  toolbarPlugin: () => ({}),
+  UndoRedo: () => null,
+  BoldItalicUnderlineToggles: () => null,
+  BlockTypeSelect: () => null,
+  CreateLink: () => null,
+  InsertTable: () => null,
+  ListsToggle: () => null,
+  InsertFrontmatter: () => null,
+}));
+
 import GlobalFileTab from "./GlobalFileTab";
 
 describe("GlobalFileTab — render branches", () => {
@@ -23,7 +63,13 @@ describe("GlobalFileTab — render branches", () => {
   });
 
   it("test 1: loading → Skeleton, no textarea, no error", () => {
-    render(<GlobalFileTab state={{ status: "loading" }} onSave={vi.fn()} />);
+    render(
+      <GlobalFileTab
+        state={{ status: "loading" }}
+        onSave={vi.fn()}
+        filename="settings.json"
+      />,
+    );
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByText(/Couldn't load file/i)).toBeNull();
   });
@@ -33,6 +79,7 @@ describe("GlobalFileTab — render branches", () => {
       <GlobalFileTab
         state={{ status: "error", error: "sftp read failed" }}
         onSave={vi.fn()}
+        filename="settings.json"
       />,
     );
     expect(screen.getByText(/Couldn't load file/i)).toBeTruthy();
@@ -45,6 +92,7 @@ describe("GlobalFileTab — render branches", () => {
       <GlobalFileTab
         state={{ status: "ready", data: { content: "hello", mtime: 42 } }}
         onSave={vi.fn()}
+        filename="settings.json"
       />,
     );
     const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
@@ -61,6 +109,7 @@ describe("GlobalFileTab — render branches", () => {
       <GlobalFileTab
         state={{ status: "ready", data: { content: "", mtime: 0 } }}
         onSave={onSave}
+        filename="settings.json"
       />,
     );
 
@@ -91,6 +140,7 @@ describe("GlobalFileTab — render branches", () => {
       <GlobalFileTab
         state={{ status: "ready", data: { content: "", mtime: 0 } }}
         onSave={vi.fn()}
+        filename="settings.json"
       />,
     );
     expect(screen.queryByText(/no content in this file yet/i)).toBeNull();
@@ -110,6 +160,7 @@ describe("GlobalFileTab — render branches", () => {
       <GlobalFileTab
         state={{ status: "ready", data: { content: "hi", mtime: 1 } }}
         onSave={onSave}
+        filename="settings.json"
       />,
     );
     const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
@@ -130,6 +181,7 @@ describe("GlobalFileTab — render branches", () => {
         state={{ status: "ready", data: { content: "hi", mtime: 1 } }}
         onSave={vi.fn()}
         onDraftChange={onDraftChange}
+        filename="settings.json"
       />,
     );
     // Mount-time: draft = "" briefly (from useState), then the mtime effect
@@ -152,5 +204,44 @@ describe("GlobalFileTab — render branches", () => {
     // Converge back → dirty=false
     fireEvent.change(ta, { target: { value: "hi" } });
     expect(onDraftChange).toHaveBeenCalledWith(false);
+  });
+});
+
+// ── Phase 112 Plan 02a: filetype gate integration (D-06 / D-15) ──────────
+// GlobalFileTab is now a thin wrapper over MarkdownEditor — the same D-06
+// filetype gate that MarkdownEditor.test.tsx covers in isolation must fire
+// end-to-end when the tab hosts it. .md filename → mocked MDXEditor renders;
+// .json filename → raw <textarea> renders.
+describe("GlobalFileTab — filetype gate integration (D-06)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("test A: filename='notes.md' + ready → renders MDXEditor (pretty branch), no raw textarea", async () => {
+    render(
+      <GlobalFileTab
+        state={{ status: "ready", data: { content: "# hi", mtime: 1 } }}
+        onSave={vi.fn()}
+        filename="notes.md"
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.queryByTestId("mdxeditor")).toBeTruthy();
+    });
+    // Pretty branch replaces the raw <textarea>.
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("test B: filename='settings.json' + ready → renders raw <textarea>, no MDXEditor", () => {
+    render(
+      <GlobalFileTab
+        state={{ status: "ready", data: { content: '{"a":1}', mtime: 1 } }}
+        onSave={vi.fn()}
+        filename="settings.json"
+      />,
+    );
+    expect(screen.queryByTestId("mdxeditor")).toBeNull();
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(ta.value).toBe('{"a":1}');
   });
 });

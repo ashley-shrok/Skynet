@@ -9,7 +9,7 @@
 
 On a hard reload of Skynet, the conversation list rows appear plain (like ordinary terminal sessions — no colour, no avatar, no title, no task description) for about a second, then dress themselves. The pulse pathway (Phase 111) works — appearance arrives on the fleet-status WebSocket first-frame, `mergeIdentityAppearance` merges it into `identities-store`, rows re-render dressed. But that whole path costs ~1s wall (WS connect → subscribe → server pushes → frontend merges → React re-renders).
 
-Ashley's mental model, verbatim: *"ask for everything on page load and ask for it every time we poll and cache everything so that as soon as pages come up that can be shown until it gets replaced by what's coming from the back end"*. Appearance-in-cache was **never deferred** — the only thing deferred was the "slow first-ever load with nothing remembered" (no cache to draw from at all).
+the operator's mental model, verbatim: *"ask for everything on page load and ask for it every time we poll and cache everything so that as soon as pages come up that can be shown until it gets replaced by what's coming from the back end"*. Appearance-in-cache was **never deferred** — the only thing deferred was the "slow first-ever load with nothing remembered" (no cache to draw from at all).
 
 ## Correct behavior after the fix
 

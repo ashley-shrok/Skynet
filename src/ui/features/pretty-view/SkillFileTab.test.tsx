@@ -4,6 +4,15 @@
  *   - Non-text branch (isText: false → AlertTriangle placeholder, no textarea)
  *   - Delete-file Trash2 trigger (fires onRequestDelete)
  *
+ * Phase 112 Plan 02a additions:
+ *   - Filetype-gate integration tests (D-06): .md filenames route to the
+ *     mocked MDXEditor pretty branch; non-.md filenames stay on the raw
+ *     <textarea>. Requires the same @mdxeditor/editor vi.mock as
+ *     MarkdownEditor.test.tsx (RESEARCH.md §Pitfall 5).
+ *   - Existing tests that assert `getByRole('textbox')` on the ready branch
+ *     now pass a non-.md filename (e.g. "script.sh") so they continue to hit
+ *     the textarea branch after SkillFileTab adopts MarkdownEditor.
+ *
  * Tests:
  *   1. loading state renders Skeleton (no textarea)
  *   2. error state renders error message (no textarea)
@@ -20,6 +29,34 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+
+// Stub the entire @mdxeditor/editor surface (mirrors MarkdownEditor.test.tsx).
+// Sidesteps jsdom + Lexical contentEditable friction (RESEARCH.md §Pitfall 5).
+vi.mock("@mdxeditor/editor", () => ({
+  MDXEditor: (props: { markdown: string }) => (
+    <div data-testid="mdxeditor">{props.markdown}</div>
+  ),
+  headingsPlugin: () => ({}),
+  listsPlugin: () => ({}),
+  quotePlugin: () => ({}),
+  thematicBreakPlugin: () => ({}),
+  markdownShortcutPlugin: () => ({}),
+  linkPlugin: () => ({}),
+  linkDialogPlugin: () => ({}),
+  tablePlugin: () => ({}),
+  codeBlockPlugin: () => ({}),
+  codeMirrorPlugin: () => ({}),
+  frontmatterPlugin: () => ({}),
+  toolbarPlugin: () => ({}),
+  UndoRedo: () => null,
+  BoldItalicUnderlineToggles: () => null,
+  BlockTypeSelect: () => null,
+  CreateLink: () => null,
+  InsertTable: () => null,
+  ListsToggle: () => null,
+  InsertFrontmatter: () => null,
+}));
+
 import SkillFileTab from "./SkillFileTab";
 
 describe("SkillFileTab — render branches", () => {
@@ -28,7 +65,13 @@ describe("SkillFileTab — render branches", () => {
   });
 
   it("test 1: loading → Skeleton, no textarea, no error", () => {
-    render(<SkillFileTab state={{ status: "loading" }} onSave={vi.fn()} />);
+    render(
+      <SkillFileTab
+        state={{ status: "loading" }}
+        onSave={vi.fn()}
+        filename="script.sh"
+      />,
+    );
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByText(/Couldn't load file/i)).toBeNull();
   });
@@ -38,6 +81,7 @@ describe("SkillFileTab — render branches", () => {
       <SkillFileTab
         state={{ status: "error", error: "sftp read failed" }}
         onSave={vi.fn()}
+        filename="script.sh"
       />,
     );
     expect(screen.getByText(/Couldn't load file/i)).toBeTruthy();
@@ -53,6 +97,7 @@ describe("SkillFileTab — render branches", () => {
           data: { content: "hello", mtime: 42, isText: true },
         }}
         onSave={vi.fn()}
+        filename="script.sh"
       />,
     );
     const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
@@ -72,6 +117,7 @@ describe("SkillFileTab — render branches", () => {
           data: { content: "", mtime: 0, isText: true },
         }}
         onSave={onSave}
+        filename="script.sh"
       />,
     );
 
@@ -100,6 +146,7 @@ describe("SkillFileTab — render branches", () => {
           data: { content: "", mtime: 0, isText: true },
         }}
         onSave={vi.fn()}
+        filename="script.sh"
       />,
     );
     expect(screen.queryByText(/no content in this file yet/i)).toBeNull();
@@ -113,6 +160,7 @@ describe("SkillFileTab — render branches", () => {
           data: { content: "unchanged", mtime: 100, isText: true },
         }}
         onSave={vi.fn()}
+        filename="script.sh"
       />,
     );
     const saveBtn = screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement;
@@ -127,6 +175,7 @@ describe("SkillFileTab — render branches", () => {
           data: { content: "base", mtime: 100, isText: true },
         }}
         onSave={vi.fn()}
+        filename="script.sh"
       />,
     );
     const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
@@ -143,6 +192,7 @@ describe("SkillFileTab — render branches", () => {
           data: { content: "", mtime: 42, isText: false },
         }}
         onSave={vi.fn()}
+        filename="binary.bin"
       />,
     );
     // No textarea — non-text branch replaces the editor pane entirely.
@@ -164,6 +214,7 @@ describe("SkillFileTab — render branches", () => {
         }}
         onSave={vi.fn()}
         onRequestDelete={onRequestDelete}
+        filename="script.sh"
       />,
     );
     fireEvent.click(screen.getByTitle(/delete this file/i));
@@ -178,6 +229,7 @@ describe("SkillFileTab — render branches", () => {
           data: { content: "original", mtime: 100, isText: true },
         }}
         onSave={vi.fn()}
+        filename="script.sh"
       />,
     );
     const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
@@ -195,10 +247,56 @@ describe("SkillFileTab — render branches", () => {
           data: { content: "server-authoritative", mtime: 200, isText: true },
         }}
         onSave={vi.fn()}
+        filename="script.sh"
       />,
     );
     // Draft reseeds because mtime changed (the eslint-disabled effect key).
     const ta2 = screen.getByRole("textbox") as HTMLTextAreaElement;
     expect(ta2.value).toBe("server-authoritative");
+  });
+});
+
+// ── Phase 112 Plan 02a: filetype gate integration (D-06 / D-15) ──────────
+// SkillFileTab is now a thin wrapper over MarkdownEditor — the same D-06
+// filetype gate that MarkdownEditor.test.tsx covers in isolation must fire
+// end-to-end when the tab hosts it. .md filename → mocked MDXEditor renders;
+// .sh filename → raw <textarea> renders.
+describe("SkillFileTab — filetype gate integration (D-06)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("test A: filename='notes.md' + ready + isText=true → renders MDXEditor (pretty branch), no raw textarea", async () => {
+    render(
+      <SkillFileTab
+        state={{
+          status: "ready",
+          data: { content: "# hi", mtime: 1, isText: true },
+        }}
+        onSave={vi.fn()}
+        filename="notes.md"
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.queryByTestId("mdxeditor")).toBeTruthy();
+    });
+    // Pretty branch replaces the raw <textarea>.
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("test B: filename='deploy.sh' + ready + isText=true → renders raw <textarea>, no MDXEditor", () => {
+    render(
+      <SkillFileTab
+        state={{
+          status: "ready",
+          data: { content: "#!/bin/bash", mtime: 1, isText: true },
+        }}
+        onSave={vi.fn()}
+        filename="deploy.sh"
+      />,
+    );
+    expect(screen.queryByTestId("mdxeditor")).toBeNull();
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(ta.value).toBe("#!/bin/bash");
   });
 });

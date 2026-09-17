@@ -1,7 +1,7 @@
 # Phase 111 — Discussion Log
 
 **Date:** 2026-09-16
-**Participants:** Ashley + pixel (box-maintainer)
+**Participants:** the operator + pixel (box-maintainer)
 **Mode:** default (no flags). Seeded from `shape-conversation-list-complete-and-live.md`; only post-shape gray areas discussed.
 
 > Human-reference record only — NOT consumed by researcher / planner / executor.

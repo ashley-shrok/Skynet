@@ -5,7 +5,7 @@
 
 ## Read this first, in order
 
-1. **Ashley's corrective framing at the end of the session, verbatim** — the load-bearing thing to internalize before writing any code:
+1. **the operator's corrective framing at the end of the session, verbatim** — the load-bearing thing to internalize before writing any code:
 
    > "i deferred it my whole picture of this thing high concept that i thought we were doing is ask for everything on page load and ask for it every time we poll and cache everything so that as soon as pages come up that can be shown until it gets replaced by what's coming from the back end"
 
@@ -19,7 +19,7 @@
 
 ## What is actually broken RIGHT NOW on the shipped app
 
-Ashley did two rounds of UAT after ship. Round 2 (post cache-cook) is her current state.
+the operator did two rounds of UAT after ship. Round 2 (post cache-cook) is her current state.
 
 ### Problem 1 — ~1 second undressed flash on cold paint (still)
 
@@ -47,7 +47,7 @@ Ashley did two rounds of UAT after ship. Round 2 (post cache-cook) is her curren
 
 **What she sees:** rows appear dressed within ~1s (Problem 1), but for another ~7s hidden rows are visible in the main list instead of being tucked into the hidden section, and pinned rows aren't at the top. Then everything organizes correctly.
 
-**Why:** `PrettyConversationsPanel.tsx:556-602` — the panel's hydrate effect. It gates on BOTH `fleetSessionsLoaded` AND `identitiesLoaded`, then latches via `hydratedRef.current`. Post-Phase-111, the pulse populates `identity.pinned`/`identity.hidden` into `state.identities` well before `/identities` returns — but the panel is still gated on the SLOW `identitiesLoaded` signal (which only flips when `/identities` completes via `setIdentities`). So the effect sits and waits for /identities to land, exactly the 8s Ashley sees. Once /identities lands, `identitiesLoaded` flips, effect fires, `deriveDiskPinnedIds` runs, `hydratePinnedIdsFromServer(pinnedIds)` writes to `state.pinnedIds`, the panel re-derives, hidden rows go to the hidden section, pinned rows go to top.
+**Why:** `PrettyConversationsPanel.tsx:556-602` — the panel's hydrate effect. It gates on BOTH `fleetSessionsLoaded` AND `identitiesLoaded`, then latches via `hydratedRef.current`. Post-Phase-111, the pulse populates `identity.pinned`/`identity.hidden` into `state.identities` well before `/identities` returns — but the panel is still gated on the SLOW `identitiesLoaded` signal (which only flips when `/identities` completes via `setIdentities`). So the effect sits and waits for /identities to land, exactly the 8s the operator sees. Once /identities lands, `identitiesLoaded` flips, effect fires, `deriveDiskPinnedIds` runs, `hydratePinnedIdsFromServer(pinnedIds)` writes to `state.pinnedIds`, the panel re-derives, hidden rows go to the hidden section, pinned rows go to top.
 
 **The load-bearing quick-260912-5q2 property this gate was protecting:** if you fire the effect before `state.identities` has data, `deriveDiskPinnedIds` returns `[]`, `hydratePinnedIdsFromServer([])` wipes existing `pinnedIds`, `hydratedRef` latches so it never re-fires — cold reload permanently loses pins. Do NOT regress this.
 
@@ -68,7 +68,7 @@ Ashley did two rounds of UAT after ship. Round 2 (post cache-cook) is her curren
 - New test: `hydratePinnedIdsFromServer([])` with `state.pinnedIds.size > 0` is a no-op. Breaks red if the additive-on-empty guard is dropped.
 - Existing quick-260912-5q2 protection: cold reload with `state.identities === []` does NOT wipe `pinnedIds`. This should now be enforced by the hydrate-function guard rather than the panel gate.
 
-## Pre-existing bug I diagnosed but did NOT fix (per Ashley's call)
+## Pre-existing bug I diagnosed but did NOT fix (per the operator's call)
 
 **Tina's identity shows avatar + name but no color, from before this ship.**
 
@@ -83,7 +83,7 @@ Everything else she shows (avatar + name) comes from paths that don't fail: avat
 
 **The sweep uses a forgiving stdlib line-based parser and DOES extract her role correctly** — so the pulse pathway (which now carries appearance post-Phase-111) probably renders her color correctly on the LIVE path. But `/identities` is what the identity modal, avatar handling, and role-inheritance display use. And it's what seeds the store on cold load until the pulse arrives.
 
-**Ashley's call:** leave for tina to fix her own file. When she does, single-quote the outer wrap or use a YAML block scalar.
+**the operator's call:** leave for tina to fix her own file. When she does, single-quote the outer wrap or use a YAML block scalar.
 
 **Structural follow-up worth considering (as its own bounty):** give `extractCosmeticsFromFrontmatter` a line-based fallback when strict YAML throws, mirroring what the Python sweep does. Closes the whole class of bug for anyone else who writes an inline quote in their frontmatter. Do NOT do this speculatively — offer it if she asks.
 
@@ -137,15 +137,15 @@ My recommendation: `/build` mode, treat each as its own fix-mode arc (skip the f
 3. **Then:** run `/close conversation-list-complete-and-live` to close the campaign arc against the shape file.
 4. **Then:** account for the 5 overlapping bounties (see bounty.json `related` field).
 
-Ship both together as one deploy motion once Ashley greenlights.
+Ship both together as one deploy motion once the operator greenlights.
 
 ## What NOT to do
 
-- Do NOT frame the appearance cache as "deferred" or "the follow-up piece" — Ashley corrected me sharply on this at the end of the session. It was always in scope; her mental model has always been "cache everything and paint from cache instantly."
+- Do NOT frame the appearance cache as "deferred" or "the follow-up piece" — the operator corrected me sharply on this at the end of the session. It was always in scope; her mental model has always been "cache everything and paint from cache instantly."
 - Do NOT bump `SWEEP_SCHEMA_VERSION` or `FRAME_SCHEMA_VERSION`. Both stay 1.
 - Do NOT touch `subscription-registry.ts` or `PrettyConversationsPanel.tsx` for Problem 1. The panel is only touched for Problem 2, and only its hydrate effect gate.
 - Do NOT let any pulse-fed write flip `identities-store.loaded` (D-10). Every seed from cache and every merge from the pulse carries `loaded: state.loaded`.
-- Do NOT try to fix tina's frontmatter yourself — Ashley said leave it for tina.
+- Do NOT try to fix tina's frontmatter yourself — the operator said leave it for tina.
 - Do NOT propose worktrees for anything.
 - Do NOT try mtime-gating anywhere — measured and rejected.
 - Do NOT run the full unscoped test suite in executor scope — that's a deploy-gate, orchestrator-only.

@@ -462,6 +462,7 @@ export default function RunbookEditorModal({
                       setDeleteFileError(null);
                       setDeleteFileConfirm({ path: file.path });
                     }}
+                    filename={file.path}
                   />
                 </TabsContent>
               ))}

@@ -25,6 +25,48 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import type { Wakeup } from "@/api/claude-session-api";
+
+// Phase 112 Plan 03 — AddWakeupDialog's instruction field now routes through
+// MarkdownEditor (D-06 pretty branch via synthetic filename="wakeup.md").
+// Stub MDXEditor as a controlled <textarea data-testid="mdxeditor"> so any
+// integration test that opens AddWakeupDialog can still drive input. Rule 3
+// auto-fix: this test file was broken by Plan 03's swap; the same enhanced
+// mock pattern lives in AddWakeupDialog.test.tsx / EditableFileModal.test.tsx
+// / RoleFileTab.test.tsx already.
+vi.mock("@mdxeditor/editor", () => ({
+  MDXEditor: (props: {
+    markdown: string;
+    onChange?: (v: string) => void;
+    readOnly?: boolean;
+  }) => (
+    <textarea
+      value={props.markdown}
+      onChange={(e) => props.onChange?.(e.target.value)}
+      disabled={props.readOnly}
+      data-testid="mdxeditor"
+    />
+  ),
+  headingsPlugin: () => ({}),
+  listsPlugin: () => ({}),
+  quotePlugin: () => ({}),
+  thematicBreakPlugin: () => ({}),
+  markdownShortcutPlugin: () => ({}),
+  linkPlugin: () => ({}),
+  linkDialogPlugin: () => ({}),
+  tablePlugin: () => ({}),
+  codeBlockPlugin: () => ({}),
+  codeMirrorPlugin: () => ({}),
+  frontmatterPlugin: () => ({}),
+  toolbarPlugin: () => ({}),
+  UndoRedo: () => null,
+  BoldItalicUnderlineToggles: () => null,
+  BlockTypeSelect: () => null,
+  CreateLink: () => null,
+  InsertTable: () => null,
+  ListsToggle: () => null,
+  InsertFrontmatter: () => null,
+}));
+
 import { WakeupsTab } from "./WakeupsTab";
 
 // ── Shared fixtures ────────────────────────────────────────────────────────────
@@ -477,9 +519,10 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
 
     fireEvent.click(screen.getByTestId("wakeup-add-button"));
 
-    // Fill required fields.
+    // Fill required fields. Instruction field is now MarkdownEditor
+    // (Plan 112-03) — drive input via the mocked <textarea data-testid="mdxeditor">.
     fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "morning-standup" } });
-    fireEvent.change(screen.getByLabelText(/Instruction/i), { target: { value: "check the box" } });
+    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "check the box" } });
 
     // Click Save.
     fireEvent.click(screen.getByTestId("add-wakeup-save"));

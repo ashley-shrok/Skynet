@@ -34,6 +34,11 @@ import {
   RestrictToDaysChips,
   validateForm,
 } from "./WakeupFormShared";
+// Phase 112 Plan 03: instruction field adopts the shared MarkdownEditor with
+// a synthetic `filename="wakeup.md"` that forces the pretty (MDXEditor) branch
+// of the D-06 filetype gate. Wakeup instructions are markdown-content by
+// contract (per phase CONTEXT §Phase Boundary).
+import { MarkdownEditor } from "./MarkdownEditor";
 
 // Slug regex must match writeRoleWakeupCreate / writeIdentityWakeupCreate on
 // the backend (kebab-case, lowercase, alphanumerics + hyphens). Used ONLY to
@@ -404,7 +409,12 @@ export function AddWakeupDialog({
             </div>
           )}
 
-          {/* Field 5: Instruction */}
+          {/* Field 5: Instruction — Phase 112 Plan 03: MarkdownEditor swap.
+              The wrapper <div className="min-h-[160px]"> accommodates the ~40px
+              MDXEditor toolbar (RESEARCH §Open Question 2 recommendation): the
+              old min-h-[60px] would leave ~20px for the editing area (unusable);
+              160px gives room for toolbar + a comfortable ~3-row edit surface
+              matching the spatial feel of the pre-swap textarea. */}
           <div className="flex flex-col gap-1">
             <label
               htmlFor="add-wakeup-instruction"
@@ -412,18 +422,14 @@ export function AddWakeupDialog({
             >
               Instruction
             </label>
-            <textarea
-              id="add-wakeup-instruction"
-              value={instructionDraft}
-              onChange={(e) => setInstructionDraft(e.target.value)}
-              rows={3}
-              placeholder="What should the agent do when this fires?"
-              className={cn(
-                "bg-black/30 text-[#e8e4d8] border border-white/10",
-                "focus:outline-none focus:border-white/25 rounded px-2 py-1.5 text-xs",
-                "resize-y min-h-[60px]",
-              )}
-            />
+            <div className="min-h-[160px]">
+              <MarkdownEditor
+                filename="wakeup.md"
+                content={instructionDraft}
+                onChange={setInstructionDraft}
+                placeholder="What should the agent do when this fires?"
+              />
+            </div>
           </div>
 
           {/* Field 6: Enabled */}

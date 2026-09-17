@@ -488,6 +488,7 @@ export default function EditableFileModal({
                 state={fetchState}
                 onSave={handleSave}
                 onDraftChange={setIsDirty}
+                filename={filename}
               />
             </div>
           )}

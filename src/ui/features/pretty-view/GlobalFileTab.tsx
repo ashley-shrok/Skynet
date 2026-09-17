@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Skeleton } from "@/components/skeleton";
 import type { TabState } from "./IdentityFileTab";
+import { MarkdownEditor } from "./MarkdownEditor";
 
 // Phase 23 GEFM-05: per-file tab body for GlobalFilesModal.
 //
@@ -10,6 +11,14 @@ import type { TabState } from "./IdentityFileTab";
 //
 // TabState imported from IdentityFileTab (not duplicated) per Phase 18
 // IDMEDIT-01 convention: each tab file self-contained, TabState shared via import.
+//
+// Phase 112 Plan 02a: adopts the shared MarkdownEditor for the ready branch.
+// A required `filename` prop is threaded from the hosting modal
+// (GlobalFilesModal / EditableFileModal). MarkdownEditor gates on the
+// extension per D-06 — .md renders the pretty MDXEditor, everything else
+// keeps the verbatim raw <textarea> styling that used to live inline here.
+// Save flow (mtime optimistic concurrency), onDraftChange divergence
+// signalling, and loading/error branches are unchanged.
 
 /**
  * Per-file data stored in the tab: the file's content + the mtime it was
@@ -22,6 +31,7 @@ export default function GlobalFileTab({
   state,
   onSave,
   onDraftChange,
+  filename,
 }: {
   state: TabState<GlobalFileTabData>;
   onSave: (content: string, expectedMtime: number) => Promise<void>;
@@ -33,6 +43,13 @@ export default function GlobalFileTab({
    * pass no prop and see zero behavior change.
    */
   onDraftChange?: (dirty: boolean) => void;
+  /**
+   * Phase 112 Plan 02a: file path/name (with extension) — drives the D-06
+   * filetype gate inside MarkdownEditor (.md → pretty MDXEditor, else →
+   * raw <textarea>). Required so the gate is deterministic; hosting modals
+   * (GlobalFilesModal, EditableFileModal) always know the filename.
+   */
+  filename: string;
 }): JSX.Element {
   const [draft, setDraft] = useState<string>("");
   const [saving, setSaving] = useState(false);
@@ -93,21 +110,22 @@ export default function GlobalFileTab({
     );
   }
 
-  // Ready branch — plain monospace textarea (always editable, no view/edit toggle).
+  // Ready branch — MarkdownEditor gates on filename per D-06 (.md → pretty
+  // MDXEditor, else → verbatim raw <textarea>). Byte-for-byte textarea
+  // styling is preserved inside MarkdownEditor for the non-.md branch.
   // 2026-08-05: no early-return for empty (content="" && mtime===0) — the
-  // textarea below renders empty and the user can type + save to CREATE the
+  // editor below renders empty and the user can type + save to CREATE the
   // file via the write handler's SFTP tmp+rename path. The disable predicate
   // (`draft === state.data.content`) keeps the save button off until the user
   // actually types something, so an unchanged-empty file still can't save.
-  // Textarea styling copied VERBATIM from RoleFileTab.tsx L134 per CONTEXT §specifics
-  // "do NOT reinvent, it's tuned". No Cancel button — modal-close is cancel.
+  // No Cancel button — modal-close is cancel.
   return (
     <div className="flex flex-col h-full gap-2">
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        className="font-mono text-sm w-full h-full min-h-[400px] p-3 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] resize-none outline-none focus:border-[hsla(var(--pv-id-hue,220),80%,60%,0.5)]"
-        spellCheck={false}
+      <MarkdownEditor
+        filename={filename}
+        content={draft}
+        onChange={setDraft}
+        disabled={saving}
       />
       {saveError && (
         <div className="text-sm text-red-400 px-1">{saveError}</div>

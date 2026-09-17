@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
 import type { TabState } from "./IdentityFileTab";
+import { MarkdownEditor } from "./MarkdownEditor";
 
 // Phase 22 SRIC-06 / Plan 22-06: tab renderer for the identity's role file
 // (~/.claude/roles/<role>/<role>.md). Byte-shape mirror of IdentityFileTab.tsx:
@@ -18,6 +19,12 @@ import type { TabState } from "./IdentityFileTab";
 // § "No no-role fallback branches" (user 2026-08-04), a missing role:
 // frontmatter surfaces as state.status === "error" and renders the standard
 // error branch below — NOT a fake empty state.
+//
+// Phase 112 / Plan 02b: edit-mode body swapped from raw <textarea> to the
+// shared <MarkdownEditor> (D-08 consolidation). Role files are always
+// markdown by contract, so we pass a synthetic filename="role.md" that
+// forces the D-06 gate into the pretty MDXEditor branch. Byte-shape mirror
+// discipline with IdentityFileTab is preserved.
 
 export function RoleFileTab({
   state,
@@ -127,14 +134,16 @@ export function RoleFileTab({
         </div>
       )}
 
-      {/* Body — textarea in edit mode, ReactMarkdown preview otherwise */}
+      {/* Body — pretty MarkdownEditor in edit mode (D-08; synthetic
+          filename="role.md" forces the D-06 pretty branch), ReactMarkdown
+          preview otherwise. */}
       {editing ? (
         <div className="flex flex-col flex-1 min-h-0">
-          <textarea
-            className="font-mono text-sm w-full h-full min-h-[400px] p-3 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] resize-none outline-none focus:border-[hsla(var(--pv-id-hue,220),80%,60%,0.5)]"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            spellCheck={false}
+          <MarkdownEditor
+            filename="role.md"
+            content={draft}
+            onChange={setDraft}
+            disabled={saving}
           />
           {saveError && (
             <div className="text-sm text-[color:var(--color-pv-code-fg)] mt-2">

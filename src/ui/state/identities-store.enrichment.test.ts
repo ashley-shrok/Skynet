@@ -996,7 +996,7 @@ describe("mergeIdentityAppearance — pin/hide re-projection (Task 3)", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Appearance cache — cold module load with warm cache exposes cached hue at
-// loaded=false (Ashley's "cache everything, paint from cache instantly,
+// loaded=false (the operator's "cache everything, paint from cache instantly,
 // replace with backend as it arrives" mental model). Kills the Phase 111
 // post-ship ~1s undressed flash.
 // ─────────────────────────────────────────────────────────────────────────────

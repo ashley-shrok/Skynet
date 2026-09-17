@@ -13,10 +13,57 @@
  * the component with a spy onSubmit. `detectBrowserTimezone` is mocked at the
  * shared-module level for Test J so the placeholder assertion is stable
  * regardless of the jsdom-resolved zone.
+ *
+ * Phase 112 Plan 03 — Instruction field adopts the shared MarkdownEditor
+ * (synthetic `filename="wakeup.md"` forces the pretty branch). We stub
+ * @mdxeditor/editor with a controlled <textarea data-testid="mdxeditor">
+ * so tests can still drive input via fireEvent.change (enhanced-mock
+ * pattern per RESEARCH §Pitfall 5 + EditableFileModal.test.tsx L36-80).
+ * The wrapper <div className="min-h-[160px]"> accommodates the ~40px
+ * MDXEditor toolbar (RESEARCH §Open Question 2).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+
+// Stub MDXEditor with a controlled textarea so getByTestId("mdxeditor") + fireEvent.change
+// keep working after Plan 03's swap routes the instruction field through the .md branch
+// of the shared MarkdownEditor. Stub covers every named export the impl imports; only
+// MDXEditor renders anything. Same shape used in EditableFileModal.test.tsx / RoleFileTab.test.tsx.
+vi.mock("@mdxeditor/editor", () => ({
+  MDXEditor: (props: {
+    markdown: string;
+    onChange?: (v: string) => void;
+    readOnly?: boolean;
+  }) => (
+    <textarea
+      value={props.markdown}
+      onChange={(e) => props.onChange?.(e.target.value)}
+      disabled={props.readOnly}
+      data-testid="mdxeditor"
+    />
+  ),
+  headingsPlugin: () => ({}),
+  listsPlugin: () => ({}),
+  quotePlugin: () => ({}),
+  thematicBreakPlugin: () => ({}),
+  markdownShortcutPlugin: () => ({}),
+  linkPlugin: () => ({}),
+  linkDialogPlugin: () => ({}),
+  tablePlugin: () => ({}),
+  codeBlockPlugin: () => ({}),
+  codeMirrorPlugin: () => ({}),
+  frontmatterPlugin: () => ({}),
+  toolbarPlugin: () => ({}),
+  UndoRedo: () => null,
+  BoldItalicUnderlineToggles: () => null,
+  BlockTypeSelect: () => null,
+  CreateLink: () => null,
+  InsertTable: () => null,
+  ListsToggle: () => null,
+  InsertFrontmatter: () => null,
+}));
+
 import { AddWakeupDialog } from "./AddWakeupDialog";
 
 // Helper: render the dialog open with default props + a spy onSubmit.
@@ -108,10 +155,13 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
     expect(screen.getByLabelText(/Fires at \(local\)/i)).toBeTruthy();
   });
 
-  it("C: Save button disabled when Name is empty", () => {
+  it("C: Save button disabled when Name is empty", async () => {
     renderDialog();
-    // Fill instruction only.
-    const instruction = screen.getByLabelText(/Instruction/i) as HTMLTextAreaElement;
+    // Fill instruction only. The instruction field is now MarkdownEditor
+    // (Plan 112-03) — the mocked <textarea data-testid="mdxeditor"> is the
+    // affordance we drive input on. MarkdownEditor lazy-loads MdxEditorImpl
+    // through Suspense, so we await the testid appearing.
+    const instruction = await screen.findByTestId("mdxeditor") as HTMLTextAreaElement;
     fireEvent.change(instruction, { target: { value: "do the thing" } });
     // Name is still empty → Save disabled.
     const save = screen.getByTestId("add-wakeup-save") as HTMLButtonElement;
@@ -128,11 +178,11 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
     expect(save.disabled).toBe(true);
   });
 
-  it("E: Save button disabled when Name normalizes to empty slug (e.g. '!!!')", () => {
+  it("E: Save button disabled when Name normalizes to empty slug (e.g. '!!!')", async () => {
     renderDialog();
     const name = screen.getByLabelText(/Name/i) as HTMLInputElement;
     fireEvent.change(name, { target: { value: "!!!" } });
-    const instruction = screen.getByLabelText(/Instruction/i) as HTMLTextAreaElement;
+    const instruction = await screen.findByTestId("mdxeditor") as HTMLTextAreaElement;
     fireEvent.change(instruction, { target: { value: "do the thing" } });
     // Slug normalization strips all non-[a-z0-9]+ → empty → Save disabled.
     const save = screen.getByTestId("add-wakeup-save") as HTMLButtonElement;
@@ -142,7 +192,7 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
   it("F: Save fires onSubmit with correctly-shaped WakeupSpecWire payload (daily default)", async () => {
     const { onSubmit } = renderDialog();
     fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "morning-standup" } });
-    fireEvent.change(screen.getByLabelText(/Instruction/i), { target: { value: "check the box" } });
+    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "check the box" } });
     // Schedule stays daily default (09:00).
     const save = screen.getByTestId("add-wakeup-save") as HTMLButtonElement;
     expect(save.disabled).toBe(false);
@@ -177,7 +227,7 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
     const rejecting = vi.fn().mockRejectedValue(new Error("collision"));
     const { onOpenChange } = renderDialog({ onSubmit: rejecting });
     fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "morning-standup" } });
-    fireEvent.change(screen.getByLabelText(/Instruction/i), { target: { value: "x" } });
+    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "x" } });
     const save = screen.getByTestId("add-wakeup-save") as HTMLButtonElement;
     fireEvent.click(save);
 
@@ -258,7 +308,7 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
       />,
     );
     fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "s" } });
-    fireEvent.change(screen.getByLabelText(/Instruction/i), { target: { value: "x" } });
+    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "x" } });
     // Do NOT fill tz — leave empty. Default schedule is daily.
     fireEvent.click(screen.getByTestId("add-wakeup-save"));
 
@@ -272,7 +322,7 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
   it("L: When Timezone input is filled ('UTC') and schedule type is Daily, Save fires onSubmit with spec.schedule.timezone === 'UTC' (user override wins)", async () => {
     const { onSubmit } = renderDialog();
     fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "s" } });
-    fireEvent.change(screen.getByLabelText(/Instruction/i), { target: { value: "x" } });
+    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "x" } });
 
     const tz = screen.getByTestId("add-wakeup-tz-input") as HTMLInputElement;
     fireEvent.change(tz, { target: { value: "UTC" } });
@@ -282,5 +332,30 @@ describe("AddWakeupDialog — Phase 72 Plan 02 Task 1", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     const spec = onSubmit.mock.calls[0][0] as { schedule: Record<string, unknown> };
     expect(spec.schedule.timezone).toBe("UTC");
+  });
+
+  // Phase 112 Plan 03 — RESEARCH §Open Question 2: the raw <textarea> was
+  // `min-h-[60px]` (~3 rows), but MDXEditor's toolbar is ~40px tall — that
+  // would leave ~20px of edit surface (unusable). The recommendation was
+  // option (b): raise the wrapper min-height so the toolbar has room + the
+  // editing area still feels like the old 3-row textarea.
+  it("M: Instruction field is wrapped in <div className='min-h-[160px]'> to accommodate the MDXEditor toolbar (RESEARCH §Open Question 2)", async () => {
+    renderDialog();
+    const mdxeditor = await screen.findByTestId("mdxeditor");
+    // Walk up the ancestor chain looking for the min-h-[160px] wrapper.
+    // The mocked MDXEditor is the innermost <textarea> — the wrapper we
+    // added in Plan 03 is one or two levels up (MarkdownEditor renders
+    // the MDXEditor inside a Suspense boundary, and the wrapper we added
+    // is outside that boundary in AddWakeupDialog.tsx).
+    let node: HTMLElement | null = mdxeditor;
+    let found = false;
+    while (node) {
+      if (node.className && node.className.includes("min-h-[160px]")) {
+        found = true;
+        break;
+      }
+      node = node.parentElement;
+    }
+    expect(found).toBe(true);
   });
 });

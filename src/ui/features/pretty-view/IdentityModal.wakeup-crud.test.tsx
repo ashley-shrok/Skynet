@@ -108,6 +108,46 @@ vi.mock("@/api/runbooks-api", () => ({
   listRunbooks: vi.fn().mockResolvedValue([]),
 }));
 
+// Phase 112 Plan 03 — AddWakeupDialog's instruction field now routes through
+// MarkdownEditor (D-06 pretty branch via synthetic filename="wakeup.md").
+// Stub MDXEditor as a controlled <textarea data-testid="mdxeditor"> so
+// Test W1's fireEvent.change on the instruction affordance still works.
+// Rule 3 auto-fix: this test file was broken by Plan 03's swap; the same
+// enhanced mock pattern lives in AddWakeupDialog.test.tsx / WakeupsTab.test.tsx.
+vi.mock("@mdxeditor/editor", () => ({
+  MDXEditor: (props: {
+    markdown: string;
+    onChange?: (v: string) => void;
+    readOnly?: boolean;
+  }) => (
+    <textarea
+      value={props.markdown}
+      onChange={(e) => props.onChange?.(e.target.value)}
+      disabled={props.readOnly}
+      data-testid="mdxeditor"
+    />
+  ),
+  headingsPlugin: () => ({}),
+  listsPlugin: () => ({}),
+  quotePlugin: () => ({}),
+  thematicBreakPlugin: () => ({}),
+  markdownShortcutPlugin: () => ({}),
+  linkPlugin: () => ({}),
+  linkDialogPlugin: () => ({}),
+  tablePlugin: () => ({}),
+  codeBlockPlugin: () => ({}),
+  codeMirrorPlugin: () => ({}),
+  frontmatterPlugin: () => ({}),
+  toolbarPlugin: () => ({}),
+  UndoRedo: () => null,
+  BoldItalicUnderlineToggles: () => null,
+  BlockTypeSelect: () => null,
+  CreateLink: () => null,
+  InsertTable: () => null,
+  ListsToggle: () => null,
+  InsertFrontmatter: () => null,
+}));
+
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
 // Phase 90 Plan 90-06 (D-09): __resetModalScopeForTest reference DELETED —
@@ -228,10 +268,12 @@ describe("IdentityModal wakeup CRUD — identity scope (Phase 90 Plan 90-06)", (
     fireEvent.click(screen.getByTestId("wakeup-add-button"));
 
     // Fill Name + Instruction (default schedule=daily @ 09:00 covers spec.schedule).
+    // Phase 112 Plan 03: Instruction field is MarkdownEditor — drive input via
+    // the mocked <textarea data-testid="mdxeditor">.
     fireEvent.change(screen.getByLabelText(/Name/i), {
       target: { value: "test-wake" },
     });
-    fireEvent.change(screen.getByLabelText(/Instruction/i), {
+    fireEvent.change(await screen.findByTestId("mdxeditor"), {
       target: { value: "say hi" },
     });
 

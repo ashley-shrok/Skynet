@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
+import { MarkdownEditor } from "./MarkdownEditor";
 
 // Patch #17g: tab renderer for the identity's <key>.md file.
 //
@@ -17,6 +18,15 @@ import { Button } from "@/components/button";
 // optional — when undefined the tab renders in read-only mode (existing call
 // sites that do not thread a handler remain safe). Toolbar is hidden when
 // state.status !== "ready" or onSave is undefined.
+//
+// Phase 112 / Plan 02b: edit-mode body swapped from raw <textarea> to the
+// shared <MarkdownEditor> (D-08 consolidation). Identity files are always
+// markdown by contract, so we pass a synthetic filename="identity.md" that
+// forces the D-06 gate into the pretty MDXEditor branch. Everything else
+// stays byte-identical — TabState<T> export, handleSave/handleCancel, the
+// Edit/Save/Cancel toolbar, loading/error/empty branches, and the read-mode
+// ReactMarkdown preview — because every downstream call site depends on
+// this shape.
 
 export type TabState<T> =
   | { status: "loading" }
@@ -131,14 +141,16 @@ export function IdentityFileTab({
         </div>
       )}
 
-      {/* Body — textarea in edit mode, ReactMarkdown preview otherwise */}
+      {/* Body — pretty MarkdownEditor in edit mode (D-08; synthetic
+          filename="identity.md" forces the D-06 pretty branch), ReactMarkdown
+          preview otherwise. */}
       {editing ? (
         <div className="flex flex-col flex-1 min-h-0">
-          <textarea
-            className="font-mono text-sm w-full h-full min-h-[400px] p-3 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] resize-none outline-none focus:border-[hsla(var(--pv-id-hue,220),80%,60%,0.5)]"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            spellCheck={false}
+          <MarkdownEditor
+            filename="identity.md"
+            content={draft}
+            onChange={setDraft}
+            disabled={saving}
           />
           {saveError && (
             <div className="text-sm text-[color:var(--color-pv-code-fg)] mt-2">
