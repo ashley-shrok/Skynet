@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, X, Trash2 } from "lucide-react";
+import { FileText, Plus, X, Trash2 } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { DialogHeader, DialogTitle, DialogClose } from "@/components/dialog";
 import { Tabs, TabsContent } from "@/components/tabs";
@@ -11,13 +11,16 @@ import {
   readSkillFile,
   writeSkillFile,
   createSkillFile,
+  createSkill,
   deleteSkillFile,
   deleteSkill,
   SkillFileMtimeConflictError,
   SkillFileAlreadyExistsError,
+  SkillAlreadyExistsError,
   type SkillEntry,
   type SkillFileEntry,
 } from "@/api/skills-api";
+import { slugifyRoleName } from "@/sidebar/CreateRoleDialog";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
 import DeleteConfirmDialog from "./DeleteConfirmDialog";
 import type { TabState } from "./IdentityFileTab";
@@ -304,6 +307,61 @@ export default function SkillsEditorModal({
       window.alert(msg);
     }
   }, [selectedHostId, selectedSkillName]);
+
+  // New-skill handler — Phase 113 D-01..D-05, D-25. Chained window.prompt
+  // (name → description); slugify name client-side; empty slug reprompts name
+  // only; empty description reprompts description only while retaining the name
+  // via closure over the outer loop; on success refetch skills list + auto-select
+  // via setSelectedSkillName. The existing selectedSkillName-change effect at
+  // L156-183 then enumerates files and auto-selects SKILL.md (sorts first).
+  const handleNewSkill = useCallback(async (): Promise<void> => {
+    if (selectedHostId == null) return;
+
+    // Outer loop — re-prompts name until slugify yields non-empty (D-03).
+    let name: string | null = null;
+    while (name === null) {
+      const rawName = window.prompt("New skill name:", "");
+      if (rawName == null) return; // D-02: cancel on name prompt aborts the whole flow
+      const slug = slugifyRoleName(rawName.trim());
+      if (slug.length === 0) {
+        window.alert("Please pick a name with at least one letter or number.");
+        continue; // re-prompt name (do NOT proceed to description)
+      }
+      name = slug;
+    }
+
+    // Inner loop — re-prompts description until non-empty (D-04). Name is
+    // preserved across re-prompts via the closure over `name` above.
+    let description: string | null = null;
+    while (description === null) {
+      const rawDesc = window.prompt(`Description for "${name}":`, "");
+      if (rawDesc == null) return; // D-02: cancel on description prompt aborts the whole flow
+      const trimmed = rawDesc.trim();
+      if (trimmed.length === 0) {
+        window.alert("A description is required.");
+        continue; // re-prompt description ONLY (name is retained per D-04)
+      }
+      description = trimmed;
+    }
+
+    try {
+      const result = await createSkill(selectedHostId, name, description);
+      // D-05: refetch skills list + auto-select new skill. The existing
+      // selectedSkillName-change effect (L156-183) then enumerates files and
+      // auto-selects the first file, which is SKILL.md (alphabetical sort).
+      const entries = await listSkills(selectedHostId);
+      setSkills({ status: "ready", data: entries });
+      setSelectedSkillName(result.slug);
+    } catch (err) {
+      const msg =
+        err instanceof SkillAlreadyExistsError
+          ? `A skill named "${name}" already exists on this host.`
+          : err instanceof Error
+          ? `Couldn't create "${name}": ${err.message}`
+          : `Couldn't create "${name}".`;
+      window.alert(msg);
+    }
+  }, [selectedHostId]);
 
   // Delete-file confirm handler.
   const handleDeleteFile = useCallback(async (): Promise<void> => {
