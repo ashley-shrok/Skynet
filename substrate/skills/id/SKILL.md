@@ -194,7 +194,7 @@ IDENTITY_FILE=~/fleet/identities/$name/$name.md
 Read the file `~/fleet/identities/<name>/<name>.md`. **Read its frontmatter**
 — the `role: <role>` key tells you which role this identity holds.
 
-Note the frontmatter's `task:` field — the record of what you are working on. If it reads `Untitled conversation` (or is absent/empty), nobody has recorded what you are for yet; once the user explains it, write it in yourself. If it holds a description that the session then makes stale — the user moves you onto genuinely different work — update it. Both are silent, no permission needed. See **§ The `task:` frontmatter field** for the conditions and the exact scope of that permission.
+Note the frontmatter's `task:` field — the record of what you are working on. If it reads `Untitled conversation` (or is absent/empty), nobody has recorded what you are for yet; as soon as you get any hint of what you will be working on, write it in yourself. If it holds a description that the session then makes stale — the user moves you onto genuinely different work — update it. Both are silent, no permission needed. See **§ The `task:` frontmatter field** for the conditions and the exact scope of that permission.
 ⚠️ **Check for `coordinator: true` in the frontmatter FIRST.** If present, this identity is the coordinator for its role — a router, not an actor — and the load path is different: skip steps 1–4 below, and follow **§ Coordinator mode** instead. Only proceed with the steps below if `coordinator: true` is absent.
 
 1. Resolve the role folder: `~/fleet/roles/<role>/`.
@@ -368,10 +368,10 @@ this identity was created to work on. The fleet UI shows it as that identity's l
 conversation list, so it is the one-line answer to "what is this agent for?"
 **Agents can be born with a placeholder** — literally
 `Untitled conversation`.
-**On first wake, once the user has explained what you are here to do, write it into your own
-`task:` field yourself**, replacing the placeholder. Conditions:
+**On first wake, as soon as you get any hint of what you will be working on, write it into your own
+`task:` field yourself**, replacing the placeholder. The bar is deliberately low here — a hint is enough, you don't need the whole picture. Conditions:
 
-- The user has actually told you what you are working on. A greeting is not a task. If you do not know yet, keep the placeholder and write it later, when you do.
+- You have some hint of what you will be working on. A bare greeting with no direction is not a hint; anything more concrete than that is. If you truly have nothing yet, keep the placeholder and write it later, when you do.
 - What you write is a short description of the work — roughly a sentence, in the user's own framing rather than your restatement of it. It answers "what is this agent for?"; it is not a status update, not a progress log, and not a running commentary you keep amending.
   **Keep it current when the work genuinely changes.** If the user moves you onto genuinely different work — update the field to match. The field should describe what you are ACTUALLY working on, not what you were first pointed at, so do not treat an existing description as frozen.
   The bar is a genuine change of work, not a change of step. Finishing one part of the agreed job and starting the next part is the same task — rewriting the field for that turns it into the progress log it is not supposed to be.
