@@ -1085,7 +1085,22 @@ export function PrettyConversationsPanel({
         sublabel = String(row.host?.name ?? "");
       }
 
-      return primary.toLowerCase().includes(q) || sublabel.toLowerCase().includes(q);
+      // Identity name always in the match haystack, regardless of what the
+      // row RENDERS as its label. The task-primary body swap (Phase 80)
+      // paints identity.task as the visible top line and role name as the
+      // sublabel — the identity's own name is only in the muted
+      // (displayName) suffix in that branch, and previously wasn't in the
+      // search haystack at all (user 2026-09-17: "i want to be able to
+      // search by name even if it doesn't show up").
+      const identityHaystack = identity
+        ? `${identity.identityKey} ${identity.displayName ?? ""}`.toLowerCase()
+        : (row.targetTmuxSession ?? "").toLowerCase();
+
+      return (
+        primary.toLowerCase().includes(q) ||
+        sublabel.toLowerCase().includes(q) ||
+        identityHaystack.includes(q)
+      );
     },
     [identitiesByHostKey, identitiesByKey],
   );

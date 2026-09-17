@@ -79,8 +79,18 @@ export function IdentityBadge({
   tabId,
   onContextMenu,
 }: IdentityBadgeProps) {
-  const { byKey } = useIdentities();
-  const identity = identityKey ? byKey.get(identityKey.toLowerCase()) : null;
+  const { byKey, byHostKey } = useIdentities();
+  // Cosmetics consumer: prefer byHostKey composite lookup (quick-260912-0t4)
+  // so cross-host name collisions (e.g. two identities named "wren" on
+  // different fleet hosts) resolve to the right row's cosmetics. byKey
+  // fallback preserves compat with call sites that don't thread hostId and
+  // with older test fixtures whose useIdentities mock omits byHostKey.
+  const nameLc = identityKey ? identityKey.toLowerCase() : null;
+  const identity = nameLc
+    ? typeof hostId === "number" && Number.isFinite(hostId)
+      ? (byHostKey?.get(`${hostId}::${nameLc}`) ?? byKey.get(nameLc))
+      : byKey.get(nameLc)
+    : null;
   // Phase 58 Plan 01 (PV58-GESTURE-COEXISTENCE): mobile viewport suppresses
   // the drag source entirely — SplitView is desktop-only per
   // AppShell.tsx:2372 `{!isMobile && (<SplitView…/>)}`, so a draggable badge
