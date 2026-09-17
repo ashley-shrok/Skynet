@@ -30,7 +30,7 @@
  *   `systemctl --user daemon-reload` at the start of every sweep, so systemd
  *   has already re-read the unit before the restart hook fires.
  *
- * ROW-COUNT RECONCILIATION (17 items vs. 24 rows):
+ * ROW-COUNT RECONCILIATION (19 items vs. 49 rows):
  *   The shape doc counts "15 items" — that was 7 single-file skills + 1 skill
  *   with 1 companion (agent-relay: SKILL.md + recv.sh) + 1 skill with 3
  *   companions (id: SKILL.md + actor-status-prompt + clone-picker-prompt +
@@ -49,17 +49,22 @@
  *     - 2 rows for agent-relay/ (SKILL.md + recv.sh)
  *     - 6 rows for the single-file skills (backlog, bounty, next-bounty,
  *       promote-to-coordinator, queue, role)
- *     - 10 rows for helper scripts under scripts/
+ *     - 1 row for image-gen skill (Phase 116 file-drop broker SKILL.md)
+ *     - 23 rows for app-development/ (SKILL.md + 5 helper scripts +
+ *       17 starter-template files; first-class-apps campaign shape 1,
+ *       2026-09-17)
+ *     - 11 rows for helper scripts under scripts/
  *       (role-file-watch is one of the four ambient watchers, all four
  *       spawned as children of ambient-monitor rather than launched
  *       individually per identity;
  *       fleet-status-sweep is the Phase 92 batch sweep for the fleet-status
  *       poller; pv-context-pct-sweep is the Phase 95 batch sweep for the
- *       PV context-pct poller)
+ *       PV context-pct poller;
+ *       image-gen is the Phase 116 file-drop broker helper)
  *     - 1 row for user-onboarding/agent-supervisor.service
  *     - 1 row for instance-policy-claude-md (Phase 114 twinkie — runtime-sourced,
  *       system-root-installed)
- *   Total = 24.
+ *   Total = 49.
  *
  * TWO NEW AXES (Phase 114 D-12 + RESEARCH.md § Pattern 1):
  *   Phase 114 introduces two orthogonal axes to CatalogEntry:
@@ -194,7 +199,7 @@ export interface RuntimeCatalogEntry {
 }
 
 /**
- * Discriminated union on `sourceKind`. Bundled rows (the existing 24) narrow
+ * Discriminated union on `sourceKind`. Bundled rows (48 of the 49) narrow
  * to `BundledCatalogEntry` (bundledPath accessible); the runtime row narrows
  * to `RuntimeCatalogEntry` (resolverKey accessible, no bundledPath).
  *
@@ -203,14 +208,17 @@ export interface RuntimeCatalogEntry {
 export type CatalogEntry = BundledCatalogEntry | RuntimeCatalogEntry;
 
 /**
- * The 25-row hand-maintained catalog. Ordered skills-side first, then
- * scripts-side, then user-onboarding/ files, then Phase 92 additions
- * (fleet-status-sweep), then Phase 95 additions (pv-context-pct-sweep),
- * then the mega-monitor ambient-monitor launcher, then the Phase 114
- * twinkie (instance-policy-claude-md — the first runtime-sourced row
- * and the first system-root-installed row).
+ * The 47-row hand-maintained catalog. Ordered skills-side first (id,
+ * agent-relay, single-file skills, then app-development), then scripts-side,
+ * then user-onboarding/ files, then Phase 92 additions (fleet-status-sweep),
+ * then Phase 95 additions (pv-context-pct-sweep), then the mega-monitor
+ * ambient-monitor launcher, then the Phase 114 twinkie
+ * (instance-policy-claude-md — the first runtime-sourced row and the first
+ * system-root-installed row).
  * Within skills, multi-file skills (id, agent-relay) appear before single-file
- * skills for reviewability.
+ * skills for reviewability. app-development is a multi-file skill with a
+ * bundled starter template — the 23 rows for it are grouped and commented as
+ * a single block after the single-file skills to keep the diff clean.
  */
 export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // --- id skill (4 rows: SKILL.md + 3 companion prompts) ---
@@ -431,6 +439,151 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/pv-context-pct-sweep.py",
     installPath: "~/.local/bin/pv-context-pct-sweep",
+    restartHook: null,
+  },
+
+  // --- app-development skill (23 rows: SKILL.md + 5 helper scripts + 17 starter template files) ---
+  // First-class-apps campaign, shape 1 (2026-09-17). Ships the canonical
+  // app-development skill that teaches fleet agents to build user-facing apps
+  // under ~/fleet/apps/<slug>/. The skill folder on managed boxes lands at
+  // ~/.claude/skills/app-development/. No restart hook — skills are read at
+  // /id load time; new bytes land on the identity's next recycle.
+  {
+    slug: "app-development-skill",
+    bundledPath: "/app/fleet-substrate/skills/app-development/SKILL.md",
+    installPath: "~/.claude/skills/app-development/SKILL.md",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-bootstrap",
+    bundledPath: "/app/fleet-substrate/skills/app-development/bootstrap.sh",
+    installPath: "~/.claude/skills/app-development/bootstrap.sh",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-create-app",
+    bundledPath: "/app/fleet-substrate/skills/app-development/create-app.sh",
+    installPath: "~/.claude/skills/app-development/create-app.sh",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-archive-app",
+    bundledPath: "/app/fleet-substrate/skills/app-development/archive-app.sh",
+    installPath: "~/.claude/skills/app-development/archive-app.sh",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-restore-app",
+    bundledPath: "/app/fleet-substrate/skills/app-development/restore-app.sh",
+    installPath: "~/.claude/skills/app-development/restore-app.sh",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-backup-app",
+    bundledPath: "/app/fleet-substrate/skills/app-development/backup-app.sh",
+    installPath: "~/.claude/skills/app-development/backup-app.sh",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-gitignore",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/.gitignore",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/.gitignore",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-readme",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/README.md",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/README.md",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-service",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/app-SLUG.service.template",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/app-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-app-json",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/app.json",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/app.json",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-drizzle-config",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/drizzle.config.ts",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/drizzle.config.ts",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-package-json",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/package.json",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/package.json",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-app-css",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/app.css",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/app.css",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-app-html",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/app.html",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/app.html",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-db-index",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/lib/server/db/index.ts",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/lib/server/db/index.ts",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-db-schema",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/lib/server/db/schema.ts",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/lib/server/db/schema.ts",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-layout",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/routes/+layout.svelte",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/routes/+layout.svelte",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-page-server",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/routes/+page.server.ts",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/routes/+page.server.ts",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-page-svelte",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/routes/+page.svelte",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/routes/+page.svelte",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-favicon",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/static/favicon.svg",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/static/favicon.svg",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-svelte-config",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/svelte.config.js",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/svelte.config.js",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-tsconfig",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/tsconfig.json",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/tsconfig.json",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-vite-config",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/vite.config.ts",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/vite.config.ts",
     restartHook: null,
   },
 

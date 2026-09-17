@@ -32,14 +32,14 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 26 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116)", () => {
+  it("Test 1: contains exactly 50 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 23 app-development shape-1 rows + task-field-check hook)", () => {
     // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
     // (instance-policy-claude-md). Per-FILE row layout is required by the
     // byte-compare mechanism in Plan 03, so the array has 12 skill-side rows
     // + 10 scripts-side rows + 1 user-onboarding row (agent-supervisor.service)
-    // + 1 Phase 114 twinkie row.
+    // + 1 Phase 114 twinkie row + 23 app-development rows.
     // role-file-watch is the 7th helper script (fourth ambient monitor alongside
     // wakeup-scheduler and context-watch). fleet-status-sweep is the 8th helper
     // script (Phase 92 batch sweep for the fleet-status poller).
@@ -47,12 +47,20 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // PrettyView context-pct poller). ambient-monitor is the 10th — the single
     // on-wake launcher that spawns the four ambient watchers under one Monitor
     // instead of four (mega-monitor phase).
-    // instance-policy-claude-md is the 24th row (Phase 114 twinkie) — first
-    // runtime-sourced row (bytes come from readInstancePolicyBytes() at sweep
-    // time, not from /app/fleet-substrate/) AND first system-root-installed row
+    // instance-policy-claude-md is a runtime-sourced Phase 114 twinkie row —
+    // bytes come from readInstancePolicyBytes() at sweep time, not from
+    // /app/fleet-substrate/ — AND the first system-root-installed row
     // (writes to /etc/claude-code/CLAUDE.md as root:root 0644, gated on
     // hosts.username === "root" per Plan 05 D-13).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(27);
+    // Phase 116 (image-gen) adds 2 rows: SKILL.md + a helper script.
+    // The first-class-apps campaign (shape 1, 2026-09-17) adds a new skill
+    // folder with SKILL.md + 5 helper scripts (bootstrap/create/archive/
+    // restore/backup) + a 17-file starter template for the Bun + SvelteKit +
+    // Tailwind + Drizzle + SQLite stack — 23 rows all landing under
+    // ~/.claude/skills/app-development/ on managed boxes.
+    // task-field-check adds 1 helper script (UserPromptSubmit hook for
+    // the id-skill task: field nag).
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(50);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -144,8 +152,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       e.bundledPath.startsWith("/app/fleet-substrate/user-onboarding/"),
     );
 
-    // 13 skill-side files: 4 under id/ + 2 under agent-relay/ + 6 single-file skills + image-gen (Phase 116)
-    expect(skillRows.length).toBe(13);
+    // 36 skill-side files: 4 under id/ + 2 under agent-relay/ + 6 single-file
+    // skills + 1 image-gen (Phase 116) + 23 under app-development/ (SKILL.md +
+    // 5 helpers + 17 template files, first-class-apps shape 1)
+    expect(skillRows.length).toBe(36);
     // 12 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + install-usage-reporter +
     // claude-usage-collector + fleet-status-sweep (Phase 92 batch sweep) +
