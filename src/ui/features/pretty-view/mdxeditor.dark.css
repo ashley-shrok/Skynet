@@ -89,6 +89,18 @@
  * plain `.mdxeditor` class (that lives only on the in-editor wrapper). See
  * node_modules/@mdxeditor/editor/dist/MDXEditor.js#EditorRootElement. */
 
+/* Elevate the whole popup container above Skynet's modal chrome. MDXEditor
+ * ships `._popupContainer_er3ed_1239 { position: relative; z-index: 2 }` on
+ * this element, which creates a stacking context at z=2. Skynet's Identity
+ * and Role modals render at z-[110] (overlay) and z-[120] (content), so
+ * every tooltip/dialog inside the popup container gets occluded regardless
+ * of its own inner z-index. z=130 clears the outer modal without going
+ * higher than needed — future-proof headroom without disrupting anything
+ * that legitimately needs to sit above us. */
+.skynet-mdxeditor.mdxeditor-popup-container {
+  z-index: 130;
+}
+
 /* Frontmatter dialog form fields (inputs + textareas). */
 .skynet-mdxeditor [role="dialog"] input,
 .skynet-mdxeditor [role="dialog"] textarea {
