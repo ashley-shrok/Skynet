@@ -37,9 +37,11 @@ import {
   readInstalledBytes,
   writeInstalledBytesWithMode,
   restartUserUnit,
+  removeInstalledFile,
 } from "./ssh-push.js";
 import { logSweepResult, logItemChanged, logItemFailed } from "./log-tags.js";
 import { runBootstrapForHost } from "./run-bootstrap.js";
+import { sshLogger } from "../utils/logger.js";
 
 /**
  * Injected dependencies for the sweep composer. `readBundledBytes` reads the
@@ -51,6 +53,24 @@ export interface SweepDeps {
   readBundledBytes: (
     bundledPath: string,
   ) => Promise<{ bytes: Buffer; mode: number } | null>;
+  /**
+   * Phase 114 Plan 05 (D-15 + Pitfall 6): pre-resolved runtime bytes for
+   * `sourceKind: "runtime"` catalog entries. The orchestrator resolves this
+   * map ONCE per sweep tick (both startup pass and the 30s retry tick), then
+   * fans the same map to every runSweepForHost invocation in that tick — so
+   * `readInstancePolicyBytes()` fires once per tick regardless of host count.
+   *
+   * The composer looks up bytes via `deps.resolvedRuntimeBytes?.get(entry.resolverKey)`:
+   *   - Buffer value → use bytes as the bundled source (mode 0o644 per D-18)
+   *   - null value   → row applicable but source is null → trigger removal push
+   *                    (D-16) via removeInstalledFile on root-SSH hosts
+   *   - undefined map / absent key → treated as null (removal path)
+   *
+   * Optional: tests that don't exercise runtime rows can omit this. Under the
+   * default undefined, every runtime row's lookup returns null, which routes
+   * to the removal branch — safe on user-home-only test catalogs.
+   */
+  resolvedRuntimeBytes?: Map<string, Buffer | null>;
   /** Injectable clock for durationMs — defaults to Date.now */
   now?: () => number;
 }
@@ -86,7 +106,7 @@ async function retryOnTransport<T>(
 
 export async function runSweepForHost(
   channel: SshChannel,
-  host: { id: string; name: string },
+  host: { id: string; name: string; username: string },
   catalog: readonly CatalogEntry[],
   deps: SweepDeps,
 ): Promise<{ itemsChecked: number; itemsChanged: number; itemsFailed: number }> {
@@ -108,6 +128,29 @@ export async function runSweepForHost(
 
   for (const entry of catalog) {
     itemsChecked++;
+
+    // Phase 114 Plan 05 (D-13 + D-26): root-user gate. `installMode` is
+    // optional on bundled rows (defaults to "user-home") and required on
+    // runtime rows. If a row's installMode is "system-root" AND the SSH
+    // user is not root, log a structured skip line and continue — NO exec
+    // on the channel for this row. Gate is a no-op for the existing 24
+    // bundled user-home rows (their installMode is undefined → default).
+    const installMode = entry.installMode ?? "user-home";
+    if (installMode === "system-root" && host.username !== "root") {
+      sshLogger.info(
+        `[substrate] skipping ${entry.slug} on host ${host.id}: installMode=system-root requires SSH as root, current username is ${host.username}`,
+        {
+          operation: "fleet_substrate_system_root_skip",
+          fleetHostId: host.id,
+          hostName: host.name,
+          entrySlug: entry.slug,
+          installMode,
+          username: host.username,
+        },
+      );
+      continue;
+    }
+
     try {
       // Read bundled and installed bytes for this item. ssh-push's
       // readInstalledBytes and deps.readBundledBytes both have never-throw
@@ -117,7 +160,71 @@ export async function runSweepForHost(
       let bundledResult: { bytes: Buffer; mode: number } | null;
       let installedResult: Awaited<ReturnType<typeof readInstalledBytes>>;
       try {
-        bundledResult = await deps.readBundledBytes(entry.bundledPath);
+        // Phase 114 Plan 05 (D-12 + D-15): source resolution branch on
+        // sourceKind. Runtime rows pull bytes from the pre-resolved
+        // per-tick map (populated ONCE per sweep by the orchestrator,
+        // Pitfall 6); bundled rows continue the existing fs-adapter path.
+        if (entry.sourceKind === "runtime") {
+          const runtimeBytes =
+            deps.resolvedRuntimeBytes?.get(entry.resolverKey) ?? null;
+          // D-18: twinkie file lands mode 0644. Runtime rows do not carry
+          // an on-disk mode source (the source is in-memory bytes), so we
+          // stamp the well-known managed-host invariant here.
+          bundledResult =
+            runtimeBytes === null ? null : { bytes: runtimeBytes, mode: 0o644 };
+        } else {
+          bundledResult = await deps.readBundledBytes(entry.bundledPath);
+        }
+
+        // Phase 114 Plan 05 (D-16 + D-27): removal branch. Runtime row
+        // whose resolver returned null → the row is applicable-but-source-
+        // absent (admin cleared the field, file missing, or over the byte
+        // cap). Issue an idempotent rm -f on the target path so the managed
+        // host reaches a clean-unset state. The D-13 gate above already
+        // ensured host.username === "root" for system-root rows, so the
+        // rm is safe here.
+        if (entry.sourceKind === "runtime" && bundledResult === null) {
+          const rmResult = await removeInstalledFile(channel, entry.installPath);
+          if (rmResult.ok === false) {
+            itemsFailed++;
+            logItemFailed({
+              fleetHostId: host.id,
+              hostName: host.name,
+              entrySlug: entry.slug,
+              installPath: entry.installPath,
+              // Map ssh-push's stage discriminant ("remove" | "verify") to
+              // log-tags' union: "remove" transport → "write" bucket (this
+              // was a mutating operation that failed); "verify" (rm returned
+              // non-zero or non-regular-file) also maps to "write".
+              stage: "write",
+              errorMessage: rmResult.errorMessage,
+            });
+          } else if (rmResult.action === "removed") {
+            itemsChanged++;
+            logItemChanged({
+              fleetHostId: host.id,
+              hostName: host.name,
+              entrySlug: entry.slug,
+              installPath: entry.installPath,
+              // Use existing changeKind enum — "bytes-updated" is the closest
+              // semantic fit (a byte-state change from present→absent).
+              // Extending log-tags with a "removed" changeKind is deferred
+              // as a future cosmetic refinement (see PLAN.md acceptance
+              // criteria — PREFER staying within the existing enum).
+              changeKind: "bytes-updated",
+              restartHookFired: null,
+            });
+          }
+          // rmResult.action === "already-absent" — file was never installed
+          // on this host; the resolver-null state is already reflected on
+          // disk. Silent skip mirrors the bytes-match skip semantics
+          // (no counter bump, no log). Common case for hosts that never
+          // received the twinkie yet.
+          continue;
+        }
+        // For runtime rows with non-null bytes, fall through into the
+        // existing readInstalledBytes / decideItemAction flow with
+        // bundledResult already assigned. For bundled rows, likewise.
         installedResult = await retryOnTransport(
           () => readInstalledBytes(channel, entry.installPath),
           (r) => r.readOk === false && r.reason === "transport",
@@ -179,18 +286,31 @@ export async function runSweepForHost(
             entry.installPath,
             bundledResult!.bytes,
             mode,
+            // Phase 114 Plan 05 (D-13 + Plan 03 opts): pass installMode so
+            // ssh-push branches to the system-root command shape when the
+            // row is system-root (chown root:root, mkdir parent, symlink
+            // guard). For user-home rows (the existing 24), passing the
+            // default is a no-op per Plan 03's byte-identical guarantee.
+            { installMode },
           ),
         (r) => r.ok === false && r.errorMessage === "channel returned null",
       );
 
       if (writeResult.ok === false) {
         itemsFailed++;
+        // Phase 114 Plan 03 extended writeInstalledBytesWithMode's stage
+        // discriminant with "verify" (symlink-guard trip). log-tags'
+        // stage union does not include "verify" — map it to "write" so
+        // the failure lands in an existing bucket (the errorMessage
+        // still carries the T-114-SYMLINK reason for greppability).
+        const mappedStage: "write" | "chmod" =
+          writeResult.stage === "verify" ? "write" : writeResult.stage;
         logItemFailed({
           fleetHostId: host.id,
           hostName: host.name,
           entrySlug: entry.slug,
           installPath: entry.installPath,
-          stage: writeResult.stage,
+          stage: mappedStage,
           errorMessage: writeResult.errorMessage,
         });
         // Do NOT fire restart on failed write.

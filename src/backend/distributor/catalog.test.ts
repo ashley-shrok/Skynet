@@ -32,13 +32,14 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 23 entries (16 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase)", () => {
-    // 16 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
+  it("Test 1: contains exactly 24 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie)", () => {
+    // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
-    // scripts + 1 mega-monitor launcher (ambient-monitor). Per-FILE row
-    // layout is required by the byte-compare mechanism in Plan 03, so the
-    // array has 12 skill-side rows + 10 scripts-side rows + 1 user-onboarding
-    // row (agent-supervisor.service).
+    // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
+    // (instance-policy-claude-md). Per-FILE row layout is required by the
+    // byte-compare mechanism in Plan 03, so the array has 12 skill-side rows
+    // + 10 scripts-side rows + 1 user-onboarding row (agent-supervisor.service)
+    // + 1 Phase 114 twinkie row.
     // role-file-watch is the 7th helper script (fourth ambient monitor alongside
     // wakeup-scheduler and context-watch). fleet-status-sweep is the 8th helper
     // script (Phase 92 batch sweep for the fleet-status poller).
@@ -46,11 +47,22 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // PrettyView context-pct poller). ambient-monitor is the 10th — the single
     // on-wake launcher that spawns the four ambient watchers under one Monitor
     // instead of four (mega-monitor phase).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(23);
+    // instance-policy-claude-md is the 24th row (Phase 114 twinkie) — first
+    // runtime-sourced row (bytes come from readInstancePolicyBytes() at sweep
+    // time, not from /app/fleet-substrate/) AND first system-root-installed row
+    // (writes to /etc/claude-code/CLAUDE.md as root:root 0644, gated on
+    // hosts.username === "root" per Plan 05 D-13).
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(24);
   });
 
-  it("Test 2: every bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
-    for (const entry of FLEET_SUBSTRATE_CATALOG) {
+  it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
+    // Post Phase 114 D-12: only BundledCatalogEntry carries `bundledPath`;
+    // runtime rows (sourceKind: "runtime") resolve their bytes at sweep time
+    // via a resolverKey lookup and don't have this field. Narrow first.
+    const bundled = FLEET_SUBSTRATE_CATALOG.filter(
+      (e) => e.sourceKind === "bundled",
+    );
+    for (const entry of bundled) {
       const ok =
         entry.bundledPath.startsWith("/app/fleet-substrate/skills/") ||
         entry.bundledPath.startsWith("/app/fleet-substrate/scripts/") ||
@@ -59,13 +71,36 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     }
   });
 
-  it("Test 3: every installPath starts with ~/.claude/skills/, ~/.local/bin/, or ~/.config/systemd/user/", () => {
+  it("Test 3: installPath prefix invariant split by installMode (Phase 114 D-14)", () => {
+    // Prior to Phase 114 every row had a `~/`-relative installPath. Phase 114
+    // introduces the `installMode: "system-root"` axis: rows so-marked write
+    // to absolute paths under /etc/ instead. Split the invariant accordingly:
+    //   - user-home rows (default) → installPath must start with ~/.claude/skills/,
+    //     ~/.local/bin/, or ~/.config/systemd/user/ (existing invariant).
+    //   - system-root rows → installPath must start with /etc/ AND match the
+    //     exact D-14 value /etc/claude-code/CLAUDE.md. There is exactly one
+    //     such row today; if a future contributor adds a second system-root
+    //     row without updating this test, the exact-match assertion fires as
+    //     a regression guard.
     for (const entry of FLEET_SUBSTRATE_CATALOG) {
-      const ok =
-        entry.installPath.startsWith("~/.claude/skills/") ||
-        entry.installPath.startsWith("~/.local/bin/") ||
-        entry.installPath.startsWith("~/.config/systemd/user/");
-      expect(ok, `bad installPath: ${entry.installPath}`).toBe(true);
+      const installMode =
+        "installMode" in entry ? entry.installMode : undefined;
+      if (installMode === "system-root") {
+        expect(
+          entry.installPath.startsWith("/etc/"),
+          `system-root installPath must start with /etc/: ${entry.installPath}`,
+        ).toBe(true);
+        expect(
+          entry.installPath,
+          `system-root installPath must match D-14 exact value`,
+        ).toBe("/etc/claude-code/CLAUDE.md");
+      } else {
+        const ok =
+          entry.installPath.startsWith("~/.claude/skills/") ||
+          entry.installPath.startsWith("~/.local/bin/") ||
+          entry.installPath.startsWith("~/.config/systemd/user/");
+        expect(ok, `bad installPath: ${entry.installPath}`).toBe(true);
+      }
     }
   });
 
@@ -93,13 +128,19 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
   });
 
   it("Test 6: skill-side + scripts-side + user-onboarding partitioning matches the shape doc enumeration", () => {
-    const skillRows = FLEET_SUBSTRATE_CATALOG.filter((e) =>
+    // Post Phase 114 D-12: partition by bundledPath applies only to
+    // BundledCatalogEntry rows; the twinkie row (sourceKind: "runtime")
+    // has no bundledPath and is enumerated separately by Test T-07.
+    const bundledOnly = FLEET_SUBSTRATE_CATALOG.filter(
+      (e) => e.sourceKind === "bundled",
+    );
+    const skillRows = bundledOnly.filter((e) =>
       e.bundledPath.startsWith("/app/fleet-substrate/skills/"),
     );
-    const scriptRows = FLEET_SUBSTRATE_CATALOG.filter((e) =>
+    const scriptRows = bundledOnly.filter((e) =>
       e.bundledPath.startsWith("/app/fleet-substrate/scripts/"),
     );
-    const userOnboardingRows = FLEET_SUBSTRATE_CATALOG.filter((e) =>
+    const userOnboardingRows = bundledOnly.filter((e) =>
       e.bundledPath.startsWith("/app/fleet-substrate/user-onboarding/"),
     );
 
@@ -201,4 +242,38 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       }
     },
   );
+
+  it("Test T-07: sourceKind discriminant — 23 bundled + 1 runtime row (Phase 114 D-22 schema regression guard)", () => {
+    // Regression guard for Phase 114 D-12 + D-14: the catalog is a
+    // discriminated union on sourceKind, with exactly 23 bundled rows
+    // preserving byte-identity of the pre-Phase-114 shape and exactly
+    // 1 runtime row (the twinkie) with the exact D-14 field values.
+    const bundled = FLEET_SUBSTRATE_CATALOG.filter(
+      (e) => e.sourceKind === "bundled",
+    );
+    const runtime = FLEET_SUBSTRATE_CATALOG.filter(
+      (e) => e.sourceKind === "runtime",
+    );
+    expect(bundled.length).toBe(23);
+    expect(runtime.length).toBe(1);
+
+    // Every bundled row retains bundledPath under /app/fleet-substrate/
+    // (byte-identity of the pre-Phase-112 shape).
+    for (const e of bundled) {
+      expect(typeof e.bundledPath).toBe("string");
+      expect(e.bundledPath.startsWith("/app/fleet-substrate/")).toBe(true);
+    }
+
+    // The single runtime row is exactly the twinkie per D-14. The cast
+    // to a resolverKey-carrying shape is safe: sourceKind === "runtime"
+    // narrows RuntimeCatalogEntry which has this field, but we spell out
+    // the shape for readers not tracking the discriminated-union type.
+    expect(runtime[0].slug).toBe("instance-policy-claude-md");
+    expect(runtime[0].installPath).toBe("/etc/claude-code/CLAUDE.md");
+    expect(runtime[0].installMode).toBe("system-root");
+    expect(
+      (runtime[0] as { resolverKey: string }).resolverKey,
+    ).toBe("instance-policy");
+    expect(runtime[0].restartHook).toBeNull();
+  });
 });

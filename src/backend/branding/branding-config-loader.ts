@@ -59,6 +59,15 @@ export type BrandingConfig = {
   // applyGamma07() behavior baked into identity-avatar-batch.ts.
   avatarDirectorSpec: string;
   avatarGammaDefault: number;
+  // Phase 114 (instance-wide managed-policy CLAUDE.md) — D-01 + D-02 + D-10.
+  // Bare filename (NOT a URL path — contrast with iconPath/wordmarkPath which
+  // route through the /branding/* HTTP handler; the twinkie file is never
+  // HTTP-served, so a `Path` suffix would mislead readers). Empty-string
+  // convention mirrors avatarDirectorSpec (Phase 74) — "" means "no twinkie
+  // for this instance." NO bundled-default leg (D-10): unlike iconPath /
+  // wipIndicatorPath, when this field points at a missing file the
+  // distributor pushes NOTHING to managed hosts (clean unset state).
+  instancePolicyFilename: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -95,6 +104,11 @@ const HARDCODED_FALLBACK: BrandingConfig = {
   // avatarGammaDefault=0.7 matches the historical applyGamma07() behavior.
   avatarDirectorSpec: "",
   avatarGammaDefault: 0.7,
+  // Phase 114 D-03 + D-10: empty string is the intentional-unset state.
+  // NO bundled-default leg here (departure from the branding-asset pattern):
+  // a shipped default filename would silently point at a bundled markdown
+  // file that no admin has authored — closing the whole point of the field.
+  instancePolicyFilename: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -191,6 +205,16 @@ function isValidBrandingShape(v: unknown): boolean {
     !Number.isFinite(o.avatarGammaDefault)
   )
     return false;
+  // Phase 114 D-01 + Pitfall 1: optional-in-guard so deployed branding.json
+  // files written BEFORE Phase 114 landed (which do not carry this field)
+  // don't fall back to HARDCODED_FALLBACK and silently stomp the operator's
+  // iconPath / wordmarkPath / wipIndicatorPath overrides on first boot after
+  // upgrade. Accept absent; reject non-string when present.
+  if (
+    o.instancePolicyFilename !== undefined &&
+    typeof o.instancePolicyFilename !== "string"
+  )
+    return false;
   return true;
 }
 
@@ -250,6 +274,16 @@ export async function loadBrandingConfig(): Promise<BrandingConfig> {
       path: configPath,
     });
     return getBundledDefaults();
+  }
+
+  // Phase 114 D-01: post-guard normalization for optional-in-guard field.
+  // Guard accepts documents without `instancePolicyFilename`; loader
+  // guarantees the returned BrandingConfig always has it as a string so
+  // downstream callers (readInstancePolicyBytes, assert-boot alarm branch)
+  // can safely `.trim()` without an undefined check.
+  const mutable = parsed as Record<string, unknown>;
+  if (mutable.instancePolicyFilename === undefined) {
+    mutable.instancePolicyFilename = "";
   }
 
   return parsed as BrandingConfig;
@@ -332,4 +366,102 @@ export async function resolveAssetPath(
   }
 
   return { path: "", source: "missing" };
+}
+
+// ---------------------------------------------------------------------------
+// Instance-wide managed-policy CLAUDE.md ("twinkie") reader — Phase 114
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads the bytes of the file referenced by `config.instancePolicyFilename`,
+ * from the branding-assets directory. Returns `null` on any of:
+ *
+ *   (a) `instancePolicyFilename` is empty string — clean unset state
+ *       (D-10: no bundled-default leg; empty means "no twinkie for this
+ *       instance"). Fast-path: no fs call issued.
+ *   (b) Path-containment violation (filename contains `..` or path-resolves
+ *       outside `/etc/skynet/branding/`) — emits sshLogger.error with
+ *       `operation: "branding_instance_policy_containment"`.
+ *   (c) File exceeds 256 KB byte cap (`MAX_CONFIG_BYTES`, reused per D-06 —
+ *       no separate constant). Emits sshLogger.error with
+ *       `operation: "branding_instance_policy_size"`. Short-circuits BEFORE
+ *       readFile, so the oversized bytes never enter memory.
+ *   (d) File is missing (ENOENT) — SILENT null return. The D-05 boot alarm
+ *       in Plan 04's `assert-boot.ts` addition observes this null-with-set-
+ *       field state and fires the loud misconfig log ONCE at boot. Per-sweep
+ *       silence here is required to avoid log spam.
+ *   (e) Any other read error (EACCES, EIO, etc.) — emits sshLogger.error
+ *       with `operation: "branding_instance_policy_read"`.
+ *
+ * Never throws (per D-11). All failure modes return null. Contract mirrors
+ * `loadBrandingConfig()`'s Phase 70 never-throws invariant — the twinkie is
+ * called at sweep time (composer-level, fire-and-forget) and at boot time
+ * (non-fatal alarm), neither of which surfaces exceptions to callers.
+ */
+export async function readInstancePolicyBytes(): Promise<Buffer | null> {
+  const config = await loadBrandingConfig();
+  const filename = config.instancePolicyFilename ?? "";
+  if (filename === "") {
+    // Clean unset state — no fs call, no log. Distributor sweep composer
+    // observes null and skips the row (or issues rm-f on eligible hosts per
+    // D-16); assert-boot observes empty filename and does NOT fire alarm.
+    return null;
+  }
+
+  const assetsBase = getBrandingAssetsDir();
+  const requestedPath = path.resolve(assetsBase, filename);
+
+  // Path-containment guard — mirrors resolveAssetPath():289-295 shape.
+  // Per D-11 never-throws contract: log + return null (do NOT throw). The
+  // twinkie is called at sweep time, not HTTP-route time, so there is no
+  // 400-surface that would benefit from a thrown containment exception.
+  if (
+    !requestedPath.startsWith(assetsBase + path.sep) &&
+    requestedPath !== assetsBase
+  ) {
+    sshLogger.error(
+      "branding-config-loader: instance-policy filename escapes assets base",
+      {
+        operation: "branding_instance_policy_containment",
+        filename,
+        resolvedPath: requestedPath,
+      },
+    );
+    return null;
+  }
+
+  try {
+    const stat = await fs.stat(requestedPath);
+    if (stat.size > MAX_CONFIG_BYTES) {
+      sshLogger.error(
+        "branding-config-loader: instance-policy file exceeds size cap",
+        {
+          operation: "branding_instance_policy_size",
+          error: `File is ${stat.size} bytes (max ${MAX_CONFIG_BYTES}) — returning null`,
+          path: requestedPath,
+        },
+      );
+      return null;
+    }
+    // readFile without an encoding argument returns Buffer directly.
+    const bytes = await fs.readFile(requestedPath);
+    return bytes;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      // Field set but file missing — this IS the D-05 misconfig case, but
+      // the LOUD alarm fires ONCE at boot (Plan 04's assert-boot.ts). Per-
+      // sweep silence here avoids log spam on every 30s tick.
+      return null;
+    }
+    sshLogger.error(
+      "branding-config-loader: instance-policy read error",
+      {
+        operation: "branding_instance_policy_read",
+        error: err instanceof Error ? err.message : String(err),
+        path: requestedPath,
+      },
+    );
+    return null;
+  }
 }

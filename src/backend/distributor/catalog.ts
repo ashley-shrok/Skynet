@@ -30,7 +30,7 @@
  *   `systemctl --user daemon-reload` at the start of every sweep, so systemd
  *   has already re-read the unit before the restart hook fires.
  *
- * ROW-COUNT RECONCILIATION (16 items vs. 23 rows):
+ * ROW-COUNT RECONCILIATION (17 items vs. 24 rows):
  *   The shape doc counts "15 items" — that was 7 single-file skills + 1 skill
  *   with 1 companion (agent-relay: SKILL.md + recv.sh) + 1 skill with 3
  *   companions (id: SKILL.md + actor-status-prompt + clone-picker-prompt +
@@ -57,21 +57,55 @@
  *       poller; pv-context-pct-sweep is the Phase 95 batch sweep for the
  *       PV context-pct poller)
  *     - 1 row for user-onboarding/agent-supervisor.service
- *   Total = 23.
+ *     - 1 row for instance-policy-claude-md (Phase 114 twinkie — runtime-sourced,
+ *       system-root-installed)
+ *   Total = 24.
+ *
+ * TWO NEW AXES (Phase 114 D-12 + RESEARCH.md § Pattern 1):
+ *   Phase 114 introduces two orthogonal axes to CatalogEntry:
+ *
+ *   1. `sourceKind` (values: bundled | runtime) — DISCRIMINATED UNION on this
+ *      axis because it fundamentally changes which source-side fields are present:
+ *        - BundledCatalogEntry (the existing 23 rows) carries `bundledPath`
+ *          (bytes live at /app/fleet-substrate/… inside the image, static).
+ *        - RuntimeCatalogEntry (the new twinkie row) carries `resolverKey`
+ *          (bytes resolved at sweep time by looking up the key in the
+ *          composer's `deps.resolvedRuntimeBytes` map). The catalog stays
+ *          runtime-free per PURE-LIB DISCIPLINE — the resolver key is a
+ *          lookup string, not a function.
+ *      The discriminated-union shape gives the type-checker the strongest
+ *      guarantee that existing 23 rows can never accidentally be treated
+ *      as runtime rows (no resolverKey field) and vice-versa (no
+ *      bundledPath access on runtime rows without narrowing).
+ *
+ *   2. `installMode: "user-home" | "system-root"` — OPTIONAL FIELD with
+ *      default "user-home" because it only affects post-write behavior
+ *      (path quoting + ownership + directory creation), not source shape.
+ *      Existing 23 rows omit the field and inherit the "user-home" default,
+ *      keeping the diff minimal. The new twinkie row sets it explicitly to
+ *      "system-root" (writes to /etc/claude-code/CLAUDE.md root:root 0644,
+ *      gated on hosts.username === "root" per Plan 05).
  */
 
 /**
- * A single reconciled fleet-substrate item: the bundled bytes inside the
- * container image, the target install path on a managed host (relative to
- * the ubuntu user's HOME), and — if the item needs re-execution to take
- * effect after its bytes change — the systemd --user unit to restart.
+ * A single reconciled fleet-substrate item, bundled-source variant: the
+ * bundled bytes inside the container image, the target install path on a
+ * managed host (relative to the ubuntu user's HOME by default), and — if the
+ * item needs re-execution to take effect after its bytes change — the systemd
+ * --user unit to restart.
  */
-export interface CatalogEntry {
+export interface BundledCatalogEntry {
   /**
    * Unique kebab-case identifier, used only in log lines and test assertions.
    * Not written to disk on the managed host.
    */
   slug: string;
+
+  /**
+   * Discriminant: bundled rows carry `bundledPath`; the source bytes live
+   * statically inside the container image at that path.
+   */
+  sourceKind: "bundled";
 
   /**
    * Absolute path inside the container image where the canonical bytes live.
@@ -80,12 +114,21 @@ export interface CatalogEntry {
   bundledPath: string;
 
   /**
-   * Target path on the managed host, expressed with a leading "~/" that the
-   * remote shell will expand against the ubuntu user's HOME. Skill entries
-   * land under ~/.claude/skills/<slug>/... and helper scripts under
-   * ~/.local/bin/<name>.
+   * Target path on the managed host. For `installMode: "user-home"` (default),
+   * expressed with a leading "~/" that the remote shell will expand against
+   * the ubuntu user's HOME. Skill entries land under ~/.claude/skills/<slug>/…
+   * and helper scripts under ~/.local/bin/<name>.
    */
   installPath: string;
+
+  /**
+   * Where the file is installed on the managed host. Optional; defaults to
+   * "user-home" (path prefixed `~/`, ubuntu-user-owned, no root elevation
+   * needed). Existing bundled rows omit this field. Future bundled rows MAY
+   * opt into "system-root" if they need an absolute path under /etc/ or
+   * similar — the discriminant here is orthogonal to sourceKind.
+   */
+  installMode?: "user-home" | "system-root";
 
   /**
    * Systemd --user unit name to restart after the file's bytes change on the
@@ -98,9 +141,74 @@ export interface CatalogEntry {
 }
 
 /**
- * The 23-row hand-maintained catalog. Ordered skills-side first, then
+ * A single reconciled fleet-substrate item, runtime-source variant: the
+ * source bytes are NOT static in the container image. Instead, the sweep
+ * composer looks up `resolverKey` in a pre-resolved runtime-bytes map
+ * (`deps.resolvedRuntimeBytes`) that a caller populates ONCE per sweep at
+ * orchestrator scope. Keeps this data module free of runtime imports per
+ * PURE-LIB DISCIPLINE: the resolver is a STRING KEY, not a function.
+ */
+export interface RuntimeCatalogEntry {
+  /**
+   * Unique kebab-case identifier, used only in log lines and test assertions.
+   * Not written to disk on the managed host.
+   */
+  slug: string;
+
+  /**
+   * Discriminant: runtime rows carry `resolverKey` instead of `bundledPath`.
+   * The sweep composer maps the key to a resolver dep at orchestrator wire
+   * time; the catalog module stays a pure data + type module.
+   */
+  sourceKind: "runtime";
+
+  /**
+   * Lookup key the composer resolves to source bytes at sweep time. Extend
+   * this string-literal union when new runtime rows land (e.g. adding a
+   * second runtime resolver later would be `"instance-policy" | "other-key"`).
+   */
+  resolverKey: "instance-policy";
+
+  /**
+   * Absolute path on the managed host where the file is installed. For
+   * `installMode: "system-root"` rows this is an absolute path under /etc/
+   * (or similar); the remote shell MUST NOT tilde-expand it.
+   */
+  installPath: string;
+
+  /**
+   * Where the file is installed on the managed host. Runtime rows MUST
+   * declare this explicitly (no default) because the whole point of adding
+   * the runtime source axis was to accommodate a system-root twinkie.
+   */
+  installMode: "user-home" | "system-root";
+
+  /**
+   * Systemd --user unit name to restart after the file's bytes change on the
+   * managed host. Null for items with no restart requirement — e.g. the
+   * instance-policy CLAUDE.md is discovered natively by Claude Code at every
+   * new session start (per Phase 114 D-14 + D-20), so no daemon restart is
+   * needed on byte change.
+   */
+  restartHook: string | null;
+}
+
+/**
+ * Discriminated union on `sourceKind`. Bundled rows (the existing 24) narrow
+ * to `BundledCatalogEntry` (bundledPath accessible); the runtime row narrows
+ * to `RuntimeCatalogEntry` (resolverKey accessible, no bundledPath).
+ *
+ * See file-level docstring "TWO NEW AXES" for the type-theory rationale.
+ */
+export type CatalogEntry = BundledCatalogEntry | RuntimeCatalogEntry;
+
+/**
+ * The 25-row hand-maintained catalog. Ordered skills-side first, then
  * scripts-side, then user-onboarding/ files, then Phase 92 additions
- * (fleet-status-sweep), then Phase 95 additions (pv-context-pct-sweep).
+ * (fleet-status-sweep), then Phase 95 additions (pv-context-pct-sweep),
+ * then the mega-monitor ambient-monitor launcher, then the Phase 114
+ * twinkie (instance-policy-claude-md — the first runtime-sourced row
+ * and the first system-root-installed row).
  * Within skills, multi-file skills (id, agent-relay) appear before single-file
  * skills for reviewability.
  */
@@ -108,24 +216,28 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // --- id skill (4 rows: SKILL.md + 3 companion prompts) ---
   {
     slug: "id-skill",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/id/SKILL.md",
     installPath: "~/.claude/skills/id/SKILL.md",
     restartHook: null,
   },
   {
     slug: "id-actor-status-prompt",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/id/actor-status-prompt.md",
     installPath: "~/.claude/skills/id/actor-status-prompt.md",
     restartHook: null,
   },
   {
     slug: "id-clone-picker-prompt",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/id/clone-picker-prompt.md",
     installPath: "~/.claude/skills/id/clone-picker-prompt.md",
     restartHook: null,
   },
   {
     slug: "id-coordinator-instructions",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/id/coordinator-instructions.md",
     installPath: "~/.claude/skills/id/coordinator-instructions.md",
     restartHook: null,
@@ -134,12 +246,14 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // --- agent-relay skill (2 rows: SKILL.md + recv.sh receiver) ---
   {
     slug: "agent-relay-skill",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/agent-relay/SKILL.md",
     installPath: "~/.claude/skills/agent-relay/SKILL.md",
     restartHook: null,
   },
   {
     slug: "agent-relay-recv",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/agent-relay/recv.sh",
     installPath: "~/.claude/skills/agent-relay/recv.sh",
     restartHook: null,
@@ -148,24 +262,28 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // --- single-file skills (7 rows, one SKILL.md each) ---
   {
     slug: "backlog-skill",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/backlog/SKILL.md",
     installPath: "~/.claude/skills/backlog/SKILL.md",
     restartHook: null,
   },
   {
     slug: "bounty-skill",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/bounty/SKILL.md",
     installPath: "~/.claude/skills/bounty/SKILL.md",
     restartHook: null,
   },
   {
     slug: "next-bounty-skill",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/next-bounty/SKILL.md",
     installPath: "~/.claude/skills/next-bounty/SKILL.md",
     restartHook: null,
   },
   {
     slug: "promote-to-coordinator-skill",
+    sourceKind: "bundled",
     bundledPath:
       "/app/fleet-substrate/skills/promote-to-coordinator/SKILL.md",
     installPath: "~/.claude/skills/promote-to-coordinator/SKILL.md",
@@ -173,12 +291,14 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   },
   {
     slug: "queue-skill",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/queue/SKILL.md",
     installPath: "~/.claude/skills/queue/SKILL.md",
     restartHook: null,
   },
   {
     slug: "role-skill",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/role/SKILL.md",
     installPath: "~/.claude/skills/role/SKILL.md",
     restartHook: null,
@@ -191,42 +311,49 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // reap its supervised tmux sessions.
   {
     slug: "agent-supervisor",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/agent-supervisor.sh",
     installPath: "~/.local/bin/agent-supervisor",
     restartHook: "agent-supervisor.service",
   },
   {
     slug: "wakeup-scheduler",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/wakeup-scheduler.py",
     installPath: "~/.local/bin/wakeup-scheduler",
     restartHook: null,
   },
   {
     slug: "context-watch",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/context-watch.py",
     installPath: "~/.local/bin/context-watch",
     restartHook: null,
   },
   {
     slug: "role-file-watch",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/role-file-watch.py",
     installPath: "~/.local/bin/role-file-watch",
     restartHook: null,
   },
   {
     slug: "usage-reporter",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/usage-reporter.sh",
     installPath: "~/.local/bin/usage-reporter",
     restartHook: null,
   },
   {
     slug: "install-usage-reporter",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/install-usage-reporter.sh",
     installPath: "~/.local/bin/install-usage-reporter",
     restartHook: null,
   },
   {
     slug: "claude-usage-collector",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/claude-usage-collector.py",
     installPath: "~/.local/bin/claude-usage-collector",
     restartHook: null,
@@ -239,6 +366,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // systemd has already re-read the unit before the restart hook fires.
   {
     slug: "agent-supervisor-service-unit",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/user-onboarding/agent-supervisor.service",
     installPath: "~/.config/systemd/user/agent-supervisor.service",
     restartHook: "agent-supervisor.service",
@@ -250,6 +378,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // caller runs on demand, so new bytes are picked up on the next invocation.
   {
     slug: "fleet-status-sweep",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/fleet-status-sweep.py",
     installPath: "~/.local/bin/fleet-status-sweep",
     restartHook: null,
@@ -261,6 +390,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // No restart hook — short-lived on-demand script; new bytes are picked up on next invocation.
   {
     slug: "pv-context-pct-sweep",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/pv-context-pct-sweep.py",
     installPath: "~/.local/bin/pv-context-pct-sweep",
     restartHook: null,
@@ -285,8 +415,32 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // live launchers, orphaning their identities mid-session.
   {
     slug: "ambient-monitor",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/ambient-monitor.py",
     installPath: "~/.local/bin/ambient-monitor",
+    restartHook: null,
+  },
+
+  // --- instance-policy-claude-md (1 row: Phase 114 twinkie — runtime-sourced, system-root-installed) ---
+  // FIRST runtime-sourced row: bytes come from readInstancePolicyBytes() at sweep time
+  // (via deps.resolvedRuntimeBytes.get("instance-policy")), NOT from /app/fleet-substrate/…
+  // in the container image. See RuntimeCatalogEntry docstring above.
+  //
+  // FIRST system-root-installed row: writes to /etc/claude-code/CLAUDE.md as root:root 0644.
+  // Gated on hosts.username === "root" per Plan 05's D-13 gate — non-root SSH hosts are
+  // skipped with a structured sshLogger.info log line and no push is attempted. Non-root
+  // hosts will receive the twinkie automatically on their next sweep once they migrate to
+  // root-SSH (via the box-maintainer org-migration bounty).
+  //
+  // restartHook: null because Claude Code discovers managed-policy at every new session start
+  // natively (per Phase 114 D-14 + D-20 + code.claude.com/docs/en/memory) — no daemon to
+  // restart. Running sessions do NOT reload mid-session; that's expected behavior.
+  {
+    slug: "instance-policy-claude-md",
+    sourceKind: "runtime",
+    resolverKey: "instance-policy",
+    installPath: "/etc/claude-code/CLAUDE.md",
+    installMode: "system-root",
     restartHook: null,
   },
 ] as const;

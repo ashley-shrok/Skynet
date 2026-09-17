@@ -124,6 +124,15 @@ vi.mock("./bundled-reader.js", () => ({
   })),
 }));
 
+// Branding-config-loader — mock readInstancePolicyBytes so T-11 scenarios can
+// switch between "twinkie file present" (Buffer) and "twinkie unset / missing"
+// (null) without touching disk. Default null keeps pre-existing tests
+// (I-STARTUP, I-RETRY, I-PERSISTENT, I-ON-ADD) on the D-16 removal branch
+// exactly as they were with the makeSuccessChannel __REMOVE_ALREADY__ handler.
+vi.mock("../branding/branding-config-loader.js", () => ({
+  readInstancePolicyBytes: vi.fn(async () => null),
+}));
+
 // ---------------------------------------------------------------------------
 // Mocks needed only for the I-ON-ADD route-invocation harness
 // (mirrors the scaffold in host.test.ts)
@@ -293,9 +302,10 @@ import {
   getSubstrateOrchestrator,
   __resetSubstrateOrchestrator,
 } from "./substrate-orchestrator-singleton.js";
-import { systemLogger } from "../utils/logger.js";
+import { systemLogger, sshLogger } from "../utils/logger.js";
 import { SystemCrypto } from "../utils/system-crypto.js";
 import { FieldCrypto } from "../utils/field-crypto.js";
+import { readInstancePolicyBytes } from "../branding/branding-config-loader.js";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
 
 // ---------------------------------------------------------------------------
@@ -425,6 +435,19 @@ function makeSuccessChannel(): SshChannel {
       // ssh-push restartUserUnit: systemctl --user restart <unit>
       if (cmd.includes("__RESTART_OK__") || cmd.includes("__RESTART_FAIL__")) {
         return "__RESTART_OK__";
+      }
+      // Phase 114 Plan 05 (D-16): ssh-push removeInstalledFile. Fired for
+      // runtime-source rows whose resolver returned null (the empty-field
+      // twinkie state at test defaults). Return __REMOVE_ALREADY__ — the
+      // idempotent no-op that mirrors bytes-match: no counter bump, no log,
+      // sweep succeeds. This keeps the pre-Phase-112 integration invariant
+      // (successful sweep → itemsFailed === 0 → host marked done).
+      if (
+        cmd.includes("__REMOVE_DID__") ||
+        cmd.includes("__REMOVE_ALREADY__") ||
+        cmd.includes("__REMOVE_FAIL__")
+      ) {
+        return "__REMOVE_ALREADY__";
       }
       // Safety fallback: return non-null empty string.
       // If a new exec path is added that checks a specific sentinel and we
@@ -1060,6 +1083,343 @@ describe("Phase 75 — server-substrate integration", () => {
 
       // No acquireChannel call — not a substrate host
       expect(acquireChannel).not.toHaveBeenCalled();
+
+      orch.stop();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // T-11 (Phase 114 D-22): Phase 114 twinkie end-to-end integration
+  //
+  // The final gate for Phase 114: verify that Plans 01-05 wire together to
+  // deliver /etc/claude-code/CLAUDE.md to a root-SSH managed host when the
+  // branding config's instancePolicyFilename is set and the referenced file
+  // exists — and inversely, skip non-root hosts, and issue a rm -f push
+  // when the resolver returns null.
+  //
+  // MOCKED SURFACE:
+  //   - readInstancePolicyBytes → per-scenario override at the top of each it()
+  //   - listSubstrateHosts → one host with a per-scenario `username` at
+  //     _connDetails.username so the composer's D-13 root-user gate branches
+  //   - acquireChannel → makeSuccessChannel() (or a per-scenario variant
+  //     returning __REMOVE_DID__ instead of __REMOVE_ALREADY__ for T-11c)
+  //
+  // REAL CODE UNDER TEST:
+  //   - orchestrator (createServerSubstrateOrchestrator) →
+  //     resolveRuntimeBytesForTick → runSweepForHost →
+  //     composer's D-13 gate + D-12 source-resolution branch + D-16 removal
+  //     branch → ssh-push helpers (writeInstalledBytesWithMode +
+  //     removeInstalledFile) — every branch touched, only the SSH-channel
+  //     boundary mocked.
+  // -------------------------------------------------------------------------
+
+  describe("T-11: Phase 114 twinkie end-to-end", () => {
+    /**
+     * Build a single-host DB stub with an overridable SSH username so we
+     * can exercise the D-13 root-user gate in both directions. The DB row's
+     * `username` column is what listSubstrateHosts surfaces into
+     * `_connDetails.username`, which the orchestrator then null-coalesces
+     * into `host.username` for the composer.
+     */
+    function makeTwinkieRows(username: "root" | "ubuntu"): MockRow[] {
+      return [
+        makeRow({
+          id: 1,
+          name: "twinkie-host",
+          credentialId: 100,
+          cred_id: 100,
+          cred_systemPassword: "ct-twinkie",
+          username,
+        }),
+      ];
+    }
+
+    /**
+     * T-11a: HAPPY PATH — twinkie file present + root-SSH host →
+     * base64 write command emitted for /etc/claude-code/CLAUDE.md
+     * (system-root shape: chown root:root, chmod 644, symlink guard),
+     * base64 body matches the twinkie bytes, resolver called ONCE.
+     */
+    it("T-11a: happy path — twinkie set + root host → base64 write captured for /etc/claude-code/CLAUDE.md", async () => {
+      const twinkieBytes = Buffer.from("# twinkie\n\ntest content");
+      vi.mocked(readInstancePolicyBytes).mockResolvedValue(twinkieBytes);
+
+      const rows = makeTwinkieRows("root");
+      const stubDb = makeDb(rows);
+
+      const acquireChannel = vi.fn(async () => makeSuccessChannel());
+
+      const orch = createServerSubstrateOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHosts(
+            stubDb as Parameters<typeof listSubstrateHosts>[0],
+          ),
+        acquireChannel,
+        releaseChannel: vi.fn(),
+        setInterval,
+        clearInterval,
+        now: () => Date.now(),
+        retryIntervalMs: 30000,
+        persistentFailureThreshold: 10,
+      });
+
+      await orch.start();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Resolver called exactly ONCE per tick (Pitfall 6 / D-15).
+      expect(vi.mocked(readInstancePolicyBytes)).toHaveBeenCalledTimes(1);
+
+      // Collect all commands emitted through the channel.exec mock across
+      // whichever channel was returned by acquireChannel this sweep.
+      const channelReturns = acquireChannel.mock.results
+        .map((r) => r.value)
+        .filter((v): v is Promise<SshChannel> => v !== null);
+      const resolvedChannels = await Promise.all(channelReturns);
+      const capturedCommands: string[] = [];
+      const capturedStdin: Array<Buffer | undefined> = [];
+      for (const ch of resolvedChannels) {
+        const execMock = ch.exec as ReturnType<typeof vi.fn>;
+        for (const call of execMock.mock.calls) {
+          capturedCommands.push(call[0] as string);
+          capturedStdin.push(call[1] as Buffer | undefined);
+        }
+      }
+
+      // Plan 03 system-root write shape: chown root:root + chmod 644 + the
+      // twinkie install path all in one command.
+      const twinkieWriteIdx = capturedCommands.findIndex(
+        (c) =>
+          c.includes("base64 -d >") &&
+          c.includes("'/etc/claude-code/CLAUDE.md'") &&
+          c.includes("chown root:root '/etc/claude-code/CLAUDE.md'") &&
+          c.includes("chmod 644 '/etc/claude-code/CLAUDE.md'"),
+      );
+      expect(twinkieWriteIdx).toBeGreaterThanOrEqual(0);
+
+      // Base64 body passed via stdin matches the twinkie bytes.
+      const stdinBody = capturedStdin[twinkieWriteIdx];
+      expect(stdinBody).toBeInstanceOf(Buffer);
+      expect(stdinBody!.toString("utf-8")).toBe(twinkieBytes.toString("base64"));
+
+      orch.stop();
+    });
+
+    /**
+     * T-11b: NON-ROOT SKIP — twinkie file present but host.username="ubuntu"
+     * → the composer's D-13 root-user gate fires BEFORE any exec on the
+     * channel for the twinkie row. NO command mentioning
+     * /etc/claude-code/CLAUDE.md is emitted; sshLogger.info fires with
+     * operation: "fleet_substrate_system_root_skip".
+     */
+    it("T-11b: non-root skip — twinkie set + ubuntu host → NO write command for /etc/claude-code/CLAUDE.md, structured skip log fires", async () => {
+      const twinkieBytes = Buffer.from("# twinkie\n\ntest content");
+      vi.mocked(readInstancePolicyBytes).mockResolvedValue(twinkieBytes);
+
+      const rows = makeTwinkieRows("ubuntu");
+      const stubDb = makeDb(rows);
+
+      const acquireChannel = vi.fn(async () => makeSuccessChannel());
+
+      const orch = createServerSubstrateOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHosts(
+            stubDb as Parameters<typeof listSubstrateHosts>[0],
+          ),
+        acquireChannel,
+        releaseChannel: vi.fn(),
+        setInterval,
+        clearInterval,
+        now: () => Date.now(),
+        retryIntervalMs: 30000,
+        persistentFailureThreshold: 10,
+      });
+
+      await orch.start();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Collect commands: no command for the twinkie row's install path.
+      const channelReturns = acquireChannel.mock.results
+        .map((r) => r.value)
+        .filter((v): v is Promise<SshChannel> => v !== null);
+      const resolvedChannels = await Promise.all(channelReturns);
+      const capturedCommands: string[] = [];
+      for (const ch of resolvedChannels) {
+        const execMock = ch.exec as ReturnType<typeof vi.fn>;
+        for (const call of execMock.mock.calls) {
+          capturedCommands.push(call[0] as string);
+        }
+      }
+
+      // The row was gated out entirely — NO exec command for the twinkie
+      // path (neither read, nor write, nor remove).
+      expect(
+        capturedCommands.some((c) => c.includes("/etc/claude-code/CLAUDE.md")),
+      ).toBe(false);
+
+      // sshLogger.info was called with the D-26 skip-log shape for this
+      // (host, row) pair.
+      const infoMock = sshLogger.info as ReturnType<typeof vi.fn>;
+      const skipCalls = infoMock.mock.calls.filter(
+        (call: unknown[]) =>
+          (call[1] as Record<string, unknown> | undefined)?.operation ===
+          "fleet_substrate_system_root_skip",
+      );
+      expect(skipCalls.length).toBeGreaterThanOrEqual(1);
+      const skipMeta = skipCalls[0][1] as Record<string, unknown>;
+      expect(skipMeta.entrySlug).toBe("instance-policy-claude-md");
+      expect(skipMeta.installMode).toBe("system-root");
+      expect(skipMeta.username).toBe("ubuntu");
+      expect(skipMeta.fleetHostId).toBe("1");
+
+      orch.stop();
+    });
+
+    /**
+     * T-11c: REMOVAL — resolver returns null (field cleared or file missing)
+     * → root-SSH host receives `rm -f '/etc/claude-code/CLAUDE.md'` push;
+     * NO base64 write for the twinkie row. Non-root hosts (a second host
+     * added to the fixture) receive NO removal either (D-13 gates them out
+     * entirely — nothing to clean up because nothing was ever pushed).
+     */
+    it("T-11c: removal — resolver returns null → rm -f emitted on root-SSH host, NO removal on non-root host, NO base64 write", async () => {
+      vi.mocked(readInstancePolicyBytes).mockResolvedValue(null);
+
+      // Two hosts: one root-SSH (receives rm -f), one ubuntu-SSH (gated out).
+      const rows: MockRow[] = [
+        makeRow({
+          id: 1,
+          name: "root-host",
+          credentialId: 100,
+          cred_id: 100,
+          cred_systemPassword: "ct-root",
+          username: "root",
+        }),
+        makeRow({
+          id: 2,
+          name: "ubuntu-host",
+          credentialId: 101,
+          cred_id: 101,
+          cred_systemPassword: "ct-ubuntu",
+          username: "ubuntu",
+        }),
+      ];
+      const stubDb = makeDb(rows);
+
+      // Custom channel factory: returns __REMOVE_DID__ for the rm command so
+      // the composer classifies the outcome as "removed" (action:'removed').
+      // makeSuccessChannel's default __REMOVE_ALREADY__ path also validates
+      // the removal command shape but doesn't bump itemsChanged; T-11c
+      // exercises the "did actually remove" branch.
+      const makeRemoveDidChannel = (): SshChannel => ({
+        exec: vi.fn(async (cmd: string): Promise<string | null> => {
+          if (cmd.includes("is-enabled") && cmd.includes("EXIT:$?")) {
+            return "enabled\nEXIT:0";
+          }
+          if (cmd.includes("__RELOAD_OK__")) return "__RELOAD_OK__";
+          if (cmd.includes("__BOOTSTRAP_OK__")) return "__BOOTSTRAP_OK__";
+          if (cmd.includes("__SETTINGS_OK__")) return "__SETTINGS_OK__";
+          if (cmd.includes("__CLEANUP_OK__")) return "__CLEANUP_OK__";
+          if (cmd.includes("__READ_OK__") || cmd.includes("__READ_ENOENT__")) {
+            return "__READ_ENOENT__";
+          }
+          if (cmd.includes("__WRITE_OK__") || cmd.includes("__WRITE_FAIL__")) {
+            return "__WRITE_OK__";
+          }
+          if (cmd.includes("__RESTART_OK__") || cmd.includes("__RESTART_FAIL__")) {
+            return "__RESTART_OK__";
+          }
+          // Twinkie removal: the rm command carries __REMOVE_DID__ in its
+          // source (the `echo __REMOVE_DID__` branch). Return the "did"
+          // sentinel so the composer maps to action:'removed' and bumps
+          // itemsChanged.
+          if (
+            cmd.includes("__REMOVE_DID__") ||
+            cmd.includes("__REMOVE_ALREADY__") ||
+            cmd.includes("__REMOVE_FAIL__")
+          ) {
+            return "__REMOVE_DID__";
+          }
+          return "";
+        }),
+      });
+
+      const perHostChannels = new Map<string, SshChannel>();
+      const acquireChannel = vi.fn(async (host: { id: string }) => {
+        const ch = makeRemoveDidChannel();
+        perHostChannels.set(host.id, ch);
+        return ch;
+      });
+
+      const orch = createServerSubstrateOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHosts(
+            stubDb as Parameters<typeof listSubstrateHosts>[0],
+          ),
+        acquireChannel,
+        releaseChannel: vi.fn(),
+        setInterval,
+        clearInterval,
+        now: () => Date.now(),
+        retryIntervalMs: 30000,
+        persistentFailureThreshold: 10,
+      });
+
+      await orch.start();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Collect commands per host.
+      const rootHostCh = perHostChannels.get("1");
+      const ubuntuHostCh = perHostChannels.get("2");
+      expect(rootHostCh).toBeDefined();
+      expect(ubuntuHostCh).toBeDefined();
+
+      const rootCommands = (
+        rootHostCh!.exec as ReturnType<typeof vi.fn>
+      ).mock.calls.map((c) => c[0] as string);
+      const ubuntuCommands = (
+        ubuntuHostCh!.exec as ReturnType<typeof vi.fn>
+      ).mock.calls.map((c) => c[0] as string);
+
+      // Root host: rm -f command emitted for the twinkie path, and the
+      // emitted command source contains the __REMOVE_DID__ echo branch
+      // (Plan 03 removeInstalledFile shape).
+      const rootRmIdx = rootCommands.findIndex(
+        (c) =>
+          c.includes("rm -f '/etc/claude-code/CLAUDE.md'") &&
+          c.includes("__REMOVE_DID__"),
+      );
+      expect(rootRmIdx).toBeGreaterThanOrEqual(0);
+
+      // Root host: NO base64 write for the twinkie path — the removal
+      // branch short-circuits before the write flow.
+      expect(
+        rootCommands.some(
+          (c) =>
+            c.includes("base64 -d >") &&
+            c.includes("'/etc/claude-code/CLAUDE.md'"),
+        ),
+      ).toBe(false);
+
+      // Ubuntu host: NO command touching /etc/claude-code/CLAUDE.md — the
+      // D-13 gate skipped the row before any read/write/remove exec fired.
+      expect(
+        ubuntuCommands.some((c) =>
+          c.includes("/etc/claude-code/CLAUDE.md"),
+        ),
+      ).toBe(false);
+
+      // And sshLogger.info fired the D-26 skip-log for the ubuntu host.
+      const infoMock = sshLogger.info as ReturnType<typeof vi.fn>;
+      const ubuntuSkipCalls = infoMock.mock.calls.filter(
+        (call: unknown[]) =>
+          (call[1] as Record<string, unknown> | undefined)?.operation ===
+            "fleet_substrate_system_root_skip" &&
+          (call[1] as Record<string, unknown>).fleetHostId === "2",
+      );
+      expect(ubuntuSkipCalls.length).toBeGreaterThanOrEqual(1);
 
       orch.stop();
     });

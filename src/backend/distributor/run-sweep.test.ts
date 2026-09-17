@@ -35,17 +35,50 @@ vi.mock("./run-bootstrap.js", () => ({
   })),
 }));
 
+// Phase 114 Plan 05: spy on sshLogger.info for the D-13 root-user gate
+// structured skip-log (D-26 shape). Mock covers the whole logger module
+// surface run-sweep.ts imports; keep the mock permissive so future extensions
+// to logger.ts don't force test churn.
+vi.mock("../utils/logger.js", () => ({
+  sshLogger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  systemLogger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  databaseLogger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
+
 import {
   logSweepResult,
   logItemChanged,
   logItemFailed,
 } from "./log-tags.js";
+import { sshLogger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const HOST = { id: "h1", name: "wilma" };
+// Phase 114 Plan 05: HOST widened with `username` — the D-13 root-user gate
+// reads this field. Default to "root" so existing user-home rows (which
+// inherit installMode="user-home") are unaffected; the gate is a no-op for
+// user-home rows regardless of username.
+const HOST = { id: "h1", name: "wilma", username: "root" };
 
 function b64Ok(bytes: Buffer): string {
   return `${bytes.toString("base64")}__READ_OK__`;
@@ -59,11 +92,39 @@ function makeChannelSequenced(
   return { channel: { exec }, exec };
 }
 
-function catalogEntry(overrides: Partial<CatalogEntry> = {}): CatalogEntry {
+/**
+ * Bundled-entry factory. Phase 114 Plan 02 introduced the discriminated union
+ * on `sourceKind`; every entry a test constructs must declare it. This factory
+ * stamps `sourceKind: "bundled"` by default (matches the existing 24 rows'
+ * shape), so callers that don't care about the axis keep working unchanged.
+ */
+function catalogEntry(
+  overrides: Partial<Extract<CatalogEntry, { sourceKind: "bundled" }>> = {},
+): CatalogEntry {
   return {
     slug: "test-item",
+    sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/test/SKILL.md",
     installPath: "~/.claude/skills/test/SKILL.md",
+    restartHook: null,
+    ...overrides,
+  };
+}
+
+/**
+ * Runtime-entry factory (Phase 114 Plan 05). Constructs a RuntimeCatalogEntry
+ * shape matching Plan 02's twinkie row schema. Callers override installPath /
+ * installMode / resolverKey as tests dictate.
+ */
+function runtimeCatalogEntry(
+  overrides: Partial<Extract<CatalogEntry, { sourceKind: "runtime" }>> = {},
+): CatalogEntry {
+  return {
+    slug: "instance-policy-claude-md",
+    sourceKind: "runtime",
+    resolverKey: "instance-policy",
+    installPath: "/etc/claude-code/CLAUDE.md",
+    installMode: "system-root",
     restartHook: null,
     ...overrides,
   };
@@ -78,10 +139,13 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("runSweepForHost", () => {
-  it("Test 1: all-match sweep on full 23-entry catalog — 0 changes, 0 failures, 0 writes", async () => {
+  it("Test 1: all-match sweep on full 25-entry catalog — 0 changes, 0 failures, 0 writes", async () => {
     const bundledBytes = Buffer.from("matching-bundle-content");
     // For every catalog entry, read returns __READ_OK__ with the same bytes
-    // as the bundled reader. The decision layer skips them all.
+    // as the bundled reader (or the runtime resolver map). The decision
+    // layer skips them all. Phase 114 Plan 05: the 25th row is the twinkie
+    // (sourceKind: "runtime", installMode: "system-root") — provide matching
+    // resolvedRuntimeBytes so it also byte-matches.
     const { channel, exec } = makeChannelSequenced((cmd) => {
       if (cmd.includes("base64 -w0")) return b64Ok(bundledBytes);
       // No writes / restarts expected; any other call is unexpected
@@ -89,13 +153,14 @@ describe("runSweepForHost", () => {
     });
     const deps: SweepDeps = {
       readBundledBytes: vi.fn(async () => ({ bytes: bundledBytes, mode: 0o644 })),
+      resolvedRuntimeBytes: new Map([["instance-policy", bundledBytes]]),
     };
 
     await runSweepForHost(channel, HOST, FLEET_SUBSTRATE_CATALOG, deps);
 
     expect(logSweepResult).toHaveBeenCalledTimes(1);
     const call = (logSweepResult as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.itemsChecked).toBe(23);
+    expect(call.itemsChecked).toBe(24);
     expect(call.itemsChanged).toBe(0);
     expect(call.itemsFailed).toBe(0);
     expect(logItemChanged).not.toHaveBeenCalled();
@@ -134,6 +199,13 @@ describe("runSweepForHost", () => {
         if (path.includes("scripts/agent-supervisor.sh")) return { bytes: bundled, mode: 0o755 };
         return { bytes: installedMatching, mode: 0o644 };
       }),
+      // Phase 114 Plan 05: the twinkie row (25th) has installMode=system-root
+      // and sourceKind=runtime. Provide matching bytes so it byte-matches the
+      // installedMatching stream (not the "stale" agent-supervisor mismatch);
+      // the runtime row uses installPath /etc/claude-code/CLAUDE.md, whose
+      // read command falls through to the "else" branch above returning
+      // installedMatching, so we must supply installedMatching here to match.
+      resolvedRuntimeBytes: new Map([["instance-policy", installedMatching]]),
     };
 
     await runSweepForHost(channel, HOST, FLEET_SUBSTRATE_CATALOG, deps);
@@ -541,4 +613,252 @@ describe("runSweepForHost", () => {
       expect.objectContaining({ stage: "write" }),
     );
   });
+
+  // ------------------------------------------------------------------
+  // Phase 114 Plan 05 — runtime-source + root-user-gate + removal-branch tests.
+  // ------------------------------------------------------------------
+
+  it("Test P114-T-08 (resolver-once + null-skip triggers removal): runtime row with null bytes → rm -f pushed, no read/write", async () => {
+    const catalog: CatalogEntry[] = [
+      runtimeCatalogEntry({
+        slug: "instance-policy-claude-md",
+        installPath: "/etc/claude-code/CLAUDE.md",
+      }),
+    ];
+    const { channel, exec } = makeChannelSequenced((cmd) => {
+      // The removal branch emits an `rm -f` command via removeInstalledFile.
+      // The sentinel dispatch shape is:
+      //   `{ if [ -f '<path>' ]; then rm -f '<path>' && echo __REMOVE_DID__ ; ... } 2>&1`
+      if (cmd.includes("__REMOVE_")) {
+        // ssh-push's removeInstalledFile emits three __REMOVE_* sentinels
+        // in one command; the file is absent on this host, so it hits the
+        // elif branch and echoes __REMOVE_ALREADY__ (idempotent success).
+        // We simulate __REMOVE_DID__ here to exercise the "removed" action
+        // path — a file DID exist and rm succeeded.
+        return "__REMOVE_DID__";
+      }
+      throw new Error(`unexpected exec: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => null),
+      // Resolver returned null (empty field / missing file / over-cap) — the
+      // composer must NOT try to read installed bytes or write bundled bytes.
+      resolvedRuntimeBytes: new Map<string, Buffer | null>([["instance-policy", null]]),
+    };
+
+    const result = await runSweepForHost(channel, HOST, catalog, deps);
+
+    // itemsChanged bumps because a real removal happened (action: "removed").
+    expect(result.itemsChanged).toBe(1);
+    expect(result.itemsFailed).toBe(0);
+
+    // Exactly ONE exec on the channel — the removal command. NO base64 read,
+    // NO base64 write.
+    const readCalls = exec.mock.calls.filter((c) =>
+      (c[0] as string).includes("base64 -w0"),
+    );
+    const writeCalls = exec.mock.calls.filter((c) =>
+      (c[0] as string).includes("base64 -d"),
+    );
+    const rmCalls = exec.mock.calls.filter((c) =>
+      (c[0] as string).includes("rm -f"),
+    );
+    expect(readCalls).toHaveLength(0);
+    expect(writeCalls).toHaveLength(0);
+    expect(rmCalls).toHaveLength(1);
+    expect(rmCalls[0][0] as string).toContain("/etc/claude-code/CLAUDE.md");
+
+    // logItemChanged fires with changeKind bytes-updated (D-16 removal action)
+    expect(logItemChanged).toHaveBeenCalledTimes(1);
+    const changed = (logItemChanged as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(changed.entrySlug).toBe("instance-policy-claude-md");
+    expect(changed.installPath).toBe("/etc/claude-code/CLAUDE.md");
+
+    // readBundledBytes must NOT have been called for the runtime row —
+    // the source resolution branch reads from resolvedRuntimeBytes only.
+    expect(deps.readBundledBytes).not.toHaveBeenCalled();
+  });
+
+  it("Test P114-T-08b: runtime row with null bytes AND absent-on-host → __REMOVE_ALREADY__ = silent skip (no change, no fail)", async () => {
+    const catalog: CatalogEntry[] = [
+      runtimeCatalogEntry({
+        slug: "instance-policy-claude-md",
+        installPath: "/etc/claude-code/CLAUDE.md",
+      }),
+    ];
+    const { channel } = makeChannelSequenced((cmd) => {
+      // File never existed on this host — removeInstalledFile hits the
+      // elif branch and emits __REMOVE_ALREADY__ (idempotent, no-op).
+      if (cmd.includes("__REMOVE_")) return "__REMOVE_ALREADY__";
+      throw new Error(`unexpected exec: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => null),
+      resolvedRuntimeBytes: new Map<string, Buffer | null>([["instance-policy", null]]),
+    };
+
+    const result = await runSweepForHost(channel, HOST, catalog, deps);
+
+    // No change, no fail — mirrors the bytes-match skip semantics.
+    expect(result.itemsChanged).toBe(0);
+    expect(result.itemsFailed).toBe(0);
+    expect(logItemChanged).not.toHaveBeenCalled();
+    expect(logItemFailed).not.toHaveBeenCalled();
+  });
+
+  it("Test P114-T-09 (runtime present + root host + push): system-root chown/chmod command shape", async () => {
+    const twinkieBytes = Buffer.from("# instance policy\nbe nice.\n");
+    const catalog: CatalogEntry[] = [
+      runtimeCatalogEntry({
+        slug: "instance-policy-claude-md",
+        installPath: "/etc/claude-code/CLAUDE.md",
+      }),
+    ];
+    const { channel, exec } = makeChannelSequenced((cmd) => {
+      // Installed side is absent → ENOENT triggers a write.
+      if (cmd.includes("base64 -w0")) return "__READ_ENOENT__";
+      if (cmd.includes("base64 -d")) return "__WRITE_OK__";
+      throw new Error(`unexpected exec: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => null),
+      resolvedRuntimeBytes: new Map<string, Buffer | null>([["instance-policy", twinkieBytes]]),
+    };
+
+    const result = await runSweepForHost(channel, HOST, catalog, deps);
+
+    expect(result.itemsChanged).toBe(1);
+    expect(result.itemsFailed).toBe(0);
+
+    // The write command must include the system-root shape (chown root:root
+    // + mkdir parent dir + symlink guard) per Plan 03 Task 1.
+    const writeCalls = exec.mock.calls.filter((c) =>
+      (c[0] as string).includes("base64 -d"),
+    );
+    expect(writeCalls).toHaveLength(1);
+    const writeCmd = writeCalls[0][0] as string;
+    expect(writeCmd).toContain("chown root:root");
+    expect(writeCmd).toContain("/etc/claude-code/CLAUDE.md");
+    // System-root paths must NOT be tilde-preserved (Pitfall 2 mitigation).
+    expect(writeCmd).not.toContain("~/");
+    // Symlink-guard invariant present.
+    expect(writeCmd).toMatch(/test -f .* test ! -L/);
+  });
+
+  it("Test P114-T-10 (root gate — non-root host skip): sshLogger.info + zero channel.exec for the row", async () => {
+    const catalog: CatalogEntry[] = [
+      runtimeCatalogEntry({
+        slug: "instance-policy-claude-md",
+        installPath: "/etc/claude-code/CLAUDE.md",
+      }),
+    ];
+    // Non-root SSH host — the D-13 gate MUST short-circuit before any exec.
+    const nonRootHost = { id: "h9", name: "notroot-host", username: "ubuntu" };
+    const { channel, exec } = makeChannelSequenced((cmd) => {
+      throw new Error(`the D-13 gate should have prevented any exec, but saw: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => null),
+      resolvedRuntimeBytes: new Map<string, Buffer | null>([["instance-policy", Buffer.from("does not matter")]]),
+    };
+
+    const result = await runSweepForHost(channel, nonRootHost, catalog, deps);
+
+    // itemsChecked bumps (D-26: the row IS checked, just gated), no change,
+    // no fail (skip-with-log is not a failure).
+    expect(result.itemsChecked).toBe(1);
+    expect(result.itemsChanged).toBe(0);
+    expect(result.itemsFailed).toBe(0);
+
+    // Zero channel.exec calls for the row — the gate short-circuits before
+    // any transport action.
+    const rowExecs = exec.mock.calls.filter((c) => {
+      const s = c[0] as string;
+      return s.includes("/etc/claude-code") || s.includes("__REMOVE_") || s.includes("base64");
+    });
+    expect(rowExecs).toHaveLength(0);
+
+    // sshLogger.info fired with the D-26 shape.
+    expect(sshLogger.info).toHaveBeenCalledWith(
+      expect.stringContaining("skipping instance-policy-claude-md"),
+      expect.objectContaining({
+        operation: "fleet_substrate_system_root_skip",
+        fleetHostId: "h9",
+        hostName: "notroot-host",
+        entrySlug: "instance-policy-claude-md",
+        installMode: "system-root",
+        username: "ubuntu",
+      }),
+    );
+
+    // logItemChanged / logItemFailed NOT called — the gate is not a failure.
+    expect(logItemChanged).not.toHaveBeenCalled();
+    expect(logItemFailed).not.toHaveBeenCalled();
+  });
+
+  it("Test P114-T-10b (root gate does NOT fire for user-home rows): username=ubuntu is fine for user-home entries", async () => {
+    const bundled = Buffer.from("bundled-user-home");
+    const catalog: CatalogEntry[] = [
+      catalogEntry({
+        slug: "a-user-home-row",
+        installPath: "~/.claude/skills/foo/SKILL.md",
+      }),
+    ];
+    const nonRootHost = { id: "h9", name: "workstation", username: "ubuntu" };
+    const { channel, exec } = makeChannelSequenced((cmd) => {
+      if (cmd.includes("base64 -w0")) return b64Ok(bundled);
+      throw new Error(`unexpected exec: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => ({ bytes: bundled, mode: 0o644 })),
+    };
+
+    const result = await runSweepForHost(channel, nonRootHost, catalog, deps);
+
+    // User-home row on non-root host is FINE — the gate only fires for
+    // system-root rows.
+    expect(result.itemsChecked).toBe(1);
+    expect(result.itemsChanged).toBe(0);
+    expect(result.itemsFailed).toBe(0);
+    // sshLogger.info NOT called with the skip operation for a user-home row.
+    const skipCalls = (sshLogger.info as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => {
+        const meta = c[1];
+        return meta && typeof meta === "object" &&
+          (meta as Record<string, unknown>).operation === "fleet_substrate_system_root_skip";
+      },
+    );
+    expect(skipCalls).toHaveLength(0);
+    // The read command DID fire (byte-compare skip is the outcome).
+    expect(exec.mock.calls.some((c) => (c[0] as string).includes("base64 -w0"))).toBe(true);
+  });
+
+  it("Test P114-T-11 (removal transport failure): rm -f transport-drop → logItemFailed(stage:write)", async () => {
+    const catalog: CatalogEntry[] = [
+      runtimeCatalogEntry({
+        slug: "instance-policy-claude-md",
+        installPath: "/etc/claude-code/CLAUDE.md",
+      }),
+    ];
+    const { channel } = makeChannelSequenced((cmd) => {
+      if (cmd.includes("__REMOVE_")) return null; // transport failure
+      throw new Error(`unexpected exec: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => null),
+      resolvedRuntimeBytes: new Map<string, Buffer | null>([["instance-policy", null]]),
+    };
+
+    const result = await runSweepForHost(channel, HOST, catalog, deps);
+
+    expect(result.itemsChanged).toBe(0);
+    expect(result.itemsFailed).toBe(1);
+    expect(logItemFailed).toHaveBeenCalledTimes(1);
+    const failCall = (logItemFailed as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // stage "remove" maps to logItemFailed's "write" bucket per the mapping;
+    // errorMessage carries the mock transport payload.
+    expect(failCall.stage).toBe("write");
+    expect(failCall.entrySlug).toBe("instance-policy-claude-md");
+  });
+
 });

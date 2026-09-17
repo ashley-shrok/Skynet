@@ -10,5 +10,6 @@
     {"src": "/branding/pwa-icon-512.png", "sizes": "512x512", "type": "image/png"}
   ],
   "avatarDirectorSpec": "",
-  "avatarGammaDefault": 0.7
+  "avatarGammaDefault": 0.7,
+  "instancePolicyFilename": ""
 }

@@ -50,10 +50,18 @@ vi.mock("./bundled-reader.js", () => ({
   bundledReaderFromDisk: vi.fn(async () => ({ bytes: Buffer.from(""), mode: 0o644 })),
 }));
 
+// Phase 114 Plan 05 Task 2: mock the branding-config loader's runtime-bytes
+// reader so the orchestrator's per-tick resolver call is observable (call
+// count, per-tick invariant, return-value → Map propagation to runSweepForHost).
+vi.mock("../branding/branding-config-loader.js", () => ({
+  readInstancePolicyBytes: vi.fn(async () => null),
+}));
+
 import { createServerSubstrateOrchestrator } from "./server-substrate-orchestrator.js";
 import type { SubstrateHostRecord } from "./list-substrate-hosts.js";
 import { runSweepForHost } from "./run-sweep.js";
 import { logSweepHookError, logPersistentFailure } from "./log-tags.js";
+import { readInstancePolicyBytes } from "../branding/branding-config-loader.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,7 +74,7 @@ function makeChannel(): SshChannel {
 
 /** Build a basic channel that always succeeds (non-null) */
 function makeDeps(overrides: {
-  hosts?: Array<{ id: string; name: string }>;
+  hosts?: Array<{ id: string; name: string; username?: string }>;
   acquireChannel?: (host: { id: string; name: string }) => Promise<SshChannel | null>;
   retryIntervalMs?: number;
   persistentFailureThreshold?: number;
@@ -86,8 +94,16 @@ function makeDeps(overrides: {
   });
   const clearIntervalMock = vi.fn();
 
+  // Phase 114 Plan 05 Task 2: _connDetails.username is the provenance
+  // of host.username at the runSweepForHost call site. Default to "root"
+  // so pre-existing tests (which don't care about the axis) get the
+  // permissive value; individual tests can override per-host.
   const listSubstrateHosts = vi.fn(async () =>
-    hosts.map((h) => ({ ...h, _connDetails: {} })),
+    hosts.map((h) => ({
+      id: h.id,
+      name: h.name,
+      _connDetails: { username: h.username ?? "root" },
+    })),
   );
 
   const acquireChannel =
@@ -621,5 +637,182 @@ describe("Observability", () => {
 
     await fireTick();
     expect(orch.getSweepTickCount()).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 114 Plan 05 Task 2 — runtime resolver (once per tick) + host.username propagation
+// ---------------------------------------------------------------------------
+
+describe("Phase 114 — runtime bytes resolver (once per tick, fan-to-hosts)", () => {
+  it("P114-Orch-1: readInstancePolicyBytes is called exactly ONCE at start() regardless of host count (Pitfall 6)", async () => {
+    const hosts = [
+      { id: "h1", name: "host-1" },
+      { id: "h2", name: "host-2" },
+      { id: "h3", name: "host-3" },
+    ];
+    const { deps } = makeDeps({ hosts });
+
+    // Mock a successful sweep so every host is marked done in this tick.
+    vi.mocked(runSweepForHost).mockResolvedValue({
+      itemsChecked: 25,
+      itemsChanged: 0,
+      itemsFailed: 0,
+    });
+    vi.mocked(readInstancePolicyBytes).mockResolvedValue(Buffer.from("hi from twinkie"));
+
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Startup pass resolved runtime bytes ONCE, not N times (host count = 3).
+    expect(vi.mocked(readInstancePolicyBytes)).toHaveBeenCalledTimes(1);
+    // But runSweepForHost was called for each host (3 times).
+    expect(vi.mocked(runSweepForHost)).toHaveBeenCalledTimes(3);
+  });
+
+  it("P114-Orch-2: readInstancePolicyBytes is called ONCE per retry tick (not once per host per tick)", async () => {
+    const hosts = [
+      { id: "h1", name: "host-1" },
+      { id: "h2", name: "host-2" },
+    ];
+    const { deps, fireTick } = makeDeps({ hosts });
+
+    // Every sweep fails so both hosts get retried on each tick.
+    vi.mocked(runSweepForHost).mockResolvedValue({
+      itemsChecked: 25,
+      itemsChanged: 0,
+      itemsFailed: 1,
+    });
+    vi.mocked(readInstancePolicyBytes).mockResolvedValue(null);
+
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start(); // tick 1 (startup)
+    await Promise.resolve();
+    // 1 call after startup
+    expect(vi.mocked(readInstancePolicyBytes)).toHaveBeenCalledTimes(1);
+
+    await fireTick(); // tick 2 (first retry)
+    await Promise.resolve();
+    await Promise.resolve();
+    // 2 calls after 1 retry (not 3 — retry did NOT fire per-host)
+    expect(vi.mocked(readInstancePolicyBytes)).toHaveBeenCalledTimes(2);
+
+    await fireTick(); // tick 3 (second retry)
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(vi.mocked(readInstancePolicyBytes)).toHaveBeenCalledTimes(3);
+  });
+
+  it("P114-Orch-3: resolvedRuntimeBytes Map is passed to every runSweepForHost invocation with the twinkie key populated", async () => {
+    const hosts = [{ id: "h1", name: "host-1" }];
+    const { deps } = makeDeps({ hosts });
+
+    const twinkieBytes = Buffer.from("# managed policy\n");
+    vi.mocked(readInstancePolicyBytes).mockResolvedValue(twinkieBytes);
+    vi.mocked(runSweepForHost).mockResolvedValue({
+      itemsChecked: 25,
+      itemsChanged: 0,
+      itemsFailed: 0,
+    });
+
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    await Promise.resolve();
+
+    // Inspect the deps object runSweepForHost received. The 4th arg is deps.
+    const call = vi.mocked(runSweepForHost).mock.calls[0];
+    const receivedDeps = call[3];
+    expect(receivedDeps.resolvedRuntimeBytes).toBeInstanceOf(Map);
+    expect(receivedDeps.resolvedRuntimeBytes?.get("instance-policy")).toEqual(twinkieBytes);
+  });
+
+  it("P114-Orch-4: host.username is extracted from _connDetails.username and passed to runSweepForHost", async () => {
+    const hosts = [{ id: "h1", name: "host-1", username: "root" }];
+    const { deps } = makeDeps({ hosts });
+
+    vi.mocked(runSweepForHost).mockResolvedValue({
+      itemsChecked: 25,
+      itemsChanged: 0,
+      itemsFailed: 0,
+    });
+
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    await Promise.resolve();
+
+    // The 2nd arg to runSweepForHost is the widened host object; verify
+    // username was extracted from _connDetails.
+    const call = vi.mocked(runSweepForHost).mock.calls[0];
+    const receivedHost = call[1];
+    expect(receivedHost.id).toBe("h1");
+    expect(receivedHost.name).toBe("host-1");
+    expect(receivedHost.username).toBe("root");
+  });
+
+  it("P114-Orch-5: non-root host — host.username reflects the actual DB value (e.g., 'ubuntu')", async () => {
+    const hosts = [{ id: "h2", name: "workstation", username: "ubuntu" }];
+    const { deps } = makeDeps({ hosts });
+
+    vi.mocked(runSweepForHost).mockResolvedValue({
+      itemsChecked: 25,
+      itemsChanged: 0,
+      itemsFailed: 0,
+    });
+
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    await Promise.resolve();
+
+    const receivedHost = vi.mocked(runSweepForHost).mock.calls[0][1];
+    expect(receivedHost.username).toBe("ubuntu");
+  });
+
+  it("P114-Orch-6: missing username in _connDetails — falls back to 'unknown' (composer treats as non-root gate)", async () => {
+    // Manually construct hosts where _connDetails does NOT carry username
+    // (simulates a DB row with no cred_username and no host-level username;
+    // shouldn't happen in practice but defense-in-depth for the composer gate).
+    const { deps } = makeDeps({ hosts: [{ id: "h1", name: "host-1" }] });
+    (deps.listSubstrateHosts as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { id: "h1", name: "host-1", _connDetails: {} },
+    ]);
+
+    vi.mocked(runSweepForHost).mockResolvedValue({
+      itemsChecked: 25,
+      itemsChanged: 0,
+      itemsFailed: 0,
+    });
+
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    await Promise.resolve();
+
+    const receivedHost = vi.mocked(runSweepForHost).mock.calls[0][1];
+    expect(receivedHost.username).toBe("unknown");
+  });
+
+  it("P114-Orch-7: readInstancePolicyBytes rejection is swallowed — orchestrator continues with null map value (never-throw)", async () => {
+    const hosts = [{ id: "h1", name: "host-1" }];
+    const { deps } = makeDeps({ hosts });
+
+    // Resolver throws — orchestrator must NOT propagate. Instead treat as null.
+    vi.mocked(readInstancePolicyBytes).mockRejectedValue(new Error("resolver went boom"));
+    vi.mocked(runSweepForHost).mockResolvedValue({
+      itemsChecked: 25,
+      itemsChanged: 0,
+      itemsFailed: 0,
+    });
+
+    const orch = createServerSubstrateOrchestrator(deps);
+    await expect(orch.start()).resolves.not.toThrow();
+    await Promise.resolve();
+
+    // runSweepForHost was still invoked — the orchestrator didn't blow up.
+    expect(vi.mocked(runSweepForHost)).toHaveBeenCalled();
+    // The Map exists but the twinkie value is null (defensive fallback).
+    const receivedDeps = vi.mocked(runSweepForHost).mock.calls[0][3];
+    expect(receivedDeps.resolvedRuntimeBytes).toBeInstanceOf(Map);
+    expect(receivedDeps.resolvedRuntimeBytes?.get("instance-policy")).toBeNull();
   });
 });

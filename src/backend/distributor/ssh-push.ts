@@ -113,8 +113,28 @@ export async function readInstalledBytes(
  * Write bundled bytes to the installed path AND chmod to the given octal
  * mode, in a single atomic exec (one round-trip per item).
  *
- * Command shape:
+ * Command shape (installMode="user-home", default — byte-identical to Phase 72):
  *   `mkdir -p '<parentDir>' && base64 -d > '<installPath>' && chmod <mode> '<installPath>' && echo __WRITE_OK__ || echo __WRITE_FAIL__`
+ *
+ * Command shape (installMode="system-root", Phase 114 Plan 03):
+ *   `mkdir -p <absParent> && chown root:root <absParent> && chmod 0755 <absParent>
+ *     && base64 -d > <absPath> && chown root:root <absPath> && chmod <mode> <absPath>
+ *     && { test -f <absPath> && test ! -L <absPath> && echo __WRITE_OK__ || echo __WRITE_SYMLINK_FAIL__ ; }
+ *     || echo __WRITE_FAIL__`
+ *
+ * Path quoting per installMode (Pitfall 2 mitigation):
+ *   - user-home  → quotePathPreservingTilde() — leaves `~/` unquoted for shell home-expansion.
+ *   - system-root → shellSingleQuote()        — absolute path, no tilde expansion.
+ *
+ * System-root additions (D-13, D-18, T-114-06):
+ *   - Parent dir chown/chmod to root:root 0755 (per D-18 managed-host invariant).
+ *   - File chown/chmod to root:root <mode> (defense-in-depth per Assumption A6 — SSH is
+ *     already root when this branch fires, per composer-level gate D-13).
+ *   - Symlink-guard post-condition: `test -f <path> && test ! -L <path>` runs AFTER
+ *     all mutations succeed. If the target is a symlink at that point (e.g. a rooted
+ *     managed host placed a symlink to /etc/passwd before the sweep), the command
+ *     emits __WRITE_SYMLINK_FAIL__ instead of __WRITE_OK__. Mitigates the symlink
+ *     attack surface (RESEARCH § Security Domain last row, plan threat T-114-06).
  *
  * The base64 body is passed via the exec channel's STDIN (CHANNEL_DATA
  * frames), NOT embedded in the command string.
@@ -140,24 +160,58 @@ export async function readInstalledBytes(
  *
  * Parent-dir extraction: manual `installPath.slice(0, installPath.lastIndexOf('/'))`.
  * One atomic command per push per item, one round-trip.
+ *
+ * @returns Discriminated union — { ok: true } on success, else
+ *   { ok: false, stage: "write" | "chmod" | "verify", errorMessage }.
+ *   The "verify" stage is exclusive to installMode="system-root" and fires when
+ *   the symlink-guard post-condition fails.
  */
 export async function writeInstalledBytesWithMode(
   channel: SshChannel,
   installPath: string,
   bytes: Buffer,
   modeOctal: number,
-): Promise<{ ok: true } | { ok: false; stage: "write" | "chmod"; errorMessage: string }> {
+  opts?: { installMode?: "user-home" | "system-root" },
+): Promise<
+  | { ok: true }
+  | { ok: false; stage: "write" | "chmod" | "verify"; errorMessage: string }
+> {
   try {
-    const escapedPath = quotePathPreservingTilde(installPath);
+    const installMode = opts?.installMode ?? "user-home";
     const lastSlash = installPath.lastIndexOf("/");
     const parentDir = lastSlash >= 0 ? installPath.slice(0, lastSlash) : ".";
-    const escapedParent = quotePathPreservingTilde(parentDir);
+
+    // Path-quoting branch (Pitfall 2): absolute system-root paths use
+    // shellSingleQuote (no tilde expansion desired); user-home paths use
+    // quotePathPreservingTilde (leaves `~/` unquoted for shell home-expand).
+    const escapedPath =
+      installMode === "system-root"
+        ? shellSingleQuote(installPath)
+        : quotePathPreservingTilde(installPath);
+    const escapedParent =
+      installMode === "system-root"
+        ? shellSingleQuote(parentDir)
+        : quotePathPreservingTilde(parentDir);
     const modeStr = modeOctal.toString(8);
 
-    // Small command — receives base64 body from stdin. Payload size no
     // longer affects command-string length.
-    const cmd =
-      `mkdir -p ${escapedParent} && base64 -d > ${escapedPath} && chmod ${modeStr} ${escapedPath} && echo __WRITE_OK__ || echo __WRITE_FAIL__`;
+    let cmd: string;
+    if (installMode === "system-root") {
+      // Phase 114 Plan 03: chained mkdir/chown/chmod on parent + file, then
+      // a nested symlink-guard test that emits __WRITE_SYMLINK_FAIL__ if the
+      // target is a symlink at that point (T-114-06 mitigation for symlink
+      // attack on the write path).
+      // The outer `||` catches any earlier-step failure and emits __WRITE_FAIL__
+      // via the same sentinel-inference path used by the user-home branch.
+      cmd =
+        `mkdir -p ${escapedParent} && chown root:root ${escapedParent} && chmod 0755 ${escapedParent} && ` +
+        `base64 -d > ${escapedPath} && chown root:root ${escapedPath} && chmod ${modeStr} ${escapedPath} && ` +
+        `{ test -f ${escapedPath} && test ! -L ${escapedPath} && echo __WRITE_OK__ || echo __WRITE_SYMLINK_FAIL__ ; } ` +
+        `|| echo __WRITE_FAIL__`;
+    } else {
+      cmd =
+        `mkdir -p ${escapedParent} && base64 -d > ${escapedPath} && chmod ${modeStr} ${escapedPath} && echo __WRITE_OK__ || echo __WRITE_FAIL__`;
+    }
 
     const b64 = bytes.toString("base64");
     const stdinBody = Buffer.from(b64, "utf-8");
@@ -172,6 +226,20 @@ export async function writeInstalledBytesWithMode(
 
     if (trimmed.endsWith("__WRITE_OK__")) {
       return { ok: true };
+    }
+
+    // Phase 114 Plan 03: symlink-guard post-condition failure — the write
+    // itself succeeded (all mutations landed), but the post-condition
+    // caught that the target is a symlink. Refuse to trust the file at
+    // that path — mitigates T-114-06 (symlink attack on system-root push).
+    if (trimmed.endsWith("__WRITE_SYMLINK_FAIL__")) {
+      return {
+        ok: false,
+        stage: "verify",
+        errorMessage:
+          `post-write invariant failed: target is a symlink at ${installPath} ` +
+          `(T-114-SYMLINK mitigation) — refusing to trust the file at that path`,
+      };
     }
 
     // Failure — best-effort stage inference. If the trimmed output contains
@@ -239,6 +307,105 @@ export async function restartUserUnit(
     return {
       ok: false,
       errorMessage: err instanceof Error ? err.message : "unknown throw",
+    };
+  }
+}
+
+/**
+ * Remove the installed file at `installPath` on the target host via the
+ * injected channel. Phase 114 Plan 03 Task 2 — peer helper to
+ * writeInstalledBytesWithMode, consumed by Plan 05's sweep composer removal
+ * branch (D-16 + D-27).
+ *
+ * When: The runtime resolver for a `sourceKind: "runtime"` catalog entry
+ * returns null (admin cleared the branding-config field or removed the
+ * referenced markdown file or the file exceeded the byte cap). Rather than
+ * leave stale bytes on managed hosts (D-17 "clean unset state"), the sweep
+ * issues rm -f on every root-SSH host to reach idempotent absence.
+ *
+ * Command shape (all one line, absolute path — no tilde):
+ *   `{ if [ -f '<path>' ]; then rm -f '<path>' && echo __REMOVE_DID__ ;
+ *      elif [ ! -e '<path>' ]; then echo __REMOVE_ALREADY__ ;
+ *      else echo __REMOVE_FAIL__ ; fi ; } 2>&1`
+ *
+ * Sentinel-based dispatch (mirrors readInstalledBytes / writeInstalledBytes):
+ *   - __REMOVE_DID__       → file existed, rm succeeded  → {ok:true, action:"removed"}
+ *   - __REMOVE_ALREADY__   → file was absent (idempotent) → {ok:true, action:"already-absent"}
+ *   - __REMOVE_FAIL__      → path exists but is not a regular file (dir, symlink, socket…),
+ *                             OR rm returned non-zero    → {ok:false, stage:"verify", errorMessage:<stdout>}
+ *   - Transport failure (channel.exec !ok) → {ok:false, stage:"remove", errorMessage:<mock msg>}
+ *   - Uncaught throw       → {ok:false, stage:"remove", errorMessage:"__THROW__ <msg>"}
+ *
+ * Why shellSingleQuote (not quotePathPreservingTilde):
+ *   The removal path is an absolute /etc/ path per D-14 (`/etc/claude-code/CLAUDE.md`).
+ *   Tilde-preservation would be semantically wrong for /etc/ paths (Pitfall 2);
+ *   even if a caller passed a `~/…` path, shellSingleQuote produces the correct
+ *   literal path the shell will not tilde-expand — the helper is path-agnostic
+ *   but expects absolute paths in production use.
+ *
+ * Why no sudo:
+ *   D-27 mechanics — Plan 05's composer-level gate D-13 ensures this helper is
+ *   ONLY called against hosts whose SSH user is `root`. No elevation needed.
+ *
+ * Never-throws contract (inherited from module docstring L26-33):
+ *   Outer try/catch wraps every path; JS throws land as
+ *   `{ ok: false, stage: "remove", errorMessage: "__THROW__ <msg>" }` per
+ *   Phase 111 code-review M1 — the sweep's retry predicate classifies
+ *   __THROW__ as non-retryable (code bug, not transient).
+ *
+ * @param channel Injected SSH channel from the orchestrator's per-host session.
+ * @param installPath Absolute path to remove — e.g. "/etc/claude-code/CLAUDE.md".
+ * @returns Discriminated union — see sentinel dispatch table above.
+ */
+export async function removeInstalledFile(
+  channel: SshChannel,
+  installPath: string,
+): Promise<
+  | { ok: true; action: "removed" | "already-absent" }
+  | { ok: false; stage: "remove" | "verify"; errorMessage: string }
+> {
+  try {
+    // Absolute-path safe quoting — no tilde preservation (Pitfall 2).
+    const escaped = shellSingleQuote(installPath);
+    const cmd =
+      `{ if [ -f ${escaped} ]; then rm -f ${escaped} && echo __REMOVE_DID__ ; ` +
+      `elif [ ! -e ${escaped} ]; then echo __REMOVE_ALREADY__ ; ` +
+      `else echo __REMOVE_FAIL__ ; fi ; } 2>&1`;
+
+    const raw = await channel.exec(cmd);
+    // Transport failure — surface distinct from verify-stage failure so
+    // the composer can retry-on-transport per the existing predicate.
+    if (raw === null) {
+      return {
+        ok: false,
+        stage: "remove",
+        errorMessage: "channel returned null",
+      };
+    }
+
+    const trimmed = raw.trimEnd();
+    if (trimmed.endsWith("__REMOVE_DID__")) {
+      return { ok: true, action: "removed" };
+    }
+    if (trimmed.endsWith("__REMOVE_ALREADY__")) {
+      return { ok: true, action: "already-absent" };
+    }
+
+    // __REMOVE_FAIL__ (non-regular-file at path, or rm non-zero) OR unknown
+    // shape — both dispatch to verify-stage failure. The composer will mark
+    // the row failed on this sweep; next-sweep retry will re-evaluate.
+    return {
+      ok: false,
+      stage: "verify",
+      errorMessage: trimmed.slice(0, 500) || "unknown remove failure",
+    };
+  } catch (err) {
+    // Phase 111 M1: __THROW__ prefix classifies as non-retryable code bug.
+    const errMsg = err instanceof Error ? err.message : "unknown throw";
+    return {
+      ok: false,
+      stage: "remove",
+      errorMessage: `__THROW__ ${errMsg}`,
     };
   }
 }

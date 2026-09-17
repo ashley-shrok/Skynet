@@ -36,6 +36,7 @@ import { runSweepForHost } from "./run-sweep.js";
 import { FLEET_SUBSTRATE_CATALOG } from "./catalog.js";
 import { logSweepHookError, logPersistentFailure } from "./log-tags.js";
 import { bundledReaderFromDisk } from "./bundled-reader.js";
+import { readInstancePolicyBytes } from "../branding/branding-config-loader.js";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
 
 // ---------------------------------------------------------------------------
@@ -141,6 +142,48 @@ export function createServerSubstrateOrchestrator(
   let retryTimer: ReturnType<typeof setInterval> | null = null;
   let stopped = false;
 
+  /**
+   * Phase 114 Plan 05 (D-15 + Pitfall 6): current-tick runtime bytes.
+   *
+   * The orchestrator resolves runtime-sourced catalog rows (currently just
+   * the "instance-policy" twinkie) ONCE per tick and fans the same Map to
+   * every runSweepForHost invocation in that tick. This factory-scope
+   * variable is refreshed:
+   *   (a) at the top of start() before the startup-pass host iteration
+   *   (b) at the top of the retry-tick setInterval callback before the
+   *       retry-pass host iteration
+   *
+   * NOT called per-host — that would burn N filesystem reads per tick
+   * instead of one, defeating the "once per sweep" invariant.
+   *
+   * Default empty Map (before start() runs) is safe: the composer treats
+   * missing keys as null → runtime rows are either removed (if ever
+   * installed) or skipped silently. sweepOneHost callers before start()
+   * would fall through this path, which is acceptable.
+   */
+  let currentRuntimeBytes: Map<string, Buffer | null> = new Map();
+
+  /**
+   * Resolve runtime-sourced catalog bytes for the current tick.
+   *
+   * NEVER-THROW: readInstancePolicyBytes has its own never-throws contract
+   * (Plan 01), but the try/catch here is defense-in-depth against future
+   * changes to the resolver. On any throw, the map value falls back to null
+   * — the composer's removal branch (D-16) will run against every root-SSH
+   * host, mimicking the "clean unset state" the resolver-null path is
+   * designed for.
+   */
+  async function resolveRuntimeBytesForTick(): Promise<Map<string, Buffer | null>> {
+    const map = new Map<string, Buffer | null>();
+    try {
+      map.set("instance-policy", await readInstancePolicyBytes());
+    } catch {
+      // Defense-in-depth: keep the tick alive even if the resolver breaks.
+      map.set("instance-policy", null);
+    }
+    return map;
+  }
+
   // -------------------------------------------------------------------------
   // Internal sweep helper
   // -------------------------------------------------------------------------
@@ -177,10 +220,29 @@ export function createServerSubstrateOrchestrator(
 
       let result: { itemsChecked: number; itemsChanged: number; itemsFailed: number };
       try {
-        result = await runSweepForHost(channel, { id: host.id, name: host.name }, FLEET_SUBSTRATE_CATALOG, {
-          readBundledBytes: bundledReaderFromDisk,
-          now: deps.now,
-        });
+        // Phase 114 Plan 05 (Pitfall 3): extract SSH username from
+        // _connDetails so the composer's D-13 root-user gate can enforce
+        // system-root row eligibility. Null-coalesce to "unknown" so a
+        // missing/malformed record safely gates OUT of system-root rows
+        // (composer treats "unknown" !== "root" → skip-with-log).
+        const username =
+          typeof host._connDetails?.username === "string"
+            ? host._connDetails.username
+            : "unknown";
+        result = await runSweepForHost(
+          channel,
+          { id: host.id, name: host.name, username },
+          FLEET_SUBSTRATE_CATALOG,
+          {
+            readBundledBytes: bundledReaderFromDisk,
+            // Phase 114 Plan 05 (D-15 + Pitfall 6): pass the per-tick
+            // resolver map (populated ONCE per tick at start() / retry
+            // callback), so runtime rows fan bytes across all hosts
+            // without re-reading the twinkie per host.
+            resolvedRuntimeBytes: currentRuntimeBytes,
+            now: deps.now,
+          },
+        );
       } catch (err) {
         // Defense-in-depth: runSweepForHost has a never-reject contract;
         // this catch is for the one-in-a-million synchronous throw before
@@ -257,6 +319,12 @@ export function createServerSubstrateOrchestrator(
      * then install the 30s retry interval.
      */
     async start(): Promise<void> {
+      // Phase 114 Plan 05 (D-15 + Pitfall 6): resolve runtime-sourced
+      // catalog bytes ONCE for this tick, BEFORE iterating hosts. Every
+      // executeSweeForHost invocation in this tick will pick up the same
+      // Map via the currentRuntimeBytes closure variable.
+      currentRuntimeBytes = await resolveRuntimeBytesForTick();
+
       const hosts = await deps.listSubstrateHosts();
       sweepTickCount++;
 
@@ -276,6 +344,9 @@ export function createServerSubstrateOrchestrator(
       retryTimer = deps.setInterval(async () => {
         if (stopped) return;
         sweepTickCount++;
+        // Phase 114 Plan 05: re-resolve for this retry tick. Fresh read
+        // per tick — the twinkie file may have been edited between ticks.
+        currentRuntimeBytes = await resolveRuntimeBytesForTick();
         const retryHosts = await deps.listSubstrateHosts();
         for (const h of retryHosts) {
           if (!sweepedThisInstance.has(h.id)) {

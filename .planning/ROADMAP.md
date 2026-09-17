@@ -2541,3 +2541,31 @@ Plans:
 - [ ] 113-02-PLAN.md — `createSkill` + `SkillAlreadyExistsError` in `skills-api.ts` + `SkillFileTab` `SKILL.md` delete-affordance guard (D-10 frontend, D-24)
 - [ ] 113-03-PLAN.md — `SkillsEditorModal` restructure: `handleNewSkill` + `+ New skill` header button + retire `+ Add file` header button + `+ New file` action-tab pinned right + tab-strip hoist + empty-file-list copy repoint + single-host picker conditional (D-01, D-02, D-03, D-04, D-05, D-12, D-13, D-14, D-15, D-16, D-17, D-18, D-25)
 - [ ] 113-04-PLAN.md — `SkillsEditorModal.test.tsx` extension covering all D-28 frontend RTL cases + companion edit for the pre-existing delete-file test (D-28)
+
+### Phase 114: Instance-wide managed-policy CLAUDE.md — new branding-config field references a filename, twinkie markdown lives alongside branding assets in the host-side branding directory, distributor sweeps push its bytes to every managed host at the system managed-policy path Claude Code natively reads (root:root 0644; first substrate item requiring root-write on managed side). Layers above per-user ~/.claude/CLAUDE.md; loaded natively by Claude Code at session start (verified across three hosts and two auth flavors: subscription OAuth on t1000 + T800, Bedrock/IAM on test08). Free-form admin-authored content, no admin UI (SSH-and-file-edit), next scheduled sweep propagates. Shape file at .planning/shapes/shape-instance-wide-file.md.
+
+**Goal:** Ship the instance-wide managed-policy CLAUDE.md tier — a new branding-config field references a filename; the referenced "twinkie" markdown file lives alongside branding assets in the Skynet server's host-side branding directory; the fleet-substrate distributor sweeps push its bytes to every root-SSH managed host at `/etc/claude-code/CLAUDE.md` (root:root 0644). Cleanly logs and skips non-root-SSH hosts (per Q1 resolution).
+**Requirements**: none mapped — coverage is driven by CONTEXT.md decisions D-01 through D-27
+**Depends on:** Phase 113
+**Plans:** 6/6 plans complete
+
+*(Mercury's Phase 112 was rescue-rebased 112 → 114 on 2026-09-17 after cross-tree slot collisions with cedar's Phase 112 (MDXEditor) and someone's Phase 113 (skill-creation) — pure slot collision, disjoint source files (mine: `src/backend/branding/` + `src/backend/distributor/` + `docker/branding-defaults/branding.json`; cedar's + peer's: frontend markdown-editor + skills-editor). Per fleet rule the later-mover (me) renumbers.)*
+
+Plans:
+**Wave 1**
+
+- [x] 114-01-PLAN.md — BrandingConfig.instancePolicyFilename field + optional-in-guard shape check + readInstancePolicyBytes() reader + T-01..T-05
+- [x] 114-02-PLAN.md — CatalogEntry discriminated-union extension (sourceKind x installMode) + twinkie row + T-07
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 114-03-PLAN.md — writeInstalledBytesWithMode system-root branch (symlink guard T-114-06) + removeInstalledFile peer helper + T-09/T-27
+- [x] 114-04-PLAN.md — non-throwing instance-policy misconfig alarm at assert-boot (T-06a..T-06d) — Phase 74's fatal gate byte-untouched
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 114-05-PLAN.md — sweep composer root-user gate D-13 + sourceKind resolution + removal branch D-16 + orchestrator per-tick resolver Pitfall 6 + host.username widening
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 114-06-PLAN.md — T-11 three-scenario end-to-end integration test (happy path + non-root skip + removal) + D-23 scoped-suite green-gate
