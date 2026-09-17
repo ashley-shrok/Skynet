@@ -1853,6 +1853,16 @@ export function toggleHideConversation(id: string): void {
 // quick-260731-tgg: server-authoritative reconciliation for hiddenIds.
 // Called by PrettyConversationsPanel's mount effect after a successful
 // GET /user-preferences fetch. Same-content guard mirrors hydratePinnedIdsFromServer.
+//
+// NOTE (2026-09-17): this function is AUTHORITATIVE and will wipe on empty
+// when called with []. The reprojectDiskPinHideIntoRows caller in
+// identities-store is gated on state.loaded — it fires only when the full
+// picture is live, so an empty projection there IS a real "nothing hidden"
+// signal that must land. The eager panel-side caller must guard its OWN
+// empty projections before calling here (see PrettyConversationsPanel
+// hydrate effect); moving that guard here would starve
+// reprojectDiskPinHideIntoRows' legitimate wipes when a merge takes the
+// last hidden flag to false.
 export function hydrateHiddenIdsFromServer(ids: string[]): void {
   const nextHiddenIds = new Set(ids);
   if (nextHiddenIds.size === state.hiddenIds.size) {
@@ -1876,6 +1886,10 @@ export function hydrateHiddenIdsFromServer(ids: string[]): void {
 // at L611-625 — skip notify() when the incoming set matches the current set to
 // avoid gratuitous re-renders on identical refetches.
 export function hydratePinnedIdsFromServer(ids: string[]): void {
+  // AUTHORITATIVE (see hydrateHiddenIdsFromServer note above): callers that
+  // may fire eagerly against a partial picture (the PrettyConversationsPanel
+  // hydrate effect) MUST guard empty derivations at their own callsite. This
+  // function trusts its input.
   const nextPinnedIds = new Set(ids);
   if (nextPinnedIds.size === state.pinnedIds.size) {
     let allSame = true;

@@ -1109,3 +1109,61 @@ describe("appearance cache (post-Phase-111 cold-paint fix)", () => {
     Storage.prototype.setItem = original;
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// hydratePinnedIdsFromServer / hydrateHiddenIdsFromServer — AUTHORITATIVE sink
+// contract (Problem 2, 2026-09-17). These functions trust their input; the
+// empty-projection wipe protection lives at eager CALLSITES (the
+// PrettyConversationsPanel hydrate effect). This describe block locks the
+// contract from both directions: authoritative wipe MUST land AND
+// identities-store's reprojectDiskPinHideIntoRows correctly propagates a
+// pinned:true→false merge through to the row-id set.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("hydratePinnedIdsFromServer / hydrateHiddenIdsFromServer — authoritative sink", () => {
+  it("Sink 1: hydratePinnedIdsFromServer([]) wipes existing pins (authoritative behavior — MUST land for reprojectDiskPinHideIntoRows unpin path)", () => {
+    hydratePinnedIdsFromServer(["fleet::5::pixel"]);
+    expect(__getSnapshotForTest().pinnedIds.has("fleet::5::pixel")).toBe(true);
+    hydratePinnedIdsFromServer([]);
+    // Empty landed — the sink trusts its caller (the authoritative
+    // reprojectDiskPinHideIntoRows path is gated on state.loaded and depends
+    // on this wipe landing to propagate an unpin-via-disk transition).
+    expect(__getSnapshotForTest().pinnedIds.size).toBe(0);
+  });
+
+  it("Sink 2: hydrateHiddenIdsFromServer([]) wipes existing hides (same rationale)", () => {
+    hydrateHiddenIdsFromServer(["fleet::5::pixel"]);
+    expect(__getSnapshotForTest().hiddenIds.has("fleet::5::pixel")).toBe(true);
+    hydrateHiddenIdsFromServer([]);
+    expect(__getSnapshotForTest().hiddenIds.size).toBe(0);
+  });
+
+  it("Sink 3: reprojectDiskPinHideIntoRows correctly wipes when a merge unpins the last identity (Case 13/14 regression coverage under the loosened callsite pattern)", async () => {
+    // reprojectDiskPinHideIntoRows is called from mergeIdentityAppearance
+    // when pinHidChanged. This test proves the wipe path still works after
+    // the panel-side guard shift.
+    await seedIdentities([makeIdentityFull("pixel", 5, { pinned: true })]);
+    updateFleetSessions([makeSession(5, "pixel")]);
+    // Baseline: derived projection lands.
+    const identityHosts = buildIdentityHostsFromFleet([makeSession(5, "pixel")]);
+    hydratePinnedIdsFromServer(deriveDiskPinnedIds(identityHosts));
+    expect(__getSnapshotForTest().pinnedIds.has("fleet::5::pixel")).toBe(true);
+
+    // Now merge pinned:false — reprojectDiskPinHideIntoRows fires with an
+    // empty derivation (authoritative — state.loaded=true, no partial view).
+    mergeIdentityAppearance(5, "pixel", { pinned: false });
+    expect(__getSnapshotForTest().pinnedIds.has("fleet::5::pixel")).toBe(false);
+    expect(__getSnapshotForTest().pinnedIds.size).toBe(0);
+  });
+
+  it("Sink 4: reprojectDiskPinHideIntoRows correctly wipes hides when a merge unhides the last identity", async () => {
+    await seedIdentities([makeIdentityFull("pixel", 5, { hidden: true })]);
+    updateFleetSessions([makeSession(5, "pixel")]);
+    const identityHosts = buildIdentityHostsFromFleet([makeSession(5, "pixel")]);
+    hydrateHiddenIdsFromServer(deriveDiskHiddenIds(identityHosts));
+    expect(__getSnapshotForTest().hiddenIds.has("fleet::5::pixel")).toBe(true);
+
+    mergeIdentityAppearance(5, "pixel", { hidden: false });
+    expect(__getSnapshotForTest().hiddenIds.has("fleet::5::pixel")).toBe(false);
+  });
+});

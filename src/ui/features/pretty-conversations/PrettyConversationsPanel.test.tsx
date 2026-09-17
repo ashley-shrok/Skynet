@@ -61,12 +61,26 @@ let mockIdentitiesByKey: Map<
 > = new Map();
 
 // quick-260912-5q2: mutable flag for identities-store loaded state.
-// Default true to preserve ALL existing tests' expectations — the panel
-// treats loaded:true as the safe default and every pre-5q2 test relies on
-// the hydrate path being unblocked by the identities gate.
-// The new ordering-gate regression test explicitly sets this to false in
-// its arrange step to exercise the race window.
+// Default true to preserve ALL existing tests' expectations. Post-2026-09-17
+// the panel gate no longer READS this flag directly — the gate now checks
+// `identitiesByKey.size > 0`. The `mockIdentitiesLoaded=true` default is
+// paired with a stable-ref TEST_DEFAULT_BY_KEY placeholder below so tests
+// that don't seed mockIdentitiesByKey still see an open gate. Tests that
+// exercise the closed-gate race window (e.g. the quick-260912-5q2 lock test)
+// set mockIdentitiesLoaded=false which routes the mock to the actual
+// (usually empty) mockIdentitiesByKey.
 let mockIdentitiesLoaded = true;
+
+// Stable-ref placeholder byKey map used when a test hasn't explicitly seeded
+// mockIdentitiesByKey but the panel gate needs to be OPEN (mockIdentitiesLoaded
+// = true). MUST be defined once at module load so the ref is stable across
+// renders — a fresh `new Map(...)` per useIdentities call would flip the
+// [fleetSessionsLoaded, identitiesByKey] dep-array on every render and fire
+// the hydrate effect repeatedly.
+const TEST_DEFAULT_BY_KEY = new Map<
+  string,
+  { identityKey: string; title?: string | null; displayName?: string | null }
+>([["__test_default__", { identityKey: "__test_default__" }]]);
 
 // Phase 92 Plan 04: identities-store now exports deriveDiskPinnedIds +
 // buildIdentityHostsFromFleet (H2 lock — single derivation site invariant).
@@ -86,10 +100,22 @@ const buildIdentityHostsFromFleetSpy = vi.fn<
 
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({
-    byKey: mockIdentitiesByKey,
+    // Panel gate (2026-09-17) reads `identitiesByKey.size > 0`. When
+    // mockIdentitiesLoaded=true and no test has seeded mockIdentitiesByKey,
+    // route to the stable-ref TEST_DEFAULT_BY_KEY so the gate opens without
+    // triggering hydrate re-fires on every render (Map ref stability matters
+    // for the useEffect [fleetSessionsLoaded, identitiesByKey] deps). When
+    // mockIdentitiesLoaded=false, route to the actual mockIdentitiesByKey
+    // (usually empty) so the gate stays closed — this is what the
+    // quick-260912-5q2 race-window regression test exercises.
+    byKey:
+      mockIdentitiesLoaded && mockIdentitiesByKey.size === 0
+        ? TEST_DEFAULT_BY_KEY
+        : mockIdentitiesByKey,
     identities: [],
-    // quick-260912-5q2: read from mutable flag — default true preserves all
-    // existing tests; ordering-gate regression test sets to false explicitly.
+    // Panel no longer reads `loaded` directly (2026-09-17). Kept in the mock
+    // for backward-compat with any test that inspects the useIdentities
+    // return shape via a spy.
     loaded: mockIdentitiesLoaded,
     refresh: async () => {},
   }),
@@ -1796,13 +1822,16 @@ describe("PrettyConversationsPanel (Phase 92 Plan 04): server-hydration on mount
 // Test 22 — quick-260727-kbw: mount hydration gated on fleetSessionsLoaded
 // (Phase 92 Plan 04 rewired to the deriveDiskPinnedIds path)
 // ─────────────────────────────────────────────────────────────────────────────
-// The load-order gate is UNCHANGED post-Phase-92: the hydrate effect body
-// still early-returns while fleetSessionsLoaded=false; still uses hydratedRef
-// to prevent double-fire across re-renders. Only the fetch → projection
-// wiring inside the body shifted.
+// The fleet-loaded gate is UNCHANGED post-2026-09-17. Only the second gate
+// changed: was `identitiesLoaded`, now `identitiesByKey.size > 0`; and
+// `hydratedRef` was retired in favor of dep-array ref stability
+// ([fleetSessionsLoaded, identitiesByKey]). This test still locks the
+// fleet-loaded early-return + single-fire semantics; the "one-shot" property
+// is now enforced by ref-stable Map identity from the identities-store mock
+// (see TEST_DEFAULT_BY_KEY) rather than by an explicit hydratedRef latch.
 
 describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hydration gated on fleetSessionsLoaded", () => {
-  it("Test 22 (quick-260727-kbw, Phase 92): mount does NOT call deriveDiskPinnedIds while fleetSessionsLoaded=false; DOES call once after it flips to true; stays once across further re-renders (hydratedRef dedupe)", async () => {
+  it("Test 22 (quick-260727-kbw, Phase 92): mount does NOT call deriveDiskPinnedIds while fleetSessionsLoaded=false; DOES call once after it flips to true; stays once across further re-renders (dep-array ref stability)", async () => {
     mockFleetSessionsSnapshot = [
       { hostId: 7, hostName: "hostA", sessionName: "aqua", created: 100, role: null },
     ];
@@ -1847,7 +1876,9 @@ describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hy
     });
     expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledWith(["fleet::7::aqua"]);
 
-    // Third render: gate stays open, hydratedRef holds.
+    // Third render: gate stays open, ref-stable byKey Map from
+    // TEST_DEFAULT_BY_KEY means the effect deps don't change → effect
+    // doesn't re-fire → both spies stay at 1.
     rerender(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
@@ -1858,19 +1889,26 @@ describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hy
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick-260912-5q2 — mount hydration race: identities-store loaded gate
+// quick-260912-5q2 — mount hydration race: identities gate
 // ─────────────────────────────────────────────────────────────────────────────
-// Regression trap for the cold-reload pin-loss race user reproduced on
+// Regression trap for the cold-reload pin-loss race Ashley reproduced on
 // t1000: the hydrate effect fired on the fleetSessionsLoaded false→true flip
-// BEFORE the identities-store's GET /identities fanout resolved, causing
-// deriveDiskPinnedIds to read an empty state.identities and return [].
-// Because hydratedRef.current prevents re-fire, every cold reload lost pins.
-// The fix: gate the effect body on BOTH fleetSessionsLoaded AND
-// useIdentities().loaded — this describe block locks that ordering forever.
-describe("PrettyConversationsPanel (quick-260912-5q2): mount hydration gated on identities-store loaded", () => {
-  it("does NOT hydrate when fleetSessionsLoaded=true but identities-store loaded=false; hydrates exactly once after identities-store flips to loaded=true; hydratedRef holds on third render", async () => {
+// BEFORE any identity data was in the store, causing deriveDiskPinnedIds to
+// read an empty state.identities and return []. The original hydratedRef
+// latch then prevented the correct projection from ever landing.
+//
+// The 2026-09-17 rework: gate on `identitiesByKey.size > 0` (any identity
+// data present) rather than `identitiesLoaded` (the slow /identities flip),
+// AND skip empty projections at the panel callsite. This describe block
+// locks BOTH properties — the gate is closed until byKey has data, and once
+// open the empty-projection skip protects against wipes.
+describe("PrettyConversationsPanel (quick-260912-5q2 rework): mount hydration gated on identitiesByKey.size > 0", () => {
+  it("does NOT hydrate when fleetSessionsLoaded=true but identitiesByKey is empty; hydrates exactly once after byKey grows; effect stays quiet on a subsequent re-render with same byKey ref", async () => {
     // ── Arrange ──────────────────────────────────────────────────────────────
-    // Phase 1: fleetSessionsLoaded=true, identitiesLoaded=false (race window).
+    // Phase 1: fleetSessionsLoaded=true, identities-store empty (race window).
+    // Route the mock's byKey to the actual (empty) mockIdentitiesByKey by
+    // flipping mockIdentitiesLoaded=false — the mock synthesizes
+    // TEST_DEFAULT_BY_KEY only when loaded=true (see mock declaration).
     mockFleetSessionsLoaded = true;
     mockIdentitiesLoaded = false;
 
@@ -1898,19 +1936,24 @@ describe("PrettyConversationsPanel (quick-260912-5q2): mount hydration gated on 
     expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledTimes(0);
     expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(0);
 
-    // ── Phase 2: flip identities-store to loaded=true, rerender ─────────────
+    // ── Phase 2: flip mock so byKey becomes non-empty, rerender ─────────────
+    // Setting mockIdentitiesLoaded=true routes the mock's byKey to
+    // TEST_DEFAULT_BY_KEY (stable ref, size=1). Gate opens.
     mockIdentitiesLoaded = true;
     rerender(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // POST-FLIP ASSERTION: now both gates are open — hydrate fires exactly once.
+    // POST-FLIP ASSERTION: gate now open — hydrate fires exactly once.
     await waitFor(() => {
       expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
     });
     expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledWith(["fleet::6::ivory"]);
 
-    // ── Phase 3: third render — hydratedRef one-shot still holds ────────────
+    // ── Phase 3: third render — byKey ref unchanged → effect stays quiet ────
+    // TEST_DEFAULT_BY_KEY is a module-level constant, so the [fleetSessionsLoaded,
+    // identitiesByKey] deps compare ref-equal across the rerender and the
+    // effect body does not re-execute.
     rerender(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
@@ -1990,18 +2033,22 @@ describe("PrettyConversationsPanel (Phase 92 Plan 04): PANEL-92-* hydrate regres
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel (Phase 107 Plan 04): PANEL-107-* hidden hydrate + AFF-107-* affordance", () => {
-  it("PANEL-107-01: hydrate effect derives BOTH pinned + hidden in the same both-loaded-gated pass", async () => {
-    // Both deriveDiskPinnedIds AND deriveDiskHiddenIds must fire in the SAME
-    // IIFE — one buildIdentityHostsFromFleet call shared, one hydratedRef
-    // one-shot guards both.
+  it("PANEL-107-01: hydrate effect derives BOTH pinned + hidden in the same gated pass", async () => {
+    // Both deriveDiskPinnedIds AND deriveDiskHiddenIds fire in the SAME IIFE:
+    // one shared buildIdentityHostsFromFleet call feeds both. Each axis then
+    // hydrates independently (subject to its own empty-projection skip at the
+    // callsite — see the fix rationale).
     mockFleetSessionsLoaded = true;
     const fleetFixture = [
       { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
     ];
     mockFleetSessionsSnapshot = fleetFixture;
     buildIdentityHostsFromFleetSpy.mockReturnValueOnce({ tina: 1 });
+    // Seed BOTH with non-empty projections so both hydrate calls land (the
+    // empty-projection skip at the panel callsite would otherwise skip a
+    // legitimately-empty projection — that's tested separately in PANEL-107-02).
     deriveDiskPinnedIdsSpy.mockReturnValueOnce(["fleet::1::tina"]);
-    deriveDiskHiddenIdsSpy.mockReturnValueOnce([]);
+    deriveDiskHiddenIdsSpy.mockReturnValueOnce(["fleet::1::tina"]);
 
     setSnapshot({ activeSet: [], pinned: [], grouped: [] });
 
@@ -2029,9 +2076,15 @@ describe("PrettyConversationsPanel (Phase 107 Plan 04): PANEL-107-* hidden hydra
     expect(deriveDiskHiddenIdsSpy).toHaveBeenCalledWith({ tina: 1 });
   });
 
-  it("PANEL-107-02: hidden hydrate ALSO gated on both-loaded — blocking identities-store prevents both", async () => {
-    // Phase 2 of the quick-260912-5q2 gate: hidden hydrate ALSO waits for BOTH
-    // fleetSessionsLoaded AND identitiesLoaded. No hidden [] wipe during race.
+  it("PANEL-107-02: hidden hydrate ALSO gated on identitiesByKey.size > 0 (2026-09-17 rework) — blocking byKey prevents both", async () => {
+    // Rework of the quick-260912-5q2 double-gate: hidden hydrate waits on the
+    // SAME `fleetSessionsLoaded && identitiesByKey.size > 0` conditions as
+    // pinned. Blocking byKey (via mockIdentitiesLoaded=false which routes the
+    // mock away from TEST_DEFAULT_BY_KEY) closes the gate for both.
+    // Empty-pinned+non-empty-hidden also exercises the per-axis empty-projection
+    // skip: pinned's `if (pinnedIds.length > 0)` skip means the pinned hydrate
+    // does NOT fire (correct — no wipe of prior pins), while hidden with real
+    // content still fires.
     mockFleetSessionsLoaded = true;
     mockIdentitiesLoaded = false;
 
@@ -2048,32 +2101,35 @@ describe("PrettyConversationsPanel (Phase 107 Plan 04): PANEL-107-* hidden hydra
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // Pre-flip: both gated — NEITHER hydrate should fire.
+    // Pre-flip: gate closed — NEITHER derive fires.
     await Promise.resolve();
     expect(deriveDiskHiddenIdsSpy).toHaveBeenCalledTimes(0);
     expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledTimes(0);
     expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledTimes(0);
     expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(0);
 
-    // Flip identities loaded → true, rerender.
+    // Flip byKey non-empty, rerender.
     mockIdentitiesLoaded = true;
     rerender(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // Post-flip: both hydrates fire exactly once.
+    // Post-flip: hidden hydrate fires (non-empty projection). Pinned does NOT
+    // fire (empty projection skipped at callsite — no wipe possible).
     await waitFor(() => {
       expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledTimes(1);
     });
-    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
+    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(0);
 
-    // Third render: hydratedRef one-shot holds for both.
+    // Third render: byKey ref unchanged (TEST_DEFAULT_BY_KEY is a stable
+    // module-scope constant) → effect deps stay equal → effect does not
+    // re-run → counts unchanged.
     rerender(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
     await Promise.resolve();
     expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledTimes(1);
-    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
+    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(0);
   });
 
   it("PANEL-107-03: getHiddenIds is NOT called — retired from the panel hydrate path", async () => {

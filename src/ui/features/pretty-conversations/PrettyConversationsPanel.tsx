@@ -150,8 +150,7 @@ import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 // (imported above).
 // Phase 107 Plan 04: getHiddenIds is ALSO retired. The hidden slice now
 // derives from the disk-sentinel model via deriveDiskHiddenIds (imported
-// above) — same both-loaded-gated hydrate effect, same identityHosts, same
-// hydratedRef one-shot guard.
+// above) — same hydrate effect, same identityHosts.
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
@@ -498,7 +497,7 @@ export function PrettyConversationsPanel({
   // seed only byKey and with any transitional wire state where the row has
   // no hostId yet. See identities-store.ts byHostKey JSDoc for the
   // additive-vs-rename rationale.
-  const { byHostKey: identitiesByHostKey, byKey: identitiesByKey, loaded: identitiesLoaded } = useIdentities();
+  const { byHostKey: identitiesByHostKey, byKey: identitiesByKey } = useIdentities();
   // Patch #137: hoisted once so all row-level activeSet.has(row.id) reads
   // hit a stable ReadonlySet reference (Set identity flips only on real
   // additions; consumers get a memoized reference across no-ops).
@@ -509,11 +508,6 @@ export function PrettyConversationsPanel({
   // snapshotVersion → this hook returns true on the next render → the
   // mount effect's [fleetSessionsLoaded] dep triggers the body to run.
   const fleetSessionsLoaded = useFleetSessionsLoaded();
-  // quick-260727-kbw: guards against re-hydration across renders even if
-  // the flag were to flip back-and-forth (defense-in-depth per bug spec —
-  // user confirmed the store flag stays true after first flip, but a
-  // ref-based dedupe costs nothing and closes the invariant regardless).
-  const hydratedRef = useRef(false);
 
   // Patch #144 Fix (d): every selectedId change enrolls the id in the
   // active set — not just click-driven selection via handleRowSelect.
@@ -549,22 +543,30 @@ export function PrettyConversationsPanel({
   //       first background updateOpenTabs after hydration has a populated
   //       fleetPinKeepSet (from state.fleetSessions) and does NOT nuke
   //       freshly-hydrated fleet pins via the pruner at conversation-store.ts
-  //       L540-547. hydratedRef guards defense-in-depth against a hypothetical
-  //       false→true→false→true flip (user confirmed the flag stays true
-  //       after first flip, but the ref costs nothing). Depends on
-  //       [fleetSessionsLoaded] not [] so the body reruns when the flag flips.
+  //       L540-547. Depends on [fleetSessionsLoaded, identitiesByKey] so the
+  //       body reruns when the fleet loads AND every time identities grows —
+  //       idempotent per the sink-side additive-on-empty guards in
+  //       hydratePinnedIdsFromServer / hydrateHiddenIdsFromServer.
   useEffect(() => {
     if (!fleetSessionsLoaded) return;
-    // quick-260912-5q2: gate on identities-store loaded — the GET /identities
-    // fanout that populates per-identity `pinned: boolean` starts on the SAME
-    // fleetSessionsLoaded flip event. Without this guard, deriveDiskPinnedIds
-    // reads an empty state.identities, returns [], and hydratePinnedIdsFromServer([])
-    // wipes pinnedIds. Because hydratedRef prevents re-fire, every cold reload
-    // loses pins. Waiting for identitiesLoaded=true ensures the fanout has landed
-    // before we project — the dep-array addition below is the trigger.
-    if (!identitiesLoaded) return;
-    if (hydratedRef.current) return;
-    hydratedRef.current = true;
+    // 2026-09-17: gate loosened from `identitiesLoaded` (the slow /identities
+    // fetch flip) to `identitiesByKey.size > 0` (any identity data present).
+    // The pulse populates identities-store with pinned/hidden well before
+    // /identities returns; waiting on identitiesLoaded added ~7-8s of
+    // pin/hide-out-of-place time after the row-set already dressed. The
+    // quick-260912-5q2 protection (empty derivation MUST NOT wipe pinnedIds)
+    // is enforced at THIS callsite via the `if (pinnedIds.length > 0)` skip
+    // in the async IIFE below — a partial store may derive [], and skipping
+    // preserves whatever's already in state.pinnedIds until identities is
+    // complete. Legitimate "user unpinned via disk" wipes still land via
+    // identities-store's reprojectDiskPinHideIntoRows path, which is gated on
+    // state.loaded (authoritative) and is trusted to project [] as real.
+    if (identitiesByKey.size === 0) return;
+    // hydratedRef retired 2026-09-17. The effect is idempotent — the empty-
+    // projection skip in the IIFE below plus the sink's same-content guard
+    // together ensure re-firing as identities grow does no wrong work.
+    // Keeping the ref would re-introduce the "one shot, wrong moment"
+    // failure mode this change exists to remove.
     let cancelled = false;
     (async () => {
       // Phase 92 Plan 04 (D-04): pinnedConversationIds no longer fetches from
@@ -585,21 +587,36 @@ export function PrettyConversationsPanel({
       );
       const pinnedIds = deriveDiskPinnedIds(identityHosts);
       if (cancelled) return;
-      hydratePinnedIdsFromServer(pinnedIds);
+      // Empty-projection skip (2026-09-17, replaces the retired
+      // identitiesLoaded gate): this effect fires eagerly as identities grow
+      // — an empty projection from a partial store is indistinguishable from
+      // a real "nothing pinned" answer, and the sink hydrate function is
+      // authoritative (would wipe on empty). Skip empty here; a subsequent
+      // fire once identities are complete will project the real set.
+      // Legitimate "user unpinned via disk" transitions still land via
+      // identities-store's reprojectDiskPinHideIntoRows, which is gated on
+      // state.loaded (authoritative) and does trust empty projections.
+      if (pinnedIds.length > 0) {
+        hydratePinnedIdsFromServer(pinnedIds);
+      }
 
       // Phase 107 Plan 04 (D-03): hiddenConversationIds now also derives from
-      // the disk-sentinel model — same pass, same identityHosts, same
-      // hydratedRef guard. getHiddenIds (GET /user-preferences) is retired.
-      // deriveDiskHiddenIds mirrors deriveDiskPinnedIds: walks identities-
-      // store, filters identity.hidden === true, projects into fleet:: space.
+      // the disk-sentinel model — same pass, same identityHosts. getHiddenIds
+      // (GET /user-preferences) is retired. deriveDiskHiddenIds mirrors
+      // deriveDiskPinnedIds: walks identities-store, filters identity.hidden
+      // === true, projects into fleet:: space.
       const hiddenIds = deriveDiskHiddenIds(identityHosts);
       if (cancelled) return;
-      hydrateHiddenIdsFromServer(hiddenIds);
+      // Same empty-projection skip as the pinned side above — for the same
+      // reasons.
+      if (hiddenIds.length > 0) {
+        hydrateHiddenIdsFromServer(hiddenIds);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [fleetSessionsLoaded, identitiesLoaded]);
+  }, [fleetSessionsLoaded, identitiesByKey]);
 
   // Phase 42 UAT amendment 2026-08-17: `activeSetRowsRef` retired alongside
   // the Tier 1 active-set render tier — the store's snapshot.activeSet is now
