@@ -148,14 +148,16 @@ export default function SkillFileTab({
         <div className="text-sm text-red-400 px-1">{saveError}</div>
       )}
       <div className="flex justify-end gap-2 shrink-0 items-center">
-        <button
-          type="button"
-          title="Delete this file"
-          onClick={() => onRequestDelete?.()}
-          className="size-6 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
-        >
-          <Trash2 size={16} />
-        </button>
+        {filename !== "SKILL.md" && (
+          <button
+            type="button"
+            title="Delete this file"
+            onClick={() => onRequestDelete?.()}
+            className="size-6 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => { void handleSave(); }}
