@@ -27,10 +27,13 @@ import {
   __resetIdentitiesStoreForTest,
   __getIdentitiesStoreSnapshotForTest,
   __seedIdentitiesLoadedFalseForTest,
+  __seedFromCacheForTest,
   deriveDiskPinnedIds,
   deriveDiskHiddenIds,
   patchIdentityFlag,
   mergeIdentityAppearance,
+  readAppearanceCache,
+  writeAppearanceCache,
 } from "./identities-store.js";
 import * as IdentitiesStore from "./identities-store.js";
 import * as IdentitiesApi from "@/api/identities-api";
@@ -988,5 +991,121 @@ describe("mergeIdentityAppearance — pin/hide re-projection (Task 3)", () => {
     // And the harness row's id must still be in the set
     const { pinnedIds } = __getSnapshotForTest();
     expect(pinnedIds.has("fleet::5::pixel")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Appearance cache — cold module load with warm cache exposes cached hue at
+// loaded=false (Ashley's "cache everything, paint from cache instantly,
+// replace with backend as it arrives" mental model). Kills the Phase 111
+// post-ship ~1s undressed flash.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const APPEARANCE_CACHE_KEY = "skynet:identities-appearance-cache:v1";
+
+describe("appearance cache (post-Phase-111 cold-paint fix)", () => {
+  it("Cache 1: cold load with warm cache seeds byHostKey and keeps loaded=false", () => {
+    // Simulate a prior session having cached appearance for pixel@5.
+    // beforeEach ran __resetIdentitiesStoreForTest which cleared the cache
+    // via notify(); we now populate it as a fresh session would have.
+    const cached = [
+      makeIdentityFull("pixel", 5, {
+        colorHue: 120,
+        title: "Skynet",
+        role: "box-maintainer",
+      }),
+    ];
+    localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify(cached));
+
+    // Re-run the module-load seed logic (production runs it once via IIFE at
+    // module init; the test helper exposes it on demand for test-controlled
+    // timing).
+    __seedFromCacheForTest();
+
+    const snap = __getIdentitiesStoreSnapshotForTest();
+    // Row seeded, fully dressed from cache
+    expect(snap.byHostKey.get("5::pixel")?.colorHue).toBe(120);
+    expect(snap.byHostKey.get("5::pixel")?.title).toBe("Skynet");
+    expect(snap.byHostKey.get("5::pixel")?.role).toBe("box-maintainer");
+    // D-10 GUARD: cache seed does NOT flip loaded. The fuller GET /identities
+    // remains the sole owner of loaded:true — protects against the terminal-
+    // flash + listener-leak bug (isIdentityPane discriminator collapse when
+    // byKey is partial while loaded is true).
+    expect(snap.loaded).toBe(false);
+  });
+
+  it("Cache 2: writer emits canonical shape that reader accepts (round-trip)", async () => {
+    // Populate the store via the normal fetch path, which fires notify() and
+    // writes the cache as a side effect.
+    await seedIdentities([
+      makeIdentityFull("pixel", 5, { colorHue: 120, title: "Skynet" }),
+      makeIdentityFull("tanya", 6, { colorHue: 324 }),
+    ]);
+    // Reader parses the writer's output cleanly.
+    const roundTrip = readAppearanceCache();
+    expect(roundTrip.length).toBe(2);
+    const pixel = roundTrip.find(
+      (i) => i.identityKey === "pixel" && i.hostId === 5,
+    );
+    const tanya = roundTrip.find(
+      (i) => i.identityKey === "tanya" && i.hostId === 6,
+    );
+    expect(pixel?.colorHue).toBe(120);
+    expect(pixel?.title).toBe("Skynet");
+    expect(tanya?.colorHue).toBe(324);
+  });
+
+  it("Cache 3: empty / missing / malformed cache is silent — reader returns []", () => {
+    // Missing key
+    localStorage.removeItem(APPEARANCE_CACHE_KEY);
+    expect(readAppearanceCache()).toEqual([]);
+
+    // Malformed JSON
+    localStorage.setItem(APPEARANCE_CACHE_KEY, "not json");
+    expect(readAppearanceCache()).toEqual([]);
+
+    // Non-array top level
+    localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify({ foo: "bar" }));
+    expect(readAppearanceCache()).toEqual([]);
+
+    // Array with malformed items — those get filtered, valid ones survive
+    localStorage.setItem(
+      APPEARANCE_CACHE_KEY,
+      JSON.stringify([
+        { identityKey: "valid", displayName: "Valid", hostId: 5, title: null, colorHue: null, voice: null, role: null, avatarMime: "", avatarUrl: "/x", avatarEtag: "", coordinator: false, task: null },
+        { badShape: true },
+        null,
+      ]),
+    );
+    const filtered = readAppearanceCache();
+    expect(filtered.length).toBe(1);
+    expect(filtered[0].identityKey).toBe("valid");
+  });
+
+  it("Cache 4: __seedFromCacheForTest is a no-op when cache is empty", () => {
+    // Cache is empty (reset cleared it), state is empty.
+    localStorage.removeItem(APPEARANCE_CACHE_KEY);
+    const before = __getIdentitiesStoreSnapshotForTest();
+    expect(before.identities.length).toBe(0);
+    expect(before.loaded).toBe(false);
+
+    __seedFromCacheForTest();
+
+    const after = __getIdentitiesStoreSnapshotForTest();
+    expect(after.identities.length).toBe(0);
+    expect(after.loaded).toBe(false);
+  });
+
+  it("Cache 5: writer is silent on QuotaExceeded / storage errors", () => {
+    // Poison localStorage.setItem to throw QuotaExceededError.
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    // Must not throw
+    expect(() =>
+      writeAppearanceCache([makeIdentityFull("pixel", 5, { colorHue: 10 })]),
+    ).not.toThrow();
+    Storage.prototype.setItem = original;
   });
 });

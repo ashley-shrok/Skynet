@@ -30,12 +30,28 @@ type State = {
   loaded: boolean;
 };
 
-let state: State = {
-  identities: [],
-  byKey: new Map(),
-  byHostKey: new Map(),
-  loaded: false,
-};
+// Storage key for the per-identity appearance cache read at module load and
+// written on every state-change notify(). Bump the version suffix on any
+// schema change to the cached fields (avoids reading a stale-shape cache into
+// an incompatible reader).
+const APPEARANCE_CACHE_KEY = "skynet:identities-appearance-cache:v1";
+
+// Module-load seed from localStorage: paint dressed rows on cold refresh
+// BEFORE the fleet-status WS first-frame arrives. Carries loaded:false — the
+// fuller GET /identities request remains the sole owner of loaded:true
+// (D-10). Empty / missing / malformed cache falls back to the empty initial
+// state; readAppearanceCache is silent by contract.
+let state: State = (() => {
+  const cached = readAppearanceCache();
+  const empty: State = {
+    identities: [],
+    byKey: new Map(),
+    byHostKey: new Map(),
+    loaded: false,
+  };
+  if (cached.length === 0) return empty;
+  return { ...reindex(cached), loaded: false };
+})();
 let inflight: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
@@ -47,6 +63,11 @@ let hasRefreshedAfterFleetLoad = false;
 let hasSubscribedToFleet = false;
 
 function notify() {
+  // Single-authority cache write: every state change that reaches listeners
+  // also updates the localStorage cache so the next cold paint has the
+  // freshest appearance to seed from. Silent on write failure by contract
+  // (mirrors writeFleetSessionsCache — losing the cache is not user-visible).
+  writeAppearanceCache(state.identities);
   for (const l of listeners) l();
 }
 
@@ -827,5 +848,125 @@ export function __getIdentitiesStoreSnapshotForTest(): {
 // Not part of the public API.
 export function __seedIdentitiesLoadedFalseForTest(list: Identity[]): void {
   state = { ...reindex(list), loaded: false };
+  notify();
+}
+
+// ─── Appearance cache ────────────────────────────────────────────────────────
+// Persist per-identity appearance to localStorage on every notify(), read on
+// module load. Mirrors readFleetSessionsCache / writeFleetSessionsCache in
+// conversation-store — same silent-write-fail contract, same defensive
+// per-item shape validation on read, same bumped-storage-key policy for
+// schema changes.
+//
+// Purpose: on cold refresh, paint dressed rows (colour, avatar, name, title,
+// task) INSTANTLY from cache rather than waiting ~1s for the fleet-status WS
+// first-frame to arrive and dress them via mergeIdentityAppearance. Kills the
+// Phase 111 post-ship "1s undressed flash" while preserving D-10 (the seed
+// carries loaded:false — the fuller GET /identities remains the sole owner of
+// loaded:true).
+
+// Structural type-guard for cached rows. Only enforces fields the cache
+// writer emits; a stray field on disk is ignored, a missing required field
+// drops the row. Silent by contract — a malformed cache never throws.
+function isCachedIdentity(x: unknown): x is Identity {
+  if (typeof x !== "object" || x === null) return false;
+  const r = x as Record<string, unknown>;
+  if (typeof r.identityKey !== "string") return false;
+  if (typeof r.displayName !== "string") return false;
+  // hostId is optional in the Identity type (pre-quick-260912-0t4 fixtures
+  // may omit it) but production always includes it; either is acceptable
+  // here, matching the type's own tolerance.
+  if (r.hostId !== undefined && typeof r.hostId !== "number") return false;
+  if (r.title !== null && typeof r.title !== "string") return false;
+  if (r.colorHue !== null && typeof r.colorHue !== "number") return false;
+  if (r.voice !== null && typeof r.voice !== "string") return false;
+  if (r.role !== null && typeof r.role !== "string") return false;
+  if (typeof r.avatarMime !== "string") return false;
+  if (typeof r.avatarUrl !== "string") return false;
+  if (typeof r.avatarEtag !== "string") return false;
+  if (typeof r.coordinator !== "boolean") return false;
+  if (r.task !== null && typeof r.task !== "string") return false;
+  return true;
+}
+
+export function readAppearanceCache(): Identity[] {
+  try {
+    const raw =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem(APPEARANCE_CACHE_KEY)
+        : null;
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const valid: Identity[] = [];
+    for (const item of parsed) {
+      if (isCachedIdentity(item)) {
+        // Defensive per-field pick — only canonical fields make it back into
+        // memory even if a future writer accidentally serialized more.
+        valid.push({
+          identityKey: item.identityKey,
+          hostId: item.hostId,
+          displayName: item.displayName,
+          title: item.title,
+          colorHue: item.colorHue,
+          voice: item.voice,
+          role: item.role,
+          avatarMime: item.avatarMime,
+          avatarUrl: item.avatarUrl,
+          avatarEtag: item.avatarEtag,
+          coordinator: item.coordinator,
+          task: item.task,
+          pinned: item.pinned === true,
+          hidden: item.hidden === true,
+          roleDefaults: item.roleDefaults ?? null,
+        });
+      }
+    }
+    return valid;
+  } catch {
+    return [];
+  }
+}
+
+export function writeAppearanceCache(list: Identity[]): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    // Persist the exact field set that mergeIdentityAppearance's cold-boot
+    // append and setIdentities populate — mirrors mergeIdentityAppearance's
+    // append branch so a round-trip through cache produces the same shape a
+    // fresh pulse would.
+    const canonical = list.map((i) => ({
+      identityKey: i.identityKey,
+      hostId: i.hostId,
+      displayName: i.displayName,
+      title: i.title,
+      colorHue: i.colorHue,
+      voice: i.voice,
+      role: i.role,
+      avatarMime: i.avatarMime,
+      avatarUrl: i.avatarUrl,
+      avatarEtag: i.avatarEtag,
+      coordinator: i.coordinator,
+      task: i.task,
+      pinned: i.pinned === true,
+      hidden: i.hidden === true,
+      roleDefaults: i.roleDefaults ?? null,
+    }));
+    localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify(canonical));
+  } catch {
+    // Silent — cache write failure is non-fatal.
+  }
+}
+
+// Test-only: re-run the module-load cache seed after tests have populated
+// localStorage. Production callers rely on the IIFE at module init; tests
+// can't easily control that timing (module loads once per file), so this
+// helper exposes the same seed logic on demand. Preserves the D-10
+// invariant — loaded is carried forward from state.loaded, never flipped
+// true.
+export function __seedFromCacheForTest(): void {
+  const cached = readAppearanceCache();
+  if (cached.length === 0) return;
+  state = { ...reindex(cached), loaded: state.loaded };
   notify();
 }
