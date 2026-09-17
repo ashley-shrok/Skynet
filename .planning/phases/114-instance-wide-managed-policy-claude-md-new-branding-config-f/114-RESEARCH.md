@@ -118,7 +118,7 @@ Extracted from `/home/ubuntu/skynet-tina/CLAUDE.md`:
 - **Executor scope stops at code + commit + scoped-tests-green.** No push, no build, no deploy in plans. Deploy is atomic motion on greenlight, orchestrator-owned.
 - **`git pull --rebase` before every push.** Applies to orchestrator's ship motion, not to executor.
 - **No hand-patch fleet-substrate on any host.** All distribution changes go through the substrate itself. Directly relevant to this phase — the twinkie IS a substrate item.
-- **SSH to peer boxes as root** (Ashley 2026-09-08) — but note that the CURRENT fleet has ZERO Linux managed hosts SSHing as root (see § Environment Availability). Phase 114 mechanism ships functional; twinkies land as hosts migrate.
+- **SSH to peer boxes as root** (the user 2026-09-08) — but note that the CURRENT fleet has ZERO Linux managed hosts SSHing as root (see § Environment Availability). Phase 114 mechanism ships functional; twinkies land as hosts migrate.
 
 ## Standard Stack
 
@@ -862,7 +862,7 @@ Skipping this section — Phase 114 has no external dependencies (code + config-
 | DoS via oversized twinkie file | Denial of Service | 256 KB byte cap (D-06) — matches existing `MAX_CONFIG_BYTES`. Over-cap files return null from `readInstancePolicyBytes()`. |
 | SSH command injection via installPath field | Tampering | `installPath` values in `CatalogEntry` are hand-authored TypeScript literals, not user input. No injection surface. Defense-in-depth: `shellSingleQuote()` wraps every path used in exec strings (existing Phase 72 pattern). |
 | Managed-host root-file tamper by non-root local user | Elevation of Privilege | 0644 mode is world-readable but only root-writable. Sweep's byte-compare stomps drift back to canonical on next sweep. Non-root local users on the managed host cannot modify the file. |
-| Cross-instance content leak (Ashley's twinkie visible to Aither's fleet) | Information Disclosure | Each Skynet fork has its OWN `/opt/skynet/branding/` host directory (shape file § Prior context §3). Content is per-instance-local; no shared-repo storage path. The two forks (t1000, T800) cannot see each other's twinkies. |
+| Cross-instance content leak (the user's twinkie visible to Aither's fleet) | Information Disclosure | Each Skynet fork has its OWN `/opt/skynet/branding/` host directory (shape file § Prior context §3). Content is per-instance-local; no shared-repo storage path. The two forks (t1000, T800) cannot see each other's twinkies. |
 | Compromised branding-config bindmount source | Tampering | Bindmount is `read-only` from container's perspective (`docker/docker-compose.yml:52` `read_only: true`). Admin edits happen on host filesystem, not inside container. Admin ownership of the host directory is the primary control. |
 | Push over a symlinked `/etc/claude-code/CLAUDE.md` on a rooted host | Tampering | `readInstalledBytes` reads via `base64 -w0 <path>` — a symlink would be followed and byte-compared correctly. `writeInstalledBytesWithMode` uses `base64 -d > <path>` shell redirection which does NOT follow symlinks in the same way as file APIs; it OPENS the target for write. If the target is a symlink to `/etc/passwd`, the write would overwrite `/etc/passwd`. **Recommend adding to plan:** post-write invariant check — `test -f /etc/claude-code/CLAUDE.md && test ! -L /etc/claude-code/CLAUDE.md` before chown, fail-closed if either check fails. Defense-in-depth against a rooted-managed-host attack vector. |
 
@@ -883,7 +883,7 @@ Skipping this section — Phase 114 has no external dependencies (code + config-
 - **`/home/ubuntu/skynet-tina/docker/branding-defaults/branding.json`** — read in full; current fields verified against `HARDCODED_FALLBACK` for byte-parity.
 - **`/home/ubuntu/skynet-tina/src/backend/starter.ts`** (partial read at line 390-406) — `assertBrandingConfigAtBoot()` invocation verified.
 - **`/home/ubuntu/fleet/roles/box-maintainer/box-maintainer.md`** (Standing directives section grep) — verified test discipline (scoped for executor, full-suite for orchestrator), executor scope (code+commit+tests, no push/build/deploy), `git pull --rebase` before every push, and "SSH as root" preference.
-- **`/home/ubuntu/fleet/roles/box-maintainer/box-map.md`** (§ Managed hosts) — verified ZERO current Linux managed hosts SSH as root (thenasty as `thenasty`, workstation as `ubuntu`, ashley-beelink as `ashley`, ZoeyBattlestation as key-auth non-root).
+- **`/home/ubuntu/fleet/roles/box-maintainer/box-map.md`** (§ Managed hosts) — verified ZERO current Linux managed hosts SSH as root (thenasty as `thenasty`, workstation as `ubuntu`, beelink as `<user>`, ZoeyBattlestation as key-auth non-root).
 
 ### Secondary (MEDIUM confidence)
 

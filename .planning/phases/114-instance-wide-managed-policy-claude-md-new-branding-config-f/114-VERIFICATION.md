@@ -143,7 +143,7 @@ Phase 114 has no formal REQUIREMENTS.md IDs (per the verification context — `r
 
 ### Human Verification Required
 
-The following are the D-25 post-deploy sanity checks that fall to the orchestrator's ship-motion boundary. They are NOT within the executor's remit and NOT within the verifier's automated scope. They are surfaced here for the developer (Ashley) to run as part of the D-24 push → build → recreate → verify motion:
+The following are the D-25 post-deploy sanity checks that fall to the orchestrator's ship-motion boundary. They are NOT within the executor's remit and NOT within the verifier's automated scope. They are surfaced here for the developer (the user) to run as part of the D-24 push → build → recreate → verify motion:
 
 1. **Test: End-to-end sweep on t1000 lands the file on a root-SSH managed host**
    - Set `instancePolicyFilename` to a test twinkie in `/opt/skynet/branding.json`
@@ -173,7 +173,7 @@ The following are the D-25 post-deploy sanity checks that fall to the orchestrat
    - **Expected:** Session picks up the twinkie content as managed-policy layer above `~/.claude/CLAUDE.md`. Load order per code.claude.com/docs/en/memory: managed → user → project → local
    - **Why human:** CONTEXT.md § "Mechanism gate — already closed" says this was verified out-of-band across three hosts (t1000, T800, test08) BEFORE Phase 114 planning began. It is worth one confirmation post-deploy that the delivered file loads correctly for at least one managed host
 
-None of these gaps block the phase's automated verification — they are the informational D-25 post-deploy verification anchors the orchestrator (or Ashley directly) will run as part of the ship motion.
+None of these gaps block the phase's automated verification — they are the informational D-25 post-deploy verification anchors the orchestrator (or the user directly) will run as part of the ship motion.
 
 ### Gaps Summary
 
@@ -194,7 +194,7 @@ None of these deviations reduce the phase's scope or change the observable outco
 
 ## Deploy Handoff (D-24 informational)
 
-Executor remit stops at code + commit + scoped-tests-green. The orchestrator (Ashley, or the ship motion) owns:
+Executor remit stops at code + commit + scoped-tests-green. The orchestrator (the user, or the ship motion) owns:
 
 - `git push`
 - `docker compose build`

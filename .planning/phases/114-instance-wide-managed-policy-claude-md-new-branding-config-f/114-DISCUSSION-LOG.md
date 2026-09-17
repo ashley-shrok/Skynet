@@ -37,7 +37,7 @@
 | Host-side branding folder | Alongside icons in `/opt/skynet/branding/`, filename referenced from branding config | ✓ |
 
 **User's choice:** Host-side branding folder — same pattern icons already use.
-**Notes:** Chosen because the branding-assets pattern already handles per-instance separation (each Skynet server has its own local branding dir; fork pulls don't stomp it). Solves the "Aither pulls from Ashley's repo but shouldn't inherit Ashley's twinkie" problem for free.
+**Notes:** Chosen because the branding-assets pattern already handles per-instance separation (each Skynet server has its own local branding dir; fork pulls don't stomp it). Solves the "Aither pulls from the user's repo but shouldn't inherit the user's twinkie" problem for free.
 
 ## Editing surface
 

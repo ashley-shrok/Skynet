@@ -19,7 +19,7 @@ A new tier of persistent instructions that gets loaded into every agent session'
 
 **Not-user-editability.** On managed hosts the file is root-owned and read-only for the OS user that agents run as. Even if someone tampered, the distributor's next sweep would stomp the drift back to canonical. The chain from admin-edits-on-server → managed-host is strictly one-way.
 
-**Per-instance-not-per-host.** Every managed host of a given Skynet instance sees the same content. Different Skynet instances see different content — because each Skynet server has its own host-side branding directory, entirely local, never shared through the repo. The two current forks (Ashley's on t1000, Aither's on T800) each maintain their own twinkie locally; a `git pull` between them never touches it.
+**Per-instance-not-per-host.** Every managed host of a given Skynet instance sees the same content. Different Skynet instances see different content — because each Skynet server has its own host-side branding directory, entirely local, never shared through the repo. The two current forks (the user's on t1000, Aither's on T800) each maintain their own twinkie locally; a `git pull` between them never touches it.
 
 ## Philosophy
 
@@ -83,6 +83,6 @@ A new tier of persistent instructions that gets loaded into every agent session'
 - Primary sources verified this session: Claude Code memory documentation (managed-policy system-path exact location, load-order precedence above the user file, cannot-be-excluded semantics, additive layering) plus three empirical PASS tests confirming behavior uniformly across subscription-OAuth and Bedrock-IAM auth flavors on separate hosts.
 - Branding-side patterns to mirror: the existing config loader's read-time load, per-file fallback to bundled defaults, and never-throws contract for the branding API. For the twinkie, the "bundled default" leg of that pattern is intentionally absent — see scope edges.
 - Distributor-side new capability: pushing to a system-level path (owned by root on the managed host) rather than under the OS-user's home directory. First substrate item to require this — the catalog entry and push shape need to grow to accommodate.
-- Deploy discipline (per role standing directives): after code + scoped tests green, the push → build → recreate → verify sequence happens as one atomic motion on Ashley's greenlight, not before push.
+- Deploy discipline (per role standing directives): after code + scoped tests green, the push → build → recreate → verify sequence happens as one atomic motion on the user's greenlight, not before push.
 
-**Content of the twinkie for THIS instance (t1000) is not part of this build.** The mechanism is what gets built; the content Ashley'll write once the plumbing lands.
+**Content of the twinkie for THIS instance (t1000) is not part of this build.** The mechanism is what gets built; the content the user'll write once the plumbing lands.

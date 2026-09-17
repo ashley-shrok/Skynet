@@ -137,7 +137,7 @@ Deliver an instance-wide managed-policy CLAUDE.md tier that lands on every manag
 User verbatim (2026-09-17): *"okay can we just for right now have it work on the ones that have root and then just log that they couldn't have that file drop for the ones that don't"*
 
 **Consequences the planner should be aware of:**
-- Current fleet state (2026-09-17 per `~/fleet/roles/box-maintainer/box-map.md` § Managed hosts): thenasty SSHes as `thenasty`, workstation as `ubuntu`, ZoeyBattlestation as a non-root key-auth user, ashley-beelink as `ashley`. **ZERO of the four current Linux managed hosts SSH as root.** t1000 is self and not a distributor push target.
+- Current fleet state (2026-09-17 per `~/fleet/roles/box-maintainer/box-map.md` § Managed hosts): thenasty SSHes as `thenasty`, workstation as `ubuntu`, ZoeyBattlestation as a non-root key-auth user, beelink as `<user>`. **ZERO of the four current Linux managed hosts SSH as root.** t1000 is self and not a distributor push target.
 - Mechanism will ship functional but land zero twinkies until the org-migration bounty (`~/fleet/roles/box-maintainer/bounties/plan-proper-org-migration-back/`) or ad-hoc per-host migrations flip `hosts.username` to `root` on target hosts.
 - Fine because the twinkie CONTENT is also empty at Phase 114 completion — mechanism first, content later. As hosts migrate, they receive the twinkie automatically on the next sweep with zero Phase 114 code changes.
 - The `installMode: "system-root"` gate is generalized — any FUTURE system-root row (there aren't any planned right now, but the axis exists) inherits the same skip-non-root behavior.
@@ -201,7 +201,7 @@ Historical option-space (kept for reference):
 - Any file under `docker/` other than the branding-defaults JSON — no Dockerfile change, no compose change.
 
 ### Role-file references (fleet-scope discipline that applies)
-- `~/fleet/roles/box-maintainer/box-maintainer.md` — read `## Standing directives` before touching the distributor or deploying. Specifically: "no hand-patch fleet-substrate on any host" (Ashley 2026-09-10), "Never leave tests failing", "Multi-identity role — git pull --rebase before every push", "SSH to peer boxes as root" (Ashley 2026-09-08), and the deploy-window boundary at `git push` (2026-08-29 refinement).
+- `~/fleet/roles/box-maintainer/box-maintainer.md` — read `## Standing directives` before touching the distributor or deploying. Specifically: "no hand-patch fleet-substrate on any host" (the user 2026-09-10), "Never leave tests failing", "Multi-identity role — git pull --rebase before every push", "SSH to peer boxes as root" (the user 2026-09-08), and the deploy-window boundary at `git push` (2026-08-29 refinement).
 - `~/fleet/roles/box-maintainer/box-map.md` — read for the current SSH-user distribution across managed hosts (needed to answer Q1).
 
 ### Prior related phases
