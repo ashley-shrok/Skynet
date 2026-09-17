@@ -507,8 +507,10 @@ describe("removeInstalledFile (Phase 114 Plan 03 Task 2)", () => {
     expect(cmd).toContain("__REMOVE_FAIL__");
     // rm -f used (idempotent — matches D-27)
     expect(cmd).toContain("rm -f");
-    // No sudo (D-27 mechanics — composer-level gate D-13 already ensures root SSH)
-    expect(cmd).not.toContain("sudo");
+    // Phase 115: sudo -n on the mutating rm so a NOPASSWD sudoer can
+    // delete /etc/claude-code/CLAUDE.md. The read-side test -f / test ! -e
+    // don't need sudo — the file is 0644 world-readable when installed.
+    expect(cmd).toContain("sudo -n rm -f");
     // stderr merged into stdout (matches sibling helpers' M2 pattern)
     expect(cmd).toContain("2>&1");
   });

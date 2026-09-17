@@ -1186,14 +1186,14 @@ describe("Phase 75 — server-substrate integration", () => {
         }
       }
 
-      // Plan 03 system-root write shape: chown root:root + chmod 644 + the
-      // twinkie install path all in one command.
+      // Plan 03 system-root write shape (Phase 115 sudo update): the
+      // command routes base64 via `sudo -n tee`, chowns root:root, chmods
+      // 644 — all sudo-wrapped so a NOPASSWD sudoer can complete the write.
       const twinkieWriteIdx = capturedCommands.findIndex(
         (c) =>
-          c.includes("base64 -d >") &&
-          c.includes("'/etc/claude-code/CLAUDE.md'") &&
-          c.includes("chown root:root '/etc/claude-code/CLAUDE.md'") &&
-          c.includes("chmod 644 '/etc/claude-code/CLAUDE.md'"),
+          c.includes("base64 -d | sudo -n tee '/etc/claude-code/CLAUDE.md'") &&
+          c.includes("sudo -n chown root:root '/etc/claude-code/CLAUDE.md'") &&
+          c.includes("sudo -n chmod 644 '/etc/claude-code/CLAUDE.md'"),
       );
       expect(twinkieWriteIdx).toBeGreaterThanOrEqual(0);
 
@@ -1206,13 +1206,13 @@ describe("Phase 75 — server-substrate integration", () => {
     });
 
     /**
-     * T-11b: NON-ROOT SKIP — twinkie file present but host.username="ubuntu"
-     * → the composer's D-13 root-user gate fires BEFORE any exec on the
-     * channel for the twinkie row. NO command mentioning
-     * /etc/claude-code/CLAUDE.md is emitted; sshLogger.info fires with
-     * operation: "fleet_substrate_system_root_skip".
+     * T-11b (Phase 115 rewrite — D-13 gate retired): twinkie file present
+     * on a NON-root SSH host (username="ubuntu"). The composer no longer
+     * short-circuits; the write is ATTEMPTED with `sudo -n tee` in the
+     * command chain, and on a happy NOPASSWD-sudo host it succeeds. No
+     * fleet_substrate_system_root_skip log fires — the gate is gone.
      */
-    it("T-11b: non-root skip — twinkie set + ubuntu host → NO write command for /etc/claude-code/CLAUDE.md, structured skip log fires", async () => {
+    it("T-11b: non-root host with NOPASSWD sudo → write attempted via `sudo -n`, no skip log", async () => {
       const twinkieBytes = Buffer.from("# twinkie\n\ntest content");
       vi.mocked(readInstancePolicyBytes).mockResolvedValue(twinkieBytes);
 
@@ -1252,26 +1252,22 @@ describe("Phase 75 — server-substrate integration", () => {
         }
       }
 
-      // The row was gated out entirely — NO exec command for the twinkie
-      // path (neither read, nor write, nor remove).
-      expect(
-        capturedCommands.some((c) => c.includes("/etc/claude-code/CLAUDE.md")),
-      ).toBe(false);
+      // Phase 115: the write IS attempted (no pre-emptive gate). At least
+      // one command touches /etc/claude-code/CLAUDE.md, and the write
+      // command routes through `sudo -n tee`.
+      const twinkieCmd = capturedCommands.find((c) =>
+        c.includes("base64 -d | sudo -n tee '/etc/claude-code/CLAUDE.md'"),
+      );
+      expect(twinkieCmd).toBeDefined();
 
-      // sshLogger.info was called with the D-26 skip-log shape for this
-      // (host, row) pair.
+      // NO fleet_substrate_system_root_skip log — the D-13 gate is retired.
       const infoMock = sshLogger.info as ReturnType<typeof vi.fn>;
       const skipCalls = infoMock.mock.calls.filter(
         (call: unknown[]) =>
           (call[1] as Record<string, unknown> | undefined)?.operation ===
           "fleet_substrate_system_root_skip",
       );
-      expect(skipCalls.length).toBeGreaterThanOrEqual(1);
-      const skipMeta = skipCalls[0][1] as Record<string, unknown>;
-      expect(skipMeta.entrySlug).toBe("instance-policy-claude-md");
-      expect(skipMeta.installMode).toBe("system-root");
-      expect(skipMeta.username).toBe("ubuntu");
-      expect(skipMeta.fleetHostId).toBe("1");
+      expect(skipCalls.length).toBe(0);
 
       orch.stop();
     });
@@ -1393,33 +1389,33 @@ describe("Phase 75 — server-substrate integration", () => {
       );
       expect(rootRmIdx).toBeGreaterThanOrEqual(0);
 
-      // Root host: NO base64 write for the twinkie path — the removal
+      // Root host: NO base64 tee write for the twinkie path — the removal
       // branch short-circuits before the write flow.
       expect(
         rootCommands.some(
           (c) =>
-            c.includes("base64 -d >") &&
+            c.includes("base64 -d | sudo -n tee") &&
             c.includes("'/etc/claude-code/CLAUDE.md'"),
         ),
       ).toBe(false);
 
-      // Ubuntu host: NO command touching /etc/claude-code/CLAUDE.md — the
-      // D-13 gate skipped the row before any read/write/remove exec fired.
-      expect(
-        ubuntuCommands.some((c) =>
-          c.includes("/etc/claude-code/CLAUDE.md"),
-        ),
-      ).toBe(false);
+      // Phase 115: ubuntu host ALSO gets an rm command via sudo -n rm.
+      // The D-13 gate is retired — both hosts attempt the removal.
+      const ubuntuRmIdx = ubuntuCommands.findIndex(
+        (c) =>
+          c.includes("sudo -n rm -f '/etc/claude-code/CLAUDE.md'") &&
+          c.includes("__REMOVE_DID__"),
+      );
+      expect(ubuntuRmIdx).toBeGreaterThanOrEqual(0);
 
-      // And sshLogger.info fired the D-26 skip-log for the ubuntu host.
+      // NO fleet_substrate_system_root_skip log — the gate is retired.
       const infoMock = sshLogger.info as ReturnType<typeof vi.fn>;
-      const ubuntuSkipCalls = infoMock.mock.calls.filter(
+      const skipCalls = infoMock.mock.calls.filter(
         (call: unknown[]) =>
           (call[1] as Record<string, unknown> | undefined)?.operation ===
-            "fleet_substrate_system_root_skip" &&
-          (call[1] as Record<string, unknown>).fleetHostId === "2",
+          "fleet_substrate_system_root_skip",
       );
-      expect(ubuntuSkipCalls.length).toBeGreaterThanOrEqual(1);
+      expect(skipCalls.length).toBe(0);
 
       orch.stop();
     });

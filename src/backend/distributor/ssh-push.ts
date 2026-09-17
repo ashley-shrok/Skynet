@@ -197,15 +197,35 @@ export async function writeInstalledBytesWithMode(
     // longer affects command-string length.
     let cmd: string;
     if (installMode === "system-root") {
-      // Phase 114 Plan 03: chained mkdir/chown/chmod on parent + file, then
-      // a nested symlink-guard test that emits __WRITE_SYMLINK_FAIL__ if the
-      // target is a symlink at that point (T-114-06 mitigation for symlink
-      // attack on the write path).
-      // The outer `||` catches any earlier-step failure and emits __WRITE_FAIL__
-      // via the same sentinel-inference path used by the user-home branch.
+      // Phase 114 + Phase 115: chained mkdir/chown/chmod on parent + file,
+      // then a nested symlink-guard test that emits __WRITE_SYMLINK_FAIL__
+      // if the target is a symlink at that point (T-114-06 mitigation for
+      // symlink attack on the write path).
+      //
+      // Phase 115: each write-side command is prefixed with `sudo -n` so
+      // the SSH user does NOT need to be literally root on the target —
+      // any NOPASSWD sudoer works (which is every SSH-key holder on our
+      // fleet). On hosts where sudo is password-required or unavailable,
+      // `sudo -n` fails fast with "a password is required" or "user is
+      // not in the sudoers file"; the chain short-circuits to
+      // __WRITE_FAIL__ and the composer's logItemFailed line carries the
+      // real sudo error text — no pre-emptive DB-string gate.
+      //
+      // `base64 -d` reads stdin via the ssh-channel CHANNEL_DATA frames;
+      // the redirect must be inside the sudo scope, so we route the write
+      // via `sudo -n tee` (the standard sudo-write idiom — sudo -n applied
+      // to the outer redirect target, not to base64).
+      //
+      // The `test -f`/`test ! -L` symlink-guard runs unprivileged — after
+      // chmod 0644 the file is world-readable, so no sudo needed for the
+      // post-condition check.
+      //
+      // The outer `||` catches any earlier-step failure and emits
+      // __WRITE_FAIL__ via the same sentinel-inference path used by the
+      // user-home branch.
       cmd =
-        `mkdir -p ${escapedParent} && chown root:root ${escapedParent} && chmod 0755 ${escapedParent} && ` +
-        `base64 -d > ${escapedPath} && chown root:root ${escapedPath} && chmod ${modeStr} ${escapedPath} && ` +
+        `sudo -n mkdir -p ${escapedParent} && sudo -n chown root:root ${escapedParent} && sudo -n chmod 0755 ${escapedParent} && ` +
+        `base64 -d | sudo -n tee ${escapedPath} > /dev/null && sudo -n chown root:root ${escapedPath} && sudo -n chmod ${modeStr} ${escapedPath} && ` +
         `{ test -f ${escapedPath} && test ! -L ${escapedPath} && echo __WRITE_OK__ || echo __WRITE_SYMLINK_FAIL__ ; } ` +
         `|| echo __WRITE_FAIL__`;
     } else {
@@ -367,8 +387,15 @@ export async function removeInstalledFile(
   try {
     // Absolute-path safe quoting — no tilde preservation (Pitfall 2).
     const escaped = shellSingleQuote(installPath);
+    // Phase 115: `sudo -n rm -f` for the mutating branch — same rationale
+    // as writeInstalledBytesWithMode's system-root branch (no DB-string
+    // gate; NOPASSWD sudo is the fleet-wide effective privilege). The
+    // read-side `test -f`/`test ! -e` run unprivileged (twinkie file is
+    // world-readable 0644 when installed). On hosts where sudo is
+    // password-required or unavailable, `sudo -n rm` fails fast and the
+    // command emits __REMOVE_FAIL__ via the outer error path.
     const cmd =
-      `{ if [ -f ${escaped} ]; then rm -f ${escaped} && echo __REMOVE_DID__ ; ` +
+      `{ if [ -f ${escaped} ]; then sudo -n rm -f ${escaped} && echo __REMOVE_DID__ ; ` +
       `elif [ ! -e ${escaped} ]; then echo __REMOVE_ALREADY__ ; ` +
       `else echo __REMOVE_FAIL__ ; fi ; } 2>&1`;
 

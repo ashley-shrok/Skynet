@@ -745,54 +745,61 @@ describe("runSweepForHost", () => {
     expect(writeCmd).toMatch(/test -f .* test ! -L/);
   });
 
-  it("Test P114-T-10 (root gate — non-root host skip): sshLogger.info + zero channel.exec for the row", async () => {
+  it("Test P115-T-10 (D-13 gate retired): non-root host ATTEMPTS the system-root write via `sudo -n`; no pre-emptive skip, no skip-log", async () => {
+    // Phase 115 replaces the string-equality gate with an attempt-and-log
+    // model. On a non-root SSH host with NOPASSWD sudo (the entire current
+    // fleet), `sudo -n` transparently elevates and the write succeeds.
     const catalog: CatalogEntry[] = [
       runtimeCatalogEntry({
         slug: "instance-policy-claude-md",
         installPath: "/etc/claude-code/CLAUDE.md",
       }),
     ];
-    // Non-root SSH host — the D-13 gate MUST short-circuit before any exec.
     const nonRootHost = { id: "h9", name: "notroot-host", username: "ubuntu" };
+    const twinkieBytes = Buffer.from("twinkie");
     const { channel, exec } = makeChannelSequenced((cmd) => {
-      throw new Error(`the D-13 gate should have prevented any exec, but saw: ${cmd}`);
+      // Installed side is absent → ENOENT triggers a write.
+      if (cmd.includes("base64 -w0")) return "__READ_ENOENT__";
+      // Simulate a happy NOPASSWD-sudo host: the sudo-wrapped write succeeds.
+      if (cmd.includes("base64 -d")) return "__WRITE_OK__";
+      throw new Error(`unexpected exec: ${cmd}`);
     });
     const deps: SweepDeps = {
       readBundledBytes: vi.fn(async () => null),
-      resolvedRuntimeBytes: new Map<string, Buffer | null>([["instance-policy", Buffer.from("does not matter")]]),
+      resolvedRuntimeBytes: new Map<string, Buffer | null>([
+        ["instance-policy", twinkieBytes],
+      ]),
     };
 
     const result = await runSweepForHost(channel, nonRootHost, catalog, deps);
 
-    // itemsChecked bumps (D-26: the row IS checked, just gated), no change,
-    // no fail (skip-with-log is not a failure).
     expect(result.itemsChecked).toBe(1);
-    expect(result.itemsChanged).toBe(0);
+    expect(result.itemsChanged).toBe(1);
     expect(result.itemsFailed).toBe(0);
 
-    // Zero channel.exec calls for the row — the gate short-circuits before
-    // any transport action.
-    const rowExecs = exec.mock.calls.filter((c) => {
-      const s = c[0] as string;
-      return s.includes("/etc/claude-code") || s.includes("__REMOVE_") || s.includes("base64");
-    });
-    expect(rowExecs).toHaveLength(0);
-
-    // sshLogger.info fired with the D-26 shape.
-    expect(sshLogger.info).toHaveBeenCalledWith(
-      expect.stringContaining("skipping instance-policy-claude-md"),
-      expect.objectContaining({
-        operation: "fleet_substrate_system_root_skip",
-        fleetHostId: "h9",
-        hostName: "notroot-host",
-        entrySlug: "instance-policy-claude-md",
-        installMode: "system-root",
-        username: "ubuntu",
-      }),
+    // The write command was emitted (no pre-emptive gate), and it contains
+    // the Phase 115 sudo prefix so a NOPASSWD sudoer can complete the write.
+    const writeCalls = exec.mock.calls.filter((c) =>
+      (c[0] as string).includes("base64 -d"),
     );
+    expect(writeCalls).toHaveLength(1);
+    const writeCmd = writeCalls[0][0] as string;
+    expect(writeCmd).toContain("sudo -n tee '/etc/claude-code/CLAUDE.md'");
+    expect(writeCmd).toContain("sudo -n chown root:root");
+    expect(writeCmd).toContain("sudo -n chmod");
 
-    // logItemChanged / logItemFailed NOT called — the gate is not a failure.
-    expect(logItemChanged).not.toHaveBeenCalled();
+    // NO fleet_substrate_system_root_skip log — the gate is gone.
+    const skipCalls = (sshLogger.info as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => {
+        const meta = c[1];
+        return meta && typeof meta === "object" &&
+          (meta as Record<string, unknown>).operation === "fleet_substrate_system_root_skip";
+      },
+    );
+    expect(skipCalls).toHaveLength(0);
+
+    // The write succeeded → logItemChanged fires; no failure logged.
+    expect(logItemChanged).toHaveBeenCalledTimes(1);
     expect(logItemFailed).not.toHaveBeenCalled();
   });
 

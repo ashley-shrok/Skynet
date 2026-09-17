@@ -129,27 +129,15 @@ export async function runSweepForHost(
   for (const entry of catalog) {
     itemsChecked++;
 
-    // Phase 114 Plan 05 (D-13 + D-26): root-user gate. `installMode` is
-    // optional on bundled rows (defaults to "user-home") and required on
-    // runtime rows. If a row's installMode is "system-root" AND the SSH
-    // user is not root, log a structured skip line and continue — NO exec
-    // on the channel for this row. Gate is a no-op for the existing 24
-    // bundled user-home rows (their installMode is undefined → default).
+    // Phase 115 (D-13 retired): NO pre-emptive gate on host.username. The
+    // DB's username string is a display label, not a capability boundary —
+    // every SSH-key holder on our fleet has NOPASSWD sudo, so `ubuntu` is
+    // effectively root. The push command chain uses `sudo -n` for
+    // installMode:"system-root" rows (ssh-push.ts), which is transparent when
+    // the SSH user is already root, elevates on NOPASSWD, and fails-loud on
+    // password-only sudo or no-sudo — real errors surface via logItemFailed,
+    // no strings hardcoded here.
     const installMode = entry.installMode ?? "user-home";
-    if (installMode === "system-root" && host.username !== "root") {
-      sshLogger.info(
-        `[substrate] skipping ${entry.slug} on host ${host.id}: installMode=system-root requires SSH as root, current username is ${host.username}`,
-        {
-          operation: "fleet_substrate_system_root_skip",
-          fleetHostId: host.id,
-          hostName: host.name,
-          entrySlug: entry.slug,
-          installMode,
-          username: host.username,
-        },
-      );
-      continue;
-    }
 
     try {
       // Read bundled and installed bytes for this item. ssh-push's
