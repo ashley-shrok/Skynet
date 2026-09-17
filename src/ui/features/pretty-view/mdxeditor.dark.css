@@ -80,11 +80,18 @@
   border-right: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-/* Frontmatter dialog (D-13). MDXEditor portals it to
- * editorRootElementRef?.current — i.e. INSIDE the .mdxeditor root — so
- * these scoped selectors reach it and pick up the same dark palette. */
-.mdxeditor.skynet-mdxeditor [role="dialog"] input,
-.mdxeditor.skynet-mdxeditor [role="dialog"] textarea {
+/* Frontmatter dialog + tooltips — scoped to `.skynet-mdxeditor` (NOT
+ * `.mdxeditor.skynet-mdxeditor`) because MDXEditor's `EditorRootElement`
+ * creates a SEPARATE popup container (`<div class="mdxeditor-popup-container
+ * ... skynet-mdxeditor">`) appended to `document.body` — that's the portal
+ * target for every Radix Tooltip/Dialog/Popover. It has our `.skynet-mdxeditor`
+ * className (MDXEditor copies the wrapper's className onto it) but NOT the
+ * plain `.mdxeditor` class (that lives only on the in-editor wrapper). See
+ * node_modules/@mdxeditor/editor/dist/MDXEditor.js#EditorRootElement. */
+
+/* Frontmatter dialog form fields (inputs + textareas). */
+.skynet-mdxeditor [role="dialog"] input,
+.skynet-mdxeditor [role="dialog"] textarea {
   background: rgba(0, 0, 0, 0.3);
   color: #e8e4d8;
   border: 1px solid rgba(255, 255, 255, 0.10);
@@ -92,39 +99,29 @@
   padding: 4px 8px;
 }
 
-/* Dialog panel opacity + z-index (defect fix — see handoff): my --baseBgSubtle
- * remapping above lands MDXEditor's default _largeDialogContent background
- * at ~4% white, so the dialog reads as invisible on top of its own darkening
- * overlay. Skynet's outer modal is a Radix Dialog whose Content uses
- * `translate(-50%, -50%)`, which creates a transform ancestor — inside that
- * ancestor `position: fixed` behaves like `position: absolute`, so the
- * frontmatter dialog visually centers within the outer modal (correct UX)
- * but still needs an opaque panel + a defensive z-index so nothing in the
- * outer modal chrome stacks over it. Overlay gets a solid darkening on the
- * same stacking layer. Attribute selector `[role="dialog"]` targets the
- * Radix Dialog.Content; the sibling overlay carries `data-state` but no role,
- * hence the paired `[data-state][data-side]` fallback for the Portal wrapper
- * and the direct-child rule for the overlay div. */
-.mdxeditor.skynet-mdxeditor [role="dialog"] {
+/* Dialog panel opacity + z-index (defect fix): my --baseBgSubtle remapping
+ * above lands MDXEditor's default _largeDialogContent background at ~4%
+ * white, so the dialog reads as invisible on top of its own darkening
+ * overlay. Opaque panel + defensive z-index (70/69) so it clears Skynet's
+ * outer modal stack. Overlay is matched by the CSS-module class
+ * `_dialogOverlay_` rather than a fragile structural selector. */
+.skynet-mdxeditor [role="dialog"] {
   background: #1a1d26;
   border: 1px solid rgba(220, 225, 245, 0.18);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   z-index: 70;
   padding: 20px;
 }
-.mdxeditor.skynet-mdxeditor > div > div[data-state="open"]:not([role]) {
+.skynet-mdxeditor [class*="_dialogOverlay_"] {
   background: rgba(0, 0, 0, 0.55);
   z-index: 69;
 }
 
-/* Toolbar tooltips (defect fix): MDXEditor's ._tooltipContent defaults to
- * `background-color: var(--baseText); color: var(--baseBase);` — with my
- * --baseText remapped to #e8e4d8 (light) and the .dark-theme --baseBase
- * landing on a near-black slate, the pairing is technically legible but the
- * ambient portal container + z-index: 2 leaves it hidden behind sibling
- * toolbar chrome. Override with a solid opaque dark panel + light text + a
- * high enough z-index to clear the toolbar's stacking context. */
-.mdxeditor.skynet-mdxeditor [class*="_tooltipContent_"] {
+/* Toolbar tooltips: MDXEditor's ._tooltipContent defaults to a
+ * `background: var(--baseText); color: var(--baseBase)` pair that lands
+ * invisible under our remapped dark palette; explicit opaque dark panel +
+ * light text + high z-index. */
+.skynet-mdxeditor [class*="_tooltipContent_"] {
   background-color: #1a1d26 !important;
   color: #e8e4d8 !important;
   border: 1px solid rgba(220, 225, 245, 0.18);
