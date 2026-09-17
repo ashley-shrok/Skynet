@@ -2531,10 +2531,13 @@ Plans:
 
 ### Phase 113: Skill creation in the Edit Skills modal
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Extend the Edit Skills modal to cover skill creation end-to-end — new backend `POST /skills-editor/skill` route that mints a skill folder + seed `SKILL.md`; enforced `SKILL.md`-invariant (both backend `DELETE /file` guard and frontend `SkillFileTab` hide); modal restructure (`+ New skill` header button with chained-prompt flow, `+ Add file` header button retired in favor of a right-pinned `+ New file` action-tab, host picker hidden on single-host installs); test coverage on both sides per D-26 through D-28.
+**Requirements**: none tracked (phase-113 acceptance is driven entirely by CONTEXT decisions D-01..D-29; not part of the patch-#43 REQ-* set)
 **Depends on:** Phase 112
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 113 to break down)
+- [ ] 113-01-PLAN.md — backend `POST /skills-editor/skill` + `composeSkillMdSeed` helper + `DELETE /file` `SKILL.md` guard + backend test extensions (D-06, D-07, D-08, D-10 backend, D-20, D-21, D-22, D-26, D-27)
+- [ ] 113-02-PLAN.md — `createSkill` + `SkillAlreadyExistsError` in `skills-api.ts` + `SkillFileTab` `SKILL.md` delete-affordance guard (D-10 frontend, D-24)
+- [ ] 113-03-PLAN.md — `SkillsEditorModal` restructure: `handleNewSkill` + `+ New skill` header button + retire `+ Add file` header button + `+ New file` action-tab pinned right + tab-strip hoist + empty-file-list copy repoint + single-host picker conditional (D-01, D-02, D-03, D-04, D-05, D-12, D-13, D-14, D-15, D-16, D-17, D-18, D-25)
+- [ ] 113-04-PLAN.md — `SkillsEditorModal.test.tsx` extension covering all D-28 frontend RTL cases + companion edit for the pre-existing delete-file test (D-28)
