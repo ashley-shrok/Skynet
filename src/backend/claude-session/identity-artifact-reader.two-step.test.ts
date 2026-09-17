@@ -171,6 +171,45 @@ describe("extractCosmeticsFromFrontmatter (malformed-YAML logging — regression
     expect(extractCosmeticsFromFrontmatter(md)).toEqual({});
     expect(vi.mocked(systemLogger.warn)).not.toHaveBeenCalled();
   });
+
+  it("test 5f: coerces colorHue from a numeric string (WYSIWYG editors like MDXEditor's frontmatter dialog quote all values on round-trip)", () => {
+    const md = "---\ntitle: Skynet\ncolorHue: '324'\navatar: box-maintainer.webp\n---\n\n# body";
+    const out = extractCosmeticsFromFrontmatter(md);
+    expect(out.colorHue).toBe(324);
+    expect(out.title).toBe("Skynet");
+    expect(out.avatar).toBe("box-maintainer.webp");
+  });
+
+  it("test 5g: drops a stringified colorHue outside the [0, 359] range", () => {
+    const md = "---\ntitle: X\ncolorHue: '999'\n---\n\n# body";
+    const out = extractCosmeticsFromFrontmatter(md);
+    expect("colorHue" in out).toBe(false);
+    expect(out.title).toBe("X");
+  });
+
+  it("test 5h: drops a non-numeric colorHue string", () => {
+    const md = "---\ncolorHue: teal\n---\n\n# body";
+    const out = extractCosmeticsFromFrontmatter(md);
+    expect("colorHue" in out).toBe(false);
+  });
+
+  it("test 5i: coerces coordinator from stringified boolean (same WYSIWYG round-trip case)", () => {
+    const md = "---\nrole: box-maintainer\ncoordinator: 'true'\n---\n\n# body";
+    const out = extractCosmeticsFromFrontmatter(md);
+    expect(out.coordinator).toBe(true);
+  });
+
+  it("test 5j: coerces coordinator: 'false' to boolean false", () => {
+    const md = "---\nrole: box-maintainer\ncoordinator: 'false'\n---\n\n# body";
+    const out = extractCosmeticsFromFrontmatter(md);
+    expect(out.coordinator).toBe(false);
+  });
+
+  it("test 5k: drops coordinator with an arbitrary non-boolean-like string", () => {
+    const md = "---\nrole: box-maintainer\ncoordinator: maybe\n---\n\n# body";
+    const out = extractCosmeticsFromFrontmatter(md);
+    expect("coordinator" in out).toBe(false);
+  });
 });
 
 describe("resolveRoleForIdentity", () => {

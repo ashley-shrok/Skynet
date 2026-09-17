@@ -2404,13 +2404,25 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
   if (typeof src.title === "string" && src.title.length > 0) {
     out.title = src.title;
   }
+  // colorHue: accept number OR numeric string. WYSIWYG frontmatter editors
+  // (MDXEditor's dialog, and typical YAML round-trippers when a value was
+  // ever quoted) serialize `324` as `'324'`, so a strict typeof-number gate
+  // silently drops the field on save — the visible symptom is losing the
+  // identity/role's color the moment someone edits their frontmatter. Coerce
+  // string→number and enforce the same [0, 359] range post-parse.
+  const rawColorHue = src.colorHue;
+  const parsedColorHue =
+    typeof rawColorHue === "number"
+      ? rawColorHue
+      : typeof rawColorHue === "string" && rawColorHue.trim() !== ""
+        ? Number(rawColorHue)
+        : Number.NaN;
   if (
-    typeof src.colorHue === "number" &&
-    Number.isFinite(src.colorHue) &&
-    src.colorHue >= 0 &&
-    src.colorHue <= 359
+    Number.isFinite(parsedColorHue) &&
+    parsedColorHue >= 0 &&
+    parsedColorHue <= 359
   ) {
-    out.colorHue = src.colorHue;
+    out.colorHue = parsedColorHue;
   }
   if (typeof src.voice === "string" && src.voice.length > 0) {
     out.voice = src.voice;
@@ -2418,8 +2430,14 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
   if (typeof src.avatar === "string" && src.avatar.length > 0) {
     out.avatar = src.avatar;
   }
+  // coordinator: accept boolean OR "true"/"false" string (same resilience
+  // as colorHue — WYSIWYG editors quote booleans on round-trip).
   if (typeof src.coordinator === "boolean") {
     out.coordinator = src.coordinator;
+  } else if (src.coordinator === "true") {
+    out.coordinator = true;
+  } else if (src.coordinator === "false") {
+    out.coordinator = false;
   }
   // Phase 80 Plan 80-03: task narrowing — mirrors voice/title pattern.
   if (typeof src.task === "string" && src.task.length > 0) {
