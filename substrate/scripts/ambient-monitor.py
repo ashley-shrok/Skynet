@@ -289,18 +289,27 @@ ROLE_NAME, IS_COORDINATOR = _read_frontmatter(IDENTITY_FILE)
 # of policy — coordinator-vs-actor — and uses it here at spawn time. From this
 # point on, dispatch is dumb: each entry in CHILDREN just gets spawned and
 # forwarded.
-CHILDREN = []
-for _cred_path, _state_dir, _label in RELAY_ACCOUNTS:
-    CHILDREN.append({
-        "name": "relay-receiver:%s" % _label,
+#
+# `relay_cred_path` on relay-receiver specs is the marker the hot-reload rescan
+# uses to diff on-disk cred files against currently-running receivers — see
+# _rescan_relay_accounts() below.
+def _relay_spec(cred_path, state_dir, label):
+    return {
+        "name": "relay-receiver:%s" % label,
         "cmd": ["bash", str(HOME / ".claude/skills/agent-relay/recv.sh")],
         "env_extra": {
-            "STATE_DIR": str(_state_dir),
-            "SINCE_FILE": str(_state_dir / "since"),
-            "RELAY_CREDS": str(_cred_path),
+            "STATE_DIR": str(state_dir),
+            "SINCE_FILE": str(state_dir / "since"),
+            "RELAY_CREDS": str(cred_path),
         },
         "critical": True,
-    })
+        "relay_cred_path": str(cred_path),
+    }
+
+
+CHILDREN = []
+for _cred_path, _state_dir, _label in RELAY_ACCOUNTS:
+    CHILDREN.append(_relay_spec(_cred_path, _state_dir, _label))
 CHILDREN.append({
     "name": "wakeup-scheduler",
     "cmd": ["python3", str(HOME / ".local/bin/wakeup-scheduler"), str(IDENTITY_DIR)],
@@ -618,6 +627,47 @@ def _do_shutdown():
                 pass
 
 
+# ---------------------------------------------------- relay hot-reload
+# Every RELAY_RESCAN_TICKS reap ticks, re-run relay-account discovery and diff
+# against the currently-running receivers. New cred file → spawn a receiver.
+# Removed cred file → SIGTERM the retired receiver, with death_announced=True
+# so the next reap tick's exit-detection does NOT fire a CRITICAL wake for what
+# is an intentional retirement.
+#
+# Lets you drop or delete a *.json cred file on a running identity without
+# restarting the ambient-monitor. Latency = RELAY_RESCAN_TICKS * REAP_POLL_SECONDS.
+RELAY_RESCAN_TICKS = int(os.environ.get("AMBIENT_MONITOR_RELAY_RESCAN_TICKS", "30"))
+
+
+def _rescan_relay_accounts():
+    current = _discover_relay_accounts(IDENTITY_DIR)
+    current_paths = {str(c): (c, sd, label) for c, sd, label in current}
+    running_receivers = {
+        entry["spec"]["relay_cred_path"]: entry
+        for entry in running
+        if entry["spec"].get("relay_cred_path") is not None
+        and entry["popen"].poll() is None
+    }
+    for path, (c, sd, label) in current_paths.items():
+        if path in running_receivers:
+            continue
+        sd.mkdir(parents=True, exist_ok=True)
+        entry = start_child(_relay_spec(c, sd, label))
+        if entry is not None:
+            running.append(entry)
+            emit_diag("relay-rescan: added receiver for %s" % label)
+    for path, entry in running_receivers.items():
+        if path in current_paths:
+            continue
+        label = entry["spec"]["name"].split(":", 1)[1]
+        entry["death_announced"] = True
+        try:
+            os.killpg(os.getpgid(entry["popen"].pid), signal.SIGTERM)
+            emit_diag("relay-rescan: retired receiver for %s (cred file removed)" % label)
+        except (ProcessLookupError, PermissionError, OSError) as e:
+            emit_diag("relay-rescan: could not SIGTERM %s: %r" % (label, e))
+
+
 # ---------------------------------------------------------------- reap
 def _death_wake(entry, rc):
     spec = entry["spec"]
@@ -638,6 +688,7 @@ def _death_wake(entry, rc):
 
 
 def _reap_loop():
+    tick = 0
     while not shutting_down.is_set():
         alive_count = 0
         for entry in running:
@@ -652,6 +703,13 @@ def _reap_loop():
                 time.sleep(0.3)
                 _death_wake(entry, rc)
                 entry["death_announced"] = True
+        # Prune retired relay receivers (intentional retire via _rescan) that
+        # have fully exited — leave non-relay watchers in place so their deaths
+        # still surface via the announce-once path above.
+        running[:] = [
+            e for e in running
+            if e["popen"].poll() is None or e["spec"].get("relay_cred_path") is None
+        ]
         if alive_count == 0:
             emit_wake(
                 "⚠️⚠️⚠️ [ambient-monitor: %s] ALL WATCHERS HAVE DIED — the ambient "
@@ -662,6 +720,12 @@ def _reap_loop():
             _exit_code[0] = 1
             shutting_down.set()
             return
+        tick += 1
+        if tick % RELAY_RESCAN_TICKS == 0:
+            try:
+                _rescan_relay_accounts()
+            except Exception as e:
+                emit_diag("relay-rescan: unexpected error: %r" % e)
         time.sleep(REAP_POLL_SECONDS)
 
 
