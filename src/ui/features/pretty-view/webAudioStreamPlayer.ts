@@ -76,6 +76,18 @@ export function createWebAudioStreamPlayer(
   let audioContext: AudioContext | null = null;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   const sources: AudioBufferSourceNode[] = [];
+  // Parallel to `sources` — one entry per scheduled source with the timing
+  // metadata needed to diagnose "audio hard-cut before it should" reports
+  // (Ashley 2026-09-17 — media-ended fired legitimately but tail audio was
+  // silent; instrumentation exists to pin the source-ended fire pattern next
+  // occurrence). idx counts from 0, matches sources[] index.
+  const scheduledMeta: Array<{
+    idx: number;
+    startTime: number;
+    bufferDuration: number;
+    audibleDuration: number;
+    expectedEnd: number;
+  }> = [];
   let endedSources = 0;
   let readerDone = false;
   let stopped = false;
@@ -126,14 +138,25 @@ export function createWebAudioStreamPlayer(
   function maybeFireEnded(): void {
     if (readerDone && endedSources >= sources.length && !onEndedFired && !stopped) {
       onEndedFired = true;
+      const ctxTime = audioContext?.currentTime ?? -1;
+      const lastMeta = scheduledMeta[scheduledMeta.length - 1];
+      console.info(
+        `[tts-player] fire-ended ctxTime=${ctxTime.toFixed(3)} endedSources=${endedSources} sources=${sources.length} lastScheduledEnd=${lastMeta?.expectedEnd.toFixed(3) ?? "n/a"} ctxState=${audioContext?.state ?? "null"}`,
+      );
       teardown();
       opts.onEnded?.();
     }
   }
 
-  /** Called by each source's onended. */
-  function onSourceEnded(): void {
+  /** Called by each source's onended. `idx` matches sources[] index. */
+  function onSourceEnded(idx: number): void {
     endedSources += 1;
+    const meta = scheduledMeta[idx];
+    const ctxTime = audioContext?.currentTime ?? -1;
+    const drift = meta ? ctxTime - meta.expectedEnd : 0;
+    console.info(
+      `[tts-player] source-ended idx=${idx} expectedEnd=${meta?.expectedEnd.toFixed(3) ?? "n/a"} ctxTime=${ctxTime.toFixed(3)} drift=${drift.toFixed(3)} endedCount=${endedSources} totalCount=${sources.length} ctxState=${audioContext?.state ?? "null"}`,
+    );
     maybeFireEnded();
   }
 
@@ -162,10 +185,12 @@ export function createWebAudioStreamPlayer(
     source.buffer = buffer;
     source.playbackRate.value = TTS_PLAYBACK_RATE;
     source.connect(ctx.destination);
-    source.onended = onSourceEnded;
+    const idx = sources.length;
+    source.onended = () => onSourceEnded(idx);
 
     // If we've fallen behind the playhead (e.g. a slow decode stall), reset
     // nextStartTime to now + epsilon to avoid queuing a backlog of silent gaps.
+    const preClampNextStart = nextStartTimeRef.value;
     if (nextStartTimeRef.value < ctx.currentTime) {
       nextStartTimeRef.value = ctx.currentTime + 0.02;
     }
@@ -173,8 +198,16 @@ export function createWebAudioStreamPlayer(
     source.start(nextStartTimeRef.value);
     // Audible duration = buffer.duration / playbackRate. Advance by that so
     // consecutive sources remain gapless at the accelerated rate.
-    nextStartTimeRef.value += buffer.duration / TTS_PLAYBACK_RATE;
+    const audibleDuration = buffer.duration / TTS_PLAYBACK_RATE;
+    const startTime = nextStartTimeRef.value;
+    const expectedEnd = startTime + audibleDuration;
+    nextStartTimeRef.value = expectedEnd;
     sources.push(source);
+    scheduledMeta.push({ idx, startTime, bufferDuration: buffer.duration, audibleDuration, expectedEnd });
+    const clamped = preClampNextStart !== startTime;
+    console.info(
+      `[tts-player] schedule idx=${idx} start=${startTime.toFixed(3)} bufDur=${buffer.duration.toFixed(3)} audible=${audibleDuration.toFixed(3)} expectedEnd=${expectedEnd.toFixed(3)} ctxTime=${ctx.currentTime.toFixed(3)} clamped=${clamped} ctxState=${ctx.state}`,
+    );
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────────
@@ -222,6 +255,11 @@ export function createWebAudioStreamPlayer(
         const { done, value } = await reader.read();
         if (done) {
           readerDone = true;
+          const ctxTime = audioContext?.currentTime ?? -1;
+          const lastMeta = scheduledMeta[scheduledMeta.length - 1];
+          console.info(
+            `[tts-player] reader-done sources=${sources.length} endedSoFar=${endedSources} ctxTime=${ctxTime.toFixed(3)} lastScheduledEnd=${lastMeta?.expectedEnd.toFixed(3) ?? "n/a"} ctxState=${audioContext?.state ?? "null"}`,
+          );
           maybeFireEnded();
           return;
         }
@@ -280,6 +318,10 @@ export function createWebAudioStreamPlayer(
   function stop(): void {
     if (stopped) return; // idempotent
     stopped = true;
+    const pending = sources.length - endedSources;
+    console.info(
+      `[tts-player] stop pending=${pending} sources=${sources.length} ctxTime=${(audioContext?.currentTime ?? -1).toFixed(3)} ctxState=${audioContext?.state ?? "null"}`,
+    );
     teardown();
     // Do NOT fire onEnded or onError — external stop is the caller's own action.
   }
@@ -287,17 +329,31 @@ export function createWebAudioStreamPlayer(
   async function pause(): Promise<void> {
     // No-op if stopped, if play() hasn't started, or if context is already
     // suspended/closed. suspend() is safe to call in "running" state only.
-    if (stopped || !audioContext) return;
-    if (audioContext.state !== "running") return;
+    if (stopped || !audioContext) {
+      console.info(`[tts-player] pause-noop reason=${stopped ? "stopped" : "no-context"}`);
+      return;
+    }
+    if (audioContext.state !== "running") {
+      console.info(`[tts-player] pause-noop reason=state-${audioContext.state} ctxTime=${audioContext.currentTime.toFixed(3)}`);
+      return;
+    }
+    const stateBefore = audioContext.state;
+    const ctxTimeBefore = audioContext.currentTime;
+    const pending = sources.length - endedSources;
     try {
       await audioContext.suspend();
+      console.info(
+        `[tts-player] pause stateBefore=${stateBefore} stateAfter=${audioContext.state} ctxTime=${ctxTimeBefore.toFixed(3)} pending=${pending}`,
+      );
       // Fire onPause after successful suspend — analogous to HTMLAudioElement
       // pause event (audio stream paused at user/system request).
       opts.onPause?.();
-    } catch {
+    } catch (err) {
       // Rare — browser may reject if the context was killed under us.
       // Treat as a no-op; the next resume attempt will surface it via onError.
       // Fire onSuspend to signal unexpected context state change.
+      const errMessage = err instanceof Error ? err.message : String(err);
+      console.warn(`[tts-player] pause-error errMessage="${errMessage}" ctxState=${audioContext?.state ?? "null"}`);
       opts.onSuspend?.();
     }
   }
@@ -307,9 +363,17 @@ export function createWebAudioStreamPlayer(
     // actually suspended (already running / already closed / gone), a
     // resume() call would either be pointless or fail — surface a killed
     // context to the caller via onError so the UI can flip back to idle.
-    if (stopped || !audioContext) return;
-    if (audioContext.state === "running") return;
+    if (stopped || !audioContext) {
+      console.info(`[tts-player] resume-noop reason=${stopped ? "stopped" : "no-context"}`);
+      return;
+    }
+    if (audioContext.state === "running") {
+      console.info(`[tts-player] resume-noop reason=already-running ctxTime=${audioContext.currentTime.toFixed(3)}`);
+      return;
+    }
     if (audioContext.state === "closed") {
+      const pending = sources.length - endedSources;
+      console.error(`[tts-player] resume-closed pending=${pending} sources=${sources.length}`);
       if (!onErrorFired) {
         onErrorFired = true;
         teardown();
@@ -317,12 +381,20 @@ export function createWebAudioStreamPlayer(
       }
       return;
     }
+    const stateBefore = audioContext.state;
+    const ctxTimeBefore = audioContext.currentTime;
+    const pending = sources.length - endedSources;
     try {
       await audioContext.resume();
+      console.info(
+        `[tts-player] resume stateBefore=${stateBefore} stateAfter=${audioContext.state} ctxTime=${ctxTimeBefore.toFixed(3)} pending=${pending}`,
+      );
       // Fire onPlaying after successful resume — analogous to HTMLAudioElement
       // playing event (playback restarted after being paused/suspended).
       opts.onPlaying?.();
     } catch (err) {
+      const errMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[tts-player] resume-error errMessage="${errMessage}" stateBefore=${stateBefore} ctxState=${audioContext?.state ?? "null"} pending=${pending}`);
       if (!onErrorFired) {
         onErrorFired = true;
         teardown();
