@@ -141,7 +141,7 @@ None - plan executed exactly as written, with two minor addenda both anticipated
 
 ## User Setup Required
 
-None - fleet-substrate distributor propagates this change to every managed host on its next sweep after the commits hit origin. **⚠️ Reminder to Ashley: do NOT hand-edit installed copies at `~/.local/bin/agent-supervisor` on any host — that masks distribution bugs (fleet rule 2026-09-10). Wait for the distributor sweep after push.**
+None - fleet-substrate distributor propagates this change to every managed host on its next sweep after the commits hit origin. **⚠️ Reminder to the operator: do NOT hand-edit installed copies at `~/.local/bin/agent-supervisor` on any host — that masks distribution bugs (fleet rule 2026-09-10). Wait for the distributor sweep after push.**
 
 ## Next Phase Readiness
 
@@ -156,7 +156,7 @@ No new surface introduced beyond what the plan's `<threat_model>` already covere
 - **T-115-04-04 (DoS — retry loop hammering broken homeserver)**: mitigation in place — 3-fail retire-stuck sentinel breaks the loop after ~45s wall time.
 - **T-115-04-05 (EoP — wrong SIGTERM)**: mitigation in place — step 2's SIGTERM-survivor loop uses the same `match_session` case-insensitive lookup as recycle().
 - **T-115-04-06 (DoS — concurrent daily + user-initiated retire)**: idempotent by construction — matrix 401 handled, tmux kill no-op, folder-move State 2 handled.
-- **T-115-04-SC (Fleet distribution)**: reminder to Ashley in User Setup Required.
+- **T-115-04-SC (Fleet distribution)**: reminder to the operator in User Setup Required.
 
 ## Self-Check: PASSED
 

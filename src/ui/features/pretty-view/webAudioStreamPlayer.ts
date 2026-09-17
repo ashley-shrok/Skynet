@@ -25,7 +25,7 @@ import { parseRiffHeader, decodePcmChunk, type RiffHeader } from "./riffPcmDecod
 // Advancing `nextStartTimeRef` must divide by this value to stay gapless.
 const TTS_PLAYBACK_RATE = 1.25;
 
-// Ashley 2026-09-17 — bug fix: Chrome silently drops audio output for
+// the operator 2026-09-17 — bug fix: Chrome silently drops audio output for
 // AudioBufferSourceNodes scheduled too far ahead of the playhead, while
 // still firing their onended callbacks on schedule. Symptom: a long
 // message hard-cuts partway through and finishes with silence, media-ended
@@ -103,7 +103,7 @@ export function createWebAudioStreamPlayer(
   const sources: AudioBufferSourceNode[] = [];
   // Parallel to `sources` — one entry per scheduled source with the timing
   // metadata needed to diagnose "audio hard-cut before it should" reports
-  // (Ashley 2026-09-17 — media-ended fired legitimately but tail audio was
+  // (the operator 2026-09-17 — media-ended fired legitimately but tail audio was
   // silent; instrumentation exists to pin the source-ended fire pattern next
   // occurrence). idx counts from 0, matches sources[] index.
   const scheduledMeta: Array<{

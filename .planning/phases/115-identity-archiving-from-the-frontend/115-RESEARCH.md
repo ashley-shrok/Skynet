@@ -44,7 +44,7 @@ Phase 115 wires a real end-of-life "archive" gesture into Skynet's unified conve
 - **D-19:** Archived-section lazy loading — verify + preserve. If not present today, add as part of this phase's scope.
 
 **Migration + retirement:**
-- **D-20:** Manual migration of existing `.hidden` sentinels (Ashley handles outside code scope).
+- **D-20:** Manual migration of existing `.hidden` sentinels (the operator handles outside code scope).
 - **D-21:** `.hidden` code path fully retired. Delete every read/write of `.hidden` anywhere.
 
 **Testing:**
@@ -488,7 +488,7 @@ def _enumerate_identities(home):
 
 **Cross-root name collision** (a name appearing in both `identities/` AND `identities-archive/`): shouldn't happen in practice (that would be the retire-collision state 3 at `agent-supervisor.sh:388-393` which is refused). If it does, both records emit — the frontend sees two rows with the same identity name, one live and one archived. Feasibly handleable by preferring the live one (planner picks; probably a low-priority defensive test).
 
-**Note on `hidden` field:** With D-21 retiring `.hidden` entirely, the `hidden` probe at line 1004 of fleet-status-sweep.py is deleted, and the `hidden` field on the dict + SweepIdentityLine is dropped. Just delete cleanly — Ashley handles manual `.hidden` file cleanup per D-20.
+**Note on `hidden` field:** With D-21 retiring `.hidden` entirely, the `hidden` probe at line 1004 of fleet-status-sweep.py is deleted, and the `hidden` field on the dict + SweepIdentityLine is dropped. Just delete cleanly — the operator handles manual `.hidden` file cleanup per D-20.
 
 ## How does `archived` reach the frontend
 
@@ -760,14 +760,14 @@ expect(ALLOWED_REL_PATHS.has(".archive-requested")).toBe(true);
 
 | Category | Items Found | Action Required |
 |----------|-------------|------------------|
-| Stored data | None — the `.hidden` sentinel is the only stored representation of hidden state; D-20 declares Ashley handles manual `.hidden` cleanup outside code scope. No DB rows to migrate (Phase 107 already dropped `hidden_conversation_ids` column). No ChromaDB/Mem0/Redis touchpoints for hidden or archive. | Data-migration for `.hidden` files is Ashley's manual task (D-20). No code migration needed. |
+| Stored data | None — the `.hidden` sentinel is the only stored representation of hidden state; D-20 declares the operator handles manual `.hidden` cleanup outside code scope. No DB rows to migrate (Phase 107 already dropped `hidden_conversation_ids` column). No ChromaDB/Mem0/Redis touchpoints for hidden or archive. | Data-migration for `.hidden` files is the operator's manual task (D-20). No code migration needed. |
 | Live service config | None. n8n workflows, Datadog service names, Tailscale ACLs, Cloudflare Tunnel names — none reference `.hidden` or per-identity retire state. Matrix homeserver has deactivated accounts (from Phase 94's retire step 3) — these are legitimate ongoing state on Synapse, not a stale reference. | None. |
 | OS-registered state | The distributor propagates `agent-supervisor.sh` + `fleet-status-sweep.py` + `ambient-monitor.py` via the fleet-substrate catalog on its next sweep. No systemd unit changes. No OS Task Scheduler entries reference these files by content. | None — distributor auto-propagates on next cycle. |
 | Secrets / env vars | No env var names change. `SOPS` isn't in play for these files. `.env` files not touched. | None. |
 | Build artifacts | Backend build (`npm run build:backend`) will emit updated JS from the deleted `.hidden` reader/writer code — normal build cycle handles this. No stale egg-info / .whl / Docker image tags. | Rebuild after code lands (standard deploy motion). |
 
 **Canonical question answer:** After every file in the repo is updated:
-- **Live tree `.hidden` sentinels on managed hosts** — Ashley manually converts / deletes per D-20 outside this phase's code scope.
+- **Live tree `.hidden` sentinels on managed hosts** — the operator manually converts / deletes per D-20 outside this phase's code scope.
 - **DB `hidden_conversation_ids` rows** — already dropped in Phase 107 (D-21 confirms nothing new to drop).
 - **In-memory `state.hiddenIds` in the frontend** — cleared on next page load (no persistent client cache for this specifically). The `localStorage` cache under `skynet:identities-appearance-cache:v1` may still contain `hidden` field on cached identity records; the schema version suffix `v1` should be bumped to `v2` when the identity shape changes (search `APPEARANCE_CACHE_KEY` in `identities-store.ts` L37 — planner note).
 
@@ -843,7 +843,7 @@ expect(ALLOWED_REL_PATHS.has(".archive-requested")).toBe(true);
 - **Option B: Throwaway Matrix account on a test homeserver.** Requires network + credentials. Should be an integration test run manually before push OR a separate "e2e-live" test file that's opt-in via env var. Verifies the entire chain including post-Synapse state.
 - **Option C: Docker-composed Synapse.** Full local homeserver in the test env. Heavy but complete. Overkill for Phase 115 — Phase 94's dev evidence at `agent-supervisor.sh:145` already confirmed the endpoint works against Synapse 1.157.2.
 
-**Recommendation:** Option A for the CI gate (fast, deterministic), Option B as a manual pre-ship checklist item (Ashley runs it against her live test account). Skip Option C.
+**Recommendation:** Option A for the CI gate (fast, deterministic), Option B as a manual pre-ship checklist item (the operator runs it against her live test account). Skip Option C.
 
 ## Observability upgrades to consider
 

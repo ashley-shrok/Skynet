@@ -66,9 +66,9 @@ Add an "archive" action to Skynet's unified context menu (sidebar row + identity
 
 ### Migration of existing `.hidden` sentinels
 
-- **D-20: Migration is manual, outside code scope.** The operator (Ashley) will manually convert existing `.hidden` sentinels on all managed hosts after Phase 115 code lands. The migration is NOT part of this phase's automated deploy. Rationale: the number of hosts is small, the conversion is trivial (either delete the `.hidden` sentinel and treat the identity as active, or write `.archive-requested` and let the newly-shipped supervisor retire it). Automating this would add substantial code for a one-off operation.
+- **D-20: Migration is manual, outside code scope.** The operator (the operator) will manually convert existing `.hidden` sentinels on all managed hosts after Phase 115 code lands. The migration is NOT part of this phase's automated deploy. Rationale: the number of hosts is small, the conversion is trivial (either delete the `.hidden` sentinel and treat the identity as active, or write `.archive-requested` and let the newly-shipped supervisor retire it). Automating this would add substantial code for a one-off operation.
 
-- **D-21: `.hidden` code path fully retired.** Post-Phase-115 there is NO code path anywhere (frontend, backend, supervisor) that reads or writes `.hidden` sentinels. Delete the entire `.hidden` handling: `deriveDiskHiddenIds` in `identities-store.ts`, the `putHiddenIds`/`hideConversation` API surface, the `hiddenConversationIds` fanout in `user-preferences.ts`, the `.hidden` entry in `ALLOWED_REL_PATHS`, the `hidden` field on `publicIdentity()`, the `hidden` field on `SweepIdentityLine`, and any test coverage. Test suite should surface any lingering references. Do NOT keep the code path around for backwards compat — Ashley will handle the manual migration.
+- **D-21: `.hidden` code path fully retired.** Post-Phase-115 there is NO code path anywhere (frontend, backend, supervisor) that reads or writes `.hidden` sentinels. Delete the entire `.hidden` handling: `deriveDiskHiddenIds` in `identities-store.ts`, the `putHiddenIds`/`hideConversation` API surface, the `hiddenConversationIds` fanout in `user-preferences.ts`, the `.hidden` entry in `ALLOWED_REL_PATHS`, the `hidden` field on `publicIdentity()`, the `hidden` field on `SweepIdentityLine`, and any test coverage. Test suite should surface any lingering references. Do NOT keep the code path around for backwards compat — the operator will handle the manual migration.
 
 ### Testing — the 180-day retire path is untrusted
 
@@ -139,7 +139,7 @@ Add an "archive" action to Skynet's unified context menu (sidebar row + identity
 - `~/.claude/skills/id/SKILL.md` § "Coordinator mode" — the strict `coordinator: true` detection rule (already used by Phase 94's `is_coordinator()`). Phase 115 BYPASSES this guard for user-initiated retire (D-11) but does NOT change the detection rule.
 
 ### Fleet substrate distribution
-- `src/backend/distributor/catalog.ts` — canonical catalog. Once Phase 115 changes land on origin, the distributor spreads them to every managed host on its next sweep. **Never hand-edit installed copies on any box** (fleet rule, Ashley 2026-09-10).
+- `src/backend/distributor/catalog.ts` — canonical catalog. Once Phase 115 changes land on origin, the distributor spreads them to every managed host on its next sweep. **Never hand-edit installed copies on any box** (fleet rule, the operator 2026-09-10).
 
 ### Homeserver deactivate reference (mechanics)
 - Phase 94's Matrix deactivate call shape at `agent-supervisor.sh` L424-473 — POST `/_matrix/client/v3/account/deactivate` with `Authorization: Bearer <own-token>`, body `{"auth":{"type":"m.login.password","user":"<mxid>","password":"<pwd>"},"erase":true}`. Verified against Synapse 1.157.2 during Phase 94 shape development. No new server-side work needed for Phase 115 — the endpoint call already works.
