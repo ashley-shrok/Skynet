@@ -55,6 +55,14 @@ declare -A LAST_RECYCLE_AT=()
 # real (case-preserved) session names — match_session's case-insensitive lookup needs that map.
 declare -A SESSIONS_SNAPSHOT=()
 
+# Per-tick snapshot of "does this session have a claude/node process on any of its pane ttys?",
+# populated once by snapshot_claude_running() at the top of reconcile(). Consumed via
+# claude_running_cached() in the reconcile alive-check hot path (one lookup per identity instead
+# of a tmux+ps roundtrip per identity). The FRESH probe claude_running() is retained unchanged
+# for the double-probe re-check and the drive()/wait_for_claude() polling loop — those callers
+# need real-time state, not a snapshot taken up to a tick ago.
+declare -A CLAUDE_RUNNING_SNAPSHOT=()
+
 # ---- config ----
 # IDENTITIES is derived from disk in resolve_identities() on every reconcile;
 # initialized empty here.
@@ -588,9 +596,45 @@ snapshot_sessions() {
 #
 # is a claude/node process on the session's pane tty? (ps over the tty lists claude even when a
 # child bash is momentarily foreground, so this doesn't false-negative during tool calls.)
+#
+# Fresh probe (no snapshot): used by the double-probe re-check in reconcile after `sleep 2`, and
+# by wait_for_claude()/drive() where sub-second freshness matters. The reconcile hot-path uses
+# claude_running_cached() instead, which reads CLAUDE_RUNNING_SNAPSHOT populated once per tick.
 claude_running() {
   local tty; tty="$(timeout -k 5 10 tmux list-panes -t "=$1" -F '#{pane_tty}' 2>/dev/null | head -1)"
   [ -n "$tty" ] && ps -t "${tty#/dev/}" -o comm= 2>/dev/null | grep -qiE 'claude|node'
+}
+
+# claude_running_cached: lookup on the per-tick snapshot. Returns 0 iff snapshot_claude_running()
+# recorded a claude/node process for this session's tty on THIS reconcile's snapshot pass.
+# Use this in the reconcile alive-check hot path only; never in a polling loop.
+claude_running_cached() {
+  [ -n "${CLAUDE_RUNNING_SNAPSHOT[$1]:-}" ]
+}
+
+# snapshot_claude_running: one ps sweep + one tmux list-panes sweep per tick. Builds
+# CLAUDE_RUNNING_SNAPSHOT[<session_name>]=1 for every session whose pane tty currently hosts a
+# claude/node process. Called at the top of reconcile() right after snapshot_sessions().
+# Semantics match claude_running(): claude/node substring match against ps comm field,
+# case-insensitive; a session with no pane or no tty is absent from the snapshot.
+snapshot_claude_running() {
+  CLAUDE_RUNNING_SNAPSHOT=()
+  local -A _tty_has_claude=()
+  local line ttyf comm comm_lc
+  while IFS= read -r line; do
+    ttyf="${line%% *}"; comm="${line#* }"
+    [ "$ttyf" = "?" ] && continue
+    comm_lc="${comm,,}"
+    case "$comm_lc" in
+      *claude*|*node*) _tty_has_claude["$ttyf"]=1 ;;
+    esac
+  done < <(ps -eo tty,comm= 2>/dev/null)
+  local sess tty
+  while IFS=' ' read -r sess tty; do
+    [ -n "$sess" ] && [ -n "$tty" ] || continue
+    tty="${tty#/dev/}"
+    [ -n "${_tty_has_claude[$tty]:-}" ] && CLAUDE_RUNNING_SNAPSHOT["$sess"]=1
+  done < <(timeout -k 5 10 tmux list-panes -a -F '#{session_name} #{pane_tty}' 2>/dev/null)
 }
 
 # wait_for_claude: poll claude_running() up to N seconds with short backoff. Returns 0 the moment
@@ -1612,6 +1656,7 @@ do_wake() {
 reconcile() {
   sample_memory                                    # dashboard sampler — one line per cycle
   snapshot_sessions                                # one tmux ls per tick; match_session reads from the snapshot. MUST run before archive-scan (which calls match_session via retire_identity).
+  snapshot_claude_running                          # one ps + one tmux list-panes -a per tick; claude_running_cached reads from CLAUDE_RUNNING_SNAPSHOT.
   run_archive_scan_if_due                          # Phase 94: daily archive-scan branch (24h gate; fast-path no-op on most ticks)
   resolve_identities
   if [ "${#IDENTITIES[@]}" -eq 0 ]; then log "no identities to supervise (no <name>/<name>.md folders under $IDENTITIES_DIR)"; return 0; fi
@@ -1716,7 +1761,9 @@ reconcile() {
 
     if [ -n "$actual" ]; then
       # a session already exists (possibly different case) -> check claude on THAT session.
-      if claude_running "$actual"; then
+      # Hot-path lookup on the per-tick snapshot — the double-probe below re-checks with the
+      # FRESH claude_running() to catch transient misreads.
+      if claude_running_cached "$actual"; then
         # DORMANCY idle-check: active session that meets both idleness signals + nothing pending
         # → kill + mark dormant. Only when DORMANCY=on; otherwise this whole block is skipped and
         # behavior is identical to pre-dormancy supervisor.
