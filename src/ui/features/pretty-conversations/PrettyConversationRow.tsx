@@ -201,7 +201,6 @@ export function PrettyConversationRow({
   onTogglePin,
   onDeactivate,
   onToggleHide,
-  onClone,
   onKill,
   isWorking = null,
   isRecycling = false,
@@ -232,18 +231,6 @@ export function PrettyConversationRow({
   // When provided, the Hide/Show item appears in the context menu between
   // Pin/Unpin and Deactivate. RDP rows never receive this prop.
   onToggleHide?: () => void;
-  // Phase 22 (SRIC-03) → Phase 80 → bounty 260908-h78: fired when user clicks
-  // the 'create new agent under this role' context menu item (formerly
-  // 'Spawn under this role', originally 'Clone'). Prop name
-  // `onClone` is kept for now (rename is deferred as out-of-scope creep — this
-  // phase was a user-facing label change plus a rewire of what the handler
-  // does upstream). Provided by PrettyConversationsPanel when the row has an
-  // identity AND row.host !== null. Undefined otherwise (RDP rows never get
-  // it — onRowContextMenu is not wired for isRdp). See
-  // PrettyConversationsPanel.handleRowClone: the handler seeds the unified
-  // NewSessionDialog with initialHost + initialRole from the row (no dedicated
-  // clone dialog exists anymore — Landmine 11: reuse, don't build new).
-  onClone?: () => void;
   /**
    * quick-260810-n3a: Fired when user clicks the red Kill menu item.
    * Provided by the panel only when !isRdp && !identity && row.targetTmuxSession.
@@ -1342,11 +1329,9 @@ export function PrettyConversationRow({
       </div>
       {/* Right-click menu portal. Items filter by row eligibility: Pin
           renders for any row; Hide/Show only when onToggleHide is provided;
-          "create new agent under this role" (bounty 260908-h78 — formerly 'Spawn under this role', originally 'Clone') only
-          when onClone AND identity resolve (RDP rows have no identity → the
-          spawn item auto-hides); Deactivate only when inActiveSet &&
-          onDeactivate; Open/Move in new window renders on desktop for any
-          row where specForTab produces a spec. RDP rows now open the menu
+          Open/Move in new window renders on desktop for any row where
+          specForTab produces a spec; Kill only when onKill AND !isRdp AND no
+          identity AND row.targetTmuxSession. RDP rows now open the menu
           (quick-260804-uo4 dropped the row-level isRdp gate). */}
       {ctxMenu !== null && (
         <PrettyConversationContextMenu
@@ -1366,23 +1351,6 @@ export function PrettyConversationRow({
               items.push({
                 label: hidden ? "Unhide" : "Hide",
                 onClick: onToggleHide,
-              });
-            }
-            // Phase 80: "create new agent under this role" item (formerly 'Spawn under this role' until bounty 260908-h78,
-            // originally "Clone" — Phase 22 SRIC-03). Inserted between Hide/Show and
-            // Open/Move-in-new-window. Only rendered when onClone is provided AND
-            // the row has a resolvable identity (spawning-under-role requires a
-            // source identity to read its role from — meaningless without it).
-            // RDP rows have no identity → the item is auto-hidden by the
-            // identity gate. The prop name `onClone` is kept for now — this is
-            // a user-facing label change only; renaming the prop everywhere is
-            // out-of-scope creep. Semantic: the handler upstream (see
-            // PrettyConversationsPanel.handleRowClone) now seeds the unified
-            // NewSessionDialog with the row's host + identity.role.
-            if (onClone && identity) {
-              items.push({
-                label: "Create new agent under this role",
-                onClick: onClone,
               });
             }
             // quick-260804-uo4: Open/Move in new window — desktop-only (not rendered

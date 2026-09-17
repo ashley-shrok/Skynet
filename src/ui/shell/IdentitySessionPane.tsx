@@ -14,6 +14,15 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useTabsSafe } from "@/shell/TabContext";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
 import type { PrettyContextMenuItem } from "@/features/pretty-conversations/PrettyConversationContextMenu";
+import {
+  fleetRowId,
+  usePinnedIds,
+  useHiddenIds,
+  pinConversation,
+  unpinConversation,
+  hideConversation,
+  unhideConversation,
+} from "@/state/conversation-store";
 import type { Tab, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 
@@ -113,25 +122,72 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     const hostId = host.id;
     const effectiveTmuxSession = tab.targetTmuxSession ?? null;
 
-    // Identity-badge context-menu items — "Move to new window" mirrors the
-    // conversation-row Open/Move-in-new-window path (PrettyConversationRow.tsx
-    // ~L1418) but the label is always "Move" here: identity panes are
-    // always inActiveSet by definition (this pane IS the one you're
-    // interacting with), so the deactivate side-effect always applies on
-    // success. Desktop-only — mobile has no right-click and long-press is
-    // already wired to togglePrettyMode. specForTab returns null for tabs
-    // that aren't URL-addressable (e.g. dashboard); when null the menu is
-    // simply not offered (empty array → PrettyView renders no menu).
+    // Identity-badge context-menu items — mirrors the conversation-row menu
+    // (PrettyConversationRow.tsx items[] builder) so both surfaces offer the
+    // same affordances for an identity. Order matches the row menu:
+    // Pin/Unpin → Hide/Unhide → Move to new window. Desktop-only — mobile
+    // has no right-click and long-press is already wired to togglePrettyMode.
+    //
+    // Pin/hide use the fleet-synthetic id form (`fleet::<hostId>::<session>`)
+    // so state survives openTab id churn across URL-restores — mirrors
+    // PrettyConversationsPanel.handleTogglePin's shadowFleetId preference.
+    // The Unpin/Unhide labels check BOTH the shadow-fleet id AND tab.id so
+    // legacy pins/hides persisted under the openTab id shape still detect.
+    //
+    // Hide from inside a pane closes the tab as a side effect — the row
+    // menu's "in activeSet → deactivate first, then hide" flow, adapted:
+    // this pane IS the active tab, so onCloseTab is the equivalent teardown.
+    const pinnedIds = usePinnedIds();
+    const hiddenIds = useHiddenIds();
+    const hostIdNum = parseInt(host.id, 10);
+    const shadowFleetId =
+      Number.isFinite(hostIdNum) && effectiveTmuxSession
+        ? fleetRowId(hostIdNum, effectiveTmuxSession)
+        : null;
+    const isPinned =
+      (shadowFleetId !== null && pinnedIds.has(shadowFleetId)) ||
+      pinnedIds.has(tabId);
+    const isHidden =
+      (shadowFleetId !== null && hiddenIds.has(shadowFleetId)) ||
+      hiddenIds.has(tabId);
+
     const identityBadgeContextMenuItems = useMemo<PrettyContextMenuItem[]>(() => {
       if (isMobile) return [];
+      const items: PrettyContextMenuItem[] = [];
+
+      items.push({
+        label: isPinned ? "Unpin" : "Pin",
+        onClick: () => {
+          if (isPinned) {
+            if (shadowFleetId !== null && pinnedIds.has(shadowFleetId)) unpinConversation(shadowFleetId);
+            if (pinnedIds.has(tabId)) unpinConversation(tabId);
+          } else {
+            pinConversation(shadowFleetId ?? tabId);
+          }
+        },
+      });
+
+      if (shadowFleetId !== null) {
+        items.push({
+          label: isHidden ? "Unhide" : "Hide",
+          onClick: () => {
+            if (isHidden) {
+              unhideConversation(shadowFleetId);
+              return;
+            }
+            hideConversation(shadowFleetId);
+            onCloseTab?.(tabId);
+          },
+        });
+      }
+
       const spec = specForTab({
         type: tab.type,
         host: { name: host.name, id: host.id },
         targetTmuxSession: effectiveTmuxSession,
       });
-      if (spec === null) return [];
-      return [
-        {
+      if (spec !== null) {
+        items.push({
           label: "Move to new window",
           onClick: () => {
             const payload = encodeWorkspaceSpec({
@@ -147,9 +203,23 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
               onCloseTab?.(tabId);
             }
           },
-        },
-      ];
-    }, [isMobile, tab.type, host.name, host.id, effectiveTmuxSession, tabId, onCloseTab]);
+        });
+      }
+
+      return items;
+    }, [
+      isMobile,
+      isPinned,
+      isHidden,
+      shadowFleetId,
+      pinnedIds,
+      tab.type,
+      host.name,
+      host.id,
+      effectiveTmuxSession,
+      tabId,
+      onCloseTab,
+    ]);
 
     // --- Structured log: mount ---
     useEffect(() => {

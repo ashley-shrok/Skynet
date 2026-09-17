@@ -413,13 +413,12 @@ export async function pickPoolName(
 // POST /identities/clone with JSON body {sourceIdentityKey, hostId, newName,
 //   title, voice, avatarCandidateId} → 201 publicIdentity(newRow)
 //
-// Phase 80: the standalone clone dialog that used to consume this client was
-// deleted; the "create new agent under this role" context-menu path now routes through (bounty 260908-h78 renamed the label; the underlying chainPrefill wiring is unchanged)
-// the unified NewSessionDialog, which does its own POST /identities/birth
-// (identity-birth flow). This cloneIdentity() client is currently unused by
-// the UI but preserved for backend parity — the route still exists and other
-// automation (or a future path) may consume it. If confirmed dead across all
-// callers, safe to remove in a follow-up.
+// The standalone clone dialog and its context-menu entry-point were both
+// deleted; identity creation now flows exclusively through the unified
+// NewSessionDialog (POST /identities/birth). This cloneIdentity() client is
+// currently unused by the UI but preserved for backend parity — the route
+// still exists and other automation may consume it. If confirmed dead across
+// all callers, safe to remove in a follow-up.
 //
 // Contract intentionally JSON-only (NOT multipart) — sidesteps Phase 20 patch
 // #77 silent-no-op trap per RESEARCH Pitfall 2; backend enforces via 415 gate.

@@ -138,13 +138,6 @@ import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSess
 // (two Radix Dialog portals contending) and dropped the CRD → NewSessionDialog
 // chain. Restored as swap-not-stack sibling of RolesListModal.
 import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
-// Phase 80: clone flow repurposed into unified NewSessionDialog pre-seeded
-// with initialHost + initialRole via the existing chain-hook mechanism
-// (identical to CreateRoleDialog's onChainToCreateIdentity path). See
-// handleRowClone below — the standalone clone dialog was deleted; the row's context-menu
-// "create new agent under this role" item now routes through NewSessionDialog with the (bounty 260908-h78 label rewrite)
-// row's host + identity.role seeded and NO task/brief prefill (A3 lock: each
-// spawn describes its own why).
 // Phase 92 Plan 04: getPinnedIds is retired. The panel projects the pin state
 // from the identities-store's `pinned: boolean` field via deriveDiskPinnedIds
 // (imported above).
@@ -296,10 +289,6 @@ function PrettyConversationRowLive(props: {
   onDeactivate?: () => void;
   // quick-260731-tgg: forwarded to PrettyConversationRow for Hide/Show wiring.
   onToggleHide?: () => void;
-  // Phase 22 (SRIC-03): forwarded to PrettyConversationRow for the Clone
-  // context-menu item. Only wired at non-RDP render sites where the row has
-  // an identity + host. RDP + no-identity rows omit the prop.
-  onClone?: () => void;
   // quick-260810-n3a: forwarded to PrettyConversationRow for the Kill
   // context-menu item. The row's items[] builder gates on !isRdp && !identity
   // && row.targetTmuxSession so the item only appears for valid targets.
@@ -709,11 +698,6 @@ export function PrettyConversationsPanel({
   // when NewSessionDialog closes (either via successful submit or user cancel)
   // so subsequent manual opens via the pencil don't inherit stale chain state
   // (regression gate — Test 13).
-  // Phase 80: chainPrefill.description is optional so the clone entry-point
-  // (handleRowClone) can seed initialHost + initialRole WITHOUT prefilling
-  // the task/brief field (A3 lock: task is NOT inherited from the source
-  // identity; each spawn describes its own why). CreateRoleDialog's chain
-  // path continues to pass a description string.
   const [chainPrefill, setChainPrefill] = useState<{
     role: string;
     host: Host;
@@ -1445,49 +1429,6 @@ export function PrettyConversationsPanel({
     hideConversation(canonicalId);
   };
 
-  // Phase 80 (Landmine 11 — reuse, don't build new): panel-level clone
-  // handler. "Clone" was rebranded to "create new agent under this role" (originally 'Clone', then 'Spawn under this role' until bounty 260908-h78) (see
-  // PrettyConversationRow.tsx context-menu label). It is no longer a
-  // separate flow with its own dialog — it now opens the unified
-  // NewSessionDialog with initialHost + initialRole seeded via the SAME
-  // chain-hook mechanism that CreateRoleDialog uses (chainPrefill state
-  // → NewSessionDialog initialHost + initialRole props).
-  //
-  // A3 lock: initialBrief is intentionally omitted so the task/brief field
-  // starts empty — the cosmetics come from the role, so nothing is being
-  // carried from the source identity; each spawn describes its own why.
-  //
-  // Guards (same as the prior standalone-clone-dialog impl): matchKey → identity
-  // → identity.role → row.host → parseable hostId. If any fails, no-op —
-  // the row-level items[] gate (see PrettyConversationRow.tsx items
-  // builder) already prevents the menu item from surfacing in that case,
-  // so this is belt-and-suspenders.
-  const handleRowClone = (row: ConversationRowShape) => {
-    const matchKey = sessionMatchKey(row.targetTmuxSession);
-    if (!matchKey) return;
-    // quick-260912-0t4: resolve identity via hostId-scoped byHostKey so a
-    // clone action fired from row X on host A doesn't pick up identity Y on
-    // host B (which shares the identityKey name). row.host is guarded below
-    // for the setChainPrefill path — hoist the hostIdNum computation ABOVE
-    // the identity lookup so both use the same value. Falls back to bare-name
-    // byKey when the composite misses (test-fixture compat).
-    if (!row.host) return;
-    const hostIdNum = parseInt(row.host.id, 10);
-    if (!Number.isFinite(hostIdNum)) return;
-    let identity = identitiesByHostKey?.get(`${hostIdNum}::${matchKey}`);
-    if (!identity) identity = identitiesByKey?.get(matchKey);
-    if (!identity) return;
-    if (!identity.role) return;
-    // Seed the chain-hook state with initialHost + initialRole ONLY.
-    // description is omitted → NewSessionDialog receives initialBrief=null
-    // (see mount site below) → brief field stays empty.
-    setChainPrefill({
-      role: identity.role,
-      host: row.host,
-    });
-    setNewSessionDialogOpen(true);
-  };
-
   // quick-260807-e4s (patch #149 followup-1 pin-nuke): mirror the store's
   // Tier 2 shadow-fleet-id pinned check (conversation-store.ts:493-499) so
   // active-set + grouped rows render "Unpin" when the pin was persisted
@@ -1907,7 +1848,6 @@ export function PrettyConversationsPanel({
                 onToggleHide={
                   canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
                 }
-                onClone={row.rdpHostRow === true ? undefined : () => handleRowClone(row)}
                 onKill={() => handleRowKill(row)}
                 inActiveSet={activeSet.has(row.id)}
                 sessionKey={sessionWorkingKey(row)}
@@ -1941,7 +1881,6 @@ export function PrettyConversationsPanel({
                   onToggleHide={
                     canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
                   }
-                  onClone={() => handleRowClone(row)}
                   onKill={() => handleRowKill(row)}
                   inActiveSet={activeSet.has(row.id)}
                   sessionKey={sessionWorkingKey(row)}
@@ -1972,7 +1911,6 @@ export function PrettyConversationsPanel({
                     onToggleHide={
                       canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
                     }
-                    onClone={() => handleRowClone(row)}
                     onKill={() => handleRowKill(row)}
                     inActiveSet={activeSet.has(row.id)}
                     sessionKey={sessionWorkingKey(row)}
@@ -2083,7 +2021,6 @@ export function PrettyConversationsPanel({
                       onToggleHide={
                         canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
                       }
-                      onClone={() => handleRowClone(row)}
                       onKill={() => handleRowKill(row)}
                       inActiveSet={activeSet.has(row.id)}
                       sessionKey={sessionWorkingKey(row)}
@@ -2142,12 +2079,6 @@ export function PrettyConversationsPanel({
           setNewSessionDialogOpen(true);
         }}
       />
-      {/* Phase 80: the dedicated clone-dialog mount was DELETED. The row
-          context-menu "create new agent under this role" item (formerly labeled
-          "Clone") now routes through the NewSessionDialog mount above via
-          chainPrefill (see handleRowClone). No standalone clone dialog
-          exists anymore — one creation flow, one modal (Landmine 11:
-          reuse, don't build new). */}
       {/* Phase 23 (GEFM-05): GlobalFilesModal — portal-mounted sibling of the
           existing dialog mounts. Opened via the header MoreVertical menu's
           "Edit global files…" item. defaultHostId={null} is deliberate: the
