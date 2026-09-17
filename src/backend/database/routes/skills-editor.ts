@@ -1220,6 +1220,16 @@ router.delete(
       res.status(400).json({ error: "invalid path" });
       return;
     }
+    // Phase 113 D-10 / D-22: SKILL.md invariant guard — hard-reject the
+    // sentinel file. Runs BEFORE resolveHostById so a wrong-user attacker
+    // can't distinguish this rejection from an unknown-host 404, and zero
+    // SSH cost is incurred either way. Strict exact-string equality: the
+    // sibling `SKILL.md.bak` and the nested `nested/SKILL.md` deliberately
+    // fall through and delete normally (D-27).
+    if (rawPath === "SKILL.md") {
+      res.status(400).json({ error: "cannot delete SKILL.md" });
+      return;
+    }
     const hostId = rawHostId;
     const skill = rawSkill;
     const relPath = rawPath;
