@@ -374,7 +374,7 @@ test_d12_no_admin_endpoint() {
   count_admin=$(safe_grep_count '_synapse/admin' "$SUPERVISOR")
   assert_eq "0" "$count_admin" \
     "D-12: _synapse/admin MUST NOT appear (no admin key on fleet boxes)"
-  count_client=$(safe_grep_count '_matrix/client/v3/account/deactivate' "$SUPERVISOR")
+  count_client=$(safe_grep_count '/account/deactivate' "$SUPERVISOR")
   assert_gte "1" "$count_client" \
     "D-12: client deactivate endpoint must be present"
 }
@@ -523,7 +523,7 @@ test_retire_happy_path_200() {
   _retire_test_preamble || { PASS=$((PASS + 1)); return; }
   local scratch; scratch=$(setup_scratch)
   fixture_identity "$scratch" tina --cursor-age-days 200
-  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT" "@tina:test" "pw" "tok"
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
   start_stub_homeserver 200 || { teardown_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
   local rc=0
@@ -543,7 +543,7 @@ test_retire_401_treated_as_success() {
   _retire_test_preamble || { PASS=$((PASS + 1)); return; }
   local scratch; scratch=$(setup_scratch)
   fixture_identity "$scratch" tina --cursor-age-days 200
-  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT" "@tina:test" "pw" "tok"
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
   start_stub_homeserver 401 || { teardown_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
   local rc=0
@@ -558,7 +558,7 @@ test_retire_5xx_aborts_with_1() {
   _retire_test_preamble || { PASS=$((PASS + 1)); return; }
   local scratch; scratch=$(setup_scratch)
   fixture_identity "$scratch" tina --cursor-age-days 200
-  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT" "@tina:test" "pw" "tok"
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
   start_stub_homeserver 502 || { teardown_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
   local rc=0
@@ -580,7 +580,7 @@ test_retire_network_fail_aborts_with_1() {
   local scratch; scratch=$(setup_scratch)
   fixture_identity "$scratch" tina --cursor-age-days 200
   # Port 1: guaranteed no listener (privileged port)
-  fixture_relay_json "$scratch/tina" "http://127.0.0.1:1" "@tina:test" "pw" "tok"
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:1/_matrix/client/v3" "@tina:test" "pw" "tok"
   local rc=0
   ( _source_supervisor "$scratch"
     retire_identity "tina" ) || rc=$?
@@ -593,7 +593,7 @@ test_retire_retry_from_partial() {
   _retire_test_preamble || { PASS=$((PASS + 1)); return; }
   local scratch; scratch=$(setup_scratch)
   mkdir -p "${scratch}-archive/tina"
-  fixture_relay_json "${scratch}-archive/tina" "http://127.0.0.1:STUB_PORT" "@tina:test" "pw" "tok"
+  fixture_relay_json "${scratch}-archive/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
   start_stub_homeserver 200 || { teardown_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/tina/relay.json"
   local out rc=0
@@ -614,7 +614,7 @@ test_retire_collision_aborts() {
   _retire_test_preamble || { PASS=$((PASS + 1)); return; }
   local scratch; scratch=$(setup_scratch)
   fixture_identity "$scratch" tina --cursor-age-days 200
-  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT" "@tina:test" "pw" "tok"
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
   mkdir -p "${scratch}-archive/tina"
   start_stub_homeserver 200 || { teardown_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
@@ -633,7 +633,7 @@ test_retire_password_with_quotes() {
   _retire_test_preamble || { PASS=$((PASS + 1)); return; }
   local scratch; scratch=$(setup_scratch)
   fixture_identity "$scratch" tina --cursor-age-days 200
-  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT" "@tina:test" 'p"w\\with"quotes' "tok"
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" 'p"w\\with"quotes' "tok"
   start_stub_homeserver 200 || { teardown_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
   local rc=0
@@ -704,7 +704,7 @@ test_retire_stuck_counter_resets_on_success() {
 
   # Clear the collision: remove archive/tina/ so the third pass does State 1 (normal mv + Step 3)
   rm -rf "${scratch}-archive/tina"
-  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT" "@tina:test" "pw" "tok"
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
   start_stub_homeserver 200 || { teardown_scratch "$scratch"; return; }
   sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
   ( _source_supervisor "$scratch"
@@ -724,7 +724,7 @@ test_scan_walks_all_identity_folders() {
   local scratch; scratch=$(setup_scratch)
   # alpha: dormant (200d), no guards → retire-attempted
   fixture_identity "$scratch" alpha --cursor-age-days 200
-  fixture_relay_json "$scratch/alpha" "http://127.0.0.1:1" "@alpha:test" "pw" "tok"
+  fixture_relay_json "$scratch/alpha" "http://127.0.0.1:1/_matrix/client/v3" "@alpha:test" "pw" "tok"
   # beta: fresh (5d) → skipped
   fixture_identity "$scratch" beta --cursor-age-days 5
   # gamma: dormant but PINNED → skipped (D-03)
@@ -833,7 +833,7 @@ _114_setup_identity() {
   fixture_identity "$scratch" "$name" "${passthru[@]}"
   touch "$scratch/$name/.archive-requested"
   # Placeholder base URL; sed-substituted after we know the port.
-  fixture_relay_json "$scratch/$name" "http://127.0.0.1:STUB_PORT" "@$name:test" "pw" "tok"
+  fixture_relay_json "$scratch/$name" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@$name:test" "pw" "tok"
   start_stub_homeserver "$http_code" || return 1
   sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/$name/relay.json"
   return 0
