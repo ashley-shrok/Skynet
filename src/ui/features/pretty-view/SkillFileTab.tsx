@@ -65,14 +65,25 @@ export default function SkillFileTab({
    */
   filename: string;
 }): JSX.Element {
-  const [draft, setDraft] = useState<string>("");
+  // Seed draft from state.data.content at mount time so the underlying
+  // MarkdownEditor (uncontrolled MDXEditor after mount, per Phase 112 D-05)
+  // gets the right content on its FIRST render. Radix TabsContent unmounts
+  // inactive tabs, so switching tabs and switching back remounts this
+  // component; without the mount-time seed, the previous logic (init "" +
+  // useEffect) rendered MDXEditor with empty content on remount and the
+  // subsequent setDraft was ignored because MDXEditor is uncontrolled.
+  const [draft, setDraft] = useState<string>(() =>
+    state.status === "ready" ? state.data.content : "",
+  );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Seed draft from state.data.content whenever the mtime changes (i.e. after
-  // a server-authoritative mtime echo from a successful save, or after a
-  // 409-conflict reload). Reset key is mtime so a re-save after content
-  // unchanged still correctly reseeds.
+  // Re-seed draft when mtime changes on the ALREADY-MOUNTED component —
+  // covers the loading→ready transition on first open (before Suspense
+  // resolves the ~1.5MB MDXEditor bundle) and the 409-conflict-reload case
+  // where the parent hands us fresh content on the same mount. Note: this
+  // reseed is a no-op on tab-switch remount because the useState initializer
+  // above already picked up the current content.
   useEffect(() => {
     if (state.status === "ready") {
       setDraft(state.data.content);
