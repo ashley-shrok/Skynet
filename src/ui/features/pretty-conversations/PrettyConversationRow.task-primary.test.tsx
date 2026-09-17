@@ -150,7 +150,7 @@ beforeEach(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: task-primary body render (Phase 80 Plan 08)", () => {
-  it("TP1: identity.task truthy → top line = task; subtitle contains role + (displayName); aiTitle text absent", () => {
+  it("TP1: identity.task truthy → top line = task; subtitle = role alone (displayName removed); aiTitle text absent", () => {
     currentIdentity = makeIdentityWithTask({
       task: "build the pool endpoint",
       role: "skynet-maintainer",
@@ -173,12 +173,16 @@ describe("PrettyConversationRow: task-primary body render (Phase 80 Plan 08)", (
     expect(label).toBeTruthy();
     expect(label!.textContent?.trim()).toBe("build the pool endpoint");
 
-    // Subtitle: .pv-ai-title span (reused per D-03) carries role + parens.
-    // Role renders through roleDisplayName, so the kebab slug shows title-cased.
+    // Subtitle: .pv-ai-title span (reused per D-03) carries the role alone.
+    // The (displayName) parenthetical was removed 2026-09-17 per user — the
+    // avatar + hue + initial letter already identify the agent visually, so
+    // the muted name in parens was redundant.
     const subtitle = container.querySelector(".pv-ai-title") as HTMLElement | null;
     expect(subtitle).toBeTruthy();
     expect(subtitle!.textContent).toContain("Skynet Maintainer");
-    expect(subtitle!.textContent).toContain("(Willow)");
+    // (Willow) must NOT appear in the subtitle anywhere.
+    expect(subtitle!.textContent).not.toContain("(Willow)");
+    expect(subtitle!.textContent).not.toContain("Willow");
 
     // aiTitle text MUST NOT appear anywhere — the task-primary branch drops
     // the AI-generated conversation summary entirely.
@@ -303,11 +307,13 @@ describe("PrettyConversationRow: role prominence in task-primary subtitle", () =
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TP5 — .pv-hostname-suffix span present in task-primary subtitle (muted parens).
+// TP5 — task-primary subtitle contains NO .pv-hostname-suffix (name removed
+//       2026-09-17 per user; avatar + hue + initial letter already identify
+//       the agent visually, so the muted parens were redundant).
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: task-primary subtitle uses .pv-hostname-suffix for muted parens", () => {
-  it("TP5: task-primary subtitle contains a .pv-hostname-suffix span holding (displayName)", () => {
+describe("PrettyConversationRow: task-primary subtitle omits the muted (displayName) parens", () => {
+  it("TP5: task-primary subtitle contains NO .pv-hostname-suffix and NO displayName text", () => {
     currentIdentity = makeIdentityWithTask({
       task: "wire the modal",
       role: "skynet-maintainer",
@@ -325,10 +331,10 @@ describe("PrettyConversationRow: task-primary subtitle uses .pv-hostname-suffix 
     );
 
     const subtitle = container.querySelector(".pv-ai-title") as HTMLElement;
-    const suffix = subtitle.querySelector(".pv-hostname-suffix") as HTMLElement;
-    expect(suffix).toBeTruthy();
-    // Verbatim text content: "(Willow)"
-    expect(suffix.textContent).toBe("(Willow)");
+    const suffix = subtitle.querySelector(".pv-hostname-suffix");
+    expect(suffix).toBeNull();
+    // displayName text must NOT appear anywhere in the subtitle.
+    expect(subtitle.textContent).not.toContain("Willow");
   });
 });
 

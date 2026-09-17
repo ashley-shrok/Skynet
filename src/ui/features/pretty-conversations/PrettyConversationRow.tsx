@@ -1289,8 +1289,7 @@ export function PrettyConversationRow({
               <span className="pv-ai-title">
                 <strong>
                   {roleDisplayName(identity.role ?? "", identity.roleDefaults?.displayName)}
-                </strong>{" "}
-                <span className="pv-hostname-suffix">({identity.displayName})</span>
+                </strong>
               </span>
             </>
           ) : (
