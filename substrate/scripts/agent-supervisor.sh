@@ -63,6 +63,12 @@ declare -A SESSIONS_SNAPSHOT=()
 # need real-time state, not a snapshot taken up to a tick ago.
 declare -A CLAUDE_RUNNING_SNAPSHOT=()
 
+# Per-tick snapshot of schedule_peek results across all identities, populated by
+# snapshot_schedule_peek() at the top of reconcile() via ONE python subprocess (vs. one fork
+# per identity). Keys are identity names; values are non-empty (a "due" detail string) IFF the
+# identity has a wakeup spec firing within FALSE_KILL_MINUTES. schedule_peek() reads this map.
+declare -A SCHEDULE_PEEK_SNAPSHOT=()
+
 # ---- config ----
 # IDENTITIES is derived from disk in resolve_identities() on every reconcile;
 # initialized empty here.
@@ -1390,20 +1396,42 @@ matrix_peek() {
   return "$wake"
 }
 
-# schedule_peek: returns 0 if any of the identity's wakeup specs fire within FALSE_KILL_MINUTES.
-# Uses python to mirror wakeup-scheduler.py's next-fire computation. Handles all four schedule
-# types (interval, daily, weekly, one_shot) — 2026-08-11 extension after poppy missed a one_shot
-# because the earlier pilot only wired interval and stubbed the others to "never pending."
+# schedule_peek: returns 0 if the identity has a wakeup spec firing within FALSE_KILL_MINUTES.
+# Lookup on SCHEDULE_PEEK_SNAPSHOT populated once per reconcile tick by snapshot_schedule_peek().
+# The heavy lifting (interpreter start + JSON parse + spec walk) runs ONCE for the whole fleet
+# instead of once per identity — was ~5s/tick on this box, now ~100ms total.
 schedule_peek() {
-  local name="$1"
-  local wd="$IDENTITIES_DIR/$name/wakeups"
-  [ -d "$wd" ] || return 1
-  # NOTE: wakeup-scheduler.py writes time.time() (a FLOAT) into .state/<slug>.last, not an int.
-  # int(open(..).read()) fails on '1786106092.3482552' → silent-fail-swallowed = no wake ever
-  # (bug: 2026-08-07 pilot, 4 hours of missed schedule wakes). Use float(...) to be robust.
-  # Any exception is LOGGED (via metric) not silently swallowed — exceptions here are real bugs.
-  local py_out
-  py_out=$(python3 - "$wd" "$FALSE_KILL_MINUTES" <<'PY' 2>&1
+  [ -n "${SCHEDULE_PEEK_SNAPSHOT[$1]:-}" ]
+}
+
+# snapshot_schedule_peek: one python subprocess per tick that receives the whole fleet's wakedirs
+# on stdin and emits a JSON dict of {name: detail_or_empty} on stdout. detail is a non-empty
+# "spec=... type=... next_fire=... overdue_s=..." string IFF at least one of the identity's specs
+# fires within FALSE_KILL_MINUTES. Empty string = not due. Per-identity errors go to stderr and
+# get logged as a metric each.
+#
+# Handles all four schedule types (interval, daily, weekly, one_shot) — same semantics as the
+# retired per-identity schedule_peek. Any exception in a single identity's block is caught and
+# recorded as an error metric for that identity; other identities in the batch are unaffected.
+#
+# NOTE: wakeup-scheduler.py writes time.time() (a FLOAT) into .state/<slug>.last. Use float() to
+# parse (bug: 2026-08-07 pilot, int() on '1786106092.3482552' silently swallowed all wakes).
+snapshot_schedule_peek() {
+  SCHEDULE_PEEK_SNAPSHOT=()
+  local name input="["
+  local first=1
+  for name in "${IDENTITIES[@]}"; do
+    local wd="$IDENTITIES_DIR/$name/wakeups"
+    [ -d "$wd" ] || continue
+    [ $first -eq 1 ] || input+=","
+    first=0
+    input+="{\"name\":\"$name\",\"wakedir\":\"$wd\"}"
+  done
+  input+="]"
+  [ "$input" = "[]" ] && return 0
+  local py_out py_err
+  py_err=$(mktemp)
+  py_out=$(python3 - "$FALSE_KILL_MINUTES" "$input" <<'PY' 2>"$py_err"
 import json, os, sys, time, glob
 from datetime import datetime, timedelta
 try:
@@ -1412,10 +1440,9 @@ except ImportError:
     ZoneInfo = None
     ZoneInfoNotFoundError = Exception
 
-wakedir, window_min = sys.argv[1], int(sys.argv[2])
+window_min = int(sys.argv[1])
 now = time.time()
 soon = now + window_min * 60
-state_dir = os.path.join(wakedir, '.state')
 
 _DOW = {"mon":0,"tue":1,"wed":2,"thu":3,"fri":4,"sat":5,"sun":6}
 
@@ -1432,7 +1459,7 @@ def _dur_secs(s):
     s = str(s).strip().lower()
     unit = s[-1]
     mult = {"s":1,"m":60,"h":3600,"d":86400}.get(unit)
-    if mult is None: return int(s) * 60      # bare number = minutes
+    if mult is None: return int(s) * 60
     return int(s[:-1]) * mult
 
 def _days_ok(days, dt):
@@ -1455,8 +1482,6 @@ def _parse_at_ts(at_str, zi):
     return dt.timestamp(), None
 
 def _next_slot_wall(sch, now_dt, days, span_days):
-    """Next daily/weekly slot at or after now_dt that passes the days filter.
-    span_days=8 for daily (covers a full week + wrap), span_days=15 for weekly."""
     at = sch['at']
     target = _DOW[str(sch['day']).lower()[:3]] if 'day' in sch else None
     for off in range(span_days):
@@ -1467,83 +1492,123 @@ def _next_slot_wall(sch, now_dt, days, span_days):
         if cand.timestamp() > now: return cand.timestamp()
     return None
 
-def _read_last(spec_path):
+def _read_last(state_dir, spec_path):
     p = os.path.join(state_dir, os.path.basename(spec_path).replace('.json','.last'))
     if not os.path.exists(p): return None
     try: return float(open(p).read().strip())
     except Exception: return None
 
-for spec_path in glob.glob(os.path.join(wakedir, '*.json')):
+def _peek_one(wakedir):
+    """Returns (detail_or_empty_string, list_of_errors)."""
+    state_dir = os.path.join(wakedir, '.state')
+    errors = []
+    for spec_path in glob.glob(os.path.join(wakedir, '*.json')):
+        try:
+            with open(spec_path) as f: spec = json.load(f)
+            if not spec.get('enabled', True): continue
+            sch = spec.get('schedule', {})
+            t = sch.get('type')
+            if t not in ('interval','daily','weekly','one_shot'): continue
+            zi, tz_err = _zone(spec)
+            if tz_err: continue
+            if t == 'interval': zi = None
+            now_dt = datetime.fromtimestamp(now, tz=zi) if zi else datetime.fromtimestamp(now)
+            days = sch.get('days')
+            next_fire = None
+            if t == 'interval':
+                last = _read_last(state_dir, spec_path)
+                if last is None or last == 0: continue
+                next_fire = last + _dur_secs(sch.get('every','30m'))
+                if days and not _days_ok(days, datetime.fromtimestamp(next_fire)):
+                    continue
+            elif t == 'daily':
+                last = _read_last(state_dir, spec_path)
+                if last is None or last == 0: continue
+                slot_today = _slot_at(now_dt, sch['at']).timestamp()
+                if _days_ok(days, now_dt) and last < slot_today:
+                    next_fire = slot_today
+                else:
+                    next_fire = _next_slot_wall(sch, now_dt, days, 8)
+            elif t == 'weekly':
+                last = _read_last(state_dir, spec_path)
+                if last is None or last == 0: continue
+                target = _DOW[str(sch['day']).lower()[:3]]
+                back = (now_dt.weekday() - target) % 7
+                this_slot = (_slot_at(now_dt, sch['at']) - timedelta(days=back)).timestamp()
+                this_slot_dt = datetime.fromtimestamp(this_slot, tz=zi) if zi else datetime.fromtimestamp(this_slot)
+                if _days_ok(days, this_slot_dt) and last < this_slot:
+                    next_fire = this_slot
+                else:
+                    next_fire = _next_slot_wall(sch, now_dt, days, 15)
+            elif t == 'one_shot':
+                fired_path = os.path.join(state_dir, os.path.basename(spec_path).replace('.json','.fired'))
+                if os.path.exists(fired_path): continue
+                at_ts, at_err = _parse_at_ts(sch.get('at'), zi)
+                if at_err: continue
+                if days:
+                    at_dt = datetime.fromtimestamp(at_ts, tz=zi) if zi else datetime.fromtimestamp(at_ts)
+                    if not _days_ok(days, at_dt): continue
+                next_fire = at_ts
+            if next_fire is not None and next_fire <= soon:
+                return (f"spec={os.path.basename(spec_path)} type={t} next_fire={int(next_fire)} overdue_s={int(now-next_fire)}", errors)
+        except Exception as e:
+            errors.append(f"spec={spec_path} {type(e).__name__}: {e}")
+            continue
+    return ("", errors)
+
+try:
+    identities = json.loads(sys.argv[2])
+except Exception as e:
+    print(f"BATCH-PARSE-FAIL: {type(e).__name__}: {e}", file=sys.stderr)
+    print("{}")
+    sys.exit(2)
+
+out = {}
+for ent in identities:
     try:
-        with open(spec_path) as f: spec = json.load(f)
-        if not spec.get('enabled', True): continue
-        sch = spec.get('schedule', {})
-        t = sch.get('type')
-        if t not in ('interval','daily','weekly','one_shot'): continue
-        zi, tz_err = _zone(spec)
-        if tz_err: continue  # scheduler will LOUD-alert; we just don't wake for it
-        if t == 'interval': zi = None    # tz-on-interval is a no-op per scheduler
-        now_dt = datetime.fromtimestamp(now, tz=zi) if zi else datetime.fromtimestamp(now)
-        days = sch.get('days')
-
-        next_fire = None
-        if t == 'interval':
-            last = _read_last(spec_path)
-            if last is None or last == 0: continue   # first-sight: scheduler anchors, no wake
-            next_fire = last + _dur_secs(sch.get('every','30m'))
-            # If days filter excludes next_fire's day, skip (scheduler won't fire then either).
-            if days and not _days_ok(days, datetime.fromtimestamp(next_fire)):
-                continue
-        elif t == 'daily':
-            last = _read_last(spec_path)
-            if last is None or last == 0: continue
-            slot_today = _slot_at(now_dt, sch['at']).timestamp()
-            if _days_ok(days, now_dt) and last < slot_today:
-                next_fire = slot_today                # today's slot pending (past-due or upcoming)
-            else:
-                next_fire = _next_slot_wall(sch, now_dt, days, 8)
-        elif t == 'weekly':
-            last = _read_last(spec_path)
-            if last is None or last == 0: continue
-            target = _DOW[str(sch['day']).lower()[:3]]
-            back = (now_dt.weekday() - target) % 7
-            this_slot = (_slot_at(now_dt, sch['at']) - timedelta(days=back)).timestamp()
-            this_slot_dt = datetime.fromtimestamp(this_slot, tz=zi) if zi else datetime.fromtimestamp(this_slot)
-            if _days_ok(days, this_slot_dt) and last < this_slot:
-                next_fire = this_slot                 # this week's slot pending
-            else:
-                next_fire = _next_slot_wall(sch, now_dt, days, 15)
-        elif t == 'one_shot':
-            # .fired sentinel governs one_shot; skip if already fired.
-            fired_path = os.path.join(state_dir, os.path.basename(spec_path).replace('.json','.fired'))
-            if os.path.exists(fired_path): continue
-            at_ts, at_err = _parse_at_ts(sch.get('at'), zi)
-            if at_err: continue                       # scheduler will LOUD-alert
-            if days:
-                at_dt = datetime.fromtimestamp(at_ts, tz=zi) if zi else datetime.fromtimestamp(at_ts)
-                if not _days_ok(days, at_dt): continue
-            next_fire = at_ts                         # past-due → next_fire <= now → trips soon check
-
-        if next_fire is not None and next_fire <= soon:
-            print(f"DUE spec={os.path.basename(spec_path)} type={t} next_fire={int(next_fire)} overdue_s={int(now-next_fire)}")
-            sys.exit(0)
+        name = ent["name"]; wakedir = ent["wakedir"]
+        detail, errs = _peek_one(wakedir)
+        out[name] = detail
+        for err in errs:
+            print(f"ERROR name={name} {err}", file=sys.stderr)
     except Exception as e:
-        print(f"ERROR spec={spec_path} {type(e).__name__}: {e}", file=sys.stderr)
-        continue
-sys.exit(1)
+        print(f"ERROR name={ent.get('name','?')} outer: {type(e).__name__}: {e}", file=sys.stderr)
+        out[ent.get("name","?")] = ""
+print(json.dumps(out))
 PY
 )
   local rc=$?
-  if [ $rc -eq 0 ]; then
-    # DUE — log which spec + how overdue for pilot diagnostics
-    metric event=schedule-peek identity="$name" result=due detail="$(echo "$py_out" | head -1)"
+  if [ $rc -ne 0 ] && [ $rc -ne 2 ]; then
+    log "WARNING: snapshot_schedule_peek: python exited $rc — treating all identities as not-due for this tick"
+    log "  stderr: $(tr '\n' '|' < "$py_err" | tail -c 500)"
+    rm -f "$py_err"
     return 0
   fi
-  # Non-DUE — if there was an error message on stderr (mixed into py_out), that's a real bug
-  if echo "$py_out" | grep -q '^ERROR'; then
-    metric event=schedule-peek identity="$name" result=error detail="$(echo "$py_out" | grep '^ERROR' | head -1)"
+  # Parse the JSON dict into SCHEDULE_PEEK_SNAPSHOT. Any per-identity detail becomes the map value.
+  local n d
+  while IFS=$'\t' read -r n d; do
+    [ -n "$n" ] || continue
+    [ -n "$d" ] && SCHEDULE_PEEK_SNAPSHOT["$n"]="$d"
+  done < <(printf '%s' "$py_out" | jq -r 'to_entries[] | [.key, .value] | @tsv' 2>/dev/null)
+  # Emit per-identity metrics — one for each due entry, one per stderr ERROR line.
+  for n in "${!SCHEDULE_PEEK_SNAPSHOT[@]}"; do
+    metric event=schedule-peek identity="$n" result=due detail="${SCHEDULE_PEEK_SNAPSHOT[$n]}"
+  done
+  if [ -s "$py_err" ]; then
+    while IFS= read -r line; do
+      case "$line" in
+        ERROR\ name=*)
+          local ename
+          ename="${line#ERROR name=}"; ename="${ename%% *}"
+          metric event=schedule-peek identity="$ename" result=error detail="$line"
+          ;;
+        BATCH-PARSE-FAIL*)
+          log "ERROR: snapshot_schedule_peek: $line"
+          ;;
+      esac
+    done < "$py_err"
   fi
-  return 1
+  rm -f "$py_err"
 }
 
 # do_kill_dormant: send /exit at REPL, blind-Enter through any confirms, poll for bare shell prompt,
@@ -1659,6 +1724,7 @@ reconcile() {
   snapshot_claude_running                          # one ps + one tmux list-panes -a per tick; claude_running_cached reads from CLAUDE_RUNNING_SNAPSHOT.
   run_archive_scan_if_due                          # Phase 94: daily archive-scan branch (24h gate; fast-path no-op on most ticks)
   resolve_identities
+  snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).
   if [ "${#IDENTITIES[@]}" -eq 0 ]; then log "no identities to supervise (no <name>/<name>.md folders under $IDENTITIES_DIR)"; return 0; fi
   local name slugname actual sentinel launched=0
   for name in "${IDENTITIES[@]}"; do
