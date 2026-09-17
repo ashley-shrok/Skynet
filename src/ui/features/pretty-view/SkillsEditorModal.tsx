@@ -32,8 +32,15 @@ import type { TabState } from "./IdentityFileTab";
 //
 // Byte-shape mirror of GlobalFilesModal.tsx (Phase 23 GEFM-05) with the skill
 // dimension threaded through every effect + a second <select> in the header +
-// `+ Add file` and delete-skill buttons + horizontal-scroll tab strip (D-06) +
+// add-file / delete-skill buttons + horizontal-scroll tab strip (D-06) +
 // two DeleteConfirmDialog mounts inside the same Portal.
+//
+// Phase 113 restructures: the header add-file button was replaced by a
+// New-skill button + a New-file action-tab pinned as the last child of the
+// tab strip (rendered on both empty-file-list and populated branches via the
+// shared newFileTabButton fragment); the host-picker <select> only renders
+// on multi-host installs (single-host installs hide the picker chrome
+// entirely — see the flatHosts conditional below).
 //
 // Controlled component: callers own `open` + `onOpenChange` state. Wave 3
 // mounts it and drives open state from the panel-header menu.
@@ -425,6 +432,29 @@ export default function SkillsEditorModal({
     }
   }, [selectedHostId, selectedSkillName]);
 
+  // Phase 113 D-13/D-14/D-15/D-16: the + New file action-tab, factored as a
+  // shared fragment so both body branches (empty-file-list + populated-tabs)
+  // render exactly the same button as the LAST child of their tab-strip
+  // container. Styled to LOOK like a tab (icon + label, shrink-0 for the
+  // overflow-x-auto pinned-right treatment) but honestly a <button>: its
+  // onClick invokes handleAddFile() and RETURNS — it never calls setActiveTab
+  // (Pitfall 9), so the currently-selected file tab stays highlighted and
+  // the "+" tab never appears selected regardless of activeTab value.
+  const newFileTabButton = (
+    <button
+      key="__new_file_tab"
+      type="button"
+      onClick={() => { void handleAddFile(); }}
+      className={cn(
+        "flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-md text-[10px] cursor-pointer transition-colors shrink-0",
+        "text-[#a89a80] hover:text-[#e8e4d8]",
+      )}
+    >
+      <Plus size={18} />
+      <span className="text-center whitespace-nowrap">New file</span>
+    </button>
+  );
+
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={false}>
       <DialogPrimitive.Portal container={container ?? undefined}>
@@ -467,22 +497,27 @@ export default function SkillsEditorModal({
               Edit skills
             </DialogTitle>
 
-            {/* Host picker — verbatim shape from GlobalFilesModal L228-242 */}
-            <select
-              aria-label="Host"
-              value={selectedHostId ?? ""}
-              onChange={(e) =>
-                setSelectedHostId(e.target.value ? Number(e.target.value) : null)
-              }
-              className="ml-2 px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] text-sm outline-none cursor-pointer"
-            >
-              <option value="" style={OPTION_STYLE}>Pick a host…</option>
-              {flatHosts.map((h) => (
-                <option key={h.id} value={h.id} style={OPTION_STYLE}>
-                  {h.name}
-                </option>
-              ))}
-            </select>
+            {/* Host picker — verbatim shape from GlobalFilesModal L228-242.
+                Phase 113 D-17/D-18: hidden entirely when flatHosts.length === 1;
+                the auto-select effect above still picks the sole host so the
+                modal opens fully-functional with no picker chrome. */}
+            {flatHosts.length > 1 && (
+              <select
+                aria-label="Host"
+                value={selectedHostId ?? ""}
+                onChange={(e) =>
+                  setSelectedHostId(e.target.value ? Number(e.target.value) : null)
+                }
+                className="ml-2 px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] text-sm outline-none cursor-pointer"
+              >
+                <option value="" style={OPTION_STYLE}>Pick a host…</option>
+                {flatHosts.map((h) => (
+                  <option key={h.id} value={h.id} style={OPTION_STYLE}>
+                    {h.name}
+                  </option>
+                ))}
+              </select>
+            )}
 
             {/* Skill picker — single <select>, disabled until host + skills ready.
                 Placeholder stays "Pick a skill…" throughout so the copy doesn't
@@ -514,16 +549,18 @@ export default function SkillsEditorModal({
                 ))}
             </select>
 
-            {/* + Add file — NEW for Phase 44. Header-row primary accent per
-                UI-SPEC L173-178. Disabled when no skill picked OR file list
-                isn't ready (so we don't allow-double-fetch during load/error). */}
+            {/* New-skill button — Phase 113 D-01. Same primary-accent style
+                as the retired add-file button (visual continuity for the
+                "add a thing" affordance shape). Enabled whenever a host is
+                picked; the header-level add-file button has been REMOVED
+                (D-12) — file creation moved to the new-file action-tab. */}
             <button
               type="button"
-              onClick={() => { void handleAddFile(); }}
-              disabled={!selectedSkillName || files.status !== "ready"}
+              onClick={() => { void handleNewSkill(); }}
+              disabled={selectedHostId == null}
               className="ml-2 px-3 py-1.5 rounded-md bg-[hsla(220,80%,60%,0.20)] hover:bg-[hsla(220,80%,60%,0.30)] text-[#e8e4d8] text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              + Add file
+              + New skill
             </button>
 
             {/* Delete-skill Trash2 — NEW for Phase 44. Only rendered when a
@@ -606,10 +643,31 @@ export default function SkillsEditorModal({
               Couldn&apos;t load files: {files.error}
             </div>
           ) : files.data.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-[#a89a80] gap-2 text-sm text-center px-6">
-              <div>This skill has no files.</div>
-              <div className="text-xs opacity-70">
-                Use &quot;+ Add file&quot; to create one.
+            // Phase 113 D-15: empty-file-list body renders the copy AND the
+            // shared newFileTabButton (declared once above) so the + New file
+            // action-tab is present the moment a skill is picked. The tab-strip
+            // is a bare <div> (no Radix Tabs wiring) since there are no file
+            // tabs to activate; the button is action-only and never touches
+            // activeTab (D-14, D-16).
+            <div className="flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 flex flex-col items-center justify-center text-[#a89a80] gap-2 text-sm text-center px-6">
+                <div>This skill has no files.</div>
+                <div className="text-xs opacity-70">
+                  Use the "+ New file" tab below to create one.
+                </div>
+              </div>
+              <div
+                className="shrink-0 flex items-stretch px-2 py-1 border-t overflow-x-auto"
+                style={{
+                  borderTopColor: "rgba(220, 225, 245, 0.10)",
+                  background:
+                    "linear-gradient(180deg, rgba(18,20,28,0.62), rgba(28,30,40,0.55))",
+                  backdropFilter: "blur(12px)",
+                  WebkitBackdropFilter: "blur(12px)",
+                  WebkitOverflowScrolling: "touch",
+                }}
+              >
+                {newFileTabButton}
               </div>
             </div>
           ) : (
@@ -689,6 +747,11 @@ export default function SkillsEditorModal({
                     </button>
                   );
                 })}
+                {/* Phase 113 D-13: + New file pinned as the LAST child of the
+                    tab strip so overflow-x-auto scrolls the map'd tabs while
+                    this action-tab stays visible. Shared with the empty-file-list
+                    branch above via the newFileTabButton fragment. */}
+                {newFileTabButton}
               </div>
             </Tabs>
           )}
