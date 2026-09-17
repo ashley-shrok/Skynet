@@ -236,6 +236,36 @@ function buildAbsSkillFilePath(
   return { skillRoot, absPath };
 }
 
+/**
+ * Phase 113 D-06 + D-07: compose the seed SKILL.md body for a brand-new skill.
+ *
+ * Exact 5-line shape (LF line endings, trailing blank line intentional so the
+ * editor lands the cursor on a clean body-editing position rather than at the
+ * end of frontmatter):
+ *
+ *   ---\n
+ *   name: <slug>\n
+ *   description: "<yaml-safe-desc>"\n
+ *   ---\n
+ *   \n
+ *
+ * YAML-safety (D-07): unconditional double-quote wrap; escape embedded `\` and
+ * `"`. ORDER MATTERS — escape `\` FIRST, then `"`. Reversing the order would
+ * mangle `\"` (the `"`-escape's output is `\"`, which the subsequent
+ * `\`-escape would then turn into `\\"`). See RESEARCH.md § Common Pitfalls #7.
+ *
+ * The `\n`/`\r` reject in the POST /skill handler is belt-and-suspenders — no
+ * caller should reach this helper with multi-line content, but if they do the
+ * quote wrap still produces valid YAML (embedded LF in a double-quoted YAML
+ * string is invalid on its own but our upstream rejection catches it first).
+ */
+function composeSkillMdSeed(slug: string, description: string): string {
+  const yamlSafeDesc = description
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
+  return `---\nname: ${slug}\ndescription: "${yamlSafeDesc}"\n---\n\n`;
+}
+
 // ---------------------------------------------------------------------------
 // GET /skills-editor/skills?hostId=<n>
 // ---------------------------------------------------------------------------
@@ -941,6 +971,200 @@ router.post(
     } catch (err) {
       sshLogger.error("skills-editor create: unexpected error", {
         operation: "skills_editor_create_error",
+        hostId,
+        error: err instanceof Error ? err.message : "Unknown",
+      });
+      if (!res.headersSent) {
+        res.status(500).json({ error: "internal" });
+      }
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /skills-editor/skill      (Phase 113)
+// ---------------------------------------------------------------------------
+
+/**
+ * Phase 113 D-20 / D-21: Create a brand-new skill folder plus a seed SKILL.md
+ * with YAML frontmatter (name + description). The Edit Skills modal's new
+ * "+ New skill" flow lands here; the response `{ slug, mtime }` is consumed
+ * by the client to auto-select the newly-created skill (D-05).
+ *
+ * STRIDE 5-layer posture verbatim (same as every other write route in this
+ * file — see prologue lines 36-55). Extra note: SKILL.md write uses
+ * `writeMarkdownFileAtomic` (SFTP tmp+rename via ext_openssh_rename) so a
+ * partial-create window is avoided; on write failure we best-effort
+ * `rm -rf` the empty skill folder we just created (Pitfall #8 — otherwise
+ * the folder would be left in the legacy "no SKILL.md" shape that D-11
+ * forward-only invariant is trying to eliminate).
+ */
+router.post(
+  "/skill",
+  authenticateJWT, // BEFORE body parser — see /read for rationale
+  express.json({ limit: "32kb" }),
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    // 1. Body validation — 400 BEFORE any I/O.
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawHostId = body.hostId;
+    const rawSkill = body.skill;
+    const rawDescription = body.description;
+
+    if (
+      typeof rawHostId !== "number" ||
+      !Number.isInteger(rawHostId) ||
+      rawHostId <= 0
+    ) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
+      return;
+    }
+    if (typeof rawDescription !== "string") {
+      res.status(400).json({ error: "description must be a string" });
+      return;
+    }
+    const description = rawDescription.trim();
+    if (description.length === 0) {
+      res.status(400).json({ error: "description is required" });
+      return;
+    }
+    if (Buffer.byteLength(description, "utf-8") > 4096) {
+      res.status(400).json({ error: "description must be ≤4096 bytes" });
+      return;
+    }
+    // Multi-line description guard (Pitfall #7 belt-and-suspenders — YAML
+    // double-quoted strings CAN escape LF as `\n`, but the seed composer
+    // does NOT do that transformation, and window.prompt never produces
+    // multi-line input in practice. Reject at the API layer to keep the
+    // invariant tight.).
+    if (description.includes("\n") || description.includes("\r")) {
+      res.status(400).json({ error: "description must be single-line" });
+      return;
+    }
+
+    const hostId = rawHostId;
+    const skill = rawSkill;
+
+    // 2. Per-user host isolation.
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      // 3. SSH connect (5s timeout).
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        sshLogger.warn("skills-editor create-skill: SSH connect failed", {
+          operation: "skills_editor_create_skill_connect",
+          hostId,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH connect failed" });
+        return;
+      }
+
+      // 4. Remote HOME resolution — quick-260805-70q defense (Pitfall #4).
+      const remoteHome = (
+        await execWithTimeout(conn, "echo $HOME")
+      ).trim();
+      if (!remoteHome || remoteHome.startsWith("~")) {
+        sshLogger.warn(
+          "skills-editor create-skill: could not resolve remote HOME",
+          {
+            operation: "skills_editor_create_skill_home",
+            hostId,
+            remoteHome,
+          },
+        );
+        res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+
+      // 5. Compose + belt-and-suspenders prefix assertion on skill ROOT.
+      //    The SKILL_NAME_RE gate makes this unreachable, but the invariant
+      //    is asserted anyway — this is what the DELETE /skill handler
+      //    does for its `rm -rf`, and the same discipline applies to the
+      //    `mkdir -p` target here.
+      const skillsPrefix = `${remoteHome}/${SKILL_ROOT_REL}/`;
+      const skillRoot = `${skillsPrefix}${skill}`;
+      if (!skillRoot.startsWith(skillsPrefix)) {
+        res.status(400).json({ error: "path escape detected" });
+        return;
+      }
+      const escapedSkillRoot = shellEscape(skillRoot);
+
+      // 6. Existence gate — 409 if the skill folder already exists.
+      const dirCheck = (
+        await execWithTimeout(
+          conn,
+          `test -d ${escapedSkillRoot} && echo exists || echo ok`,
+        )
+      ).trim();
+      if (dirCheck === "exists") {
+        res.status(409).json({ error: "skill exists" });
+        return;
+      }
+
+      // 7. mkdir -p the skill root.
+      await execWithTimeout(conn, `mkdir -p ${escapedSkillRoot}`);
+
+      // 8. Compose seed + atomic SFTP write. On failure, best-effort cleanup
+      //    (Pitfall #8) so a partial-create window is never left on disk.
+      const seed = composeSkillMdSeed(skill, description);
+      const skillMdPath = `${skillRoot}/SKILL.md`;
+      try {
+        await writeMarkdownFileAtomic(conn, skillMdPath, seed);
+      } catch (err) {
+        try {
+          await execWithTimeout(conn, `rm -rf ${escapedSkillRoot}`);
+        } catch {
+          /* best-effort cleanup — if the cleanup fails, the user gets
+             a clean 502 retry surface and the operator can inspect. */
+        }
+        sshLogger.error("skills-editor create-skill: SFTP write failed", {
+          operation: "skills_editor_create_skill_sftp",
+          hostId,
+          skillMdPath,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
+      }
+
+      // 9. Stat for authoritative mtime.
+      const escapedSkillMdPath = shellEscape(skillMdPath);
+      const mtimeStr = (
+        await execWithTimeout(
+          conn,
+          `stat -c '%Y' ${escapedSkillMdPath} 2>/dev/null || echo 0`,
+        )
+      ).trim();
+      const mtime = parseInt(mtimeStr, 10) || 0;
+
+      res.json({ slug: skill, mtime });
+    } catch (err) {
+      sshLogger.error("skills-editor create-skill: unexpected error", {
+        operation: "skills_editor_create_skill_error",
         hostId,
         error: err instanceof Error ? err.message : "Unknown",
       });
