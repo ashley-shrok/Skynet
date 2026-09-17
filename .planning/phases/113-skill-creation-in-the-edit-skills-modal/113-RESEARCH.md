@@ -98,7 +98,7 @@ No requirement IDs are tracked for Phase 113 in `REQUIREMENTS.md` — the phase 
 `/home/ubuntu/skynet-apollo/CLAUDE.md` does not exist in this checkout. Project constraints inherit from the role file (`~/fleet/roles/box-maintainer/box-maintainer.md`) which CONTEXT.md § Role file directives already enumerates:
 
 1. **Test discipline** — scoped `npx vitest related --run <touched files>` during dev; full suite + playwright smoke are the deploy gate (orchestrator, not executor).
-2. **Container mutations serialize** — Ashley coordinates deploy manually.
+2. **Container mutations serialize** — the user coordinates deploy manually.
 3. **Never use worktrees.**
 4. **Executor deploy scope** — code + commit + tests green; ship is orchestrator-owned.
 5. **Multi-identity git** — pull `--rebase` before push (standing rule for the fleet monorepo).
@@ -870,7 +870,7 @@ All claims in this research trace either to a `[VERIFIED: file:line]` reading of
 1. **Is `slugifyRoleName`'s 64-char cap acceptable for a skill name?**
    - What we know: `SKILL_NAME_RE` allows up to 128 chars. `slugifyRoleName` caps at 64. Every existing hand-created skill on the reference box (`/home/ubuntu/.claude/skills/`) has a name well under 32 chars.
    - What's unclear: Whether the shape intended 128 as a soft ceiling or a hard target.
-   - Recommendation: 64 is fine — reuse `slugifyRoleName` as-is. If Ashley wants 128, the plan can trivially fork the helper with a 128 cap into a new module. **No blocker.**
+   - Recommendation: 64 is fine — reuse `slugifyRoleName` as-is. If the user wants 128, the plan can trivially fork the helper with a 128 cap into a new module. **No blocker.**
 
 2. **Should the empty-file-list body copy live in a shared const or be inlined?**
    - What we know: Current copy at L552-554 is inlined. New copy per D-15 is short.

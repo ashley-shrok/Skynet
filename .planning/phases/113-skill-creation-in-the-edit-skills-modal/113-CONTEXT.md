@@ -296,7 +296,7 @@ the user adds.
 ### Role file directives — apply throughout
 - `~/fleet/roles/box-maintainer/box-maintainer.md` — § Test discipline
   (scoped-during-dev, full-suite-only-at-ship); § Container mutations
-  serialize (Ashley coordinates deploy manually); § Never use worktrees;
+  serialize (the user coordinates deploy manually); § Never use worktrees;
   § Executor deploy scope (code + commit + tests green, ship is
   orchestrator-owned); § Multi-identity git pull --rebase before push.
 
