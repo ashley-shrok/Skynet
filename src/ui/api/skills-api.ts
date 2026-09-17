@@ -236,3 +236,51 @@ export async function deleteSkill(
     throw error; // unreachable
   }
 }
+
+/**
+ * Typed 409 skill-exists error.
+ * Thrown by createSkill when the backend returns 409 with { error: "skill exists" }.
+ * Byte-shape mirror of SkillFileAlreadyExistsError (Phase 44 SKILLED-05).
+ */
+export class SkillAlreadyExistsError extends Error {
+  constructor() {
+    super("skill exists");
+    this.name = "SkillAlreadyExistsError";
+  }
+}
+
+/**
+ * POST /skills-editor/skill
+ * Creates a new skill folder plus a seed SKILL.md file with YAML frontmatter
+ * carrying the name (slug) and description. Backend composes and writes the
+ * seed server-side in the same call (D-08 — no round-trip through PUT /write).
+ * If the skill folder already exists, throws SkillAlreadyExistsError (409).
+ */
+export async function createSkill(
+  hostId: number,
+  name: string,
+  description: string,
+): Promise<{ slug: string; mtime: number }> {
+  try {
+    const response = await authApi.post("/skills-editor/skill", {
+      hostId,
+      skill: name,
+      description,
+    });
+    return response.data as { slug: string; mtime: number };
+  } catch (error) {
+    const err = error as {
+      response?: { status?: number; data?: { error?: string } };
+    };
+    // Only recognize the specific skill-exists 409 shape — a future 409 semantic
+    // on this endpoint should NOT misfire as an already-exists dialog.
+    if (
+      err?.response?.status === 409 &&
+      err.response.data?.error === "skill exists"
+    ) {
+      throw new SkillAlreadyExistsError();
+    }
+    handleApiError(error, "create skill");
+    throw error; // unreachable — handleApiError throws; satisfies TS return type
+  }
+}
