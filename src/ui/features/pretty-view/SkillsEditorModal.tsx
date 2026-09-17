@@ -325,23 +325,27 @@ export default function SkillsEditorModal({
     if (selectedHostId == null) return;
 
     // Outer loop — re-prompts name until slugify yields non-empty (D-03).
-    let name: string | null = null;
-    while (name === null) {
+    // Hold the raw typed name for user-facing display; slug is machine-side only (D-03).
+    let displayName: string | null = null;
+    let slug: string | null = null;
+    while (slug === null) {
       const rawName = window.prompt("New skill name:", "");
       if (rawName == null) return; // D-02: cancel on name prompt aborts the whole flow
-      const slug = slugifyRoleName(rawName.trim());
-      if (slug.length === 0) {
+      const trimmedRaw = rawName.trim();
+      const candidate = slugifyRoleName(trimmedRaw);
+      if (candidate.length === 0) {
         window.alert("Please pick a name with at least one letter or number.");
         continue; // re-prompt name (do NOT proceed to description)
       }
-      name = slug;
+      displayName = trimmedRaw;
+      slug = candidate;
     }
 
-    // Inner loop — re-prompts description until non-empty (D-04). Name is
-    // preserved across re-prompts via the closure over `name` above.
+    // Inner loop — re-prompts description until non-empty (D-04). Raw typed
+    // name is preserved across re-prompts via the closure over `displayName`.
     let description: string | null = null;
     while (description === null) {
-      const rawDesc = window.prompt(`Description for "${name}":`, "");
+      const rawDesc = window.prompt(`Description for "${displayName}":`, "");
       if (rawDesc == null) return; // D-02: cancel on description prompt aborts the whole flow
       const trimmed = rawDesc.trim();
       if (trimmed.length === 0) {
@@ -352,7 +356,7 @@ export default function SkillsEditorModal({
     }
 
     try {
-      const result = await createSkill(selectedHostId, name, description);
+      const result = await createSkill(selectedHostId, slug, description);
       // D-05: refetch skills list + auto-select new skill. The existing
       // selectedSkillName-change effect (L156-183) then enumerates files and
       // auto-selects the first file, which is SKILL.md (alphabetical sort).
@@ -360,12 +364,13 @@ export default function SkillsEditorModal({
       setSkills({ status: "ready", data: entries });
       setSelectedSkillName(result.slug);
     } catch (err) {
+      // D-03: user-facing error messages show the raw typed name, NOT the slug.
       const msg =
         err instanceof SkillAlreadyExistsError
-          ? `A skill named "${name}" already exists on this host.`
+          ? `A skill named "${displayName}" already exists on this host.`
           : err instanceof Error
-          ? `Couldn't create "${name}": ${err.message}`
-          : `Couldn't create "${name}".`;
+          ? `Couldn't create "${displayName}": ${err.message}`
+          : `Couldn't create "${displayName}".`;
       window.alert(msg);
     }
   }, [selectedHostId]);
