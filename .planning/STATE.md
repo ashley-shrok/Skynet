@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-14T15:56:54.967Z"
-last_activity: "2026-09-14 — Completed quick task 260914-liu (alpha): conversation-list header chrome — Filter icon removed, New agent/Edit roles/Edit global files promoted from the kebab to their own header icons (SquarePen/Drama/Globe, locked by the user from a rendered preview). Ready-filter machinery deliberately retained as dead code per her explicit call. 3 atomic commits (95859ae5, d47a7567, 0e957c64); tsc clean + 313/313 scoped tests. HEAD LOCAL, NOT pushed / NOT built / NOT deployed."
+last_updated: "2026-09-17T03:46:52.574Z"
+last_activity: "2026-09-16 — Completed quick task 260916-9o3 (bran): PrettyView interrupt button switched Escape→Ctrl-C behind an authoritative server-side per-pane throttle (`interruptThrottleByPane`, keyed by the existing `sessionKey(hostId, tmuxSession)`, 2500ms ≈ 3x Claude Code's measured ~0.8s exit-confirm window). One tap now both interrupts mid-turn work and clears the whole multi-line draft — the capability Escape could not reach because clearing needs a fast double-press that the throttle blocks by design. Guard moved client→server because the old React ref is per-view (two open views = two independent throttles that can land two Ctrl-Cs ~200ms apart at one pane and kill the harness). Throttle lives inside the shared `__applyInterruptMessageForTests` seam so the production handler inherits it unmodified and no client-supplied field can reach the key. Orchestrator mutation-tested the guard: moving `set()` after the `await` left all 38 executor tests green, so added a concurrent-in-flight test that fails against that mutation. `npm run build:backend` + `npm run build` clean; 39/39 backend and 42/42 combined scoped tests green. 4 atomic commits, HEAD `883738de` LOCAL — NOT pushed / NOT built / NOT deployed, held at the push boundary awaiting the user's ship greenlight."
 progress:
-  total_phases: 111
-  completed_phases: 94
-  total_plans: 468
-  completed_plans: 461
-  percent: 85
+  total_phases: 114
+  completed_phases: 95
+  total_plans: 479
+  completed_plans: 471
+  percent: 83
 ---
 
 # Project State
@@ -979,9 +979,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-14T15:56:54.912Z
+Last session: 2026-09-17T03:46:52.165Z
 Last session: 2026-09-10T07:47:17.370Z
-Stopped at: Completed 106-02-PLAN.md
+Stopped at: Phase 113 context gathered
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
 Last session: 2026-09-06T12:17:07.176Z
@@ -993,6 +993,6 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: None
+Resume file: .planning/phases/113-skill-creation-in-the-edit-skills-modal/113-CONTEXT.md
 
 - Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)
