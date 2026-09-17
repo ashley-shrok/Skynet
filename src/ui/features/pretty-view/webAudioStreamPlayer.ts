@@ -25,6 +25,31 @@ import { parseRiffHeader, decodePcmChunk, type RiffHeader } from "./riffPcmDecod
 // Advancing `nextStartTimeRef` must divide by this value to stay gapless.
 const TTS_PLAYBACK_RATE = 1.25;
 
+// Ashley 2026-09-17 — bug fix: Chrome silently drops audio output for
+// AudioBufferSourceNodes scheduled too far ahead of the playhead, while
+// still firing their onended callbacks on schedule. Symptom: a long
+// message hard-cuts partway through and finishes with silence, media-ended
+// fires legitimately at the end of the expected duration.
+//
+// Cause: Polly generative streams the whole audio faster than we play it
+// (5-6x faster at the 1.25x client rate), so the reader loop schedules
+// every ~2s source immediately as it arrives. For a ~150s message, that
+// leaves ~60s worth of sources queued ahead of the playhead by the time
+// the reader finishes, and Chrome starts silently dropping past its
+// internal-but-undocumented ~30-60s scheduling window.
+//
+// Fix: cap the number of sources scheduled-but-not-yet-ended. When the
+// scheduler window is full, the reader loop awaits an onended before
+// scheduling the next chunk. This naturally backpressures the fetch()
+// body stream — network layer stops reading, TCP window shrinks, Polly
+// slows down — and keeps the audio-thread schedule shallow.
+//
+// Sizing: TTS_PLAYBACK_RATE=1.25 with ~2s buffers → each source spans
+// ~1.6s of ctx clock. Horizon of 8 sources = ~13s of scheduled audio
+// ahead of the playhead. Well below the Chrome drop threshold, generous
+// enough that a brief main-thread stall never underruns playback.
+const SCHEDULE_HORIZON_SOURCES = 8;
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export interface WebAudioStreamPlayerOptions {
@@ -93,6 +118,10 @@ export function createWebAudioStreamPlayer(
   let stopped = false;
   let onEndedFired = false;
   let onErrorFired = false;
+  // Backpressure state — see SCHEDULE_HORIZON_SOURCES rationale at top of file.
+  // scheduleWakeup is set by the reader loop when it's waiting for horizon
+  // room, cleared+invoked by onSourceEnded when a source finishes.
+  let scheduleWakeup: (() => void) | null = null;
 
   // ─── Private helpers ─────────────────────────────────────────────────────────
 
@@ -106,6 +135,16 @@ export function createWebAudioStreamPlayer(
 
   /** Tear down the reader, all scheduled sources, and the AudioContext. */
   function teardown(): void {
+    // Wake the reader loop if it's parked at the backpressure gate. Any
+    // teardown path (natural end, external stop, resume-closed error) needs
+    // to release the wait so the loop can observe the new state and exit
+    // instead of hanging on a wake signal that will never come once
+    // audioContext is set to null below.
+    if (scheduleWakeup) {
+      const wake = scheduleWakeup;
+      scheduleWakeup = null;
+      wake();
+    }
     if (reader) {
       try {
         reader.cancel();
@@ -157,6 +196,12 @@ export function createWebAudioStreamPlayer(
     console.info(
       `[tts-player] source-ended idx=${idx} expectedEnd=${meta?.expectedEnd.toFixed(3) ?? "n/a"} ctxTime=${ctxTime.toFixed(3)} drift=${drift.toFixed(3)} endedCount=${endedSources} totalCount=${sources.length} ctxState=${audioContext?.state ?? "null"}`,
     );
+    // Wake the reader loop if it's parked waiting for horizon room.
+    if (scheduleWakeup) {
+      const wake = scheduleWakeup;
+      scheduleWakeup = null;
+      wake();
+    }
     maybeFireEnded();
   }
 
@@ -298,6 +343,29 @@ export function createWebAudioStreamPlayer(
         }
 
         if (pcmChunk.byteLength === 0) continue;
+
+        // Backpressure: hold off scheduling if the audio thread already has
+        // SCHEDULE_HORIZON_SOURCES worth of pending (scheduled-but-not-ended)
+        // sources ahead of the playhead. Wake when a source ends. See
+        // SCHEDULE_HORIZON_SOURCES rationale at top of file for why this
+        // exists (Chrome silently drops far-future scheduled buffer output).
+        while (
+          !stopped &&
+          audioContext !== null &&
+          sources.length - endedSources >= SCHEDULE_HORIZON_SOURCES
+        ) {
+          console.info(
+            `[tts-player] backpressure-wait pending=${sources.length - endedSources} horizon=${SCHEDULE_HORIZON_SOURCES} ctxTime=${audioContext.currentTime.toFixed(3)} ctxState=${audioContext.state}`,
+          );
+          await new Promise<void>((resolve) => {
+            scheduleWakeup = resolve;
+          });
+        }
+        // audioContext may have been nulled by teardown() while we were parked
+        // (external stop, resume-closed error). Bail cleanly rather than
+        // dereferencing null below.
+        if (stopped || audioContext === null) return;
+
         scheduleChunk(pcmChunk, header, audioContext, nextStartTimeRef);
         // Fire onCanPlay on the first successfully scheduled chunk — analogous
         // to HTMLAudioElement's canplay event (enough data to start playback).
@@ -322,6 +390,13 @@ export function createWebAudioStreamPlayer(
     console.info(
       `[tts-player] stop pending=${pending} sources=${sources.length} ctxTime=${(audioContext?.currentTime ?? -1).toFixed(3)} ctxState=${audioContext?.state ?? "null"}`,
     );
+    // Release the reader loop if it's parked at the backpressure gate so it
+    // can observe stopped=true and exit its while(true).
+    if (scheduleWakeup) {
+      const wake = scheduleWakeup;
+      scheduleWakeup = null;
+      wake();
+    }
     teardown();
     // Do NOT fire onEnded or onError — external stop is the caller's own action.
   }
