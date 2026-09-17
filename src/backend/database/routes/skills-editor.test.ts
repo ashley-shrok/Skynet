@@ -668,18 +668,271 @@ describe("POST /skills-editor/create", () => {
 });
 
 // ===========================================================================
+// POST /skills-editor/skill      (Phase 113)
+// ===========================================================================
+
+describe("POST /skills-editor/skill", () => {
+  it("200 with { slug, mtime } on new skill; mkdir + writeMarkdownFileAtomic called with byte-exact seed", async () => {
+    // Override defaultExecImpl: skill folder does NOT exist yet (test -d → "ok").
+    (execCommand as Mock).mockImplementation(
+      async (_conn: unknown, cmd: string) => {
+        if (cmd === "echo $HOME") return "/home/testuser\n";
+        if (cmd.startsWith("test -d ")) return "ok";
+        if (cmd.startsWith("mkdir -p")) return "";
+        if (cmd.includes("stat -c '%Y'")) return "1700000042";
+        return "";
+      },
+    );
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "new-skill",
+        description: "A test skill.",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { slug: string; mtime: number };
+    expect(body.slug).toBe("new-skill");
+    expect(body.mtime).toBe(1700000042);
+    // Verify mkdir -p ran on the skill root.
+    const calls = (execCommand as Mock).mock.calls as [unknown, string][];
+    const mkdirCall = calls.find(([, c]) => c.startsWith("mkdir -p"));
+    expect(mkdirCall).toBeDefined();
+    expect(mkdirCall![1]).toContain(
+      "'/home/testuser/.claude/skills/new-skill'",
+    );
+    // Verify the atomic-write happened at the expected path + BYTE-EXACT seed (D-06 + D-07).
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
+      expect.anything(),
+      "/home/testuser/.claude/skills/new-skill/SKILL.md",
+      '---\nname: new-skill\ndescription: "A test skill."\n---\n\n',
+    );
+  });
+
+  it("409 with { error: 'skill exists' } when skill folder already exists; no mkdir, no write", async () => {
+    // defaultExecImpl already returns "exists" for test -d — no override needed.
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "build",
+        description: "hi",
+      }),
+    });
+    expect(res.status).toBe(409);
+    expect((res.body as { error: string }).error).toBe("skill exists");
+    const calls = (execCommand as Mock).mock.calls as [unknown, string][];
+    expect(calls.find(([, c]) => c.startsWith("mkdir -p"))).toBeUndefined();
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("400 on invalid skill name; no SSH connect", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "bad name",
+        description: "hi",
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+  });
+
+  it("400 on non-string description", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "new-skill",
+        description: 123,
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400 on empty description after trim", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "new-skill",
+        description: "   ",
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toBe(
+      "description is required",
+    );
+  });
+
+  it("400 on overlength description (>4096 bytes)", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "new-skill",
+        description: "x".repeat(5000),
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toBe(
+      "description must be ≤4096 bytes",
+    );
+  });
+
+  it("400 on multi-line description", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "new-skill",
+        description: "foo\nbar",
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toBe(
+      "description must be single-line",
+    );
+  });
+
+  it("400 on path escape via '..'; no SSH connect", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "..",
+        description: "hi",
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+  });
+
+  it("404 on cross-user / unknown host", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 999,
+        skill: "new-skill",
+        description: "hi",
+      }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("502 on SSH connect fail", async () => {
+    (connectOneShot as Mock).mockRejectedValueOnce(
+      new Error("connect refused"),
+    );
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "new-skill",
+        description: "hi",
+      }),
+    });
+    expect(res.status).toBe(502);
+    expect((res.body as { error: string }).error).toBe("SSH connect failed");
+  });
+
+  it("502 + best-effort rm -rf cleanup when writeMarkdownFileAtomic rejects", async () => {
+    (execCommand as Mock).mockImplementation(
+      async (_conn: unknown, cmd: string) => {
+        if (cmd === "echo $HOME") return "/home/testuser\n";
+        if (cmd.startsWith("test -d ")) return "ok"; // skill does NOT exist yet
+        if (cmd.startsWith("mkdir -p")) return "";
+        if (cmd.startsWith("rm -rf")) return ""; // cleanup succeeds
+        if (cmd.includes("stat -c '%Y'")) return "0";
+        return "";
+      },
+    );
+    (writeMarkdownFileAtomic as Mock).mockRejectedValueOnce(
+      new Error("SFTP write failed"),
+    );
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "new-skill",
+        description: "hi",
+      }),
+    });
+    expect(res.status).toBe(502);
+    expect((res.body as { error: string }).error).toBe("SSH exec failed");
+    // Pitfall #8: best-effort cleanup MUST have fired — rm -rf on the skill root.
+    const calls = (execCommand as Mock).mock.calls as [unknown, string][];
+    const rmrfCall = calls.find(([, cmd]) => cmd.startsWith("rm -rf"));
+    expect(rmrfCall).toBeDefined();
+    expect(rmrfCall![1]).toContain(
+      "'/home/testuser/.claude/skills/new-skill'",
+    );
+  });
+
+  it("YAML injection defense: description with embedded quote and backslash is byte-exact escaped (D-07)", async () => {
+    (execCommand as Mock).mockImplementation(
+      async (_conn: unknown, cmd: string) => {
+        if (cmd === "echo $HOME") return "/home/testuser\n";
+        if (cmd.startsWith("test -d ")) return "ok";
+        if (cmd.startsWith("mkdir -p")) return "";
+        if (cmd.includes("stat -c '%Y'")) return "1700000042";
+        return "";
+      },
+    );
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "yaml-test",
+        description: 'has "quote" and \\ slash',
+      }),
+    });
+    expect(res.status).toBe(200);
+    // Order-sensitive escape (D-07 Pitfall #7): \ escaped FIRST, then ".
+    // Raw description:  has "quote" and \ slash
+    // After \-escape:   has "quote" and \\ slash
+    // After "-escape:   has \"quote\" and \\ slash
+    // Wrapped:          "has \"quote\" and \\ slash"
+    const expectedSeed =
+      '---\nname: yaml-test\ndescription: "has \\"quote\\" and \\\\ slash"\n---\n\n';
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
+      expect.anything(),
+      "/home/testuser/.claude/skills/yaml-test/SKILL.md",
+      expectedSeed,
+    );
+  });
+});
+
+// ===========================================================================
 // DELETE /skills-editor/file
 // ===========================================================================
 
 describe("DELETE /skills-editor/file", () => {
   it("200 with { ok:true } on valid input", async () => {
+    // Companion edit for Phase 113 D-22: pre-existing happy path used
+    // path: "SKILL.md" which is now hard-rejected by the SKILL.md guard.
+    // Any non-sentinel filename that passes isSafeRelativePath works.
     const res = await httpRequest(server, {
       method: "DELETE",
       path: "/skills-editor/file",
       body: JSON.stringify({
         hostId: 1,
         skill: "build",
-        path: "SKILL.md",
+        path: "README.md",
       }),
     });
     expect(res.status).toBe(200);
@@ -688,7 +941,7 @@ describe("DELETE /skills-editor/file", () => {
     const rmCall = calls.find(([, cmd]) => cmd.startsWith("rm -f "));
     expect(rmCall).toBeDefined();
     expect(rmCall![1]).toContain(
-      "'/home/testuser/.claude/skills/build/SKILL.md'",
+      "'/home/testuser/.claude/skills/build/README.md'",
     );
   });
 
@@ -706,16 +959,71 @@ describe("DELETE /skills-editor/file", () => {
   });
 
   it("404 on unknown host", async () => {
+    // Companion edit for Phase 113 D-22: switch to a non-sentinel filename so
+    // the request reaches resolveHostById() and produces the 404 branch.
     const res = await httpRequest(server, {
       method: "DELETE",
       path: "/skills-editor/file",
       body: JSON.stringify({
         hostId: 999,
         skill: "build",
-        path: "SKILL.md",
+        path: "README.md",
       }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("400 with { error: 'cannot delete SKILL.md' } when path === 'SKILL.md'; no SSH opened (D-22, D-27)", async () => {
+    const res = await httpRequest(server, {
+      method: "DELETE",
+      path: "/skills-editor/file",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "build",
+        path: "SKILL.md",
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toBe(
+      "cannot delete SKILL.md",
+    );
+    // Guard runs BEFORE resolveHostById → zero SSH cost.
+    expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+    expect((execCommand as Mock).mock.calls).toHaveLength(0);
+  });
+
+  it("SKILL.md.bak (sibling filename) is NOT guarded; deletes normally (D-27)", async () => {
+    const res = await httpRequest(server, {
+      method: "DELETE",
+      path: "/skills-editor/file",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "build",
+        path: "SKILL.md.bak",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const calls = (execCommand as Mock).mock.calls as [unknown, string][];
+    const rmCall = calls.find(([, cmd]) => cmd.startsWith("rm -f "));
+    expect(rmCall).toBeDefined();
+    expect(rmCall![1]).toContain("SKILL.md.bak");
+  });
+
+  it("nested/SKILL.md (nested filename) is NOT guarded; deletes normally (D-27)", async () => {
+    const res = await httpRequest(server, {
+      method: "DELETE",
+      path: "/skills-editor/file",
+      body: JSON.stringify({
+        hostId: 1,
+        skill: "build",
+        path: "nested/SKILL.md",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const calls = (execCommand as Mock).mock.calls as [unknown, string][];
+    const rmCall = calls.find(([, cmd]) => cmd.startsWith("rm -f "));
+    expect(rmCall).toBeDefined();
+    expect(rmCall![1]).toContain("nested/SKILL.md");
   });
 });
 
