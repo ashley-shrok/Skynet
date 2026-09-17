@@ -2528,3 +2528,13 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [ ] 112-04-PLAN.md — backend byte-transparency grep + self-contained Playwright frontmatter round-trip fixture + 8-surface UAT with D-05 close-the-loop (Tasks 1+2 complete; Task 3 awaiting user UAT on the deployed site)
+
+### Phase 113: Skill creation in the Edit Skills modal
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 112
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 113 to break down)
