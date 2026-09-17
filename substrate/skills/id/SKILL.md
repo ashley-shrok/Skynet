@@ -1,6 +1,7 @@
 ---
 name: id
 description: Load or create a named role identity.
+distributed: true
 ---
 
 # Identity Skill

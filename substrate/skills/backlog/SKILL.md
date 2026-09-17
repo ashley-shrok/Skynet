@@ -4,6 +4,7 @@ description: >-
   Walk through your current bounties one-by-one with the user for triage —
   keep, drop, archive, re-priority, or capture context — without doing
   the work.
+distributed: true
 ---
 
 # Backlog Skill

@@ -2,6 +2,7 @@
 name: promote-to-coordinator
 description: Convert the currently loaded identity into a coordinator for its role. User-invocable only; hidden from model auto-invocation.
 disable-model-invocation: true
+distributed: true
 ---
 
 # promote-to-coordinator

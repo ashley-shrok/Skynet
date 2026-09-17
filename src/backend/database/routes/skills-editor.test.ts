@@ -304,6 +304,32 @@ describe("GET /skills-editor/skills", () => {
     expect(res.status).toBe(200);
     expect((res.body as { skills: unknown[] }).skills).toEqual([]);
   });
+
+  it("list command drops SKILL.md files whose frontmatter carries distributed: true", async () => {
+    let capturedListCmd = "";
+    (execCommand as Mock).mockImplementation(
+      async (_conn: unknown, cmd: string) => {
+        if (cmd === "echo $HOME") return "/home/testuser\n";
+        if (cmd.startsWith("find") && cmd.includes("-maxdepth 1")) {
+          capturedListCmd = cmd;
+          return "build\nexplain\n";
+        }
+        return "";
+      },
+    );
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/skills-editor/skills?hostId=1",
+    });
+    expect(res.status).toBe(200);
+    // The shell pipeline slices the frontmatter (bytes between the first
+    // two `---` lines) via awk, then greps for the marker. Frontmatter-only
+    // scoping matters: a body line starting with `distributed:` must NOT
+    // filter its skill out. Assert both tokens so a refactor that drops
+    // either piece breaks the test.
+    expect(capturedListCmd).toContain("awk '/^---$/");
+    expect(capturedListCmd).toContain("distributed: *true");
+  });
 });
 
 // ===========================================================================

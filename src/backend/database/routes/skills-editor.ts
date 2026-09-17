@@ -304,10 +304,21 @@ router.get(
       const skillsRoot = `${remoteHome}/${SKILL_ROOT_REL}`;
       const escapedSkillsRoot = shellEscape(skillsRoot);
       // -mindepth/-maxdepth 1 restrict to direct-child directories;
-      // `-printf '%f\n'` prints just the basename; 2>/dev/null swallows
-      // permission / missing errors (empty output → empty skills list).
+      // 2>/dev/null swallows permission / missing errors (empty output → empty skills list).
+      // For each skill directory, extract SKILL.md's frontmatter (bytes between
+      // the first two `---` lines) and drop the skill if it carries
+      // `distributed: true` — those are managed by the fleet-substrate
+      // distributor and hand-editing them via the modal would defeat the
+      // "don't hand-patch distributed content" invariant. Frontmatter-only
+      // scoping via awk prevents a `distributed:` line in the body from
+      // producing a false-positive filter.
       const listCmd =
-        `find ${escapedSkillsRoot} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null | sort`;
+        `find ${escapedSkillsRoot} -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | ` +
+        `while read -r dir; do ` +
+        `  awk '/^---$/{n++; if(n==2) exit} n==1' "$dir/SKILL.md" 2>/dev/null | ` +
+        `    grep -q '^distributed: *true[[:space:]]*$' && continue; ` +
+        `  basename "$dir"; ` +
+        `done`;
       const output = await execWithTimeout(conn, listCmd);
       const skills = output
         .split("\n")

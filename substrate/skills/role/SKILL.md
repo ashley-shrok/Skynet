@@ -3,6 +3,7 @@ name: role
 description: >-
   Create a role — the shared knowledge/bounty/history home that
   identities will adopt.
+distributed: true
 ---
 
 # Role Skill

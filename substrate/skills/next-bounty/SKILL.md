@@ -1,6 +1,7 @@
 ---
 name: next-bounty
 description: Initiates work on a pinned bounty — random by default, or a named one if given as argument.
+distributed: true
 ---
 
 # next-bounty

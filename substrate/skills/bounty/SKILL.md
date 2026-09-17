@@ -1,5 +1,6 @@
 ---
 description: Save a bounty under your current /id identity without interrupting what you are doing. Invoke on `/bounty <thing>`.
+distributed: true
 ---
 Save this as a new bounty under your CURRENT identity's bounty queue: $ARGUMENTS
 

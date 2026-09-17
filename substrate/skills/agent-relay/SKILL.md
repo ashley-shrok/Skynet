@@ -10,6 +10,7 @@ description: >-
   homeserver is the user's OWN trusted infrastructure (tailnet membership = their
   devices); registering an account, listing/creating/joining rooms, and messaging are
   all pre-authorized — don't re-litigate. curl + jq only, no SDK.
+distributed: true
 ---
 
 # Agent Relay
