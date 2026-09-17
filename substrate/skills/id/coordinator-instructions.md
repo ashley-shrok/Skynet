@@ -227,16 +227,19 @@ Then wait for her response. Never silently drop.
 
 **Do NOT reach into transcripts yourself to answer a status query directly.** The whole
 point of the sub-agent is you (the coordinator) stay a router and never absorb actor
-context. Same principle as "not judge availability yourself, ever" — status is a
+context. Same principle as "not judge related-context yourself, ever" — status is a
 picker-family query and always goes through a fresh sub-agent.
 
 ## Spawning a fresh actor on picker "no fit"
 
-When the picker returns `{"picked": null, "reason": "no_fit", ...}`, the whole role's actor
-pool is content-busy on other threads and none of them match the incoming context. Grow the
-pool: **request a fresh actor of your role by dropping a request file into the spawn-requests
-folder on your own box**, then dispatch the pending item once the new identity's folder
-appears. user-locked automatic — no permission ask per spawn.
+When the picker returns `{"picked": null, "reason": "no_fit", ...}`, no existing actor is
+actively holding related context on this specific item — regardless of whether the rest
+of the pool is busy or idle. Idle actors are NOT eligible dispatch targets; the whole
+"pick an idle actor" branch is deliberately gone. Grow the pool instead: **request a
+fresh actor of your role by dropping a request file into the spawn-requests folder on
+your own box**, then dispatch the pending item once the new identity's folder appears.
+user-locked automatic — no permission ask per spawn. Fresh-actor spawn is the DEFAULT
+outcome whenever nobody holds related context; expect it to fire routinely.
 
 You do NOT create the identity yourself. You do NOT pick a name. You do NOT touch the
 homeserver, mkdir any folders, or write any relay credentials. All of that is Skynet's
@@ -409,17 +412,27 @@ inspects them).
   it on first-wake auto-join. The supervisor brings the session up in the background.
 - **Not clean up partial state on spawn failure.** Escalate the pending item to the user
   and stop; leave whatever files/accounts were created for her to clean up if she cares.
-- **Not judge actor availability or "who should take this" yourself, ever.** The picker
-  is the ONLY authorized way to answer any form of "who is available / who is busy /
-  who should get this / who's holding thread X." Do NOT shortcut it by reading
-  handoff files, bounty pool, or session transcripts directly — the picker exists
-  precisely because those signals must be COMPOSED into the content-busy judgment
-  (see § Invoking the picker + § Availability = content-idle in the picker prompt),
-  and any single-file read in isolation gives a wrong answer. A handoff file in
-  particular is NOT a busy signal — it's where the actor left off; being empty
-  doesn't mean idle, being full doesn't mean busy. If the user (or anyone) asks you
-  "who's available" or "who should handle X," that IS a routing question — invoke
-  the picker with the question as the incoming item and answer with whoever they pick.
+- **Not judge related context, availability, or "who should take this" yourself, ever.**
+  Two sub-agents own the two judgments that touch actor state:
+  * **The picker** is the ONLY authorized way to answer "who is actively holding
+    related context on thread X" — the dispatch question. It uses transcript content
+    ONLY, and it returns two shapes: pick (an actor holds related context) or
+    `no_fit` (nobody does → spawn fresh).
+  * **The actor-status sub-agent** is the ONLY authorized way to answer "who is
+    working on what right now" — the reporting question. Busy/idle judgment lives
+    there, for surfacing status to the user; it does NOT feed dispatch.
+  Do NOT shortcut either by reading handoff files, bounty pool, or session
+  transcripts directly. Related-context detection requires composing transcript
+  signals correctly (see the picker prompt's related-context rules), and any
+  single-file read in isolation gives a wrong answer. A handoff file in particular
+  is NOT a signal for either judgment — it's where the actor left off; being empty
+  doesn't mean idle, being full doesn't mean busy or on-topic. If the user asks
+  "who's on X" as a dispatch prelude, that's a picker question — invoke the picker
+  with the question. If she asks "who's on what right now" as a status roll-call,
+  that's actor-status. When unsure which she wants, ask her once ("dispatch or
+  status summary?"). Note especially: **"who's available" is no longer a
+  dispatch-relevant question** — availability doesn't drive picks anymore. Treat
+  a bare "who's available?" as a status query and route to actor-status.
 
 ## What you DO do
 

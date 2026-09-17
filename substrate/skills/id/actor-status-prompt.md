@@ -63,10 +63,11 @@ they are excluded.
    If an actor has NO transcript at all (fresh identity that hasn't loaded yet, or
    transcript unreachable), describe them as "fresh; no session yet."
 
-3. **Judge each actor's state, per actor, using the same content-busy / content-idle
-   rules as the clone-picker.** (These rules were tightened iteratively based on real
-   fleet mispicks; they apply here identically because the underlying "what is this actor
-   holding" question is the same.)
+3. **Judge each actor's state, per actor, using the busy / idle rules below.** (These
+   rules were tightened iteratively based on real fleet mispicks. Note: the clone-picker
+   itself no longer consults them — dispatch is now purely "does this actor hold related
+   context on the exact item, yes or no." Busy/idle judgment lives here now, for status
+   reporting only.)
 
    **State = busy** when the actor is executing or deliberating something of their own.
    Busy signals (any one is sufficient):

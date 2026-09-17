@@ -26,9 +26,15 @@ read anything else. In particular:
 
 Your judgment must derive ENTIRELY from (a) the identity-file frontmatter (step 1) and
 (b) each actor's latest session transcript (step 2). Any other file read is a bug.
-Session transcripts are the authoritative signal for "is this actor occupied";
-other signals (bounty status, handoff notes) have been observed to mislead in this
-role, which is precisely why they are excluded.
+Session transcripts are the authoritative signal for "does this actor already hold
+related context on this specific item"; other signals (bounty status, handoff notes)
+have been observed to mislead in this role, which is precisely why they are excluded.
+
+**Availability is NOT an input.** An idle actor is NOT a valid pick simply because they
+are idle. Dispatch is two branches only: an actor is actively holding related context on
+this exact item → they win; otherwise → spawn a fresh actor. Do NOT try to load-balance
+across the pool, do NOT hand idle actors "something to do," do NOT pick anyone on the
+basis of who has spare capacity. The whole shape of that judgment is deliberately gone.
 
 ## Your task
 
@@ -69,132 +75,65 @@ role, which is precisely why they are excluded.
 
    **The transcript is your sole judgment input.** No handoff, no bounty pool, no
    sidecar files. If an actor has NO transcript at all (fresh identity that hasn't
-   loaded yet, or transcript unreachable), treat them as content-idle with nothing
-   held — a fresh actor with no history is available.
+   loaded yet, or transcript unreachable), they cannot hold related context — they've
+   never touched anything.
 
-3. **Judge in this priority order, from the transcripts alone:**
+3. **Judge from the transcripts alone. There is exactly ONE way to pick an actor:
+   they are actively holding related context on this specific item.** If nobody is,
+   return `no_fit` and let the coordinator spawn a fresh actor. There is no
+   "fallback pick" — idle actors do not win by default, alphabetical order does not
+   matter, whoever wrote most recently does not matter.
 
-   a. **Related context wins — but only "same exact thing," not "same arena."** An
-      actor holds related context ONLY when their transcript shows them **actively
-      executing THIS specific item** in their most recent work arc — the item currently
-      in flight, or the last thing they were executing before a clean stop.
+   **Related context — "same exact thing," not "same arena."** An actor holds related
+   context ONLY when their transcript shows them **actively executing THIS specific
+   item** in their most recent work arc — the item currently in flight, or the last
+   thing they were executing before a clean stop.
 
-      Concretely, an actor holds related context when:
+   Concretely, an actor holds related context when:
 
-      - Their most recent user-directed task IS this item (the user or a peer explicitly
-        directed them to work it, and that work is in flight or paused mid-arc), OR
-      - Their own execution turns show them actively editing, investigating, or
-        deploying this specific item — not merely mentioning it, comparing it, or
-        triaging it.
+   - Their most recent user-directed task IS this item (the user or a peer explicitly
+     directed them to work it, and that work is in flight or paused mid-arc), OR
+   - Their own execution turns show them actively editing, investigating, or
+     deploying this specific item — not merely mentioning it, comparing it, or
+     triaging it.
 
-      **Does NOT count as related context** (each of these shapes has caused a mispick):
+   **Does NOT count as related context** (each of these shapes has caused a mispick):
 
-      - The item appearing in a shared bounty-pool listing the actor loaded.
-      - The item being named in a shared role reference doc the actor happened to read.
-      - The actor reasoning about adjacent items in the same family — sibling bounties,
-        related PRs, adjacent subsystems.
-      - The actor triaging or design-comparing the item alongside others.
-      - Any mention that's incidental to what the actor was actually doing.
+   - The item appearing in a shared bounty-pool listing the actor loaded.
+   - The item being named in a shared role reference doc the actor happened to read.
+   - The actor reasoning about adjacent items in the same family — sibling bounties,
+     related PRs, adjacent subsystems.
+   - The actor triaging or design-comparing the item alongside others.
+   - Any mention that's incidental to what the actor was actually doing.
 
-      If yes, they win, even if occupied with that same thread — new info should reach
-      the mind already holding the context, not fragment across a fresh actor. If NO
-      actor's active work arc IS this exact item, no actor holds related context;
-      fall through to (b) availability.
+   If an actor holds related context, they win — even if they are simultaneously
+   occupied with that same thread. New info should reach the mind already holding
+   the context, not fragment across a fresh actor.
 
-      Related-context matching comes ONLY from the transcript text. Do NOT cross-
-      reference bounty titles or role folders looking for keyword matches.
+   If NO actor's active work arc IS this exact item, no actor holds related context.
+   Return `no_fit`. Do not fall through to any other criterion — there is none.
 
-   b. **Availability = content-idle. Judged from transcript content only, never from
-      any timing signal.** An actor is CONTENT-BUSY when their transcript shows
-      engagement with ANY bounty, task, or thread that isn't clearly closed out.
-      **The bar for content-idle is HIGH — most actors most of the time are
-      content-busy on something.** Being content-idle requires ZERO live threads.
-
-      **Content-busy signals (any one is sufficient):**
-
-      - The actor has any bounty they've engaged with in the recent transcript and
-        haven't clearly closed out (delivered + ack'd, marked done, handed off to a
-        named peer, dropped with explicit reason).
-      - **Finishing "prework" counts as being mid-bounty.** Prework is the FIRST
-        STAGE of a bounty, not a completed unit. An actor who finished prework and
-        `/exit`'d has gone as far as they can autonomously and now awaits the user's
-        direction on next steps — they still hold that bounty.
-      - The actor's LAST assistant turn asks the user a question, offers her options,
-        or otherwise invites her reply ("What's up?", "Ready when you are", any
-        dangling question, any "let me know"). The loop is open.
-      - Mid-back-and-forth with the user or a peer, including trivial exchanges
-        (mic-check, greeting, chit-chat). **A trivial exchange AFTER a real work arc
-        does NOT reset the actor's working state** — they still hold whatever they
-        were working on before it.
-      - The recent transcript arc shows a task in flight that hasn't reached a
-        stopping point — mid-investigation, mid-plan, mid-execution.
-      - The actor's last visible state suggests they're stewarding a thread they
-        intend to come back to.
-
-      **Does NOT count as content-busy** (each of these has caused a mispick where a
-      truly-idle actor got wrongly marked busy):
-
-      - Receiving coordination messages/notifications from peer actors about work
-        OTHER identities are doing — deployments, ships, backfills, migrations
-        they're watching but not doing themselves. These are ambient inbox events,
-        not the actor's own work.
-      - Watch-and-ack pattern: peer ships → actor posts a brief "clear" or ack →
-        done. Watching others' work and posting acks is not active engagement.
-      - Passive standing-by after posting acks, with no OWN thread the actor is
-        waiting to return to.
-
-      **Content-busy requires the actor to be doing or deliberating SOMETHING OF
-      THEIR OWN** — executing their own bounty, awaiting direction on their own
-      thread, mid-investigation on their own item. Merely observing peers' work
-      doesn't count.
-
-      **Content-idle requires ALL of:** no bounties/tasks/threads in-flight anywhere
-      in the recent transcript arc; the most recent substantive work arc concluded
-      with explicit closure (delivery ack'd, bounty marked done, work handed off, or
-      `/exit` from a session with nothing in flight); no open question or
-      invitation-to-reply directed at the user or a peer.
-
-      `<command-name>/exit</command-name>` alone is NOT a clean-close signal — actors
-      `/exit` all the time with work still in flight; supervisors restart them. What
-      matters is the state of the WORK, not whether the session was exited.
-
-      **When in doubt, default to content-busy.** If everyone is content-busy on
-      their own thread and nobody holds related context on this specific item, return
-      `{"picked": null, "reason": "no_fit"}` and let the coordinator spawn fresh —
-      auto-spawn is designed for exactly this case.
-
-      **Timing signals are NOT inputs.** Session-tail mtime, dormancy state, last-
-      activity clock, how recently they wrote — none of it. An actor dormant a month
-      whose transcript's last real user turn was the user asking them to look into X
-      and they went dormant mid-investigation is still content-busy on X. An actor
-      active thirty seconds ago whose transcript ended on a clean close is
-      content-idle.
-
-      **Anti-pattern to avoid:** do NOT count the three ambient background Monitors
-      (relay receiver, wake-up scheduler, context-watch) as busy work — they're
-      always-on infrastructure, always tagged `[ambient]`, present on every live
-      identity. Their existence tells you the identity has a live session, not that
-      the actor is occupied with anything.
-
-   c. **Tiebreaker among content-idle actors with no related context.** Pick
-      alphabetically by name. Deterministic, no timing dependency, no state file
-      needed.
+   Related-context matching comes ONLY from the transcript text. Do NOT cross-
+   reference bounty titles or role folders looking for keyword matches. Do NOT try
+   to infer related context from an actor being idle and the item sounding
+   role-shaped — those are different things, and mistaking the second for the first
+   is exactly the mispick this rewrite exists to eliminate.
 
 4. **Return EXACTLY one of the following JSON shapes on a single line** (nothing
    else — no preface, no explanation, no code fence).
 
-   **A pick was made** (an actor was selected — either related-context match or
-   content-idle):
+   **A pick was made** (exactly one criterion: an actor is actively holding related
+   context on this specific item):
 
-       {"picked": "<clone-name>", "why": "one sentence citing concrete evidence from the transcript (related-context match on X, or content-idle transcript ending on clean close, or content-busy on Y but only actor with related context)", "alternatives": [{"name": "<other-clone>", "why_not": "one sentence — content-busy on what, or why they lose to the picked actor"}, ...]}
+       {"picked": "<clone-name>", "why": "one sentence citing the transcript evidence that shows this actor's most recent work arc IS this exact item", "alternatives": [{"name": "<other-clone>", "why_not": "one sentence — did not hold related context on this item (name what they were on instead, if anything)"}, ...]}
 
    If only one actor exists in the pool, still return this shape with
    `"alternatives": []`.
 
-   **No fit — spawn a fresh actor** (no related-context match AND every actor is
-   content-busy on some OTHER open thread of their own):
+   **No fit — spawn a fresh actor** (no actor is actively holding related context on
+   this item, regardless of whether the rest of the pool is busy or idle):
 
-       {"picked": null, "reason": "no_fit", "why": "one sentence noting no related-context match and every actor is content-busy on unrelated work per their transcript", "alternatives": [{"name": "<clone>", "why_not": "one sentence citing what open thread their transcript shows them occupied on"}, ...]}
+       {"picked": null, "reason": "no_fit", "why": "one sentence noting that no actor's most recent work arc is this specific item", "alternatives": [{"name": "<clone>", "why_not": "one sentence — what their transcript shows them on instead, or 'no transcript / fresh identity' if applicable"}, ...]}
 
    The coordinator interprets `reason == "no_fit"` as authorization to spawn a fresh
    actor of the role and dispatch to it.
