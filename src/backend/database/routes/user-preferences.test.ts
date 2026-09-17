@@ -20,7 +20,13 @@
  *     Plan 92-01 primitive (writeIdentityFile / removeIdentityFile /
  *     identityFileExists) with a required `identityHosts` body field
  *     mapping identityKey → hostId.
- *   - hiddenConversationIds slice is UNCHANGED (D-02 out-of-scope).
+ *   (Phase 115 Plan 115-02: the `.hidden` code path was fully retired per
+ *   D-21. The hiddenConversationIds slice — including its Phase 107 tests,
+ *   its GET/PUT surface, and every mock-shape reference — no longer exists.
+ *   The mock Row type retains the legacy column NAME as `null` so that a
+ *   pre-114 encrypted-SQLite deploy that still has the column populated does
+ *   not crash the type-check when we roundtrip it; the code path no longer
+ *   reads or writes it.)
  *
  * Test coverage:
  *   PUT-92-01..08 : Phase 92-02 pin-fanout contract (writes/removes/no-op/
@@ -29,10 +35,8 @@
  *   PIN 7-9       : PUT input validation (non-array / non-string / > 1000) preserved
  *   REG 1-3       : reopenTabsOnLogin non-boolean 400 / theme non-string 400 /
  *                   empty updates 400 still work after the extension
- *   HIDE 1-10     : hiddenConversationIds slice untouched (regression trap for
- *                   D-02 out-of-scope pledge)
  *   SAVE 1-4      : DatabaseSaveTrigger.forceSave sites for theme/fontSize/etc.
- *                   writes (pin no longer contributes; hidden still does)
+ *                   writes (pin no longer contributes)
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -50,7 +54,6 @@ type Row = {
   accentColor: string | null;
   language: string | null;
   pinnedConversationIds: string | null;
-  hiddenConversationIds: string | null;
   updatedAt: string;
 };
 
@@ -92,8 +95,6 @@ const insertChain = {
           language: v.language ?? existing?.language ?? null,
           pinnedConversationIds:
             v.pinnedConversationIds ?? existing?.pinnedConversationIds ?? null,
-          hiddenConversationIds:
-            v.hiddenConversationIds ?? existing?.hiddenConversationIds ?? null,
           updatedAt: v.updatedAt ?? new Date().toISOString(),
         };
         rows.set(v.userId, next);
@@ -310,23 +311,21 @@ beforeEach(() => {
 // pinnedConversationIds field even if the (legacy) row happens to still hold
 // a JSON-encoded value.
 describe("handleGetPreferences: pinnedConversationIds absent from response (Phase 92-02)", () => {
-  it("GET-92-01: pinnedConversationIds is NOT present in GET response — no row (Phase 107-02: hiddenConversationIds also absent)", () => {
+  it("GET-92-01: pinnedConversationIds is NOT present in GET response — no row", () => {
     const res = makeRes();
     handleGetPreferences(USER_ID, res as unknown as Response);
 
     expect(res._status).toBe(200);
     const body = res._body as Record<string, unknown>;
     expect("pinnedConversationIds" in body).toBe(false);
-    // Phase 107-02: hiddenConversationIds ALSO absent from GET response (D-02 complete).
-    expect("hiddenConversationIds" in body).toBe(false);
     // Other preferences fields still present
     expect("reopenTabsOnLogin" in body).toBe(true);
     expect("theme" in body).toBe(true);
   });
 
-  it("GET-92-01b: pinnedConversationIds AND hiddenConversationIds NOT in GET response — even if legacy row holds non-null values", () => {
-    // Legacy row from before the migration — columns may still carry old JSON.
-    // Post-92-02 and 107-02, the row is no longer consulted for either slice.
+  it("GET-92-01b: pinnedConversationIds NOT in GET response — even if legacy row holds non-null values", () => {
+    // Legacy row from before the migration — the column may still carry old JSON.
+    // Post-92-02, the row is no longer consulted for pins.
     rows.set(USER_ID, {
       userId: USER_ID,
       reopenTabsOnLogin: false,
@@ -335,7 +334,6 @@ describe("handleGetPreferences: pinnedConversationIds absent from response (Phas
       accentColor: null,
       language: null,
       pinnedConversationIds: JSON.stringify(["legacy-a", "legacy-b"]),
-      hiddenConversationIds: JSON.stringify(["legacy-h1"]),
       updatedAt: "2026-07-27T00:00:00.000Z",
     });
 
@@ -345,8 +343,6 @@ describe("handleGetPreferences: pinnedConversationIds absent from response (Phas
     expect(res._status).toBe(200);
     const body = res._body as Record<string, unknown>;
     expect("pinnedConversationIds" in body).toBe(false);
-    // Phase 107-02: hiddenConversationIds also absent post-migration.
-    expect("hiddenConversationIds" in body).toBe(false);
   });
 });
 
@@ -682,435 +678,18 @@ describe("handlePutPreferences: pre-existing 400 branches still work", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Phase 107 Plan 107-02: HID-107-GET-01 — GET no longer surfaces hiddenConversationIds
-// ---------------------------------------------------------------------------
-//
-// After this plan, pickPreferences no longer projects hiddenConversationIds from
-// the DB row. The field is GONE from the GET response body. Frontend Plan 04
-// rewires hidden derivation to use per-identity `hidden: boolean` from GET /identities.
+// Phase 115 Plan 115-02: the prior Phase 107 describe block
+// ("handleGetPreferences: Phase 107-02 hiddenConversationIds retired from
+// GET response") was retired per D-21 — hiddenConversationIds is now
+// gone from the GET schema entirely, so a positive assertion of its
+// absence is subsumed by the pickPreferences shape itself.
 
-describe("handleGetPreferences: Phase 107-02 hiddenConversationIds retired from GET response", () => {
-  it("HID-107-GET-01: hiddenConversationIds is NOT present in GET response — field removed from pickPreferences", () => {
-    // Seed a row with a non-null hiddenConversationIds to prove the column is
-    // no longer consulted (the field must be absent regardless of row state).
-    rows.set(USER_ID, {
-      userId: USER_ID,
-      reopenTabsOnLogin: false,
-      theme: null,
-      fontSize: null,
-      accentColor: null,
-      language: null,
-      pinnedConversationIds: null,
-      hiddenConversationIds: JSON.stringify(["legacy-h1", "legacy-h2"]),
-      updatedAt: "2026-07-31T00:00:00.000Z",
-    });
+// Phase 115 Plan 115-02: the prior Phase 107 describe blocks
+// ("handlePutPreferences: Phase 107-02 hidden sentinel fan-out" and
+// "handlePutPreferences: Phase 107-02 D-02 regression trap — DB columns
+// untouched") were retired per D-21 alongside the source-code deletion
+// of the PUT hiddenConversationIds validation + HIDDEN FANOUT block.
 
-    const res = makeRes();
-    handleGetPreferences(USER_ID, res as unknown as Response);
-
-    expect(res._status).toBe(200);
-    const body = res._body as Record<string, unknown>;
-    // Field MUST be absent — NOT projected from the row.
-    expect("hiddenConversationIds" in body).toBe(false);
-    // pinnedConversationIds is also absent (from Phase 92-02).
-    expect("pinnedConversationIds" in body).toBe(false);
-    // Other preference fields still present.
-    expect("reopenTabsOnLogin" in body).toBe(true);
-    expect("theme" in body).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Phase 107 Plan 107-02: HID-107-PUT-* — PUT hidden fanout (disk sentinel)
-// ---------------------------------------------------------------------------
-//
-// Mirrors the PUT-92-* pin fanout tests, s/pinnedConversationIds/hiddenConversationIds/
-// and s/'.pinned'/'.hidden'/. The hidden fanout runs AFTER the pin fanout as a
-// sibling block in the same try/finally, sharing the connByHost map.
-
-describe("handlePutPreferences: Phase 107-02 hidden sentinel fan-out", () => {
-  it("HID-107-PUT-01: hide one identity — writeIdentityFile('tina', '.hidden', '', ...) called ONCE, no removes, response echoes ['tina']", async () => {
-    // Prior disk state: nothing hidden.
-    identityFileExistsMock.mockImplementation(async (_name: string, relPath: string) => {
-      // pre-diff + post-echo for .hidden → true after the write
-      if (relPath === ".pinned") return false;
-      // All .hidden calls: return false initially; after the write it should return true.
-      // Simplest: return false always — handler will still write and the echo re-derives.
-      return false;
-    });
-    // After the fanout write, the post-echo probe should return true for "tina" .hidden.
-    // Simulate: first call (pre-diff) returns false, second call (echo) returns true.
-    identityFileExistsMock
-      .mockResolvedValueOnce(false) // .hidden pre-diff for "tina" → not hidden
-      .mockResolvedValueOnce(true); // .hidden post-echo for "tina" → now hidden
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: ["tina"], identityHosts: { tina: 1 } },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
-    // Exactly one write for .hidden, no removes.
-    const hiddenWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(hiddenWrites).toHaveLength(1);
-    expect(hiddenWrites[0][0]).toBe("tina");
-    expect(hiddenWrites[0][2]).toBe(""); // empty body — presence IS meaning (D-01)
-    const hiddenRemoves = removeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(hiddenRemoves).toHaveLength(0);
-    // Response echoes disk-derived hiddenConversationIds.
-    const body = res._body as { hiddenConversationIds: unknown };
-    expect(Array.isArray(body.hiddenConversationIds)).toBe(true);
-  });
-
-  it("HID-107-PUT-02: unhide one identity — removeIdentityFile('tina', '.hidden', ...) called ONCE, no writes", async () => {
-    // Prior state: tina hidden. Post-remove: tina not hidden.
-    identityFileExistsMock
-      .mockResolvedValueOnce(true)   // .hidden pre-diff for "tina" → was hidden
-      .mockResolvedValueOnce(false); // .hidden post-echo for "tina" → now unhidden
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: [], identityHosts: { tina: 1 } },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
-    const hiddenRemoves = removeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(hiddenRemoves).toHaveLength(1);
-    expect(hiddenRemoves[0][0]).toBe("tina");
-    const hiddenWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(hiddenWrites).toHaveLength(0);
-    // Response echoes disk-derived hiddenConversationIds (empty after remove).
-    const body = res._body as { hiddenConversationIds: unknown };
-    expect(body.hiddenConversationIds).toEqual([]);
-  });
-
-  it("HID-107-PUT-03: swap hides — writeIdentityFile('bob', .hidden) AND removeIdentityFile('user', .hidden) in same fanout", async () => {
-    // Prior: user hidden, bob not hidden. New: bob hidden, user not hidden.
-    identityFileExistsMock.mockImplementation(async (name: string, relPath: string) => {
-      if (relPath !== ".hidden") return false;
-      // Use call count to differentiate pre-diff from post-echo. Pre-diff fires
-      // for user+bob in the same Promise.all; post-echo fires after writes.
-      // Return user=true, bob=false for the pre-diff round.
-      return name === "user" && identityFileExistsMock.mock.calls
-        .filter((c) => c[1] === ".hidden").length <= 2;
-    });
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      {
-        hiddenConversationIds: ["bob"],
-        identityHosts: { user: 1, bob: 1 },
-      },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
-    const hiddenWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(hiddenWrites).toHaveLength(1);
-    expect(hiddenWrites[0][0]).toBe("bob");
-    const hiddenRemoves = removeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(hiddenRemoves).toHaveLength(1);
-    expect(hiddenRemoves[0][0]).toBe("user");
-  });
-
-  it("HID-107-PUT-04: no-op — same set as prior disk state means NO writes and NO removes for .hidden", async () => {
-    // Prior state: tina hidden. New: tina hidden. Delta is empty.
-    identityFileExistsMock.mockResolvedValue(true); // pre + post echo both see tina hidden
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: ["tina"], identityHosts: { tina: 1 } },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
-    const hiddenWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    const hiddenRemoves = removeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(hiddenWrites).toHaveLength(0);
-    expect(hiddenRemoves).toHaveLength(0);
-  });
-
-  it("HID-107-PUT-05: write failure surfaces synchronously per D-06 — writeIdentityFile throws for .hidden → 500, conns closed", async () => {
-    identityFileExistsMock.mockResolvedValue(false); // nothing hidden prior
-    writeIdentityFileMock.mockImplementation(async (_name: string, relPath: string) => {
-      if (relPath === ".hidden") throw new Error("sftp exploded for .hidden");
-    });
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: ["tina"], identityHosts: { tina: 1 } },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBeGreaterThanOrEqual(500);
-    expect(res._body).toHaveProperty("error");
-  });
-
-  it("HID-107-PUT-06: hidden key not in identityHosts → 400 'identity host required', NO .hidden writes", async () => {
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      {
-        hiddenConversationIds: ["unknown-key"],
-        identityHosts: { tina: 1 }, // "unknown-key" not mapped
-      },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(400);
-    const body = res._body as { error?: string };
-    expect(body.error?.toLowerCase()).toContain("identity host required");
-    const hiddenWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(hiddenWrites).toHaveLength(0);
-  });
-
-  it("HID-107-PUT-07a: validation preserved — non-array hiddenConversationIds → 400 (pre-fanout)", async () => {
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: "not-an-array", identityHosts: {} },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(400);
-    expect(res._body).toEqual({
-      error: "hiddenConversationIds must be an array of strings",
-    });
-    expect(writeIdentityFileMock).not.toHaveBeenCalled();
-  });
-
-  it("HID-107-PUT-07b: validation preserved — non-string element → 400 (pre-fanout)", async () => {
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: ["a", 99], identityHosts: { a: 1 } },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(400);
-    expect(res._body).toEqual({
-      error: "hiddenConversationIds must be an array of strings",
-    });
-    expect(writeIdentityFileMock).not.toHaveBeenCalled();
-  });
-
-  it("HID-107-PUT-07c: validation preserved — length > 1000 → 400 (DoS mitigation)", async () => {
-    const huge = Array.from({ length: 1001 }, (_, i) => `id-${i}`);
-    const hosts: Record<string, number> = {};
-    for (const k of huge) hosts[k] = 1;
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: huge, identityHosts: hosts },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(400);
-    expect(res._body).toEqual({
-      error: "hiddenConversationIds exceeds max length of 1000",
-    });
-    expect(writeIdentityFileMock).not.toHaveBeenCalled();
-  });
-
-  it("HID-107-PUT-07d: identityHosts missing → 400 when hiddenConversationIds present (mirrors PIN guard)", async () => {
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: ["tina"] }, // identityHosts omitted
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(400);
-    const body = res._body as { error?: string };
-    expect(body.error?.toLowerCase()).toContain("identityhosts");
-    expect(writeIdentityFileMock).not.toHaveBeenCalled();
-  });
-
-  it("HID-107-PUT-08: H3 lock — identityKey passed VERBATIM to writeIdentityFile byte-for-byte for .hidden", async () => {
-    identityFileExistsMock.mockResolvedValue(false);
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: ["tina"], identityHosts: { tina: 1 } },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
-    const hiddenWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(hiddenWrites).toHaveLength(1);
-    // Byte-for-byte match: identityKey is "tina" — no .toUpperCase()/.toLowerCase().
-    expect(hiddenWrites[0][0]).toBe("tina");
-
-    // Additionally: all identityKey args across ALL .hidden primitive calls
-    // must be lowercase (H3 anti-coercion lock).
-    const allHiddenKeyArgs: string[] = [];
-    for (const call of writeIdentityFileMock.mock.calls) {
-      if (call[1] === ".hidden") allHiddenKeyArgs.push(call[0]);
-    }
-    for (const call of removeIdentityFileMock.mock.calls) {
-      if (call[1] === ".hidden") allHiddenKeyArgs.push(call[0]);
-    }
-    for (const call of identityFileExistsMock.mock.calls) {
-      if (call[1] === ".hidden") allHiddenKeyArgs.push(call[0]);
-    }
-    for (const k of allHiddenKeyArgs) {
-      expect(k).toBe(k.toLowerCase());
-    }
-  });
-
-  it("HID-107-PUT-09: combined pin+hidden PUT shares connByHost — openConnForHost called ONCE per unique host across BOTH fanouts", async () => {
-    // Use REMOTE host (isLocalHostId=false) so SSH conns are actually opened.
-    isLocalHostIdMock.mockReturnValue(false);
-    const fakeConn = { __fake: "ssh-conn", end: vi.fn() };
-    connectOneShotMock.mockResolvedValue(fakeConn);
-    identityFileExistsMock.mockResolvedValue(false);
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      {
-        pinnedConversationIds: ["tina"],
-        hiddenConversationIds: ["user"],
-        identityHosts: { tina: 1, user: 2 }, // two DIFFERENT hostIds
-      },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
-
-    // connectOneShot called EXACTLY ONCE per unique host (2 calls total: host 1 + host 2).
-    // NOT called 4 times (once per fanout per host — that would be wrong).
-    expect(connectOneShotMock).toHaveBeenCalledTimes(2);
-
-    // Both pin and hidden fanouts ran.
-    const pinWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".pinned");
-    const hiddenWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(pinWrites).toHaveLength(1);  // tina pinned
-    expect(hiddenWrites).toHaveLength(1); // user hidden
-
-    // Response body has both echoes.
-    const body = res._body as {
-      pinnedConversationIds?: unknown;
-      hiddenConversationIds?: unknown;
-    };
-    expect(Array.isArray(body.pinnedConversationIds)).toBe(true);
-    expect(Array.isArray(body.hiddenConversationIds)).toBe(true);
-  });
-
-  it("HID-107-PUT-10: response echo re-derived from disk for hidden — trust disk, not client input", async () => {
-    // Client submits hiddenConversationIds: ["tina"] with identityHosts {"tina": 1, "bob": 1}.
-    // The disk re-probe after the fanout returns true for BOTH "tina" and "bob"
-    // (simulating that bob was already hidden on disk before this PUT).
-    // The echo must reflect disk state, not just the client-submitted set.
-
-    // Pre-diff: nothing hidden.
-    // Post-echo: tina=true, bob=true (disk says both are hidden after the write).
-    identityFileExistsMock
-      .mockResolvedValueOnce(false) // pre-diff: tina .hidden → not hidden
-      .mockResolvedValueOnce(false) // pre-diff: bob .hidden → not hidden
-      .mockResolvedValueOnce(true)  // post-echo: tina .hidden → hidden
-      .mockResolvedValueOnce(true); // post-echo: bob .hidden → hidden
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      {
-        hiddenConversationIds: ["tina"],
-        identityHosts: { tina: 1, bob: 1 },
-      },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
-    // Echo is disk-authoritative — includes "bob" because the disk probe returned
-    // true for bob (even though client only submitted ["tina"]).
-    const body = res._body as { hiddenConversationIds: unknown };
-    expect(Array.isArray(body.hiddenConversationIds)).toBe(true);
-    const echoArr = body.hiddenConversationIds as string[];
-    // Both tina and bob appear in the echo (from disk truth).
-    expect(echoArr).toContain("tina");
-    expect(echoArr).toContain("bob");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Phase 107 Plan 107-02: HID-107-DB-01 — D-02 regression trap
-// Both pinnedConversationIds AND hiddenConversationIds DB columns untouched post-fanout
-// ---------------------------------------------------------------------------
-
-describe("handlePutPreferences: Phase 107-02 D-02 regression trap — DB columns untouched", () => {
-  it("HID-107-DB-01: after hidden fanout, DB row's hidden_conversation_ids column UNCHANGED (null); pin column also UNCHANGED", async () => {
-    // Seed row with specific hiddenConversationIds to prove it's not overwritten.
-    const seedHidden = JSON.stringify(["pre-existing-h1"]);
-    rows.set(USER_ID, {
-      userId: USER_ID,
-      reopenTabsOnLogin: false,
-      theme: null,
-      fontSize: null,
-      accentColor: null,
-      language: null,
-      pinnedConversationIds: null,
-      hiddenConversationIds: seedHidden,
-      updatedAt: "2026-07-31T00:00:00.000Z",
-    });
-
-    identityFileExistsMock.mockResolvedValue(false);
-
-    // Hidden-only PUT via fanout.
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: ["tina"], identityHosts: { tina: 1 } },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
-
-    // DB row's hiddenConversationIds must be UNCHANGED from the seed value.
-    // The fanout writes to disk sentinel, not to the DB column.
-    const row = rows.get(USER_ID);
-    // Row should NOT be mutated at all by a hidden-only fanout (D-02 decoupling).
-    // Either row is null (no DB write happened) OR it's the seeded value unchanged.
-    if (row !== undefined) {
-      expect(row.hiddenConversationIds).toBe(seedHidden); // unchanged
-      expect(row.pinnedConversationIds).toBeNull(); // never written
-    }
-    // If row is undefined, no DB write happened at all — even better.
-  });
-
-  it("HID-107-DB-01b: combined pin+hidden PUT — BOTH DB columns (pinned + hidden) remain untouched", async () => {
-    identityFileExistsMock.mockResolvedValue(false);
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      {
-        pinnedConversationIds: ["tina"],
-        hiddenConversationIds: ["user"],
-        identityHosts: { tina: 1, user: 1 },
-      },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
-
-    // No row inserted for a combined pin+hidden-only PUT.
-    // (No theme/fontSize/accentColor/language/reopenTabsOnLogin in body.)
-    const row = rows.get(USER_ID);
-    // Row must not exist (nothing to write to DB for either sentinel slice).
-    expect(row).toBeUndefined();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // SAVE 1-4 — DatabaseSaveTrigger.forceSave is called on every successful
@@ -1145,7 +724,6 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
       accentColor: null,
       language: null,
       pinnedConversationIds: null,
-      hiddenConversationIds: null,
       updatedAt: "2026-07-27T00:00:00.000Z",
     });
 
@@ -1162,9 +740,13 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
 
   it("SAVE 3 — 400 validation branches do NOT trigger forceSave (no write happened)", async () => {
     const res = makeRes();
+    // Phase 115 Plan 115-02: was hiddenConversationIds: 'not-an-array' pre-114.
+    // The hidden slice + its validator were retired per D-21; the pin slice's
+    // sibling non-array validator is the exact same 400 branch and is what
+    // this test locks — that a validation-rejected PUT does NOT reach forceSave.
     await handlePutPreferences(
       USER_ID,
-      { hiddenConversationIds: "not-an-array" },
+      { pinnedConversationIds: "not-an-array" },
       res as unknown as Response,
     );
 
@@ -1211,23 +793,8 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
     expect(rows.get(USER_ID)).toBeUndefined();
   });
 
-  it("SAVE 107-01 — hidden-only PUT does NOT trigger a DB write / forceSave (hiddenConversationIds no longer contributes to updates post-107-02)", async () => {
-    identityFileExistsMock.mockResolvedValue(false);
-
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { hiddenConversationIds: ["tina"], identityHosts: { tina: 1 } },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
-    // Hidden fanout DID happen
-    const hiddenWrites = writeIdentityFileMock.mock.calls.filter((c) => c[1] === ".hidden");
-    expect(hiddenWrites).toHaveLength(1);
-    // No DB write for hidden — forceSave is NOT called.
-    expect(DatabaseSaveTrigger.forceSave).not.toHaveBeenCalled();
-    // Row was never inserted or updated
-    expect(rows.get(USER_ID)).toBeUndefined();
-  });
+  // Phase 115 Plan 115-02: the prior SAVE 107-01 test (hidden-only PUT does not
+  // trigger a DB write) was retired per D-21 alongside the source-code deletion
+  // of the hiddenConversationIds validator + HIDDEN FANOUT block. The equivalent
+  // pin-only invariant is still covered by SAVE 92-02 above.
 });

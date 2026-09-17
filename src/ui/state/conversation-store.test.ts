@@ -12,9 +12,8 @@ vi.mock("@/api/user-preferences-api", () => ({
   // that still references UserPreferencesApi.getPinnedIds surfaces as a
   // TypeError, which is the intended tripwire.
   putPinnedIds: vi.fn().mockResolvedValue([]),
-  // Phase 107 Plan 04: getHiddenIds is RETIRED. putHiddenIds signature widened
-  // to accept identityHosts second arg (mirrors putPinnedIds widening in Phase 92).
-  putHiddenIds: vi.fn().mockResolvedValue([]),
+  // (Phase 115 Plan 115-02: prior putHiddenIds mock retired per D-21 alongside
+  //  the source-code deletion of the same export.)
 }));
 
 import {
@@ -31,9 +30,6 @@ import {
   unpinConversation,
   togglePinConversation,
   hydratePinnedIdsFromServer,
-  hideConversation,
-  unhideConversation,
-  hydrateHiddenIdsFromServer,
   addToActiveSet,
   removeFromActiveSet,
   fleetRowId,
@@ -48,7 +44,6 @@ import {
   __getFleetOnlyRowsForTest,
   __resetActiveSetForTest,
   __resetPinnedIdsForTest,
-  __resetHiddenIdsForTest,
   __resetFleetSessionsForTest,
   // Phase 41 Plan 01: test-only injection API for row.lastMessageAt.
   __setLastMessageAtForTest,
@@ -146,10 +141,8 @@ beforeEach(() => {
   // per-test toHaveBeenCalledTimes assertions start from zero.
   __resetPinnedIdsForTest();
   vi.mocked(UserPreferencesApi.putPinnedIds).mockClear();
-  // Phase 107 Plan 04: reset the hiddenIds slice so a prior test's
-  // hideConversation writes don't leak forward (mirrors the pin reset above).
-  __resetHiddenIdsForTest();
-  vi.mocked(UserPreferencesApi.putHiddenIds).mockClear();
+  // (Phase 115 Plan 115-02: prior hiddenIds slice reset + putHiddenIds mock
+  //  clear retired per D-21 alongside the source-code deletion.)
   updateOpenTabs([]);
   selectConversation(null);
   updateHostTree(null);
@@ -2442,138 +2435,11 @@ describe("Phase 92 Plan 04 — pin toggle passes identityHosts via buildIdentity
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 107 Plan 04 Task 2 — STORE-107-* tests: identityHosts fanout for hide
-// ─────────────────────────────────────────────────────────────────────────────
-// Locks the H2 identityHosts derivation invariant at the hide toggle callsites.
-// The single source of truth for the fleetSessions → identityHosts map is
-// buildIdentityHostsFromFleet (identities-store.ts:111-122). hideConversation /
-// unhideConversation build the map via that helper and thread it into
-// putHiddenIds so the backend fanout (Plan 107-02) can route each .hidden
-// sentinel write to the correct host.
-//
-// Mirror of STORE-92-01..04, substituting hide for pin.
+// (Phase 115 Plan 115-02: prior "Phase 107 Plan 04 — hide toggle passes
+//  identityHosts via buildIdentityHostsFromFleet" describe block, plus its
+//  STORE-107-01..04 tests, retired per D-21 alongside the source-code
+//  deletion of hideConversation / unhideConversation / putHiddenIds.)
 
-describe("Phase 107 Plan 04 — hide toggle passes identityHosts via buildIdentityHostsFromFleet", () => {
-  it("STORE-107-01: hideConversation passes identityHosts derived from state.fleetSessions", () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
-      updateFleetSessions([
-        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      ]);
-    });
-
-    const putHiddenSpy = vi.mocked(UserPreferencesApi.putHiddenIds);
-    putHiddenSpy.mockClear();
-
-    act(() => hideConversation("fleet::1::tina"));
-
-    expect(putHiddenSpy).toHaveBeenCalledTimes(1);
-    // Second arg carries the identityHosts map — { tina: 1 }.
-    expect(putHiddenSpy).toHaveBeenCalledWith(
-      ["fleet::1::tina"],
-      { tina: 1 },
-    );
-  });
-
-  it("STORE-107-02: unhideConversation passes identityHosts derived from state.fleetSessions", () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
-      updateFleetSessions([
-        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      ]);
-    });
-
-    // Hide first so unhide has something to remove; clear spy to isolate the unhide.
-    act(() => hideConversation("fleet::1::tina"));
-    const putHiddenSpy = vi.mocked(UserPreferencesApi.putHiddenIds);
-    putHiddenSpy.mockClear();
-
-    act(() => unhideConversation("fleet::1::tina"));
-
-    expect(putHiddenSpy).toHaveBeenCalledTimes(1);
-    expect(putHiddenSpy).toHaveBeenCalledWith([], { tina: 1 });
-  });
-
-  it("STORE-107-03: identityHosts derivation matches buildIdentityHostsFromFleet(state.fleetSessions) byte-for-byte", () => {
-    const hostA = makeHost("hA", "alpha");
-    const hostB = makeHost("hB", "beta");
-    const fleet: FleetSession[] = [
-      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      { hostId: 2, hostName: "beta", sessionName: "user", created: 200, role: null },
-    ];
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA, hostB] });
-      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
-      updateFleetSessions(fleet);
-    });
-
-    const putHiddenSpy = vi.mocked(UserPreferencesApi.putHiddenIds);
-    putHiddenSpy.mockClear();
-
-    act(() => hideConversation("fleet::1::tina"));
-
-    // Compare against the SAME helper the identities-store uses. If the hide
-    // toggle callsite ever forks its derivation, this equality trips.
-    const expected = buildIdentityHostsFromFleet(fleet);
-    expect(expected).toEqual({ tina: 1, user: 2 });
-    expect(putHiddenSpy).toHaveBeenCalledWith(
-      ["fleet::1::tina"],
-      expected,
-    );
-  });
-
-  it("STORE-107-04 (H2 lock): relay-room sessions are skipped by sessionMatchKey; no crash on undefined sessionName in hide toggle", () => {
-    const hostA = makeHost("hA", "alpha");
-    // Mix of harness + relay-room. The relay-room entry has
-    // `sessionName === undefined` — a naive helper doing
-    // `sessionName.toLowerCase()` would crash here. buildIdentityHostsFromFleet
-    // uses sessionMatchKey which returns null on empty/undefined → skipped.
-    const fleet: FleetSession[] = [
-      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      {
-        kind: "relay-room",
-        id: "relay::!abc:matrix.org",
-        roomId: "!abc:matrix.org",
-        roomTitle: "Test Room",
-        lastActivityAt: null,
-      } as unknown as FleetSession,
-      { hostId: 2, hostName: "beta", sessionName: "user", created: 300, role: null },
-    ];
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
-      updateFleetSessions(fleet);
-    });
-
-    const putHiddenSpy = vi.mocked(UserPreferencesApi.putHiddenIds);
-    putHiddenSpy.mockClear();
-
-    // MUST NOT throw during derivation. The H2-forbidden pattern
-    // `session.sessionName.toLowerCase()` would crash on the relay-room entry.
-    expect(() => act(() => hideConversation("fleet::1::tina"))).not.toThrow();
-
-    expect(putHiddenSpy).toHaveBeenCalledTimes(1);
-    const [, actualIdentityHosts] = putHiddenSpy.mock.calls[0]!;
-
-    // Positive shape lock: map has the two harness entries + omits relay-room.
-    expect(actualIdentityHosts).toEqual({ tina: 1, user: 2 });
-    // Anti-crash lock: no "undefined" key, no undefined value.
-    expect(Object.keys(actualIdentityHosts)).not.toContain("undefined");
-    for (const v of Object.values(actualIdentityHosts)) {
-      expect(v).not.toBeUndefined();
-      expect(typeof v).toBe("number");
-    }
-    // H2 byte-for-byte equality with the helper's own output.
-    expect(actualIdentityHosts).toEqual(
-      buildIdentityHostsFromFleet(fleet),
-    );
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // quick-260727-kbw: fleetSessionsLoaded flag + useFleetSessionsLoaded hook
@@ -3881,99 +3747,10 @@ describe("conversation-store (Phase 97 UAT batch #8): rowFromTab pulls lastActiv
     expect(relayRow.lastMessageAt).toBeNull();
   });
 });
+// (Phase 115 Plan 115-02: prior "bounty hidden-section-mobile-rendering-fix"
+//  block, plus its STORE-HIDDEN-01..03 tests, retired per D-21 alongside
+//  the source-code deletion of hiddenIds / hideConversation.)
 
-// ─────────────────────────────────────────────────────────────────────────────
-// bounty hidden-section-mobile-rendering-fix — the snapshot carries hidden rows
-// ─────────────────────────────────────────────────────────────────────────────
-// computeSnapshot used to strip hiddenIds members out of pinned + middle. That
-// left the panel with no source for the rows its Hidden section needed to
-// render, so the panel reconstructed them from a per-instance ref that captured
-// rows as they passed through the visible tiers.
-//
-// That accumulator only worked for the panel instance that observed the window
-// between first paint and hiddenIds hydration. hiddenIds is module-scoped and
-// outlives any mount, so a remounted panel started empty against an
-// already-populated hiddenIds and could never refill — every hidden row had
-// already been stripped before it rendered. Desktop's inline sidebar mounts once
-// per page load and never noticed; the mobile flow unmounts the panel on each
-// list→view navigation, which dropped the whole section from the DOM.
-//
-// These tests lock the store side of the fix: hidden rows stay IN the snapshot.
-// Excluding them from the visible tiers is the panel's job now (it owns
-// canonicalHideIdForRow, which reconciles a row's `tab-XXX` open-chat id
-// against the `fleet::<hostId>::<name>` form hiddenIds stores).
-
-describe("hidden rows remain in the snapshot (bounty hidden-section-mobile-rendering-fix)", () => {
-  it("STORE-HIDDEN-01: a hidden row is still present in middle", () => {
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([
-        makeTab("fleet::1::tina", "terminal", hostA),
-        makeTab("fleet::1::nelly", "terminal", hostA),
-      ]);
-      updateFleetSessions([
-        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-        { hostId: 1, hostName: "alpha", sessionName: "nelly", created: 100, role: null },
-      ]);
-    });
-
-    act(() => hideConversation("fleet::1::tina"));
-
-    const snap = __getSnapshotForTest();
-    expect(snap.hiddenIds.has("fleet::1::tina")).toBe(true);
-    // The hidden row is NOT removed from the snapshot — this is the fix. Before
-    // it, computeSnapshot filtered it out and the panel had no row to render in
-    // its Hidden section.
-    const allRows = [...snap.pinned, ...snap.middle];
-    expect(allRows.some((r) => r.id === "fleet::1::tina")).toBe(true);
-    // The unhidden sibling is unaffected.
-    expect(allRows.some((r) => r.id === "fleet::1::nelly")).toBe(true);
-  });
-
-  it("STORE-HIDDEN-02: hidden rows are present on a cold derive with hiddenIds pre-populated", () => {
-    // The mobile cold-start shape: hiddenIds is already populated (hydrated from
-    // the disk sentinels) before the rows are ever derived, so there is no
-    // window in which a hidden row appears in a visible tier. The old strip made
-    // this case unrecoverable; now the row is simply in the snapshot.
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      hydrateHiddenIdsFromServer(["fleet::1::tina"]);
-    });
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
-      updateFleetSessions([
-        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      ]);
-    });
-
-    const snap = __getSnapshotForTest();
-    expect(snap.hiddenIds.has("fleet::1::tina")).toBe(true);
-    const allRows = [...snap.pinned, ...snap.middle];
-    expect(allRows.some((r) => r.id === "fleet::1::tina")).toBe(true);
-  });
-
-  it("STORE-HIDDEN-03: a hidden pinned row stays in the pinned tier", () => {
-    // Pin + hide are separate axes. The old strip removed hidden rows from
-    // pinned as well, so a pinned-then-hidden row vanished from both tiers.
-    const hostA = makeHost("hA", "alpha");
-    act(() => {
-      updateHostTree({ name: "root", children: [hostA] });
-      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
-      updateFleetSessions([
-        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      ]);
-    });
-
-    act(() => pinConversation("fleet::1::tina"));
-    act(() => hideConversation("fleet::1::tina"));
-
-    const snap = __getSnapshotForTest();
-    const allRows = [...snap.pinned, ...snap.middle];
-    expect(allRows.some((r) => r.id === "fleet::1::tina")).toBe(true);
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 111 Plan 05 — upsertFleetSession: pulse row-appear contract

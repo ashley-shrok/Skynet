@@ -107,7 +107,6 @@ export interface IdentityAppearance {
   roleDefaults: Record<string, unknown> | null;
   avatarUrl: string;
   pinned: boolean;
-  hidden: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +258,7 @@ export interface SessionState {
   contextPct?: number | null;
   // Phase 111 Plan 111-02 (2026-09-16): resolved identity appearance from the
   // host-side sweep — display name, title, colorHue, voice, task, coordinator,
-  // role, roleDefaults, avatarUrl, pinned, hidden. Populated by
+  // role, roleDefaults, avatarUrl, pinned. Populated by
   // ssh-poll-orchestrator's source-B adapter via resolveIdentityAppearance;
   // flows through the registry untouched (NOT re-stamped).
   //
@@ -316,8 +315,24 @@ export interface FrontendPongFrame {
   type: "pong";
 }
 
+// Phase 115 Plan 115-06 (D-06, D-18): identity-archived frame — DISTINCT wire
+// message for rows sourced from the archive tree (SweepIdentityLine.archived
+// === true per 115-05). Consumed by fleet-status-client onmessage dispatch
+// (added by 115-06) → routes into the frontend's archivedFleetRows store slice
+// (conversation-store.setArchivedFleetRows / upsertArchivedFleetRow). Mirrors
+// wire-protocol.ts FrontendIdentityArchivedFrameSchema. MUST stay in
+// lockstep — any wire-protocol change is mirrored here.
+export interface FrontendIdentityArchivedFrame {
+  schemaVersion: typeof FRAME_SCHEMA_VERSION;
+  type: "identity-archived";
+  name: string;
+  hostId: string;
+  hostname: string;
+}
+
 export type FrontendOutboundFrame =
   | FrontendSnapshotFrame
   | FrontendUpdateFrame
   | FrontendGoneFrame
-  | FrontendPongFrame;
+  | FrontendPongFrame
+  | FrontendIdentityArchivedFrame;

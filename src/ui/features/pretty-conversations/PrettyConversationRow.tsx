@@ -195,12 +195,11 @@ export function PrettyConversationRow({
   row,
   selected,
   pinned,
-  hidden = false,
   variant,
   onSelect,
   onTogglePin,
   onDeactivate,
-  onToggleHide,
+  onArchive,
   onKill,
   isWorking = null,
   isRecycling = false,
@@ -212,10 +211,6 @@ export function PrettyConversationRow({
   row: ConversationRowShape;
   selected: boolean;
   pinned: boolean;
-  // quick-260731-tgg: whether this row is currently in user's hidden set.
-  // Drives the context menu Hide/Show label. (Pre-pq2 also drove the swipe
-  // strip placement; strip is gone.)
-  hidden?: boolean;
   variant: "mobile" | "desktop";
   onSelect: () => void;
   onTogglePin: () => void;
@@ -227,10 +222,19 @@ export function PrettyConversationRow({
   // tab-close composition. As of quick-260804-uo4, RDP rows also receive this
   // prop (RDP context menu is now enabled).
   onDeactivate?: () => void;
-  // quick-260731-tgg: fired when user clicks Hide (EyeOff) or Show (Eye).
-  // When provided, the Hide/Show item appears in the context menu between
-  // Pin/Unpin and Deactivate. RDP rows never receive this prop.
-  onToggleHide?: () => void;
+  /**
+   * Phase 115 Plan 115-06 (D-01 / D-02 / D-03): fired when user clicks the
+   * red Archive menu item. When provided, the Archive item appears in the
+   * context menu (row + badge). The PANEL is responsible for gating this
+   * prop on fleet-synthetic identity-backed rows only (via
+   * canonicalArchiveIdForRow) — the row component itself just renders when
+   * the prop is present.
+   *
+   * The confirmation dialog + the actual archiveIdentity() call live at the
+   * panel level (handleArchive), not here — this callback simply fires;
+   * handleArchive owns the window.confirm + POST + pane-close composition.
+   */
+  onArchive?: () => void;
   /**
    * quick-260810-n3a: Fired when user clicks the red Kill menu item.
    * Provided by the panel only when !isRdp && !identity && row.targetTmuxSession.
@@ -1078,8 +1082,9 @@ export function PrettyConversationRow({
     isRecycling === true && "recycling",
     pinned && "pinned",
     // Phase 41 Plan 01: amb-recession className toggle retired.
+    // (Phase 115 post-code-review fix 3: `hidden && "hidden"` className toggle
+    //  retired alongside the Hide/Show menu branch — hidden prop is gone.)
     isRdp && "rdp",
-    hidden && "hidden",
     swipePastRight && "swipe-past-threshold-right",
     swipePastLeft && "swipe-past-threshold-left",
   );
@@ -1328,11 +1333,10 @@ export function PrettyConversationRow({
                 flip to positive polarity). */}
       </div>
       {/* Right-click menu portal. Items filter by row eligibility: Pin
-          renders for any row; Hide/Show only when onToggleHide is provided;
-          Open/Move in new window renders on desktop for any row where
-          specForTab produces a spec; Kill only when onKill AND !isRdp AND no
-          identity AND row.targetTmuxSession. RDP rows now open the menu
-          (quick-260804-uo4 dropped the row-level isRdp gate). */}
+          renders for any row; Open/Move in new window renders on desktop for
+          any row where specForTab produces a spec; Kill only when onKill AND
+          !isRdp AND no identity AND row.targetTmuxSession. RDP rows now open
+          the menu (quick-260804-uo4 dropped the row-level isRdp gate). */}
       {ctxMenu !== null && (
         <PrettyConversationContextMenu
           x={ctxMenu.x}
@@ -1344,13 +1348,22 @@ export function PrettyConversationRow({
               label: pinned ? "Unpin" : "Pin",
               onClick: onTogglePin,
             });
-            // quick-260731-tgg: Hide/Show item between Pin/Unpin and Deactivate.
-            // Only rendered when onToggleHide is provided (RDP rows never get it
-            // because the panel deliberately doesn't thread onToggleHide for RDP).
-            if (onToggleHide) {
+            // Phase 115 Plan 115-06 (D-01 / D-02 / D-03): Archive item —
+            // red-styled, gated on `onArchive` being provided. The panel
+            // provides onArchive ONLY for fleet-synthetic identity-backed
+            // rows (via canonicalArchiveIdForRow) — the affordance-narrowing
+            // gate that Phase 107's Hide item used is preserved verbatim at
+            // the panel side, mirrored by the panel's `onArchive={...}` prop
+            // shape. Confirmation dialog + POST + pane-close side effect
+            // live in the panel's handleArchive; this callback fires
+            // unconditionally, handleArchive owns the composition (matches
+            // the Kill shape: row emits the click; panel wraps it in
+            // window.confirm before the mutation).
+            if (onArchive) {
               items.push({
-                label: hidden ? "Unhide" : "Hide",
-                onClick: onToggleHide,
+                label: "Archive",
+                onClick: onArchive,
+                danger: true,
               });
             }
             // quick-260804-uo4: Open/Move in new window — desktop-only (not rendered

@@ -390,4 +390,94 @@ describe("subscription-registry", () => {
       },
     );
   });
+
+  // ─── Phase 115 Plan 115-06 — publishIdentityArchived (D-06, D-18) ──────────
+  describe("publishIdentityArchived (Phase 115 Plan 115-06)", () => {
+    it("Test 11: publishIdentityArchived fans an identity-archived frame to all subscribers", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      // Drop the initial snapshot frame.
+      receivedFrames.length = 0;
+
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+
+      expect(receivedFrames).toHaveLength(1);
+      const frame = receivedFrames[0];
+      expect(frame.type).toBe("identity-archived");
+      if (frame.type === "identity-archived") {
+        expect(frame.name).toBe("wren");
+        expect(frame.hostId).toBe("42");
+        expect(frame.hostname).toBe("thenasty");
+      }
+    });
+
+    it("Test 12: publishIdentityArchived is idempotent — republishing the same row does NOT re-fan", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+
+      const archivedFrames = receivedFrames.filter(
+        (f) => f.type === "identity-archived",
+      );
+      expect(archivedFrames).toHaveLength(1);
+    });
+
+    it("Test 13: late subscriber receives the archived-identity registry as replay frames after the snapshot", () => {
+      const registry = createSubscriptionRegistry();
+
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+      registry.publishIdentityArchived("tabitha", "42", "thenasty");
+
+      // Subscribe AFTER publishes — the replay frames arrive on subscribe.
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+
+      const archivedFrames = receivedFrames.filter(
+        (f) => f.type === "identity-archived",
+      );
+      expect(archivedFrames).toHaveLength(2);
+      const names = archivedFrames.map((f) =>
+        f.type === "identity-archived" ? f.name : "",
+      );
+      expect(names).toContain("wren");
+      expect(names).toContain("tabitha");
+    });
+
+    it("Test 14: cross-host name collision — same name, different hostId — produces TWO distinct archived entries", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+      registry.publishIdentityArchived("wren", "99", "workstation");
+
+      const archivedFrames = receivedFrames.filter(
+        (f) => f.type === "identity-archived",
+      );
+      expect(archivedFrames).toHaveLength(2);
+    });
+
+    it("Test 15: republishing with a changed hostname is NOT idempotent — new frame fires", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+      // Same key but different hostname — should re-fan (registry entry replaced).
+      registry.publishIdentityArchived("wren", "42", "thenasty-renamed");
+
+      const archivedFrames = receivedFrames.filter(
+        (f) => f.type === "identity-archived",
+      );
+      expect(archivedFrames).toHaveLength(2);
+    });
+  });
 });

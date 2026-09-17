@@ -60,12 +60,11 @@ vi.mock("@/state/identities-store", () => ({
     loaded: true,
     refresh: async () => {},
   }),
-  // Phase 92 Plan 04: panel hydrate effect imports both. Stubbed to empty
-  // projections — this test file exercises relay-room row rendering, not
-  // the pin/hide hydrate path.
-  // Phase 107 Plan 04: deriveDiskHiddenIds added alongside deriveDiskPinnedIds.
+  // Phase 92 Plan 04: panel hydrate effect imports deriveDiskPinnedIds.
+  // Stubbed to empty projections — this test file exercises relay-room
+  // row rendering, not the pin hydrate path.
+  // (Phase 115 Plan 115-02: sibling deriveDiskHiddenIds retired per D-21.)
   deriveDiskPinnedIds: () => [],
-  deriveDiskHiddenIds: () => [],
   buildIdentityHostsFromFleet: () => ({}),
 }));
 
@@ -107,7 +106,6 @@ type MockSnapshot = {
   rdpGroup: MockGroup | null;
   selectedId: string | null;
   pinnedIds: ReadonlySet<string>;
-  hiddenIds: ReadonlySet<string>;
 };
 
 let snapshot: MockSnapshot = {
@@ -117,7 +115,6 @@ let snapshot: MockSnapshot = {
   rdpGroup: null,
   selectedId: null,
   pinnedIds: new Set(),
-  hiddenIds: new Set(),
 };
 
 function setSnapshot(next: Partial<MockSnapshot>): void {
@@ -128,7 +125,6 @@ function setSnapshot(next: Partial<MockSnapshot>): void {
     rdpGroup: next.rdpGroup ?? null,
     selectedId: next.selectedId ?? null,
     pinnedIds: next.pinnedIds ?? new Set(),
-    hiddenIds: next.hiddenIds ?? new Set(),
   };
 }
 
@@ -137,10 +133,7 @@ const addToActiveSetSpy = vi.fn();
 const removeFromActiveSetSpy = vi.fn();
 const pinConversationSpy = vi.fn();
 const unpinConversationSpy = vi.fn();
-const hideConversationSpy = vi.fn();
-const unhideConversationSpy = vi.fn();
 const hydratePinnedIdsFromServerSpy = vi.fn();
-const hydrateHiddenIdsFromServerSpy = vi.fn();
 
 let mockActiveSet: ReadonlySet<string> = new Set();
 let mockFleetSessionsLoaded = false;
@@ -154,7 +147,6 @@ vi.mock("@/state/conversation-store", () => ({
   }),
   useSelectedConversationId: () => snapshot.selectedId,
   usePinnedIds: () => snapshot.pinnedIds,
-  useHiddenIds: () => snapshot.hiddenIds,
   useActiveSet: () => mockActiveSet,
   useFleetSessionsLoaded: () => mockFleetSessionsLoaded,
   // Phase 92 Plan 04: panel hydrate reads fleet snapshot to build identityHosts.
@@ -168,17 +160,12 @@ vi.mock("@/state/conversation-store", () => ({
     `fleet::${hostId}::${sessionName}`,
   hydratePinnedIdsFromServer: (ids: string[]) =>
     hydratePinnedIdsFromServerSpy(ids),
-  hideConversation: (id: string) => hideConversationSpy(id),
-  unhideConversation: (id: string) => unhideConversationSpy(id),
-  hydrateHiddenIdsFromServer: (ids: string[]) =>
-    hydrateHiddenIdsFromServerSpy(ids),
 }));
 
 vi.mock("@/api/user-preferences-api", () => ({
   // Phase 92 Plan 04: getPinnedIds retired.
-  // Phase 107 Plan 04: getHiddenIds retired — hidden hydrate now via deriveDiskHiddenIds.
+  // (Phase 115 Plan 115-02: putHiddenIds retired per D-21.)
   putPinnedIds: vi.fn().mockResolvedValue([]),
-  putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("@/state/session-working-store", () => ({

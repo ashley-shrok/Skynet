@@ -80,6 +80,11 @@ import {
   readFleetSessionsCache,
   writeFleetSessionsCache,
   useRelayRoomTitles,
+  // Phase 115 Plan 115-06 (D-06, D-18): archived-rows slice mutator.
+  // Called from the fleet-status-client's `onIdentityArchived` callback
+  // (added by 115-06 alongside the distinct wire message shape) to route
+  // archive-tree rows into the frontend's inert archived pool.
+  upsertArchivedFleetRow,
 } from "@/state/conversation-store";
 import { getSessionList, killTmuxSession } from "@/api/sessions-api";
 import {
@@ -627,6 +632,17 @@ export function AppShell({
       },
       onUpdate: (fleetState) => {
         applyFleetState(fleetState);
+      },
+      // Phase 115 Plan 115-06 (D-06, D-18): archive-tree rows arrive as
+      // distinct `identity-archived` frames (see fleet-status-client.ts
+      // switch case). Route each into the archivedFleetRows store slice
+      // via upsertArchivedFleetRow — keyed on (hostId, name) so re-emits
+      // on WS reconnect are idempotent. hostId is coerced to number here
+      // at the boundary (same one-coercion discipline as onGone below).
+      onIdentityArchived: (name, hostIdRaw, hostname) => {
+        const hostIdNum = parseInt(hostIdRaw, 10);
+        if (!Number.isFinite(hostIdNum)) return;
+        upsertArchivedFleetRow({ hostId: hostIdNum, name, hostname });
       },
       onGone: (hostId, tmuxSession, sessionId) => {
         // The three pre-existing publishes — mark per-session state. These are

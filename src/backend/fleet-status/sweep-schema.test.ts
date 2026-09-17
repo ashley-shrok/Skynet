@@ -268,7 +268,10 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
   //   B0                       — per-host source-B enumeration driver
   //   B1..B9                   — per-identity source-B exec sites
   // Total: 2 + 12 + 9 = 23 keys.
-  // (B6..B9 added by Plan 111-01/111-02: appearance fields on SweepIdentityLine)
+  // (B6..B8 added by Plan 111-01/111-02: appearance fields on SweepIdentityLine.
+  //  Plan 111-02 also added B9 for `.hidden`; Phase 115 Plan 115-02 retired
+  //  the `.hidden` code path per D-21 (freeing the B9 slot); Phase 115 Plan
+  //  115-05 reused the freed B9 slot for the `archived` axis.)
   const EXPECTED_KEYS: readonly string[] = [
     "A0",
     "A1",
@@ -317,7 +320,8 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
       "identity_cosmetics",
       "role_cosmetics",
       "pinned",
-      "hidden",
+      // Phase 115 Plan 115-05: archived axis (reuses freed B9 slot).
+      "archived",
     ]);
     const pidFields = new Set<string>([
       "line_kind",
@@ -385,7 +389,8 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
 //
 // When the Plan 111-01 sweep script has NOT yet been distributed to a box,
 // that box emits identity lines WITHOUT the appearance fields (role,
-// identity_cosmetics, role_cosmetics, pinned, hidden). The parser must:
+// identity_cosmetics, role_cosmetics, pinned). The parser must:
+// (Phase 115 Plan 115-02: `hidden` retired from the appearance field list per D-21.)
 //   (a) not set schemaMismatch (schema_version is still 1)
 //   (b) return BOTH lines (the carrying line and the omitting line)
 //   (c) the carrying line's identity_cosmetics is readable
@@ -393,6 +398,81 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
 //
 // This is the rollout safety test: a mixed fleet (some boxes updated,
 // some not) must not cause parse failures or dropped lines.
+
+// ---------------------------------------------------------------------------
+// Phase 115 Plan 115-05: `archived?: boolean` on SweepIdentityLine
+// ---------------------------------------------------------------------------
+//
+// Plan 115-05 adds an `archived` axis to SweepIdentityLine — sourced from the
+// disk-root (live tree = false, archive tree = true) rather than from any
+// sentinel file. Reuses the B9 wire slot vacated by Plan 115-02 when `.hidden`
+// was retired per D-21.
+//
+// The field is optional (?: not required) so mid-distribution older boxes
+// (running the pre-115-05 sweep script that walks only the live tree and
+// emits neither hidden nor archived) still parse without error.
+
+describe("Phase 115 Plan 115-05: SweepIdentityLine.archived", () => {
+  it("parses an identity line with archived: true (archive-tree row)", () => {
+    const line = {
+      line_kind: "identity",
+      schema_version: 1,
+      identity: "gamma",
+      dormant: false,
+      recycled_at: false,
+      recycle_requested: false,
+      jsonl_path: null,
+      layer1_recycling: null,
+      pinned: false,
+      archived: true,
+    };
+    const result = parseSweepJsonl(JSON.stringify(line));
+    expect(result.identityLines).toHaveLength(1);
+    expect(result.identityLines[0].archived).toBe(true);
+    expect(result.schemaMismatch).toBe(false);
+  });
+
+  it("parses an identity line with archived: false (live-tree row)", () => {
+    const line = makeIdentityLine({ archived: false });
+    const result = parseSweepJsonl(JSON.stringify(line));
+    expect(result.identityLines).toHaveLength(1);
+    expect(result.identityLines[0].archived).toBe(false);
+  });
+
+  it("parses an identity line WITHOUT the archived field (older-box case)", () => {
+    // A mid-distribution box that hasn't picked up Plan 115-05's sweep script
+    // yet emits identity lines that omit `archived` entirely. Must parse
+    // cleanly — the field is optional, and older-box tolerance matches the
+    // established pattern for the Plan 111-01 appearance fields.
+    const line = {
+      line_kind: "identity",
+      schema_version: 1,
+      identity: "tabitha",
+      dormant: false,
+      recycled_at: false,
+      recycle_requested: false,
+      jsonl_path: null,
+      layer1_recycling: null,
+      // No `archived` field.
+    };
+    const result = parseSweepJsonl(JSON.stringify(line));
+    expect(result.identityLines).toHaveLength(1);
+    expect(result.identityLines[0].archived).toBeUndefined();
+    expect(result.schemaMismatch).toBe(false);
+  });
+
+  it("SWEEP_FIELD_PARITY has a B9 entry pointing at `archived`", () => {
+    // 115-05 reuses the freed B9 slot (115-02 retired `.hidden` at B9).
+    // The parity walk asserts that every B* key maps to a real field on
+    // SweepIdentityLine — this test locks the specific slot ID for the
+    // archived axis, which is a load-bearing rendezvous point between the
+    // Python emitter and TS parser.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parity = SWEEP_FIELD_PARITY as any;
+    expect(parity.B9).toBeDefined();
+    expect(parity.B9.field).toBe("archived");
+  });
+});
 
 describe("Phase 111 mid-distribution: older-box line (no appearance keys) parses cleanly", () => {
   it("one line carrying appearance + one line omitting appearance — both parse, schemaMismatch=false", () => {
@@ -410,7 +490,6 @@ describe("Phase 111 mid-distribution: older-box line (no appearance keys) parses
       identity_cosmetics: { displayName: "Pixel", task: "Building things" },
       role_cosmetics: { title: "Skynet", colorHue: 324 },
       pinned: false,
-      hidden: false,
     };
 
     // An older box (pre-Plan-111-01 distribution) emits without appearance keys.
@@ -423,7 +502,7 @@ describe("Phase 111 mid-distribution: older-box line (no appearance keys) parses
       recycle_requested: false,
       jsonl_path: null,
       layer1_recycling: null,
-      // No role, identity_cosmetics, role_cosmetics, pinned, hidden keys.
+      // No role, identity_cosmetics, role_cosmetics, pinned keys.
     };
 
     const blob = [carryingLine, omittingLine]
@@ -452,7 +531,6 @@ describe("Phase 111 mid-distribution: older-box line (no appearance keys) parses
     expect(carrying!.role).toBe("box-maintainer");
     expect(carrying!.role_cosmetics).toEqual({ title: "Skynet", colorHue: 324 });
     expect(carrying!.pinned).toBe(false);
-    expect(carrying!.hidden).toBe(false);
 
     // The omitting line's identity_cosmetics must be strictly undefined (not null,
     // not an empty object — just absent from the line entirely).
@@ -460,6 +538,5 @@ describe("Phase 111 mid-distribution: older-box line (no appearance keys) parses
     expect(omitting!.role).toBeUndefined();
     expect(omitting!.role_cosmetics).toBeUndefined();
     expect(omitting!.pinned).toBeUndefined();
-    expect(omitting!.hidden).toBeUndefined();
   });
 });

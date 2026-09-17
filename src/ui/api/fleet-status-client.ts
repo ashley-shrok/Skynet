@@ -68,6 +68,17 @@ export interface FleetStatusClientOptions {
   onSnapshot: (states: SessionState[]) => void;
   onUpdate: (state: SessionState) => void;
   onGone: (hostId: string, tmuxSession: string | null, sessionId: string) => void;
+  // Phase 115 Plan 115-06 (D-06, D-18): fired on every `identity-archived`
+  // frame from the backend (source-B route in ssh-poll-orchestrator; also
+  // re-emitted on WS reconnect via the subscription-registry snapshot
+  // replay). AppShell routes these into conversation-store's
+  // archivedFleetRows slice via upsertArchivedFleetRow. Optional for
+  // backward-compat with tests that don't need the callback.
+  onIdentityArchived?: (
+    name: string,
+    hostId: string,
+    hostname: string,
+  ) => void;
 }
 
 export interface FleetStatusClient {
@@ -86,7 +97,7 @@ export interface FleetStatusClient {
 export function createFleetStatusClient(
   opts: FleetStatusClientOptions,
 ): FleetStatusClient {
-  const { url, onSnapshot, onUpdate, onGone } = opts;
+  const { url, onSnapshot, onUpdate, onGone, onIdentityArchived } = opts;
 
   let reconnectAttempts = 0;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -201,6 +212,22 @@ export function createFleetStatusClient(
           break;
         case "pong":
           // No-op — keepalive reply
+          break;
+        case "identity-archived":
+          // Phase 115 Plan 115-06 (D-06, D-18): distinct wire message for
+          // archive-tree rows. Routes into the frontend's archivedFleetRows
+          // store slice via the AppShell-provided onIdentityArchived
+          // callback (upsertArchivedFleetRow in conversation-store). Backend
+          // publishes idempotently — a re-observation of the same archive-
+          // tree row does NOT re-fan-out the frame, so the frontend's
+          // upsert can be a plain add-if-absent + replace-if-changed.
+          console.info({
+            operation: "fleet_status_client_identity_archived",
+            url,
+            hostId: parsed.hostId,
+            name: parsed.name,
+          });
+          onIdentityArchived?.(parsed.name, parsed.hostId, parsed.hostname);
           break;
         default:
           // Unknown frame type — drop silently (forward-compatible)

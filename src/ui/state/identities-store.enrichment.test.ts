@@ -16,9 +16,9 @@ vi.mock("@/api/identities-api", () => ({
 
 vi.mock("@/api/user-preferences-api", () => ({
   // Phase 92 Plan 04: getPinnedIds retired.
-  // Phase 107 Plan 04: getHiddenIds retired.
+  // (Phase 115 Plan 115-02: prior putHiddenIds mock retired per D-21 alongside
+  //  the source-code deletion of the same export.)
   putPinnedIds: vi.fn().mockResolvedValue([]),
-  putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
 
 import {
@@ -29,7 +29,6 @@ import {
   __seedIdentitiesLoadedFalseForTest,
   __seedFromCacheForTest,
   deriveDiskPinnedIds,
-  deriveDiskHiddenIds,
   patchIdentityFlag,
   mergeIdentityAppearance,
   readAppearanceCache,
@@ -43,14 +42,10 @@ import {
   updateFleetSessions,
   __resetFleetSessionsForTest,
   __resetPinnedIdsForTest,
-  __resetHiddenIdsForTest,
   __getSnapshotForTest,
   pinConversation,
   unpinConversation,
-  hideConversation,
-  unhideConversation,
   hydratePinnedIdsFromServer,
-  hydrateHiddenIdsFromServer,
   type FleetSession,
 } from "./conversation-store.js";
 import * as ConversationStore from "./conversation-store.js";
@@ -74,12 +69,9 @@ beforeEach(() => {
   vi.mocked(IdentitiesApi.listIdentities).mockResolvedValue([]);
   vi.mocked(UserPreferencesApi.putPinnedIds).mockClear();
   vi.mocked(UserPreferencesApi.putPinnedIds).mockResolvedValue([]);
-  vi.mocked(UserPreferencesApi.putHiddenIds).mockClear();
-  vi.mocked(UserPreferencesApi.putHiddenIds).mockResolvedValue([]);
   __resetFleetSessionsForTest();
   __resetIdentitiesStoreForTest();
   __resetPinnedIdsForTest();
-  __resetHiddenIdsForTest();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -320,18 +312,13 @@ describe("Phase 92 Plan 04 — deriveDiskPinnedIds projection", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 107 Plan 04 Task 1 — SEL-107-* tests for deriveDiskHiddenIds
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// deriveDiskHiddenIds mirrors deriveDiskPinnedIds exactly — same projection
-// algorithm, same fail-closed contract, same H2 reuse of buildIdentityHostsFromFleet
-// as argument. Only the field changes: `identity.pinned` → `identity.hidden`.
-//
-// H2 invariant: identityHosts argument MUST be built by buildIdentityHostsFromFleet.
-// SEL-107-04 locks the export shape so a naive rewrite trips loudly.
+// (Phase 115 Plan 115-02: the prior SEL-107-* describe block covering
+//  deriveDiskHiddenIds was retired per D-21 alongside the source-code
+//  deletion of the same export. The `makeIdentityWithFlags` helper below
+//  is preserved — used by many other tests — but its `hidden` opt is
+//  now a no-op so pre-existing call sites still compile.)
 
-function makeIdentityWithHidden(
+function makeIdentityWithFlags(
   identityKey: string,
   opts: { pinned?: boolean; hidden?: boolean },
   hostId?: number,
@@ -352,71 +339,21 @@ function makeIdentityWithHidden(
   if (opts.pinned !== undefined) {
     (base as Identity & { pinned?: boolean }).pinned = opts.pinned;
   }
-  if (opts.hidden !== undefined) {
-    (base as Identity & { hidden?: boolean }).hidden = opts.hidden;
-  }
+  // Phase 115 Plan 115-02: `opts.hidden` accepted for callsite compat but
+  // no longer written onto the Identity — the `.hidden` field was retired
+  // from the Identity type per D-21.
+  void opts.hidden;
   if (hostId !== undefined) {
     (base as Identity & { hostId?: number }).hostId = hostId;
   }
   return base;
 }
 
-describe("Phase 107 Plan 04 — deriveDiskHiddenIds projection", () => {
-  it("SEL-107-01 (happy path): projects hidden identities into fleet::<hostId>::<key> shape", async () => {
-    await seedIdentities([
-      makeIdentityWithHidden("tina", { hidden: true }),
-      makeIdentityWithHidden("user", { hidden: false }),
-      makeIdentityWithHidden("bob", { hidden: true }),
-    ]);
-    const identityHosts = { tina: 1, user: 2, bob: 2 };
-    const result = deriveDiskHiddenIds(identityHosts);
-    // order-agnostic — sort both sides to compare
-    expect([...result].sort()).toEqual(
-      ["fleet::1::tina", "fleet::2::bob"].sort(),
-    );
-  });
-
-  it("SEL-107-02 (fail-closed on missing hidden field): treats absent `hidden` as false", async () => {
-    // Identity without `hidden` key at all — must be treated as unhidden per
-    // D-01 fail-closed contract. Backend Plan-02 fail-closed contract mirrors.
-    await seedIdentities([
-      makeIdentityWithHidden("tina", {}),       // no hidden field
-      makeIdentityWithHidden("bob", { hidden: true }),
-    ]);
-    const result = deriveDiskHiddenIds({ tina: 1, bob: 2 });
-    expect(result).toEqual(["fleet::2::bob"]);
-  });
-
-  it("SEL-107-03 (missing host mapping filters identity out): identity absent from identityHosts is dropped", async () => {
-    await seedIdentities([
-      makeIdentityWithHidden("tina", { hidden: true }),
-      makeIdentityWithHidden("bob", { hidden: true }),
-    ]);
-    // Only tina has a host mapping — bob is hidden but has no host, so it
-    // cannot render as a hidden row and must be excluded.
-    const result = deriveDiskHiddenIds({ tina: 1 });
-    expect(result).toEqual(["fleet::1::tina"]);
-  });
-
-  it("SEL-107-04 (H2 lock): both buildIdentityHostsFromFleet AND deriveDiskHiddenIds are exported from identities-store", () => {
-    // Both exports live on the same module. Anyone rewriting the hidden path
-    // must reuse buildIdentityHostsFromFleet (identities-store.ts:111-122)
-    // rather than a parallel local helper — SEL-107-04 is the regression trap.
-    expect(typeof IdentitiesStore.buildIdentityHostsFromFleet).toBe("function");
-    expect(typeof IdentitiesStore.deriveDiskHiddenIds).toBe("function");
-  });
-
-  it("SEL-107-05 (pin/hidden independence): deriveDiskPinnedIds and deriveDiskHiddenIds are independent axes", async () => {
-    // Both can return non-empty simultaneously — they are not mutually exclusive.
-    await seedIdentities([
-      makeIdentityWithHidden("tina", { pinned: true, hidden: false }),
-      makeIdentityWithHidden("user", { pinned: false, hidden: true }),
-    ]);
-    const identityHosts = { tina: 1, user: 2 };
-    const pinnedResult = deriveDiskPinnedIds(identityHosts);
-    const hiddenResult = deriveDiskHiddenIds(identityHosts);
-    expect([...pinnedResult].sort()).toEqual(["fleet::1::tina"]);
-    expect([...hiddenResult].sort()).toEqual(["fleet::2::user"]);
+describe("Phase 115 Plan 115-02 — deriveDiskHiddenIds retired", () => {
+  it("deriveDiskHiddenIds is not exported from identities-store", () => {
+    expect(
+      (IdentitiesStore as unknown as Record<string, unknown>).deriveDiskHiddenIds,
+    ).toBeUndefined();
   });
 });
 
@@ -452,15 +389,9 @@ describe("patchIdentityFlag — pure mutator contract", () => {
     expect(deriveDiskPinnedIds(identityHosts)).toEqual(["fleet::2::user"]);
   });
 
-  it("patches `hidden` false→true independently of `pinned`", async () => {
-    await seedIdentities([
-      makeIdentityWithHidden("tina", { pinned: true, hidden: false }, 1),
-    ]);
-    patchIdentityFlag("tina", 1, "hidden", true);
-    const identityHosts = { tina: 1 };
-    expect(deriveDiskPinnedIds(identityHosts)).toEqual(["fleet::1::tina"]);
-    expect(deriveDiskHiddenIds(identityHosts)).toEqual(["fleet::1::tina"]);
-  });
+  // (Phase 115 Plan 115-02: prior "patches `hidden` false→true" test retired
+  //  per D-21 alongside the source-code narrowing of patchIdentityFlag's
+  //  field union from `"pinned" | "hidden"` to `"pinned"`.)
 
   it("is idempotent — no-op when field already matches target value", async () => {
     await seedIdentities([makeIdentity("tina", true, 1)]);
@@ -538,37 +469,10 @@ describe("Pin/hide remount-cycle regression (fern 2026-09-13)", () => {
     expect(deriveDiskPinnedIds(identityHosts)).toEqual([]);
   });
 
-  it("HIDE: after a successful hide, a subsequent deriveDiskHiddenIds→hydrate cycle preserves the hide", async () => {
-    await seedIdentities([
-      makeIdentityWithHidden("tina", { hidden: false }, 1),
-    ]);
-    updateFleetSessions([makeSession(1, "tina")]);
-
-    hideConversation("fleet::1::tina");
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const identityHosts = buildIdentityHostsFromFleet([makeSession(1, "tina")]);
-    const derived = deriveDiskHiddenIds(identityHosts);
-    expect(derived).toEqual(["fleet::1::tina"]);
-    hydrateHiddenIdsFromServer(derived);
-  });
-
-  it("UNHIDE: after a successful unhide, a subsequent deriveDiskHiddenIds cycle preserves the unhide", async () => {
-    await seedIdentities([
-      makeIdentityWithHidden("tina", { hidden: true }, 1),
-    ]);
-    updateFleetSessions([makeSession(1, "tina")]);
-
-    hydrateHiddenIdsFromServer(["fleet::1::tina"]);
-
-    unhideConversation("fleet::1::tina");
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const identityHosts = buildIdentityHostsFromFleet([makeSession(1, "tina")]);
-    expect(deriveDiskHiddenIds(identityHosts)).toEqual([]);
-  });
+  // (Phase 115 Plan 115-02: prior HIDE + UNHIDE remount-cycle tests retired
+  //  per D-21 alongside the deletion of hideConversation / unhideConversation /
+  //  hydrateHiddenIdsFromServer / deriveDiskHiddenIds. The pin-side siblings
+  //  above still cover the general remount-cycle invariant.)
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -599,7 +503,6 @@ function makeIdentityFull(
     coordinator: false,
     task: null,
     pinned: false,
-    hidden: false,
     roleDefaults: null,
     ...overrides,
   };
@@ -696,7 +599,6 @@ describe("mergeIdentityAppearance — D-09/D-10 contract", () => {
       roleDefaults: { title: "Skynet", colorHue: 324, avatar: "box-maintainer.webp" },
       task: null,
       pinned: false,
-      hidden: false,
     });
 
     const snap = __getIdentitiesStoreSnapshotForTest();
@@ -821,15 +723,13 @@ describe("mergeIdentityAppearance — D-09/D-10 contract", () => {
     expect(snap.byHostKey.get("5::pixel")).toBe(snap.byKey.get("pixel"));
   });
 
-  // Case 9 — pinned/hidden are written on a true→false transition (membership axes)
-  it("Case 9: pinned/hidden are written on true→false transition — they are membership axes, not cosmetics", async () => {
-    await seedIdentities([makeIdentityFull("pixel", 5, { pinned: true, hidden: true })]);
+  // Case 9 — pinned is written on a true→false transition (membership axis)
+  // (Phase 115 Plan 115-02: prior sibling `hidden` assertion retired per D-21.)
+  it("Case 9: pinned is written on true→false transition — a membership axis, not a cosmetic", async () => {
+    await seedIdentities([makeIdentityFull("pixel", 5, { pinned: true })]);
 
     mergeIdentityAppearance(5, "pixel", { pinned: false });
     expect(__getIdentitiesStoreSnapshotForTest().byHostKey.get("5::pixel")?.pinned).toBe(false);
-
-    mergeIdentityAppearance(5, "pixel", { hidden: false });
-    expect(__getIdentitiesStoreSnapshotForTest().byHostKey.get("5::pixel")?.hidden).toBe(false);
   });
 
   // Case 10 — withDisplayCap normalization applies at this door too
@@ -903,19 +803,9 @@ describe("mergeIdentityAppearance — pin/hide re-projection (Task 3)", () => {
     expect(pinnedIds.has("fleet::5::pixel")).toBe(false);
   });
 
-  // Case 14 — hidden behaves the same way
-  it("Case 14: pulse hidden:true/false reaches the conversation-store hidden-id set", async () => {
-    await seedAndLoadWithFleet(
-      [makeIdentityFull("pixel", 5, { hidden: false })],
-      [makeSession(5, "pixel")],
-    );
-
-    mergeIdentityAppearance(5, "pixel", { hidden: true });
-    expect(__getSnapshotForTest().hiddenIds.has("fleet::5::pixel")).toBe(true);
-
-    mergeIdentityAppearance(5, "pixel", { hidden: false });
-    expect(__getSnapshotForTest().hiddenIds.has("fleet::5::pixel")).toBe(false);
-  });
+  // (Phase 115 Plan 115-02: prior Case 14 hidden-axis test retired per D-21
+  //  alongside the state.hiddenIds slice + mergeIdentityAppearance hidden
+  //  field removal.)
 
   // Case 15 — cosmetics-only merge does NOT re-project (guard against double
   // set rebuilds on every colour change)
@@ -943,7 +833,7 @@ describe("mergeIdentityAppearance — pin/hide re-projection (Task 3)", () => {
     __resetIdentitiesStoreForTest();
     __resetFleetSessionsForTest();
     __resetPinnedIdsForTest();
-    __resetHiddenIdsForTest();
+    // (Phase 115 Plan 115-02: prior __resetHiddenIdsForTest call retired per D-21.)
 
     // Prime fleet sessions and pinned ids. Use __seedIdentitiesLoadedFalseForTest
     // to place an identity in the store WITHOUT setting loaded=true (simulates a
@@ -1001,7 +891,10 @@ describe("mergeIdentityAppearance — pin/hide re-projection (Task 3)", () => {
 // post-ship ~1s undressed flash.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const APPEARANCE_CACHE_KEY = "skynet:identities-appearance-cache:v1";
+// Phase 115 Plan 115-02: cache key bumped v1 → v2 to invalidate cached
+// v1 records that carried the retired `hidden` field. Kept in sync with
+// identities-store.ts APPEARANCE_CACHE_KEY.
+const APPEARANCE_CACHE_KEY = "skynet:identities-appearance-cache:v2";
 
 describe("appearance cache (post-Phase-111 cold-paint fix)", () => {
   it("Cache 1: cold load with warm cache seeds byHostKey and keeps loaded=false", () => {
@@ -1120,7 +1013,7 @@ describe("appearance cache (post-Phase-111 cold-paint fix)", () => {
 // pinned:true→false merge through to the row-id set.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("hydratePinnedIdsFromServer / hydrateHiddenIdsFromServer — authoritative sink", () => {
+describe("hydratePinnedIdsFromServer — authoritative sink", () => {
   it("Sink 1: hydratePinnedIdsFromServer([]) wipes existing pins (authoritative behavior — MUST land for reprojectDiskPinHideIntoRows unpin path)", () => {
     hydratePinnedIdsFromServer(["fleet::5::pixel"]);
     expect(__getSnapshotForTest().pinnedIds.has("fleet::5::pixel")).toBe(true);
@@ -1131,12 +1024,8 @@ describe("hydratePinnedIdsFromServer / hydrateHiddenIdsFromServer — authoritat
     expect(__getSnapshotForTest().pinnedIds.size).toBe(0);
   });
 
-  it("Sink 2: hydrateHiddenIdsFromServer([]) wipes existing hides (same rationale)", () => {
-    hydrateHiddenIdsFromServer(["fleet::5::pixel"]);
-    expect(__getSnapshotForTest().hiddenIds.has("fleet::5::pixel")).toBe(true);
-    hydrateHiddenIdsFromServer([]);
-    expect(__getSnapshotForTest().hiddenIds.size).toBe(0);
-  });
+  // (Phase 115 Plan 115-02: prior Sink 2 hydrateHiddenIdsFromServer test
+  //  retired per D-21 alongside the source-code deletion.)
 
   it("Sink 3: reprojectDiskPinHideIntoRows correctly wipes when a merge unpins the last identity (Case 13/14 regression coverage under the loosened callsite pattern)", async () => {
     // reprojectDiskPinHideIntoRows is called from mergeIdentityAppearance
@@ -1156,14 +1045,7 @@ describe("hydratePinnedIdsFromServer / hydrateHiddenIdsFromServer — authoritat
     expect(__getSnapshotForTest().pinnedIds.size).toBe(0);
   });
 
-  it("Sink 4: reprojectDiskPinHideIntoRows correctly wipes hides when a merge unhides the last identity", async () => {
-    await seedIdentities([makeIdentityFull("pixel", 5, { hidden: true })]);
-    updateFleetSessions([makeSession(5, "pixel")]);
-    const identityHosts = buildIdentityHostsFromFleet([makeSession(5, "pixel")]);
-    hydrateHiddenIdsFromServer(deriveDiskHiddenIds(identityHosts));
-    expect(__getSnapshotForTest().hiddenIds.has("fleet::5::pixel")).toBe(true);
-
-    mergeIdentityAppearance(5, "pixel", { hidden: false });
-    expect(__getSnapshotForTest().hiddenIds.has("fleet::5::pixel")).toBe(false);
-  });
+  // (Phase 115 Plan 115-02: prior Sink 4 hidden reprojection test retired
+  //  per D-21 alongside the deriveDiskHiddenIds + hydrateHiddenIdsFromServer
+  //  source-code deletion.)
 });

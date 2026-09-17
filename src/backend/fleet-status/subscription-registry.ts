@@ -13,6 +13,7 @@ import {
   makeSnapshotFrame,
   makeUpdateFrame,
   makeGoneFrame,
+  makeIdentityArchivedFrame,
 } from "./wire-protocol.js";
 // Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism):
 // contextPct is PROMOTED from PrettyView-local useState to a per-session
@@ -46,6 +47,22 @@ export interface SubscriptionRegistry {
    * Fans out an `update` frame to all subscribers.
    */
   publishSessionState(hostId: string, state: SessionState): void;
+
+  /**
+   * Phase 115 Plan 115-06 (D-06, D-18): publish an `identity-archived`
+   * frame for a row sourced from the archive tree. Distinct from
+   * publishSessionState — archived rows are NOT indexed in the session
+   * map (D-06 inert semantics); the registry simply fans the frame out
+   * to all current subscribers. Snapshot-on-subscribe behavior: archived
+   * rows are re-emitted on every subscribe via the archivedIdentities
+   * map maintained here so a reconnecting client sees the current
+   * archive set as part of its initial state.
+   */
+  publishIdentityArchived(
+    name: string,
+    hostId: string,
+    hostname: string,
+  ): void;
 
   /**
    * Mark a session as gone. If the key exists in the map:
@@ -127,6 +144,20 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
   // Phase 39 — presence signals for Path C (D-01 / D-02)
   const firstSubCallbacks = new Set<(ctx: { userId: string }) => void>();
   const lastUnsubCallbacks = new Set<() => void>();
+  // Phase 115 Plan 115-06 (D-06, D-18): archived-tree row cache. Keyed on
+  // `${hostId}::${name}` so cross-host name collisions produce distinct
+  // entries (per RESEARCH §5 — should not happen in practice; if it does,
+  // both survive). Snapshot-on-subscribe re-emits every entry so a
+  // reconnecting client sees the current archive set as part of its
+  // initial state. Never removed here — retire-flow's folder-move happens
+  // once and the row lives until the next sweep tick clears it. If a
+  // future phase wants to un-archive, add a `publishIdentityUnarchived`
+  // + corresponding delete + `identity-unarchived` frame; for now (D-05
+  // out of scope) the map only grows.
+  const archivedIdentities = new Map<
+    string,
+    { name: string; hostId: string; hostname: string }
+  >();
 
   return {
     subscribe(sendFrame: SendFrame, ctx?: { userId: string }): () => void {
@@ -156,6 +187,28 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
           operation: "fleet_status_snapshot_failed",
           error: err instanceof Error ? err.message : "unknown",
         });
+      }
+
+      // Phase 115 Plan 115-06 (D-06, D-18): re-emit every archived identity
+      // as an `identity-archived` frame so a reconnecting client re-hydrates
+      // its archived-rows store slice from the registry's cached map. Order
+      // is Map insertion order — the frontend's setArchivedFleetRows is a
+      // whole-array replacement (see conversation-store.ts) so order does
+      // not carry meaning here.
+      for (const entry of archivedIdentities.values()) {
+        try {
+          sendFrame(
+            makeIdentityArchivedFrame(entry.name, entry.hostId, entry.hostname),
+          );
+        } catch (err) {
+          systemLogger.warn(
+            "Fleet-status archived-identity snapshot delivery failed",
+            {
+              operation: "fleet_status_archived_snapshot_failed",
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
+        }
       }
 
       // Phase 39 — fire onFirstSubscriber callbacks on 0 → 1 transition when ctx is provided.
@@ -216,6 +269,28 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
       };
       state.set(key, stampedState);
       fanOut(subscribers, makeUpdateFrame(stampedState));
+    },
+
+    publishIdentityArchived(
+      name: string,
+      hostId: string,
+      hostname: string,
+    ): void {
+      const key = `${hostId}::${name}`;
+      const existing = archivedIdentities.get(key);
+      // Idempotent: if the registry already knows this archived identity
+      // with byte-identical fields, no fanout. Prevents per-tick churn on
+      // the WS when the sweep just re-observes the same archive-tree row.
+      if (
+        existing !== undefined &&
+        existing.name === name &&
+        existing.hostId === hostId &&
+        existing.hostname === hostname
+      ) {
+        return;
+      }
+      archivedIdentities.set(key, { name, hostId, hostname });
+      fanOut(subscribers, makeIdentityArchivedFrame(name, hostId, hostname));
     },
 
     publishSessionGone(

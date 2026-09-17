@@ -29,7 +29,6 @@ function makeArgs(overrides: {
   roleCosmetics?: RawCosmetics | null;
   role?: string | null;
   pinned?: boolean;
-  hidden?: boolean;
 } = {}): Parameters<typeof resolveIdentityAppearance>[0] {
   return {
     identityKey: overrides.identityKey ?? "pixel",
@@ -38,7 +37,6 @@ function makeArgs(overrides: {
     roleCosmetics: overrides.roleCosmetics !== undefined ? overrides.roleCosmetics : null,
     role: overrides.role !== undefined ? overrides.role : null,
     pinned: overrides.pinned ?? false,
-    hidden: overrides.hidden ?? false,
   };
 }
 
@@ -365,17 +363,16 @@ describe("avatarUrl", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 10. pinned / hidden — pass-through
+// 10. pinned — pass-through
+//     (Phase 115 Plan 115-02: sibling `hidden` pass-through retired per D-21.)
 // ---------------------------------------------------------------------------
 
-describe("pinned and hidden", () => {
-  it("pinned: false, hidden: false → both false in result", () => {
+describe("pinned", () => {
+  it("pinned: false → false in result", () => {
     const result = resolveIdentityAppearance(makeArgs({
       pinned: false,
-      hidden: false,
     }));
     expect(result.pinned).toBe(false);
-    expect(result.hidden).toBe(false);
   });
 
   it("pinned: true → true in result", () => {
@@ -383,13 +380,6 @@ describe("pinned and hidden", () => {
       pinned: true,
     }));
     expect(result.pinned).toBe(true);
-  });
-
-  it("hidden: true → true in result", () => {
-    const result = resolveIdentityAppearance(makeArgs({
-      hidden: true,
-    }));
-    expect(result.hidden).toBe(true);
   });
 });
 
@@ -419,7 +409,6 @@ describe("parity: resolveIdentityAppearance shapes match publicIdentity document
       roleCosmetics: { title: "Skynet", colorHue: 324 },
       role: "box-maintainer",
       pinned: false,
-      hidden: false,
     });
 
     expect(result.displayName).toBe("Pixel");
@@ -431,7 +420,6 @@ describe("parity: resolveIdentityAppearance shapes match publicIdentity document
     expect(result.avatarUrl).toBe("/identities/pixel/avatar?hostId=6");
     expect(result.coordinator).toBe(false);
     expect(result.pinned).toBe(false);
-    expect(result.hidden).toBe(false);
   });
 
   it("complete result shape has all required fields (no missing keys)", () => {
@@ -441,7 +429,7 @@ describe("parity: resolveIdentityAppearance shapes match publicIdentity document
     }));
     const keys: Array<keyof ResolvedIdentityAppearance> = [
       "displayName", "title", "colorHue", "voice", "task", "coordinator",
-      "role", "roleDefaults", "avatarUrl", "pinned", "hidden",
+      "role", "roleDefaults", "avatarUrl", "pinned",
     ];
     for (const key of keys) {
       expect(result).toHaveProperty(key);

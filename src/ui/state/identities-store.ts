@@ -9,7 +9,6 @@ import { sessionMatchKey } from "@/features/terminal/session-hue";
 import {
   getFleetSessionsSnapshot,
   hydratePinnedIdsFromServer,
-  hydrateHiddenIdsFromServer,
   subscribeConversationStore,
   type FleetSession,
 } from "./conversation-store";
@@ -34,7 +33,11 @@ type State = {
 // written on every state-change notify(). Bump the version suffix on any
 // schema change to the cached fields (avoids reading a stale-shape cache into
 // an incompatible reader).
-const APPEARANCE_CACHE_KEY = "skynet:identities-appearance-cache:v1";
+// Phase 115 Plan 115-02: bumped v1 → v2 to invalidate any cached identity
+// records that carry the retired `hidden` field. Cached v1 records without
+// `hidden` still parse fine, but bumping the key wipes the surface entirely
+// on cold refresh — cheaper than a per-field migration for one deprecated axis.
+const APPEARANCE_CACHE_KEY = "skynet:identities-appearance-cache:v2";
 
 // Module-load seed from localStorage: paint dressed rows on cold refresh
 // BEFORE the fleet-status WS first-frame arrives. Carries loaded:false — the
@@ -213,49 +216,8 @@ export function deriveDiskPinnedIds(
   return out;
 }
 
-/**
- * Phase 107 Plan 107-04 (D-04, SC-6) — project each identity's `hidden: boolean`
- * field (populated from disk by the backend at request time per Plan 107-02
- * Task 1) into the conversation-row id space (`fleet::<hostId>::<sessionName>`).
- * Called by the panel's hydrate effect (PrettyConversationsPanel.tsx L502+)
- * as the replacement for the retired getHiddenIds() /user-preferences fetch.
- *
- * H2 invariant: the identityHosts argument MUST be constructed via the
- * existing buildIdentityHostsFromFleet(fleetSessions) helper exported from
- * this same module (L111-122). Same constraint deriveDiskPinnedIds carries.
- *
- * Fail-closed on missing `hidden` field: an identity object without the
- * field is treated as unhidden (matches backend Plan 107-02 fail-closed
- * contract where identityFileExists throws → hidden:false).
- *
- * Identity keys not present in identityHosts are filtered out — an identity
- * we don't have a host mapping for cannot render as a hidden row anyway
- * (no row to render), so including it in state.hiddenIds would produce an
- * inert entry.
- *
- * H3 invariant (from Plan 107-02): identity.identityKey is emitted verbatim
- * from listIdentityKeysOnHost's raw folder-name output — ALREADY lowercase
- * because identity-artifact-reader.ts IDENTITY_KEY_RE forbids uppercase.
- * The `.toLowerCase()` below is defense-in-depth belt-and-suspenders. The
- * emitted `fleet::${hostId}::${lookupKey}` shape uses the lowercased key
- * deliberately: it matches conversation-store.ts:594 fleetRowId shape.
- */
-export function deriveDiskHiddenIds(
-  identityHosts: Record<string, number>,
-): string[] {
-  const out: string[] = [];
-  for (const identity of state.identities) {
-    // Fail-closed: `hidden !== true` treats undefined / false / any non-
-    // true value as unhidden. Matches the backend's fail-closed contract
-    // at identities.ts hidden probe .catch(() => false).
-    if (identity.hidden !== true) continue;
-    const lookupKey = identity.identityKey.toLowerCase();
-    const hostId = identityHosts[lookupKey];
-    if (typeof hostId !== "number") continue;
-    out.push(`fleet::${hostId}::${lookupKey}`);
-  }
-  return out;
-}
+// (Phase 115 Plan 115-02: the sibling `deriveDiskHiddenIds` function
+//  was retired per D-21 alongside the backend .hidden fanout removal.)
 
 // Re-fetch after the first fleetSessions load. Succeeds at most ONCE per module
 // lifetime (guarded by hasRefreshedAfterFleetLoad). The subscription itself
@@ -444,16 +406,20 @@ export function applyIdentityChange(
 }
 
 /**
- * Patch a boolean sentinel field (`pinned` / `hidden`) on a single identity in
- * the local store to reflect a write that just succeeded server-side.
+ * Patch the `pinned` boolean sentinel field on a single identity in the local
+ * store to reflect a write that just succeeded server-side.
  *
- * Without this, pinConversation/hideConversation optimistically mutate
- * conversation-store's `pinnedIds`/`hiddenIds` but leave identities-store's
- * per-identity `pinned`/`hidden` STALE. The next PrettyConversationsPanel
- * remount re-runs its hydrate effect, deriveDisk{Pinned,Hidden}Ids reads the
- * stale identities snapshot, and hydrate{Pinned,Hidden}IdsFromServer overwrites
- * the just-set local set — the pin/hide silently reverts on mobile navigate-
- * away-and-back (list→session→list unmounts the panel per AppShell.tsx L2632).
+ * Without this, pinConversation optimistically mutates conversation-store's
+ * `pinnedIds` but leaves identities-store's per-identity `pinned` STALE. The
+ * next PrettyConversationsPanel remount re-runs its hydrate effect,
+ * deriveDiskPinnedIds reads the stale identities snapshot, and
+ * hydratePinnedIdsFromServer overwrites the just-set local set — the pin
+ * silently reverts on mobile navigate-away-and-back (list→session→list
+ * unmounts the panel per AppShell.tsx L2632).
+ *
+ * (Phase 115 Plan 115-02: this helper previously took `"pinned" | "hidden"`.
+ * The `.hidden` axis was retired per D-21 alongside the backend .hidden
+ * fanout removal, so the union collapses to a single-value literal.)
  *
  * Match by (hostId, identityKey) — falls back to bare-name match when hostId
  * is absent (pre-quick-260912-0t4 fixtures + relay-room callers without a
@@ -463,7 +429,7 @@ export function applyIdentityChange(
 export function patchIdentityFlag(
   identityKey: string,
   hostId: number | null,
-  field: "pinned" | "hidden",
+  field: "pinned",
   value: boolean,
 ): void {
   const keyLc = identityKey.toLowerCase();
@@ -497,36 +463,35 @@ function sortedKeyJson(obj: Record<string, unknown> | null | undefined): string 
   return JSON.stringify(sorted);
 }
 
-// ─── Private helper: re-project pinned/hidden into conversation-store rows ───
+// ─── Private helper: re-project pinned into conversation-store rows ───
 /**
- * Phase 111 Plan 04 — re-project each identity's `pinned`/`hidden` fields into
- * the conversation-row id space. Called by `mergeIdentityAppearance` ONLY when
- * `pinned` or `hidden` actually changed, to move a row without touching
- * PrettyConversationsPanel.tsx (freshly fixed, 4,906 lines, "prefer not to
- * touch").
+ * Phase 111 Plan 04 — re-project each identity's `pinned` field into the
+ * conversation-row id space. Called by `mergeIdentityAppearance` ONLY when
+ * `pinned` actually changed, to move a row without touching
+ * PrettyConversationsPanel.tsx.
  *
- * Mirrors the panel's own hydrate effect body exactly, so the two paths are
- * always in sync: buildIdentityHostsFromFleet → deriveDiskPinnedIds →
- * hydratePinnedIdsFromServer → deriveDiskHiddenIds → hydrateHiddenIdsFromServer.
+ * (Phase 115 Plan 115-02: the sibling `.hidden` re-projection was retired
+ * per D-21 alongside the deriveDiskHiddenIds function.)
+ *
+ * Mirrors the panel's own hydrate effect body exactly, so the two paths
+ * are always in sync: buildIdentityHostsFromFleet → deriveDiskPinnedIds →
+ * hydratePinnedIdsFromServer.
  *
  * GATED on state.loaded — see quick-260912-5q2. Before the `GET /identities`
  * fetch has landed, state.identities is a partial picture. hydratePinnedIdsFromServer
  * REPLACES the row-id set wholesale — projecting from a partial store would wipe
- * pins for every identity not yet fetched. A pulse merge on a not-yet-loaded
- * store is already a no-op (absent-key guard in mergeIdentityAppearance), so this
- * gate costs nothing.
+ * pins for every identity not yet fetched.
  *
  * Uses buildIdentityHostsFromFleet, never a hand-rolled iteration. Its H2
  * invariant (sessionMatchKey null-return filters relay rooms + undefined
  * sessionName) is exactly the protection against crashes on relay-room sessions.
  */
-function reprojectDiskPinHideIntoRows(): void {
+function reprojectDiskPinIntoRows(): void {
   // quick-260912-5q2: a partial store projection wipes pins for every identity
   // not yet in state.identities. Only re-project once the full picture is live.
   if (!state.loaded) return;
   const identityHosts = buildIdentityHostsFromFleet(getFleetSessionsSnapshot());
   hydratePinnedIdsFromServer(deriveDiskPinnedIds(identityHosts));
-  hydrateHiddenIdsFromServer(deriveDiskHiddenIds(identityHosts));
 }
 
 /**
@@ -564,17 +529,18 @@ function reprojectDiskPinHideIntoRows(): void {
  *   from the fetch. The pulse's job is keeping it current, not bootstrapping.
  *
  * FIELD SET:
- *   Exactly the eleven the wire carries: displayName, title, colorHue, voice,
- *   task, coordinator, role, roleDefaults, avatarUrl, pinned, hidden.
+ *   Exactly the ten the wire carries: displayName, title, colorHue, voice,
+ *   task, coordinator, role, roleDefaults, avatarUrl, pinned.
+ *   (Phase 115 Plan 115-02: prior eleventh field `hidden` retired per D-21.)
  *   NOT avatarMime or avatarEtag (sweep has no source for them).
  *   NOT identityKey or hostId (those identify the row, not its appearance).
  *
- * pinned / hidden:
- *   These ARE written on a true→false transition. They are membership and
- *   position axes, not cosmetics — a `false` here is a real sentinel-probe
+ * pinned:
+ *   This IS written on a true→false transition. It is a membership and
+ *   position axis, not a cosmetic — a `false` here is a real sentinel-probe
  *   fact, not an absence. The fail-closed handling already happened server-
- *   side (=== true in Plan 111-03), so values arriving here are definite
- *   booleans.
+ *   side (=== true in Plan 111-03), so the value arriving here is a definite
+ *   boolean.
  */
 export function mergeIdentityAppearance(
   hostId: number,
@@ -592,7 +558,6 @@ export function mergeIdentityAppearance(
       | "roleDefaults"
       | "avatarUrl"
       | "pinned"
-      | "hidden"
     >
   >,
 ): void {
@@ -656,7 +621,6 @@ export function mergeIdentityAppearance(
       task: typeof appearance.task === "string" ? appearance.task : null,
       roleDefaults: appearance.roleDefaults ?? null,
       pinned: appearance.pinned === true,
-      hidden: appearance.hidden === true,
     };
     const nextList = state.identities.concat(appended);
     // Reindex byKey/byHostKey from the new list; carry `loaded` forward so
@@ -737,23 +701,17 @@ export function mergeIdentityAppearance(
       changed = true;
     }
   }
-  // pinned / hidden are membership axes, not cosmetics. A `false` here is a
-  // real fact from a sentinel probe — not an absence. DO write on true→false
+  // pinned is a membership axis, not a cosmetic. A `false` here is a real
+  // fact from a sentinel probe — not an absence. DO write on true→false
   // transitions. The `undefined || null` skip only prevents "no data this tick"
   // from blanking "known data from before".
-  let pinHidChanged = false;
+  // (Phase 115 Plan 115-02: sibling `hidden` axis retired per D-21.)
+  let pinChanged = false;
   if (appearance.pinned !== undefined && appearance.pinned !== null) {
     if (next.pinned !== appearance.pinned) {
       next.pinned = appearance.pinned;
       changed = true;
-      pinHidChanged = true;
-    }
-  }
-  if (appearance.hidden !== undefined && appearance.hidden !== null) {
-    if (next.hidden !== appearance.hidden) {
-      next.hidden = appearance.hidden;
-      changed = true;
-      pinHidChanged = true;
+      pinChanged = true;
     }
   }
 
@@ -768,12 +726,12 @@ export function mergeIdentityAppearance(
   state = { ...reindex(nextList), loaded: state.loaded };
   notify();
 
-  // 7. Re-project pinned/hidden into conversation-store row-id sets only when
-  //    a sentinel actually moved. Cosmetics-only merges must not pay the cost
-  //    of two set rebuilds. Gate is in reprojectDiskPinHideIntoRows itself
-  //    (gated on state.loaded per quick-260912-5q2).
-  if (pinHidChanged) {
-    reprojectDiskPinHideIntoRows();
+  // 7. Re-project pinned into conversation-store row-id sets only when the
+  //    sentinel actually moved. Cosmetics-only merges must not pay the cost
+  //    of a set rebuild. Gate is in reprojectDiskPinIntoRows itself (gated
+  //    on state.loaded per quick-260912-5q2).
+  if (pinChanged) {
+    reprojectDiskPinIntoRows();
   }
 }
 
@@ -917,7 +875,6 @@ export function readAppearanceCache(): Identity[] {
           coordinator: item.coordinator,
           task: item.task,
           pinned: item.pinned === true,
-          hidden: item.hidden === true,
           roleDefaults: item.roleDefaults ?? null,
         });
       }
@@ -949,7 +906,6 @@ export function writeAppearanceCache(list: Identity[]): void {
       coordinator: i.coordinator,
       task: i.task,
       pinned: i.pinned === true,
-      hidden: i.hidden === true,
       roleDefaults: i.roleDefaults ?? null,
     }));
     localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify(canonical));

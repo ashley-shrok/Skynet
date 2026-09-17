@@ -209,6 +209,14 @@ class MockRegistry implements SubscriptionRegistry {
     tmuxSession: string | null;
     sessionId: string;
   }> = [];
+  // Phase 115 Plan 115-06 (D-06, D-18): captures every publishIdentityArchived
+  // call so batch-path tests can assert that archive-tree rows route through
+  // this method (not publishSessionState).
+  publishedArchived: Array<{
+    name: string;
+    hostId: string;
+    hostname: string;
+  }> = [];
   subscribers = new Set<(frame: unknown) => void>();
 
   subscribe(sendFrame: (frame: unknown) => void): () => void {
@@ -218,6 +226,14 @@ class MockRegistry implements SubscriptionRegistry {
 
   publishSessionState(hostId: string, state: SessionState): void {
     this.publishedStates.push({ hostId, state });
+  }
+
+  publishIdentityArchived(
+    name: string,
+    hostId: string,
+    hostname: string,
+  ): void {
+    this.publishedArchived.push({ name, hostId, hostname });
   }
 
   publishSessionGone(
@@ -333,7 +349,10 @@ function makeSweepJsonl(input: {
         : {}),
       ...(raw.role !== undefined ? { role: raw.role } : {}),
       ...(raw.pinned !== undefined ? { pinned: raw.pinned } : {}),
-      ...(raw.hidden !== undefined ? { hidden: raw.hidden } : {}),
+      // Phase 115 Plan 115-06: archived disk-root axis. Present only when
+      // the test supplies it (absent = undefined = pre-115-05 host or
+      // live-tree row simulation).
+      ...(raw.archived !== undefined ? { archived: raw.archived } : {}),
     };
     lines.push(JSON.stringify(line));
   }
@@ -7927,6 +7946,104 @@ describe("Phase 92 — batch sweep dispatch", () => {
       listingCallsAfterTick1,
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 115 Plan 115-06 — archive-tree row routing (D-06, D-18)
+  //
+  // Load-bearing invariants:
+  //   (1) An identity line with `archived: true` on the batch path routes
+  //       to `registry.publishIdentityArchived(name, hostId, hostname)`
+  //       and NOT to `publishSessionState`. Enforces the D-06 separation
+  //       (archived rows never enter the interactive session pool).
+  //   (2) An identity line with `archived: false` (or absent) still routes
+  //       to `publishSessionState` on the source-B path — the archived
+  //       branch does NOT change behavior for live-tree rows.
+  //   (3) Strict-boolean check per 115-05 SUMMARY threat note: a
+  //       stringly-typed malicious payload (`archived: "false"` — truthy
+  //       string) must NOT route to the archived pool. The check is
+  //       `line.archived === true`, not truthy.
+  // -------------------------------------------------------------------------
+  it("Test P115-06 archive-routing-1: identity line with archived:true → publishIdentityArchived, NOT publishSessionState", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [
+          // Live-tree identity — routes to publishSessionState as usual.
+          { identity: "alpha", archived: false },
+          // Archive-tree identity — routes to publishIdentityArchived.
+          { identity: "zombie", archived: true },
+        ],
+        pids: [], // No live PIDs — source A silent this tick.
+      }),
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // (a) Archive-tree row published via publishIdentityArchived with (name,
+    //     hostId, hostname).
+    expect(deps.registry.publishedArchived).toHaveLength(1);
+    expect(deps.registry.publishedArchived[0]).toMatchObject({
+      name: "zombie",
+    });
+    // (b) Live-tree row published via publishSessionState.
+    const publishedLiveNames = deps.registry.publishedStates
+      .map((p) => p.state.tmuxSession)
+      .sort();
+    expect(publishedLiveNames).toEqual(["alpha"]);
+    // (c) Archive-tree row did NOT leak into publishSessionState.
+    expect(publishedLiveNames).not.toContain("zombie");
+  });
+
+  it("Test P115-06 archive-routing-2: identity line with archived:false → publishSessionState (live-tree unchanged)", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [{ identity: "alpha", archived: false }],
+        pids: [],
+      }),
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedArchived).toHaveLength(0);
+    expect(deps.registry.publishedStates).toHaveLength(1);
+  });
+
+  it("Test P115-06 archive-routing-3: identity line WITHOUT `archived` field (pre-115-05 host) → publishSessionState (fail-open)", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    // No `archived` supplied → undefined → strict boolean check treats as
+    // live-tree. Old boxes running pre-115-05 sweep script emit lines
+    // without this field.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [{ identity: "alpha" }],
+        pids: [],
+      }),
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedArchived).toHaveLength(0);
+    expect(deps.registry.publishedStates).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -8128,7 +8245,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
     role_cosmetics?: Record<string, unknown> | null;
     role?: string | null;
     pinned?: boolean;
-    hidden?: boolean;
     omitAppearanceKeys?: boolean;
   } = {}): string {
     const identityFields: Record<string, unknown> = overrides.omitAppearanceKeys
@@ -8142,7 +8258,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
             : BASE_ROLE_COSMETICS,
           role: overrides.role !== undefined ? overrides.role : "box-maintainer",
           pinned: overrides.pinned !== undefined ? overrides.pinned : true,
-          hidden: overrides.hidden !== undefined ? overrides.hidden : false,
         };
     return makeSweepJsonl({
       identities: [{
@@ -8168,7 +8283,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
     role_cosmetics?: Record<string, unknown> | null;
     role?: string | null;
     pinned?: boolean;
-    hidden?: boolean;
     omitAppearanceKeys?: boolean;
   } = {}): string {
     const identityFields: Record<string, unknown> = overrides.omitAppearanceKeys
@@ -8182,7 +8296,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
             : BASE_ROLE_COSMETICS,
           role: overrides.role !== undefined ? overrides.role : "box-maintainer",
           pinned: overrides.pinned !== undefined ? overrides.pinned : true,
-          hidden: overrides.hidden !== undefined ? overrides.hidden : false,
         };
     return makeSweepJsonl({
       identities: [{
@@ -8282,13 +8395,12 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
     // -------------------------------------------------------------------------
     // Case 1: Appearance reaches the wire
     // -------------------------------------------------------------------------
-    it("Case 1: appearance reaches the wire — displayName, title, colorHue, task, pinned, hidden all present on published frame", async () => {
+    it("Case 1: appearance reaches the wire — displayName, title, colorHue, task, pinned all present on published frame", async () => {
       const states = await runOneTick(buildSweep({
         identity_cosmetics: { displayName: "Pixel", task: "ship it" },
         role_cosmetics: { title: "Box Maintainer", colorHue: 200 },
         role: "box-maintainer",
         pinned: true,
-        hidden: false,
       }));
 
       const published = states.find((s) => s.state.tmuxSession === "pixel");
@@ -8300,7 +8412,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
       expect(appearance!.colorHue).toBe(200);
       expect(appearance!.task).toBe("ship it");
       expect(appearance!.pinned).toBe(true);
-      expect(appearance!.hidden).toBe(false);
     });
 
     // -------------------------------------------------------------------------
@@ -8391,15 +8502,12 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
           tick1Opts: { pinned: false },
           tick2Opts: { pinned: true },
         },
-        {
-          field: "hidden",
-          tick1Opts: { hidden: false },
-          tick2Opts: { hidden: true },
-        },
+        // (Phase 115 Plan 115-02: prior `hidden` fingerprint-axis test retired per D-21.)
       ];
 
-      // Verify the test covers all 9 fields
-      expect(fieldChanges.length).toBe(9);
+      // Verify the test covers all 8 fields
+      // (Phase 115 Plan 115-02: was 9 before the `hidden` axis retirement per D-21.)
+      expect(fieldChanges.length).toBe(8);
 
       for (const { field, tick1Opts, tick2Opts } of fieldChanges) {
         // Fresh state per field test
@@ -8417,7 +8525,8 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
         expect(pixelPublish2.length).toBeGreaterThan(0);
         // If this assertion fails, the field is NOT a fingerprint axis.
         expect(pixelPublish2[0].state.identityAppearance).not.toBeNull();
-        // Confirm the field name covers all 9 changeable fields
+        // Confirm the field name covers all 8 changeable fields
+        // (Phase 115 Plan 115-02: was 9 before the `hidden` axis retirement per D-21.)
         const fieldNames = fieldChanges.map((f) => f.field);
         expect(fieldNames).toContain(field);
       }
@@ -8475,11 +8584,12 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
     // -------------------------------------------------------------------------
     // Case 6: Fail-closed sentinels
     // -------------------------------------------------------------------------
-    it("Case 6: absent pinned/hidden keys on the sweep line → false (fail-closed, never truthy-by-accident)", async () => {
+    it("Case 6: absent pinned key on the sweep line → false (fail-closed, never truthy-by-accident)", async () => {
       // Build a sweep JSONL with identity_cosmetics present (so hasAnyAppearanceKey
-      // is true → resolver fires) but NO pinned/hidden keys (simulating a sweep
-      // line that predates the .pinned/.hidden stat additions on the host).
-      const sweepWithoutPinnedHidden = makeSweepJsonl({
+      // is true → resolver fires) but NO pinned key (simulating a sweep line that
+      // predates the .pinned stat addition on the host).
+      // (Phase 115 Plan 115-02: sibling `.hidden` axis retired per D-21.)
+      const sweepWithoutPinned = makeSweepJsonl({
         identities: [{
           identity: "pixel",
           dormant: false,
@@ -8490,27 +8600,25 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
           identity_cosmetics: { displayName: "Pixel" },
           role_cosmetics: { colorHue: 100 },
           role: "box-maintainer",
-          // pinned and hidden intentionally omitted — absent from sweep line
+          // pinned intentionally omitted — absent from sweep line
         }],
         pids: buildSweep === buildSourceASweep
           ? [{ identity: "pixel", pid: 42001, per_session_stop_payload: makeValidPayload() }]
           : [],
       });
-      const states = await runOneTick(sweepWithoutPinnedHidden);
+      const states = await runOneTick(sweepWithoutPinned);
       const published = states.find((s) => s.state.tmuxSession === "pixel");
       expect(published).toBeDefined();
       const appearance = published!.state.identityAppearance;
       expect(appearance).not.toBeNull();
       // Absent keys default to false (fail-closed: never truthy-by-accident)
       expect(appearance!.pinned).toBe(false);
-      expect(appearance!.hidden).toBe(false);
     });
 
-    it("Case 6b: pinned: true → pinned is true; hidden: false → hidden is false", async () => {
-      const states = await runOneTick(buildSweep({ pinned: true, hidden: false }));
+    it("Case 6b: pinned: true → pinned is true", async () => {
+      const states = await runOneTick(buildSweep({ pinned: true }));
       const published = states.find((s) => s.state.tmuxSession === "pixel");
       expect(published!.state.identityAppearance!.pinned).toBe(true);
-      expect(published!.state.identityAppearance!.hidden).toBe(false);
     });
 
   }); // end describe.each
@@ -8547,7 +8655,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
         role_cosmetics: BASE_ROLE_COSMETICS,
         role: "box-maintainer",
         pinned: false,
-        hidden: false,
       }],
       pids: [{
         identity: "pixel",
@@ -8575,7 +8682,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
         role_cosmetics: BASE_ROLE_COSMETICS,
         role: "box-maintainer",
         pinned: true,
-        hidden: false,
       }],
       pids: [{
         identity: "pixel",
@@ -8618,7 +8724,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
           role_cosmetics: { colorHue: 100 },
           role: "engineer",
           pinned: false,
-          hidden: false,
         },
         {
           identity: "beta",
@@ -8631,7 +8736,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
           role_cosmetics: { colorHue: 200 },
           role: "designer",
           pinned: true,
-          hidden: false,
         },
       ],
       pids: [{
@@ -8727,7 +8831,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
         role_cosmetics: BASE_ROLE_COSMETICS,
         role: "box-maintainer",
         pinned: true,
-        hidden: false,
       }],
       pids: [{
         identity: "pixel",
@@ -8754,7 +8857,6 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
         role_cosmetics: BASE_ROLE_COSMETICS,
         role: "box-maintainer",
         pinned: true,
-        hidden: false,
       }],
       pids: [{
         identity: "pixel",

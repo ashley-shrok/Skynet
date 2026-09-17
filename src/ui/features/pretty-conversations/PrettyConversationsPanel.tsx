@@ -56,7 +56,7 @@ import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
 // input mounted at the top of the pv-panel-scroll region.
-import { ChevronDown, ChevronRight, Drama, EyeOff, Globe, Loader2, Monitor, MoreVertical, Search, SquarePen, X } from "lucide-react";
+import { Archive, ChevronDown, Drama, Globe, Loader2, Monitor, MoreVertical, Search, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -72,7 +72,6 @@ import {
   useConversations,
   useSelectedConversationId,
   usePinnedIds,
-  useHiddenIds,
   useActiveSet,
   useFleetSessionsLoaded,
   // Phase 92 Plan 04: hydrate effect reads the fleet-sessions snapshot to
@@ -85,9 +84,11 @@ import {
   pinConversation,
   unpinConversation,
   hydratePinnedIdsFromServer,
-  hideConversation,
-  unhideConversation,
-  hydrateHiddenIdsFromServer,
+  // Phase 115 Plan 115-06 (Task 3): archived-rows slice hook. Fed by the
+  // fleet-status feeder from the distinct `identity-archived` wire message
+  // (115-06 wire shape) — NOT from `state.identities` or any live-tier
+  // pool. Consumed by the Archived section below (D-19 lazy-render).
+  useArchivedFleetRows,
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
 import {
@@ -128,7 +129,6 @@ import {
   useIdentities,
   buildIdentityHostsFromFleet,
   deriveDiskPinnedIds,
-  deriveDiskHiddenIds,
 } from "@/state/identities-store";
 import { startTrappedWorkPoller } from "@/state/trapped-work-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
@@ -141,12 +141,17 @@ import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 // Phase 92 Plan 04: getPinnedIds is retired. The panel projects the pin state
 // from the identities-store's `pinned: boolean` field via deriveDiskPinnedIds
 // (imported above).
-// Phase 107 Plan 04: getHiddenIds is ALSO retired. The hidden slice now
-// derives from the disk-sentinel model via deriveDiskHiddenIds (imported
-// above) — same hydrate effect, same identityHosts.
+// (Phase 115 Plan 115-02: the Phase 107 `.hidden` hydrate + deriveDiskHiddenIds
+//  path was retired per D-21 alongside the backend .hidden fanout removal.)
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
+// Phase 115 Plan 115-06 (Task 2 + Task 3): archive API client + inert archived-
+// row component + the store hook that surfaces the archived-rows slice fed by
+// the fleet-status feeder from `identity-archived` wire frames (115-06 wire
+// shape, see wire-protocol.ts / ssh-poll-orchestrator.ts).
+import { archiveIdentity } from "@/api/identity-archive-api";
+import { PrettyArchivedRow } from "./PrettyArchivedRow";
 import WeeklyUsageMeter from "./WeeklyUsageMeter";
 // Phase 91 Plan 05 — NewConversationModal: portal-mounted sibling of
 // GlobalFilesModal. Opened via the header three-dot menu "New conversation"
@@ -204,55 +209,30 @@ function sessionWorkingKey(row: ConversationRowShape): string | null {
   return `${row.host.id}:${row.targetTmuxSession ?? ""}`;
 }
 
-// Phase 107 Plan 04 (D-06 — affordance narrowing): gate discriminator for
-// the Hide/Show button. Returns the canonical fleet-synthetic id used for
-// hide state IF this row represents an identity harness session, else null.
-// A null return means the row is not hide-eligible (dev tab without a
-// backing identity, relay-room, RDP host sentinel).
-//
-// Two accepted shapes:
-//   1. Fleet-synthetic rows (row.id starts with "fleet::") — return row.id
-//      verbatim. These are the pre-click state: no openTab exists yet.
-//   2. openTab-sourced rows for identity harness sessions (row.host +
-//      row.targetTmuxSession present, not RDP, not relay-room) — return the
-//      derived fleet-synthetic id via fleetRowId(). These are the currently-
-//      open state: an openTab entry exists, so the store's openTabs-entry-
-//      wins dedup skipped the fleet-synthetic row in favor of the openTab-
-//      derived row whose id is `tab-XXX`.
-//
-// Prior to bounty 260912 this gate was `row.id.startsWith("fleet::")` — a
-// strict id-shape check that excluded case 2 entirely, so the Hide menu
-// item disappeared the moment a user opened an identity's chat. Now the
-// canonical id resolver runs on both shapes; downstream (handleToggleHide
-// + the `hidden` prop feed) uses the returned id so hiddenIds membership +
-// hideConversation writes use the fleet-synthetic form that
-// deriveDiskHiddenIds emits, giving reload-durability regardless of which
-// shape the sidebar happens to be rendering the row as at hide-time.
-function canonicalHideIdForRow(row: ConversationRowShape): string | null {
-  if (row.kind === "relay-room") return null;
-  if (row.rdpHostRow === true) return null;
-  if (row.id.startsWith("fleet::")) return row.id;
-  if (row.host && row.targetTmuxSession) {
-    return fleetRowId(parseInt(row.host.id, 10), row.targetTmuxSession);
-  }
-  return null;
-}
+// (Phase 115 Plan 115-02: the Phase 107 `canonicalHideIdForRow` +
+//  `isRowHidden` helpers were retired per D-21 alongside the Hide menu
+//  affordance. 115-06 introduces an Archive equivalent with a distinct
+//  discriminator sourced from the archived-tree sweep, not from these
+//  helpers.)
 
-// Single hidden-membership predicate. The store's snapshot carries hidden rows
-// (it no longer strips them), so every consumer that walks the row collections
-// resolves hidden-ness through here.
-//
-// The canonical-id indirection is load-bearing, not defensive: hiddenIds stores
-// the `fleet::<hostId>::<name>` form that deriveDiskHiddenIds emits, but a row
-// for a currently-open chat carries a `tab-XXX` id. Testing `row.id` directly
-// misses exactly those rows — the bug the bounty-260912 canonicalization note
-// at handleToggleHide describes. Mirrors the expression the render sites use to
-// feed each row's `hidden` prop.
-function isRowHidden(
-  row: ConversationRowShape,
-  hiddenIds: ReadonlySet<string>,
-): boolean {
-  return hiddenIds.has(canonicalHideIdForRow(row) ?? row.id);
+// Phase 115 Plan 115-06 (D-01, D-04): affordance-narrowing gate for the
+// Archive menu item — mirrors the deleted `canonicalHideIdForRow` (115-02).
+// Returns the canonical fleet-synthetic id (`fleet::<hostId>::<key>`) for a
+// row when the Archive item should be offered, or null when the row is NOT
+// an eligible target:
+//   - RDP host-rows (`row.rdpHostRow === true`)   → null (RDP has no identity backing).
+//   - Relay-room rows (`row.kind === "relay-room"`) → null (rooms are not identities).
+//   - Rows without host + targetTmuxSession       → null (fleet-synthetic id
+//                                                    cannot be constructed).
+// The panel only threads `onArchive` on rows whose gate returns non-null,
+// which the row component then renders as the "Archive" menu entry.
+function canonicalArchiveIdForRow(row: ConversationRowShape): string | null {
+  if (row.rdpHostRow === true) return null;
+  if (row.kind === "relay-room") return null;
+  if (!row.host || !row.targetTmuxSession) return null;
+  const hostIdNum = parseInt(row.host.id, 10);
+  if (!Number.isFinite(hostIdNum)) return null;
+  return fleetRowId(hostIdNum, row.targetTmuxSession);
 }
 
 // Patch #137: micro-wrapper that reads the row's live isWorking state from
@@ -278,7 +258,6 @@ function PrettyConversationRowLive(props: {
   row: ConversationRowShape;
   selected: boolean;
   pinned: boolean;
-  hidden?: boolean;
   variant: "mobile" | "desktop";
   onSelect: () => void;
   onTogglePin: () => void;
@@ -287,8 +266,16 @@ function PrettyConversationRowLive(props: {
   // set group, pinned group, non-RDP grouped block). RDP sentinel omits
   // it because RDP rows never emit onDeactivate at the row level.
   onDeactivate?: () => void;
-  // quick-260731-tgg: forwarded to PrettyConversationRow for Hide/Show wiring.
-  onToggleHide?: () => void;
+  // (Phase 115 Plan 115-02: prior onToggleHide + hidden props retired per
+  //  D-21.) Phase 115 Plan 115-06 (D-01): onArchive forwarded to
+  //  PrettyConversationRow for the Archive context-menu item. Wired ONLY at
+  //  render sites for fleet-synthetic identity-backed rows (gated by
+  //  canonicalArchiveIdForRow at the parent panel level) so RDP synthetic
+  //  rows, relay-room rows, and openTab-derived rows without host +
+  //  targetTmuxSession never receive it — the row's items[] builder gates
+  //  on `onArchive !== undefined`, so absence at this seam means absence in
+  //  the menu.
+  onArchive?: () => void;
   // quick-260810-n3a: forwarded to PrettyConversationRow for the Kill
   // context-menu item. The row's items[] builder gates on !isRdp && !identity
   // && row.targetTmuxSession so the item only appears for valid targets.
@@ -472,9 +459,9 @@ export function PrettyConversationsPanel({
   const { activeSet: activeSetRows, pinned, middle, rdpGroup } = useConversations();
   const selectedId = useSelectedConversationId();
   const pinnedIds = usePinnedIds();
-  // quick-260731-tgg: hiddenIds subscription — drives the Hidden section render
-  // and per-row hidden prop threading.
-  const hiddenIds = useHiddenIds();
+  // (Phase 115 Plan 115-02: prior useHiddenIds subscription retired per D-21.
+  //  115-06 introduces an archived-tree subscription driven off the sweep,
+  //  not off a hiddenIds set.)
   // Quick 260727-tb1: identity map for the bounty-count poller's getTargets
   // callback. Same hook the row uses to resolve identity — subscribing at
   // the panel level lets the poller enumerate every visible row's identity
@@ -536,7 +523,9 @@ export function PrettyConversationsPanel({
   //       L540-547. Depends on [fleetSessionsLoaded, identitiesByKey] so the
   //       body reruns when the fleet loads AND every time identities grows —
   //       idempotent per the sink-side additive-on-empty guards in
-  //       hydratePinnedIdsFromServer / hydrateHiddenIdsFromServer.
+  //       hydratePinnedIdsFromServer.
+  //       (Phase 115 Plan 115-02: prior sibling hydrateHiddenIdsFromServer
+  //        gate retired per D-21 alongside the deriveDiskHiddenIds call.)
   useEffect(() => {
     if (!fleetSessionsLoaded) return;
     // 2026-09-17: gate loosened from `identitiesLoaded` (the slow /identities
@@ -590,18 +579,9 @@ export function PrettyConversationsPanel({
         hydratePinnedIdsFromServer(pinnedIds);
       }
 
-      // Phase 107 Plan 04 (D-03): hiddenConversationIds now also derives from
-      // the disk-sentinel model — same pass, same identityHosts. getHiddenIds
-      // (GET /user-preferences) is retired. deriveDiskHiddenIds mirrors
-      // deriveDiskPinnedIds: walks identities-store, filters identity.hidden
-      // === true, projects into fleet:: space.
-      const hiddenIds = deriveDiskHiddenIds(identityHosts);
-      if (cancelled) return;
-      // Same empty-projection skip as the pinned side above — for the same
-      // reasons.
-      if (hiddenIds.length > 0) {
-        hydrateHiddenIdsFromServer(hiddenIds);
-      }
+      // (Phase 115 Plan 115-02: sibling `.hidden` hydrate block retired per
+      //  D-21 — the deriveDiskHiddenIds projection + hydrateHiddenIdsFromServer
+      //  call are gone alongside the backend `.hidden` fanout removal.)
     })();
     return () => {
       cancelled = true;
@@ -745,7 +725,17 @@ export function PrettyConversationsPanel({
   >(null);
 
   // quick-260731-tgg: collapsed by default on every mount per user's design lock.
-  const [hiddenExpanded, setHiddenExpanded] = useState(false);
+  // (Phase 115 Plan 115-02: prior hiddenExpanded state retired per D-21
+  //  alongside the Hidden section render block.)
+  //
+  // Phase 115 Plan 115-06 (D-19): archivedExpanded gates whether archived
+  // rows are in the DOM. `{archivedExpanded && archivedRows.map(...)}` in
+  // the render block below short-circuits when collapsed — rows are NOT
+  // mounted at all until the section is expanded. Do NOT flip to a CSS
+  // `hidden` class or aria-only approach; lazy-render is the invariant
+  // (D-19). Collapsed by default per the design lock.
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
+  const archivedRows = useArchivedFleetRows();
 
   // Phase 41 Plan 02: search filter state (Task 2 will consume this for the
   // label-only flatten-and-filter render branch). Controlled input; the clear
@@ -945,53 +935,24 @@ export function PrettyConversationsPanel({
   //     alongside the Tier 1 activeSet render tier; `activeSetRows` in the
   //     destructure is now always an empty array from the store snapshot.
   //
-  // Hidden rows are excluded here rather than upstream in the store. The
-  // snapshot carries them so the Hidden section can render them; keeping them
-  // out of the two visible tiers is this pass's job.
-  const visiblePinned = pinned.filter((r) => !isRowHidden(r, hiddenIds));
-  const visibleMiddle = middle.filter((r) => !isRowHidden(r, hiddenIds));
+  // (Phase 115 Plan 115-02: prior visible-vs-hidden partition retired per
+  //  D-21 — every row in the pinned/middle tiers is unconditionally visible
+  //  now. 115-06 will re-introduce an archived partition sourced from the
+  //  sweep's archived-tree, not from a hiddenIds set.)
   const displayedPinned = anyFilterOn
-    ? visiblePinned.filter(matchesFilterForRow)
-    : visiblePinned;
+    ? pinned.filter(matchesFilterForRow)
+    : pinned;
   const displayedMiddle = anyFilterOn
-    ? visibleMiddle.filter(matchesFilterForRow)
-    : visibleMiddle;
+    ? middle.filter(matchesFilterForRow)
+    : middle;
   const displayedRdpGroup = rdpGroup;
 
-  // The Hidden section's rows come straight out of the snapshot. The store no
-  // longer strips hidden rows, so every render — including the first render of a
-  // freshly-mounted panel — sees them.
-  //
-  // This replaces a ref-based accumulator that captured rows as they passed
-  // through the visible tiers. That only ever worked during the window between
-  // first paint and hiddenIds hydration, and only for the panel instance that
-  // observed it: hiddenIds lives in the module-scoped store and outlives any
-  // mount, so a remounted panel started with an empty accumulator against an
-  // already-populated hiddenIds and could never refill it. Desktop's inline
-  // sidebar mounts once per page load and never noticed; the mobile flow
-  // unmounts the panel on every list→view navigation, which emptied the
-  // accumulator and dropped the whole section from the DOM until a full reload.
-  const hiddenRows = useMemo(() => {
-    const out: ConversationRowShape[] = [];
-    const seen = new Set<string>();
-    const consider = (row: ConversationRowShape) => {
-      if (seen.has(row.id)) return;
-      seen.add(row.id);
-      if (isRowHidden(row, hiddenIds)) out.push(row);
-    };
-    for (const r of activeSetRows) consider(r);
-    for (const r of pinned) consider(r);
-    for (const r of middle) consider(r);
-    // rdpGroup is deliberately not walked: canonicalHideIdForRow returns null
-    // for rdpHostRow rows, so they can never be members of hiddenIds.
-    return out;
-  }, [hiddenIds, activeSetRows, pinned, middle]);
+  // (Phase 115 Plan 115-02: prior `hiddenRows` accumulator retired per D-21
+  //  alongside the Hidden section render block. 115-06 introduces an
+  //  `archivedRows` equivalent sourced from the archived-tree sweep.)
 
   // Current-render row lookup for the idle-deactivate sweep below, which
-  // resolves an active-set id back to a row object. Distinct from the retired
-  // hidden-section accumulator: this one is rebuilt from the live snapshot each
-  // render rather than accumulating across a mount's lifetime, so it holds no
-  // state that a remount could lose.
+  // resolves an active-set id back to a row object.
   const rowsByIdRef = useRef(new Map<string, ConversationRowShape>());
   const rowsById = useMemo(() => {
     const out = new Map<string, ConversationRowShape>();
@@ -1095,9 +1056,10 @@ export function PrettyConversationsPanel({
   // chrome (no divider chips)".
   //
   // user locks encoded here:
-  //   - Union of activeSetRows + pinned + middle + rdpGroup.rows. HIDDEN
-  //     ROWS ARE EXCLUDED per user lock #3 (hidden section is not in the
-  //     union).
+  //   - Union of activeSetRows + pinned + middle + rdpGroup.rows. (Phase 115
+  //     Plan 115-02: prior user-lock-#3 exclusion of hidden rows retired
+  //     per D-21; 115-06 re-introduces the equivalent exclusion for archived
+  //     rows once the archived-tree data source is wired.)
   //   - Deduplicate by row.id — activeSet + pinned can overlap in principle.
   //   - Case-insensitive substring match against primary + sublabel via
   //     matchesSearch (label-only; no message-body content search).
@@ -1111,11 +1073,9 @@ export function PrettyConversationsPanel({
     const pushIfMatches = (row: ConversationRowShape) => {
       if (seen.has(row.id)) return;
       seen.add(row.id);
-      // user lock #3 — hidden rows do NOT appear in filter matches. This was
-      // previously satisfied for free by the store stripping hidden rows before
-      // the panel saw them; now that the snapshot carries them it is an
-      // explicit exclusion.
-      if (isRowHidden(row, hiddenIds)) return;
+      // (Phase 115 Plan 115-02: prior hidden-row exclusion retired per D-21.
+      //  115-06 re-introduces the equivalent exclusion for archived rows once
+      //  the archived-tree data source is wired.)
       if (matchesSearch(row, trimmedSearchQuery)) out.push(row);
     };
     for (const r of activeSetRows) pushIfMatches(r);
@@ -1125,7 +1085,7 @@ export function PrettyConversationsPanel({
       for (const r of rdpGroup.rows) pushIfMatches(r);
     }
     return out;
-  }, [trimmedSearchQuery, activeSetRows, pinned, middle, rdpGroup, matchesSearch, hiddenIds]);
+  }, [trimmedSearchQuery, activeSetRows, pinned, middle, rdpGroup, matchesSearch]);
 
   // quick-260802-pq2: swipe-coordination state (currentlySwipedId +
   // handleSwipeOpenChange + forceClosedFor) removed alongside the row's
@@ -1148,15 +1108,10 @@ export function PrettyConversationsPanel({
   // belt-and-suspenders for the swipe-open race; both the state and the
   // race are gone with the swipe machinery.
   const handleRowSelect = (row: ConversationRowShape) => {
-    // user 2026-09-03 [inverts quick-260731-tgg]: hidden means hidden.
-    // Clicking a hidden row opens the session WITHOUT mutating hiddenIds.
-    // Two reasons: (1) semantic — "hidden" is a user-controlled bucket, only
-    // the explicit Unhide context-menu action (handleToggleHide) should change
-    // it; (2) race — the prior synchronous unhide re-rendered the Hidden
-    // section, shifted the row's DOM out from under the cursor mid-click, and
-    // sometimes swallowed the routing branch entirely so the session never
-    // opened. Note: handleTogglePin (line ~1188) still unhides-before-pin
-    // because pinning is promotion — that path is intentional and untouched.
+    // (Phase 115 Plan 115-02: prior "hidden means hidden" click note retired
+    //  per D-21 alongside the Hide affordance. Once 115-06 lands the Archive
+    //  affordance, an archived row won't have a context menu at all (D-06),
+    //  so the click path doesn't need special handling for it.)
     addToActiveSet(row.id);
     if (row.rdpHostRow && onRdpRowClick) {
       onRdpRowClick(row);
@@ -1388,7 +1343,10 @@ export function PrettyConversationsPanel({
   // when host+targetTmuxSession are available so the pin survives openTab
   // id churn across URL-restores).
   const handleTogglePin = (row: ConversationRowShape) => {
-    if (hiddenIds.has(row.id)) unhideConversation(row.id);
+    // (Phase 115 Plan 115-02: prior "unhide-before-pin" side effect retired
+    //  per D-21 alongside the Hide affordance. Once 115-06 lands the Archive
+    //  affordance, pinning an archived row is out of scope — archived rows
+    //  render inert per D-06 without a Pin/Unpin item.)
     const shadowFleetId =
       row.host && row.targetTmuxSession
         ? fleetRowId(parseInt(row.host.id, 10), row.targetTmuxSession)
@@ -1403,30 +1361,71 @@ export function PrettyConversationsPanel({
     }
   };
 
-  // quick-260731-tgg: panel-level hide/show handler.
-  // - If already hidden (Show button): unhide only.
-  // - If in active-set: deactivate FIRST (closes tab), then hide.
-  // - Otherwise: hide directly.
+  // (Phase 115 Plan 115-02: prior `handleToggleHide` handler retired per
+  //  D-21 alongside the Hide/Show context-menu item on both the sidebar row
+  //  and the identity badge.)
   //
-  // bounty 260912: canonicalize the id used for hiddenIds membership +
-  // hideConversation/unhideConversation. For fleet-synthetic rows this is
-  // row.id verbatim (pre-click state); for openTab-sourced identity harness
-  // rows (currently-open state) this is the derived `fleet::HID::name`
-  // shape. deriveDiskHiddenIds emits the fleet-synthetic form, so writing
-  // that form is what makes the hide survive a reload. row.id is still used
-  // for the activeSet check + handleRowDeactivate arg because activeSet may
-  // hold either shape and handleRowDeactivate purges both.
-  const handleToggleHide = (row: ConversationRowShape) => {
-    const canonicalId = canonicalHideIdForRow(row);
-    if (canonicalId === null) return; // gate mismatch — no-op
-    if (hiddenIds.has(canonicalId)) {
-      unhideConversation(canonicalId);
-      return;
-    }
+  // Phase 115 Plan 115-06 (D-01, D-03, D-04, D-05): handleArchive — the
+  // panel-level composition invoked by the row menu's Archive item.
+  // Sequence:
+  //   1. Gate on canonicalArchiveIdForRow — the same fleet-synthetic-
+  //      identity-backed gate the deleted Hide handler used (RDP synthetic
+  //      rows, relay-room rows, and rows without host + targetTmuxSession
+  //      are excluded — the row-side menu builder never even shows the item
+  //      for those cases, but the guard is defense-in-depth).
+  //   2. window.confirm with EXACT copy `archive <displayName>? this can't
+  //      be undone.` (D-03 user-locked verbatim). The displayName is the
+  //      identity's `displayName` (mirrors the row's own label field per
+  //      115-06 plan-check refinement — Test 8 asserts exact-string equality
+  //      with a fixture identity name `wren`). If the identity is not yet
+  //      resolved on the frontend, fall back to the identity key from the
+  //      row's targetTmuxSession (safe default — the sentinel drop still
+  //      succeeds regardless of the confirmation copy).
+  //   3. If confirm=false → return immediately, no API call, no pane close.
+  //   4. If confirm=true → D-04 side effect: if the row is in the active-set
+  //      (identity has a visible pane), call handleRowDeactivate(row) to
+  //      close the pane BEFORE firing the API call. This mirrors the deleted
+  //      handleToggleHide's `handleRowDeactivate` composition.
+  //   5. Fire-and-forget archiveIdentity(hostId, identityKey). Errors go to
+  //      console — no toast infrastructure at the panel level today; the
+  //      row disappears from the live list once the sentinel scan tick fires
+  //      supervisor's retire flow, so the user sees success visually.
+  //
+  // D-05 lock: no un-archive branch. One-way gesture.
+  const handleArchive = (row: ConversationRowShape) => {
+    if (canonicalArchiveIdForRow(row) === null) return;
+    if (!row.host || !row.targetTmuxSession) return; // gate above already ensures this; TS narrowing
+    const hostIdNum = parseInt(row.host.id, 10);
+    if (!Number.isFinite(hostIdNum)) return;
+    const identityKey = row.targetTmuxSession;
+    // Prefer the resolved identity's displayName so the confirmation reads
+    // consistent with the row's label (same field the row's header line
+    // renders). Fall back to the identity key if the identity hasn't yet
+    // resolved (fleet-status enrichment race — no drift from displayName in
+    // steady state because the row itself falls back the same way).
+    const resolved =
+      (Number.isFinite(hostIdNum)
+        ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
+        : undefined) ?? identitiesByKey.get(identityKey);
+    const displayName = resolved?.displayName ?? identityKey;
+    // D-03 EXACT COPY — do NOT wrap displayName in backticks or quotes in
+    // the actual string; the CONTEXT.md formatting uses backticks as
+    // MARKDOWN emphasis around the <identity> placeholder, not as literal
+    // characters in the dialog. Test 8 asserts byte-identical equality
+    // against `archive wren? this can't be undone.` with fixture `wren`.
+    // Apostrophe is a straight ASCII apostrophe (U+0027), not a curly one.
+    if (!window.confirm(`archive ${displayName}? this can't be undone.`)) return;
     if (activeSet.has(row.id)) {
       handleRowDeactivate(row);
     }
-    hideConversation(canonicalId);
+    void archiveIdentity(hostIdNum, identityKey).catch((err) => {
+      console.warn({
+        operation: "identity_archive_failed",
+        hostId: hostIdNum,
+        identityKey,
+        errMessage: err instanceof Error ? err.message : String(err),
+      });
+    });
   };
 
   // quick-260807-e4s (patch #149 followup-1 pin-nuke): mirror the store's
@@ -1826,10 +1825,11 @@ export function PrettyConversationsPanel({
             whether the search input has a non-empty trimmed query.
               - searchMatches !== null → FLAT match list — no divider chips,
                 no zone chrome, pinned/middle/rdp all collapse into one
-                container. Hidden rows deliberately excluded from the union
-                (user lock #3). Deactivate/pin actions preserved per row.
+                container. (Phase 115 Plan 115-02: prior user-lock-#3 hidden
+                exclusion retired per D-21; 115-06 will add an archived
+                exclusion.) Deactivate/pin actions preserved per row.
               - searchMatches === null → three-zone view restores (activeSet
-                + pinned + middle + rdpGroup + Hidden). */}
+                + pinned + middle + rdpGroup). */}
         {searchMatches !== null ? (
           <div className="pv-panel-group" data-search-flat-group="true">
             {searchMatches.map((row) => (
@@ -1838,17 +1838,18 @@ export function PrettyConversationsPanel({
                 row={row}
                 selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                 pinned={isRowPinned(row)}
-                hidden={isRowHidden(row, hiddenIds)}
                 variant={variant}
                 onSelect={() => handleRowSelect(row)}
                 onTogglePin={
                   row.rdpHostRow === true ? rdpNoopTogglePin : () => handleTogglePin(row)
                 }
                 onDeactivate={() => handleRowDeactivate(row)}
-                onToggleHide={
-                  canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
-                }
                 onKill={() => handleRowKill(row)}
+                onArchive={
+                  canonicalArchiveIdForRow(row) !== null
+                    ? () => handleArchive(row)
+                    : undefined
+                }
                 inActiveSet={activeSet.has(row.id)}
                 sessionKey={sessionWorkingKey(row)}
                 subtitleMode={row.rdpHostRow === true ? undefined : "identityTitle"}
@@ -1873,15 +1874,16 @@ export function PrettyConversationsPanel({
                   row={row}
                   selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                   pinned={true}
-                  hidden={isRowHidden(row, hiddenIds)}
                   variant={variant}
                   onSelect={() => handleRowSelect(row)}
                   onTogglePin={() => handleTogglePin(row)}
                   onDeactivate={() => handleRowDeactivate(row)}
-                  onToggleHide={
-                    canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
-                  }
                   onKill={() => handleRowKill(row)}
+                  onArchive={
+                    canonicalArchiveIdForRow(row) !== null
+                      ? () => handleArchive(row)
+                      : undefined
+                  }
                   inActiveSet={activeSet.has(row.id)}
                   sessionKey={sessionWorkingKey(row)}
                   subtitleMode="identityTitle"
@@ -1903,15 +1905,16 @@ export function PrettyConversationsPanel({
                     row={row}
                     selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
                     pinned={isRowPinned(row)}
-                    hidden={isRowHidden(row, hiddenIds)}
                     variant={variant}
                     onSelect={() => handleRowSelect(row)}
                     onTogglePin={() => handleTogglePin(row)}
                     onDeactivate={() => handleRowDeactivate(row)}
-                    onToggleHide={
-                      canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
-                    }
                     onKill={() => handleRowKill(row)}
+                    onArchive={
+                      canonicalArchiveIdForRow(row) !== null
+                        ? () => handleArchive(row)
+                        : undefined
+                    }
                     inActiveSet={activeSet.has(row.id)}
                     sessionKey={sessionWorkingKey(row)}
                     subtitleMode="identityTitle"
@@ -1964,69 +1967,68 @@ export function PrettyConversationsPanel({
                     onTogglePin={rdpNoopTogglePin}
                     onDeactivate={() => handleRowDeactivate(row)}
                     onKill={() => handleRowKill(row)}
+                    /* RDP rows are excluded from the archive affordance —
+                       canonicalArchiveIdForRow short-circuits rdpHostRow=true
+                       to null, so onArchive is intentionally omitted here.
+                       Documented explicitly so a future refactor doesn't
+                       accidentally add it and re-open the affordance-
+                       narrowing gate 115-02 landed for the Hide slot.
+                       (D-01 affordance-narrowing: Archive is identity-only.) */
                     inActiveSet={activeSet.has(row.id)}
                     sessionKey={sessionWorkingKey(row)}
                   />
                 ))}
               </div>
             )}
-            {/* quick-260731-tgg: Hidden section — collapsed by default, rendered
-                BELOW the __rdp__ group iff hiddenIds.size > 0. Header chip mirrors
-                the pinned/RDP chip treatment: EyeOff glyph + uppercase "Hidden"
-                label + gradient rule + ChevronRight/ChevronDown caret.
-                Local hiddenExpanded state; collapsed on every mount (no persistence). */}
-            {hiddenRows.length > 0 && (
-              <div className="pv-panel-group pv-hidden-section" data-hidden-group="true">
+            {/* (Phase 115 Plan 115-02: prior Hidden section render block
+                retired per D-21 alongside the Hide affordance.)
+                Phase 115 Plan 115-06 (D-06, D-19): Archived section — rows
+                sourced from the fleet-status feeder's distinct
+                `identity-archived` wire message pool (via useArchivedFleetRows),
+                NOT from the live-identity middle/pinned/active pools.
+                Lazy-render invariant (D-19): the `{archivedExpanded && ...}`
+                short-circuit means rows are NOT in the DOM until the user
+                expands the section. Do NOT switch to a `hidden` CSS class or
+                `aria-expanded`-only approach.
+                Rows are fully inert (D-06): PrettyArchivedRow attaches no
+                onContextMenu, no onClick, no onSelect handlers. */}
+            {archivedRows.length > 0 && (
+              <div className="pv-panel-group pv-archived-section">
                 <button
                   type="button"
-                  className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full"
-                  data-testid="hidden-divider"
-                  aria-expanded={hiddenExpanded}
-                  onClick={() => setHiddenExpanded((v) => !v)}
+                  onClick={() => setArchivedExpanded((v) => !v)}
+                  className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full text-left"
+                  data-testid="pretty-conversations-archived-header"
+                  aria-expanded={archivedExpanded}
+                  aria-controls="pv-archived-section-content"
                 >
-                  <EyeOff
+                  <Archive
                     className="size-3 text-[#5c6070]/85 shrink-0"
                     aria-hidden="true"
                   />
                   <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
-                    Hidden
+                    Archived
                   </span>
                   <span
                     aria-hidden="true"
                     className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
                   />
-                  {hiddenExpanded ? (
-                    <ChevronDown
-                      className="size-3 text-[#5c6070]/85 shrink-0"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <ChevronRight
-                      className="size-3 text-[#5c6070]/85 shrink-0"
-                      aria-hidden="true"
-                    />
-                  )}
+                  <ChevronDown
+                    className={`size-3 text-[#5c6070]/85 shrink-0 transition-transform ${archivedExpanded ? "rotate-180" : ""}`}
+                    aria-hidden="true"
+                  />
                 </button>
-                {hiddenExpanded &&
-                  hiddenRows.map((row) => (
-                    <PrettyConversationRowLive
-                      key={row.id}
-                      row={row}
-                      selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
-                      pinned={false}
-                      hidden={true}
-                      variant={variant}
-                      onSelect={() => handleRowSelect(row)}
-                      onTogglePin={() => handleTogglePin(row)}
-                      onToggleHide={
-                        canonicalHideIdForRow(row) !== null ? () => handleToggleHide(row) : undefined
-                      }
-                      onKill={() => handleRowKill(row)}
-                      inActiveSet={activeSet.has(row.id)}
-                      sessionKey={sessionWorkingKey(row)}
-                      subtitleMode="identityTitle"
-                    />
-                  ))}
+                {archivedExpanded && (
+                  <div id="pv-archived-section-content">
+                    {archivedRows.map((r) => (
+                      <PrettyArchivedRow
+                        key={`${r.hostId}::${r.name}`}
+                        name={r.name}
+                        hostname={r.hostname}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </>

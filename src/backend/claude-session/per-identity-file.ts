@@ -25,9 +25,10 @@
  *   divergence class of bug (loose write vs strict read).
  *
  * relPath whitelist:
- *   ALLOWED_REL_PATHS = { "relay.json", ".pinned", ".hidden" } — bounded to
- *   the three file basenames phase callers touch (D-01 filename lock). Any
- *   other value throws before I/O — belt-and-suspenders vs identityKey
+ *   ALLOWED_REL_PATHS = { "relay.json", ".pinned", ".archive-requested" } —
+ *   bounded to the three file basenames phase callers touch (D-01 filename
+ *   lock; Phase 115 D-08 archive-requested lock, `.hidden` retired per D-21).
+ *   Any other value throws before I/O — belt-and-suspenders vs identityKey
  *   traversal (the reader regex already excludes `.` and `/` characters).
  *
  * Routing (mirrors identity-artifact-reader's LOCAL vs REMOTE split):
@@ -76,13 +77,15 @@ export { IDENTITY_KEY_RE };
  * The bounded set of basenames the per-identity file primitive is allowed to
  * touch. Any other value throws before I/O. Kept intentionally tiny — only
  * "relay.json" (identity-birth Step 8), ".pinned" (pin action, Plan 92-02),
- * and ".hidden" (hidden-sentinel, Phase 107 Plan 107-01) are legitimate
- * targets under D-05's one-audit-surface rule. // (D-01 filename lock)
+ * and ".archive-requested" (archive-intent sentinel, Phase 115 Plan 115-01,
+ * D-08) are legitimate targets under D-05's one-audit-surface rule. The
+ * former `.hidden` sentinel from Phase 107 Plan 107-01 is retired here per
+ * Phase 115 D-21. // (D-01 filename lock; Phase 115 D-08/D-21)
  */
 export const ALLOWED_REL_PATHS: ReadonlySet<string> = new Set([
   "relay.json",
   ".pinned",
-  ".hidden",
+  ".archive-requested",
 ]);
 
 // ---------------------------------------------------------------------------

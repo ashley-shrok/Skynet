@@ -86,12 +86,8 @@ const TEST_DEFAULT_BY_KEY = new Map<
 // buildIdentityHostsFromFleet (H2 lock — single derivation site invariant).
 // The panel hydrate effect calls both. Mutable spies + mock return values so
 // PANEL-92-* tests can seed a controlled projection.
-// Phase 107 Plan 04: deriveDiskHiddenIds spy added alongside deriveDiskPinnedIds.
-// Both fire from the SAME both-loaded-gated pass in the panel hydrate effect.
+// (Phase 115 Plan 115-02: sibling deriveDiskHiddenIds spy retired per D-21.)
 const deriveDiskPinnedIdsSpy = vi.fn<
-  (identityHosts: Record<string, number>) => string[]
->(() => []);
-const deriveDiskHiddenIdsSpy = vi.fn<
   (identityHosts: Record<string, number>) => string[]
 >(() => []);
 const buildIdentityHostsFromFleetSpy = vi.fn<
@@ -121,9 +117,6 @@ vi.mock("@/state/identities-store", () => ({
   }),
   deriveDiskPinnedIds: (identityHosts: Record<string, number>) =>
     deriveDiskPinnedIdsSpy(identityHosts),
-  // Phase 107 Plan 04: deriveDiskHiddenIds spy — fires in same pass as pinned.
-  deriveDiskHiddenIds: (identityHosts: Record<string, number>) =>
-    deriveDiskHiddenIdsSpy(identityHosts),
   buildIdentityHostsFromFleet: (fleetSessions: unknown[]) =>
     buildIdentityHostsFromFleetSpy(fleetSessions),
 }));
@@ -173,7 +166,6 @@ type MockSnapshot = {
   rdpGroup: MockGroup | null;
   selectedId: string | null;
   pinnedIds: ReadonlySet<string>;
-  hiddenIds: ReadonlySet<string>;
 };
 
 let snapshot: MockSnapshot = {
@@ -183,7 +175,6 @@ let snapshot: MockSnapshot = {
   rdpGroup: null,
   selectedId: null,
   pinnedIds: new Set(),
-  hiddenIds: new Set(),
 };
 
 // Phase 41 Plan 01: shim so pre-Phase-41 tests seeding `grouped: MockGroup[]`
@@ -219,7 +210,6 @@ function setSnapshot(
     rdpGroup,
     selectedId: next.selectedId ?? null,
     pinnedIds: next.pinnedIds ?? new Set(),
-    hiddenIds: next.hiddenIds ?? new Set(),
   };
 }
 
@@ -243,10 +233,19 @@ const removeFromActiveSetSpy = vi.fn();
 // through hydratePinnedIdsFromServer after getPinnedIds resolves.
 const hydratePinnedIdsFromServerSpy = vi.fn();
 
-// quick-260731-tgg: spies for hide/show store functions.
-const hideConversationSpy = vi.fn();
-const unhideConversationSpy = vi.fn();
-const hydrateHiddenIdsFromServerSpy = vi.fn();
+// (Phase 115 Plan 115-02: prior hideConversationSpy / unhideConversationSpy /
+//  hydrateHiddenIdsFromServerSpy retired per D-21 alongside the source-code
+//  deletion of the same exports.)
+
+// Phase 115 Plan 115-06 (D-06, D-18): mutable archived-rows fixture. Tests
+// seed this in arrange steps to exercise the panel's Archived section
+// render + lazy-expand invariants. Default empty — pre-115-06 tests observe
+// zero archived rows, no section renders (short-circuit at `.length > 0`).
+let mockArchivedFleetRows: readonly {
+  hostId: number;
+  name: string;
+  hostname: string;
+}[] = [];
 
 // quick-260727-gm3: mutable mock active-set so Tests 20A/20C/20D can
 // override which ids the panel + row layer sees as "in the active set"
@@ -281,8 +280,7 @@ vi.mock("@/state/conversation-store", () => ({
   }),
   useSelectedConversationId: () => snapshot.selectedId,
   usePinnedIds: () => snapshot.pinnedIds,
-  // quick-260731-tgg: hiddenIds subscription for the Hidden section.
-  useHiddenIds: () => snapshot.hiddenIds,
+  // (Phase 115 Plan 115-02: prior useHiddenIds subscription retired per D-21.)
   // Patch #137: PrettyConversationsPanel now subscribes to useActiveSet
   // to drive per-row ambient recession + ready-dot visibility. quick-
   // 260727-gm3 converted the previously-empty-Set mock into a per-test
@@ -313,23 +311,34 @@ vi.mock("@/state/conversation-store", () => ({
   // getPinnedIds() fetch.
   hydratePinnedIdsFromServer: (ids: string[]) =>
     hydratePinnedIdsFromServerSpy(ids),
-  // quick-260731-tgg: hide/show store functions.
-  hideConversation: (id: string) => hideConversationSpy(id),
-  unhideConversation: (id: string) => unhideConversationSpy(id),
-  hydrateHiddenIdsFromServer: (ids: string[]) =>
-    hydrateHiddenIdsFromServerSpy(ids),
+  // (Phase 115 Plan 115-02: prior hideConversation / unhideConversation /
+  //  hydrateHiddenIdsFromServer mock entries retired per D-21 alongside
+  //  the source-code deletion of the same exports.)
+  // Phase 115 Plan 115-06 (D-06, D-18): useArchivedFleetRows subscription
+  // consumed by the panel's Archived section (D-19 lazy render). Backed by
+  // `mockArchivedFleetRows` so tests can seed the archived-rows pool +
+  // exercise the section header + lazy-expand invariants.
+  useArchivedFleetRows: () => mockArchivedFleetRows,
 }));
 
 // Phase 92 Plan 04: getPinnedIds is RETIRED. The mock no longer surfaces it —
 // any import that still references it fails at runtime with "undefined is not
 // a function" (the H2 anti-shim regression trap).
-// Phase 107 Plan 04: getHiddenIds is RETIRED. The hidden slice now derives
-// from identity-metadata's hidden:boolean field via deriveDiskHiddenIds —
-// same both-loaded-gated pass as pinned. Any residual getHiddenIds import
-// surfaces as "undefined is not a function" — the intended regression tripwire.
+// (Phase 115 Plan 115-02: getHiddenIds + putHiddenIds retired per D-21
+//  alongside the backend HIDDEN FANOUT block removal.)
 vi.mock("@/api/user-preferences-api", () => ({
   putPinnedIds: vi.fn().mockResolvedValue([]),
-  putHiddenIds: vi.fn().mockResolvedValue([]),
+}));
+
+// Phase 115 Plan 115-06 (D-01, D-17): archiveIdentity mock — panel's
+// handleArchive fire-and-forgets this on confirm=true. Backed by a
+// vi.fn spy so the A5-A8 tests can assert exact-args + call-count.
+const archiveIdentitySpy = vi.fn<
+  (hostId: number, identityKey: string) => Promise<{ ok: true }>
+>(async () => ({ ok: true as const }));
+vi.mock("@/api/identity-archive-api", () => ({
+  archiveIdentity: (hostId: number, identityKey: string) =>
+    archiveIdentitySpy(hostId, identityKey),
 }));
 
 // Phase 91 Plan 05 — mocks required by NewConversationModal which is
@@ -500,7 +509,6 @@ beforeEach(async () => {
     rdpGroup: null,
     selectedId: null,
     pinnedIds: new Set(),
-    hiddenIds: new Set(),
   });
   // quick-260727-gm3: reset the per-test active-set override to empty
   // (default ambient rendering path — matches pre-gm3 mock behavior for
@@ -515,17 +523,22 @@ beforeEach(async () => {
   // pre-5q2 tests continue to behave as before the gate was introduced.
   // The ordering-gate regression test resets this to false in its arrange step.
   mockIdentitiesLoaded = true;
-  // Phase 92 Plan 04: getPinnedIds retired. Phase 107 Plan 04: getHiddenIds retired.
-  // Both hydrate paths now run via the identities-store disk-projection spies below.
-  // Phase 92 Plan 04 + Phase 107 Plan 04: reset the identities-store spies +
-  // fleet-snapshot mock between tests so per-test seeds don't leak.
+  // Phase 92 Plan 04: getPinnedIds retired — pinned hydrate runs via the
+  // identities-store disk-projection spies below.
+  // (Phase 115 Plan 115-02: sibling deriveDiskHiddenIdsSpy reset retired
+  //  per D-21 alongside the source-code deletion.)
   deriveDiskPinnedIdsSpy.mockReset();
   deriveDiskPinnedIdsSpy.mockReturnValue([]);
-  deriveDiskHiddenIdsSpy.mockReset();
-  deriveDiskHiddenIdsSpy.mockReturnValue([]);
   buildIdentityHostsFromFleetSpy.mockReset();
   buildIdentityHostsFromFleetSpy.mockReturnValue({});
   mockFleetSessionsSnapshot = [];
+  // Phase 115 Plan 115-06 (D-06, D-18): reset archived-rows fixture to empty
+  // so pre-115-06 tests observe the section absent (short-circuit on
+  // `.length > 0`). Tests that exercise the Archived section seed this
+  // explicitly.
+  mockArchivedFleetRows = [];
+  // Phase 115 Plan 115-06 (D-01): reset archive API spy between tests.
+  archiveIdentitySpy.mockClear();
   // Patch #167: reset identities mock. Phase 104 Plan 03: mockBountyCounts
   // retired with the bounty-count wire.
   mockIdentitiesByKey = new Map();
@@ -1968,28 +1981,9 @@ describe("PrettyConversationsPanel (quick-260912-5q2 rework): mount hydration ga
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel (Phase 92 Plan 04): PANEL-92-* hydrate regression traps", () => {
-  it("PANEL-92-03 (updated for Phase 107): getHiddenIds is RETIRED — hydrateHiddenIdsFromServer fires from deriveDiskHiddenIds, not getHiddenIds", async () => {
-    // Phase 107 Plan 04 replaces the D-02 out-of-scope PANEL-92-03 assertion.
-    // getHiddenIds() is retired — the hidden hydrate now fires via
-    // deriveDiskHiddenIds in the SAME both-loaded-gated pass as pinned.
-    // This test asserts the new path fires correctly; PANEL-107-01 asserts
-    // the full dual-derivation shape in detail.
-    mockFleetSessionsLoaded = true;
-    deriveDiskHiddenIdsSpy.mockReturnValueOnce(["fleet::9::hidden-a"]);
-
-    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
-
-    render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    await waitFor(() => {
-      expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledTimes(1);
-    });
-    expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledWith(["fleet::9::hidden-a"]);
-    // Belt-and-suspenders: getHiddenIds export is absent from the mock so any
-    // attempt to call it would surface as TypeError at import time.
-  });
+  // (Phase 115 Plan 115-02: prior PANEL-92-03 "hidden hydrate via
+  //  deriveDiskHiddenIds" test retired per D-21 alongside the source-code
+  //  deletion of the same code path.)
 
   it("PANEL-92-04 (H2 lock): hydrate effect threads buildIdentityHostsFromFleet(state.fleetSessions) into deriveDiskPinnedIds", async () => {
     // The panel MUST route identityHosts derivation through the shared
@@ -2027,315 +2021,10 @@ describe("PrettyConversationsPanel (Phase 92 Plan 04): PANEL-92-* hydrate regres
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 107 Plan 04 — PANEL-107-* hydrate regression traps + AFF-107-* afford-
-// ance narrowing tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("PrettyConversationsPanel (Phase 107 Plan 04): PANEL-107-* hidden hydrate + AFF-107-* affordance", () => {
-  it("PANEL-107-01: hydrate effect derives BOTH pinned + hidden in the same gated pass", async () => {
-    // Both deriveDiskPinnedIds AND deriveDiskHiddenIds fire in the SAME IIFE:
-    // one shared buildIdentityHostsFromFleet call feeds both. Each axis then
-    // hydrates independently (subject to its own empty-projection skip at the
-    // callsite — see the fix rationale).
-    mockFleetSessionsLoaded = true;
-    const fleetFixture = [
-      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-    ];
-    mockFleetSessionsSnapshot = fleetFixture;
-    buildIdentityHostsFromFleetSpy.mockReturnValueOnce({ tina: 1 });
-    // Seed BOTH with non-empty projections so both hydrate calls land (the
-    // empty-projection skip at the panel callsite would otherwise skip a
-    // legitimately-empty projection — that's tested separately in PANEL-107-02).
-    deriveDiskPinnedIdsSpy.mockReturnValueOnce(["fleet::1::tina"]);
-    deriveDiskHiddenIdsSpy.mockReturnValueOnce(["fleet::1::tina"]);
-
-    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
-
-    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
-
-    // Both projection spies must fire.
-    await waitFor(() => {
-      expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledTimes(1);
-    });
-    await waitFor(() => {
-      expect(deriveDiskHiddenIdsSpy).toHaveBeenCalledTimes(1);
-    });
-    // Both hydrators must fire.
-    await waitFor(() => {
-      expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
-    });
-    await waitFor(() => {
-      expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledTimes(1);
-    });
-    // buildIdentityHostsFromFleet called ONCE (shared derivation — H2 lock).
-    expect(buildIdentityHostsFromFleetSpy).toHaveBeenCalledTimes(1);
-    expect(buildIdentityHostsFromFleetSpy).toHaveBeenCalledWith(fleetFixture);
-    // Both projections receive the same identityHosts.
-    expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledWith({ tina: 1 });
-    expect(deriveDiskHiddenIdsSpy).toHaveBeenCalledWith({ tina: 1 });
-  });
-
-  it("PANEL-107-02: hidden hydrate ALSO gated on identitiesByKey.size > 0 (2026-09-17 rework) — blocking byKey prevents both", async () => {
-    // Rework of the quick-260912-5q2 double-gate: hidden hydrate waits on the
-    // SAME `fleetSessionsLoaded && identitiesByKey.size > 0` conditions as
-    // pinned. Blocking byKey (via mockIdentitiesLoaded=false which routes the
-    // mock away from TEST_DEFAULT_BY_KEY) closes the gate for both.
-    // Empty-pinned+non-empty-hidden also exercises the per-axis empty-projection
-    // skip: pinned's `if (pinnedIds.length > 0)` skip means the pinned hydrate
-    // does NOT fire (correct — no wipe of prior pins), while hidden with real
-    // content still fires.
-    mockFleetSessionsLoaded = true;
-    mockIdentitiesLoaded = false;
-
-    mockFleetSessionsSnapshot = [
-      { hostId: 6, hostName: "alpha", sessionName: "ivory", created: 100, role: null },
-    ];
-    buildIdentityHostsFromFleetSpy.mockReturnValue({ ivory: 6 });
-    deriveDiskHiddenIdsSpy.mockReturnValue(["fleet::6::ivory"]);
-    deriveDiskPinnedIdsSpy.mockReturnValue([]);
-
-    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
-
-    const { rerender } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // Pre-flip: gate closed — NEITHER derive fires.
-    await Promise.resolve();
-    expect(deriveDiskHiddenIdsSpy).toHaveBeenCalledTimes(0);
-    expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledTimes(0);
-    expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledTimes(0);
-    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(0);
-
-    // Flip byKey non-empty, rerender.
-    mockIdentitiesLoaded = true;
-    rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // Post-flip: hidden hydrate fires (non-empty projection). Pinned does NOT
-    // fire (empty projection skipped at callsite — no wipe possible).
-    await waitFor(() => {
-      expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledTimes(1);
-    });
-    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(0);
-
-    // Third render: byKey ref unchanged (TEST_DEFAULT_BY_KEY is a stable
-    // module-scope constant) → effect deps stay equal → effect does not
-    // re-run → counts unchanged.
-    rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    await Promise.resolve();
-    expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledTimes(1);
-    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(0);
-  });
-
-  it("PANEL-107-03: getHiddenIds is NOT called — retired from the panel hydrate path", async () => {
-    // The getHiddenIds export is absent from the mock (see mock declaration
-    // above). If the panel attempts to call it, it crashes with TypeError.
-    // This test asserts the panel mounts + hydrates without throwing.
-    mockFleetSessionsLoaded = true;
-    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
-
-    // Should not throw — getHiddenIds is gone from both the real module and mock.
-    expect(() => {
-      render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
-    }).not.toThrow();
-  });
-
-  it("PANEL-107-04: H2 lock — buildIdentityHostsFromFleet called ONCE; both deriveDiskPinnedIds and deriveDiskHiddenIds receive the SAME identityHosts", async () => {
-    mockFleetSessionsLoaded = true;
-    const fleetFixture = [
-      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
-      { hostId: 2, hostName: "beta", sessionName: "user", created: 200, role: null },
-    ];
-    mockFleetSessionsSnapshot = fleetFixture;
-    const sharedIdentityHosts = { tina: 1, user: 2 };
-    buildIdentityHostsFromFleetSpy.mockReturnValueOnce(sharedIdentityHosts);
-    deriveDiskPinnedIdsSpy.mockReturnValueOnce(["fleet::1::tina"]);
-    deriveDiskHiddenIdsSpy.mockReturnValueOnce([]);
-
-    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
-
-    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
-
-    await waitFor(() => {
-      expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
-    });
-
-    // SINGLE buildIdentityHostsFromFleet call — NOT two separate calls.
-    expect(buildIdentityHostsFromFleetSpy).toHaveBeenCalledTimes(1);
-    expect(buildIdentityHostsFromFleetSpy).toHaveBeenCalledWith(fleetFixture);
-
-    // Both projection functions receive the SAME identityHosts object.
-    expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledWith(sharedIdentityHosts);
-    expect(deriveDiskHiddenIdsSpy).toHaveBeenCalledWith(sharedIdentityHosts);
-  });
-
-  // ─── AFF-107-* affordance narrowing tests ────────────────────────────────
-
-  it("AFF-107-01: Hide button DISAPPEARS from RDP rows (rdpHostRow=true gets onToggleHide=undefined)", () => {
-    // RDP rows should NOT have the Hide button. The render site gate
-    // (isFleetIdentityRow) returns false for rdpHostRow=true rows.
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      grouped: [],
-      rdpGroup: {
-        hostId: "rdp-host-1",
-        hostName: "rdp-box",
-        rows: [
-          makeConversationRow({
-            id: "rdp-host-1",
-            rdpHostRow: true,
-            type: "terminal",
-            label: "Remote Desktop",
-          }),
-        ],
-      },
-    });
-
-    // Mock PrettyConversationRow to capture props
-    const capturedProps: Record<string, unknown>[] = [];
-    const RealPCRow = vi.fn().mockImplementation((props: Record<string, unknown>) => {
-      capturedProps.push(props);
-      return null;
-    });
-    vi.doMock("./PrettyConversationRow", () => ({ PrettyConversationRow: RealPCRow }));
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    container; // suppress lint
-
-    // The RDP row zone renders without a Hide button (onToggleHide=undefined at render site).
-    // This is structurally asserted by checking the row section has no
-    // "data-testid" that would indicate a context menu with hide.
-    // Primary check: the row in the rdpGroup section must not have the
-    // onToggleHide prop set to a function.
-    expect(container.querySelector('[data-rdp-group="true"]')).toBeTruthy();
-    // The RDP row renders — no crash. onToggleHide is undefined for the row.
-    // (Row-level ctx menu won't show Hide for undefined onToggleHide.)
-    vi.doUnmock("./PrettyConversationRow");
-  });
-
-  it("AFF-107-02: Hide button DISAPPEARS from dev-tab openTab rows (non-fleet:: id gets onToggleHide=undefined)", async () => {
-    // dev-created openTab terminal rows have id shape `<hostname>-terminal-<ts>-<counter>`
-    // NOT `fleet::`. The isFleetIdentityRow gate must exclude these.
-    mockFleetSessionsLoaded = true;
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      middle: [
-        makeConversationRow({
-          id: "myhost-terminal-1758734400000-3",
-          type: "terminal",
-          label: "my-session",
-        }),
-      ],
-      rdpGroup: null,
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // The row renders in the middle zone.
-    expect(container.querySelector('[data-middle-group="true"]')).toBeTruthy();
-    // The row's context menu will NOT have a Hide item because onToggleHide===undefined.
-    // Since this is a unit test without real context menu interaction, we assert
-    // the panel renders without throwing (affordance gate is in the render logic).
-    expect(() => {}).not.toThrow(); // structural — panel renders cleanly
-  });
-
-  it("AFF-107-03: Hide button DISAPPEARS from relay-room rows (kind=relay-room rows excluded)", async () => {
-    // Relay-room rows have id !== 'fleet::*' AND kind === 'relay-room'.
-    // Both conditions in isFleetIdentityRow exclude them (defense-in-depth).
-    mockFleetSessionsLoaded = true;
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      middle: [
-        makeConversationRow({
-          id: "relay::!abc:matrix.org",
-          type: "terminal",
-          label: "relay-room",
-          // Note: kind is not in MockRow but is on the actual ConversationRowShape.
-          // This test validates the panel doesn't crash with relay-room shaped rows.
-        }),
-      ],
-      rdpGroup: null,
-    });
-
-    expect(() => {
-      render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
-    }).not.toThrow();
-  });
-
-  it("AFF-107-04: Hide button PRESENT on fleet-synthetic identity harness rows (fleet:: id gets onToggleHide=function)", async () => {
-    // Fleet-synthetic rows (id=fleet::hostId::sessionName) must have the
-    // Hide button. isFleetIdentityRow returns true for these.
-    mockFleetSessionsLoaded = true;
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      middle: [
-        makeConversationRow({
-          id: "fleet::1::tina",
-          type: "terminal",
-          label: "tina",
-        }),
-      ],
-      rdpGroup: null,
-    });
-
-    // Panel renders without throwing — the fleet row gets onToggleHide.
-    expect(() => {
-      render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
-    }).not.toThrow();
-  });
-
-  it("AFF-107-05: search results honor the same gate — only fleet:: rows get onToggleHide", async () => {
-    // When search is active, rows appear in searchMatches zone. The gate
-    // must apply identically — fleet rows get onToggleHide, non-fleet don't.
-    mockFleetSessionsLoaded = true;
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      middle: [
-        makeConversationRow({ id: "fleet::1::tina", type: "terminal", label: "tina" }),
-        makeConversationRow({ id: "myhost-terminal-1758734400000-5", type: "terminal", label: "dev-tab" }),
-      ],
-      rdpGroup: null,
-    });
-
-    expect(() => {
-      render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
-    }).not.toThrow();
-  });
-
-  it("AFF-107-06: hidden section rows with fleet:: id get onToggleHide so user can Unhide", async () => {
-    // Rows in state.hiddenIds that are fleet-shaped get the Unhide button.
-    // After Plan 04, deriveDiskHiddenIds only projects identity-shaped ids —
-    // so the hidden section will only contain fleet:: rows going forward.
-    mockFleetSessionsLoaded = true;
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      middle: [],
-      rdpGroup: null,
-      hiddenIds: new Set(["fleet::1::tina"]),
-    });
-
-    // Panel renders the hidden section (hiddenIds.size > 0). Tina's row gets
-    // onToggleHide so the user can Unhide it. Panel doesn't crash.
-    expect(() => {
-      render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
-    }).not.toThrow();
-  });
-});
+// (Phase 115 Plan 115-02: prior "PANEL-107-* hidden hydrate + AFF-107-*
+//  affordance" describe block retired per D-21 alongside the source-code
+//  deletion of deriveDiskHiddenIds, hydrateHiddenIdsFromServer, and the
+//  entire Hide affordance across the panel.)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 29 — pinned rows render identity title when identity resolves
@@ -2433,617 +2122,15 @@ describe("PrettyConversationsPanel: Phase 48 Plan 05 pinned row v14 shape (was p
 // quick-260731-tgg: Hidden section tests (a-f)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: Hidden section (quick-260731-tgg)", () => {
-  const hostA = makeHost("h1", "hostA");
-
-  // (a) Hidden section NOT rendered when hiddenIds.size === 0
-  it("Test (a): Hidden section NOT rendered when hiddenIds is empty", () => {
-    setSnapshot({
-      grouped: [
-        {
-          hostId: "h1",
-          hostName: "hostA",
-          rows: [makeConversationRow({ id: "c1", host: hostA })],
-        },
-      ],
-      hiddenIds: new Set(),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    expect(
-      container.querySelector('[data-testid="hidden-divider"]'),
-    ).toBeNull();
-    expect(
-      container.querySelector('[data-hidden-group="true"]'),
-    ).toBeNull();
-  });
-
-  // (b) Hidden section renders with EyeOff+"Hidden" chip when hiddenIds.size > 0, collapsed by default
-  it("Test (b): Hidden chip renders + rows collapsed by default when hiddenIds non-empty", () => {
-    // Seed a row in grouped so it can be captured by the knownRowsRef accumulator.
-    // The panel accumulates rows in all tiers; since hidden rows are filtered by
-    // the store, we prime the panel by having a grouped row first, then hiding it.
-    const row = makeConversationRow({ id: "hidden-row-1", label: "hidden-session", host: hostA });
-    setSnapshot({
-      grouped: [
-        { hostId: "h1", hostName: "hostA", rows: [row] },
-      ],
-      hiddenIds: new Set(["hidden-row-1"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // Chip renders
-    const chip = container.querySelector('[data-testid="hidden-divider"]') as HTMLElement | null;
-    expect(chip).toBeTruthy();
-    expect(chip!.textContent).toMatch(/Hidden/i);
-    // aria-expanded is false (collapsed)
-    expect(chip!.getAttribute("aria-expanded")).toBe("false");
-    // No conversation rows in the hidden section (collapsed)
-    const hiddenGroup = container.querySelector('[data-hidden-group="true"]') as HTMLElement | null;
-    expect(hiddenGroup).toBeTruthy();
-    const rowsInSection = hiddenGroup!.querySelectorAll("[data-conversation-id]");
-    expect(rowsInSection.length).toBe(0);
-  });
-
-  // (c) Clicking chip expands (rows in DOM, ChevronDown visible)
-  it("Test (c): clicking Hidden chip expands the section, rows appear, aria-expanded becomes true", async () => {
-    const row = makeConversationRow({ id: "hidden-row-2", label: "hidden-session-2", host: hostA });
-    setSnapshot({
-      grouped: [
-        { hostId: "h1", hostName: "hostA", rows: [row] },
-      ],
-      hiddenIds: new Set(["hidden-row-2"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const chip = container.querySelector('[data-testid="hidden-divider"]') as HTMLElement;
-    expect(chip).toBeTruthy();
-
-    fireEvent.click(chip);
-
-    await waitFor(() => {
-      expect(chip.getAttribute("aria-expanded")).toBe("true");
-    });
-    const hiddenGroup = container.querySelector('[data-hidden-group="true"]') as HTMLElement;
-    const rowsInSection = hiddenGroup.querySelectorAll("[data-conversation-id]");
-    expect(rowsInSection.length).toBeGreaterThan(0);
-  });
-
-  // (d) Hidden ids are excluded from the visible tiers but DO reach the
-  // Hidden section.
-  //
-  // Rewritten for the accumulator retirement: the store no longer strips hidden
-  // rows from the snapshot, so the visible-tier exclusion is now an explicit
-  // panel-side filter rather than something the mock has to pre-apply. Seeding
-  // the hidden rows in `grouped` is what exercises it. The prior version of
-  // this test passed `grouped: []` and then asserted the chip was ABSENT,
-  // documenting the missing-section bug as correct behavior.
-  it("Test (d): rows in hiddenIds are excluded from the visible tiers but render in the Hidden section", () => {
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      grouped: [
-        {
-          hostId: "h1",
-          hostName: "hostA",
-          rows: [
-            makeConversationRow({ id: "hidden-a", label: "hidden-a", host: hostA }),
-            makeConversationRow({ id: "hidden-b", label: "hidden-b", host: hostA }),
-            makeConversationRow({ id: "visible-c", label: "visible-c", host: hostA }),
-          ],
-        },
-      ],
-      hiddenIds: new Set(["hidden-a", "hidden-b"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // Hidden rows are absent from the middle tier...
-    const middleGroup = container.querySelector(
-      '[data-middle-group="true"]',
-    ) as HTMLElement;
-    expect(
-      middleGroup.querySelector('[data-conversation-id="hidden-a"]'),
-    ).toBeNull();
-    expect(
-      middleGroup.querySelector('[data-conversation-id="hidden-b"]'),
-    ).toBeNull();
-    // ...while the unhidden sibling still renders there.
-    expect(
-      middleGroup.querySelector('[data-conversation-id="visible-c"]'),
-    ).toBeTruthy();
-
-    // ...and the Hidden section is present, holding both hidden rows once expanded.
-    const chip = container.querySelector(
-      '[data-testid="hidden-divider"]',
-    ) as HTMLElement | null;
-    expect(chip).toBeTruthy();
-    fireEvent.click(chip!);
-    const hiddenGroup = container.querySelector(
-      '[data-hidden-group="true"]',
-    ) as HTMLElement;
-    expect(
-      hiddenGroup.querySelector('[data-conversation-id="hidden-a"]'),
-    ).toBeTruthy();
-    expect(
-      hiddenGroup.querySelector('[data-conversation-id="hidden-b"]'),
-    ).toBeTruthy();
-  });
-
-  // (g) The Hidden section survives a panel unmount/remount.
-  //
-  // Mount-lifecycle coverage for the bug in bounty
-  // hidden-section-mobile-rendering-fix. It presented as "the Hidden section is
-  // missing on mobile", but nothing in the path is viewport-dependent: the
-  // section was resolved from a per-instance ref accumulator that captured rows
-  // as they passed through the visible tiers, and hiddenIds is module-scoped and
-  // outlives any mount. A remounted panel therefore started with an empty
-  // accumulator against an already-populated hiddenIds, and the store had
-  // already stripped those rows from the tiers, so it could never refill.
-  // Desktop's inline sidebar mounts once per page load and never hit it; the
-  // mobile flow unmounts the panel on every list→view navigation.
-  //
-  // NOTE: this test does NOT fail against the pre-fix source, because this file
-  // mocks the conversation store — setSnapshot hands back whatever rows the test
-  // supplies regardless of hiddenIds, so the accumulator always got seeded and
-  // the bug cannot reproduce here. The genuine regression coverage lives in
-  // conversation-store.test.ts (STORE-HIDDEN-01..03), which exercises the real
-  // computeSnapshot. This one guards the panel's remount behavior against future
-  // reintroduction of per-instance caching.
-  it("Test (g): Hidden section still renders after the panel unmounts and remounts", () => {
-    const hiddenRow = makeConversationRow({
-      id: "hidden-survivor",
-      label: "hidden-survivor",
-      host: hostA,
-    });
-    setSnapshot({
-      grouped: [{ hostId: "h1", hostName: "hostA", rows: [hiddenRow] }],
-      hiddenIds: new Set(["hidden-survivor"]),
-    });
-
-    const first = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    expect(
-      first.container.querySelector('[data-testid="hidden-divider"]'),
-    ).toBeTruthy();
-
-    first.unmount();
-
-    // Remount against the SAME store state — hiddenIds already populated.
-    const second = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const chip = second.container.querySelector(
-      '[data-testid="hidden-divider"]',
-    ) as HTMLElement | null;
-    expect(chip).toBeTruthy();
-    fireEvent.click(chip!);
-    const hiddenGroup = second.container.querySelector(
-      '[data-hidden-group="true"]',
-    ) as HTMLElement;
-    expect(
-      hiddenGroup.querySelector('[data-conversation-id="hidden-survivor"]'),
-    ).toBeTruthy();
-  });
-
-  // (h) Cold mount with hiddenIds already populated before the first render —
-  // the mobile PWA cold-start path, where no moment exists in which a hidden row
-  // appears in a visible tier. Same mocked-store caveat as Test (g): the real
-  // coverage is STORE-HIDDEN-02.
-  it("Test (h): Hidden section renders on a cold mount with hiddenIds pre-populated", () => {
-    setSnapshot({
-      grouped: [
-        {
-          hostId: "h1",
-          hostName: "hostA",
-          rows: [
-            makeConversationRow({ id: "cold-hidden", label: "cold-hidden", host: hostA }),
-          ],
-        },
-      ],
-      hiddenIds: new Set(["cold-hidden"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const chip = container.querySelector(
-      '[data-testid="hidden-divider"]',
-    ) as HTMLElement | null;
-    expect(chip).toBeTruthy();
-    fireEvent.click(chip!);
-    const hiddenGroup = container.querySelector(
-      '[data-hidden-group="true"]',
-    ) as HTMLElement;
-    expect(
-      hiddenGroup.querySelector('[data-conversation-id="cold-hidden"]'),
-    ).toBeTruthy();
-  });
-
-  // (e) Phase 107 Plan 04: Mount-hydration now derives hidden via deriveDiskHiddenIds
-  // (not getHiddenIds which is retired) and dispatches to hydrateHiddenIdsFromServer.
-  it("Test (e): mount-hydration calls deriveDiskHiddenIds and dispatches hydrateHiddenIdsFromServer (getHiddenIds retired in Phase 107)", async () => {
-    // Phase 107 Plan 04: hidden hydrate now goes through deriveDiskHiddenIds
-    // (disk projection, same both-loaded-gated pass as pinned — SC-6).
-    deriveDiskHiddenIdsSpy.mockReturnValue(["server-hidden-1"]);
-
-    mockFleetSessionsLoaded = true;
-    setSnapshot({ hiddenIds: new Set() });
-
-    render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    await waitFor(() => {
-      expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledWith(["server-hidden-1"]);
-    });
-    // The deriveDiskHiddenIds spy must have been called (not getHiddenIds which is retired).
-    expect(deriveDiskHiddenIdsSpy).toHaveBeenCalled();
-  });
-
-  // (f) Pin on a hidden row unhides first then pins (mutual exclusion)
-  // Tests the handleTogglePin panel-level orchestration: the panel must call
-  // unhideConversation(rowId) BEFORE the pin write when the row is in
-  // hiddenIds. We trigger this via right-click → context menu → Pin on a row
-  // in the grouped tier that is also in hiddenIds. Post-260807-followup the
-  // pin write is pinConversation() (not togglePinConversation) — for a row
-  // with no targetTmuxSession, shadowFleetId is null and the canonical pin
-  // id falls back to row.id.
-  //
-  // The row is reached through the Hidden section rather than the middle tier:
-  // a row in hiddenIds is excluded from the visible tiers (Test (d)), so the
-  // Hidden section is where it actually renders. The prior version of this test
-  // found it in the middle tier only because the test mock does not apply the
-  // hidden exclusion the panel now applies itself.
-  it("Test (f): handleTogglePin on a hidden row calls unhideConversation THEN pinConversation", async () => {
-    const row = makeConversationRow({ id: "row-to-pin-unhide", label: "test-row", host: hostA });
-    setSnapshot({
-      grouped: [{ hostId: "h1", hostName: "hostA", rows: [row] }],
-      hiddenIds: new Set(["row-to-pin-unhide"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // Expand the Hidden section so the row is in the DOM.
-    const hiddenChip = container.querySelector(
-      '[data-testid="hidden-divider"]',
-    ) as HTMLElement | null;
-    expect(hiddenChip).toBeTruthy();
-    fireEvent.click(hiddenChip!);
-
-    const rowEl = container.querySelector(
-      '[data-conversation-id="row-to-pin-unhide"]',
-    ) as HTMLElement | null;
-    expect(rowEl).toBeTruthy();
-
-    // Right-click the row-body (role="button") to open the context menu portal.
-    const rowBody = rowEl!.querySelector('[role="button"]') as HTMLElement;
-    expect(rowBody).toBeTruthy();
-    fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
-
-    // Find and click the Pin item in the context menu
-    await waitFor(() => {
-      expect(screen.getByRole("menu")).toBeTruthy();
-    });
-    const menu = screen.getByRole("menu");
-    const pinItem = within(menu).getByRole("menuitem", { name: /^pin$/i });
-    fireEvent.click(pinItem);
-
-    await waitFor(() => {
-      expect(unhideConversationSpy).toHaveBeenCalledWith("row-to-pin-unhide");
-      expect(pinConversationSpy).toHaveBeenCalledWith("row-to-pin-unhide");
-    });
-
-    // Verify call ORDER: unhide must come before pin.
-    const unhideOrder = unhideConversationSpy.mock.invocationCallOrder[0];
-    const pinOrder = pinConversationSpy.mock.invocationCallOrder[0];
-    expect(unhideOrder).toBeLessThan(pinOrder);
-  });
-});
+// (Phase 115 Plan 115-02: prior "PrettyConversationsPanel: Hidden section (quick-260731-tgg)" describe block retired
+//  per D-21 alongside the source-code deletion of the Hide affordance.)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // quick-260731-tgg: Hide/Show row-wiring tests (g-m)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => {
-  const hostA = makeHost("h1", "hostA");
-
-  // (g) Context menu on a non-hidden row shows Hide between Pin/Unpin and
-  // Open-in-new-window, with Deactivate at the tail. quick-260804-uo4
-  // inserted the new-window item between create-new-agent-under-this-role and Deactivate; for a row
-  // without an identity create-new-agent-under-this-role is auto-hidden, so the order collapses to
-  // Pin, Hide, Open in new window, Deactivate. (Label was "Move to new
-  // window" when inActiveSet before 2026-08-18; now always "Open in new
-  // window" regardless of active-set membership.)
-  it("Test (g): context menu on a non-hidden active-set row shows Pin/Hide/Open-in-new-window in order (Deactivate removed 2026-08-17)", async () => {
-    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
-    // row into `middle` and mark active-in-set via `mockActiveSet`.
-    // user 2026-08-17 follow-up: Deactivate menu item removed entirely;
-    // menu order is now Pin, Hide, Open-in-new-window (create-new-agent-under-this-role hidden — row
-    // has no identity).
-    // Phase 107 Plan 04: row id must start with "fleet::" to pass isFleetIdentityRow
-    // (affordance-narrowing gate added in this plan). Non-fleet:: ids lose the Hide
-    // button; fleet:: harness ids keep it. Use fleet:: id here.
-    setSnapshot({
-      activeSet: [],
-      middle: [
-        makeConversationRow({ id: "fleet::1::active-row-g", label: "active-g", host: hostA }),
-      ],
-      hiddenIds: new Set(),
-    });
-    mockActiveSet = new Set(["fleet::1::active-row-g"]);
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const rowEl = container.querySelector('[data-conversation-id="fleet::1::active-row-g"]') as HTMLElement;
-    const body = rowEl.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menu")).toBeTruthy();
-    });
-
-    const menu = screen.getByRole("menu");
-    const items = within(menu).getAllByRole("menuitem");
-    const labels = items.map((el) => el.textContent ?? "");
-    // Expected order (post 2026-08-18): Pin, Hide, Open in new window.
-    expect(labels[0]).toMatch(/pin/i);
-    expect(labels[1]).toMatch(/hide/i);
-    expect(labels[2]).toMatch(/open in new window/i);
-    // Deactivate is no longer in the menu regardless of inActiveSet.
-    expect(labels.some((l) => /deactivate/i.test(l))).toBe(false);
-    // Regression guard: legacy "Move to new window" label must never appear again.
-    expect(labels.some((l) => /move to new window/i.test(l))).toBe(false);
-  });
-
-  // (h) Context menu on a hidden row shows Unhide in the same slot
-  it("Test (h): context menu on a hidden row shows 'Unhide' instead of 'Hide'", async () => {
-    // Phase 107 Plan 04: fleet:: id required for isFleetIdentityRow gate.
-    setSnapshot({
-      grouped: [
-        { hostId: "h1", hostName: "hostA", rows: [makeConversationRow({ id: "fleet::1::hidden-row-h", label: "hidden-h", host: hostA })] },
-      ],
-      hiddenIds: new Set(["fleet::1::hidden-row-h"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // A hidden row renders in the Hidden section, not the middle tier — expand
-    // it so the row is in the DOM.
-    const hiddenChip = container.querySelector(
-      '[data-testid="hidden-divider"]',
-    ) as HTMLElement | null;
-    expect(hiddenChip).toBeTruthy();
-    fireEvent.click(hiddenChip!);
-
-    const rowEl = container.querySelector('[data-conversation-id="fleet::1::hidden-row-h"]') as HTMLElement;
-    const body = rowEl.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menu")).toBeTruthy();
-    });
-
-    const menu = screen.getByRole("menu");
-    // Should have an "Unhide" item, not "Hide" (patch #252 — user 2026-08-01 ask)
-    expect(within(menu).queryByRole("menuitem", { name: /^unhide$/i })).toBeTruthy();
-    expect(within(menu).queryByRole("menuitem", { name: /^hide$/i })).toBeNull();
-  });
-
-  // (i) Clicking Hide from context menu on an ambient row calls hideConversation only (no deactivate)
-  it("Test (i): clicking Hide from context menu on an ambient row calls hideConversation (no deactivate)", async () => {
-    // Phase 107 Plan 04: fleet:: id required for isFleetIdentityRow gate.
-    setSnapshot({
-      grouped: [
-        { hostId: "h1", hostName: "hostA", rows: [makeConversationRow({ id: "fleet::1::ambient-row-i", label: "ambient-i", host: hostA })] },
-      ],
-      hiddenIds: new Set(),
-    });
-    // mockActiveSet stays empty → row is ambient
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const rowEl = container.querySelector('[data-conversation-id="fleet::1::ambient-row-i"]') as HTMLElement;
-    const body = rowEl.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menu")).toBeTruthy();
-    });
-
-    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /^hide$/i }));
-
-    await waitFor(() => {
-      expect(hideConversationSpy).toHaveBeenCalledWith("fleet::1::ambient-row-i");
-    });
-    // Deactivate must NOT have been called (ambient rows can't deactivate)
-    expect(removeFromActiveSetSpy).not.toHaveBeenCalled();
-  });
-
-  // (j) Clicking Hide from context menu on an active-set row triggers handleRowDeactivate FIRST then hideConversation
-  it("Test (j): clicking Hide on an active-set row calls removeFromActiveSet BEFORE hideConversation (deactivate-first composition)", async () => {
-    // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
-    // row into `middle` and mark active-in-set via `mockActiveSet`.
-    // Phase 107 Plan 04: fleet:: id required for isFleetIdentityRow gate.
-    setSnapshot({
-      activeSet: [],
-      middle: [
-        makeConversationRow({ id: "fleet::1::active-row-j", label: "active-j", host: hostA }),
-      ],
-      hiddenIds: new Set(),
-    });
-    mockActiveSet = new Set(["fleet::1::active-row-j"]);
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const rowEl = container.querySelector('[data-conversation-id="fleet::1::active-row-j"]') as HTMLElement;
-    const body = rowEl.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menu")).toBeTruthy();
-    });
-
-    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /^hide$/i }));
-
-    await waitFor(() => {
-      expect(removeFromActiveSetSpy).toHaveBeenCalled();
-      expect(hideConversationSpy).toHaveBeenCalledWith("fleet::1::active-row-j");
-    });
-
-    // Assert call ORDER: removeFromActiveSet (deactivate path) must come before hideConversation
-    const deactivateOrder = removeFromActiveSetSpy.mock.invocationCallOrder[0];
-    const hideOrder = hideConversationSpy.mock.invocationCallOrder[0];
-    expect(deactivateOrder).toBeLessThan(hideOrder);
-  });
-
-  // (k) bounty 260912 — openTab-shaped id for a currently-open identity
-  // harness row gets Hide, and the store call uses the canonical fleet
-  // id (fleet::<hostId>::<sessionName>), not the tab-XXX id shape. Before
-  // this bounty the Hide item was gated on row.id.startsWith("fleet::"),
-  // which excluded currently-open rows entirely because the store's
-  // openTabs-entry-wins dedup swaps the fleet-synthetic row for the
-  // openTab-derived row (id === tab.id === "tab-XXX") whenever an openTab
-  // exists for that identity. Now the affordance appears on both shapes,
-  // and both write the same canonical id to hiddenIds — which is what
-  // deriveDiskHiddenIds emits, so the hide survives a reload regardless
-  // of which shape the sidebar happened to be rendering at hide-time.
-  it("Test (k) [bounty 260912]: openTab-shaped currently-open identity row gets Hide + hides via canonical fleet id", async () => {
-    // host.id must parseInt cleanly for canonicalHideIdForRow's fleetRowId
-    // call to construct a well-formed fleet id. The describe-scope hostA
-    // uses "h1" (parseInts to NaN) which doesn't exercise the openTab path.
-    const numericIdHost = makeHost("1", "hostA");
-    setSnapshot({
-      activeSet: [],
-      middle: [
-        makeConversationRow({
-          id: "tab-abc123",
-          label: "tina",
-          host: numericIdHost,
-          targetTmuxSession: "tina",
-        }),
-      ],
-      hiddenIds: new Set(),
-    });
-    mockActiveSet = new Set(["tab-abc123"]);
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const rowEl = container.querySelector('[data-conversation-id="tab-abc123"]') as HTMLElement;
-    const body = rowEl.querySelector('[role="button"]') as HTMLElement;
-    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
-
-    await waitFor(() => {
-      expect(screen.getByRole("menu")).toBeTruthy();
-    });
-
-    // Hide item MUST be present on the currently-open row (this is the primary
-    // regression this test locks in).
-    const hideItem = within(screen.getByRole("menu")).queryByRole("menuitem", {
-      name: /^hide$/i,
-    });
-    expect(hideItem).toBeTruthy();
-
-    fireEvent.click(hideItem!);
-
-    await waitFor(() => {
-      // Store call uses the canonical fleet id, NOT the tab-XXX id. This is
-      // what makes the hide roundtrip through deriveDiskHiddenIds on reload.
-      expect(hideConversationSpy).toHaveBeenCalledWith("fleet::1::tina");
-    });
-    // Deactivate-first composition preserved (row is in active-set).
-    expect(removeFromActiveSetSpy).toHaveBeenCalled();
-    const deactivateOrder = removeFromActiveSetSpy.mock.invocationCallOrder[0];
-    const hideOrder = hideConversationSpy.mock.invocationCallOrder[0];
-    expect(deactivateOrder).toBeLessThan(hideOrder);
-  });
-
-  // Test (n) [user 2026-09-03 — inverts quick-260731-tgg]: clicking a
-  // hidden row opens the session but leaves hiddenIds untouched. The prior
-  // quick-260731-tgg auto-unhide-on-click both violated the "hidden means
-  // hidden" semantic and produced a click race (row DOM moved out from
-  // under the cursor between click-down and click-up, dropping the
-  // selectConversation dispatch). Test (f) above still asserts unhide-on-
-  // pin — that path is unchanged; only the click path stops mutating.
-  it("Test (n) [user 2026-09-03 flip of quick-260731-tgg]: clicking a hidden row calls selectConversation + onConversationSelected but does NOT call unhideConversation", async () => {
-    const row = makeConversationRow({ id: "hidden-row-n", label: "hidden-n", host: hostA });
-    setSnapshot({
-      grouped: [{ hostId: "h1", hostName: "hostA", rows: [row] }],
-      hiddenIds: new Set(["hidden-row-n"]),
-    });
-
-    const onConversationSelected = vi.fn();
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onConversationSelected={onConversationSelected} onDeactivateRow={() => {}} />,
-    );
-
-    // Expand the Hidden section (collapsed by default — see Test (b) and Test (c))
-    const chip = container.querySelector('[data-testid="hidden-divider"]') as HTMLElement;
-    expect(chip).toBeTruthy();
-    fireEvent.click(chip);
-
-    await waitFor(() => {
-      expect(chip.getAttribute("aria-expanded")).toBe("true");
-    });
-
-    // Confirm the hidden row is in the DOM after expansion
-    const hiddenGroup = container.querySelector('[data-hidden-group="true"]') as HTMLElement;
-    await waitFor(() => {
-      expect(hiddenGroup.querySelectorAll("[data-conversation-id]").length).toBeGreaterThan(0);
-    });
-
-    // Click the row body
-    const rowEl = container.querySelector('[data-conversation-id="hidden-row-n"]') as HTMLElement;
-    expect(rowEl).toBeTruthy();
-    const body = rowEl.querySelector('[role="button"]') as HTMLElement;
-    expect(body).toBeTruthy();
-    fireEvent.click(body);
-
-    // Assert 1 (semantic): unhideConversation must NOT be called — the fleet-critical invariant.
-    // Hidden rows stay hidden on click.
-    expect(unhideConversationSpy).not.toHaveBeenCalled();
-    // Assert 2 (navigation): session-open path still fires end-to-end.
-    expect(selectConversationSpy).toHaveBeenCalledWith("hidden-row-n");
-    expect(onConversationSelected).toHaveBeenCalledWith("hidden-row-n");
-  });
-
-  // Tests (k), (l), (m) DELETED in quick-260802-pq2. They asserted on the
-  // mobile swipe-strip's [data-testid="hide-action-*"] / "deactivate-action"
-  // DOM presence. That strip was retired; mobile action affordance is the
-  // long-press → PrettyConversationContextMenu (same builder desktop
-  // right-click uses). Row-level menu-open coverage lives in Pretty
-  // ConversationRow.test.tsx TL1-TL5. The items[] builder is the single
-  // source of truth for menu contents, so mobile menu content is guaranteed
-  // by transitivity with tests (g)/(h)/(i)/(j) above (which exercise the
-  // context menu on desktop right-click paths — same builder feeds both
-  // entry points).
-});
+// (Phase 115 Plan 115-02: prior "PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)" describe block retired
+//  per D-21 alongside the source-code deletion of the Hide affordance.)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TS-P1 — Mobile row-swipe composite wiring (quick-260808-fkg)
@@ -3287,6 +2374,361 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     expect((onKillRow.mock.calls[0] as [{ id: string }])[0].id).toBe("kill-row-3");
 
     confirmSpy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 115 Plan 115-06 — panel-level handleArchive (A5-A9) + Archived section (A10-A14)
+// ─────────────────────────────────────────────────────────────────────────────
+// A5-A9 lock the click-through composition: canonicalArchiveIdForRow gate →
+// window.confirm with EXACT-STRING copy → conditional pane-close side effect →
+// archiveIdentity API call. A10-A14 lock the Archived section render invariants
+// per D-06 (inert rows) + D-19 (lazy-render).
+
+describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => {
+  // A5: identity-backed row → clicking Archive opens window.confirm with the
+  //     EXACT D-03 copy — asserted via toHaveBeenCalledWith equality (not toContain).
+  it("A5: Archive click opens window.confirm with EXACT copy 'archive <identity>? this can\\'t be undone.'", () => {
+    // Use a numeric-string hostId — canonicalArchiveIdForRow parses via parseInt.
+    // Non-numeric hostIds (e.g. "h1") coerce to NaN, fail Number.isFinite,
+    // and the gate returns null → row menu does NOT get Archive item.
+    const hostA = makeHost("1", "hostA");
+    // Seed the identities-store mock so the row's identityKey resolves to a
+    // displayName of "wren" (fixture — the plan's Test 8 assertion). The
+    // panel's handleArchive falls back to targetTmuxSession when the
+    // identity has not resolved; here we exercise the resolved-identity
+    // branch so the confirmation copy uses displayName verbatim.
+    mockIdentitiesByKey = new Map([
+      ["wren", { identityKey: "wren", displayName: "wren", title: null }],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "arch-row-1",
+          label: "wren",
+          host: hostA,
+          targetTmuxSession: "wren",
+        }),
+      ],
+      rdpGroup: null,
+    });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="arch-row-1"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
+    fireEvent.click(archiveItem);
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    // D-03 EXACT copy — byte-identical equality (not toContain / regex).
+    // Straight ASCII apostrophe (U+0027); period at end; no backticks or
+    // quotes around the displayName in the actual dialog string.
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "archive wren? this can't be undone.",
+    );
+
+    confirmSpy.mockRestore();
+  });
+
+  // A6: window.confirm returns false → archiveIdentity NOT called; no pane close.
+  it("A6: window.confirm returns false → archiveIdentity NOT called, no side effect", () => {
+    const hostA = makeHost("1", "hostA");
+    mockIdentitiesByKey = new Map([
+      ["wren", { identityKey: "wren", displayName: "wren", title: null }],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "arch-row-2",
+          label: "wren",
+          host: hostA,
+          targetTmuxSession: "wren",
+        }),
+      ],
+      rdpGroup: null,
+    });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const onDeactivateRow = vi.fn();
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={onDeactivateRow}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="arch-row-2"]',
+    ) as HTMLElement | null;
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
+    fireEvent.click(archiveItem);
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(archiveIdentitySpy).not.toHaveBeenCalled();
+    expect(onDeactivateRow).not.toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
+  });
+
+  // A7: window.confirm returns true → archiveIdentity(hostId, key) fires with the correct args.
+  it("A7: confirm=true → archiveIdentity called with (parsed hostId, identityKey) exactly once", () => {
+    const hostA = makeHost("42", "hostA");
+    mockIdentitiesByKey = new Map([
+      ["wren", { identityKey: "wren", displayName: "wren", title: null }],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "arch-row-3",
+          label: "wren",
+          host: hostA,
+          targetTmuxSession: "wren",
+        }),
+      ],
+      rdpGroup: null,
+    });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="arch-row-3"]',
+    ) as HTMLElement | null;
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
+    fireEvent.click(archiveItem);
+
+    expect(archiveIdentitySpy).toHaveBeenCalledTimes(1);
+    expect(archiveIdentitySpy).toHaveBeenCalledWith(42, "wren");
+
+    confirmSpy.mockRestore();
+  });
+
+  // A8: identity-key fallback — if the identity hasn't yet resolved, the
+  //     confirmation copy uses the identity key as displayName.
+  it("A8: identity not yet resolved → confirmation uses identityKey as displayName", () => {
+    const hostA = makeHost("1", "hostA");
+    // No identity seeded — mockIdentitiesByKey stays empty from beforeEach.
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "arch-row-4",
+          label: "wren",
+          host: hostA,
+          targetTmuxSession: "wren",
+        }),
+      ],
+      rdpGroup: null,
+    });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="arch-row-4"]',
+    ) as HTMLElement | null;
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
+    fireEvent.click(archiveItem);
+
+    // Fallback: displayName resolves to the identityKey (targetTmuxSession).
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "archive wren? this can't be undone.",
+    );
+
+    confirmSpy.mockRestore();
+  });
+
+  // A9: RDP host row → Archive item NOT in menu (affordance-narrowing preserved).
+  it("A9: RDP host row → Archive item NOT in row menu (canonicalArchiveIdForRow gate)", () => {
+    const rdpHost = makeHost("h9", "beelink", { enableRdp: true });
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [],
+      rdpGroup: {
+        hostId: "__rdp__",
+        hostName: "rdp",
+        rows: [
+          makeConversationRow({
+            id: "rdp-row",
+            label: "beelink",
+            host: rdpHost,
+            targetTmuxSession: null,
+            rdpHostRow: true,
+          }),
+        ],
+      },
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="rdp-row"]',
+    ) as HTMLElement | null;
+    expect(rowEl).toBeTruthy();
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(
+      within(menu).queryByRole("menuitem", { name: "Archive" }),
+    ).toBeNull();
+  });
+});
+
+describe("PrettyConversationsPanel: Phase 115 Plan 115-06 Archived section (D-06 / D-19)", () => {
+  // A10: section header renders when archived-rows-slice has ≥1 entry.
+  it("A10: archivedRows non-empty → Archived section header renders with 'Archived' label", () => {
+    mockArchivedFleetRows = [
+      { hostId: 1, name: "wren", hostname: "hostA" },
+    ];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const header = container.querySelector(
+      '[data-testid="pretty-conversations-archived-header"]',
+    ) as HTMLElement | null;
+    expect(header).toBeTruthy();
+    expect(header!.textContent).toContain("Archived");
+  });
+
+  // A11: lazy render — collapsed section has NO PrettyArchivedRow instances in DOM.
+  it("A11: D-19 lazy — collapsed section renders zero PrettyArchivedRow instances", () => {
+    mockArchivedFleetRows = [
+      { hostId: 1, name: "wren", hostname: "hostA" },
+      { hostId: 1, name: "tabitha", hostname: "hostA" },
+    ];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // With archivedExpanded=false (default), no PrettyArchivedRow instances
+    // are in the DOM at all — the `{archivedExpanded && ...}` short-circuit
+    // is the whole point of D-19.
+    const archivedRowEls = container.querySelectorAll(
+      '[data-testid="pretty-archived-row"]',
+    );
+    expect(archivedRowEls.length).toBe(0);
+  });
+
+  // A12: click header → section expands → PrettyArchivedRow instances mount.
+  it("A12: click header → section expands → PrettyArchivedRow instances render (D-19 expand)", () => {
+    mockArchivedFleetRows = [
+      { hostId: 1, name: "wren", hostname: "hostA" },
+      { hostId: 1, name: "tabitha", hostname: "hostA" },
+    ];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const header = container.querySelector(
+      '[data-testid="pretty-conversations-archived-header"]',
+    ) as HTMLElement;
+    fireEvent.click(header);
+
+    const archivedRowEls = container.querySelectorAll(
+      '[data-testid="pretty-archived-row"]',
+    );
+    expect(archivedRowEls.length).toBe(2);
+    // Verify content — the row renders the identity name AND the hostname.
+    const first = archivedRowEls[0] as HTMLElement;
+    expect(first.getAttribute("data-archived-name")).toBe("wren");
+    expect(first.getAttribute("data-archived-hostname")).toBe("hostA");
+  });
+
+  // A13: PrettyArchivedRow is INERT (D-06) — no context menu on right-click.
+  it("A13: D-06 inert — right-click on PrettyArchivedRow does NOT open a context menu", () => {
+    mockArchivedFleetRows = [
+      { hostId: 1, name: "wren", hostname: "hostA" },
+    ];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Expand the section so the row is in the DOM.
+    const header = container.querySelector(
+      '[data-testid="pretty-conversations-archived-header"]',
+    ) as HTMLElement;
+    fireEvent.click(header);
+
+    const archivedRow = container.querySelector(
+      '[data-testid="pretty-archived-row"]',
+    ) as HTMLElement;
+    expect(archivedRow).toBeTruthy();
+    // Right-click MUST NOT open a PrettyConversationContextMenu — the
+    // archived row has no onContextMenu handler at all.
+    fireEvent.contextMenu(archivedRow, { clientX: 100, clientY: 100 });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  // A14: section absent when archivedRows is empty (short-circuit at `.length > 0`).
+  it("A14: archivedRows empty → Archived section header NOT rendered", () => {
+    mockArchivedFleetRows = [];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const header = container.querySelector(
+      '[data-testid="pretty-conversations-archived-header"]',
+    );
+    expect(header).toBeNull();
   });
 });
 
@@ -3651,81 +3093,9 @@ describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat m
     void rerender;
   });
 
-  it("Test I: hidden rows are EXCLUDED from filter matches (user lock #3)", () => {
-    // A hidden row with label matching the query must NOT appear in results.
-    // The store filters hidden ids out of all tiers, so the panel's
-    // knownRowsRef accumulator holds hidden rows separately in `hiddenRows`.
-    // The filter branch's candidate union must exclude `hiddenRows`.
-    const hostA = makeHost("h1", "hostA");
-    setSnapshot({
-      // Visible rows — one matches "foo".
-      middle: [
-        makeConversationRow({ id: "m-foo", label: "foo-visible", host: hostA }),
-      ],
-      // Hidden ids include a row that ALSO has "foo" in its label, but the
-      // store has already stripped it from the tiers. To exercise the test
-      // fully, we seed hiddenIds pointing at a stub id — the panel's
-      // knownRowsRef only sees rows that pass through the tiers, so the
-      // stub won't have an entry either. Test structure verifies filter
-      // renders ONLY visible matches, not phantom hidden matches.
-      hiddenIds: new Set(["m-foo-hidden"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const searchInput = container.querySelector(
-      '[data-testid="pretty-conversations-search-input"]',
-    ) as HTMLInputElement;
-    fireEvent.change(searchInput, { target: { value: "foo" } });
-
-    // Only the visible row renders — hidden id doesn't manifest.
-    expect(container.querySelector('[data-conversation-id="m-foo"]')).toBeTruthy();
-    expect(
-      container.querySelector('[data-conversation-id="m-foo-hidden"]'),
-    ).toBeNull();
-  });
-
-  it("Test I2: rows that transitioned into hidden state are NOT re-included in filter matches", () => {
-    // The panel's knownRowsRef accumulates rows seen in the tiers over time.
-    // A row that was visible (middle) becomes hidden (id added to hiddenIds)
-    // and the store re-emits without that row in middle. Even though
-    // knownRowsRef still remembers the row object, the filter's candidate
-    // union comes from the CURRENT visible tiers, so the transitioned row
-    // must not appear.
-    const hostA = makeHost("h1", "hostA");
-    setSnapshot({
-      middle: [
-        makeConversationRow({ id: "m1", label: "foo-alpha", host: hostA }),
-        makeConversationRow({ id: "m2", label: "foo-beta", host: hostA }),
-      ],
-    });
-
-    const { container, rerender } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // Both rows visible in the middle initially. Now hide m1 — the store
-    // would strip m1 from middle and add its id to hiddenIds.
-    setSnapshot({
-      middle: [
-        makeConversationRow({ id: "m2", label: "foo-beta", host: hostA }),
-      ],
-      hiddenIds: new Set(["m1"]),
-    });
-    rerender(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
-
-    // Search for "foo" — only m2 (visible) should render, NOT m1 (hidden).
-    const searchInput = container.querySelector(
-      '[data-testid="pretty-conversations-search-input"]',
-    ) as HTMLInputElement;
-    fireEvent.change(searchInput, { target: { value: "foo" } });
-    expect(container.querySelector('[data-conversation-id="m2"]')).toBeTruthy();
-    // user lock #3: hidden m1 must NOT appear in matches even though
-    // knownRowsRef still holds the row object from the earlier render.
-    expect(container.querySelector('[data-conversation-id="m1"]')).toBeNull();
-  });
+  // (Phase 115 Plan 115-02: prior Test I + Test I2 "hidden rows excluded
+  //  from filter matches" tests retired per D-21 alongside the source-code
+  //  deletion of hiddenIds + isRowHidden.)
 
   it("Test J: clearing the query via the × button restores the three-zone render", () => {
     const hostA = makeHost("h1", "hostA");

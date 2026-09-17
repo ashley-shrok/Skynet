@@ -874,7 +874,11 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
         "identity_cosmetics": identity_cosmetics,
         "role_cosmetics": role_cosmetics,
         "pinned": sentinels["pinned"],
-        "hidden": sentinels["hidden"],
+        # Phase 115 Plan 115-05: archived axis added. Sourced from disk-root
+        # (live tree = false, archive tree = true) — not from any sentinel file.
+        # (Phase 115 Plan 115-02: prior `hidden` field retired per D-21; the
+        # B9 wire slot is reused for `archived` by Plan 115-05.)
+        "archived": sentinels.get("archived", False),
     }
 
 
@@ -975,46 +979,82 @@ def _build_pid_line(pid, identity, home, identity_jsonl_paths, jsonl_tail_cache)
 
 
 def _enumerate_identities(home):
-    """Return list of dicts {name, dormant, recycled_at, recycle_requested, pinned, hidden}.
+    """Return list of dicts {name, dormant, recycled_at, recycle_requested, pinned, archived}.
 
-    Iterates ~/fleet/identities/*/. On FileNotFoundError, returns []. Skips
-    entries whose name fails the safe-char regex (G6 server-side belt).
+    Phase 115 Plan 115-05: unified walk over BOTH ~/fleet/identities/ AND
+    ~/fleet/identities-archive/ in a single loop, emitting `archived: true`
+    on rows sourced from the archive tree. Sentinel handling is symmetric
+    across the two roots (archived identities may retain residue like .pinned
+    on disk — inert but still present). Per RESEARCH §5's diff sketch.
 
-    This function is a pure sentinel walk — it does NOT read frontmatter. Per-identity
-    frontmatter reads happen inside _build_identity_line where the per-identity
-    try/except can contain any read failure without aborting the whole host sweep.
+    Skips entries whose name fails the safe-char regex (G6 server-side belt).
+    On FileNotFoundError for either root, continues to the next root — the
+    archive tree may not exist yet on hosts that have never retired an
+    identity, and on newly-provisioned hosts even the live tree may be absent.
+
+    (Phase 115 Plan 115-02 removed the `.hidden` probe + emit key alongside
+    the schema-side retirement per D-21. Phase 115 Plan 115-05 adds the
+    `.archived` axis in its place, mapped from disk-root not from a sentinel
+    file.)
+
+    This function is a pure sentinel walk — it does NOT read frontmatter.
+    Per-identity frontmatter reads happen inside _build_identity_line where
+    the per-identity try/except can contain any read failure without aborting
+    the whole host sweep.
     """
-    identities_root = os.path.join(home, "fleet", "identities")
     out = []
-    try:
-        with os.scandir(identities_root) as it:
-            for entry in it:
-                if not entry.is_dir(follow_symlinks=False):
-                    continue
-                name = entry.name
-                if not SAFE_NAME_RE.match(name):
-                    _log("identity_name_skipped", name=name[:40])
-                    continue
-                dormant = os.path.exists(os.path.join(entry.path, ".dormant"))
-                recycled_at = os.path.exists(os.path.join(entry.path, ".recycled-at"))
-                recycle_requested = os.path.exists(
-                    os.path.join(entry.path, ".recycle-requested"),
-                )
-                pinned = os.path.exists(os.path.join(entry.path, ".pinned"))
-                hidden = os.path.exists(os.path.join(entry.path, ".hidden"))
-                out.append({
-                    "name": name,
-                    "dormant": dormant,
-                    "recycled_at": recycled_at,
-                    "recycle_requested": recycle_requested,
-                    "pinned": pinned,
-                    "hidden": hidden,
-                })
-    except FileNotFoundError:
-        return []
-    except OSError as e:
-        _log("identities_scandir_failed", errno=e.errno)
-        return []
+    # State 3 anomaly defense (post-code-review fix 2): the shape says an
+    # identity name can NEVER exist in both trees simultaneously (the retire
+    # flow move+delete is collision-abort safe, and the supervisor defends
+    # against this shape explicitly). Belt-and-braces: if we ever see a name
+    # in BOTH trees on a single sweep, emit ONCE (live-tree wins because it
+    # walks first) and log the collision as structured warning. Prevents
+    # doubled records leaking to the frontend.
+    seen_names: set[str] = set()
+    for root, archived_flag, root_label in (
+        (os.path.join(home, "fleet", "identities"), False, "identities"),
+        (os.path.join(home, "fleet", "identities-archive"), True, "identities-archive"),
+    ):
+        try:
+            with os.scandir(root) as it:
+                for entry in it:
+                    if not entry.is_dir(follow_symlinks=False):
+                        continue
+                    name = entry.name
+                    if not SAFE_NAME_RE.match(name):
+                        _log("identity_name_skipped", name=name[:40])
+                        continue
+                    if name in seen_names:
+                        # Live-tree walked first; this archive-tree copy is
+                        # the anomaly. Skip emission, log the collision.
+                        _log("identity_name_collision", name=name, root=root_label)
+                        continue
+                    dormant = os.path.exists(os.path.join(entry.path, ".dormant"))
+                    recycled_at = os.path.exists(
+                        os.path.join(entry.path, ".recycled-at"),
+                    )
+                    recycle_requested = os.path.exists(
+                        os.path.join(entry.path, ".recycle-requested"),
+                    )
+                    pinned = os.path.exists(os.path.join(entry.path, ".pinned"))
+                    seen_names.add(name)
+                    out.append({
+                        "name": name,
+                        "dormant": dormant,
+                        "recycled_at": recycled_at,
+                        "recycle_requested": recycle_requested,
+                        "pinned": pinned,
+                        "archived": archived_flag,
+                    })
+        except FileNotFoundError:
+            # Either the live tree or archive tree may be absent — the
+            # archive tree in particular is only created on first retire.
+            # Continue to the next root; a fresh host with neither tree
+            # returns an empty list, which is the correct fail-open shape.
+            continue
+        except OSError as e:
+            _log("identities_scandir_failed", errno=e.errno, root=root)
+            continue
     return out
 
 
@@ -1079,7 +1119,11 @@ def main():
             "recycled_at": False,
             "recycle_requested": False,
             "pinned": False,
-            "hidden": False,
+            # Synthetic records (identity known only via /proc/<pid>/environ)
+            # are always LIVE — a PID cannot be running for an identity whose
+            # folder is under identities-archive/ (retire always kills the
+            # harness before moving the folder). archived: false is correct.
+            "archived": False,
         })
         known_names.add(identity)
 
@@ -1102,7 +1146,7 @@ def main():
                 "recycled_at": rec["recycled_at"],
                 "recycle_requested": rec["recycle_requested"],
                 "pinned": rec["pinned"],
-                "hidden": rec["hidden"],
+                "archived": rec["archived"],
             },
             identity_jsonl_paths.get(rec["name"]),
             jsonl_tail_cache,

@@ -348,82 +348,70 @@ get_freshness_epoch() {
   printf '%s' "${mtime:-0}"
 }
 
-# ---- archive scan (Phase 94) — retire action ----
+# ---- retire action (Phase 94 base; Phase 115 reorder) ----
 # retire_identity(name)
 #
-# Executes the three-step retire in the D-10 → D-11 → D-12 order (move folder →
-# kill tmux session → deactivate matrix account). This order is LOAD-BEARING:
-# Step 1 removes the identity from the active tree so the supervisor's keep-alive
-# loop cannot race and relaunch it during Steps 2 or 3. Step 2 tears down any
-# live tmux process before Step 3 consumes credentials. Step 3 reads credentials
-# from the NOW-ARCHIVED relay.json (moved by Step 1) — never from the active path.
+# Executes the four-step retire in the Phase 115 D-13 order:
+#   STEP 1: matrix deactivate  (was Phase 94 step 3)
+#   STEP 2: graceful harness exit  (NEW in Phase 115 — reuses recycle()'s pattern verbatim)
+#   STEP 3: tmux kill-session  (was Phase 94 step 2)
+#   STEP 4a: delete .archive-requested sentinel  (Phase 115 D-12 option b — BEFORE folder move)
+#   STEP 4b: move folder to archive/  (was Phase 94 step 1)
 #
-# Idempotency (D-13 retry-from-top): each step handles the case where a prior
-# partial run already completed that step. Re-running from the top after any
-# partial failure is safe.
+# Rationale (D-13): the old order (move → kill → matrix) was a hard-stop sequence — folder-move
+# starved watchers into death, tmux kill terminated the pane cold. The new order lets each layer
+# flush BEFORE the next tears it down: matrix deactivate first (idempotent per Synapse; can be
+# re-tried from top on failure without racing anything since the identity is still on disk);
+# then a graceful harness exit that lets ambient-monitor's _harness_watch fire, SIGTERM its four
+# watcher children (including recv.sh, which flushes its cursor to disk); then a bounded tmux
+# kill-session as the hard-stop backstop; then sentinel-delete + folder-move to seal the retire.
 #
-# Return contract: 0 on full success (all three steps complete); 1 on any step
-# failure (caller is responsible for retire-stuck counter — see run_archive_scan
-# in Wave 3 / 94-03-PLAN.md; this function does NOT touch that counter).
+# The graceful-exit step (STEP 2) reuses recycle()'s /exit paste + Enter + SIGTERM survivors
+# pattern verbatim (D-14) so we don't fork a second graceful-exit pattern in the codebase, and
+# waits an ADDITIONAL GRACE_WAIT seconds (= ambient-monitor.py:81 GRACE_SECONDS + 1) so
+# ambient-monitor completes its own SIGTERM-fanout window before STEP 3's tmux kill lands
+# (RESEARCH §4: without this wait, tmux kill-session would SIGHUP ambient-monitor mid-cleanup,
+# defeating the whole ordering).
+#
+# Idempotency (D-13 retry-from-top): each step handles the case where a prior partial run
+# already completed that step. Re-running from the top after any partial failure is safe:
+#   - matrix deactivate: 401 M_UNKNOWN_TOKEN → treat as idempotent success (A4).
+#   - graceful exit / tmux kill: no-op if session gone.
+#   - sentinel delete: silent if not present.
+#   - folder move: State 2 (already in archive/) → skip; State 3 (collision) → abort.
+#
+# Return contract: 0 on full success; 1 on {step 1 fatal, step 3 not applicable — no-op is
+# still success, step 4b collision/anomaly}. STEP 2 is best-effort and NEVER gates the retire
+# (a stuck harness could otherwise block retire forever; STEP 3 is the hard-stop backstop).
+#
+# Caller (run_archive_scan or scan_archive_requested_sentinels) owns the retire-stuck counter;
+# this function does NOT touch it.
 retire_identity() {
   local name="$1"
   local iddir="$IDENTITIES_DIR/$name"
   local archdir="$IDENTITIES_ARCHIVE_DIR/$name"
 
-  # STEP 1 (D-10): Move identity folder to the archive sibling location per D-02 — FIRST because
-  # the supervisor's keep-alive loop reads the active tree; once the folder is gone no new sessions
-  # for this identity can spin up regardless of what happens in Steps 2 and 3.
-  # Create the archive sibling location on demand (first retire on any box creates it).
-  mkdir -p "$IDENTITIES_ARCHIVE_DIR" 2>/dev/null
-  if [ -d "$iddir" ] && [ ! -d "$archdir" ]; then
-    # State 1 (normal path): active present, archive absent — do the move.
-    if ! mv "$iddir" "$archdir" 2>/dev/null; then
-      log "ERROR: archive-scan: retire '$name': step 1 — mv to archive/ failed; aborting retire"
+  # =============================================================================================
+  # STEP 1 (Phase 115 D-13): Matrix deactivate — FIRST, using credentials from the LIVE tree.
+  # =============================================================================================
+  # Reads relay.json from $iddir (LIVE tree — the folder has NOT moved yet in the new order).
+  # Idempotent per Synapse: an already-deactivated account returns 401 M_UNKNOWN_TOKEN which we
+  # treat as success (A4). D-16 discipline: any non-idempotent failure fails LOUD and aborts;
+  # do NOT silently succeed the rest of the retire — the identity's Matrix account would remain
+  # live indefinitely with no signal.
+  log "'$name' retire step 1 (matrix deactivate) starting"
+  local relay_json="$iddir/relay.json"
+  if [ ! -f "$relay_json" ]; then
+    # State 2 (D-13 retry-from-partial): active absent, archive present — the folder was already
+    # moved by a prior partial run. Fall through to check for relay.json in archdir as a fallback,
+    # so step 1 remains idempotent across partial-retry states.
+    if [ -f "$archdir/relay.json" ]; then
+      relay_json="$archdir/relay.json"
+      log "'$name' retire step 1: relay.json not in live tree — reading from archdir (State 2 resume)"
+    else
+      log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED: relay.json not found at $iddir or $archdir — sentinel retained"
       return 1
     fi
-    log "archive-scan: retire '$name': step 1 — moved to archive/"
-  elif [ ! -d "$iddir" ] && [ -d "$archdir" ]; then
-    # State 2 (retry from prior partial run): active absent, archive present — skip move, resume from step 2.
-    log "archive-scan: retire '$name': step 1 — folder already in archive/ (resuming from step 2)"
-  elif [ -d "$iddir" ] && [ -d "$archdir" ]; then
-    # State 3 (collision — impossible per D-16 since un-archive is out of scope, but planner-defensive):
-    # both active and archive/ exist. Abort — the retire-stuck counter will drive to retire-stuck after
-    # 3 consecutive daily-pass failures so the maintainer sees the anomalous state.
-    log "ERROR: archive-scan: retire '$name': collision — both active and archive/ folders exist; refusing to mv (aborting retire; the counter will drive to retire-stuck)"
-    return 1
-  else
-    # State 4 (anomaly): active absent, archive absent — nothing to retire.
-    log "ERROR: archive-scan: retire '$name': neither active nor archive/ folder exists (anomaly); aborting"
-    return 1
-  fi
-
-  # STEP 2 (D-11): Kill the identity's tmux session if one is running.
-  # EXCEPTION to the "never kill" rule (see "SAFETY: the supervisor NEVER kills a session" below):
-  # this function IS the permanent-removal case. Unlike the keep-alive loop which only recovers
-  # sessions, retire deliberately tears down a session that will never be relaunched on this host.
-  # kill-session is the correct call here (not /exit + poll — that keeps the shell session alive).
-  local slugname actual
-  slugname="$(slug "$name")"
-  actual="$(match_session "$slugname" || true)"
-  if [ -n "$actual" ]; then
-    if timeout -k 5 10 tmux kill-session -t "$actual" 2>/dev/null; then
-      log "archive-scan: retire '$name': step 2 — killed tmux session '$actual'"
-    else
-      # Session likely died between match and kill — treat as no-op success and proceed to step 3.
-      log "archive-scan: retire '$name': step 2 — tmux kill-session returned non-zero (session likely already gone)"
-    fi
-  else
-    log "archive-scan: retire '$name': step 2 — no tmux session found (no-op)"
-  fi
-
-  # STEP 3 (D-12): Deactivate the identity's matrix account using its OWN credentials.
-  # Reads from the NOW-ARCHIVED relay.json at $archdir (Pitfall 4 lock: the active path no longer
-  # exists after Step 1 moved the folder). No admin token — fleet invariant: no managed box holds
-  # a homeserver admin key.
-  local relay_json="$archdir/relay.json"
-  if [ ! -f "$relay_json" ]; then
-    log "ERROR: archive-scan: retire '$name': step 3 — relay.json not found at $relay_json; cannot deactivate"
-    return 1
   fi
   local base mxid password access_token
   base=$(jq -r '.base // empty' "$relay_json" 2>/dev/null)
@@ -431,7 +419,7 @@ retire_identity() {
   password=$(jq -r '.password // empty' "$relay_json" 2>/dev/null)
   access_token=$(jq -r '.access_token // empty' "$relay_json" 2>/dev/null)
   if [ -z "$base" ] || [ -z "$mxid" ] || [ -z "$password" ] || [ -z "$access_token" ]; then
-    log "ERROR: archive-scan: retire '$name': step 3 — relay.json missing required fields (base/user_id/password/access_token); cannot deactivate"
+    log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED: relay.json missing required fields (base/user_id/password/access_token) — sentinel retained"
     return 1
   fi
   # Build deactivate body via jq --arg so credentials are JSON-escaped (prevents injection
@@ -449,32 +437,138 @@ retire_identity() {
   http_code=$(printf '%s\n' "$resp" | tail -1)
   case "$http_code" in
     200)
-      log "archive-scan: retire '$name': step 3 — matrix account deactivated (200)"
+      log "'$name' retire step 1 (matrix deactivate) success (http=$http_code)"
       ;;
     401)
       # Token already revoked by a prior deactivation — account is already deactivated.
-      # Treat as idempotent success (D-13 / Assumption A4): the prior run completed Step 3;
+      # Treat as idempotent success (D-13 / Assumption A4): the prior run completed Step 1;
       # this retry run simply confirms it.
-      log "archive-scan: retire '$name': step 3 — 401 M_UNKNOWN_TOKEN (account already deactivated from prior attempt); treating as success"
+      log "'$name' retire step 1 (matrix deactivate) success (http=$http_code — token already revoked / A4 idempotent)"
       ;;
     4*)
       # Non-401 4xx: a client-side error we cannot recover from automatically (bad endpoint,
       # malformed body, authorization issue beyond token expiry). Log $base and $mxid only —
-      # never $access_token or $password (T-94-02-04 mitigation).
-      log "ERROR: archive-scan: retire '$name': step 3 — deactivate returned $http_code for $mxid at $base; aborting"
+      # never $access_token or $password (T-94-02-04 / T-115-04-03 mitigation).
+      log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED http=$http_code for $mxid at $base — sentinel retained"
       return 1
       ;;
     5*|"")
-      log "ERROR: archive-scan: retire '$name': step 3 — deactivate failed (http=$http_code) for $mxid at $base; network error or server error"
+      log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED http=$http_code for $mxid at $base — network or server error, sentinel retained"
       return 1
       ;;
     *)
-      log "ERROR: archive-scan: retire '$name': step 3 — deactivate returned unexpected code $http_code for $mxid at $base; aborting"
+      log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED http=$http_code for $mxid at $base — unexpected code, sentinel retained"
       return 1
       ;;
   esac
 
-  log "archive-scan: retire '$name': complete (move + kill + deactivate)"
+  # =============================================================================================
+  # STEP 2 (Phase 115 D-13/D-14 NEW): Graceful harness exit — reuses recycle()'s pattern verbatim.
+  # =============================================================================================
+  # Send /exit to the claude REPL via bracketed paste + Enter, wait, then SIGTERM survivors.
+  # After the recycle-style burst, wait an additional GRACE_WAIT seconds so ambient-monitor's
+  # _harness_watch fires (once/sec poll → ≤1s to detect), its _do_shutdown SIGTERMs the four
+  # watcher children (relay receiver, wakeup-scheduler, context-watch, role-file-watch), and
+  # they exit before STEP 3's tmux kill-session lands. STEP 2 NEVER gates the retire — a stuck
+  # harness or a missing tmux session must not block retire; STEP 3 is the backstop.
+  local slugname actual
+  slugname="$(slug "$name")"
+  actual="$(match_session "$slugname" || true)"
+  # ⚠ Must match ambient-monitor.py:81 GRACE_SECONDS+1 — bump in lockstep.
+  local GRACE_WAIT=11
+  if [ -z "$actual" ]; then
+    log "'$name' retire step 2 (graceful exit): no live tmux session; skipping graceful exit"
+  else
+    # Copied VERBATIM from recycle() (see ~L1050) per D-14 "same pattern, do NOT invent a second".
+    local _ex_tmp; _ex_tmp=$(mktemp)
+    printf '%s' "/exit" > "$_ex_tmp"
+    timeout -k 5 10 tmux load-buffer -t "$actual" "$_ex_tmp" 2>/dev/null
+    timeout -k 5 10 tmux paste-buffer -p -t "$actual" 2>/dev/null
+    rm -f "$_ex_tmp"
+    sleep 0.5
+    timeout -k 5 10 tmux send-keys -t "$actual" Enter 2>/dev/null
+    log "'$name' retire step 2 (graceful exit): /exit paste + Enter sent to pane"
+    sleep 3
+    # hard fallback: kill any claude/node still on the pane tty so we're back at a shell
+    local tty pid killed=0
+    tty="$(timeout -k 5 10 tmux list-panes -t "=$actual" -F '#{pane_tty}' 2>/dev/null | head -1)"
+    if [ -n "$tty" ]; then
+      # shellcheck disable=SC2009  # D-14: pattern copied verbatim from recycle() — pgrep does not support -t (tty filter) the same way.
+      for pid in $(ps -t "${tty#/dev/}" -o pid=,comm= 2>/dev/null | grep -iE 'claude|node' | awk '{print $1}'); do
+        kill "$pid" 2>/dev/null   # SIGTERM (default signal)
+        killed=$((killed+1))
+      done
+    fi
+    if [ "$killed" -gt 0 ]; then
+      log "'$name' retire step 2 (graceful exit): SIGTERM'd $killed survivor(s) on tty ${tty:-?}"
+    else
+      log "'$name' retire step 2 (graceful exit): no survivors after /exit — pane at shell"
+    fi
+    # RESEARCH §4: after harness dies, ambient-monitor's _harness_watch fires ≤1s later, then
+    # _do_shutdown SIGTERMs its 4 children with a 10s grace window. Wait long enough that
+    # ambient-monitor completes its own cleanup before STEP 3 tears the tmux session down.
+    log "'$name' retire step 2 (graceful exit) — waiting ${GRACE_WAIT}s for ambient-monitor cleanup"
+    sleep "$GRACE_WAIT"
+  fi
+  log "'$name' retire step 2 (graceful exit) done"
+
+  # =============================================================================================
+  # STEP 3 (Phase 115 D-13; was Phase 94 step 2): tmux kill-session — hard-stop backstop.
+  # =============================================================================================
+  # EXCEPTION to the "never kill" rule (see "SAFETY: the supervisor NEVER kills a session" below):
+  # this function IS the permanent-removal case. Unlike the keep-alive loop which only recovers
+  # sessions, retire deliberately tears down a session that will never be relaunched on this host.
+  # kill-session is the correct call here (not /exit + poll — that keeps the shell session alive).
+  # Case-insensitive match preserved via match_session (Pitfall 3 lock: -t "$actual" not -t "=name").
+  if [ -n "$actual" ]; then
+    if timeout -k 5 10 tmux kill-session -t "$actual" 2>/dev/null; then
+      log "'$name' retire step 3 (tmux kill-session) success: killed tmux session '$actual'"
+    else
+      # Session likely died between graceful-exit and kill (STEP 2 already SIGTERM'd survivors;
+      # ambient-monitor's cleanup may have taken the pane with it). Idempotent no-op → success.
+      log "'$name' retire step 3 (tmux kill-session) success: session likely already gone (no-op)"
+    fi
+  else
+    log "'$name' retire step 3 (tmux kill-session) success: no tmux session found (no-op)"
+  fi
+
+  # =============================================================================================
+  # STEP 4a (Phase 115 D-12 option b): Delete the .archive-requested sentinel BEFORE folder move.
+  # =============================================================================================
+  # Deleting the sentinel BEFORE the move means a mid-move crash leaves the sentinel in place for
+  # the next tick to retry the whole retire from step 1 (D-15 retry semantics). Silent if not
+  # present (the 180-day dormancy path never wrote it, so this is a no-op for that trigger path).
+  rm -f "$iddir/.archive-requested" 2>/dev/null || true
+  log "'$name' retire step 4a: sentinel .archive-requested deleted (if present)"
+
+  # =============================================================================================
+  # STEP 4b (Phase 115 D-13; was Phase 94 step 1): Move identity folder to archive sibling.
+  # =============================================================================================
+  # Create the archive sibling location on demand (first retire on any box creates it).
+  mkdir -p "$IDENTITIES_ARCHIVE_DIR" 2>/dev/null
+  if [ -d "$iddir" ] && [ ! -d "$archdir" ]; then
+    # State 1 (normal path): active present, archive absent — do the move.
+    if ! mv "$iddir" "$archdir" 2>/dev/null; then
+      log "ERROR: '$name' retire step 4b (folder move) FAILED: mv to archive/ failed — sentinel already deleted, next tick will retry from step 1"
+      return 1
+    fi
+    log "'$name' retire step 4b (folder move) success: moved to archive/"
+  elif [ ! -d "$iddir" ] && [ -d "$archdir" ]; then
+    # State 2 (retry from prior partial run): active absent, archive present — skip move.
+    log "'$name' retire step 4b (folder move) success: folder already in archive/ (State 2 resume)"
+  elif [ -d "$iddir" ] && [ -d "$archdir" ]; then
+    # State 3 (collision — impossible per D-16 since un-archive is out of scope, but planner-defensive):
+    # both active and archive/ exist. Abort — the retire-stuck counter will drive to retire-stuck after
+    # 3 consecutive failures so the maintainer sees the anomalous state.
+    log "ERROR: '$name' retire step 4b (folder move) FAILED: collision — both active and archive/ folders exist; refusing to mv"
+    return 1
+  else
+    # State 4 (anomaly): active absent, archive absent — nothing to retire.
+    log "ERROR: '$name' retire step 4b (folder move) FAILED: neither active nor archive/ folder exists (anomaly)"
+    return 1
+  fi
+
+  log "'$name' retire complete (matrix + graceful-exit + tmux + sentinel-delete + folder-move)"
   return 0
 }
 
@@ -538,10 +632,12 @@ run_archive_scan() {
       if [ "$count" -ge 3 ]; then
         # D-14: drop retire-stuck sentinel (presence-only empty file, matches .pinned/.no-dormancy
         # convention). Written to the archived folder ($IDENTITIES_ARCHIVE_DIR/$name/retire-stuck).
-        # Note: if Step 1 of retire_identity failed (State 4: neither active nor archive exists),
-        # the archive sibling subfolder does not exist and this touch silently fails — the counter
-        # still increments. Wave 4 tests exercise this edge.
-        touch "$IDENTITIES_ARCHIVE_DIR/$name/retire-stuck" 2>/dev/null
+        # Phase 115 D-13 note: in the new step order (matrix-first, folder-move last), STEP 1
+        # can fail without STEP 4b having created the archive subfolder. mkdir -p first so the
+        # touch does not silently no-op on a step-1-fail-3x path.
+        mkdir -p "$IDENTITIES_ARCHIVE_DIR/$name" 2>/dev/null
+        touch "$IDENTITIES_ARCHIVE_DIR/$name/retire-stuck" 2>/dev/null \
+          || log "ERROR: could not touch retire-stuck for $name"
         # LOUD log — the ONE explicit exception to D-15 silent-by-design (per CONTEXT.md D-14).
         log "ERROR: archive-scan: '$name': STUCK after $count consecutive daily-pass failures — retire-stuck sentinel dropped in archive/$name/"
       else
@@ -574,6 +670,71 @@ run_archive_scan_if_due() {
   log "archive-scan: 24h elapsed since last run — running now"
   run_archive_scan
   touch "$ARCHIVE_SCAN_MARKER"   # UNCONDITIONAL — Pitfall 5 lock (cadence gate, not success gate)
+}
+
+# ---- user-initiated archive scan (Phase 115 D-10/D-11/D-15) ----
+# scan_archive_requested_sentinels()
+#
+# Sibling of run_archive_scan_if_due(). Walks $IDENTITIES_DIR/*/ every reconcile tick (~15s
+# cadence, NOT gated by the 24h ARCHIVE_SCAN_INTERVAL) and invokes retire_identity(name)
+# on any identity whose folder contains a `.archive-requested` sentinel.
+#
+# Phase 115 D-11: BYPASSES the .pinned/.no-dormancy/is_coordinator/freshness guards that
+# gate the 180-day run_archive_scan() daily path. Rationale: those guards protect against
+# AUTOMATED retire from surprising the user. A direct click on "Archive" in the Skynet
+# context menu is not automated — if the user clicked archive on a pinned/coordinator/
+# no-dormancy identity, they meant it. Guard bypass lives at the CALLER (this function
+# doesn't call the four guards); retire_identity() itself remains guard-agnostic so no
+# force-flag parameter is added to it (RESEARCH §3 recommendation).
+#
+# Phase 115 D-15 failure semantics: on any step failure inside retire_identity(), the
+# sentinel is retained (step 4a's rm -f is inside retire_identity and only runs after
+# steps 1-3 succeed; on earlier abort the sentinel stays put). The per-tick counter file
+# retire-fail-count-user-<name> is a SIBLING of the daily path's retire-fail-count-<name>
+# (RESEARCH §3 recommendation option b): independent counters so a passing daily sweep
+# doesn't reset a mid-flight user-initiated stuck counter. After 3 consecutive per-tick
+# failures (~45s wall-time), a retire-stuck sentinel is written to the archive folder
+# (mkdir -p'd first in case step 1 failed 3x without ever creating archdir — same
+# defense as the daily path's Phase 115 fix).
+scan_archive_requested_sentinels() {
+  local d name
+  for d in "$IDENTITIES_DIR"/*/; do
+    [ -d "$d" ] || continue                          # guard against nullglob miss (no match → literal *)
+    name="$(basename "$d")"
+    [ -f "$d/.archive-requested" ] || continue
+
+    # D-11: BYPASS guards. Do NOT check .pinned, .no-dormancy, is_coordinator, or freshness.
+    # A direct user click is not automated — the guards exist to protect against AUTOMATED
+    # retire surprises. If the user clicked archive on a pinned identity, they meant it.
+    log "'$name' user-initiated archive: .archive-requested detected, invoking retire_identity"
+
+    if retire_identity "$name"; then
+      # Success — the sentinel was already deleted by retire_identity step 4a. Clear the
+      # user-initiated fail counter (D-15). This does NOT touch the daily path's counter
+      # (retire-fail-count-<name>) — they're independent per RESEARCH §3.
+      rm -f "$DORMANCY_STATE_DIR/retire-fail-count-user-$name" 2>/dev/null
+      log "'$name' user-initiated archive: retire_identity succeeded"
+    else
+      # Failure — sentinel stays in place (retire_identity's step 4a wasn't reached, or the
+      # move failed before delete). Increment the user-initiated per-tick counter.
+      mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null
+      local count
+      count=$(grep -E '^[0-9]+$' "$DORMANCY_STATE_DIR/retire-fail-count-user-$name" 2>/dev/null || echo 0)
+      count=$((count + 1))
+      printf '%s' "$count" > "$DORMANCY_STATE_DIR/retire-fail-count-user-$name"
+      log "ERROR: '$name' user-initiated archive: retire_identity FAILED — fail count=$count (sentinel retained)"
+
+      if [ "$count" -ge 3 ]; then
+        # Same retire-stuck semantics as the daily path (unified sentinel per D-15). mkdir -p
+        # defends the case where step 1 failed 3x and archdir was never created (matrix-first
+        # order can hit retire-stuck without ever reaching step 4b).
+        mkdir -p "$IDENTITIES_ARCHIVE_DIR/$name" 2>/dev/null
+        touch "$IDENTITIES_ARCHIVE_DIR/$name/retire-stuck" 2>/dev/null \
+          || log "ERROR: '$name' user-initiated archive: could not write retire-stuck sentinel"
+        log "ERROR: '$name' user-initiated archive: STUCK after $count consecutive per-tick failures — retire-stuck sentinel dropped"
+      fi
+    fi
+  done
 }
 
 # Find the ACTUAL existing tmux session name matching $1 CASE-INSENSITIVELY (tmux names are
@@ -1778,6 +1939,7 @@ reconcile() {
   snapshot_sessions                                # one tmux ls per tick; match_session reads from the snapshot. MUST run before archive-scan (which calls match_session via retire_identity).
   snapshot_claude_running                          # one ps + one tmux list-panes -a per tick; claude_running_cached reads from CLAUDE_RUNNING_SNAPSHOT.
   run_archive_scan_if_due                          # Phase 94: daily archive-scan branch (24h gate; fast-path no-op on most ticks)
+  scan_archive_requested_sentinels                 # Phase 115 D-10: user-initiated archive-scan (every tick, no gate, bypasses .pinned/.no-dormancy/coordinator/freshness)
   resolve_identities
   snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).
   snapshot_matrix_peek                             # parallel curls (default -P 20) to Matrix homeservers for all dormant identities; matrix_peek_cached reads from MATRIX_PEEK_SNAPSHOT.

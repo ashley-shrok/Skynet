@@ -186,15 +186,6 @@ export function publicIdentity(
    *  frontend rewire) reports the identity as unpinned rather than
    *  fabricating a truthy state. */
   pinned: boolean = false,
-  /** Phase 107 Plan 107-02 Task 1: hidden:boolean surface for the per-identity
-   *  `.hidden` sentinel (D-03/D-04, SC-2). Populated by the GET /identities
-   *  disk fanout via identityFileExists in the SAME Promise.all wave as
-   *  the `.pinned` probe and the role-cosmetic read (see disk-fanout at
-   *  L370+). Default false is the fail-closed safe-default per D-01
-   *  "presence is meaning" — a caller that omits this argument reports the
-   *  identity as unhidden rather than fabricating a truthy state. Sibling
-   *  to `pinned` above; independent axis. */
-  hidden: boolean = false,
 ) {
   // Phase 111 Plan 111-02: delegate the identity-over-role merge to the single
   // authority in `src/backend/fleet-status/identity-appearance.ts`. This keeps
@@ -208,7 +199,6 @@ export function publicIdentity(
     roleCosmetics,
     role,
     pinned,
-    hidden,
   });
 
   return {
@@ -249,12 +239,6 @@ export function publicIdentity(
     // conversation-store's pinnedIds derivation from GET /user-preferences
     // to this per-identity field.
     pinned: resolved.pinned,
-    // Phase 107 Plan 107-02: hidden:boolean derived from on-demand disk read
-    // of `.hidden` sentinel via identityFileExists at request time (D-03).
-    // No DB mirror, no in-memory cache. Frontend Plan 04 rewires
-    // conversation-store's hiddenIds derivation from GET /user-preferences
-    // to this per-identity field.
-    hidden: resolved.hidden,
   };
 }
 
@@ -334,10 +318,12 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
             // Every SSH channel this handler opens goes through the shared
             // per-host semaphore (default cap 8, sized against sshd's
             // MaxSessions=10). The cap MUST be at the individual-channel
-            // level, not per identity: the fanout opens 3 channels per
-            // identity (identity file + `.pinned` + `.hidden`), so an
-            // 8-slot cap applied per identity would still permit 24
-            // concurrent channels and blow the ceiling exactly as before.
+            // level, not per identity: the fanout opens 2 channels per
+            // identity (identity file + `.pinned`), so an 8-slot cap
+            // applied per identity would still permit 16 concurrent
+            // channels and blow the ceiling exactly as before.
+            // (Phase 115 Plan 115-02: the third channel — `.hidden` —
+            // was retired per D-21. Prior comment cited 3 channels / 24.)
             //
             // Local hosts (conn === null) read the bind-mount with no SSH
             // channel at all, so they bypass the semaphore rather than
@@ -399,11 +385,11 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                   //
                   // H3 lowercase-on-disk invariant: identityKey is the raw
                   // folder name from listIdentityKeysOnHost. Passed VERBATIM
-                  // to identityFileExists for both `.pinned` and `.hidden` —
-                  // no case coercion, no reconstruction from cosmetics. The
-                  // reader regex (identity-artifact-reader.ts:174) guarantees
-                  // this string is already lowercase, so it matches the
-                  // on-disk folder segment byte-for-byte.
+                  // to identityFileExists for `.pinned` — no case coercion,
+                  // no reconstruction from cosmetics. The reader regex
+                  // (identity-artifact-reader.ts:174) guarantees this string
+                  // is already lowercase, so it matches the on-disk folder
+                  // segment byte-for-byte.
                   // Grep-hygiene marker: identityFileExists → .pinned wiring.
                   const pinnedPromise = withSlot(() =>
                     identityFileExists(identityKey, ".pinned", {
@@ -411,22 +397,10 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                       conn,
                     }),
                   ).catch(() => false); // fail-closed per D-01 (PUB-92-03)
-                  // Phase 107 Plan 107-02: parallel `.hidden` probe in the SAME
-                  // Promise.all wave as `.pinned` + readIdentityFile. Same fail-closed
-                  // contract (exists throw → hidden:false per D-01 — a stat failure
-                  // must NEVER paint an identity as hidden by mistake). HID-107-03
-                  // locks the exception path; HID-107-04 locks the parallel-wave shape.
-                  const hiddenPromise = withSlot(() =>
-                    identityFileExists(identityKey, ".hidden", {
-                      hostId,
-                      conn,
-                    }),
-                  ).catch(() => false); // fail-closed per D-01 (HID-107-03)
 
-                  const [{ markdown }, pinned, hidden] = await Promise.all([
+                  const [{ markdown }, pinned] = await Promise.all([
                     withSlot(() => readIdentityFile(conn, identityKey)),
                     pinnedPromise,
-                    hiddenPromise,
                   ]);
                   const cosmetics = extractCosmeticsFromFrontmatter(markdown);
                   const role = extractRoleFromMarkdown(markdown) ?? null;
@@ -445,7 +419,6 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                     role,
                     roleCosmetics,
                     pinned,
-                    hidden,
                   );
                 } catch (err) {
                   // Skip this key, but say so: an identity that is absent from

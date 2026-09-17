@@ -17,12 +17,13 @@ import type { PrettyContextMenuItem } from "@/features/pretty-conversations/Pret
 import {
   fleetRowId,
   usePinnedIds,
-  useHiddenIds,
   pinConversation,
   unpinConversation,
-  hideConversation,
-  unhideConversation,
 } from "@/state/conversation-store";
+// Phase 115 Plan 115-06 (D-01): archive API client for the badge-menu
+// Archive item. Same helper the panel's handleArchive uses so both entry
+// points hit the identical backend endpoint.
+import { archiveIdentity } from "@/api/identity-archive-api";
 import type { Tab, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 
@@ -125,20 +126,19 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     // Identity-badge context-menu items — mirrors the conversation-row menu
     // (PrettyConversationRow.tsx items[] builder) so both surfaces offer the
     // same affordances for an identity. Order matches the row menu:
-    // Pin/Unpin → Hide/Unhide → Move to new window. Desktop-only — mobile
-    // has no right-click and long-press is already wired to togglePrettyMode.
+    // Pin/Unpin → Move to new window. Desktop-only — mobile has no right-
+    // click and long-press is already wired to togglePrettyMode.
     //
-    // Pin/hide use the fleet-synthetic id form (`fleet::<hostId>::<session>`)
+    // (Phase 115 Plan 115-02: prior Hide/Unhide item retired per D-21
+    //  alongside the sibling row-menu affordance. 115-06 re-introduces an
+    //  Archive item with red styling + a confirmation dialog.)
+    //
+    // Pin uses the fleet-synthetic id form (`fleet::<hostId>::<session>`)
     // so state survives openTab id churn across URL-restores — mirrors
     // PrettyConversationsPanel.handleTogglePin's shadowFleetId preference.
-    // The Unpin/Unhide labels check BOTH the shadow-fleet id AND tab.id so
-    // legacy pins/hides persisted under the openTab id shape still detect.
-    //
-    // Hide from inside a pane closes the tab as a side effect — the row
-    // menu's "in activeSet → deactivate first, then hide" flow, adapted:
-    // this pane IS the active tab, so onCloseTab is the equivalent teardown.
+    // The Unpin label checks BOTH the shadow-fleet id AND tab.id so
+    // legacy pins persisted under the openTab id shape still detect.
     const pinnedIds = usePinnedIds();
-    const hiddenIds = useHiddenIds();
     const hostIdNum = parseInt(host.id, 10);
     const shadowFleetId =
       Number.isFinite(hostIdNum) && effectiveTmuxSession
@@ -147,9 +147,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     const isPinned =
       (shadowFleetId !== null && pinnedIds.has(shadowFleetId)) ||
       pinnedIds.has(tabId);
-    const isHidden =
-      (shadowFleetId !== null && hiddenIds.has(shadowFleetId)) ||
-      hiddenIds.has(tabId);
 
     const identityBadgeContextMenuItems = useMemo<PrettyContextMenuItem[]>(() => {
       if (isMobile) return [];
@@ -167,16 +164,51 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         },
       });
 
-      if (shadowFleetId !== null) {
+      // Phase 115 Plan 115-06 (D-01, D-02, D-03, D-04): Archive item.
+      // Mirrors the panel row menu's Archive slot BYTE-FOR-BYTE — same
+      // label, same danger styling, same confirmation copy, same
+      // pane-close side effect, same fire-and-forget API call. The
+      // affordance-narrowing gate is `shadowFleetId !== null` (matches
+      // the panel's canonicalArchiveIdForRow shape — fleet-synthetic
+      // identity-backed rows only). Mobile branch above already returned
+      // [] so no Archive item on mobile — the badge menu is desktop-only.
+      //
+      // displayName resolution: prefer the resolved identity's
+      // displayName (same field the IdentityBadge label at L261 renders),
+      // fall back to the identity key from effectiveTmuxSession when the
+      // identity has not yet resolved through fleet-status enrichment.
+      // Matches PrettyConversationsPanel.handleArchive's resolution
+      // strategy verbatim so the confirmation copy reads identically on
+      // both surfaces.
+      if (shadowFleetId !== null && effectiveTmuxSession !== null) {
+        const identityKey = sessionMatchKey(effectiveTmuxSession) ?? effectiveTmuxSession;
+        const resolved =
+          (Number.isFinite(hostIdNum)
+            ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
+            : undefined) ?? identitiesByKey.get(identityKey);
+        const displayName = resolved?.displayName ?? identityKey;
         items.push({
-          label: isHidden ? "Unhide" : "Hide",
+          label: "Archive",
+          danger: true,
           onClick: () => {
-            if (isHidden) {
-              unhideConversation(shadowFleetId);
-              return;
-            }
-            hideConversation(shadowFleetId);
+            // D-03 EXACT COPY — byte-identical to the panel-side handler.
+            // Do NOT wrap displayName in backticks or quotes inside the
+            // dialog string (Test 8's fixture asserts exact-string
+            // equality against `archive wren? this can't be undone.`
+            // with a fixture identity name `wren`).
+            if (!window.confirm(`archive ${displayName}? this can't be undone.`)) return;
+            // D-04 side effect: close the visible pane BEFORE firing the
+            // API call (mirrors the deleted Hide handler + the panel's
+            // handleArchive).
             onCloseTab?.(tabId);
+            void archiveIdentity(hostIdNum, identityKey).catch((err) => {
+              console.warn({
+                operation: "identity_archive_failed",
+                hostId: hostIdNum,
+                identityKey,
+                errMessage: err instanceof Error ? err.message : String(err),
+              });
+            });
           },
         });
       }
@@ -210,7 +242,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     }, [
       isMobile,
       isPinned,
-      isHidden,
       shadowFleetId,
       pinnedIds,
       tab.type,
@@ -219,6 +250,15 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
       effectiveTmuxSession,
       tabId,
       onCloseTab,
+      // Phase 115 Plan 115-06 (D-01, D-03): archive click handler reads
+      // hostIdNum + identitiesByHostKey/byKey for displayName resolution.
+      // hostIdNum is derived from host.id (already in deps); the two
+      // identities maps drive the confirmation copy — if the resolved
+      // identity's displayName changes, the memo must rebuild so the
+      // next right-click renders the fresh copy.
+      hostIdNum,
+      identitiesByHostKey,
+      identitiesByKey,
     ]);
 
     // --- Structured log: mount ---

@@ -1770,8 +1770,8 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
           variant="mobile"
           onSelect={vi.fn()}
           onTogglePin={vi.fn()}
-          // No onDeactivate, no onToggleHide, no onClone provided — RDP mobile
-          // menu should show ONLY the Pin item (Open-in-new-window is desktop-only).
+          // No onDeactivate, no onClone provided — RDP mobile menu should show
+          // ONLY the Pin item (Open-in-new-window is desktop-only).
         />,
       );
       const wrapper = container.querySelector(
@@ -2739,6 +2739,126 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
     // (see PrettyConversationContextMenu.tsx line 212: `color: item.danger ? "#ff9a8a" : "#e8e4d8"`)
     // jsdom normalizes hex → rgb(...) in computed style; match either form.
     expect(killItem.style.color).toMatch(/rgb\(255,\s*154,\s*138\)|#ff9a8a/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 115 Plan 115-06 — Archive menu item (A1-A4)
+// ─────────────────────────────────────────────────────────────────────────────
+// Locks the row-menu Archive item's presence + label + styling + click wiring.
+// Mirrors the Kill test shape (K1-K7): six gated presence tests, plus a click
+// through. The panel is responsible for gating `onArchive` on
+// fleet-synthetic-identity-backed rows (see canonicalArchiveIdForRow in
+// PrettyConversationsPanel.tsx); at the ROW component level the gate is
+// simply "onArchive provided" — the panel decides whether to provide it.
+
+describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () => {
+  // A1: onArchive provided → Archive menu item in menu with label "Archive"
+  it("A1: desktop row with onArchive provided → context menu contains 'Archive' entry (exact-case label)", () => {
+    currentIdentity = makeIdentity(210, "wren");
+    const onArchive = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "wren" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onArchive={onArchive}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    // Exact-case match — the item label MUST be "Archive" (capital A).
+    const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
+    expect(archiveItem).toBeTruthy();
+  });
+
+  // A2: Archive menu item carries danger styling (red)
+  it("A2: Archive menu item carries danger styling (color: #ff9a8a)", () => {
+    currentIdentity = makeIdentity(210, "wren");
+    const onArchive = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "wren" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onArchive={onArchive}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const archiveItem = within(menu).getByRole("menuitem", {
+      name: "Archive",
+    }) as HTMLElement;
+    // Same danger styling as Kill (see K7 sibling test): PrettyConversationContextMenu.tsx L212
+    // renders danger items with color: "#ff9a8a"; jsdom normalizes to rgb(...).
+    expect(archiveItem.style.color).toMatch(
+      /rgb\(255,\s*154,\s*138\)|#ff9a8a/i,
+    );
+  });
+
+  // A3: onArchive NOT provided → Archive item absent from the menu.
+  it("A3: onArchive NOT provided → Archive item absent from the menu", () => {
+    currentIdentity = makeIdentity(210, "wren");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "wren" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        // onArchive intentionally omitted
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(
+      within(menu).queryByRole("menuitem", { name: "Archive" }),
+    ).toBeNull();
+  });
+
+  // A4: Click Archive → onArchive fires exactly once.
+  it("A4: click Archive menuitem → onArchive called exactly once", () => {
+    currentIdentity = makeIdentity(210, "wren");
+    const onArchive = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "wren" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onArchive={onArchive}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
+    fireEvent.click(archiveItem);
+    expect(onArchive).toHaveBeenCalledTimes(1);
   });
 });
 

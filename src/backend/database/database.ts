@@ -20,6 +20,11 @@ import identitiesRoutes from "./routes/identities.js";
 import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
+// Phase 115 Plan 115-03 (D-17): user-initiated archive — POST
+// /identities/:key/archive drops the `.archive-requested` sentinel on the
+// identity's host. Mounted BEFORE the generic /identities router so the
+// :key/archive sub-route isn't intercepted by the generic /:identityKey handler.
+import identityArchiveRoutes from "./routes/identity-archive.js";
 import identityBirthRoutes from "./routes/identity-birth.js";
 import matrixAdminRoutes from "../matrix/matrix-admin-routes.js";
 import telegramRoutes from "../telegram/routes.js";
@@ -1916,6 +1921,13 @@ app.use("/identities", identityExistsOnHostRoutes);
 // the generic /identities router so /:key/no-dormancy resolves here and does
 // not fall through to identitiesRoutes's /:id routes.
 app.use("/identities", identityNoDormancyRoutes);
+// Phase 115 Plan 115-03 (D-17): user-initiated archive endpoint — POST
+// /identities/:key/archive drops `.archive-requested` on the identity's host
+// via the per-identity-file primitive. Mounted alongside the sibling
+// no-dormancy sub-route BEFORE the generic /identities router so the
+// :key/archive sub-route isn't intercepted by identitiesRoutes's /:identityKey
+// handlers. Same discipline as the exists-on-host + no-dormancy mounts above.
+app.use("/identities", identityArchiveRoutes);
 // Phase 22 (SRIC-02): /roles?hostId=<n> — target-host-side role directory
 // enumeration. Standalone mount; kept ABOVE /identities to preserve match
 // precedence should a future /roles subpath ever collide.

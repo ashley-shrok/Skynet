@@ -2569,3 +2569,36 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 114-06-PLAN.md — T-11 three-scenario end-to-end integration test (happy path + non-root skip + removal) + D-23 scoped-suite green-gate
+
+### Phase 115: identity archiving from the frontend
+
+**Goal:** Add an "archive" action to Skynet's unified context menu (sidebar row + identity badge) that replaces the existing "hide" action and stands as the identity-backed counterpart to "kill". Confirmation-guarded click drops a `.archive-requested` sentinel on the identity's on-disk folder; the agent-supervisor picks it up on its reconcile tick and runs a REORDERED retire flow (matrix deactivate → graceful harness exit → tmux kill → sentinel delete → folder move). All `.hidden` code paths retired. Fleet-status sweep enumerates the archive tree and publishes archived rows via a distinct `identity-archived` wire message. Cross-repo: Skynet frontend + backend + fleet-substrate. Load-bearing invariant: the existing 180-day retire code path (Phase 94) has never fired in production; end-to-end retire tests revalidate it as part of this phase's scope.
+
+**Requirements**: none tracked (phase-115 acceptance is driven entirely by CONTEXT decisions D-01..D-23)
+
+**Depends on:** Phase 114 (no coupling; sequential slot)
+
+**Plans:** 7/7 plans complete
+
+*(Wren's Phase 114 was rescue-rebased 114 → 115 on 2026-09-17 after a cross-tree slot collision with the instance-wide managed-policy CLAUDE.md Phase 114 that shipped first (pure slot collision, disjoint source files — mine: `src/backend/{claude-session,database,fleet-status}/*` + `src/ui/*` + `substrate/scripts/{agent-supervisor.sh,fleet-status-sweep.py}` + tests; theirs: `src/backend/{branding,distributor}/*` + `docker/branding-defaults/*`). Per fleet rule the later-mover (me) renumbers.)*
+
+Plans:
+
+**Wave 1**
+
+- [x] 115-01-PLAN.md — ALLOWED_REL_PATHS primitive flip: add `.archive-requested`, retire `.hidden`
+- [x] 115-02-PLAN.md — retire entire Phase 107 `.hidden` code path across backend + frontend
+- [x] 115-04-PLAN.md — reorder `retire_identity()` steps (matrix → graceful exit → tmux → sentinel-delete → folder-move) + add `scan_archive_requested_sentinels()` in the reconcile loop + per-tick retire-fail counter for user-initiated path
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 115-03-PLAN.md — new `POST /identities/:key/archive` route module + tests + mount before generic `/identities` router
+- [x] 115-05-PLAN.md — unified fleet-status sweep walk over `identities/` + `identities-archive/` with `archived: true` flag + `SweepIdentityLine.archived` field + collision defense
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 115-06-PLAN.md — frontend archive action (menu rename + red styling + confirmation dialog per D-03 exact copy) + `archiveIdentity` API client + `PrettyArchivedRow` inert component + lazy Archived-section render + archived-rows store slice + distinct `identity-archived` wire message
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 115-07-PLAN.md — extend Phase 94 test harness with 8 new test cases + real-tmux-session teardown test (D-22 revalidation of the untested-in-practice retire flow)

@@ -323,13 +323,14 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 //
 // What and when: Phase 111 appearance resolved from the host-side sweep's raw
 // identity + role frontmatter (Plan 111-01 widened the sweep to emit
-// `identity_cosmetics`, `role_cosmetics`, `role`, `pinned`, `hidden`). The
-// merge (`identity ?? role ?? null`, with the D-05 carve-outs) is applied
+// `identity_cosmetics`, `role_cosmetics`, `role`, `pinned`). The merge
+// (`identity ?? role ?? null`, with the D-05 carve-outs) is applied
 // server-side in `ssh-poll-orchestrator`'s source-B adapter (Plan 111-03)
 // via `resolveIdentityAppearance` from `fleet-status/identity-appearance.ts`.
+// (Phase 115 Plan 115-02: `hidden` retired from the sweep-line appearance set per D-21.)
 //
 // Source of the value: the sweep's `identity_cosmetics` / `role_cosmetics` /
-// `role` / `pinned` / `hidden` fields on each `SweepIdentityLine`, merged in
+// `role` / `pinned` fields on each `SweepIdentityLine`, merged in
 // the source-B adapter. The resolved object is placed on `SessionState.identityAppearance`
 // and flows through `publishSessionState` → `subscription-registry` → snapshot
 // and update frames untouched. NOT re-stamped by `subscription-registry`
@@ -377,7 +378,6 @@ export const IdentityAppearanceSchema = z.object({
   roleDefaults: z.record(z.string(), z.unknown()).nullable(),
   avatarUrl: z.string(),
   pinned: z.boolean(),
-  hidden: z.boolean(),
 });
 
 export type IdentityAppearance = z.infer<typeof IdentityAppearanceSchema>;
@@ -540,11 +540,54 @@ const FrontendPongFrameSchema = z.object({
   type: z.literal("pong"),
 });
 
+// ---------------------------------------------------------------------------
+// Phase 115 Plan 115-06 (D-06, D-18): FrontendIdentityArchivedFrame — DISTINCT
+// wire message for identity rows sourced from ~/fleet/identities-archive/
+// (SweepIdentityLine.archived === true, added by Plan 115-05).
+//
+// Locked wire-shape decision (from 115-06 plan `<action>` block): archived
+// rows are NOT bolted onto the standard identity frame as `archived: true` —
+// they get their OWN frame kind. Rationale:
+//   1. D-06 lock: archived rows are inert. A phantom `archived` boolean on
+//      the standard identity frame would leak that inertness across every
+//      active identity (which is always `archived: false`) — extra state
+//      the frontend must destructure on every frame for no purpose.
+//   2. Frontend routing: archived rows go into a distinct store slice
+//      (conversation-store.archivedFleetRows), NOT state.identities. A
+//      distinct frame kind maps 1:1 onto that routing.
+//   3. Future extension: if archive-tree rows grow additional fields (e.g.
+//      archived-at timestamp), they live on this frame without polluting
+//      the standard identity frame.
+//
+// Shape: { kind: "identity-archived", name, hostId, hostname }
+//   - name: identity name (matches SweepIdentityLine.identity — the same
+//     value the standard identity frame carries as tmuxSession).
+//   - hostId: string (matches SessionState.hostId's string convention).
+//   - hostname: the friendly host name (frontend renders it in the archived
+//     row's parenthetical hostname suffix).
+//
+// FRAME_SCHEMA_VERSION deliberately HELD AT 1 — adding a new discriminated-
+// union entry is additive and does NOT break older clients: they simply
+// drop the frame at the `default` branch of the ws.onmessage switch (see
+// fleet-status-client.ts § "Unknown frame type — drop silently"). Same
+// mitigation invariant every prior appearance/session extension has
+// followed since Phase 41.
+// ---------------------------------------------------------------------------
+
+const FrontendIdentityArchivedFrameSchema = z.object({
+  schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
+  type: z.literal("identity-archived"),
+  name: z.string(),
+  hostId: z.string(),
+  hostname: z.string(),
+});
+
 export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendSnapshotFrameSchema,
   FrontendUpdateFrameSchema,
   FrontendGoneFrameSchema,
   FrontendPongFrameSchema,
+  FrontendIdentityArchivedFrameSchema,
 ]);
 
 export type FrontendOutboundFrameType = z.infer<typeof FrontendOutboundFrame>;
@@ -579,4 +622,23 @@ export function makeGoneFrame(
 
 export function makePongFrame(): FrontendOutboundFrameType {
   return { schemaVersion: FRAME_SCHEMA_VERSION, type: "pong" };
+}
+
+/**
+ * Phase 115 Plan 115-06 (D-06, D-18): construct an `identity-archived` frame
+ * for a row sourced from the archive tree. Called by ssh-poll-orchestrator's
+ * source-B loop when a SweepIdentityLine has `archived === true`.
+ */
+export function makeIdentityArchivedFrame(
+  name: string,
+  hostId: string,
+  hostname: string,
+): FrontendOutboundFrameType {
+  return {
+    schemaVersion: FRAME_SCHEMA_VERSION,
+    type: "identity-archived",
+    name,
+    hostId,
+    hostname,
+  };
 }

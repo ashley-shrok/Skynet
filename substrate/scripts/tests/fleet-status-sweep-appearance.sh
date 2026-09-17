@@ -354,26 +354,20 @@ body
 }
 
 # Case 6: Sentinels.
-# One identity with .pinned present and .hidden absent,
-# one with both present, one with neither.
+# Two identities: one with .pinned present, one with .pinned absent.
+# (Phase 115 Plan 115-02 retired the `.hidden` sentinel entirely per D-21;
+#  the previous version of this test checked pinned + hidden together.
+#  Phase 115 Plan 115-05 narrows it to the surviving .pinned axis.)
 test_case_06_sentinels() {
   make_identity "pinnedonly" "---\n---\n"
   touch "$FIXTURE/fleet/identities/pinnedonly/.pinned"
-
-  make_identity "bothflags" "---\n---\n"
-  touch "$FIXTURE/fleet/identities/bothflags/.pinned"
-  touch "$FIXTURE/fleet/identities/bothflags/.hidden"
 
   make_identity "noflags" "---\n---\n"
 
   local out
   out=$(run_sweep)
   assert_identity_field "$out" "pinnedonly" "pinned" 'true'
-  assert_identity_field "$out" "pinnedonly" "hidden" 'false'
-  assert_identity_field "$out" "bothflags" "pinned" 'true'
-  assert_identity_field "$out" "bothflags" "hidden" 'true'
   assert_identity_field "$out" "noflags" "pinned" 'false'
-  assert_identity_field "$out" "noflags" "hidden" 'false'
 }
 
 # Case 7: colorHue out of range.

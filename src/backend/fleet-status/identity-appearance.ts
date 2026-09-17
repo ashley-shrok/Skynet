@@ -71,7 +71,6 @@ export type ResolvedIdentityAppearance = {
   roleDefaults: RawCosmetics | null;
   avatarUrl: string;
   pinned: boolean;
-  hidden: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -133,9 +132,8 @@ export function resolveIdentityAppearance(args: {
   roleCosmetics: RawCosmetics | null;
   role: string | null;
   pinned: boolean;
-  hidden: boolean;
 }): ResolvedIdentityAppearance {
-  const { identityKey, hostId, role, roleCosmetics, pinned, hidden } = args;
+  const { identityKey, hostId, role, roleCosmetics, pinned } = args;
   // null cosmetics → treat as empty object (fail-closed contract)
   const cosmetics = args.cosmetics ?? {};
 
@@ -198,6 +196,5 @@ export function resolveIdentityAppearance(args: {
     roleDefaults,
     avatarUrl,
     pinned,
-    hidden,
   };
 }

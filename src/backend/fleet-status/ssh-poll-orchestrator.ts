@@ -1025,11 +1025,12 @@ function computeFingerprint(state: SessionState): string {
   // the existing delta contract.
   // Phase 111 Plan 03: identityAppearance is a distinct axis of the fingerprint
   // — a change in any visible appearance field (displayName, title, colorHue,
-  // voice, task, coordinator, role, pinned, hidden, roleDefaults) publishes a
+  // voice, task, coordinator, role, pinned, roleDefaults) publishes a
   // new frame even when every other axis is unchanged. The segment is appended
   // at the END per the append-at-END rule stated twice above. avatarUrl is
   // deliberately OMITTED: it is a pure function of (identityKey, hostId), both
   // fixed for a given frame, so it can never change and is a constant segment.
+  // (Phase 115 Plan 115-02: `hidden` retired from the fingerprint axis list per D-21.)
   return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}|${state.activityMtime ?? ""}|${state.stoppedMtime ?? ""}|${appearanceFingerprintSegment(state.identityAppearance ?? null)}`;
 }
 
@@ -1081,7 +1082,6 @@ function appearanceFingerprintSegment(a: IdentityAppearance | null): string {
     a.coordinator === true ? "1" : a.coordinator === false ? "0" : "",
     a.role ?? "",
     a.pinned === true ? "1" : a.pinned === false ? "0" : "",
-    a.hidden === true ? "1" : a.hidden === false ? "0" : "",
     roleDefaultsSeg,
   ].join("|");
 }
@@ -1107,14 +1107,15 @@ function appearanceFingerprintSegment(a: IdentityAppearance | null): string {
  *     no matching identity line; the sweep guarantees one exists, so this is a
  *     defensive branch for future invariant violations — plain row, no drop).
  *   - "Host sent no appearance keys at all" is distinguished from "keys present,
- *     read failed". If all four of `identity_cosmetics`, `role_cosmetics`,
- *     `pinned`, `hidden` are `undefined`, the emitting host predates Plan 111-01
+ *     read failed". If all three of `identity_cosmetics`, `role_cosmetics`,
+ *     `pinned` are `undefined`, the emitting host predates Plan 111-01
  *     → return null WITHOUT calling the resolver. Collapsing "no keys" and
  *     "resolved from nothing" would let a mid-distribution host blank appearance
  *     a previous tick had carried.
- *   - Pinned/hidden use `=== true` (fail-closed): a stat error or missing key
- *     must NEVER paint an identity as pinned or hidden by mistake. This mirrors
- *     Phase 107's `.catch(() => false)` discipline on the .pinned/.hidden sentinels.
+ *   - Pinned uses `=== true` (fail-closed): a stat error or missing key
+ *     must NEVER paint an identity as pinned by mistake. This mirrors
+ *     Phase 107's `.catch(() => false)` discipline on the `.pinned` sentinel.
+ *     (Phase 115 Plan 115-02 retired the sibling `.hidden` sentinel per D-21.)
  */
 function appearanceFromIdentityLine(
   identityLine: SweepIdentityLine | undefined,
@@ -1124,12 +1125,12 @@ function appearanceFromIdentityLine(
   if (identityLine === undefined) return null;
 
   // Distinguish "host predates Plan 111-01 (no appearance keys)" from
-  // "keys present but empty". All four undefined → pre-111-01 host → null.
+  // "keys present but empty". All three undefined → pre-111-01 host → null.
+  // (Phase 115 Plan 115-02: the fourth key `hidden` was retired per D-21.)
   const hasAnyAppearanceKey =
     identityLine.identity_cosmetics !== undefined ||
     identityLine.role_cosmetics !== undefined ||
-    identityLine.pinned !== undefined ||
-    identityLine.hidden !== undefined;
+    identityLine.pinned !== undefined;
   if (!hasAnyAppearanceKey) return null;
 
   // Coerce the host id ONCE here. On unparseable hostId, resolve with 0 and
@@ -1154,12 +1155,11 @@ function appearanceFromIdentityLine(
     cosmetics: (identityLine.identity_cosmetics as RawCosmetics | null | undefined) ?? null,
     roleCosmetics: (identityLine.role_cosmetics as RawCosmetics | null | undefined) ?? null,
     role: identityLine.role ?? null,
-    // Fail-closed on pinned/hidden: === true means a missing/undefined key
-    // defaults to false. This is Phase 107's .catch(() => false) discipline
-    // carried onto this path — a stat error must NEVER paint an identity as
-    // pinned or hidden by mistake.
+    // Fail-closed on pinned: === true means a missing/undefined key defaults
+    // to false. This is Phase 107's .catch(() => false) discipline carried
+    // onto this path — a stat error must NEVER paint an identity as pinned
+    // by mistake.
     pinned: identityLine.pinned === true,
-    hidden: identityLine.hidden === true,
   });
 
   return resolved;
@@ -1727,7 +1727,30 @@ export function createSshPollOrchestrator(
     }
 
     // Source B — dispatch each SweepIdentityLine into the SAME compose helper.
+    // Phase 115 Plan 115-06 (D-06, D-18): rows sourced from the archive tree
+    // (Plan 115-05's `archived === true`) get a DISTINCT wire message
+    // (`identity-archived`), NOT the standard identity frame. Skip the
+    // standard compose path for those — archived rows are inert (D-06) and
+    // never participate in the interactive session pool.
+    //
+    // Strict-boolean check per 115-05 SUMMARY's threat-model note: use
+    // `line.archived === true` (not truthy-check) to defend against a
+    // stringly-typed malicious payload — `archived: "false"` would be
+    // truthy-true but must NOT route to the archived pool. See
+    // sweep-schema.ts T-115-05-04.
     for (const identityLine of parsed.identityLines) {
+      if (identityLine.archived === true) {
+        // Distinct wire message: `{ kind: "identity-archived", name,
+        // hostId, hostname }`. The registry's publishIdentityArchived is
+        // idempotent per (hostId, name) — a per-tick re-observation of
+        // the same archive-tree row does NOT re-fan-out the frame.
+        deps.registry.publishIdentityArchived(
+          identityLine.identity,
+          host.id,
+          host.name,
+        );
+        continue;
+      }
       const fetched = identityLineToPerIdentityFetched(identityLine, hostState);
       const cached = hostState.identityRecycleState.get(identityLine.identity);
       composeAndPublishPerIdentity(hostState, liveTmuxSet, fetched, cached);

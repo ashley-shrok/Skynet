@@ -49,7 +49,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { Host, HostFolder, Tab, TabType } from "@/types/ui-types";
-import { putPinnedIds, putHiddenIds } from "@/api/user-preferences-api";
+import { putPinnedIds } from "@/api/user-preferences-api";
 import type { Identity } from "@/api/identities-api";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 // Phase 92 Plan 04 (H2 lock): pin toggle callsites REUSE the existing
@@ -224,7 +224,6 @@ export type FleetSession = {
 type SnapshotForTest = ConversationList & {
   selectedId: string | null;
   pinnedIds: ReadonlySet<string>;
-  hiddenIds: ReadonlySet<string>;
   // quick-260821-m36: exposed for AppShell.persistence.test.tsx Test 5's
   // flag-flip-on-fetch-failure assertion. Same shape as state.fleetSessions
   // + state.fleetSessionsLoaded — read-only observability for tests, not
@@ -347,7 +346,6 @@ type State = {
   hostTree: HostFolder | null;
   openTabs: Tab[];
   pinnedIds: Set<string>;
-  hiddenIds: Set<string>;
   selectedId: string | null;
   // Plan 07-01 (TG-12, TG-17): fleet-discovery snapshot input. Fed ONCE per
   // page-load by AppShell's mount effect (empty dep array useEffect). No
@@ -390,19 +388,48 @@ type State = {
   // the set visually recede) and the ready-for-attention dot render
   // condition (dot renders iff inActiveSet && isWorking===false).
   activeSet: Set<string>;
+  // Phase 115 Plan 115-06 (D-06, D-18): archived-tree row cache. Fed by
+  // the AppShell's fleet-status-client `onIdentityArchived` callback with
+  // rows sourced from the distinct `identity-archived` WS wire message
+  // (backend ssh-poll-orchestrator publishes these when a SweepIdentityLine
+  // has `archived === true`). Separate slice on purpose — archived rows
+  // are inert and never participate in the interactive pools (pinnedIds,
+  // openTabs, fleetSessions, activeSet). Keyed on the composite
+  // `${hostId}::${name}` at the setter so cross-host name collisions do
+  // NOT dedup (per RESEARCH §5 note: shouldn't happen in practice; if it
+  // does, both records survive as distinct rows). Consumed via
+  // useArchivedFleetRows below by the panel's Archived section.
+  archivedFleetRows: ArchivedFleetRow[];
+};
+
+/**
+ * Phase 115 Plan 115-06 (D-06, D-18): shape of an archived-tree row in the
+ * frontend. Mirrors the wire message body `{ kind: "identity-archived",
+ * name, hostId, hostname }` — the wire's `hostId` is a string (matches
+ * SessionState.hostId), coerced to number here at the AppShell adapter.
+ */
+export type ArchivedFleetRow = {
+  hostId: number;
+  name: string;
+  hostname: string;
 };
 
 let state: State = {
   hostTree: null,
   openTabs: [],
   pinnedIds: new Set<string>(),
-  hiddenIds: new Set<string>(),
   selectedId: null,
   fleetSessions: [],
   fleetSessionsLoaded: false,
   hostsFlat: new Map<number, Host>(),
   identitiesByKey: new Map<string, Identity>(),
   activeSet: hydrateActiveSetFromStorage(),
+  // Phase 115 Plan 115-06 (D-06, D-18): empty archived-rows array on boot.
+  // Populated by the AppShell's fleet-status-client onIdentityArchived callback
+  // in response to the backend's `identity-archived` wire frames. Snapshot
+  // frames on connect re-populate the whole array (the setter is a REPLACE,
+  // not an APPEND — the backend is the authority on the current archive set).
+  archivedFleetRows: [],
 };
 
 // Plan 06-04 race defense (T-06-04-04): openTab's setTabs is batched — the
@@ -990,19 +1017,10 @@ function computeSnapshot(): ConversationList {
       ? { hostId: "__rdp__", hostName: "", rows: rdpRows }
       : null;
 
-  // The snapshot carries EVERY row, including ones the user has hidden.
-  // Hidden-ness is resolved at render time by the panel, which owns both the
-  // hiddenIds subscription and canonicalHideIdForRow() — the id-shape resolver
-  // that reconciles a row's `tab-XXX` open-chat id against the
-  // `fleet::<hostId>::<name>` form hiddenIds actually stores. Partitioning here
-  // instead would have to duplicate that resolver, and a raw `row.id` test
-  // (what the removed pass did) silently misses every currently-open chat.
-  //
-  // Removing the strip is also what makes the Hidden section survive a panel
-  // remount: the rows it needs are in the snapshot on every render rather than
-  // only in the brief pre-hydration window a per-instance accumulator could
-  // observe. Mobile unmounts the panel on every list→view navigation, so that
-  // window opened exactly once per page load and never again.
+  // The snapshot carries EVERY row. (Phase 115 Plan 115-02: the earlier
+  // Phase 107 Hidden section — including its hiddenIds subscription and
+  // canonicalHideIdForRow resolver — was retired per D-21. The archive
+  // gesture ships in 115-06 with a distinct archived-tree data source.)
   return { activeSet: [], pinned, middle: middleRows, rdpGroup };
 }
 
@@ -1725,15 +1743,15 @@ function parseFleetRowId(id: string): {
   return { identityKey: id, hostId: null };
 }
 
-// Sync a successful pin/hide server write back into the identities-store's
-// per-identity `pinned`/`hidden` sentinel so a subsequent PrettyConversations
-// Panel remount (mobile list→session→list unmounts the panel per AppShell.tsx
+// Sync a successful pin server write back into the identities-store's
+// per-identity `pinned` sentinel so a subsequent PrettyConversationsPanel
+// remount (mobile list→session→list unmounts the panel per AppShell.tsx
 // L2632) doesn't re-derive from stale identities data and clobber the local
-// set via hydrate{Pinned,Hidden}IdsFromServer. Mirror on both flag types +
-// both directions (add/remove).
+// set via hydratePinnedIdsFromServer. Mirror on both directions (add/remove).
+// (Phase 115 Plan 115-02: the sibling `hidden` axis retired per D-21.)
 function syncIdentityFlagAfterWrite(
   id: string,
-  field: "pinned" | "hidden",
+  field: "pinned",
   value: boolean,
 ): void {
   const { identityKey, hostId } = parseFleetRowId(id);
@@ -1770,8 +1788,7 @@ export function pinConversation(id: string): void {
   // Fire-and-forget with async-rejection swallow. `void`d + try/catch would only
   // catch synchronous throws; putPinnedIds is async so rejections propagate as
   // unhandled promise rejections. Optimistic update stands; retry on next mount
-  // or next pin/unpin. (Phase 107 code-review M3, fixed symmetrically on both
-  // pin and hidden sides in the same commit.)
+  // or next pin/unpin. (Phase 107 code-review M3, fixed on the pin path.)
   putPinnedIds([...nextPinnedIds], identityHosts)
     .then(() => syncIdentityFlagAfterWrite(id, "pinned", true))
     .catch(() => refreshIdentities().catch(() => {}));
@@ -1801,83 +1818,11 @@ export function togglePinConversation(id: string): void {
   else pinConversation(id);
 }
 
-// quick-260731-tgg: hide/unhide/toggle mutators. Fire-and-forget server write,
-// same pattern as pin/unpin above. hiddenIds are intentionally sticky across
-// openTab churn — user may want to keep a stale hidden id so it re-hides if
-// the session reappears. quick-260818-l8n: pinnedIds are now equally sticky —
-// the updateOpenTabs pruner was retired, so both hidden and pinned survive
-// openTab / fleetSessions churn identically.
-export function hideConversation(id: string): void {
-  if (state.hiddenIds.has(id)) return; // already hidden — no-op
-  const nextHiddenIds = new Set(state.hiddenIds);
-  nextHiddenIds.add(id);
-  // Phase 107 Plan 04 (H2 identityHosts lock): identityHosts is sourced from
-  // buildIdentityHostsFromFleet (identities-store.ts:74-85) which uses
-  // sessionMatchKey — correctly skips relay-room sessions (sessionName ===
-  // undefined) and any future non-identity harness sessions. Do NOT replace
-  // with an inline `fleetSessions.map(s => [s.sessionName.toLowerCase(),
-  // s.hostId])` pattern — that crashes on the undefined sessionName case.
-  const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
-  // Fire-and-forget with async-rejection swallow (Phase 107 code-review M3 —
-  // pattern-mirror of pin-side fix in pinConversation/unpinConversation).
-  // Success-side identities-store sync mirrors pinConversation (fern
-  // 2026-09-13) — hidden has the same mobile-remount clobber shape as pin.
-  putHiddenIds([...nextHiddenIds], identityHosts)
-    .then(() => syncIdentityFlagAfterWrite(id, "hidden", true))
-    .catch(() => refreshIdentities().catch(() => {}));
-  state = { ...state, hiddenIds: nextHiddenIds };
-  notify();
-}
-
-export function unhideConversation(id: string): void {
-  if (!state.hiddenIds.has(id)) return; // not hidden — no-op
-  const nextHiddenIds = new Set(state.hiddenIds);
-  nextHiddenIds.delete(id);
-  // Phase 107 Plan 04 (H2 identityHosts lock): same helper as hideConversation
-  // above — buildIdentityHostsFromFleet is the SINGLE fleetSessions →
-  // identityHosts derivation site. Do not fork.
-  const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
-  // Fire-and-forget with async-rejection swallow (Phase 107 code-review M3).
-  putHiddenIds([...nextHiddenIds], identityHosts)
-    .then(() => syncIdentityFlagAfterWrite(id, "hidden", false))
-    .catch(() => refreshIdentities().catch(() => {}));
-  state = { ...state, hiddenIds: nextHiddenIds };
-  notify();
-}
-
-export function toggleHideConversation(id: string): void {
-  if (state.hiddenIds.has(id)) unhideConversation(id);
-  else hideConversation(id);
-}
-
-// quick-260731-tgg: server-authoritative reconciliation for hiddenIds.
-// Called by PrettyConversationsPanel's mount effect after a successful
-// GET /user-preferences fetch. Same-content guard mirrors hydratePinnedIdsFromServer.
-//
-// NOTE (2026-09-17): this function is AUTHORITATIVE and will wipe on empty
-// when called with []. The reprojectDiskPinHideIntoRows caller in
-// identities-store is gated on state.loaded — it fires only when the full
-// picture is live, so an empty projection there IS a real "nothing hidden"
-// signal that must land. The eager panel-side caller must guard its OWN
-// empty projections before calling here (see PrettyConversationsPanel
-// hydrate effect); moving that guard here would starve
-// reprojectDiskPinHideIntoRows' legitimate wipes when a merge takes the
-// last hidden flag to false.
-export function hydrateHiddenIdsFromServer(ids: string[]): void {
-  const nextHiddenIds = new Set(ids);
-  if (nextHiddenIds.size === state.hiddenIds.size) {
-    let allSame = true;
-    for (const id of nextHiddenIds) {
-      if (!state.hiddenIds.has(id)) {
-        allSame = false;
-        break;
-      }
-    }
-    if (allSame) return;
-  }
-  state = { ...state, hiddenIds: nextHiddenIds };
-  notify();
-}
+// (Phase 115 Plan 115-02: the Phase 107 hide/unhide/toggle mutators
+//  (hideConversation, unhideConversation, toggleHideConversation) and the
+//  hydrateHiddenIdsFromServer reconciler were retired per D-21 alongside
+//  the backend HIDDEN FANOUT block removal. The archive gesture ships in
+//  115-06 via a dedicated POST endpoint.)
 
 // Phase 15: server-authoritative reconciliation. Called by PrettyConversations
 // Panel's mount effect after a successful GET /user-preferences fetch.
@@ -1886,10 +1831,9 @@ export function hydrateHiddenIdsFromServer(ids: string[]): void {
 // at L611-625 — skip notify() when the incoming set matches the current set to
 // avoid gratuitous re-renders on identical refetches.
 export function hydratePinnedIdsFromServer(ids: string[]): void {
-  // AUTHORITATIVE (see hydrateHiddenIdsFromServer note above): callers that
-  // may fire eagerly against a partial picture (the PrettyConversationsPanel
-  // hydrate effect) MUST guard empty derivations at their own callsite. This
-  // function trusts its input.
+  // AUTHORITATIVE: callers that may fire eagerly against a partial picture
+  // (the PrettyConversationsPanel hydrate effect) MUST guard empty derivations
+  // at their own callsite. This function trusts its input.
   const nextPinnedIds = new Set(ids);
   if (nextPinnedIds.size === state.pinnedIds.size) {
     let allSame = true;
@@ -1938,16 +1882,87 @@ export function usePinnedIds(): ReadonlySet<string> {
   );
 }
 
-// quick-260731-tgg: hiddenIds subscription. Mirrors usePinnedIds semantics —
-// a new Set reference on every real mutation, stable reference across no-ops.
-function getHiddenIdsSnapshot(): ReadonlySet<string> {
-  return state.hiddenIds;
+// (Phase 115 Plan 115-02: useHiddenIds hook + getHiddenIdsSnapshot retired
+//  per D-21 alongside state.hiddenIds.)
+
+// ─── Phase 115 Plan 115-06 (D-06, D-18): archived-rows slice ────────────────
+// Fed by the AppShell's fleet-status-client onIdentityArchived callback in
+// response to the backend's distinct `identity-archived` wire frames from
+// ssh-poll-orchestrator. Separate from state.identities / activeSet /
+// pinnedIds — archived rows are inert (D-06) and never participate in the
+// interactive pools. See the Archived section render at
+// PrettyConversationsPanel.tsx (uses `useArchivedFleetRows`).
+
+/**
+ * Replace the archived-rows array with `rows`. Called from AppShell on the
+ * fleet-status `identity-archived` frame — the backend is the authority on
+ * the current archive set, and snapshot frames re-hydrate the whole slice
+ * on WS reconnect. Empty array is a valid input (means "no archived rows
+ * on any host this tick").
+ */
+export function setArchivedFleetRows(rows: ArchivedFleetRow[]): void {
+  // Identity-equal skip: if the input is exactly the same reference AND the
+  // same length AND every entry is field-equal to the current slot, no
+  // mutation (defense against churn from a WS snapshot that hasn't changed).
+  const cur = state.archivedFleetRows;
+  if (rows.length === cur.length) {
+    let equal = true;
+    for (let i = 0; i < rows.length; i++) {
+      if (
+        rows[i].hostId !== cur[i].hostId ||
+        rows[i].name !== cur[i].name ||
+        rows[i].hostname !== cur[i].hostname
+      ) {
+        equal = false;
+        break;
+      }
+    }
+    if (equal) return;
+  }
+  state = { ...state, archivedFleetRows: rows.slice() };
+  notify();
 }
-export function useHiddenIds(): ReadonlySet<string> {
+
+/**
+ * Append (or replace) a single archived row. Called for individual
+ * `identity-archived` update frames — a live-tree identity that just
+ * archived shows up as one row here. Keyed on the composite
+ * `${hostId}::${name}`: if the row already exists at that key it is
+ * replaced (idempotent — a retire that runs again on the same identity
+ * doesn't duplicate); otherwise appended.
+ */
+export function upsertArchivedFleetRow(row: ArchivedFleetRow): void {
+  const cur = state.archivedFleetRows;
+  const idx = cur.findIndex(
+    (r) => r.hostId === row.hostId && r.name === row.name,
+  );
+  const next = cur.slice();
+  if (idx >= 0) {
+    if (
+      cur[idx].hostname === row.hostname &&
+      cur[idx].name === row.name &&
+      cur[idx].hostId === row.hostId
+    ) {
+      // Identity-equal — no-op.
+      return;
+    }
+    next[idx] = row;
+  } else {
+    next.push(row);
+  }
+  state = { ...state, archivedFleetRows: next };
+  notify();
+}
+
+function getArchivedFleetRowsSnapshot(): readonly ArchivedFleetRow[] {
+  return state.archivedFleetRows;
+}
+
+export function useArchivedFleetRows(): readonly ArchivedFleetRow[] {
   return useSyncExternalStore(
     subscribe,
-    getHiddenIdsSnapshot,
-    getHiddenIdsSnapshot,
+    getArchivedFleetRowsSnapshot,
+    getArchivedFleetRowsSnapshot,
   );
 }
 
@@ -2088,7 +2103,6 @@ export function __getSnapshotForTest(): SnapshotForTest {
     rdpGroup: list.rdpGroup,
     selectedId: state.selectedId,
     pinnedIds: state.pinnedIds,
-    hiddenIds: state.hiddenIds,
     // quick-260821-m36: exposed for the flag-flip-on-fetch-failure test.
     fleetSessions: state.fleetSessions,
     fleetSessionsLoaded: state.fleetSessionsLoaded,
@@ -2122,12 +2136,9 @@ export function __resetPinnedIdsForTest(): void {
   notify();
 }
 
-// quick-260731-tgg: reset the module-scoped hiddenIds set to empty. Mirrors
-// __resetPinnedIdsForTest — used by tests' beforeEach to prevent leaks.
-export function __resetHiddenIdsForTest(): void {
-  state = { ...state, hiddenIds: new Set<string>() };
-  notify();
-}
+// (Phase 115 Plan 115-02: __resetHiddenIdsForTest retired per D-21 alongside
+//  state.hiddenIds. Callers used it for beforeEach cleanup; no callers remain
+//  after the frontend hide code path is retired in this same plan.)
 
 // quick-260727-kbw: reset the module-scoped fleetSessionsLoaded flag to
 // false + fleetSessions to []. Used by conversation-store.test.ts to

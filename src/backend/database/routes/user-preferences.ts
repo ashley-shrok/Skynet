@@ -30,12 +30,6 @@ const authenticateJWT = authManager.createAuthMiddleware();
 // subsequent GETs / bloats the encrypted SQLite volume.
 const PINNED_CONVERSATION_IDS_MAX_LENGTH = 1000;
 
-// quick-260731-tgg — max size cap on hiddenConversationIds array. Mirrors
-// PINNED_CONVERSATION_IDS_MAX_LENGTH byte-for-byte (same threat model: DoS
-// via oversized TEXT column write). user's real hide count is expected to
-// be small; 1000 is a generous ceiling matching the pin cap.
-const HIDDEN_CONVERSATION_IDS_MAX_LENGTH = 1000;
-
 /**
  * Phase 92 Plan 92-02: parseIdentityHosts mirrors identities.ts:239-255 shape.
  *
@@ -76,9 +70,8 @@ const pickPreferences = (row?: typeof userPreferences.$inferSelect) => ({
   // response body — the row is not consulted for pins (D-03 no DB mirror).
   // The frontend Plan 04 projects pinned state from GET /identities' per-
   // identity `pinned` field instead.
-  // Phase 107 Plan 107-02: hiddenConversationIds ALSO removed from GET response
-  // (D-02 complete). The frontend derives hidden state from per-identity
-  // `hidden: boolean` on GET /identities. parseHiddenConversationIds deleted.
+  // (Phase 115 Plan 115-02: `.hidden` code path fully retired per D-21;
+  // the earlier `hiddenConversationIds` slice was already off GET.)
 });
 
 // --- core handlers (exported for direct testing without Express harness;
@@ -142,7 +135,6 @@ export async function handlePutPreferences(
     language,
     pinnedConversationIds,
     identityHosts: identityHostsRaw,
-    hiddenConversationIds,
   } = (body ?? {}) as {
     reopenTabsOnLogin?: boolean;
     theme?: string | null;
@@ -151,7 +143,6 @@ export async function handlePutPreferences(
     language?: string | null;
     pinnedConversationIds?: unknown;
     identityHosts?: unknown;
-    hiddenConversationIds?: unknown;
   };
 
   const updates: Partial<typeof userPreferences.$inferInsert> = {
@@ -184,31 +175,24 @@ export async function handlePutPreferences(
   if (language !== undefined) updates.language = language;
 
   // Function-scope scratch for the disk-authoritative echo the response emits
-  // for each fanout slice. Populated inside the try block by whichever fanout
-  // ran. (Phase 107 code-review M2 — replaces earlier res._echoPinned /
-  // res._echoHidden stash pattern.)
+  // for the pin fanout slice. Populated inside the try block below.
   let echoPinnedFinal: string[] | undefined;
-  let echoHiddenFinal: string[] | undefined;
 
   // -------------------------------------------------------------------------
-  // Phase 92 Plan 92-02 + Phase 107 Plan 107-02: pin + hidden sentinel fan-outs
+  // Phase 92 Plan 92-02: pin sentinel fan-out
   // -------------------------------------------------------------------------
   //
-  // Both pin (pinnedConversationIds) and hidden (hiddenConversationIds) fanouts
-  // share ONE connByHost map and ONE try/finally block. When both slices arrive
-  // in the same PUT body, one SSH conn per unique host serves BOTH fanouts
-  // (T-107-02-05 — HID-107-PUT-09 regression trap).
+  // (Phase 115 Plan 115-02: the sibling `.hidden` fanout was retired per
+  // D-21 — the archive gesture ships in 115-06 via a dedicated POST endpoint,
+  // not a PUT array shape. See 114-CONTEXT.md § D-17.)
   //
-  // Sequence: pin fanout (if present), then hidden fanout (if present), inside
-  // the same try block. The single finally closes ALL conns from BOTH fanouts.
-  //
-  // Validation for BOTH slices happens BEFORE any conn is opened so a malformed
-  // body fails fast. H3 lowercase-on-disk invariant: identityHosts keys are
-  // lowercased at the parseIdentityHosts entry boundary. Keys threaded VERBATIM
-  // into all primitive calls — no further coercion between the entry boundary
-  // and the disk write.
+  // Validation for the pin slice happens BEFORE any conn is opened so a
+  // malformed body fails fast. H3 lowercase-on-disk invariant: identityHosts
+  // keys are lowercased at the parseIdentityHosts entry boundary. Keys
+  // threaded VERBATIM into all primitive calls — no further coercion between
+  // the entry boundary and the disk write.
 
-  // Validate both slices BEFORE opening any conns (fail-fast pre-checks).
+  // Validate the pin slice BEFORE opening any conns (fail-fast pre-checks).
   if (pinnedConversationIds !== undefined) {
     // Validation retained verbatim from pre-92 (PUT-92-07a/b/c).
     if (!Array.isArray(pinnedConversationIds)) {
@@ -238,48 +222,10 @@ export async function handlePutPreferences(
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Phase 107 Plan 107-02: hidden slice validation (mirrors pin validation)
-  // -------------------------------------------------------------------------
-  //
-  // H3 lowercase-on-disk invariant: identityHosts keys are lowercased at the
-  // parseIdentityHosts entry boundary. Threaded VERBATIM into identityFileExists
-  // / writeIdentityFile / removeIdentityFile for `.hidden`. Plan 01's stricter
-  // IDENTITY_KEY_RE gate at the primitive layer is the belt-and-suspenders lock.
-  if (hiddenConversationIds !== undefined) {
-    // Validation retained verbatim from pre-107 (HID-107-PUT-07a/b/c).
-    if (!Array.isArray(hiddenConversationIds)) {
-      return res.status(400).json({
-        error: "hiddenConversationIds must be an array of strings",
-      });
-    }
-    for (const v of hiddenConversationIds) {
-      if (typeof v !== "string") {
-        return res.status(400).json({
-          error: "hiddenConversationIds must be an array of strings",
-        });
-      }
-    }
-    if (hiddenConversationIds.length > HIDDEN_CONVERSATION_IDS_MAX_LENGTH) {
-      return res.status(400).json({
-        error: `hiddenConversationIds exceeds max length of ${HIDDEN_CONVERSATION_IDS_MAX_LENGTH}`,
-      });
-    }
-    // Phase 107-02: identityHosts is REQUIRED when hiddenConversationIds is
-    // in the body — mirrors the pin guard at PUT-92-07d verbatim.
-    // HID-107-PUT-07d locks the missing-identityHosts case at 400.
-    if (identityHostsRaw === undefined || identityHostsRaw === null) {
-      return res.status(400).json({
-        error: "identityHosts required in body when setting hiddenConversationIds",
-      });
-    }
-  }
-
   let didFanoutSentinels = false;
 
-  if (pinnedConversationIds !== undefined || hiddenConversationIds !== undefined) {
-    // Shared connByHost map — opened ONCE per unique host across BOTH fanouts
-    // (HID-107-PUT-09 conn-sharing invariant).
+  if (pinnedConversationIds !== undefined) {
+    // Per-host conn map — opened ONCE per unique host across the pin fanout.
     const connByHost = new Map<number, import("ssh2").Client | null>();
 
     try {
@@ -398,117 +344,6 @@ export async function handlePutPreferences(
         });
         echoPinnedFinal = echoPinned;
       }
-
-      // -----------------------------------------------------------------------
-      // HIDDEN FANOUT (Phase 107 Plan 107-02) — sibling block to pin fanout
-      // -----------------------------------------------------------------------
-      //
-      // H3 lowercase-on-disk invariant: identityHosts keys arriving at PUT are
-      // lowercased by parseIdentityHosts at the entry boundary (mirroring the pin
-      // path). Keys threaded VERBATIM into writeIdentityFile / removeIdentityFile /
-      // identityFileExists for `.hidden` — no additional coercion. The primitive's
-      // IDENTITY_KEY_RE gate is the belt-and-suspenders lock (HID-107-PUT-08).
-      if (hiddenConversationIds !== undefined) {
-        // Type assertion: validation above confirmed hiddenConversationIds is string[].
-        const hiddenIds = hiddenConversationIds as string[];
-        const identityHosts = parseIdentityHosts(identityHostsRaw);
-        if (Object.keys(identityHosts).length === 0 && hiddenIds.length > 0) {
-          return res.status(400).json({
-            error: "identityHosts required in body when setting hiddenConversationIds",
-          });
-        }
-
-        // Defense-in-depth: every hidden key MUST have a host mapping.
-        // HID-107-PUT-06 locks this at 400.
-        for (const key of hiddenIds) {
-          if (!(key in identityHosts)) {
-            return res.status(400).json({
-              error: `identity host required for identityKey ${JSON.stringify(key)}`,
-            });
-          }
-        }
-
-        // Extend connByHost with any hosts the pin fanout didn't open yet
-        // (union of pin.uniqueHostIds and hidden.uniqueHostIds — deduped by hostId).
-        const uniqueHiddenHostIds = [...new Set(Object.values(identityHosts))];
-        await Promise.all(
-          uniqueHiddenHostIds
-            .filter((hostId) => !connByHost.has(hostId))
-            .map(async (hostId) => {
-              const { conn } = await openConnForHost(hostId, userId);
-              connByHost.set(hostId, conn);
-            }),
-        );
-
-        // --- Step 1: derive previous hidden set from disk -----------------
-        const identityHostsKeys = Object.keys(identityHosts);
-        const previousStates = await Promise.all(
-          identityHostsKeys.map(async (key) => {
-            const hostId = identityHosts[key];
-            try {
-              return await identityFileExists(key, ".hidden", {
-                hostId,
-                conn: connByHost.get(hostId) ?? null,
-              });
-            } catch {
-              return false;
-            }
-          }),
-        );
-        const previousSet = new Set<string>();
-        identityHostsKeys.forEach((k, i) => {
-          if (previousStates[i]) previousSet.add(k);
-        });
-
-        // --- Step 2: compute deltas ---------------------------------------
-        const nextSet = new Set<string>(hiddenIds);
-        const toAdd: string[] = [];
-        const toRemove: string[] = [];
-        for (const k of nextSet) {
-          if (!previousSet.has(k)) toAdd.push(k);
-        }
-        for (const k of previousSet) {
-          if (!nextSet.has(k)) toRemove.push(k);
-        }
-
-        // --- Step 3: fan out .hidden writes + removes in parallel ----------
-        await Promise.all([
-          ...toAdd.map((k) =>
-            writeIdentityFile(k, ".hidden", "", {
-              hostId: identityHosts[k],
-              conn: connByHost.get(identityHosts[k]) ?? null,
-            }),
-          ),
-          ...toRemove.map((k) =>
-            removeIdentityFile(k, ".hidden", {
-              hostId: identityHosts[k],
-              conn: connByHost.get(identityHosts[k]) ?? null,
-            }),
-          ),
-        ]);
-        didFanoutSentinels = true;
-
-        // --- Step 4: re-derive disk-authoritative set for response echo ----
-        // Disk is truth — do NOT trust client input (D-06/T-107-02-07).
-        const postStates = await Promise.all(
-          identityHostsKeys.map(async (key) => {
-            const hostId = identityHosts[key];
-            try {
-              return await identityFileExists(key, ".hidden", {
-                hostId,
-                conn: connByHost.get(hostId) ?? null,
-              });
-            } catch {
-              return false;
-            }
-          }),
-        );
-        const echoHidden: string[] = [];
-        identityHostsKeys.forEach((k, i) => {
-          if (postStates[i]) echoHidden.push(k);
-        });
-        echoHiddenFinal = echoHidden;
-      }
     } catch (e) {
       databaseLogger.error("Sentinel fan-out failed", e, {
         operation: "user_preferences_sentinel_fanout",
@@ -519,7 +354,7 @@ export async function handlePutPreferences(
         .status(500)
         .json({ error: "Failed to update user preferences" });
     } finally {
-      // Single cleanup point for both pin and hidden fanout conns.
+      // Single cleanup point for pin fanout conns.
       for (const conn of connByHost.values()) {
         if (conn) {
           try { conn.end(); } catch { /* ignore */ }
@@ -529,9 +364,8 @@ export async function handlePutPreferences(
   }
 
   // Guard: updates always carries { updatedAt } — length 1 means no user
-  // fields were provided AND no pin or hidden fanout occurred.
+  // fields were provided AND no pin fanout occurred.
   // Phase 92-02: didFanoutSentinels=true (pin fanout) also counts as "did something".
-  // Phase 107-02: hidden fanout also sets didFanoutSentinels=true.
   if (Object.keys(updates).length === 1 && !didFanoutSentinels) {
     return res.status(400).json({ error: "No preferences provided" });
   }
@@ -588,7 +422,7 @@ export async function handlePutPreferences(
     // the same source of truth as the GET handler. Phase 92-02: pin state does
     // NOT surface via pickPreferences — instead, the disk-derived echo held in
     // echoPinnedFinal (populated inside the try block by the pin fanout)
-    // attaches as pinnedConversationIds. Same for hidden.
+    // attaches as pinnedConversationIds.
     const row = db
       .select()
       .from(userPreferences)
@@ -603,11 +437,6 @@ export async function handlePutPreferences(
       // D-06 UI-invariance: PUT still echoes pinnedConversationIds as an array
       // so the frontend's putPinnedIds()-await site gets the shape it expects.
       responseBody.pinnedConversationIds = echoPinnedFinal;
-    }
-    if (echoHiddenFinal !== undefined) {
-      // Phase 107 Plan 107-02: PUT echoes hiddenConversationIds as the
-      // disk-authoritative post-fanout set (D-06 truth-first invariant).
-      responseBody.hiddenConversationIds = echoHiddenFinal;
     }
     return res.json(responseBody);
   } catch (e) {
@@ -668,11 +497,6 @@ router.get("/", authenticateJWT, (req: Request, res: Response) => {
  *                 additionalProperties:
  *                   type: integer
  *                 description: "Phase 92-02: map of identityKey → hostId. Required when pinnedConversationIds is present."
- *               hiddenConversationIds:
- *                 type: array
- *                 items:
- *                   type: string
- *                 description: "Phase 107-02: writes fan out to per-identity `.hidden` sentinels. Requires identityHosts body field."
  *     responses:
  *       200:
  *         description: Preferences updated successfully.
