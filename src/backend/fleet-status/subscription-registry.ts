@@ -78,6 +78,24 @@ export interface SubscriptionRegistry {
   ): void;
 
   /**
+   * Phase 115 hotfix (2026-09-18): identity-scoped "gone" for the per-host
+   * sweep reconciliation. Looks up the cached SessionState at makeKey(hostId,
+   * identityName) — source-B (dormant) publishes use tmuxSession = identity
+   * name (see ssh-poll-orchestrator.ts) so the key composes identically.
+   * Extracts the entry's own sessionId for the gone-frame fanout so the
+   * frontend can correlate with the row it needs to drop. No-op if the key
+   * doesn't exist (prevents churn on repeated reconciliation ticks after
+   * an identity is already dropped).
+   *
+   * Distinct from publishSessionGone in that the caller doesn't need to
+   * know the sessionId — the registry reads it from its own cache entry.
+   * The reconciliation loop in ssh-poll-orchestrator knows the identity
+   * name (from the previous tick's live-tree set), not the sessionId, so
+   * this shape is the ergonomic fit for that call site.
+   */
+  publishIdentityGoneByName(hostId: string, identityName: string): void;
+
+  /**
    * Return all current SessionState values as an array (order not guaranteed).
    */
   getSnapshot(): SessionState[];
@@ -309,6 +327,22 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
       fanOut(
         subscribers,
         makeGoneFrame(hostId, tmuxSession, sessionId),
+      );
+    },
+
+    publishIdentityGoneByName(hostId: string, identityName: string): void {
+      // Source-B publishes with tmuxSession = identityName, so the cache key
+      // for a dormant identity composes as makeKey(hostId, identityName).
+      // Look up the entry to extract its sessionId for the gone-frame fanout.
+      const key = makeKey(hostId, identityName);
+      const existing = state.get(key);
+      if (existing === undefined) {
+        return;
+      }
+      state.delete(key);
+      fanOut(
+        subscribers,
+        makeGoneFrame(hostId, existing.tmuxSession, existing.sessionId),
       );
     },
 

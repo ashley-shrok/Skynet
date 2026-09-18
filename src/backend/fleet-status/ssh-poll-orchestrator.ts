@@ -472,6 +472,17 @@ interface PerHostState {
   sweepScriptPresent: boolean | null;
   sweepSchemaMismatchThisConnection: boolean;
   lastProbeChannelRef: SshChannel | null;
+
+  // Phase 115 hotfix (2026-09-18): per-host reconciliation set of live-tree
+  // identity names seen in the last successful sweep tick. Used at the end of
+  // each successful sweep to diff against the current tick's live-tree set
+  // and emit publishSessionGone for any identity that was cached but is no
+  // longer emitted (e.g. archived, folder deleted, folder renamed). Closes
+  // the "cache diverges from sweep" gap surfaced by sky's archive UAT
+  // 2026-09-17. Reconciliation ONLY runs on sweep success (parsed.identityLines
+  // is a full answer) — never on {ok:false} sweep failures, so transient SSH
+  // hiccups don't flap the sidebar.
+  lastTickLiveTreeIdentities: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -1756,6 +1767,30 @@ export function createSshPollOrchestrator(
       composeAndPublishPerIdentity(hostState, liveTmuxSet, fetched, cached);
     }
 
+    // Phase 115 hotfix (2026-09-18): reconcile cache with sweep.
+    // Any identity that was in the previous tick's live-tree set but is NOT
+    // in this tick's live-tree set (because she archived, or her folder was
+    // deleted/renamed, or she stopped existing for any other silent reason)
+    // gets a publishSessionGone so the registry drops her from the cached
+    // state map. Without this, the cache holds stale identities forever
+    // whenever they transition off the live tree via a path that doesn't
+    // emit an explicit lifecycle event (archive is one such path — sky UAT
+    // 2026-09-17 root cause). This runs ONLY on sweep-success — the {ok:false}
+    // early returns above never reach here, so transient SSH failures don't
+    // flap the sidebar.
+    const thisTickLiveTreeIdentities = new Set<string>();
+    for (const line of parsed.identityLines) {
+      if (line.archived !== true) {
+        thisTickLiveTreeIdentities.add(line.identity);
+      }
+    }
+    for (const previousName of hostState.lastTickLiveTreeIdentities) {
+      if (!thisTickLiveTreeIdentities.has(previousName)) {
+        deps.registry.publishIdentityGoneByName(host.id, previousName);
+      }
+    }
+    hostState.lastTickLiveTreeIdentities = thisTickLiveTreeIdentities;
+
     return {
       ok: true,
       identityCount: parsed.identityLines.length,
@@ -2966,6 +3001,11 @@ export function createSshPollOrchestrator(
         // pollDormantOnlyIdentities on each tick with the full 3-axis pipeline
         // state per identity.
         identityRecycleState: new Map(),
+        // Phase 115 hotfix (2026-09-18): initialized empty so the FIRST
+        // successful sweep for this host publishes nothing gone (no previous
+        // tick to diff against). Subsequent ticks compare against this and
+        // emit publishSessionGone for anything that dropped from the live tree.
+        lastTickLiveTreeIdentities: new Set<string>(),
         // Phase 92 — sweep-first / legacy-fallback dispatch cache. All three
         // fields are per-SSH-channel-lifetime: reset when pollOneHost sees a
         // fresh channel object reference (see PerHostState docblock above).

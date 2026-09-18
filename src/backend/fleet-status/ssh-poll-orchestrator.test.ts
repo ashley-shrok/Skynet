@@ -244,6 +244,20 @@ class MockRegistry implements SubscriptionRegistry {
     this.publishedGone.push({ hostId, tmuxSession, sessionId });
   }
 
+  // Phase 115 hotfix (2026-09-18): identity-scoped gone routes through the
+  // same publishedGone list so existing assertions still see it. tmuxSession
+  // and sessionId here are the identity name and the empty string respectively
+  // — the mock doesn't hold a state map, so we surface what we know from the
+  // call, mirroring the real registry's read-then-emit shape at the level of
+  // fidelity these tests need.
+  publishIdentityGoneByName(hostId: string, identityName: string): void {
+    this.publishedGone.push({
+      hostId,
+      tmuxSession: identityName,
+      sessionId: "",
+    });
+  }
+
   getSnapshot(): SessionState[] {
     return this.publishedStates.map((p) => p.state);
   }
