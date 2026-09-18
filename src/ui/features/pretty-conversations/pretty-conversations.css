@@ -1379,9 +1379,17 @@
        by re-declaring the same tokens locally so the class stands alone
        when read.
 
-   NO per-app --pv-hue emission (D-09). Tiles inherit the .pv-row fallback
-   hue 216 (line 338). NO selected-state override on the app tile (D-13 —
-   no primary-click affordance to reflect).
+   Hue discipline (D-09 + code-review HIGH-2 fix pass 2026-09-18): tiles
+   explicitly set --pv-hue: 216 on .pv-app-tile (see rule below). Custom
+   properties inherit from ANCESTORS only — .pv-app-tile is a SIBLING to
+   .pv-row (both live inside the panel scroll), not a descendant, so the
+   .pv-row rule's --pv-hue: 216 does NOT cascade here. Without an explicit
+   declaration, .pv-app-tile would inherit .dark { --pv-hue: 190 } from
+   ui/index.css:196 — the app-wide teal accent, NOT the sidebar row's
+   blue-grey 216 the shape requires. NO per-app override (D-09 still holds
+   at the per-tile-instance level: every tile gets the same 216). NO
+   selected-state override on the app tile (D-13 — no primary-click
+   affordance to reflect).
 
    Letter typography for the iconless fallback lives on the PARENT
    .pv-app-icon-slot (mirrors Pitfall 3 from RESEARCH.md — .pv-avatar-initial
@@ -1395,7 +1403,15 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .pv-app-tile {
-  /* No --pv-hue declaration — inherit the .pv-row fallback 216 (D-09). */
+  /* Code-review HIGH-2 (fix pass 2026-09-18): explicit --pv-hue: 216
+     declaration. .pv-app-tile is a SIBLING to .pv-row (both live inside the
+     panel scroll), not a descendant, so it cannot inherit .pv-row's hue.
+     Absent this declaration, the tile falls back to .dark { --pv-hue: 190 }
+     in ui/index.css:196 — the app-wide teal accent, which visibly violates
+     D-09's "same hue as an identity-row fallback" requirement. Every hsla()
+     reference below (background, border, box-shadow, hover) resolves off
+     this one declaration. */
+  --pv-hue: 216;
   position: relative;
   display: flex;
   align-items: center;

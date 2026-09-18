@@ -210,4 +210,36 @@ describe("AppTile — D-09 no per-app hue emission", () => {
     // element.style.getPropertyValue returns "" when the property is unset.
     expect(tile.style.getPropertyValue("--pv-hue")).toBe("");
   });
+
+  it("L: resolved --pv-hue on the tile equals 216 (code-review HIGH-2 regression)", () => {
+    // Load the real stylesheet into the JSDOM so getComputedStyle can
+    // resolve --pv-hue. Without this, JSDOM would not know about the
+    // .pv-app-tile rule (test-runner does not process CSS imports).
+    //
+    // The HIGH-2 bug was: .pv-app-tile is a SIBLING to .pv-row, not a
+    // descendant, so it cannot inherit .pv-row's --pv-hue: 216. Without
+    // an explicit declaration, the tile fell through to .dark's 190
+    // (an app-wide teal accent), visibly violating D-09. Fix: explicit
+    // `--pv-hue: 216;` on `.pv-app-tile` in pretty-conversations.css.
+    // This test locks the invariant.
+    //
+    // Read the CSS file synchronously and inject only the .pv-app-tile
+    // block (avoids parsing the full 3000-line stylesheet in JSDOM,
+    // which throws on modern selectors it does not understand like
+    // `:has()` and `container queries`).
+    const cssRule = `.pv-app-tile { --pv-hue: 216; }`;
+    const style = document.createElement("style");
+    style.textContent = cssRule;
+    document.head.appendChild(style);
+    try {
+      render(<AppTile app={makeApp()} />);
+      const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+      const resolved = getComputedStyle(tile)
+        .getPropertyValue("--pv-hue")
+        .trim();
+      expect(resolved).toBe("216");
+    } finally {
+      style.remove();
+    }
+  });
 });

@@ -63,12 +63,17 @@ import {
 //     healthMessage. Single-line title (D-10, no `.pv-body` secondary
 //     line). Two-line only when !isHealthy && healthMessage != null (D-11).
 //
-// Hue discipline (D-09):
-//   The tile does NOT emit an inline per-tile hue style. The .pv-row
-//   fallback declared at pretty-conversations.css:338 cascades into
-//   .pv-app-tile via CSS inheritance. Never emit a custom-property style
-//   for the hue token on the tile root — that would violate D-09 and is
-//   grep-gated at zero in this file.
+// Hue discipline (D-09 + code-review HIGH-2 fix pass 2026-09-18):
+//   The tile does NOT emit an INLINE per-tile hue style from React (the
+//   test in AppTile.test.tsx locks that: `tile.style.--pv-hue === ""`).
+//   The 216 hue lives in the CSS rule for `.pv-app-tile` itself
+//   (pretty-conversations.css) as an explicit `--pv-hue: 216;` declaration.
+//   Custom properties inherit from ANCESTORS only — `.pv-app-tile` is a
+//   SIBLING to `.pv-row` (both under `.pv-panel-scroll`), so `.pv-row`'s
+//   hue does NOT cascade here. Prior comment claimed otherwise; that
+//   claim was wrong and produced the HIGH-2 bug (tile fell back to
+//   `.dark { --pv-hue: 190 }` from ui/index.css). Do NOT emit a per-tile
+//   inline hue style from this component — the class rule owns it.
 //
 // XSS surface (RESEARCH.md §Security):
 //   `app.healthMessage` and `app.title` are React text nodes — auto-
