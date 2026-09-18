@@ -969,6 +969,19 @@ export function PrettyConversationRow({
       const dragId = mintDragId();
       armOutboundDrag(dragId, row.id);
       e.dataTransfer.setData("text/plain", row.id);
+      // Phase 117 Plan 117-08: DnD payload extended with `matrixRoomId` +
+      // `identityKey` so the projects drop-lane handler at PrettyProject
+      // SectionHeader → PrettyConversationsPanel can route the drop to
+      // setRelayRoomProject (relay-room rows) vs setSessionProject (identity
+      // rows) without a second store lookup at the drop site. Both fields
+      // are OPTIONAL on the wire — null-carrier is the row's kind marker:
+      //   - matrixRoomId set (row.kind === "relay-room") → relay-room path
+      //   - identityKey set (identity row) → identity path
+      //   - neither → fleet-only row falls through the panel's guard
+      // Backward-compat: the pre-117-08 SplitView Pane onDrop reads only
+      // `id`, so the added fields are additive per the row-shape's
+      // "backward-compat rule per PATTERNS.md" (see Phase 90 Plan 07 Task 3
+      // comment at PrettyConversationRow.tsx L119-134).
       e.dataTransfer.setData(
         "application/x-skynet-row",
         JSON.stringify({
@@ -978,11 +991,21 @@ export function PrettyConversationRow({
           targetTmuxSession: row.targetTmuxSession ?? null,
           fleetOnly: row.fleetOnly === true,
           rdpHostRow: row.rdpHostRow === true,
+          matrixRoomId: row.roomId ?? null,
+          identityKey: identity?.identityKey ?? null,
         }),
       );
       e.dataTransfer.effectAllowed = "move";
     },
-    [row.id, row.host, row.targetTmuxSession, row.fleetOnly, row.rdpHostRow],
+    [
+      row.id,
+      row.host,
+      row.targetTmuxSession,
+      row.fleetOnly,
+      row.rdpHostRow,
+      row.roomId,
+      identity?.identityKey,
+    ],
   );
 
   // Cleanup on unmount so a pending timer doesn't fire against an unmounted
