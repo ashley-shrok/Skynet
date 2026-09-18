@@ -2046,26 +2046,42 @@ export function PrettyConversationsPanel({
       // 6. Folder-move regardless of partial failures. hostId comes from
       //    the project's own hostId (D-01: projects live under a specific
       //    host's ~/fleet/projects/ tree). Look up the ProjectRow by slug
-      //    from useProjects; fall back to defaultCreateProjectHostId when
-      //    absent (defensive — should never happen in practice).
+      //    from useProjects.
+      //
+      // Phase 117 M7 fix (2026-09-18): pre-fix, if projectsList did not
+      // contain the slug (which "should never happen"), the code fell
+      // back to defaultCreateProjectHostId — a DIFFERENT host than the
+      // one the project actually lives on. That fallback would silently
+      // fail or, worse, archive a same-slug project on the wrong host.
+      // Correct behavior: if we cannot resolve the project's host, log a
+      // warning and RETURN early. Better to skip the folder-move than to
+      // archive on the wrong host. The identity-side ops (Section 4-5
+      // above) already ran, so the member conversations are archived;
+      // the on-disk project directory itself just doesn't move.
       const proj = projectsList.find((p) => p.slug === slug);
       const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
-      const projHostId =
-        Number.isFinite(projHostIdNum) && projHostIdNum > 0
-          ? projHostIdNum
-          : defaultCreateProjectHostId;
+      if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
+        console.warn({
+          operation: "archive_project_folder_move_skipped_no_host",
+          slug,
+          reason: proj
+            ? "project host invalid"
+            : "project not found in projectsList",
+        });
+        return;
+      }
       try {
-        await archiveProject(projHostId, slug);
+        await archiveProject(projHostIdNum, slug);
       } catch (err) {
         console.error({
           operation: "archive_project_folder_move_failed",
           slug,
-          hostId: projHostId,
+          hostId: projHostIdNum,
           errMessage: err instanceof Error ? err.message : "unknown",
         });
       }
     },
-    [projectSections, projectsList, viewingUserMxid, defaultCreateProjectHostId],
+    [projectSections, projectsList, viewingUserMxid],
   );
 
   // Phase 117 Plan 117-09 Task 2 (D-14) — right-click / long-press handler

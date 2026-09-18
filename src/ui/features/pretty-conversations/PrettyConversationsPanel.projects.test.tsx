@@ -1113,6 +1113,59 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     expect(archiveProjectSpy).toHaveBeenCalledWith(1, "empty");
   });
 
+  // Phase 117 M7 fix (2026-09-18): pre-fix, if projectsList did not
+  // contain the slug the code fell back to defaultCreateProjectHostId —
+  // a DIFFERENT host than the project actually lives on. That fallback
+  // would silently archive a same-slug project on the wrong host or
+  // fail silently. Correct behavior: log a warning and RETURN early
+  // without firing archiveProject. This test proves the fix.
+  it("A9 Test 5a (M7 fix): project missing from projectsList → NO archiveProject fires (defensive early-return, not host-fallback)", async () => {
+    setSnapshot({
+      projectSections: [
+        { slug: "alpha", displayName: "Alpha", rows: [] },
+      ],
+    });
+    // projectsList does NOT contain "alpha" — simulate a stale sidebar
+    // where a project was archived on another client but the WS event
+    // has not landed yet.
+    mockProjects = [];
+    confirmSpy.mockReturnValue(true);
+
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+
+    const { container, getByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector(
+      '[data-testid="pv-project-section-header-alpha"]',
+    ) as HTMLElement;
+    fireEvent.contextMenu(header);
+    fireEvent.click(getByText("Archive project"));
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    // M7 regression: archiveProject MUST NOT have fired — refusing to
+    // fall back to defaultCreateProjectHostId when the project isn't
+    // in the list.
+    expect(archiveProjectSpy).not.toHaveBeenCalled();
+    // Warning was logged with the reason.
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "archive_project_folder_move_skipped_no_host",
+        slug: "alpha",
+      }),
+    );
+
+    consoleWarnSpy.mockRestore();
+  });
+
   it("A9 Test 6 (context menu items): right-click header shows BOTH 'Edit project file' and 'Archive project'", () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
