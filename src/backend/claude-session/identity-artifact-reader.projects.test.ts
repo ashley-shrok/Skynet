@@ -777,29 +777,72 @@ describe("archiveProject — LOCAL branch", () => {
     expect(fsMkdirMock).not.toHaveBeenCalled();
     expect(fsRenameMock).not.toHaveBeenCalled();
   });
+
+  it("Test A2b (M1 fix): archive-twice → EEXIST BEFORE any rename fires (dupe archive dest)", async () => {
+    // Simulate: archive dest already exists on disk (previous archive of
+    // this slug lives there). Second archive must NOT nest — must throw
+    // EEXIST-coded error before touching fs.rename.
+    fsStatMock.mockImplementationOnce(() =>
+      Promise.resolve({ isDirectory: () => true }),
+    );
+    await expect(archiveProject(null, "alpha")).rejects.toMatchObject({
+      code: "EEXIST",
+    });
+    // fs.rename must NOT have fired — nested-corruption defense.
+    expect(fsRenameMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("archiveProject — REMOTE branch", () => {
-  it("Test A3 (H3 fix): happy — single exec with mkdir -p archive && mv <src> <dest>, using double-quoted $HOME (NOT single-quoted)", async () => {
+  it("Test A3 (H3 fix): happy — probe archive dest missing, then mkdir -p archive && mv <src> <dest>, using double-quoted $HOME", async () => {
     const { conn } = buildMockConn();
-    let execedCmd = "";
+    const execedCmds: string[] = [];
     execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
-      execedCmd = cmd;
+      execedCmds.push(cmd);
+      if (cmd.includes("test -d")) {
+        return Promise.resolve("missing\n");
+      }
       return Promise.resolve("");
     });
 
     await archiveProject(conn, "alpha");
 
-    // Single exec.
-    expect(execCommandMock).toHaveBeenCalledTimes(1);
+    // Phase 117 M1 fix (2026-09-18): now TWO execs — first probes archive
+    // dest, then (if missing) runs the mkdir+mv combo.
+    expect(execCommandMock).toHaveBeenCalledTimes(2);
+    // First exec: probe on archive dest, double-quoted $HOME.
+    expect(execedCmds[0]).toContain('test -d "$HOME/fleet/projects/archive/alpha"');
+    expect(execedCmds[0]).not.toContain("'$HOME");
     // Phase 117 H3 fix (2026-09-18): mkdir -p archive dir precedes mv,
     // and BOTH paths use double-quoted $HOME so the remote shell can
     // actually expand $HOME. Pre-fix, shellEscape wrapped in single
     // quotes and disabled $HOME expansion.
-    expect(execedCmd).toContain('mkdir -p "$HOME/fleet/projects/archive"');
-    expect(execedCmd).toContain('mv "$HOME/fleet/projects/alpha"');
-    expect(execedCmd).toContain('"$HOME/fleet/projects/archive/alpha"');
+    expect(execedCmds[1]).toContain('mkdir -p "$HOME/fleet/projects/archive"');
+    expect(execedCmds[1]).toContain('mv "$HOME/fleet/projects/alpha"');
+    expect(execedCmds[1]).toContain('"$HOME/fleet/projects/archive/alpha"');
     // Regression: MUST NOT single-quote-wrap $HOME.
-    expect(execedCmd).not.toContain("'$HOME");
+    expect(execedCmds[1]).not.toContain("'$HOME");
+  });
+
+  it("Test A3b (M1 fix): archive-twice REMOTE → EEXIST when probe reports archive dest exists; NO mv fires", async () => {
+    const { conn } = buildMockConn();
+    const execedCmds: string[] = [];
+    execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
+      execedCmds.push(cmd);
+      if (cmd.includes("test -d")) {
+        return Promise.resolve("ok\n"); // archive dest already exists
+      }
+      return Promise.resolve("");
+    });
+
+    await expect(archiveProject(conn, "alpha")).rejects.toMatchObject({
+      code: "EEXIST",
+    });
+
+    // Only the probe should have fired — no mv, no mkdir.
+    expect(execedCmds).toHaveLength(1);
+    expect(execedCmds[0]).toContain("test -d");
+    // Regression: mv MUST NOT have fired (nested-corruption defense).
+    expect(execedCmds.some((c) => c.includes("mv "))).toBe(false);
   });
 });
