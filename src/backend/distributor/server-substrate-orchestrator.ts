@@ -21,6 +21,13 @@
  *   - queueMicrotask fire-and-forget from ssh-poll-orchestrator.ts:2103-2151
  *   - stop() cleanup from ssh-poll-orchestrator.ts:2295-2319
  *   - never-throw contract from run-sweep.ts:13 (MUST be preserved)
+ *   - Local-host distributor bypass (quick 260918-5lb) — mirrors the Phase 116
+ *     scanner bypass pattern from src/backend/utils/local-fleet-scan.ts +
+ *     src/backend/spawn-requests/scan-orchestrator.ts:163-197. When a host's
+ *     numeric id is in IDENTITIES_LOCAL_HOST_IDS, executeSweeForHost skips
+ *     deps.acquireChannel entirely and delegates to local-fleet-install.ts,
+ *     which writes to the bind-mounted filesystem. Avoids the SSH-to-self
+ *     hang that previously wedged the entire serial for-of loop.
  *
  * PURE-FACTORY DISCIPLINE:
  *   All runtime deps (SSH channel acquire/release, host enumeration, timers,
@@ -38,6 +45,11 @@ import { logSweepHookError, logPersistentFailure } from "./log-tags.js";
 import { bundledReaderFromDisk } from "./bundled-reader.js";
 import { readInstancePolicyBytes } from "../branding/branding-config-loader.js";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
+import { isLocalHostId } from "../claude-session/identity-artifact-reader.js";
+import {
+  installFleetSubstrateLocally,
+  bootstrapFleetSubstrateLocally,
+} from "./local-fleet-install.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -198,7 +210,88 @@ export function createServerSubstrateOrchestrator(
    *   - !sweepInFlight.has(host.id)
    * And has already done sweepInFlight.add(host.id).
    */
+  /**
+   * Apply the SSH-branch bookkeeping to a per-host sweep result. Extracted so
+   * the local-branch (quick 260918-5lb) and the SSH-branch share identical
+   * post-sweep state transitions. `failed` is the sweep's itemsFailed count;
+   * failed === 0 marks the host done for this uptime, failed > 0 bumps the
+   * consecutive-failures counter and fires the persistent-alert once at
+   * threshold.
+   */
+  function applySweepBookkeeping(
+    host: SubstrateHostRecord,
+    failed: number,
+  ): void {
+    if (failed === 0) {
+      sweepedThisInstance.add(host.id);
+      consecutiveFailures.delete(host.id);
+      persistentAlertFired.delete(host.id);
+    } else {
+      const n = (consecutiveFailures.get(host.id) ?? 0) + 1;
+      consecutiveFailures.set(host.id, n);
+      if (
+        n >= persistentFailureThreshold &&
+        !persistentAlertFired.has(host.id)
+      ) {
+        persistentAlertFired.add(host.id);
+        logPersistentFailure({
+          fleetHostId: host.id,
+          hostName: host.name,
+          consecutiveFailures: n,
+        });
+      }
+    }
+  }
+
   async function executeSweeForHost(host: SubstrateHostRecord): Promise<void> {
+    // Quick 260918-5lb: LOCAL BYPASS. When the host's numeric id is in
+    // IDENTITIES_LOCAL_HOST_IDS, SSH-to-self hangs from inside the container
+    // — the whole for-of loop wedges in deps.acquireChannel. Skip SSH
+    // entirely and delegate to the local-FS helper, which covers both the
+    // bootstrap (skynet-parent + skynet-hostname writes) AND the catalog
+    // install (skills, helper scripts, systemd unit). Bookkeeping matches
+    // the SSH branch via applySweepBookkeeping.
+    const numericId = parseInt(host.id, 10);
+    if (isLocalHostId(numericId)) {
+      let result: {
+        itemsChecked: number;
+        itemsChanged: number;
+        itemsFailed: number;
+      };
+      try {
+        // Bootstrap first (mirrors run-sweep.ts:127 — bootstrap runs BEFORE
+        // the catalog loop).
+        await bootstrapFleetSubstrateLocally({
+          id: host.id,
+          name: host.name,
+        });
+        result = await installFleetSubstrateLocally(
+          { id: host.id, name: host.name },
+          FLEET_SUBSTRATE_CATALOG,
+          {
+            readBundledBytes: bundledReaderFromDisk,
+            resolvedRuntimeBytes: currentRuntimeBytes,
+            now: deps.now,
+          },
+        );
+      } catch (err) {
+        // Belt-and-suspenders — the local helpers are already never-throw.
+        // Any escape here is a code bug, not a runtime failure; log it and
+        // treat the sweep as failed for bookkeeping purposes.
+        logSweepHookError({
+          fleetHostId: host.id,
+          hostName: host.name,
+          errorMessage: err instanceof Error ? err.message : "unknown",
+        });
+        applySweepBookkeeping(host, 1);
+        sweepInFlight.delete(host.id);
+        return;
+      }
+      applySweepBookkeeping(host, result.itemsFailed);
+      sweepInFlight.delete(host.id);
+      return;
+    }
+
     let channel: SshChannel | null = null;
     try {
       channel = await deps.acquireChannel(host);
