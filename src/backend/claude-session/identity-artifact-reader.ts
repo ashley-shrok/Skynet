@@ -3466,7 +3466,34 @@ export async function readAppIconFile(
   const lsOut = (await execWithTimeout(conn, lsCmd)).trim();
   if (lsOut === "") return null;
 
-  const bytes = await sftpReadFile(conn, targetPath);
+  // Code-review MEDIUM-2 (fix pass 2026-09-18): the `ls` probe races the
+  // `sftpReadFile` — the file can be deleted between the two SSH
+  // round-trips (rare, but possible during a sweep tick or app removal
+  // in-flight). When that happens, `sftpReadFile` throws with an
+  // ENOENT-shaped error. Route-level `catch` maps THAT throw to 502
+  // ("app home box unreachable") — but the file is genuinely absent,
+  // so the accurate code is 404. Catch ENOENT-shaped errors here and
+  // return null (route maps null → 404); rethrow other errors (route
+  // maps thrown → 502). Detection is duck-typed on the string / code:
+  // ssh2 SFTP errors expose `.code === 2` for NO_SUCH_FILE, and the
+  // message string typically contains "No such file" or "ENOENT".
+  let bytes: Buffer;
+  try {
+    bytes = await sftpReadFile(conn, targetPath);
+  } catch (err: unknown) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      ((err as { code?: unknown }).code === 2 ||
+        (err as { code?: unknown }).code === "ENOENT" ||
+        /no such file|enoent/i.test(
+          (err as { message?: unknown }).message?.toString() ?? "",
+        ))
+    ) {
+      return null;
+    }
+    throw err;
+  }
   if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
     throw new Error("icon exceeds cap on disk");
   }
