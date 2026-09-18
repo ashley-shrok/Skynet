@@ -56,6 +56,28 @@ describe("createTokenBucket — capacity formula (D-21)", () => {
     expect(s.tokens).toBe(10);
     expect(s.refillRatePerSec).toBeCloseTo(2, 6);
   });
+
+  it("C5: getState().tokens is floored to an integer after partial refill (FIX 8)", async () => {
+    const bucket = createTokenBucket(60); // 1 token / sec, capacity 5
+    // Drain to 0 tokens.
+    for (let i = 0; i < 5; i++) await bucket.acquire();
+
+    // Advance 500ms — internal float should refill by ~0.5 tokens; the
+    // public getState() must floor this to 0, not report 0.4999999... or 0.5.
+    await vi.advanceTimersByTimeAsync(500);
+    const halfway = bucket.getState();
+    expect(Number.isInteger(halfway.tokens)).toBe(true);
+    expect(halfway.tokens).toBe(0);
+
+    // Advance to ~1.5s of refill — internal should be ~1.5 tokens (minus
+    // one drained by any pending waiter); floor should be 1.
+    await vi.advanceTimersByTimeAsync(1_000);
+    const laterState = bucket.getState();
+    expect(Number.isInteger(laterState.tokens)).toBe(true);
+    // With no waiters pending, we have ~1.5 tokens accumulated — floored to 1.
+    expect(laterState.tokens).toBeGreaterThanOrEqual(1);
+    expect(laterState.tokens).toBeLessThanOrEqual(2);
+  });
 });
 
 describe("createTokenBucket — acquire semantics", () => {

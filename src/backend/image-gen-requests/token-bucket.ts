@@ -87,9 +87,13 @@ export function createTokenBucket(rpm: number): TokenBucket {
       });
     },
     getState(): { tokens: number; capacity: number; refillRatePerSec: number } {
-      // Snapshot values — do NOT expose the mutable internals.
+      // Snapshot values — do NOT expose the mutable internals. `tokens` is
+      // floored to an integer for readable log/instrumentation output
+      // (internal math keeps the float across refills so partial-token
+      // accumulation isn't lost). A caller sees "4 tokens remaining" instead
+      // of "4.7333333333 tokens remaining".
       return {
-        tokens,
+        tokens: Math.floor(tokens),
         capacity,
         refillRatePerSec: rpm / 60,
       };
