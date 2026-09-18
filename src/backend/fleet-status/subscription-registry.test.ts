@@ -878,22 +878,22 @@ describe("subscription-registry", () => {
       expect(updates).toHaveLength(1);
     });
 
-    it("Filter-2: filter dep present + bare subscriber (no ctx) → unfiltered (no userId → pass-through)", async () => {
+    it("Filter-2: filter dep present + bare subscriber (no ctx) → THROWS (HIGH-2 fix pass 2026-09-18 belt-and-suspenders refuse)", () => {
+      // Prior behavior (Phase 118-05 land-time): the filter's own
+      // backward-compat guard passed userId === undefined frames through
+      // unchanged, which meant a bare subscriber to a filtered registry
+      // received every app frame regardless of host access — same T-118-
+      // 05-IL info-disclosure leak the filter was built to close. The
+      // HIGH-2 fix refuses bare subscribe when the filter is attached.
+      // Callers that intentionally want the unfiltered shape use
+      // `createSubscriptionRegistry()` without deps (see Filter-1 above,
+      // which is the intentional-unfiltered path and still works).
       const filterMock = vi.fn(async (frame: FrontendOutboundFrameType) => frame);
       const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
-      const received: FrontendOutboundFrameType[] = [];
-      registry.subscribe((f) => received.push(f)); // no ctx
-      received.length = 0;
 
-      registry.publishAppUpdate("h1", makeFilterAppState("h1", "todo"));
-      await tick();
-
-      const updates = received.filter((f) => f.type === "app-update");
-      expect(updates).toHaveLength(1);
-      // Filter WAS called (registry doesn't know per-subscriber ctx handling — the
-      // filter itself is expected to short-circuit when userId is undefined).
-      expect(filterMock).toHaveBeenCalled();
-      expect(filterMock.mock.calls[0][1]).toBeUndefined();
+      expect(() => registry.subscribe(() => {})).toThrow(
+        /userId ctx required when app-frame filter is attached/,
+      );
     });
 
     it("Filter-3: two subscribers with distinct userIds — filter drops for U2 on app-update", async () => {

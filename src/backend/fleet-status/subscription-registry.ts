@@ -429,6 +429,22 @@ export function createSubscriptionRegistry(
 
   return {
     subscribe(sendFrame: SendFrame, ctx?: { userId: string }): () => void {
+      // Phase 118 code-review HIGH-2 (fix pass 2026-09-18): refuse a
+      // bare subscribe (no ctx.userId) against a filtered registry.
+      // The app-frame filter's backward-compat guard passes
+      // userId === undefined frames THROUGH unchanged — which means
+      // a bare subscriber to a filtered registry gets EVERY app frame
+      // regardless of host access. That is the same info-disclosure
+      // leak T-118-05-IL fought. Belt-and-suspenders on top of
+      // HIGH-1a/1b: production callers pass { userId } via the WS
+      // handler; tests that intentionally want the unfiltered shape
+      // should use `createSubscriptionRegistry()` without deps.
+      if (appFrameFilter !== undefined && ctx?.userId === undefined) {
+        throw new Error(
+          "subscription-registry: userId ctx required when app-frame filter is attached",
+        );
+      }
+
       // Capture emptiness BEFORE adding so we fire the 0 → 1 edge exactly once
       const wasEmpty = subscribers.size === 0;
 
