@@ -2645,3 +2645,13 @@ Plans:
 Plans:
 
 - [x] TBD (run /gsd-plan-phase 118 to break down) (completed 2026-09-18)
+
+### Phase 119: first-class apps campaign shape 3: sidebar apps surface — new collapsible section above pinned, empty-visible discoverable, tile per app consumed from live app-frame channel, open-in-new-tab context menu
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 118
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 119 to break down)
