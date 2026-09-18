@@ -770,6 +770,13 @@ export function PrettyConversationsPanel({
   // follow-up setRelayRoomProject call inside the modal.
   const [newConversationPreSelectedProject, setNewConversationPreSelectedProject] =
     useState<string | null>(null);
+  // Phase 117 M-F follow-up (2026-09-18): the per-project SquarePen new-conv
+  // button opens the NEW-AGENT dialog (was: NewConversationModal for relay
+  // rooms) with a pending project slug that gets applied to the freshly-
+  // minted identity via setSessionProject after onCreate resolves. Same
+  // pattern as newConversationPreSelectedProject but for the identity path.
+  const [newSessionPendingProjectSlug, setNewSessionPendingProjectSlug] =
+    useState<string | null>(null);
   // Phase 90 Plan 90-06 (D-07): RolesListModal open/closed toggle. Opened by the
   // three-dots menu "Edit roles…" entry (which replaces the deleted "New role"
   // entry). See <RolesListModal> mount below.
@@ -1933,15 +1940,16 @@ export function PrettyConversationsPanel({
     [rowIdToProjectSlug, viewingUserMxid],
   );
 
-  // Phase 117 Plan 117-09 Task 2 (D-27) — the section's SquarePen opens
-  // NewConversationModal with the project slug pre-selected. The modal's
-  // preSelectedProject prop threads through to a fire-and-forget
-  // setRelayRoomProject call after createRelayRoom resolves, so the
-  // freshly-minted room's account_data carries a u.project.<slug> tag
-  // from the first render.
+  // Phase 117 M-F follow-up (2026-09-18): the section's SquarePen opens the
+  // NEW-AGENT dialog (NewSessionDialog) with a pending project slug. After
+  // the identity is born, the NewSessionDialog's onCreate wrapper below
+  // fires setSessionProject(host, identityKey, slug) as a fire-and-forget
+  // call so the newborn identity's frontmatter carries `project:` from the
+  // first sweep tick. Was: opened NewConversationModal (relay-room path) —
+  // that flow rejected by the user 2026-09-18 in favor of "new agent mode".
   const handleNewConversationInProject = useCallback((slug: string) => {
-    setNewConversationPreSelectedProject(slug);
-    setNewConversationModalOpen(true);
+    setNewSessionPendingProjectSlug(slug);
+    setNewSessionDialogOpen(true);
   }, []);
 
   // Phase 117 Plan 117-09 Task 2 (D-28, D-29, D-30 + Fix 3) — archive
@@ -2628,6 +2636,16 @@ export function PrettyConversationsPanel({
           358-368. Portal-mounted; DOM sibling position doesn't drive
           layout. Only mounted when onCreateSession is wired — same gate
           as the pencil button. */}
+      {/* Phase 117 M-F follow-up (2026-09-18): wrapper node with a data
+          attribute so tests can observe the pending project slug wired
+          through the panel (mirrors the pv-new-conv-modal-wrapper pattern
+          above). The slug is applied via setSessionProject inside onCreate
+          below, then cleared on close/create. */}
+      <div
+        data-testid="pv-new-session-dialog-wrapper"
+        data-pending-project-slug={newSessionPendingProjectSlug ?? ""}
+        hidden
+      />
       {showPencilButton && (
         <NewSessionDialog
           open={newSessionDialogOpen}
@@ -2636,13 +2654,44 @@ export function PrettyConversationsPanel({
             // Phase 22 SRIC-05: clear chainPrefill on close so a subsequent
             // manual open (via pencil) does NOT inherit stale chain state.
             setChainPrefill(null);
+            // Phase 117 M-F: clear pending project slug so a subsequent
+            // header-pencil open does NOT inherit a stale project context.
+            setNewSessionPendingProjectSlug(null);
           }}
           hostTree={hostTree ?? null}
           onCreate={(opts) => {
             onCreateSession!(opts);
+            // Phase 117 M-F: if this dialog was opened via the per-project
+            // SquarePen, apply the pending project slug to the newborn (or
+            // clone-attached) identity via setSessionProject. identityMode:
+            // false is a plain tmux session — no identity to tag; skip.
+            const slug = newSessionPendingProjectSlug;
+            if (slug !== null) {
+              const identityKey =
+                opts.identityMode === true
+                  ? opts.name
+                  : opts.identityMode === "existing"
+                    ? opts.identityName
+                    : null;
+              if (identityKey !== null) {
+                const hostIdNum = parseInt(opts.host.id, 10);
+                if (Number.isFinite(hostIdNum) && hostIdNum > 0) {
+                  setSessionProject(hostIdNum, identityKey, slug).catch(
+                    (err: unknown) => {
+                      const msg = err instanceof Error ? err.message : String(err);
+                      // eslint-disable-next-line no-console
+                      console.error(
+                        `[project-new-session] setSessionProject failed hostId=${hostIdNum} key=${identityKey} slug=${slug}: ${msg}`,
+                      );
+                    },
+                  );
+                }
+              }
+            }
             setNewSessionDialogOpen(false);
             // Also clear on successful submit path (matches close semantics).
             setChainPrefill(null);
+            setNewSessionPendingProjectSlug(null);
           }}
           // Phase 22 SRIC-05: chain pre-fill props. Null when chainPrefill
           // has not been set (fresh manual pencil open); populated when

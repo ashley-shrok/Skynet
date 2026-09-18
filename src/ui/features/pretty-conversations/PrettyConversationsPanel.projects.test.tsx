@@ -284,6 +284,97 @@ vi.mock("@/features/pretty-view/RunbookEditorModal", () => ({
   default: () => null,
 }));
 
+// Phase 117 M-F: NewSessionDialog stub — exposes buttons that fire onCreate
+// with controlled opts so tests can observe the panel's setSessionProject
+// wire without SSE / birth plumbing. Only renders when open=true. The
+// synthetic-fire buttons carry testids that map 1:1 to the three
+// NewSessionOnCreateOpts variants (identityMode false / true / "existing").
+vi.mock("@/sidebar/NewSessionDialog", () => ({
+  NewSessionDialog: (props: {
+    open: boolean;
+    onCreate: (opts: unknown) => void;
+    onClose: () => void;
+  }) => {
+    if (!props.open) return null;
+    const host = {
+      id: "1",
+      name: "hostA",
+      username: "u",
+      ip: "1.1.1.1",
+      port: 22,
+      folder: "",
+      online: true,
+      cpu: null,
+      ram: null,
+      lastAccess: "",
+      authType: "password",
+      enableTerminal: true,
+      enableTunnel: false,
+      serverTunnels: [],
+      enableFileManager: false,
+      enableDocker: false,
+      enableSsh: true,
+      enableRdp: false,
+      pin: "",
+      protocol: "ssh",
+      publicKey: "",
+      externalUrl: "",
+      description: "",
+      isPublic: false,
+      autostart: false,
+      autostartTimeout: 60,
+    };
+    return (
+      <div data-testid="pv-mock-new-session-dialog">
+        <button
+          data-testid="pv-mock-nsd-fire-birth"
+          onClick={() =>
+            props.onCreate({
+              host,
+              identityMode: true,
+              name: "wren",
+              path: "/home/u",
+            })
+          }
+        >
+          fire birth
+        </button>
+        <button
+          data-testid="pv-mock-nsd-fire-existing"
+          onClick={() =>
+            props.onCreate({
+              host,
+              identityMode: "existing",
+              identityName: "vecto",
+              identityId: "vecto",
+              sessionName: "vecto",
+              path: "/home/u",
+            })
+          }
+        >
+          fire existing
+        </button>
+        <button
+          data-testid="pv-mock-nsd-fire-plain"
+          onClick={() =>
+            props.onCreate({
+              host,
+              identityMode: false,
+              path: "/home/u",
+            })
+          }
+        >
+          fire plain
+        </button>
+      </div>
+    );
+  },
+}));
+
+vi.mock("@/sidebar/CreateRoleDialog", () => ({
+  CreateRoleDialog: () => null,
+}));
+
 vi.mock("@/api/global-files-api", () => ({
   listGlobalFiles: vi.fn().mockResolvedValue([]),
   readGlobalFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, size: 0 }),
@@ -1191,12 +1282,16 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// A9 Test 9 (Task 2 panel wiring) — SquarePen fires NewConversationModal with
-// preSelectedProject set to the section's slug.
+// A9 Test 9 (Task 2 panel wiring, revised M-F 2026-09-18) — SquarePen opens
+// the NEW-AGENT dialog (NewSessionDialog) with a pending project slug, and
+// the freshly-born identity gets setSessionProject called after onCreate.
+// The pre-M-F wire (opening NewConversationModal for a relay-room-in-project)
+// is retired — the relay-room wrapper's data attribute MUST NOT be set from
+// this button.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel: new-conversation-in-project wire (117-09 Task 2)", () => {
-  it("A9 Test 9: clicking section's SquarePen opens NewConversationModal with preSelectedProject = section slug", () => {
+describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire)", () => {
+  it("Test 9: SquarePen sets pending project slug on the new-session wrapper (NOT the relay-room wrapper)", () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
@@ -1216,12 +1311,96 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (117-09 Tas
     expect(squarePen).not.toBeNull();
     fireEvent.click(squarePen);
 
-    // The panel writes the pre-selected slug into a data attribute on the
-    // NewConversationModal wrapper so the wire is observable in tests without
-    // reaching into modal internals. The modal itself lands via createRelayRoom.
-    const wrapper = container.querySelector('[data-testid="pv-new-conv-modal-wrapper"]');
-    expect(wrapper).not.toBeNull();
-    expect(wrapper!.getAttribute("data-pre-selected-project")).toBe("alpha");
+    // NEW wire: the pending slug lands on the new-session dialog wrapper.
+    const nsdWrapper = container.querySelector('[data-testid="pv-new-session-dialog-wrapper"]');
+    expect(nsdWrapper).not.toBeNull();
+    expect(nsdWrapper!.getAttribute("data-pending-project-slug")).toBe("alpha");
+
+    // OLD wire must NOT have fired — the relay-room modal wrapper stays empty.
+    const oldWrapper = container.querySelector('[data-testid="pv-new-conv-modal-wrapper"]');
+    expect(oldWrapper).not.toBeNull();
+    expect(oldWrapper!.getAttribute("data-pre-selected-project")).toBe("");
+  });
+
+  it("Test 9b: identity-birth onCreate fires setSessionProject(hostId, newborn identityKey, slug)", () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const squarePen = container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement;
+    fireEvent.click(squarePen);
+
+    // The mocked NewSessionDialog exposes a "fire birth" button that
+    // synthesizes onCreate({identityMode:true, name:"wren", host:{id:"1"}, ...}).
+    const fireBirth = container.querySelector('[data-testid="pv-mock-nsd-fire-birth"]') as HTMLElement;
+    expect(fireBirth).not.toBeNull();
+    fireEvent.click(fireBirth);
+
+    // setSessionProject fired with the newborn identity's name + section slug.
+    expect(setSessionProjectSpy).toHaveBeenCalledTimes(1);
+    expect(setSessionProjectSpy).toHaveBeenCalledWith(1, "wren", "alpha");
+
+    // The pending slug is cleared after onCreate; the wrapper's data-attr
+    // reflects the reset.
+    const nsdWrapper = container.querySelector('[data-testid="pv-new-session-dialog-wrapper"]');
+    expect(nsdWrapper!.getAttribute("data-pending-project-slug")).toBe("");
+  });
+
+  it("Test 9c: identityMode=\"existing\" (clone) fires setSessionProject with opts.identityName", () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    fireEvent.click(container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement);
+    fireEvent.click(container.querySelector('[data-testid="pv-mock-nsd-fire-existing"]') as HTMLElement);
+
+    expect(setSessionProjectSpy).toHaveBeenCalledTimes(1);
+    expect(setSessionProjectSpy).toHaveBeenCalledWith(1, "vecto", "alpha");
+  });
+
+  it("Test 9d: identityMode=false (plain tmux session, no identity) does NOT fire setSessionProject", () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    fireEvent.click(container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement);
+    fireEvent.click(container.querySelector('[data-testid="pv-mock-nsd-fire-plain"]') as HTMLElement);
+
+    // Plain tmux session has no identity to tag; the write must be skipped.
+    expect(setSessionProjectSpy).not.toHaveBeenCalled();
   });
 });
 
