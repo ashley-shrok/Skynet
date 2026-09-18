@@ -452,9 +452,6 @@ if (process.env.VITEST !== "true") {
       const { startFleetStatusServer } = await import(
         "./fleet-status/fleet-status-server.js"
       );
-      const { createSubscriptionRegistry } = await import(
-        "./fleet-status/subscription-registry.js"
-      );
       const { resolveHostRecordByName } = await import(
         "./fleet-status/host-id-resolver.js"
       );
@@ -481,8 +478,57 @@ if (process.env.VITEST !== "true") {
         "./fleet-status/remote-hook-install.js"
       );
 
-      // The subscription registry is shared between the WS server and the orchestrator
-      const registry = createSubscriptionRegistry();
+      // Phase 118 code-review HIGH-1a (fix pass 2026-09-18): production wiring
+      // for the per-user app-frame visibility filter (T-118-05-IL info-disclosure
+      // gap). Prior shape constructed the registry here + passed it to
+      // startFleetStatusServer, which hit branch 1 of the server's
+      // registry-construction switch — SILENTLY unfiltered mode. Now the server
+      // owns registry construction and receives `resolveHostOwnerById` so it
+      // takes branch 2 (build filter + registry internally + emit
+      // `fleet_status_filter_attached` info log). The registry is read back off
+      // the returned FleetStatusServer for the orchestrator lifecycle wiring
+      // below.
+      //
+      // D-10 discipline: this resolver is READ-ONLY. No DatabaseSaveTrigger,
+      // no writes. It only maps a wire-shaped hostId string to the numeric
+      // hostId + owner userId pair checkHostAccess needs.
+      async function resolveHostOwnerById(
+        hostIdStr: string,
+      ): Promise<{ hostIdNum: number; hostUserId: string } | null> {
+        const hostIdNum = Number(hostIdStr);
+        if (!Number.isFinite(hostIdNum)) {
+          return null;
+        }
+        try {
+          const db = getDb();
+          const rows = await db
+            .select({
+              id: hostsTable.id,
+              userId: hostsTable.userId,
+            })
+            .from(hostsTable)
+            .where(eq(hostsTable.id, hostIdNum))
+            .limit(1);
+          if (rows.length === 0) {
+            return null;
+          }
+          const row = rows[0];
+          return {
+            hostIdNum: row.id,
+            hostUserId: row.userId,
+          };
+        } catch (err) {
+          systemLogger.warn(
+            "Fleet-status: resolveHostOwnerById DB lookup failed",
+            {
+              operation: "fleet_status_owner_lookup_failed",
+              hostIdStr,
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
+          return null;
+        }
+      }
 
       // Phase 117 Plan 117-04: publish the same instance to the module-level
       // singleton so Express routes (mounted in database.ts) can reach it at
@@ -494,12 +540,15 @@ if (process.env.VITEST !== "true") {
       );
       setSubscriptionRegistry(registry);
 
-      startFleetStatusServer({
+      const fleetStatusServer = startFleetStatusServer({
         port: 30012,
         authManager,
-        registry,
         resolveHostRecordByName,
+        resolveHostOwnerById,
       });
+      // Registry is now server-owned — pull it back for the orchestrator
+      // lifecycle wiring (onFirstSubscriber / onLastUnsubscriber below).
+      const registry = fleetStatusServer.registry;
       systemLogger.info("Fleet-status WS server initialized", {
         operation: "fleet_status_init",
         port: 30012,
