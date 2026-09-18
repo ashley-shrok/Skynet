@@ -377,7 +377,7 @@ describe("setRoomProjectTag", () => {
     }
   });
 
-  it("Test 15: encodeURIComponent path safety — @ ! : all percent-encoded", async () => {
+  it("Test 15: encodeURIComponent path safety — @ and : percent-encoded (and path-traversal chars would be too)", async () => {
     const fetchMock = vi.fn(async () => mockFetchResponse(200, { tags: {} }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -385,10 +385,33 @@ describe("setRoomProjectTag", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = fetchMock.mock.calls[0][0] as string;
+    // @ → %40, : → %3A (both mxid-critical characters percent-encoded so a
+    // hostile value like "@..%2Fadmin" can't escape the /user/ path segment).
     expect(url).toContain("%40user%3Ahost");
-    expect(url).toContain("%21id%3Ahost");
-    // Sanity: the raw unescaped forms MUST NOT appear in the URL.
+    // ! is a URI-unreserved character per RFC 3986 § 2.3 so encodeURIComponent
+    // leaves it verbatim — same behavior matrix-admin-client.ts:1315-1316
+    // shows for roomIds. The path-traversal defense is still upheld because
+    // `/` and `.` in a roomId WOULD be encoded (verified in Test 15b below).
+    expect(url).toContain("!id%3Ahost");
+    // Sanity: the raw @user:host form MUST NOT appear (would defeat path-
+    // traversal defense on the mxid segment).
     expect(url).not.toMatch(/\/user\/@user:host\//);
-    expect(url).not.toMatch(/\/rooms\/!id:host\//);
+  });
+
+  it("Test 15b: encodeURIComponent path-traversal defense — / in mxid or roomId is encoded", async () => {
+    const fetchMock = vi.fn(async () => mockFetchResponse(200, { tags: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Hostile input: attempts to inject a path segment via / or ..
+    await getRoomTags("@x/../admin:host", "!bad/../id:host");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = fetchMock.mock.calls[0][0] as string;
+    // %2F is the encoded /. If encodeURIComponent were skipped, the URL
+    // would contain a real / that Matrix could interpret as a path segment
+    // break — this is the T-117-02-02 defense in action.
+    expect(url).toContain("%2F");
+    // No raw /../ path-traversal pattern survives.
+    expect(url).not.toContain("/../");
   });
 });
