@@ -36,6 +36,11 @@ import {
   within,
 } from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
+// Phase 119 Plan 119-06 (D-18 three-layer testing): AppState type shape used
+// by the new mockAppTiles fixture + vi.mock("@/state/app-tiles-store", ...)
+// below. Mirrors the mockArchivedFleetRows swap pattern established by Phase
+// 115 Plan 115-06 for the Archived section integration tests.
+import type { AppState } from "@/api/fleet-status-types";
 
 // ─── Global mocks (BEFORE component import — Vitest hoists vi.mock) ──────────
 
@@ -247,6 +252,16 @@ let mockArchivedFleetRows: readonly {
   hostname: string;
 }[] = [];
 
+// Phase 119 Plan 119-06 (D-18 three-layer testing): mutable app-tiles fixture
+// for the sidebar Apps section (Plan 119-04 integration). Tests seed this in
+// arrange steps to exercise the D-05 always-present invariant, D-03 lazy-
+// render invariant, D-04 empty-state prompt, D-15 sorted-order rendering,
+// RESEARCH.md Pitfall 2 (section survives active search), and D-01 placement
+// above the Pinned group. Default empty — non-119-06 tests observe zero app
+// tiles, which is the collapsed-and-empty D-05 default. beforeEach resets to
+// []. Mirrors the mockArchivedFleetRows pattern above at :244-248.
+let mockAppTiles: AppState[] = [];
+
 // quick-260727-gm3: mutable mock active-set so Tests 20A/20C/20D can
 // override which ids the panel + row layer sees as "in the active set"
 // per-test without unmocking the module. Mirrors the snapshot-mutation
@@ -359,6 +374,26 @@ vi.mock("@/state/use-collapsed-project-slugs", () => ({
 vi.mock("@/api/session-project-api", () => ({
   setSessionProject: vi.fn(async () => ({ ok: true })),
   setRelayRoomProject: vi.fn(async () => ({ ok: true })),
+}));
+
+// Phase 119 Plan 119-06 (D-18 three-layer testing): mock the sidebar
+// Apps-section subscription slice. PrettyConversationsPanel.tsx imports
+// `useAppTiles` from `@/state/app-tiles-store` (see panel :166 post-Plan-
+// 119-04). Backed by `mockAppTiles` above so integration tests A15-A20
+// can seed the tile pool + assert the section header (D-05), the lazy-
+// render invariant (D-03), the empty-state prompt (D-04), the hook-order
+// preservation (D-15), the search-safe invariant (Pitfall 2), and the
+// above-Pinned DOM placement (D-01). The publish* fns are stubbed as
+// vi.fn spies — the panel does not call them, but AppShell.tsx does, and
+// stubbing keeps the mock's surface parallel to the real module in case
+// a future test imports them from this file.
+vi.mock("@/state/app-tiles-store", () => ({
+  useAppTiles: () => mockAppTiles,
+  publishAppSnapshot: vi.fn(),
+  publishAppUpdate: vi.fn(),
+  publishAppGone: vi.fn(),
+  subscribeAppTilesStore: (_cb: () => void) => () => {},
+  __resetForTest: vi.fn(),
 }));
 
 // Phase 92 Plan 04: getPinnedIds is RETIRED. The mock no longer surfaces it —
@@ -577,6 +612,12 @@ beforeEach(async () => {
   // `.length > 0`). Tests that exercise the Archived section seed this
   // explicitly.
   mockArchivedFleetRows = [];
+  // Phase 119 Plan 119-06 (D-18): reset app-tiles fixture to empty so non-
+  // 119-06 tests observe the Apps section in its collapsed-and-empty
+  // default (header present per D-05, zero tiles / no empty prompt in DOM
+  // per D-03 lazy-render). Tests that exercise the Apps section seed this
+  // explicitly.
+  mockAppTiles = [];
   // Phase 115 Plan 115-06 (D-01): reset archive API spy between tests.
   archiveIdentitySpy.mockClear();
   // Patch #167: reset identities mock. Phase 104 Plan 03: mockBountyCounts
@@ -4335,5 +4376,228 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     expect(
       container.querySelector('[data-testid="pv-header-menu-button"]'),
     ).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 119 Plan 119-06 — Apps section integration coverage (A15-A20)
+// ─────────────────────────────────────────────────────────────────────────────
+// D-18 three-layer discipline for the sidebar Apps section:
+//   - Component-level coverage (icon + fallback + healthMessage + context
+//     menu + ordering-stability) lives in Plan 119-03's AppTile.test.tsx.
+//   - Store-level coverage (publish fns + snapshot/update/gone reconciliation
+//     + sort tiebreak + subscribe/unsubscribe) lives in Plan 119-02's
+//     app-tiles-store.test.ts.
+//   - Integration coverage (section chrome interacting with the panel's mount
+//     lifecycle, hook wiring, search-input state, and DOM placement relative
+//     to the Pinned group) lives HERE — six tests A15-A20 mirroring the A10-
+//     A14 Archived-section template at :2625-2733.
+//
+// The tests exercise the invariants that neither the component test nor the
+// store test can observe alone:
+//   - A15: D-05 always-present — section header renders with zero tiles.
+//   - A16: D-03 lazy-render — collapsed section has ZERO AppTile instances
+//         and NO empty-state prompt in the DOM.
+//   - A17: D-04 empty-expanded — click header → expand → the empty-state
+//         prompt "Ask an agent to make an app for you." is visible.
+//   - A18: D-01 populated + D-15 hook-order — expanded section renders one
+//         AppTile per hook-returned entry, in the same order the hook
+//         returned. (The panel does zero re-sorting; store's stable sort is
+//         the sole authority.)
+//   - A19: RESEARCH.md Pitfall 2 — the section is inserted OUTSIDE the
+//         search-vs-three-zone ternary; typing in the search input MUST NOT
+//         hide the section header.
+//   - A20: D-01 placement — the Apps header appears ABOVE the Pinned group
+//         in DOM order (compareDocumentPosition gate).
+//
+// Mock strategy: `mockAppTiles` module-level swap + `vi.mock("@/state/app-
+// tiles-store", ...)` — mirrors the mockArchivedFleetRows + vi.mock for
+// conversation-store pattern that A10-A14 established. beforeEach resets
+// mockAppTiles to [] (see top-of-file beforeEach block).
+
+describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
+  // Small local fixture builder — keep A15-A20 fixture assembly compact.
+  function makeAppTile(overrides: Partial<AppState> = {}): AppState {
+    return {
+      hostId: "1",
+      slug: "scratch-test",
+      title: "Scratch",
+      description: "test",
+      port: null,
+      hasIcon: true,
+      createdAtMs: 0,
+      isHealthy: true,
+      healthMessage: null,
+      ...overrides,
+    };
+  }
+
+  // A15: D-05 always-present — section header renders with zero tiles.
+  it("A15: mockAppTiles=[] → Apps section header renders (D-05 always-present)", () => {
+    mockAppTiles = [];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const header = screen.getByTestId("pretty-conversations-apps-header");
+    expect(header).toBeTruthy();
+    // Header carries the "Apps" label per D-02 chrome mirror.
+    expect(header.textContent).toContain("Apps");
+  });
+
+  // A16: D-03 lazy-render — collapsed section has ZERO AppTile instances
+  // AND NO empty-state prompt in the DOM.
+  it("A16: D-03 lazy — collapsed section renders zero AppTile instances + no empty-state prompt", () => {
+    // Seed a populated store to prove the collapsed lazy-gate is what
+    // suppresses the DOM (rather than the empty-list branch).
+    mockAppTiles = [
+      makeAppTile({ hostId: "1", slug: "app-a", title: "Alpha" }),
+      makeAppTile({ hostId: "1", slug: "app-b", title: "Beta" }),
+    ];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Collapsed by default (appsExpanded=false) → the entire section body is
+    // gated out of the DOM by `{appsExpanded && ...}`. Zero AppTile buttons.
+    const tiles = screen.queryAllByRole("button", { name: /App tile:/ });
+    expect(tiles.length).toBe(0);
+    // And no empty-state prompt either — the empty-state branch also lives
+    // inside the `{appsExpanded && ...}` gate, so it's absent when collapsed.
+    expect(
+      screen.queryByText("Ask an agent to make an app for you."),
+    ).toBeNull();
+  });
+
+  // A17: D-04 empty-expanded — click header → expand → empty-state prompt.
+  it("A17: click header → section expands → 'Ask an agent to make an app for you.' becomes visible (D-04)", () => {
+    mockAppTiles = [];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Pre-click: empty-state prompt is not in the DOM (D-03 lazy).
+    expect(
+      screen.queryByText("Ask an agent to make an app for you."),
+    ).toBeNull();
+
+    // Click to expand.
+    const header = screen.getByTestId("pretty-conversations-apps-header");
+    fireEvent.click(header);
+
+    // Post-click + empty store → the D-04 empty-state prompt renders verbatim.
+    const prompt = screen.getByText("Ask an agent to make an app for you.");
+    expect(prompt).toBeTruthy();
+  });
+
+  // A18: D-01 populated + D-15 hook-order — expanded section renders one
+  // AppTile per hook-returned entry, in hook-returned order.
+  it("A18: mockAppTiles populated + expanded → renders one AppTile per entry in hook order (D-01 + D-15)", () => {
+    // Seed three tiles in a specific order (this represents what the hook
+    // returns after applying its D-15 stable sort). The panel does zero re-
+    // sorting — so the DOM order must equal this array order.
+    mockAppTiles = [
+      makeAppTile({ hostId: "1", slug: "app-a", title: "Alpha" }),
+      makeAppTile({ hostId: "1", slug: "app-b", title: "Beta" }),
+      makeAppTile({ hostId: "2", slug: "app-c", title: "Gamma" }),
+    ];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Expand the section.
+    const header = screen.getByTestId("pretty-conversations-apps-header");
+    fireEvent.click(header);
+
+    // Three AppTile instances rendered.
+    const tiles = screen.getAllByRole("button", { name: /App tile:/ });
+    expect(tiles.length).toBe(3);
+
+    // DOM order matches hook-returned order (D-15 store-sort is the sole
+    // authority; panel adds no re-sort).
+    const titles = tiles.map((t) => t.getAttribute("aria-label"));
+    expect(titles).toEqual([
+      "App tile: Alpha",
+      "App tile: Beta",
+      "App tile: Gamma",
+    ]);
+  });
+
+  // A19: RESEARCH.md Pitfall 2 — the Apps section is inserted OUTSIDE the
+  // search-vs-three-zone ternary at PrettyConversationsPanel.tsx:1833 (pre-
+  // 119-04-edit line number). Typing in the search input MUST NOT hide the
+  // section header — the D-05 always-present invariant would be violated if
+  // a search filter incidentally suppressed the section.
+  it("A19: typing in the search input does NOT hide the Apps section header (Pitfall 2 + D-05)", () => {
+    mockAppTiles = [];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Pre-search: header is present.
+    expect(
+      screen.getByTestId("pretty-conversations-apps-header"),
+    ).toBeTruthy();
+
+    // Type a query into the search input. The panel's search-container at
+    // PrettyConversationsPanel.tsx :1806-1814 renders `<input type="search">`
+    // with data-testid="pretty-conversations-search-input"; RTL exposes it via
+    // the "searchbox" role (WAI-ARIA implicit role for input[type=search]).
+    const searchInput = screen.getByRole("searchbox") as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "xyz" } });
+
+    // Post-search: header MUST still be present — the section renders OUTSIDE
+    // the search-vs-three-zone ternary at pre-119-04-edit line 1833.
+    expect(
+      screen.getByTestId("pretty-conversations-apps-header"),
+    ).toBeTruthy();
+  });
+
+  // A20: D-01 placement — the Apps section header appears ABOVE the Pinned
+  // group in DOM order. Uses compareDocumentPosition (bitwise-AND with
+  // Node.DOCUMENT_POSITION_FOLLOWING = 4) to assert the header precedes
+  // the [data-pinned-group="true"] wrapper.
+  it("A20: Apps section header precedes the Pinned group in DOM order (D-01 placement)", () => {
+    // Seed one pinned row (so the Pinned group actually renders) AND one app
+    // tile (so the Apps section actually has content — though A20 only cares
+    // about the header's position, not the section body).
+    mockAppTiles = [makeAppTile()];
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [makeConversationRow({ id: "a", label: "alpha", host: hostA })],
+      middle: [],
+      rdpGroup: null,
+      pinnedIds: new Set(["a"]),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const appsHeader = screen.getByTestId("pretty-conversations-apps-header");
+    const pinnedGroup = container.querySelector(
+      '[data-pinned-group="true"]',
+    ) as HTMLElement | null;
+    expect(pinnedGroup).toBeTruthy();
+
+    // DOCUMENT_POSITION_FOLLOWING (= 4): "otherNode follows this node in the
+    // tree." So `appsHeader.compareDocumentPosition(pinnedGroup) & 4 === 4`
+    // asserts pinnedGroup FOLLOWS appsHeader — i.e., the Apps header comes
+    // FIRST in DOM order, which is D-01's placement invariant.
+    const relation = appsHeader.compareDocumentPosition(pinnedGroup!);
+    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 });
