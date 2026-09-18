@@ -611,23 +611,32 @@ describe("readProjectFile", () => {
 });
 
 describe("createProject — LOCAL branch", () => {
-  it("Test C1: happy — mkdir recursive, then writeMarkdownFileAtomic with frontmatter displayName + empty body", async () => {
-    // stat rejects with ENOENT (dir does not yet exist) → OK to proceed.
-    fsStatMock.mockImplementation(() => {
-      const err = new Error("ENOENT") as NodeJS.ErrnoException;
-      err.code = "ENOENT";
-      return Promise.reject(err);
-    });
+  it("Test C1 (M2 fix): happy — parent recursive-mkdir, then atomic non-recursive mkdir(projectDir), then writeMarkdownFileAtomic with frontmatter displayName + empty body", async () => {
+    // Both mkdirs succeed.
+    fsMkdirMock.mockImplementation(() => Promise.resolve());
 
     await createProject(null, "alpha", "Alpha One");
 
-    // fs.mkdir was called with recursive:true on the project dir.
-    expect(fsMkdirMock).toHaveBeenCalled();
-    const mkdirCall = fsMkdirMock.mock.calls.find(
-      (c) => typeof c[0] === "string" && (c[0] as string).endsWith("/alpha"),
-    );
-    expect(mkdirCall).toBeDefined();
-    expect(mkdirCall![1]).toMatchObject({ recursive: true });
+    // Phase 117 M2 fix (2026-09-18): parent projects/ dir gets a
+    // recursive mkdir, then projectDir gets a non-recursive mkdir
+    // (atomic dupe-detection at the syscall level).
+    expect(fsMkdirMock).toHaveBeenCalledTimes(2);
+
+    // First call: recursive mkdir on parent projects root.
+    const parentCall = fsMkdirMock.mock.calls[0];
+    expect(typeof parentCall[0]).toBe("string");
+    expect((parentCall[0] as string).endsWith("/projects")).toBe(true);
+    expect(parentCall[1]).toMatchObject({ recursive: true });
+
+    // Second call: NON-recursive mkdir on projectDir (atomic race guard).
+    const childCall = fsMkdirMock.mock.calls[1];
+    expect((childCall[0] as string).endsWith("/alpha")).toBe(true);
+    // options either absent or explicitly not recursive:true — the M2
+    // fix passes no options at all, so childCall[1] is undefined.
+    expect(
+      childCall[1] === undefined ||
+        (childCall[1] as { recursive?: boolean }).recursive !== true,
+    ).toBe(true);
 
     // Atomic write went through writeFile+rename.
     expect(fsWriteFileMock).toHaveBeenCalledTimes(1);
@@ -646,11 +655,19 @@ describe("createProject — LOCAL branch", () => {
     expect(renameTo.endsWith("/projects/alpha/project.md")).toBe(true);
   });
 
-  it("Test C2: rejects dupe slug — stat succeeds → throws EEXIST-shaped error; no mkdir/write fires", async () => {
-    // stat resolves (dir exists) → EEXIST path.
-    fsStatMock.mockResolvedValueOnce({
-      isDirectory: () => true,
-    } as unknown as import("node:fs").Stats);
+  it("Test C2 (M2 fix): rejects dupe slug — non-recursive mkdir throws EEXIST → re-thrown as EEXIST-shaped error; no write fires", async () => {
+    // Simulate: parent mkdir succeeds; child mkdir throws EEXIST
+    // (race with a concurrent create, or plain-old dupe).
+    let mkdirCall = 0;
+    fsMkdirMock.mockImplementation(() => {
+      mkdirCall += 1;
+      if (mkdirCall === 1) {
+        return Promise.resolve(); // parent -p succeeds
+      }
+      const err = new Error("EEXIST: file already exists") as NodeJS.ErrnoException;
+      err.code = "EEXIST";
+      return Promise.reject(err);
+    });
 
     await expect(
       createProject(null, "alpha", "Alpha One"),
@@ -658,8 +675,7 @@ describe("createProject — LOCAL branch", () => {
       code: "EEXIST",
     });
 
-    // No I/O after the probe.
-    expect(fsMkdirMock).not.toHaveBeenCalled();
+    // No write past the failed mkdir.
     expect(fsWriteFileMock).not.toHaveBeenCalled();
   });
 
@@ -667,7 +683,9 @@ describe("createProject — LOCAL branch", () => {
     await expect(createProject(null, "Alpha", "Alpha One")).rejects.toThrow(
       /invalid project slug/,
     );
-    expect(fsStatMock).not.toHaveBeenCalled();
+    // Post-M2 fix: fsStatMock is no longer consulted by createProject
+    // (only archiveProject uses it now). fsMkdirMock and fsWriteFileMock
+    // must NOT fire because slug validation happens before any I/O.
     expect(fsMkdirMock).not.toHaveBeenCalled();
     expect(fsWriteFileMock).not.toHaveBeenCalled();
   });
@@ -685,36 +703,34 @@ describe("createProject — LOCAL branch", () => {
 });
 
 describe("createProject — REMOTE branch", () => {
-  it("Test C4 (H3 fix): happy — probe with test -d using double-quoted $HOME (NOT single-quoted), mkdir -p, then writeMarkdownFileAtomic REMOTE", async () => {
+  it("Test C4 (M2 fix + H3 fix): happy — single-shot `mkdir -p PARENT && mkdir CHILD` combo (atomic race guard) with double-quoted $HOME, then writeMarkdownFileAtomic REMOTE", async () => {
     const { conn, sftp, sftpCalls } = buildMockConn();
-    let probeCmd = "";
-    let mkdirCmd = "";
+    const execedCmds: string[] = [];
     execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
-      if (cmd.includes("test -d")) {
-        probeCmd = cmd;
-        return Promise.resolve("missing\n");
-      }
-      if (cmd.startsWith("mkdir -p")) {
-        mkdirCmd = cmd;
-        return Promise.resolve("");
-      }
+      execedCmds.push(cmd);
       return Promise.resolve("");
     });
 
     await createProject(conn, "alpha", "Alpha One");
 
-    // Phase 117 H3 fix (2026-09-18): probe fired with double-quoted
-    // $HOME (NOT single-quoted via shellEscape). Single-quoting the whole
-    // path would suppress $HOME expansion on the remote shell.
-    expect(probeCmd).toContain("test -d");
-    expect(probeCmd).toContain('"$HOME/fleet/projects/alpha"');
-    // Regression: the probe command MUST NOT contain a single-quoted
-    // $HOME (which was the pre-fix bug).
-    expect(probeCmd).not.toContain("'$HOME");
-    // mkdir -p fired with double-quoted $HOME.
-    expect(mkdirCmd).toContain("mkdir -p");
-    expect(mkdirCmd).toContain('"$HOME/fleet/projects/alpha"');
-    expect(mkdirCmd).not.toContain("'$HOME");
+    // Phase 117 M2 fix (2026-09-18): pre-fix, there were TWO execs —
+    // probe (test -d) then mkdir -p. Post-fix, there is ONE combined
+    // exec that ensures the parent dir exists (recursive -p) and then
+    // creates the child atomically (non-recursive mkdir). If the child
+    // already exists, mkdir fails with a non-zero exit that
+    // execWithTimeout turns into a throw — we re-map to EEXIST.
+    expect(execCommandMock).toHaveBeenCalledTimes(1);
+    const cmd = execedCmds[0];
+
+    // Phase 117 H3 fix (2026-09-18): double-quoted $HOME, no single-
+    // quote wrapping.
+    expect(cmd).toContain('mkdir -p "$HOME/fleet/projects"');
+    expect(cmd).toContain('mkdir "$HOME/fleet/projects/alpha"');
+    // Regression: MUST NOT single-quote-wrap $HOME.
+    expect(cmd).not.toContain("'$HOME");
+    // Regression (M2): the child mkdir MUST be non-recursive — the
+    // whole point of the atomic dupe-detection.
+    expect(cmd).not.toMatch(/mkdir -p "\$HOME\/fleet\/projects\/alpha"/);
 
     // Atomic write REMOTE branch fired.
     expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
@@ -728,11 +744,15 @@ describe("createProject — REMOTE branch", () => {
     expect(writeStr).toMatch(/displayName: '?Alpha One'?/);
   });
 
-  it("Test C5: REMOTE rejects dupe — probe returns ok → EEXIST-shaped throw; no mkdir/write fires", async () => {
+  it("Test C5 (M2 fix): REMOTE rejects dupe — mkdir throws 'File exists' → re-mapped to EEXIST-shaped throw; no write fires", async () => {
     const { conn, sftp } = buildMockConn();
     execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
-      if (cmd.includes("test -d")) {
-        return Promise.resolve("ok\n");
+      if (cmd.includes("mkdir")) {
+        return Promise.reject(
+          new Error(
+            `mkdir: cannot create directory '/home/tester/fleet/projects/alpha': File exists`,
+          ),
+        );
       }
       return Promise.resolve("");
     });
@@ -741,11 +761,6 @@ describe("createProject — REMOTE branch", () => {
       code: "EEXIST",
     });
 
-    // mkdir MUST NOT have fired.
-    const mkdirCall = execCommandMock.mock.calls.find(
-      (c) => typeof c[1] === "string" && (c[1] as string).startsWith("mkdir -p"),
-    );
-    expect(mkdirCall).toBeUndefined();
     // SFTP writeFile MUST NOT have fired.
     expect(sftp.writeFile).not.toHaveBeenCalled();
   });

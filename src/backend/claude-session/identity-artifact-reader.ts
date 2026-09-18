@@ -765,56 +765,79 @@ export async function createProject(
     const projectDir = path.join(root, slug);
     const targetFile = path.join(projectDir, "project.md");
 
-    // Probe BEFORE any write — dupe rejection distinguishable via .code
-    let dirExists = false;
+    // Phase 117 M2 fix (2026-09-18): TOCTOU-safe dupe rejection.
+    //
+    // Pre-fix: probe → mkdir(recursive:true) → write was three separate
+    // ops. Two concurrent createProject calls with the same slug both
+    // passed the probe (before either had written anything), both
+    // mkdir'd (recursive:true is idempotent and succeeds), and both
+    // wrote project.md — the second silently clobbered the first with
+    // no 409.
+    //
+    // Fix: ensure the parent projects/ dir exists via a separate
+    // recursive mkdir, then use non-recursive fs.mkdir(projectDir).
+    // Non-recursive mkdir is atomic at the syscall level and throws
+    // EEXIST if the directory already exists — the OS makes this
+    // race-safe, no separate probe needed.
+    await fs.mkdir(root, { recursive: true });
     try {
-      await fs.stat(projectDir);
-      dirExists = true;
+      await fs.mkdir(projectDir);
     } catch (err: unknown) {
       if (
-        !(
-          typeof err === "object" &&
-          err !== null &&
-          (err as NodeJS.ErrnoException).code === "ENOENT"
-        )
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "EEXIST"
       ) {
-        throw err;
+        const dupe = new Error(`project slug already exists: ${slug}`);
+        (dupe as NodeJS.ErrnoException).code = "EEXIST";
+        throw dupe;
       }
-    }
-    if (dirExists) {
-      const err = new Error(`project slug already exists: ${slug}`);
-      (err as NodeJS.ErrnoException).code = "EEXIST";
       throw err;
     }
-
-    await fs.mkdir(projectDir, { recursive: true });
     await writeMarkdownFileAtomic(null, targetFile, body);
     return;
   }
 
-  // REMOTE — probe with `test -d`, both branches echo a distinguishable token.
+  // REMOTE — TOCTOU-safe dupe rejection via non-recursive mkdir.
   //
-  // Phase 117 H3 fix (2026-09-18): pre-fix, this wrapped
-  // "$HOME/fleet/projects/${slug}" via shellEscape, which single-quoted
-  // the whole string and DISABLED $HOME expansion — the shell saw a
-  // literal "$HOME" path segment, so the test -d always reported
-  // "missing" and mkdir created a literal-$HOME directory in the SSH
-  // user's cwd. Slugs are already PROJECT_SLUG_RE-validated ([a-z0-9-])
-  // so double-quoted interpolation is safe (no shell metacharacters
-  // in the slug). Same pattern as the other REMOTE readers in this
-  // module.
-  const probeOut = (
+  // Phase 117 H3 fix (2026-09-18): use double-quoted "$HOME/..."
+  // interpolation directly. shellEscape wraps in single quotes and
+  // disables $HOME expansion; PROJECT_SLUG_RE ([a-z0-9-]) blocks all
+  // shell metacharacters in the slug so double-quoted interpolation
+  // is safe.
+  //
+  // Phase 117 M2 fix (2026-09-18): pre-fix, this route did probe →
+  // mkdir -p → write, which is TOCTOU: two concurrent creates both
+  // pass the probe, both mkdir -p succeed (recursive/idempotent), and
+  // both write. Fix: ensure the parent projects/ dir exists via a
+  // separate mkdir -p, then use plain (non-`-p`) mkdir which fails
+  // atomically with a non-zero exit code if the directory already
+  // exists. We test the exit path by checking stderr / stdout — the
+  // simplest posture is to combine `mkdir -p PARENT && mkdir CHILD`
+  // in one exec and detect failure via a sentinel echo on success.
+  //
+  // Since execWithTimeout throws on non-zero exit, the natural failure
+  // path on race-loser is a thrown error. We probe the specific
+  // "File exists" / EEXIST shape and re-map it to a clean EEXIST throw
+  // for the caller to distinguish.
+  try {
     await execWithTimeout(
       conn,
-      `test -d "$HOME/fleet/projects/${slug}" && echo ok || echo missing`,
-    )
-  ).trim();
-  if (probeOut === "ok") {
-    const err = new Error(`project slug already exists: ${slug}`);
-    (err as NodeJS.ErrnoException).code = "EEXIST";
+      `mkdir -p "$HOME/fleet/projects" && mkdir "$HOME/fleet/projects/${slug}"`,
+    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes("File exists") ||
+      msg.toLowerCase().includes("already exists") ||
+      msg.includes("EEXIST")
+    ) {
+      const dupe = new Error(`project slug already exists: ${slug}`);
+      (dupe as NodeJS.ErrnoException).code = "EEXIST";
+      throw dupe;
+    }
     throw err;
   }
-  await execWithTimeout(conn, `mkdir -p "$HOME/fleet/projects/${slug}"`);
   await writeMarkdownFileAtomic(
     conn,
     `$HOME/fleet/projects/${slug}/project.md`,
