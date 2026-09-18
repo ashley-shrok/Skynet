@@ -77,8 +77,9 @@ file that already has to exist:
 - **Slug** — the folder name (`birthdays`).
 - **Port** — the systemd unit file (grep for `PORT`).
 - **Icon** — a conventional filename in the app folder. The client looks for
-  `icon.webp` first, then `icon.png`, then `icon.svg`. If none exist, it
-  renders a generic app glyph.
+  `icon.webp`. If it doesn't exist, the client renders a generic app glyph.
+  If an agent has an icon in another format, convert it to `.webp` before
+  dropping it in — one filename, no drift.
 - **Created-at** — the folder's filesystem timestamp.
 
 Do NOT add fields to `app.json`. Two fields today, two fields forever. The
@@ -132,12 +133,22 @@ everything else.
    That does the whole scaffold-plus-install cycle. Log tail from the helper
    tells you the assigned port and confirms the service is live.
 5. **Edit the starter down to your app.** The starter is a working small
-   app (a to-do list). Read it end-to-end first — the framework's structure
-   IS the pattern you're following. Then edit:
+   app (a to-do list) with its initial migration already generated in
+   `drizzle/`. When the service first boots, that migration runs and the
+   starter's `todos` table gets created. Read the starter end-to-end first —
+   the framework's structure IS the pattern you're following. Then edit:
    - `src/lib/server/db/schema.ts` — replace the starter table with your
      app's real schema. Change or remove `todos`; add whatever you need.
-   - `bun run drizzle-kit generate` — Drizzle emits a new numbered
-     migration file under `drizzle/`. Never hand-write migration SQL.
+   - After the schema is settled, generate a new migration:
+     `bun run db:generate` — Drizzle emits a new numbered migration file
+     under `drizzle/`. Never hand-write migration SQL. On next restart the
+     migration runs and your schema catches up.
+   - If you're swapping the schema out entirely early on — before you've
+     grown attached to any data — a cleaner move is to start fresh: stop
+     the service, delete `db.sqlite*` and the shipped `drizzle/0000_*.sql`
+     plus `drizzle/meta/`, then edit the schema and run `bun run db:generate`
+     for a clean first migration. Avoids stacking "create todos" on top
+     of "drop todos and create yours" in the migration history.
    - `src/routes/+page.svelte` — replace the starter page with your app's
      UI. Tailwind is loaded and configured; use it.
    - `src/routes/+page.server.ts` — replace the starter's load function
@@ -203,7 +214,7 @@ If asked to modify an existing app:
 5. **If the schema changes,** generate a new migration:
 
        cd ~/fleet/apps/<slug>
-       bun run drizzle-kit generate
+       bun run db:generate
 
    Drizzle emits `drizzle/NNNN_<hash>_<name>.sql` — numbered forever
    forward. NEVER edit a migration that's already been applied. Migrations

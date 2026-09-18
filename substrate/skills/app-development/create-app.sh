@@ -166,10 +166,9 @@ fi
 log "installing dependencies (bun install)..."
 (cd "$APP_DIR" && bun install 2>&1) | tail -3
 
-# --- Generate initial migration --------------------------------------------
-
-log "generating initial migration (drizzle-kit generate)..."
-(cd "$APP_DIR" && bunx drizzle-kit generate 2>&1) | tail -5
+# The starter template ships with its initial migration pre-generated under
+# drizzle/ — no generate step needed here. If the agent later edits the
+# schema, they'll run `bun run db:generate` themselves per the skill body.
 
 # --- Build production output ----------------------------------------------
 

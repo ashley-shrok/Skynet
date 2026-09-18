@@ -30,7 +30,7 @@
  *   `systemctl --user daemon-reload` at the start of every sweep, so systemd
  *   has already re-read the unit before the restart hook fires.
  *
- * ROW-COUNT RECONCILIATION (19 items vs. 49 rows):
+ * ROW-COUNT RECONCILIATION (19 items vs. 52 rows):
  *   The shape doc counts "15 items" — that was 7 single-file skills + 1 skill
  *   with 1 companion (agent-relay: SKILL.md + recv.sh) + 1 skill with 3
  *   companions (id: SKILL.md + actor-status-prompt + clone-picker-prompt +
@@ -50,9 +50,9 @@
  *     - 6 rows for the single-file skills (backlog, bounty, next-bounty,
  *       promote-to-coordinator, queue, role)
  *     - 1 row for image-gen skill (Phase 116 file-drop broker SKILL.md)
- *     - 23 rows for app-development/ (SKILL.md + 5 helper scripts +
- *       17 starter-template files; first-class-apps campaign shape 1,
- *       2026-09-17)
+ *     - 26 rows for app-development/ (SKILL.md + 5 helper scripts +
+ *       20 starter-template files including a pre-generated initial
+ *       Drizzle migration; first-class-apps campaign shape 1, 2026-09-17)
  *     - 11 rows for helper scripts under scripts/
  *       (role-file-watch is one of the four ambient watchers, all four
  *       spawned as children of ambient-monitor rather than launched
@@ -64,30 +64,30 @@
  *     - 1 row for user-onboarding/agent-supervisor.service
  *     - 1 row for instance-policy-claude-md (Phase 114 twinkie — runtime-sourced,
  *       system-root-installed)
- *   Total = 49.
+ *   Total = 52.
  *
  * TWO NEW AXES (Phase 114 D-12 + RESEARCH.md § Pattern 1):
  *   Phase 114 introduces two orthogonal axes to CatalogEntry:
  *
  *   1. `sourceKind` (values: bundled | runtime) — DISCRIMINATED UNION on this
  *      axis because it fundamentally changes which source-side fields are present:
- *        - BundledCatalogEntry (the existing 23 rows) carries `bundledPath`
+ *        - BundledCatalogEntry (51 of the 52 rows) carries `bundledPath`
  *          (bytes live at /app/fleet-substrate/… inside the image, static).
- *        - RuntimeCatalogEntry (the new twinkie row) carries `resolverKey`
+ *        - RuntimeCatalogEntry (the Phase 114 twinkie row) carries `resolverKey`
  *          (bytes resolved at sweep time by looking up the key in the
  *          composer's `deps.resolvedRuntimeBytes` map). The catalog stays
  *          runtime-free per PURE-LIB DISCIPLINE — the resolver key is a
  *          lookup string, not a function.
  *      The discriminated-union shape gives the type-checker the strongest
- *      guarantee that existing 23 rows can never accidentally be treated
+ *      guarantee that the 51 bundled rows can never accidentally be treated
  *      as runtime rows (no resolverKey field) and vice-versa (no
  *      bundledPath access on runtime rows without narrowing).
  *
  *   2. `installMode: "user-home" | "system-root"` — OPTIONAL FIELD with
  *      default "user-home" because it only affects post-write behavior
  *      (path quoting + ownership + directory creation), not source shape.
- *      Existing 23 rows omit the field and inherit the "user-home" default,
- *      keeping the diff minimal. The new twinkie row sets it explicitly to
+ *      The 49 bundled rows omit the field and inherit the "user-home" default,
+ *      keeping the diff minimal. The twinkie row sets it explicitly to
  *      "system-root" (writes to /etc/claude-code/CLAUDE.md root:root 0644,
  *      gated on hosts.username === "root" per Plan 05).
  */
@@ -199,7 +199,7 @@ export interface RuntimeCatalogEntry {
 }
 
 /**
- * Discriminated union on `sourceKind`. Bundled rows (48 of the 49) narrow
+ * Discriminated union on `sourceKind`. Bundled rows (51 of the 52) narrow
  * to `BundledCatalogEntry` (bundledPath accessible); the runtime row narrows
  * to `RuntimeCatalogEntry` (resolverKey accessible, no bundledPath).
  *
@@ -208,7 +208,7 @@ export interface RuntimeCatalogEntry {
 export type CatalogEntry = BundledCatalogEntry | RuntimeCatalogEntry;
 
 /**
- * The 47-row hand-maintained catalog. Ordered skills-side first (id,
+ * The 50-row hand-maintained catalog. Ordered skills-side first (id,
  * agent-relay, single-file skills, then app-development), then scripts-side,
  * then user-onboarding/ files, then Phase 92 additions (fleet-status-sweep),
  * then Phase 95 additions (pv-context-pct-sweep), then the mega-monitor
@@ -217,7 +217,7 @@ export type CatalogEntry = BundledCatalogEntry | RuntimeCatalogEntry;
  * system-root-installed row).
  * Within skills, multi-file skills (id, agent-relay) appear before single-file
  * skills for reviewability. app-development is a multi-file skill with a
- * bundled starter template — the 23 rows for it are grouped and commented as
+ * bundled starter template — the 26 rows for it are grouped and commented as
  * a single block after the single-file skills to keep the diff clean.
  */
 export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
@@ -584,6 +584,24 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     slug: "app-development-template-vite-config",
     bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/vite.config.ts",
     installPath: "~/.claude/skills/app-development/templates/app-starter/vite.config.ts",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-migration-sql",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/drizzle/0000_panoramic_micromax.sql",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/drizzle/0000_panoramic_micromax.sql",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-migration-journal",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/drizzle/meta/_journal.json",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/drizzle/meta/_journal.json",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-migration-snapshot",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/drizzle/meta/0000_snapshot.json",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/drizzle/meta/0000_snapshot.json",
     restartHook: null,
   },
 
