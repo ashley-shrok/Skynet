@@ -17,6 +17,7 @@ import networkTopologyRoutes from "./routes/network-topology.js";
 import rbacRoutes from "./routes/rbac.js";
 import openTabsRoutes from "./routes/open-tabs.js";
 import identitiesRoutes from "./routes/identities.js";
+import appsRoutes from "./routes/apps.js";
 import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
@@ -2013,6 +2014,11 @@ app.use("/pretty-view", prettyViewFetchTailnetUrlRoutes);
 app.use("/pretty-view", prettyViewFetchHostFileRoutes);
 app.use("/", fileUrlRoutes);
 app.use("/identities", identitiesRoutes);
+// Phase 119 Plan 05 (D-06): GET /apps/:hostId/:slug/icon — serves
+// ~/fleet/apps/<slug>/icon.webp from the target host via SSH. Mirrors
+// /identities/:identityKey/avatar (identities.ts:849). See
+// src/backend/database/routes/apps.ts for the route body.
+app.use("/apps", appsRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
 app.use("/identity-send-log", identitySendLogRoutes);
