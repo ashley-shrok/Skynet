@@ -45,6 +45,7 @@ import {
 } from "../../claude-session/identity-artifact-reader.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
+import { sshLogger } from "../../utils/logger.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -84,12 +85,33 @@ router.get(
       try {
         const host = await resolveHostById(hostIdNum, userId);
         if (!host) {
+          // Code-review MEDIUM-3 (fix pass 2026-09-18): resolveHostById
+          // returns null for BOTH "hostId doesn't exist" AND "user has no
+          // access". Log so recurring 502s on a specific hostId leave a
+          // fingerprint in the logs beyond the entry-level access log.
+          // Payload deliberately minimal (no user IDs, no stack traces —
+          // matches identity-avatar discipline).
+          sshLogger.warn("app icon: host unresolvable / no access", {
+            operation: "apps_icon_host_unresolvable",
+            hostId: hostIdNum,
+            slug,
+          });
           return res
             .status(502)
             .json({ error: "app home box unreachable" });
         }
         conn = await connectOneShot(host, 5_000);
-      } catch {
+      } catch (e) {
+        // Code-review MEDIUM-3 (fix pass 2026-09-18): log the underlying
+        // SSH failure reason so operators can distinguish DNS-vs-timeout-vs-
+        // auth-fail without instrumenting the SSH layer. errMessage only —
+        // never the full stack.
+        sshLogger.warn("app icon: SSH connect failed", {
+          operation: "apps_icon_ssh_connect_error",
+          hostId: hostIdNum,
+          slug,
+          errMessage: e instanceof Error ? e.message : String(e),
+        });
         return res
           .status(502)
           .json({ error: "app home box unreachable" });
@@ -117,9 +139,19 @@ router.get(
       res.setHeader("ETag", etag);
       res.setHeader("Cache-Control", "no-store");
       return res.send(result.bytes);
-    } catch {
+    } catch (e) {
       // SSH / SFTP / readAppIconFile-level error → 502 with canned body.
       // Never leak raw exception messages into the response.
+      //
+      // Code-review MEDIUM-3 (fix pass 2026-09-18): emit a structured warn
+      // with hostId + slug + errMessage so recurring 502s on a specific
+      // (hostId, slug) leave a fingerprint. Prior code returned silently.
+      sshLogger.warn("app icon: SFTP / read error", {
+        operation: "apps_icon_ssh_error",
+        hostId: hostIdNum,
+        slug,
+        errMessage: e instanceof Error ? e.message : String(e),
+      });
       return res
         .status(502)
         .json({ error: "app home box unreachable" });
