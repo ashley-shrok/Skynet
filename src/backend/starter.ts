@@ -1183,6 +1183,176 @@ if (process.env.VITEST !== "true") {
       });
     }
 
+    // =========================================================================
+    // Phase 116 (image-gen-skill) — always-on image-gen-request scan
+    // orchestrator + 5-worker pool + token bucket, wired IMMEDIATELY AFTER the
+    // spawn-scan block (mirrors its structure verbatim).
+    //
+    // Boot ordering: read SKYNET_IMAGE_GEN_RPM → construct the single token
+    // bucket → wire buildProductionDeps(tokenBucket) + processImageGen +
+    // startPool → construct the scan orchestrator with its own hostClients
+    // map and acquireChannel closure (independent lifecycle from fleet-
+    // status + substrate + spawn-scan).
+    //
+    // The token bucket is a BOOT-TIME SINGLETON — every worker loop shares
+    // this one instance so the RPM cap applies fleet-wide (not per-loop).
+    // =========================================================================
+    {
+      const { createImageGenScanOrchestrator } = await import(
+        "./image-gen-requests/scan-orchestrator.js"
+      );
+      const { listSubstrateHosts: listSubstrateHostsForImageGenScan } = await import(
+        "./distributor/list-substrate-hosts.js"
+      );
+      const { connectOneShot: connectOneShotImageGen } = await import(
+        "./ssh/ssh-one-shot.js"
+      );
+      const { execCommand: execCommandImageGen, execCommandWithStdin: execCommandWithStdinImageGen } = await import(
+        "./ssh/tmux-helper.js"
+      );
+      const { getDb: getDbForImageGenScan } = await import(
+        "./database/db/index.js"
+      );
+      const { createTokenBucket } = await import(
+        "./image-gen-requests/token-bucket.js"
+      );
+      const {
+        enqueue: enqueueImageGenRequest,
+        setProcessImageGen: setImageGenProcessFn,
+        setWorkerDeps: setImageGenWorkerDeps,
+        startPool: startImageGenWorkerPool,
+        stopPool: stopImageGenWorkerPool,
+      } = await import("./image-gen-requests/queue.js");
+      const {
+        processImageGen,
+        buildProductionDeps: buildImageGenWorkerDeps,
+      } = await import("./image-gen-requests/worker.js");
+
+      // Read SKYNET_IMAGE_GEN_RPM at boot (D-21). Defaults to 30 when unset
+      // or unparseable. The `Math.max(1, ...)` floor prevents a 0/negative
+      // env from producing a deadlocked bucket.
+      const rawRpm = process.env.SKYNET_IMAGE_GEN_RPM;
+      const parsedRpm = rawRpm !== undefined ? parseInt(rawRpm, 10) : NaN;
+      const rpm = Math.max(1, Number.isFinite(parsedRpm) && parsedRpm > 0 ? parsedRpm : 30);
+      const imageGenTokenBucket = createTokenBucket(rpm);
+      systemLogger.info("Image-gen token bucket instantiated", {
+        operation: "image_gen_token_bucket_started",
+        rpm,
+        capacity: imageGenTokenBucket.getState().capacity,
+      });
+
+      // Wire the worker into the queue BEFORE starting the pool — invariant:
+      // `startPool()` must never invoke a null processImageGenFn.
+      const imageGenWorkerDeps = buildImageGenWorkerDeps(imageGenTokenBucket);
+      setImageGenWorkerDeps(imageGenWorkerDeps);
+      setImageGenProcessFn(processImageGen);
+      startImageGenWorkerPool();
+      systemLogger.info("Image-gen worker pool started", {
+        operation: "image_gen_worker_pool_started",
+        workerCount: 5,
+      });
+
+      // Own per-host ssh2 Client pool — independent of every other
+      // scan/orchestrator hostClients map so the lifecycles never contaminate.
+      const imageGenScanHostClients = new Map<string, import("ssh2").Client>();
+
+      async function imageGenScanAcquireChannel(host: {
+        id: string;
+        name: string;
+        _connDetails: Record<string, unknown>;
+      }) {
+        try {
+          let client = imageGenScanHostClients.get(host.id);
+          if (!client) {
+            client = await connectOneShotImageGen(
+              host._connDetails as Parameters<typeof connectOneShotImageGen>[0],
+              10000,
+            );
+            imageGenScanHostClients.set(host.id, client);
+            client.on("end", () => imageGenScanHostClients.delete(host.id));
+            client.on("close", () => imageGenScanHostClients.delete(host.id));
+            client.on("error", () => imageGenScanHostClients.delete(host.id));
+          }
+
+          // Shared registry semaphore — same 8-slot pool as fleet-status +
+          // substrate + spawn-scan on this hostId (bounty b31a5c8e Phase 101 D-04).
+          const sem = getHostSemaphore(host.id);
+          const capturedClient = client;
+          const capturedSem = sem;
+          return {
+            exec: async (cmd: string, stdinBody?: Buffer): Promise<string | null> => {
+              try {
+                return await capturedSem.run(async () =>
+                  stdinBody === undefined
+                    ? execCommandImageGen(capturedClient, cmd)
+                    : execCommandWithStdinImageGen(capturedClient, cmd, stdinBody),
+                );
+              } catch {
+                return null;
+              }
+            },
+          };
+        } catch (err) {
+          systemLogger.warn("Image-gen-scan: SSH channel acquire failed", {
+            operation: "image_gen_scan_channel_acquire_failed",
+            fleetHostId: host.id,
+            hostName: host.name,
+            error: err instanceof Error ? err.message : "unknown",
+          });
+          return null;
+        }
+      }
+
+      function imageGenScanReleaseChannel(
+        _host: { id: string; name: string },
+        _channel: unknown,
+      ): void {
+        // no-op — underlying ssh2 Client is reused across ticks for the
+        // container lifetime. Cleanup happens on SIGTERM.
+      }
+
+      const imageGenScanOrch = createImageGenScanOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHostsForImageGenScan({ getDb: getDbForImageGenScan }),
+        acquireChannel: imageGenScanAcquireChannel,
+        releaseChannel: imageGenScanReleaseChannel,
+        enqueue: enqueueImageGenRequest,
+        setInterval,
+        clearInterval,
+        now: () => Date.now(),
+        scanIntervalMs: 10000,
+      });
+
+      // Fire-and-forget start() — never rejects in normal operation.
+      imageGenScanOrch.start().catch((err) => {
+        systemLogger.warn("Image-gen-scan orchestrator start() rejected (unexpected)", {
+          operation: "image_gen_scan_orchestrator_start_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      });
+
+      systemLogger.info("Image-gen-scan orchestrator started at boot", {
+        operation: "image_gen_scan_orchestrator_started_at_boot",
+        scanIntervalMs: 10000,
+      });
+
+      process.once("SIGTERM", () => {
+        systemLogger.info("Image-gen-scan orchestrator stopping on SIGTERM", {
+          operation: "image_gen_scan_orchestrator_lifecycle",
+        });
+        imageGenScanOrch.stop();
+        stopImageGenWorkerPool();
+        for (const [, client] of imageGenScanHostClients) {
+          try {
+            client.end();
+          } catch {
+            /* best-effort — client may already be dead */
+          }
+        }
+        imageGenScanHostClients.clear();
+      });
+    }
+
     // Initialize log level from database settings
     const { getDb: getDbForSettings } = await import("./database/db/index.js");
     const settingsDb = getDbForSettings();
