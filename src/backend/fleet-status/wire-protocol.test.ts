@@ -11,7 +11,13 @@ import {
   FrontendOutboundFrame,
   FrontendInboundFrame,
   SessionStateSchema,
+  // Phase 118 Plan 118-03 — app frame surface (D-05 seven fields + D-14 three frame kinds)
+  AppStateSchema,
+  makeAppSnapshotFrame,
+  makeAppUpdateFrame,
+  makeAppGoneFrame,
 } from "./wire-protocol.js";
+import type { AppState } from "./wire-protocol.js";
 
 const validSessionState = {
   hostId: "host-42",
@@ -1052,5 +1058,134 @@ describe("wire-protocol Phase 115 Plan 115-06 — identity-archived frame", () =
     if (result.success) {
       expect(result.data.type).toBe("identity-archived");
     }
+  });
+});
+
+// ─── Phase 118 Plan 118-03 — app frame surface (D-05 / D-14) ─────────────────
+// Locks the wire shape for source-C apps: an AppStateSchema mirroring the
+// seven D-05 fields (camelCase on the frontend side vs. the sweep wire's
+// snake_case — same convention SessionStateSchema uses against SweepIdentityLine)
+// plus three new discriminated-union frame kinds — app-snapshot, app-update,
+// app-gone — modeled on the session snapshot/update/gone trio and the freshest
+// additive frame precedent (identity-archived from Phase 115). Additive only —
+// FRAME_SCHEMA_VERSION is NOT bumped (T-41-03-05 mitigation, 9th iteration).
+
+describe("Phase 118 app frame schemas", () => {
+  const validAppState: AppState = {
+    hostId: "h1",
+    slug: "todo",
+    title: "Todo",
+    description: "A",
+    port: 9591,
+    hasIcon: false,
+    createdAtMs: 1_700_000_000_000,
+    isHealthy: true,
+    healthMessage: null,
+  };
+
+  it("Test 1: AppStateSchema accepts a valid seven-field app state (healthy branch)", () => {
+    const result = AppStateSchema.safeParse(validAppState);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.slug).toBe("todo");
+      expect(result.data.isHealthy).toBe(true);
+      expect(result.data.healthMessage).toBeNull();
+    }
+  });
+
+  it("Test 2: AppStateSchema rejects app state missing hostId", () => {
+    const { hostId: _drop, ...missingHostId } = validAppState;
+    const result = AppStateSchema.safeParse(missingHostId);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("hostId"))).toBe(true);
+    }
+  });
+
+  it("Test 3: AppStateSchema accepts port: null (nullable per D-05)", () => {
+    const nullPort = { ...validAppState, port: null };
+    const result = AppStateSchema.safeParse(nullPort);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.port).toBeNull();
+    }
+  });
+
+  it("Test 4: AppStateSchema accepts unhealthy branch — isHealthy:false + healthMessage string (D-02 + D-03)", () => {
+    const unhealthy = {
+      ...validAppState,
+      isHealthy: false,
+      healthMessage: "not running — ask an agent to check on it",
+    };
+    const result = AppStateSchema.safeParse(unhealthy);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.isHealthy).toBe(false);
+      expect(result.data.healthMessage).toBe(
+        "not running — ask an agent to check on it",
+      );
+    }
+  });
+
+  it("Test 5: makeAppSnapshotFrame returns a Zod-valid app-snapshot frame stamped with FRAME_SCHEMA_VERSION", () => {
+    const frame = makeAppSnapshotFrame([validAppState]);
+    const result = FrontendOutboundFrame.safeParse(frame);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.type).toBe("app-snapshot");
+      expect(result.data.schemaVersion).toBe(FRAME_SCHEMA_VERSION);
+      if (result.data.type === "app-snapshot") {
+        expect(result.data.apps).toHaveLength(1);
+        expect(result.data.apps[0]?.slug).toBe("todo");
+      }
+    }
+  });
+
+  it("Test 6: makeAppUpdateFrame returns a Zod-valid app-update frame carrying the app payload", () => {
+    const frame = makeAppUpdateFrame(validAppState);
+    const result = FrontendOutboundFrame.safeParse(frame);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.type).toBe("app-update");
+      if (result.data.type === "app-update") {
+        expect(result.data.app.slug).toBe("todo");
+        expect(result.data.app.hostId).toBe("h1");
+      }
+    }
+  });
+
+  it("Test 7: makeAppGoneFrame returns a Zod-valid app-gone frame with hostId + slug", () => {
+    const frame = makeAppGoneFrame("h1", "todo");
+    const result = FrontendOutboundFrame.safeParse(frame);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.type).toBe("app-gone");
+      if (result.data.type === "app-gone") {
+        expect(result.data.hostId).toBe("h1");
+        expect(result.data.slug).toBe("todo");
+      }
+    }
+  });
+
+  it("Test 8: FrontendOutboundFrame discriminated-union accepts an empty-apps snapshot (union was widened correctly)", () => {
+    const emptySnapshot = makeAppSnapshotFrame([]);
+    const result = FrontendOutboundFrame.safeParse(emptySnapshot);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.type).toBe("app-snapshot");
+      if (result.data.type === "app-snapshot") {
+        expect(result.data.apps).toEqual([]);
+      }
+    }
+  });
+
+  it("Test 9: FrontendOutboundFrame rejects an unknown discriminator (regression guard on the union)", () => {
+    const bogus = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "unknown",
+    };
+    const result = FrontendOutboundFrame.safeParse(bogus);
+    expect(result.success).toBe(false);
   });
 });
