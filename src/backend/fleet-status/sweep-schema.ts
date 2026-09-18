@@ -217,10 +217,64 @@ export interface SweepPidLine {
 }
 
 // ---------------------------------------------------------------------------
+// SweepAppLine — one per `~/fleet/apps/<slug>/` folder that passes D-01 or D-02
+// ---------------------------------------------------------------------------
+
+/**
+ * Source-C parity (Phase 118, D-05) — one JSONL line per app folder emitted by
+ * the sweep script's server-side enumeration of `~/fleet/apps/*` (added by
+ * Plan 118-01's `_enumerate_apps` + `_build_app_line` in
+ * `substrate/scripts/fleet-status-sweep.py`).
+ *
+ * Field ↔ D-05 wire spec (see SWEEP_FIELD_PARITY C0..C8):
+ *   • slug            ↔ folder name (kebab-case, APP_SLUG_RE-validated on emit)
+ *   • title           ↔ app.json `title` (D-05 required string)
+ *   • description     ↔ app.json `description` (D-05 required string)
+ *   • port            ↔ systemd unit `PORT=` env, extracted via
+ *                      `systemctl --user show -p Environment app-<slug>.service`.
+ *                      Nullable when the extract fails or the unit exposes no
+ *                      PORT (D-05: port may be null).
+ *   • has_icon        ↔ existence of `icon.webp` in the app folder (D-06:
+ *                      BOOLEAN, not a URL — shape 4 owns the serving path).
+ *   • created_at_ms   ↔ folder mtime × 1000 (D-08: presence-is-meaning; no
+ *                      stored field on disk).
+ *   • is_healthy      ↔ true iff the systemd unit is `active` (D-01 (c) +
+ *                      D-02 carve-out — an app with unit-exists + inactive
+ *                      still emits with is_healthy=false).
+ *   • health_message  ↔ D-03 human-readable diagnostic; present only when
+ *                      is_healthy=false. Ashley's steer:
+ *                      "not running — ask an agent to check on it" (Plan 118-01
+ *                      landed the literal Python-side string).
+ *
+ * Wire-name discipline: byte-identical snake_case to the Python emit dict in
+ * `_build_app_line`. The parser dispatch below (`parseSweepJsonl`) casts, does
+ * NOT runtime-validate — downstream (118-04 orchestrator adapter → 118-03 Zod
+ * schema) is the runtime-validation gate. See threat model T-118-02-IV.
+ *
+ * Rolling-deploy safety: adding this line kind is ADDITIVE per RESEARCH.md
+ * § Pitfall 6. SWEEP_SCHEMA_VERSION is NOT bumped — older parsers hit the
+ * `else { unknownLines += 1 }` branch for `line_kind: "app"` and continue
+ * processing identity + pid lines fine. Newer parser with older Python gets
+ * an empty appLines array (valid state — box has no apps to report).
+ */
+export interface SweepAppLine {
+  line_kind: "app";
+  schema_version: SweepSchemaVersion;
+  slug: string;
+  title: string;
+  description: string;
+  port: number | null;
+  has_icon: boolean;
+  created_at_ms: number;
+  is_healthy: boolean;
+  health_message: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Union + narrow validator
 // ---------------------------------------------------------------------------
 
-export type SweepLine = SweepIdentityLine | SweepPidLine;
+export type SweepLine = SweepIdentityLine | SweepPidLine | SweepAppLine;
 
 /**
  * Narrow type-guard used by parseSweepJsonl (and available to tests). Returns
@@ -234,7 +288,14 @@ export function isSweepLineOfCurrentSchema(obj: unknown): obj is SweepLine {
   if (obj === null || typeof obj !== "object") return false;
   const rec = obj as Record<string, unknown>;
   if (rec.schema_version !== SWEEP_SCHEMA_VERSION) return false;
-  return rec.line_kind === "identity" || rec.line_kind === "pid";
+  // Phase 118 Plan 118-02: widened for `line_kind: "app"` (source-C, D-20).
+  // The schema_version gate ABOVE this check still applies — an app line at
+  // a mismatched version is rejected before the line_kind branch is reached.
+  return (
+    rec.line_kind === "identity" ||
+    rec.line_kind === "pid" ||
+    rec.line_kind === "app"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -245,9 +306,19 @@ export interface SweepParseResult {
   identityLines: SweepIdentityLine[];
   pidLines: SweepPidLine[];
   /**
-   * Count of JSON-parseable lines whose `line_kind` was neither "identity"
-   * nor "pid". Observability only; not a failure signal — the parser stays
-   * forward-compatible if a future schema adds line kinds.
+   * Phase 118 (source C): app enumeration lines from `_enumerate_apps` in
+   * `fleet-status-sweep.py`. Empty when no `~/fleet/apps/` folder exists on
+   * the box or when no app passes D-01/D-02 inclusion checks. Downstream
+   * consumers (118-04 orchestrator adapter) iterate this array to publish
+   * per-app frames + reconcile `lastTickLiveApps` between ticks.
+   */
+  appLines: SweepAppLine[];
+  /**
+   * Count of JSON-parseable lines whose `line_kind` was neither "identity",
+   * "pid", nor "app". Observability only; not a failure signal — the parser
+   * stays forward-compatible if a future schema adds line kinds. Phase 118
+   * (Plan 118-02) added `app` to the known set — pre-118-02 parsers hit
+   * this counter for app lines during the rolling-deploy window.
    */
   unknownLines: number;
   /**
@@ -280,11 +351,21 @@ export interface SweepParseResult {
 export function parseSweepJsonl(raw: string): SweepParseResult {
   const identityLines: SweepIdentityLine[] = [];
   const pidLines: SweepPidLine[] = [];
+  // Phase 118 Plan 118-02 (D-20): source-C app lines from `_enumerate_apps`.
+  // Sibling to identityLines / pidLines; the empty-input fast-path below
+  // returns this array so consumers can safely destructure appLines.
+  const appLines: SweepAppLine[] = [];
   let unknownLines = 0;
   let schemaMismatch = false;
 
   if (raw === "") {
-    return { identityLines, pidLines, unknownLines, schemaMismatch };
+    return {
+      identityLines,
+      pidLines,
+      appLines,
+      unknownLines,
+      schemaMismatch,
+    };
   }
 
   for (const rawLine of raw.split("\n")) {
@@ -318,6 +399,13 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
       identityLines.push(parsed as SweepIdentityLine);
     } else if (rec.line_kind === "pid") {
       pidLines.push(parsed as SweepPidLine);
+    } else if (rec.line_kind === "app") {
+      // Phase 118 Plan 118-02 (D-20): source-C dispatch. Matches the
+      // identity/pid lenience discipline — cast, no runtime validation
+      // beyond the schema_version + line_kind gates above. Downstream
+      // (118-04 orchestrator adapter → 118-03 Zod schema) is the runtime-
+      // validation gate for the ten-key D-05 shape. Threat T-118-02-IV.
+      appLines.push(parsed as SweepAppLine);
     } else {
       // Unknown line_kind at the current schema version — forward-compat
       // marker, not a failure. Bump the counter for observability.
@@ -325,7 +413,7 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
     }
   }
 
-  return { identityLines, pidLines, unknownLines, schemaMismatch };
+  return { identityLines, pidLines, appLines, unknownLines, schemaMismatch };
 }
 
 // ---------------------------------------------------------------------------
@@ -341,7 +429,10 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
  *   • A0                — per-host source-A enumeration driver
  *   • A1..A12           — per-PID source-A exec sites
  *   • B0                — per-host source-B enumeration driver
- *   • B1..B5            — per-identity source-B exec sites
+ *   • B1..B9            — per-identity source-B exec sites
+ *   • C0                — per-host source-C (Phase 118) app enumeration driver
+ *   • C1..C8            — per-app source-C fields (D-05 seven emitted fields
+ *                        + D-03 health_message carve-out)
  *
  * A `field: string` value means "this read lands in that named field on one of
  * the SweepLine types". A `field: null` + `skipped_reason: string` value means
@@ -349,8 +440,8 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
  * grep-able and match the sweep script's own comment about why.
  *
  * The unit test walks every key and asserts:
- *   (a) declared `field` values exist as actual keys on SweepIdentityLine or
- *       SweepPidLine (typo protection), and
+ *   (a) declared `field` values exist as actual keys on SweepIdentityLine,
+ *       SweepPidLine, or SweepAppLine (typo protection), and
  *   (b) skipped rows have a non-empty `skipped_reason` (documentation
  *       protection).
  */
@@ -381,7 +472,16 @@ export const SWEEP_FIELD_PARITY: Record<
   | "B6"
   | "B7"
   | "B8"
-  | "B9",
+  | "B9"
+  | "C0"
+  | "C1"
+  | "C2"
+  | "C3"
+  | "C4"
+  | "C5"
+  | "C6"
+  | "C7"
+  | "C8",
   SweepFieldParityEntry
 > = {
   // --- Per-host source-A / source-B enumeration drivers ---
@@ -445,4 +545,26 @@ export const SWEEP_FIELD_PARITY: Record<
   // _enumerate_identities' unified loop. Reuses the wire slot vacated by
   // Phase 115 Plan 115-02's D-21 retirement.
   B9: { field: "archived" },
+
+  // --- Per-host source-C enumeration driver (Phase 118 Plan 118-02, D-20) ---
+  C0: {
+    field: null,
+    skipped_reason:
+      "server-side enumeration driver (os.scandir ~/fleet/apps/*/) — no wire field needed; each app folder that passes D-01 or D-02 becomes its own SweepAppLine",
+  },
+
+  // --- Per-app source-C fields (Phase 118, D-05 seven fields + D-03 carve-out) ---
+  // Byte-name parity with the Python emit dict in _build_app_line (Plan 118-01):
+  // snake_case names verbatim, no camelCase drift at this boundary.
+  C1: { field: "slug" },
+  C2: { field: "title" },
+  C3: { field: "description" },
+  C4: { field: "port" },
+  C5: { field: "has_icon" },
+  C6: { field: "created_at_ms" },
+  C7: { field: "is_healthy" },
+  // C8 covers the D-03 optional carve-out: health_message is only populated
+  // when is_healthy=false. Still a wire slot — the field always exists on the
+  // interface (nullable). Python emits null when is_healthy=true.
+  C8: { field: "health_message" },
 };

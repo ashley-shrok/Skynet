@@ -261,18 +261,24 @@ describe("parseSweepJsonl — discriminated union round-trip", () => {
 
 describe("parseSweepJsonl — empty input", () => {
   it("returns an empty result for an empty string", () => {
+    // Phase 118 Plan 118-02: SweepParseResult now includes `appLines` — the
+    // empty-input fast-path returns [] alongside the existing empty arrays.
     expect(parseSweepJsonl("")).toEqual({
       identityLines: [],
       pidLines: [],
+      appLines: [],
       unknownLines: 0,
       schemaMismatch: false,
     });
   });
 
   it("returns an empty result for whitespace only", () => {
+    // Phase 118 Plan 118-02: SweepParseResult now includes `appLines` — the
+    // whitespace-only walk path also returns [] alongside the existing arrays.
     expect(parseSweepJsonl("\n\n  \n")).toEqual({
       identityLines: [],
       pidLines: [],
+      appLines: [],
       unknownLines: 0,
       schemaMismatch: false,
     });
@@ -289,11 +295,14 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
   //   A1..A12                  — per-PID source-A exec sites
   //   B0                       — per-host source-B enumeration driver
   //   B1..B9                   — per-identity source-B exec sites
-  // Total: 2 + 12 + 9 = 23 keys.
+  //   C0                       — per-host source-C enumeration driver (Phase 118)
+  //   C1..C8                   — per-app source-C fields (D-05 + D-03 carve-out)
+  // Total: 2 + 12 + 9 + 1 + 8 = 32 keys.
   // (B6..B8 added by Plan 111-01/111-02: appearance fields on SweepIdentityLine.
   //  Plan 111-02 also added B9 for `.hidden`; Phase 115 Plan 115-02 retired
   //  the `.hidden` code path per D-21 (freeing the B9 slot); Phase 115 Plan
-  //  115-05 reused the freed B9 slot for the `archived` axis.)
+  //  115-05 reused the freed B9 slot for the `archived` axis. Phase 118 Plan
+  //  118-02 added C0..C8 for the source-C app enumeration wire fields.)
   const EXPECTED_KEYS: readonly string[] = [
     "A0",
     "A1",
@@ -318,9 +327,18 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
     "B7",
     "B8",
     "B9",
+    "C0",
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "C8",
   ];
 
-  it("covers every RESEARCH.md source-A / source-B row", () => {
+  it("covers every RESEARCH.md source-A / source-B / source-C row", () => {
     const actualKeys = Object.keys(SWEEP_FIELD_PARITY).sort();
     const expected = [...EXPECTED_KEYS].sort();
     expect(actualKeys).toEqual(expected);
@@ -359,7 +377,25 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
       "dormant_a",
       "jsonl_tail",
     ]);
-    const allFields = new Set<string>([...identityFields, ...pidFields]);
+    // Phase 118 Plan 118-02: source-C app enumeration fields (D-05 seven fields
+    // + D-03 carve-out). Byte-name parity with Python `_build_app_line`.
+    const appFields = new Set<string>([
+      "line_kind",
+      "schema_version",
+      "slug",
+      "title",
+      "description",
+      "port",
+      "has_icon",
+      "created_at_ms",
+      "is_healthy",
+      "health_message",
+    ]);
+    const allFields = new Set<string>([
+      ...identityFields,
+      ...pidFields,
+      ...appFields,
+    ]);
 
     for (const key of EXPECTED_KEYS) {
       const entry = SWEEP_FIELD_PARITY[key as keyof typeof SWEEP_FIELD_PARITY];
