@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tasting — apps sidebar tile visuals</title>
+<style>
+  :root {
+    --bg: #0a0b12;
+    --panel-bg: linear-gradient(180deg, #141520 0%, #101118 60%, #0a0b12 100%);
+    --panel-border: rgba(220, 225, 245, 0.06);
+    --panel-border-strong: rgba(220, 225, 245, 0.1);
+    --surface-quiet: rgba(25, 26, 34, 0.5);
+    --surface-quiet-alt: rgba(15, 16, 22, 0.55);
+    --fg: #e8e4d8;
+    --fg-muted: #a89a80;
+    --fg-dim: #7a6f60;
+    --header-label: rgba(92, 96, 112, 0.85);
+  }
+  html, body { margin: 0; padding: 0; background: #05060a; color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
+  body { padding: 24px; }
+  .page-title { font-size: 15px; color: var(--fg-muted); margin-bottom: 4px; letter-spacing: 0.02em; }
+  .page-sub { font-size: 12px; color: var(--fg-dim); margin-bottom: 24px; }
+
+  .row { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; }
+
+  .variant-label { font-size: 13px; font-weight: 600; color: var(--fg); margin-bottom: 2px; }
+  .variant-desc { font-size: 12px; color: var(--fg-dim); margin-bottom: 6px; max-width: 296px; line-height: 1.4; }
+
+  /* Sidebar mock — matches pretty-conversations panel treatment. */
+  .sidebar {
+    width: 296px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 14px 12px 18px;
+    display: flex; flex-direction: column; gap: 8px;
+    overflow: hidden;
+  }
+  .sidebar-topchrome { height: 40px; display: flex; align-items: center; padding: 0 4px 0 8px; }
+  .sidebar-topchrome .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, hsla(190, 45%, 40%, 0.7), hsla(220, 35%, 25%, 0.8)); }
+
+  /* Group header — cribbed from PrettyConversationsPanel's Archived-section pattern
+     (icon + uppercase label + gradient rule + chevron). */
+  .group-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px 6px 16px;
+    background: transparent;
+  }
+  .group-header .icon,
+  .group-header .chevron {
+    width: 12px; height: 12px; color: var(--header-label);
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .group-header .label {
+    font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--header-label); flex-shrink: 0;
+  }
+  .group-header .rule {
+    flex: 1; height: 1px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.06), transparent);
+  }
+
+  /* Fake conversation row — a stripped stand-in of the real pv-row bubble so the
+     apps section reads in context, but simpler HTML. */
+  .conv-row {
+    --pv-hue: 216;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: linear-gradient(160deg, hsla(var(--pv-hue), 50%, 38%, 0.55), hsla(var(--pv-hue), 45%, 24%, 0.60));
+    border: 1px solid hsla(var(--pv-hue), 65%, 55%, 0.32);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255, 220, 170, 0.18);
+    color: #fbf5e8;
+  }
+  .conv-row .conv-avatar { width: 40px; height: 40px; border-radius: 999px;
+    background: linear-gradient(160deg, hsla(var(--pv-hue), 45%, 25%, 0.72), hsla(var(--pv-hue), 60%, 45%, 0.55));
+    display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; }
+  .conv-row .conv-body { flex: 1; min-width: 0; }
+  .conv-row .conv-title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv-row .conv-sub { font-size: 11px; opacity: 0.75; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv-row.hue-orange { --pv-hue: 30; }
+  .conv-row.hue-pink   { --pv-hue: 324; }
+
+  /* ─── VARIANT A: full bubble, matches conversation weight ────────────────── */
+  .tile-a {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: linear-gradient(160deg, hsla(190, 40%, 30%, 0.55), hsla(210, 35%, 20%, 0.6));
+    border: 1px solid hsla(200, 55%, 50%, 0.32);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255, 220, 170, 0.15);
+    cursor: pointer;
+  }
+  .tile-a .icon-slot { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
+  .tile-a .icon-slot img { width: 100%; height: 100%; object-fit: cover; }
+  .tile-a .icon-slot.mono { font-weight: 700; font-size: 17px; color: rgba(255,255,255,0.9); }
+  .tile-a .title { font-size: 14px; font-weight: 500; color: #fbf5e8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ─── VARIANT B: quiet row, title only ───────────────────────────────────── */
+  .tile-b {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 10px;
+    border-radius: 10px;
+    background: var(--surface-quiet);
+    border: 1px solid var(--panel-border);
+    cursor: pointer;
+  }
+  .tile-b:hover { background: var(--surface-quiet-alt); border-color: var(--panel-border-strong); }
+  .tile-b .icon-slot { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
+  .tile-b .icon-slot img { width: 100%; height: 100%; object-fit: cover; }
+  .tile-b .icon-slot.mono { font-weight: 600; font-size: 13px; color: rgba(255,255,255,0.95); }
+  .tile-b .title { font-size: 13.5px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ─── VARIANT C: quiet row + description ─────────────────────────────────── */
+  .tile-c {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--surface-quiet);
+    border: 1px solid var(--panel-border);
+    cursor: pointer;
+  }
+  .tile-c:hover { background: var(--surface-quiet-alt); border-color: var(--panel-border-strong); }
+  .tile-c .icon-slot { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
+  .tile-c .icon-slot img { width: 100%; height: 100%; object-fit: cover; }
+  .tile-c .icon-slot.mono { font-weight: 600; font-size: 14px; color: rgba(255,255,255,0.95); }
+  .tile-c .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .tile-c .title { font-size: 13.5px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile-c .desc { font-size: 11.5px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Empty-expanded state — same across variants. */
+  .empty-line {
+    padding: 10px 16px 14px 16px;
+    font-size: 12.5px; color: var(--fg-dim); line-height: 1.45;
+    font-style: italic;
+  }
+
+  .footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .footer h2 { font-size: 14px; color: var(--fg-muted); font-weight: 600; margin: 0 0 8px 0; }
+  .footer p { font-size: 12px; color: var(--fg-dim); margin: 4px 0; }
+</style>
+</head>
+<body>
+  <div class="page-title">Tasting — apps sidebar tile visuals</div>
+  <div class="page-sub">Three variants for the app-tile rendering, dropped into a mock sidebar between an existing "Pinned" group and a "Conversations" group so context is honest. Same 6 mock apps in each; 4 have icons, 2 don't (monogram fallback in a hashed hue). All three sit under the same section header — icon + "APPS" + rule + chevron — matching the existing Archived group.</div>
+
+  <div class="row">
+
+    <!-- ─── VARIANT A ─────────────────────────────────────────────────────── -->
+    <div class="col">
+      <div class="variant-label">A · Full bubble</div>
+      <div class="variant-desc">Same visual weight as conversation rows — glass gradient, 40px icon slot. Apps read as first-class siblings of conversations. Heavier / chunkier per row.</div>
+      <div class="sidebar">
+        <div class="sidebar-topchrome"><div class="logo"></div></div>
+
+        <div class="group-header"><span class="icon">📌</span><span class="label">Pinned</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="conv-row hue-orange"><div class="conv-avatar">B</div><div class="conv-body"><div class="conv-title">bella</div><div class="conv-sub">last: 2h ago</div></div></div>
+        <div class="conv-row hue-pink"><div class="conv-avatar">V</div><div class="conv-body"><div class="conv-title">vision</div><div class="conv-sub">now</div></div></div>
+
+        <div class="group-header"><span class="icon">◧</span><span class="label">Apps</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="tile-a"><div class="icon-slot" style="background:hsl(30,60%,45%)"><span style="font-size:22px">🏋️</span></div><div class="title">Weekly workout log</div></div>
+        <div class="tile-a"><div class="icon-slot" style="background:hsl(160,50%,35%)"><span style="font-size:22px">🥗</span></div><div class="title">Recipe box</div></div>
+        <div class="tile-a"><div class="icon-slot" style="background:hsl(210,55%,40%)"><span style="font-size:22px">📋</span></div><div class="title">Aither task tracker</div></div>
+        <div class="tile-a"><div class="icon-slot mono" style="background:hsl(280,50%,40%)">R</div><div class="title">Reading list</div></div>
+        <div class="tile-a"><div class="icon-slot" style="background:hsl(45,55%,45%)"><span style="font-size:22px">📇</span></div><div class="title">Kanban</div></div>
+        <div class="tile-a"><div class="icon-slot mono" style="background:hsl(0,45%,40%)">B</div><div class="title">Bounty triage</div></div>
+
+        <div class="group-header"><span class="icon">💬</span><span class="label">Conversations</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="conv-row"><div class="conv-avatar">T</div><div class="conv-body"><div class="conv-title">tina</div><div class="conv-sub">last: 6h ago</div></div></div>
+        <div class="conv-row"><div class="conv-avatar">A</div><div class="conv-body"><div class="conv-title">aqua</div><div class="conv-sub">yesterday</div></div></div>
+      </div>
+    </div>
+
+    <!-- ─── VARIANT B ─────────────────────────────────────────────────────── -->
+    <div class="col">
+      <div class="variant-label">B · Quiet row, title only</div>
+      <div class="variant-desc">Denser, subordinate to conversations. 28px icon in a small rounded square, single line, subtle surface-quiet background. Apps feel like a utility drawer rather than the main event.</div>
+      <div class="sidebar">
+        <div class="sidebar-topchrome"><div class="logo"></div></div>
+
+        <div class="group-header"><span class="icon">📌</span><span class="label">Pinned</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="conv-row hue-orange"><div class="conv-avatar">B</div><div class="conv-body"><div class="conv-title">bella</div><div class="conv-sub">last: 2h ago</div></div></div>
+        <div class="conv-row hue-pink"><div class="conv-avatar">V</div><div class="conv-body"><div class="conv-title">vision</div><div class="conv-sub">now</div></div></div>
+
+        <div class="group-header"><span class="icon">◧</span><span class="label">Apps</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="tile-b"><div class="icon-slot" style="background:hsl(30,60%,45%)"><span style="font-size:16px">🏋️</span></div><div class="title">Weekly workout log</div></div>
+        <div class="tile-b"><div class="icon-slot" style="background:hsl(160,50%,35%)"><span style="font-size:16px">🥗</span></div><div class="title">Recipe box</div></div>
+        <div class="tile-b"><div class="icon-slot" style="background:hsl(210,55%,40%)"><span style="font-size:16px">📋</span></div><div class="title">Aither task tracker</div></div>
+        <div class="tile-b"><div class="icon-slot mono" style="background:hsl(280,50%,40%)">R</div><div class="title">Reading list</div></div>
+        <div class="tile-b"><div class="icon-slot" style="background:hsl(45,55%,45%)"><span style="font-size:16px">📇</span></div><div class="title">Kanban</div></div>
+        <div class="tile-b"><div class="icon-slot mono" style="background:hsl(0,45%,40%)">B</div><div class="title">Bounty triage</div></div>
+
+        <div class="group-header"><span class="icon">💬</span><span class="label">Conversations</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="conv-row"><div class="conv-avatar">T</div><div class="conv-body"><div class="conv-title">tina</div><div class="conv-sub">last: 6h ago</div></div></div>
+        <div class="conv-row"><div class="conv-avatar">A</div><div class="conv-body"><div class="conv-title">aqua</div><div class="conv-sub">yesterday</div></div></div>
+      </div>
+    </div>
+
+    <!-- ─── VARIANT C ─────────────────────────────────────────────────────── -->
+    <div class="col">
+      <div class="variant-label">C · Quiet row + description</div>
+      <div class="variant-desc">Same visual weight as B (quiet, subordinate), but with a muted one-line description under the title — surfacing the app.json description field. Roomier per row; more legible if titles alone are ambiguous.</div>
+      <div class="sidebar">
+        <div class="sidebar-topchrome"><div class="logo"></div></div>
+
+        <div class="group-header"><span class="icon">📌</span><span class="label">Pinned</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="conv-row hue-orange"><div class="conv-avatar">B</div><div class="conv-body"><div class="conv-title">bella</div><div class="conv-sub">last: 2h ago</div></div></div>
+        <div class="conv-row hue-pink"><div class="conv-avatar">V</div><div class="conv-body"><div class="conv-title">vision</div><div class="conv-sub">now</div></div></div>
+
+        <div class="group-header"><span class="icon">◧</span><span class="label">Apps</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="tile-c"><div class="icon-slot" style="background:hsl(30,60%,45%)"><span style="font-size:18px">🏋️</span></div><div class="body"><div class="title">Weekly workout log</div><div class="desc">Sets, reps, PRs by week</div></div></div>
+        <div class="tile-c"><div class="icon-slot" style="background:hsl(160,50%,35%)"><span style="font-size:18px">🥗</span></div><div class="body"><div class="title">Recipe box</div><div class="desc">Family recipes with photos</div></div></div>
+        <div class="tile-c"><div class="icon-slot" style="background:hsl(210,55%,40%)"><span style="font-size:18px">📋</span></div><div class="body"><div class="title">Aither task tracker</div><div class="desc">Cross-project task board</div></div></div>
+        <div class="tile-c"><div class="icon-slot mono" style="background:hsl(280,50%,40%)">R</div><div class="body"><div class="title">Reading list</div><div class="desc">Papers to read, tagged</div></div></div>
+        <div class="tile-c"><div class="icon-slot" style="background:hsl(45,55%,45%)"><span style="font-size:18px">📇</span></div><div class="body"><div class="title">Kanban</div><div class="desc">Simple 3-column board</div></div></div>
+        <div class="tile-c"><div class="icon-slot mono" style="background:hsl(0,45%,40%)">B</div><div class="body"><div class="title">Bounty triage</div><div class="desc">Live bounty pool viewer</div></div></div>
+
+        <div class="group-header"><span class="icon">💬</span><span class="label">Conversations</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="conv-row"><div class="conv-avatar">T</div><div class="conv-body"><div class="conv-title">tina</div><div class="conv-sub">last: 6h ago</div></div></div>
+        <div class="conv-row"><div class="conv-avatar">A</div><div class="conv-body"><div class="conv-title">aqua</div><div class="conv-sub">yesterday</div></div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ─── EMPTY-EXPANDED STATE ─────────────────────────────────────────────── -->
+  <div class="footer">
+    <h2>Empty-expanded state</h2>
+    <p>Same across all variants — the prompt is the whole content when the user has zero apps. Shown here in the sidebar context.</p>
+    <div class="row" style="margin-top:12px">
+      <div class="sidebar">
+        <div class="sidebar-topchrome"><div class="logo"></div></div>
+        <div class="group-header"><span class="icon">📌</span><span class="label">Pinned</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="conv-row hue-orange"><div class="conv-avatar">B</div><div class="conv-body"><div class="conv-title">bella</div><div class="conv-sub">last: 2h ago</div></div></div>
+
+        <div class="group-header"><span class="icon">◧</span><span class="label">Apps</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="empty-line">Ask an agent to make an app for you.</div>
+
+        <div class="group-header"><span class="icon">💬</span><span class="label">Conversations</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="conv-row"><div class="conv-avatar">T</div><div class="conv-body"><div class="conv-title">tina</div><div class="conv-sub">last: 6h ago</div></div></div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

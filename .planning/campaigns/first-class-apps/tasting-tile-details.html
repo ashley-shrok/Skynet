@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tasting round 2 — iconless fallback + unhealthy tile</title>
+<style>
+  :root {
+    --bg: #0a0b12;
+    --panel-bg: linear-gradient(180deg, #141520 0%, #101118 60%, #0a0b12 100%);
+    --panel-border: rgba(220, 225, 245, 0.06);
+    --panel-border-strong: rgba(220, 225, 245, 0.1);
+    --fg: #e8e4d8;
+    --fg-muted: #a89a80;
+    --fg-dim: #7a6f60;
+    --header-label: rgba(92, 96, 112, 0.85);
+    --pv-hue-default: 216;  /* sidebar default row hue */
+  }
+  html, body { margin: 0; padding: 0; background: #05060a; color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
+  body { padding: 24px; }
+  .page-title { font-size: 15px; color: var(--fg-muted); margin-bottom: 4px; letter-spacing: 0.02em; }
+  .page-sub { font-size: 12px; color: var(--fg-dim); margin-bottom: 24px; }
+  .section-h2 { font-size: 14px; color: var(--fg); font-weight: 600; margin-top: 36px; margin-bottom: 4px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .section-sub { font-size: 12px; color: var(--fg-dim); margin-bottom: 16px; max-width: 900px; line-height: 1.5; }
+
+  .row { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; }
+
+  .variant-label { font-size: 13px; font-weight: 600; color: var(--fg); margin-bottom: 2px; }
+  .variant-desc { font-size: 12px; color: var(--fg-dim); margin-bottom: 6px; max-width: 296px; line-height: 1.4; }
+
+  .sidebar {
+    width: 296px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 14px 12px 18px;
+    display: flex; flex-direction: column; gap: 8px;
+    overflow: hidden;
+  }
+  .sidebar-topchrome { height: 40px; display: flex; align-items: center; padding: 0 4px 0 8px; }
+  .sidebar-topchrome .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, hsla(190, 45%, 40%, 0.7), hsla(220, 35%, 25%, 0.8)); }
+
+  .group-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px 6px 16px;
+  }
+  .group-header .icon,
+  .group-header .chevron {
+    width: 12px; height: 12px; color: var(--header-label);
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .group-header .label {
+    font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--header-label); flex-shrink: 0;
+  }
+  .group-header .rule {
+    flex: 1; height: 1px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.06), transparent);
+  }
+
+  /* Locked from round 1: variant A + square icon slot + title only + default hue 216 for ALL app tiles. */
+  .app-tile {
+    --pv-hue: 216;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: linear-gradient(160deg, hsla(var(--pv-hue), 50%, 38%, 0.55), hsla(var(--pv-hue), 45%, 24%, 0.60));
+    border: 1px solid hsla(var(--pv-hue), 65%, 55%, 0.32);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255, 220, 170, 0.15);
+    cursor: pointer;
+    position: relative;
+  }
+  .app-tile:hover { transform: translateY(-1px); }
+  .app-tile .icon-slot {
+    width: 40px; height: 40px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; flex-shrink: 0;
+    background: hsla(var(--pv-hue), 45%, 25%, 0.72);
+  }
+  .app-tile .icon-slot img { width: 100%; height: 100%; object-fit: cover; }
+  .app-tile .icon-slot.has-image { background: transparent; }
+  .app-tile .title { font-size: 14px; font-weight: 500; color: #fbf5e8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+
+  /* Icon-slot fallback variants */
+  .fallback-letter { font-weight: 700; font-size: 18px; color: rgba(255, 245, 232, 0.85); }
+  .fallback-glyph  { color: rgba(255, 245, 232, 0.65); }
+
+  /* Unhealthy — variant A: two-line tile with red message */
+  .app-tile.unhealthy-a .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .app-tile.unhealthy-a .body .title { font-size: 14px; }
+  .app-tile.unhealthy-a .body .health-msg { font-size: 11.5px; color: #f4a09b; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Unhealthy — variant B: same tile + warning glyph */
+  .app-tile.unhealthy-b .warning-glyph {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(240, 130, 100, 0.25);
+    color: #f4a09b; font-size: 12px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* Unhealthy — variant C: dim only */
+  .app-tile.unhealthy-c { opacity: 0.55; }
+
+  .tooltip-hint { font-size: 11px; color: var(--fg-dim); margin-top: 4px; font-style: italic; }
+</style>
+</head>
+<body>
+  <div class="page-title">Tasting round 2 — iconless fallback + unhealthy tile</div>
+  <div class="page-sub">Round-1 lock: variant A (full bubble matching conversation rows) + rounded-square icon slot + title only + default hue 216 for ALL app tiles. Two open questions this round: (1) what fills the icon slot for apps without an icon, and (2) how does an unhealthy tile look. Same sidebar context as round 1 so you can judge in-place.</div>
+
+  <!-- ═══ SECTION 1: ICONLESS FALLBACK ══════════════════════════════════════ -->
+  <h2 class="section-h2">Q1 — Iconless fallback</h2>
+  <p class="section-sub">Each column shows the SAME six apps: 3 have icons (emoji stand-ins in a real Skynet icon slot), 3 don't. Only the iconless treatment differs across columns. All app tiles use default hue 216 (matches the sidebar's default row hue when a row has no per-cosmetics colour).</p>
+
+  <div class="row">
+
+    <!-- Iconless A: first-letter fallback (mirrors identity .pv-avatar-initial) -->
+    <div class="col">
+      <div class="variant-label">A · First-letter fallback</div>
+      <div class="variant-desc">Iconless tiles show the first letter of the title in the icon slot (mirrors the pattern identity rows use when an identity has no avatar — see .pv-avatar-initial).</div>
+      <div class="sidebar">
+        <div class="sidebar-topchrome"><div class="logo"></div></div>
+        <div class="group-header"><span class="icon">◧</span><span class="label">Apps</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="app-tile"><div class="icon-slot has-image"><span style="font-size:22px">🏋️</span></div><div class="title">Weekly workout log</div></div>
+        <div class="app-tile"><div class="icon-slot has-image"><span style="font-size:22px">🥗</span></div><div class="title">Recipe box</div></div>
+        <div class="app-tile"><div class="icon-slot"><span class="fallback-letter">A</span></div><div class="title">Aither task tracker</div></div>
+        <div class="app-tile"><div class="icon-slot"><span class="fallback-letter">R</span></div><div class="title">Reading list</div></div>
+        <div class="app-tile"><div class="icon-slot has-image"><span style="font-size:22px">📇</span></div><div class="title">Kanban</div></div>
+        <div class="app-tile"><div class="icon-slot"><span class="fallback-letter">B</span></div><div class="title">Bounty triage</div></div>
+      </div>
+    </div>
+
+    <!-- Iconless B: generic app glyph -->
+    <div class="col">
+      <div class="variant-label">B · Generic app glyph</div>
+      <div class="variant-desc">Iconless tiles show a generic app glyph (Lucide-style app-window icon) — same glyph for every iconless app. Visually says "an app" without pretending each is distinct.</div>
+      <div class="sidebar">
+        <div class="sidebar-topchrome"><div class="logo"></div></div>
+        <div class="group-header"><span class="icon">◧</span><span class="label">Apps</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="app-tile"><div class="icon-slot has-image"><span style="font-size:22px">🏋️</span></div><div class="title">Weekly workout log</div></div>
+        <div class="app-tile"><div class="icon-slot has-image"><span style="font-size:22px">🥗</span></div><div class="title">Recipe box</div></div>
+        <div class="app-tile"><div class="icon-slot"><svg class="fallback-glyph" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg></div><div class="title">Aither task tracker</div></div>
+        <div class="app-tile"><div class="icon-slot"><svg class="fallback-glyph" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg></div><div class="title">Reading list</div></div>
+        <div class="app-tile"><div class="icon-slot has-image"><span style="font-size:22px">📇</span></div><div class="title">Kanban</div></div>
+        <div class="app-tile"><div class="icon-slot"><svg class="fallback-glyph" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg></div><div class="title">Bounty triage</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ SECTION 2: UNHEALTHY TILE ══════════════════════════════════════════ -->
+  <h2 class="section-h2">Q2 — Unhealthy tile visual</h2>
+  <p class="section-sub">Backend gives us <code style="color:var(--fg-muted);background:rgba(255,255,255,0.05);padding:1px 4px;border-radius:3px;font-size:11.5px;">isHealthy:false</code> + a short <code style="color:var(--fg-muted);background:rgba(255,255,255,0.05);padding:1px 4px;border-radius:3px;font-size:11.5px;">healthMessage</code> string ("not running — ask an agent to check on it"). Each column shows the SAME app "Recipe box" in its unhealthy state, styled three ways. Third row in each is a healthy tile for contrast. Hover the tiles marked with ⓘ to see tooltips.</p>
+
+  <div class="row">
+
+    <!-- Unhealthy A: two-line tile with red message under title -->
+    <div class="col">
+      <div class="variant-label">A · Two-line with inline message</div>
+      <div class="variant-desc">Unhealthy tile becomes a two-line tile: title on top, healthMessage in muted red below. Breaks the title-only rule for the unhealthy case only. Most legible; adds a permanent second line whenever a tile is unhealthy.</div>
+      <div class="sidebar">
+        <div class="sidebar-topchrome"><div class="logo"></div></div>
+        <div class="group-header"><span class="icon">◧</span><span class="label">Apps</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="app-tile"><div class="icon-slot has-image"><span style="font-size:22px">🏋️</span></div><div class="title">Weekly workout log</div></div>
+        <div class="app-tile unhealthy-a"><div class="icon-slot has-image"><span style="font-size:22px">🥗</span></div><div class="body"><div class="title">Recipe box</div><div class="health-msg">not running — ask an agent to check on it</div></div></div>
+        <div class="app-tile"><div class="icon-slot"><span class="fallback-letter">A</span></div><div class="title">Aither task tracker</div></div>
+      </div>
+    </div>
+
+    <!-- Unhealthy B: same tile + warning glyph, tooltip on hover -->
+    <div class="col">
+      <div class="variant-label">B · Warning glyph, tooltip</div>
+      <div class="variant-desc">Same one-line tile visual, small red "!" glyph on the right side of the row. healthMessage in tooltip on hover. Least noisy in the list; state is still visible at a glance via the glyph.</div>
+      <div class="sidebar">
+        <div class="sidebar-topchrome"><div class="logo"></div></div>
+        <div class="group-header"><span class="icon">◧</span><span class="label">Apps</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="app-tile"><div class="icon-slot has-image"><span style="font-size:22px">🏋️</span></div><div class="title">Weekly workout log</div></div>
+        <div class="app-tile unhealthy-b" title="not running — ask an agent to check on it"><div class="icon-slot has-image"><span style="font-size:22px">🥗</span></div><div class="title">Recipe box</div><span class="warning-glyph">!</span></div>
+        <div class="app-tile"><div class="icon-slot"><span class="fallback-letter">A</span></div><div class="title">Aither task tracker</div></div>
+      </div>
+      <div class="tooltip-hint">↑ hover the middle tile to see tooltip</div>
+    </div>
+
+    <!-- Unhealthy C: dimmed only, tooltip on hover -->
+    <div class="col">
+      <div class="variant-label">C · Dimmed, tooltip only</div>
+      <div class="variant-desc">Same one-line tile visual, whole tile dimmed to ~55% opacity. No warning glyph; healthMessage only on hover. Feels quiet / "not the main event right now"; risk that a dimmed tile mid-list looks like a rendering bug rather than intentional.</div>
+      <div class="sidebar">
+        <div class="sidebar-topchrome"><div class="logo"></div></div>
+        <div class="group-header"><span class="icon">◧</span><span class="label">Apps</span><span class="rule"></span><span class="chevron">▾</span></div>
+        <div class="app-tile"><div class="icon-slot has-image"><span style="font-size:22px">🏋️</span></div><div class="title">Weekly workout log</div></div>
+        <div class="app-tile unhealthy-c" title="not running — ask an agent to check on it"><div class="icon-slot has-image"><span style="font-size:22px">🥗</span></div><div class="title">Recipe box</div></div>
+        <div class="app-tile"><div class="icon-slot"><span class="fallback-letter">A</span></div><div class="title">Aither task tracker</div></div>
+      </div>
+      <div class="tooltip-hint">↑ hover the middle tile to see tooltip</div>
+    </div>
+
+  </div>
+
+</body>
+</html>
