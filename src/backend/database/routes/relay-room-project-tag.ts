@@ -61,7 +61,9 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { setRoomProjectTag } from "../../matrix/matrix-room-tag-client.js";
 import { PROJECT_SLUG_RE } from "../../claude-session/identity-artifact-reader.js";
-import { getSubscriptionRegistry } from "../../fleet-status/subscription-registry.js";
+// Phase 117 H2 fix (2026-09-18): getSubscriptionRegistry import removed —
+// this route no longer publishes anything after a room-tag write (see the
+// intentionally-omitted publish block below for the full rationale).
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -233,38 +235,30 @@ router.post(
       return;
     }
 
-    // 7. Post-write wire event (D-37). The projects[] array itself does
-    // NOT change on a room-tag write (only which conversations belong to
-    // a project changes), so the registry's JSON.stringify idempotent-
-    // skip absorbs the no-op fanout when the array is byte-identical.
-    // A room-tag write does not know the host list, so we publish an
-    // empty array — the registry will treat this as "no projects known
-    // from this call site" and the actual project list gets replayed on
-    // client re-subscribe. In practice, if the registry has a non-empty
-    // cache from a prior /projects call, this empty publish is a delta
-    // and DOES fan out; that's acceptable because a subsequent
-    // /projects list refetch on the client is cheap. Publish failure
-    // MUST NOT roll back the write.
+    // 7. Post-write wire event (D-37) — INTENTIONALLY OMITTED.
     //
-    // Note: we intentionally do NOT re-enumerate projects here because
-    // a) it would require an extra SSH round-trip (relay rooms are not
-    // pinned to a single host — one relay room is shared across the
-    // fleet), and b) the client already receives the current projects
-    // list via the initial /projects fetch on connect.
-    try {
-      const registry = getSubscriptionRegistry();
-      if (registry) {
-        registry.publishProjectListChanged([]);
-      }
-    } catch (publishErr) {
-      databaseLogger.warn(
-        `project-list-changed publish failed after room-tag write userMxid=${userMxid} roomId=${roomId}: ${
-          publishErr instanceof Error
-            ? publishErr.message
-            : String(publishErr)
-        }`,
-      );
-    }
+    // Phase 117 H2 fix (2026-09-18): pre-fix, this route called
+    // registry.publishProjectListChanged([]) after a successful
+    // room-tag write. The intent was to invalidate any downstream
+    // listeners; the bug was that
+    // subscription-registry.publishProjectListChanged compares to the
+    // *previous* cache — publishing [] when the cache is populated
+    // (which it always is after boot hydration) is a real delta.
+    // The registry then overwrote its cache with [] and fanned out an
+    // empty project-list-changed frame to every WS subscriber, which
+    // on the frontend set state.projects = [] and vaporized every
+    // project header for every connected client.
+    //
+    // The correct behavior: a room-tag write does NOT change the
+    // projects[] list itself (only which conversations belong to a
+    // project changes), so we do not publish anything here. If a
+    // frontend needs a per-room membership ping in the future, that
+    // should be a distinct session-project-changed frame carrying
+    // {roomId, project} without touching the projects cache — but
+    // that's out of scope for this fix pass.
+    //
+    // Note: getSubscriptionRegistry is intentionally NOT called here
+    // now — no publish means no lookup.
 
     // Audit log.
     databaseLogger.info(

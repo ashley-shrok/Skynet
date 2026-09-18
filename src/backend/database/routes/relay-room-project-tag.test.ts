@@ -236,7 +236,13 @@ describe("POST /relay-rooms/:roomId/project", () => {
   // Test 1: happy assign
   // -------------------------------------------------------------------------
 
-  it("Test 1: happy assign → 200; setRoomProjectTag(mxid, roomId, slug); publish once", async () => {
+  // Phase 117 H2 fix (2026-09-18): pre-fix, this route published an empty
+  // [] to registry.publishProjectListChanged after a successful write,
+  // which blew away the projects cache on the frontend. After the fix,
+  // the route does NOT publish anything on the projects-list channel; the
+  // per-room membership change is out of scope for the projects axis.
+  // The assertion below asserts publishProjectListChanged is NOT called.
+  it("Test 1 (H2 fix): happy assign → 200; setRoomProjectTag(mxid, roomId, slug); publishProjectListChanged NOT called", async () => {
     const res = await httpRequest(server, {
       method: "POST",
       path: `/relay-rooms/${encodeURIComponent(ROOM_ID)}/project`,
@@ -251,14 +257,16 @@ describe("POST /relay-rooms/:roomId/project", () => {
       ROOM_ID,
       "alpha",
     );
-    expect(mockPublishProjectListChanged).toHaveBeenCalledTimes(1);
+    // H2 regression: publishProjectListChanged must NOT be called on
+    // a room-tag write — publishing [] blows away the projects cache.
+    expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
   // Test 2: happy clear
   // -------------------------------------------------------------------------
 
-  it("Test 2: happy clear (project: null) → 200; third arg null", async () => {
+  it("Test 2 (H2 fix): happy clear (project: null) → 200; third arg null; publishProjectListChanged NOT called", async () => {
     const res = await httpRequest(server, {
       method: "POST",
       path: `/relay-rooms/${encodeURIComponent(ROOM_ID)}/project`,
@@ -268,7 +276,8 @@ describe("POST /relay-rooms/:roomId/project", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
     expect(setRoomProjectTag).toHaveBeenCalledWith(CALLER_MXID, ROOM_ID, null);
-    expect(mockPublishProjectListChanged).toHaveBeenCalledTimes(1);
+    // H2 regression: even on clear, we do NOT publish anything.
+    expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
