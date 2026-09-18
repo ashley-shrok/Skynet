@@ -636,6 +636,87 @@ export const FrontendProjectListChangedFrameSchema = z.object({
   ),
 });
 
+// ---------------------------------------------------------------------------
+// Phase 118 Plan 118-03 (D-05, D-06, D-08, D-14): AppState + three new outbound
+// frame kinds for source-C apps (~/fleet/apps/<slug>/ + systemd unit +
+// three-check inclusion filter).
+//
+// AppStateSchema mirrors the seven D-05 fields but in FRONTEND camelCase — the
+// sweep wire uses snake_case (see SweepAppLine in sweep-schema.ts:211-266) and
+// the ssh-poll-orchestrator adapts it to this shape in Plan 118-04. Same
+// convention SessionStateSchema uses against SweepIdentityLine's snake_case.
+//
+// Field-by-field:
+//   - hostId, slug: identity for the app (compound key `${hostId}:${slug}`
+//     in the registry's apps map per D-09).
+//   - title, description: from the app's app.json metadata card
+//     (substrate/skills/app-development/templates/app-starter/app.json).
+//   - port: from the systemd unit's `PORT=<n>` env (D-07). Nullable — the
+//     Python sweep sets port: null when PORT extraction fails.
+//   - hasIcon: boolean per D-06 (NOT a URL; shape 4 owns the proxy design).
+//   - createdAtMs: unix millis, folder mtime * 1000 per D-08. Frontend
+//     formats however it likes.
+//   - isHealthy: boolean per D-01 + D-02. False iff the unit exists but is
+//     currently stopped (the ONE carve-out that still emits — D-02).
+//   - healthMessage: nullable per D-03. Ready-to-render string when
+//     isHealthy is false ("not running — ask an agent to check on it");
+//     null when the app is healthy.
+//
+// Three new frame kinds mirror the session snapshot/update/gone trio and the
+// freshest additive-frame precedent (FrontendIdentityArchivedFrameSchema
+// above from Phase 115). Kebab-case `type` values match "identity-archived".
+//
+// Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1 —
+// TENTH iteration of the T-41-03-05 mitigation. Phase lineage:
+//   Phase 41 lastMessageAt                       → held at 1
+//   Phase 47 aiTitle                             → held at 1
+//   Phase 52 dormant                             → held at 1
+//   Phase 53 recycling                           → held at 1
+//   Phase 59 lastStopAt + lastStatusChangeAt     → held at 1
+//   Phase 62 activityMtime + stoppedMtime        → held at 1
+//   Phase 90 contextPct                          → held at 1
+//   Phase 111 identityAppearance                 → held at 1
+//   Phase 115 identity-archived (new frame kind) → held at 1
+//   Phase 117 project-list-changed (new frame)   → held at 1
+//   Phase 118 app-snapshot/update/gone (this)    → held at 1
+// Frontend consumers drop unknown frame kinds at the ws.onmessage default
+// branch (fleet-status-client.ts § "Unknown frame type — drop silently"),
+// so older clients receiving app frames simply ignore them.
+// ---------------------------------------------------------------------------
+
+export const AppStateSchema = z.object({
+  hostId: z.string(),
+  slug: z.string(),
+  title: z.string(),
+  description: z.string(),
+  port: z.number().nullable(),
+  hasIcon: z.boolean(),
+  createdAtMs: z.number(),
+  isHealthy: z.boolean(),
+  healthMessage: z.string().nullable(),
+});
+
+export type AppState = z.infer<typeof AppStateSchema>;
+
+const AppSnapshotFrameSchema = z.object({
+  schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
+  type: z.literal("app-snapshot"),
+  apps: z.array(AppStateSchema),
+});
+
+const AppUpdateFrameSchema = z.object({
+  schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
+  type: z.literal("app-update"),
+  app: AppStateSchema,
+});
+
+const AppGoneFrameSchema = z.object({
+  schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
+  type: z.literal("app-gone"),
+  hostId: z.string(),
+  slug: z.string(),
+});
+
 export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendSnapshotFrameSchema,
   FrontendUpdateFrameSchema,
@@ -643,6 +724,9 @@ export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendPongFrameSchema,
   FrontendIdentityArchivedFrameSchema,
   FrontendProjectListChangedFrameSchema,
+  AppSnapshotFrameSchema,
+  AppUpdateFrameSchema,
+  AppGoneFrameSchema,
 ]);
 
 export type FrontendOutboundFrameType = z.infer<typeof FrontendOutboundFrame>;
@@ -717,5 +801,61 @@ export function makeProjectListChangedFrame(
     schemaVersion: FRAME_SCHEMA_VERSION,
     type: "project-list-changed",
     projects,
+  };
+}
+
+/**
+ * Phase 118 Plan 118-03 (D-14, D-16): construct an `app-snapshot` frame
+ * carrying every app currently in the registry's apps map. Emitted by
+ * subscription-registry.subscribe() alongside the existing session snapshot +
+ * archived-identity re-emit, so a fresh client sees the current app picture
+ * without waiting for the next 2s sweep tick.
+ *
+ * NOTE (Plan 118-03 scope): fan-out at this phase is UNFILTERED. Plan 118-05
+ * will layer the per-user host-visibility filter on top (see the plan's
+ * T-118-03-IL threat entry — 118-05 must land in the same deploy).
+ */
+export function makeAppSnapshotFrame(
+  apps: AppState[],
+): FrontendOutboundFrameType {
+  return {
+    schemaVersion: FRAME_SCHEMA_VERSION,
+    type: "app-snapshot",
+    apps,
+  };
+}
+
+/**
+ * Phase 118 Plan 118-03 (D-13, D-14): construct an `app-update` frame for
+ * one app-state add / mutate. Emitted by publishAppUpdate on every publish
+ * call — D-13 requires that a health-flip (same slug, isHealthy changed)
+ * always emits, so there is NO byte-equality idempotence guard on the
+ * registry side.
+ */
+export function makeAppUpdateFrame(app: AppState): FrontendOutboundFrameType {
+  return {
+    schemaVersion: FRAME_SCHEMA_VERSION,
+    type: "app-update",
+    app,
+  };
+}
+
+/**
+ * Phase 118 Plan 118-03 (D-11, D-14): construct an `app-gone` frame for
+ * a slug that has dropped out of the sweep between two successful ticks
+ * (per-host reconciliation-on-success in ssh-poll-orchestrator, Plan
+ * 118-04). Payload is (hostId, slug) — the registry does not need to
+ * carry any per-app identifier beyond the compound key.
+ */
+export function makeAppGoneFrame(
+  hostId: string,
+  slug: string,
+): FrontendOutboundFrameType {
+  return {
+    schemaVersion: FRAME_SCHEMA_VERSION,
+    type: "app-gone",
+    hostId,
+    slug,
+>>>>>>> d80f3f04 (feat(116-03): add AppState + three app frame schemas + factories)
   };
 }
