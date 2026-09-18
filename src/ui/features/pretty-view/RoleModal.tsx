@@ -173,7 +173,13 @@ export function mergeCosmeticsIntoMarkdown(
 }
 
 function yamlScalar(value: string | number): string {
-  if (typeof value === "number") return String(value);
+  // Numeric cosmetics (only colorHue among the current cosmeticKeys) get
+  // single-quoted so on-disk shape matches MDXEditor's frontmatter-dialog
+  // output. Bare numbers and quoted numeric strings both round-trip through
+  // extractCosmeticsFromFrontmatter, but standardizing on the quoted form
+  // keeps frontmatter byte-shape-consistent whether Skynet or an MDXEditor
+  // edit was the last writer.
+  if (typeof value === "number") return `'${String(value)}'`;
   // Quote strings that contain colons or start with special chars to keep
   // YAML happy. Simple heuristic — the pickers restrict input to safe
   // ASCII so this is defense-in-depth.

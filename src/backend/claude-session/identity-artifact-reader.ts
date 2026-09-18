@@ -2578,6 +2578,29 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
 }
 
 /**
+ * Return a shallow copy of `obj` with `colorHue` coerced from number → decimal
+ * string, so a subsequent `yaml.dump` emits `colorHue: '324'` (single-quoted)
+ * instead of a bare `324`. Matches the shape MDXEditor's frontmatter dialog
+ * produces on save — see the numeric-string branch in
+ * extractCosmeticsFromFrontmatter above, which already tolerates both shapes
+ * on read. Standardizing every writer on the quoted form keeps identity/role
+ * frontmatter byte-shape-consistent whether it was last touched by Skynet's
+ * routes or by an in-browser MDXEditor edit.
+ *
+ * Returns the same reference (no clone) when colorHue is absent or already a
+ * non-number — callers can pass any dict without paying for an allocation on
+ * the common path. When colorHue IS a number, a shallow-copy is returned so
+ * the caller's original object is safe to reuse for a JSON response echo
+ * (where numeric colorHue is the wire type).
+ */
+export function stringifyColorHueForYaml<T extends Record<string, unknown>>(
+  obj: T,
+): T {
+  if (typeof obj.colorHue !== "number") return obj;
+  return { ...obj, colorHue: String(obj.colorHue) };
+}
+
+/**
  * Read the identity's sibling avatar file (~/fleet/identities/<key>/<key>.<ext>).
  *
  * Discovery order:

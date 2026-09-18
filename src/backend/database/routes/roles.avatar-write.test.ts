@@ -98,6 +98,7 @@ const recordedRoleFileWrites: Array<{
 const recordedRoleFileReads: Array<{ conn: unknown; roleName: string }> = [];
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   isLocalHostId: (hostId: number | undefined) =>
     mockIsLocal && hostId !== undefined,
   readRoleFileByName: (conn: unknown, roleName: string) => {
@@ -307,7 +308,7 @@ describe("Phase 90 Plan 90-08: POST /roles/:name/avatar", () => {
     expect(rewritten).toContain("avatar: box-maintainer.png");
     // Prior frontmatter keys (title, colorHue) preserved.
     expect(rewritten).toContain("title: Box Maintainer");
-    expect(rewritten).toContain("colorHue: 200");
+    expect(rewritten).toContain("colorHue: '200'");
     // Body preserved after frontmatter.
     expect(rewritten).toContain("role body");
   });
@@ -549,6 +550,6 @@ describe("Phase 90 Plan 90-08: POST /roles/:name/avatar", () => {
     expect(avatarLines).toHaveLength(1);
     // Other cosmetic keys preserved.
     expect(rewritten).toContain("title: Box Maintainer");
-    expect(rewritten).toContain("colorHue: 200");
+    expect(rewritten).toContain("colorHue: '200'");
   });
 });

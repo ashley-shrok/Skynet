@@ -69,6 +69,7 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 }));
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   isLocalHostId: vi.fn(),
   // 2026-09-14 path-drift fix: the LOCAL branch resolves the identities root
   // through getLocalIdentitiesRoot() (honors the IDENTITIES_HOST_DIR

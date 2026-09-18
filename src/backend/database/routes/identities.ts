@@ -30,6 +30,7 @@ import {
   // fanout) + role-folder avatar fallback in GET /:identityKey/avatar.
   readRoleFileByName,
   readAvatarSiblingFileByRole,
+  stringifyColorHueForYaml,
 } from "../../claude-session/identity-artifact-reader.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
@@ -702,7 +703,7 @@ router.put(
       }
 
       // ---- Emit new file body ----
-      const yamlBody = yaml.dump(overlaid, {
+      const yamlBody = yaml.dump(stringifyColorHueForYaml(overlaid), {
         sortKeys: false,
         lineWidth: -1,
         noRefs: true,

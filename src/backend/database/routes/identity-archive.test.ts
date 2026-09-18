@@ -82,6 +82,7 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 }));
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   isLocalHostId: vi.fn(),
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
 }));

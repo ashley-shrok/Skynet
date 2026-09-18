@@ -72,6 +72,7 @@ import {
   writeRoleAvatarByName,
   writeRoleFileByName,
   MIME_TO_AVATAR_EXT,
+  stringifyColorHueForYaml,
 } from "../../claude-session/identity-artifact-reader.js";
 // Phase 90 Plan 90-10 (LOW-severity cleanup): ROLE_NAME_PATTERN promoted to
 // `src/backend/utils/role-name-pattern.ts` — was previously cloned locally.
@@ -487,7 +488,7 @@ router.post(
       overlaid.avatar = filename;
 
       // Emit new markdown body — same yaml.dump options as identities.ts L623-628.
-      const yamlBody = yaml.dump(overlaid, {
+      const yamlBody = yaml.dump(stringifyColorHueForYaml(overlaid), {
         sortKeys: false,
         lineWidth: -1,
         noRefs: true,

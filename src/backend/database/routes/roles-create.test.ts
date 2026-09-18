@@ -102,6 +102,7 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 }));
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   writeMarkdownFileAtomic: vi.fn(),
   // MIME_TO_AVATAR_EXT is the real map — hoisted require pattern (vi.mock
   // factory runs at module-eval time before actualImport is available).
@@ -461,7 +462,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     expect(stubBody.startsWith("---\n")).toBe(true);
     // Contains all three keys and no avatar (since none supplied)
     expect(stubBody).toMatch(/title:\s*Box maintainer/);
-    expect(stubBody).toMatch(/colorHue:\s*190/);
+    expect(stubBody).toMatch(/colorHue:\s*'190'/);
     expect(stubBody).toMatch(/voice:\s*Joanna/);
     expect(stubBody).not.toMatch(/^avatar:/m);
     // Followed by closing `---\n` and the standard body
@@ -652,7 +653,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     // Persisted body's frontmatter carries the same four keys the response echoed.
     const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
     expect(stubBody).toMatch(/title:\s*Box maintainer/);
-    expect(stubBody).toMatch(/colorHue:\s*190/);
+    expect(stubBody).toMatch(/colorHue:\s*'190'/);
     expect(stubBody).toMatch(/voice:\s*Joanna/);
     expect(stubBody).toMatch(/avatar:\s*box-maintainer\.png/);
 

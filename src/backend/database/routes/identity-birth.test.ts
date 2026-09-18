@@ -67,6 +67,7 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 }));
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   isLocalHostId: vi.fn(),
   writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
   // Phase 66 Plan 66-01: additive avatar-sibling dep — the birth route now

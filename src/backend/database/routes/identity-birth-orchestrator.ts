@@ -50,6 +50,7 @@ import {
   type AvatarExt,
   getLocalIdentitiesRoot,
   getLocalRolesRoot,
+  stringifyColorHueForYaml,
 } from "../../claude-session/identity-artifact-reader.js";
 // Phase 92 Plan 92-01 Task 2 — per-identity file-touch primitive.
 // Step 8's relay.json write routes through this primitive (D-05 wire
@@ -571,12 +572,15 @@ function buildIdentityFileBody(
     pairs.push(["task", opts.task]);
   }
 
-  const yamlBody = yaml.dump(Object.fromEntries(pairs), {
-    sortKeys: false,
-    lineWidth: -1,
-    noRefs: true,
-    forceQuotes: false,
-  });
+  const yamlBody = yaml.dump(
+    stringifyColorHueForYaml(Object.fromEntries(pairs)),
+    {
+      sortKeys: false,
+      lineWidth: -1,
+      noRefs: true,
+      forceQuotes: false,
+    },
+  );
 
   return `---\n${yamlBody}---\n\n# ${opts.name}\n`;
 }

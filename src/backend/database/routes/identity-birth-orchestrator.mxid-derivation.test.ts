@@ -32,6 +32,7 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
 }));
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   isLocalHostId: vi.fn(),
   writeMarkdownFileAtomic: vi.fn(),
   writeAvatarSiblingFile: vi.fn(),

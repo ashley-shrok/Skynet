@@ -201,6 +201,7 @@ const writeAvatarSiblingFileMock = vi.fn();
 const isLocalHostIdMock = vi.fn();
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   readIdentityFile: (
     conn: unknown,
     key: string,
@@ -253,7 +254,16 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     const out: Record<string, unknown> = {};
     if (typeof src.displayName === "string" && src.displayName.length > 0) out.displayName = src.displayName;
     if (typeof src.title === "string" && src.title.length > 0) out.title = src.title;
-    if (typeof src.colorHue === "number" && src.colorHue >= 0 && src.colorHue <= 359) out.colorHue = src.colorHue;
+    // Mirror the real extractCosmeticsFromFrontmatter tolerance — accept
+    // number OR numeric string (MDXEditor + Skynet writers now emit `'324'`).
+    const rawHue = src.colorHue;
+    const parsedHue =
+      typeof rawHue === "number"
+        ? rawHue
+        : typeof rawHue === "string" && rawHue.trim() !== ""
+          ? Number(rawHue)
+          : Number.NaN;
+    if (Number.isFinite(parsedHue) && parsedHue >= 0 && parsedHue <= 359) out.colorHue = parsedHue;
     if (typeof src.voice === "string" && src.voice.length > 0) out.voice = src.voice;
     if (typeof src.avatar === "string" && src.avatar.length > 0) out.avatar = src.avatar;
     if (typeof src.coordinator === "boolean") out.coordinator = src.coordinator;
@@ -476,7 +486,10 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     expect(fm.role).toBe("box-maintainer"); // preserved verbatim
     expect(fm.displayName).toBe("Newname");
     expect(fm.title).toBe("New Title");
-    expect(fm.colorHue).toBe(180);
+    // colorHue on-disk shape is now the quoted-string form '180' (MDXEditor
+    // parity — see stringifyColorHueForYaml). loadWrittenFrontmatter is a raw
+    // yaml.load, so the string round-trips as string.
+    expect(fm.colorHue).toBe("180");
     expect(fm.voice).toBe("Joanna");
 
     // Phase 68-02: no row bump — DB update NOT called at all.
@@ -509,7 +522,10 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     expect(fm.title).toBe("Only Title Change");
     // other keys untouched from the on-disk read
     expect(fm.displayName).toBe("Keep");
-    expect(fm.colorHue).toBe(100);
+    // colorHue: written as bare `100` in the seed, re-emitted quoted `'100'`
+    // by stringifyColorHueForYaml (MDXEditor parity). Raw yaml.load returns
+    // the string form.
+    expect(fm.colorHue).toBe("100");
     expect(fm.voice).toBe("Keep.wav");
     expect(fm.role).toBe("box-maintainer");
   });

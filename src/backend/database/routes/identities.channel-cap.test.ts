@@ -109,6 +109,7 @@ async function channel<T>(value: T): Promise<T> {
 const IDENTITY_MD = "---\nrole: box-maintainer\n---\n# body\n";
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   readIdentityFile: () => channel({ markdown: IDENTITY_MD }),
   listIdentityKeysOnHost: () => channel(currentKeys),
   readRoleFileByName: () => channel({ markdown: "---\ncolorHue: 100\n---\n" }),

@@ -101,6 +101,7 @@ import { execCommand } from "../../ssh/tmux-helper.js";
 import {
   writeMarkdownFileAtomic,
   MIME_TO_AVATAR_EXT,
+  stringifyColorHueForYaml,
 } from "../../claude-session/identity-artifact-reader.js";
 import { ROLE_NAME_PATTERN } from "./identity-birth-orchestrator.js";
 import { sshLogger } from "../../utils/logger.js";
@@ -551,12 +552,15 @@ router.post(
       const bodyLines =
         `# ${name}\n\n## Role\n\n${description}\n\n${ROLE_STUB_SEED_COMMENT}\n`;
       const stubMarkdown = hasCosmetics
-        ? `---\n${yaml.dump(cosmetics, {
-            sortKeys: false,
-            lineWidth: -1,
-            noRefs: true,
-            forceQuotes: false,
-          })}---\n\n${bodyLines}`
+        ? `---\n${yaml.dump(
+            stringifyColorHueForYaml(cosmetics as Record<string, unknown>),
+            {
+              sortKeys: false,
+              lineWidth: -1,
+              noRefs: true,
+              forceQuotes: false,
+            },
+          )}---\n\n${bodyLines}`
         : bodyLines;
 
       const targetPath = `${remoteHome}/fleet/roles/${name}/${name}.md`;

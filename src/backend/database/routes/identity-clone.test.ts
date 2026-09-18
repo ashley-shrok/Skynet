@@ -91,6 +91,7 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 }));
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   writeMarkdownFileAtomic: vi.fn(),
   writeAvatarSiblingFile: vi.fn(),
   // Source-avatar inheritance (2026-09-02): read source's on-disk avatar when
@@ -629,7 +630,7 @@ describe("POST /identities/clone", () => {
     expect(stubBody).toMatch(/^---\nrole: box-maintainer\n/);
     expect(stubBody).toContain("displayName: Tina-b");
     expect(stubBody).toContain("title: Cloned Op");
-    expect(stubBody).toContain("colorHue: 216");
+    expect(stubBody).toContain("colorHue: '216'");
     // voice + avatar absent (omit-if-absent rule)
     expect(stubBody).not.toContain("voice:");
     expect(stubBody).not.toContain("avatar:");

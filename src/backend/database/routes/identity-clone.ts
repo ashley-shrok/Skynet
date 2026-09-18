@@ -109,6 +109,7 @@ import {
   MIME_TO_AVATAR_EXT,
   IDENTITY_KEY_RE,
   type AvatarExt,
+  stringifyColorHueForYaml,
 } from "../../claude-session/identity-artifact-reader.js";
 import yaml from "js-yaml";
 import { resolveHostById } from "../../ssh/host-resolver.js";
@@ -711,7 +712,7 @@ router.post(
         cloneFrontmatterPairs.push(["task", parsedTask]);
       }
       const cloneYamlBody = yaml.dump(
-        Object.fromEntries(cloneFrontmatterPairs),
+        stringifyColorHueForYaml(Object.fromEntries(cloneFrontmatterPairs)),
         {
           sortKeys: false,
           lineWidth: -1,

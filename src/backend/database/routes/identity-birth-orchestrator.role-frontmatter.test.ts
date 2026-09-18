@@ -52,6 +52,7 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
 }));
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   isLocalHostId: vi.fn(),
   writeMarkdownFileAtomic: vi.fn(),
   writeAvatarSiblingFile: vi.fn(),
@@ -594,11 +595,13 @@ it("Test 20: full cosmetics present → frontmatter emits role/displayName/title
   expect(match).not.toBeNull();
   const parsed = yaml.load(match![1]) as Record<string, unknown>;
 
-  // All six keys present with correct values (displayName = capitalize(name))
+  // All six keys present with correct values (displayName = capitalize(name)).
+  // colorHue asserted as the quoted-string form '210' — writers now
+  // standardize on MDXEditor's shape (see stringifyColorHueForYaml).
   expect(parsed.role).toBe("box-maintainer");
   expect(parsed.displayName).toBe("Testkey");
   expect(parsed.title).toBe("Test Identity");
-  expect(parsed.colorHue).toBe(210);
+  expect(parsed.colorHue).toBe("210");
   expect(parsed.voice).toBe("Joanna");
   expect(parsed.avatar).toBe("testkey.png"); // default candidate mime = image/png
 

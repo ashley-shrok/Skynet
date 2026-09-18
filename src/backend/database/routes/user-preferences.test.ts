@@ -218,6 +218,7 @@ vi.mock("../../claude-session/per-identity-file.js", () => ({
 const isLocalHostIdMock = vi.fn(() => true);
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   isLocalHostId: (n: number | undefined) => isLocalHostIdMock(n),
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
 }));

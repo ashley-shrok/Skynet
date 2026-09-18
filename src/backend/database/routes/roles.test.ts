@@ -114,6 +114,7 @@ const recordedAvatarReadCalls: Array<{
 }> = [];
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
   isLocalHostId: (hostId: number | undefined) => {
     // Read runtime flag; tests toggle via mockIsLocal.
     return mockIsLocal && hostId !== undefined;

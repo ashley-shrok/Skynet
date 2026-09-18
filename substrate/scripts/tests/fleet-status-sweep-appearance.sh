@@ -391,6 +391,41 @@ body
   assert_identity_field "$out" "badhue" "role_cosmetics.title" '"Bad Hue Role"'
 }
 
+# Case 7b: colorHue in quoted form (MDXEditor + Skynet writers standardize on
+# single-quoted numeric strings per the frontmatter-shape audit). The Python
+# parser must strip surrounding matching quotes before int() so quoted values
+# survive the sweep. Also covers double-quoted for defense-in-depth.
+test_case_07b_colorhue_quoted() {
+  make_identity "quotehue" "---
+role: quoterole
+---
+body
+"
+  make_role "quoterole" "---
+title: Quote Hue Role
+colorHue: '240'
+---
+body
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_field "$out" "quotehue" "role_cosmetics.colorHue" '240'
+
+  make_identity "dquotehue" "---
+role: dquoterole
+---
+body
+"
+  make_role "dquoterole" '---
+title: DQuote Hue Role
+colorHue: "180"
+---
+body
+'
+  out=$(run_sweep)
+  assert_identity_field "$out" "dquotehue" "role_cosmetics.colorHue" '180'
+}
+
 # Case 8: Quoted and commented values.
 # Identity with title: "Quoted Title"   # trailing comment and a # full-line
 # comment inside the fence. Assert title is exactly Quoted Title.
@@ -512,6 +547,7 @@ run_test test_case_04_missing_identity_file
 run_test test_case_05_path_traversal_role
 run_test test_case_06_sentinels
 run_test test_case_07_colorhue_out_of_range
+run_test test_case_07b_colorhue_quoted
 run_test test_case_08_quoted_and_commented
 run_test test_case_09_bounded_read
 run_test test_case_10_stdout_purity

@@ -703,11 +703,19 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
                 continue
 
         # --- colorHue: int, must be in 0..359 (mirrors identity-artifact-reader.ts) ---
+        # Accept bare (`324`) OR single/double-quoted (`'324'` / `"324"`) forms.
+        # MDXEditor's frontmatter dialog emits the quoted form on save, and
+        # Skynet's writers now standardize on it too, so both shapes appear
+        # on disk. Strip surrounding matching quotes before int() so the
+        # sweeper doesn't silently drop the field on a quoted value.
         if "colorHue" in allowed_keys:
             m_hue = re.match(r"^colorHue:\s*([^\s#]+)\s*(#.*)?$", line.rstrip("\n"))
             if m_hue:
+                raw_hue = m_hue.group(1)
+                if len(raw_hue) >= 2 and raw_hue[0] == raw_hue[-1] and raw_hue[0] in ("'", '"'):
+                    raw_hue = raw_hue[1:-1]
                 try:
-                    hue_val = int(m_hue.group(1))
+                    hue_val = int(raw_hue)
                     if 0 <= hue_val <= 359:
                         cosmetics["colorHue"] = hue_val
                 except ValueError:
