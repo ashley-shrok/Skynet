@@ -3579,6 +3579,8 @@ export function PrettyView({
           fleetIdentityHosts={fleetIdentityHosts}
           isReady={chatSurfaceAdapter.isReady}
           tabId={tabId}
+          relayRoomId={source.kind === "relay" ? source.roomId : undefined}
+          relayRoomTitle={source.kind === "relay" ? source.roomTitle : undefined}
         />
       )}
       {identityBadgeMenu !== null &&

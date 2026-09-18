@@ -100,6 +100,15 @@ export interface AgentBadgeWithMeterProps {
    * supplied by this component; only drag-source is enabled by tabId.
    */
   tabId?: string;
+  /**
+   * Cross-window drag descriptor pieces (2026-09-18) — the enclosing relay
+   * room's id + title. Threaded to the inner IdentityBadge as
+   * dragDescriptor so a drop in a DIFFERENT same-origin Skynet window can
+   * open a fresh relay-room tab for the same (roomId + roomTitle). Absent →
+   * cross-window drops from this badge silent-reject.
+   */
+  relayRoomId?: string;
+  relayRoomTitle?: string | null;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -110,6 +119,8 @@ export function AgentBadgeWithMeter({
   hostId,
   tmuxSessionName,
   tabId,
+  relayRoomId,
+  relayRoomTitle,
 }: AgentBadgeWithMeterProps) {
   // D-10 correctness invariant — READ SIDE ───────────────────────────────────
   // Key EXACT format `${hostId}:${tmuxSessionName}` — same shape PrettyView
@@ -196,7 +207,20 @@ export function AgentBadgeWithMeter({
           drag SOURCE carrying the room tab's tabId (D-05). Undefined tabId
           leaves isDragSource=false at IdentityBadge.tsx:82 — pre-plan
           parity. D-18 preserved: no onClick supplied. */}
-      <IdentityBadge identityKey={identityKey} tabId={tabId} />
+      <IdentityBadge
+        identityKey={identityKey}
+        tabId={tabId}
+        dragDescriptor={
+          typeof relayRoomId === "string" && relayRoomId.length > 0
+            ? {
+                tabType: "terminal" as const,
+                sessionKind: "relay-room" as const,
+                relayRoomId,
+                relayRoomTitle: relayRoomTitle ?? null,
+              }
+            : undefined
+        }
+      />
       {/* Phase 97 Finding 5: drawer wrapper — Variant A "simple slotted"
           per meter-tasting.html L164-177. margin-top: -8px tucks the drawer's
           top edge behind the pill's bottom; padding-top: 10px keeps the meter

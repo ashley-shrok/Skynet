@@ -108,6 +108,17 @@ export interface MultiBadgeAnchorProps {
    * IdentityBadge.tsx:82 still applies (mobile stays non-draggable).
    */
   tabId?: string;
+  /**
+   * Cross-window drag descriptor pieces. Threaded to every per-participant
+   * IdentityBadge child so a drop in a DIFFERENT same-origin Skynet window
+   * can open a fresh relay-room tab for the same (roomId + roomTitle),
+   * instead of planting the source-window's stranger tabId (which the target
+   * doesn't know about, producing the "Session no longer exists" placeholder
+   * that shipped as a rescue affordance 2026-09-17). Both fields are
+   * optional; when absent, cross-window drops from this badge silent-reject.
+   */
+  relayRoomId?: string;
+  relayRoomTitle?: string | null;
 }
 
 /**
@@ -132,9 +143,13 @@ function extractLocalpart(mxid: string): string {
 function HumanBadgeCell({
   human,
   tabId,
+  relayRoomId,
+  relayRoomTitle,
 }: {
   human: HumanParticipant;
   tabId?: string;
+  relayRoomId?: string;
+  relayRoomTitle?: string | null;
 }) {
   const { byKey } = useIdentities();
   const resolution = resolveMxidToIdentity(human.mxid, byKey);
@@ -142,6 +157,15 @@ function HumanBadgeCell({
     resolution.identity !== null
       ? resolution.identity.identityKey
       : extractLocalpart(human.mxid);
+  const dragDescriptor =
+    typeof relayRoomId === "string" && relayRoomId.length > 0
+      ? {
+          tabType: "terminal" as const,
+          sessionKind: "relay-room" as const,
+          relayRoomId,
+          relayRoomTitle: relayRoomTitle ?? null,
+        }
+      : undefined;
   return (
     <div
       data-testid="relay-room-participant"
@@ -149,7 +173,11 @@ function HumanBadgeCell({
       data-mxid={human.mxid}
       className={CELL_BASE_CLASS}
     >
-      <IdentityBadge identityKey={identityKey} tabId={tabId} />
+      <IdentityBadge
+        identityKey={identityKey}
+        tabId={tabId}
+        dragDescriptor={dragDescriptor}
+      />
     </div>
   );
 }
@@ -164,13 +192,26 @@ function AgentBadgeCell({
   agent,
   fleetIdentityHosts,
   tabId,
+  relayRoomId,
+  relayRoomTitle,
 }: {
   agent: AgentParticipant;
   fleetIdentityHosts: Record<string, number>;
   tabId?: string;
+  relayRoomId?: string;
+  relayRoomTitle?: string | null;
 }) {
   const identityKey = agent.identityKey;
   const hostId = fleetIdentityHosts[identityKey];
+  const dragDescriptor =
+    typeof relayRoomId === "string" && relayRoomId.length > 0
+      ? {
+          tabType: "terminal" as const,
+          sessionKind: "relay-room" as const,
+          relayRoomId,
+          relayRoomTitle: relayRoomTitle ?? null,
+        }
+      : undefined;
   // Phase 97 code-review Fix 2: log the no-host-mapping condition from a
   // useEffect gated on primitives so a re-render of the parent (e.g., a
   // participants frame update or any upstream state change) does NOT re-fire
@@ -196,7 +237,11 @@ function AgentBadgeCell({
         data-mxid={agent.mxid}
         className={CELL_BASE_CLASS}
       >
-        <IdentityBadge identityKey={identityKey} tabId={tabId} />
+        <IdentityBadge
+          identityKey={identityKey}
+          tabId={tabId}
+          dragDescriptor={dragDescriptor}
+        />
       </div>
     );
   }
@@ -215,6 +260,8 @@ function AgentBadgeCell({
         // tmux session name (lowercased) that the fleet publishes.
         tmuxSessionName={identityKey}
         tabId={tabId}
+        relayRoomId={relayRoomId}
+        relayRoomTitle={relayRoomTitle}
       />
     </div>
   );
@@ -257,6 +304,8 @@ export function MultiBadgeAnchor({
   isReady,
   className,
   tabId,
+  relayRoomId,
+  relayRoomTitle,
 }: MultiBadgeAnchorProps) {
   // D-03 self-exclusion filter for humans + humans-alphabetical sort.
   const humansOther = participants.humans
@@ -315,10 +364,18 @@ export function MultiBadgeAnchor({
           agent={a}
           fleetIdentityHosts={fleetIdentityHosts}
           tabId={tabId}
+          relayRoomId={relayRoomId}
+          relayRoomTitle={relayRoomTitle}
         />
       ))}
       {humansOther.map((h) => (
-        <HumanBadgeCell key={h.mxid} human={h} tabId={tabId} />
+        <HumanBadgeCell
+          key={h.mxid}
+          human={h}
+          tabId={tabId}
+          relayRoomId={relayRoomId}
+          relayRoomTitle={relayRoomTitle}
+        />
       ))}
     </div>
   );

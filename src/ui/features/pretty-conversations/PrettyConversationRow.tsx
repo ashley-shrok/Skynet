@@ -992,6 +992,10 @@ export function PrettyConversationRow({
           fleetOnly: row.fleetOnly === true,
           rdpHostRow: row.rdpHostRow === true,
           matrixRoomId: row.roomId ?? null,
+          // roomTitle carries the human-readable relay-room label so a
+          // cross-window resolver can label the freshly-opened target tab
+          // (openTab's label option). Null for non-relay rows.
+          roomTitle: row.roomTitle ?? null,
           identityKey: identity?.identityKey ?? null,
         }),
       );
@@ -1004,6 +1008,7 @@ export function PrettyConversationRow({
       row.fleetOnly,
       row.rdpHostRow,
       row.roomId,
+      row.roomTitle,
       identity?.identityKey,
     ],
   );

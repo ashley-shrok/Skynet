@@ -2539,6 +2539,8 @@ export function AppShell({
       targetTmuxSession: string | null;
       fleetOnly: boolean;
       rdpHostRow: boolean;
+      matrixRoomId?: string | null;
+      roomTitle?: string | null;
     }): string | null => {
       if (tabs.some((t) => t.id === payload.id)) {
         return payload.id;
@@ -2551,6 +2553,23 @@ export function AppShell({
           targetTmuxSession: payload.targetTmuxSession,
           label: payload.targetTmuxSession,
           allowCreateTmux: false,
+        });
+      }
+      // Relay-room row: hostless tab keyed by the Matrix roomId. Cross-window
+      // path — a relay-room row dragged into another Skynet window resolves
+      // to a fresh terminal tab with sessionKind: "relay-room" so the
+      // Tab dispatcher routes to PrettyView with source.kind === "relay"
+      // (Phase 90 Plan 07 Task 3 shape). label falls back to the roomId
+      // when no roomTitle is provided.
+      if (
+        typeof payload.matrixRoomId === "string" &&
+        payload.matrixRoomId.length > 0
+      ) {
+        return openTab(null, "terminal", undefined, {
+          sessionKind: "relay-room",
+          relayRoomId: payload.matrixRoomId,
+          relayRoomTitle: payload.roomTitle ?? null,
+          label: payload.roomTitle ?? payload.matrixRoomId,
         });
       }
       return null;
@@ -2572,6 +2591,8 @@ export function AppShell({
         targetTmuxSession: string | null;
         fleetOnly: boolean;
         rdpHostRow: boolean;
+        matrixRoomId?: string | null;
+        roomTitle?: string | null;
       },
       path: SplitPath,
       edge: DropEdge,
@@ -2618,6 +2639,8 @@ export function AppShell({
         targetTmuxSession: string | null;
         fleetOnly: boolean;
         rdpHostRow: boolean;
+        matrixRoomId?: string | null;
+        roomTitle?: string | null;
       },
       targetTabId: string,
     ) => {
@@ -3595,10 +3618,13 @@ export function AppShell({
                       onDropRowInTree(
                         payload as {
                           id: string;
+                          dragId?: string | null;
                           host: Host | null;
                           targetTmuxSession: string | null;
                           fleetOnly: boolean;
                           rdpHostRow: boolean;
+                          matrixRoomId?: string | null;
+                          roomTitle?: string | null;
                         },
                         path,
                         edge,
@@ -3628,6 +3654,8 @@ export function AppShell({
                           targetTmuxSession: string | null;
                           fleetOnly: boolean;
                           rdpHostRow: boolean;
+                          matrixRoomId?: string | null;
+                          roomTitle?: string | null;
                         },
                         targetTabId,
                       )
