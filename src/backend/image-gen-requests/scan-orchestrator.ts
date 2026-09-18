@@ -231,12 +231,32 @@ export function parseImageGenRequestBatch(
 }
 
 /**
+ * Maximum companion `ref` file size in bytes — matches OpenAI's documented
+ * limit for gpt-image-1's /images/edits endpoint (20 MiB per image). Enforced
+ * at scan time via `head -c` so an unbounded file on the host box never
+ * pulls unbounded bytes over the SSH channel or into a decoded Buffer.
+ *
+ * The check is defense-in-depth over the caller's helper script — the helper
+ * copies caller-supplied ref files by reference and doesn't validate size.
+ * Without this cap, a caller could plant a 10GB file at `<uuid>.ref.png` and
+ * exhaust backend memory as the scan tick reads it.
+ */
+export const MAX_REF_BYTES = 20 * 1024 * 1024;
+
+/**
  * Fetch the companion `<uuid>.ref.<ext>` file bytes over the same SSH channel
- * the scan used. Uses `cat "$HOME/fleet/image-gen-requests/<ref>" | base64 -w0`
- * → decode → Buffer. The path prefix is fully backend-controlled (the
- * caller-supplied `ref` was validated by parseRequestBody to match the strict
- * `<uuid>.ref.<ext>` shape — no shell metacharacters, no path traversal), so
- * shell-interpolating it here is safe.
+ * the scan used. Uses `head -c MAX_REF_BYTES "$HOME/fleet/image-gen-requests/<ref>"
+ * | base64 -w0` → decode → Buffer. `head -c` bounds the read at the OS level
+ * so a runaway file never streams unbounded bytes. If the raw file exceeded
+ * the cap, the base64-decoded length here will exactly equal MAX_REF_BYTES;
+ * we treat that as `malformed` so the caller sees a descriptive error rather
+ * than a silently-truncated image being sent to OpenAI (which would fail
+ * server-side with a confusing message).
+ *
+ * The path prefix is fully backend-controlled (the caller-supplied `ref` was
+ * validated by parseRequestBody to match the strict `<uuid>.ref.<ext>` shape
+ * — no shell metacharacters, no path traversal), so shell-interpolating it
+ * here is safe.
  *
  * **Cross-request companion protection:** The parser accepts any `<uuid>.ref.<ext>`
  * shape but does not know the request's own uuid at parse time. We enforce the
@@ -266,9 +286,10 @@ async function fetchCompanionRef(
 
   // The parser already restricted ref to `^<uuid>\.ref\.(png|jpg|jpeg|webp)$`
   // so shell-interpolating the value is safe. Still quote it for defense in
-  // depth. Use base64 -w0 (no line wrapping) — the entire payload arrives on
+  // depth. Use `head -c MAX_REF_BYTES` to bound reads at the OS level, then
+  // pipe to `base64 -w0` (no line wrapping) so the entire payload arrives on
   // stdout as a single base64 blob we can decode.
-  const cmd = `cat "$HOME/fleet/image-gen-requests/${refFilename}" | base64 -w0`;
+  const cmd = `head -c ${MAX_REF_BYTES} "$HOME/fleet/image-gen-requests/${refFilename}" | base64 -w0`;
   const stdout = await channel.exec(cmd);
   if (stdout === null) {
     return { ok: false, reason: `ref companion missing or unreadable: ${refFilename}` };
@@ -281,6 +302,17 @@ async function fetchCompanionRef(
     const bytes = Buffer.from(trimmed, "base64");
     if (bytes.byteLength === 0) {
       return { ok: false, reason: `ref companion decoded to zero bytes: ${refFilename}` };
+    }
+    // Cap enforcement — `head -c` bounds the read at exactly MAX_REF_BYTES,
+    // so a decoded length equal to the cap means the source file exceeded
+    // it (the bounded read tail-truncated the image). Reject with a
+    // descriptive `malformed` so the caller sees "reference image exceeds
+    // 20MB limit" instead of a silently-truncated file being sent to OpenAI.
+    if (bytes.byteLength >= MAX_REF_BYTES) {
+      return {
+        ok: false,
+        reason: `reference image exceeds ${MAX_REF_BYTES} byte limit: ${refFilename}`,
+      };
     }
     return { ok: true, bytes };
   } catch (err) {

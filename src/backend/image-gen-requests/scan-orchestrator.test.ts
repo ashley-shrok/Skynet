@@ -38,6 +38,7 @@ import {
   parseImageGenRequestBatch,
   scanImageGenRequests,
   IMAGE_GEN_SCAN_CMD,
+  MAX_REF_BYTES,
   type ImageGenScanHostRecord,
   type SshChannel,
 } from "./scan-orchestrator.js";
@@ -379,9 +380,11 @@ describe("companion-ref fetch", () => {
     expect(exec).toHaveBeenCalledTimes(2);
     // First call is the scan command.
     expect(exec.mock.calls[0][0]).toBe(IMAGE_GEN_SCAN_CMD);
-    // Second call is the companion cat, path includes the ref filename.
+    // Second call is the companion fetch: path includes ref filename, uses
+    // `head -c MAX_REF_BYTES` to bound the read, and pipes through base64.
     expect(exec.mock.calls[1][0]).toContain(refFilename);
     expect(exec.mock.calls[1][0]).toContain("base64");
+    expect(exec.mock.calls[1][0]).toContain(`head -c ${MAX_REF_BYTES}`);
 
     expect(enqueueDep).toHaveBeenCalledTimes(1);
     const enqueued: PendingImageGen = vi.mocked(enqueueDep).mock.calls[0][0];
@@ -448,6 +451,43 @@ describe("companion-ref fetch", () => {
     expect(enqueued.malformedReason).toContain("does not match request uuid");
     expect(enqueued.refImage).toBeUndefined();
   });
+
+  it("R2c: companion bytes at MAX_REF_BYTES cap → malformedReason 'exceeds ... byte limit' (FIX 6)", async () => {
+    // `head -c MAX_REF_BYTES` bounds the read to exactly MAX_REF_BYTES bytes.
+    // If the decoded companion length is >= MAX_REF_BYTES, the source file
+    // was truncated by the cap — reject as malformed so the caller sees a
+    // descriptive error rather than a silently-truncated image being sent
+    // to OpenAI.
+    const uuid = "abcdef01-2345-6789-abcd-ef0123456789";
+    const refFilename = `${uuid}.ref.png`;
+    // Generate exactly MAX_REF_BYTES bytes → base64-encode → stdout.
+    // Doing this at the actual 20MB size is deliberate — the test proves
+    // the cap check on realistic scale, not just on a synthetic short blob.
+    const bytesAtCap = Buffer.alloc(MAX_REF_BYTES, 0x42);
+    const b64AtCap = bytesAtCap.toString("base64");
+
+    const scanStdout = makeScanStdout([
+      { uuid, body: buildValidRequest(uuid, { ref: refFilename }) },
+    ]);
+    const exec = vi.fn()
+      .mockResolvedValueOnce(scanStdout)
+      .mockResolvedValueOnce(b64AtCap + "\n");
+    const channel = { exec } as unknown as SshChannel;
+
+    const { deps, enqueueDep } = makeDeps({
+      acquireChannel: vi.fn(async () => channel),
+    });
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+
+    expect(enqueueDep).toHaveBeenCalledTimes(1);
+    const enqueued: PendingImageGen = vi.mocked(enqueueDep).mock.calls[0][0];
+    expect(enqueued.malformedReason).toBeDefined();
+    expect(enqueued.malformedReason).toContain("exceeds");
+    expect(enqueued.malformedReason).toContain("byte limit");
+    expect(enqueued.refImage).toBeUndefined();
+  }, 30_000);
 
   it("R3: no companion fetch when body.ref absent → channel.exec called exactly once", async () => {
     const uuid = "abcdef01-2345-6789-abcd-ef0123456789";
