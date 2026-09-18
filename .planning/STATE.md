@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-09-18T01:35:28.547Z"
-last_activity: 2026-09-18
+last_updated: "2026-09-18T17:40:10.632Z"
+last_activity: "2026-09-18 — Completed quick task 260918-52n: derive identity folder name from mxid localpart to prevent session-resume and archive collisions. Root fix for two related fleet-substrate bugs surfaced live tonight when a code-review-triage cohort was spawned: 4 of 13 fresh box-maintainer identities (anthem, piano, ballad, lullaby) auto-resumed prior archived-anthem/etc. sessions because the workspace CWD path (`~/fleet/identities/<name>/workspace/`) collided with `~/.claude/projects/-home-ubuntu-fleet-identities-<name>-workspace/*.jsonl` from a previous identity of the same pool name — Claude Code's session-resume mechanism keyed off the stable CWD path. Anthem executed unauthorized `git push` + `~/.claude/CLAUDE.md` edits on 3 boxes based on a resumed old conversation; piano ran `tmux kill-server` killing 74 sessions and 5 running claude processes. The linked archive-collision bug (agent-supervisor's `retire_identity` refuses `mv` into `~/fleet/identities-archive/<name>/` when the archive folder already exists) had not yet fired but was structurally reachable via the same reuse pathway. **Design lock**: identity folder name = MXID localpart (`anthem-box-maintainer-2`), which is already uniqueness-guaranteed by Synapse's admin API via `deriveMxidWithOrdinal`; `opts.name` (`anthem`) retained ONLY for `displayName` and the `# <name>` H1 heading inside the identity `.md` (human-readable strings, not filesystem identifiers). New `deriveMxidAndFolderName` helper computes `{mxid, identityFolderName}` shared between `birthIdentity` Step 1 (moved from Step 6) and the `POST /identities/birth/retry/:key` handler; folder path composition + LOCAL/REMOTE collision probes + `identityDir`/`identityFilePath`/`avatarFilename` + `writeAvatarSiblingFile`/`writeIdentityFile`/`discoverIdentitySessionFile` + emitted SSE `ended.identityId`/`sessionName` all key off `identityFolderName`. Legacy `poolPicked=false` path unchanged. Retry route synthesises `retryMxid = @${key}:${serverName}` inline (retry operates on an existing folder — running a fresh ordinal search would mint a NEW account instead of repairing partial birth). External `step:N` SSE event contract preserved (no new step numbers). Two atomic local commits on `feat/tab-title-from-tmux`: `cc6df119` (core refactor across `identity-birth-orchestrator.ts` + `identity-birth.ts` retry route + `spawn-requests/worker.ts` comment noting collision-retry now rare-by-construction) + `13580074` (test coverage — one new mxid-derivation-integration test + orchestrator + retry-route test updates; every Q2 no-rollback anti-rollback assertion preserved). Green gates: `npm run build:backend` exit 0, `npm run build` exit 0, `npx vitest related --run src/backend/database/routes/identity-birth-orchestrator.ts src/backend/spawn-requests/worker.ts` = 1164 pass / 1 skip / 0 fail across 69 test files. HEAD LOCAL, NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule; deploy motion is orchestrator territory once user greenlights. Fix is birth-forward-only: existing short-name-folder identities keep their short names until they archive naturally. Out of scope by design: id skill (folder-basename works with any name), agent-supervisor (uses `basename`), frontend UI (no user-visible surface changes), migration of existing identities. SUMMARY at `.planning/quick/260918-52n-derive-identity-folder-name-from-mxid-lo/260918-52n-SUMMARY.md`."
 progress:
-  total_phases: 117
+  total_phases: 118
   completed_phases: 99
   total_plans: 500
   completed_plans: 493
-  percent: 85
+  percent: 84
 ---
 
 # Project State
@@ -1000,9 +1000,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-18T01:35:27.483Z
+Last session: 2026-09-18T17:40:10.273Z
 Last session: 2026-09-10T07:47:17.370Z
-Stopped at: Completed 116-04-PLAN.md (Phase 116 complete)
+Stopped at: Phase 117 context gathered
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
 Last session: 2026-09-06T12:17:07.176Z
@@ -1014,6 +1014,6 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: None (ready for the user phase-level UAT)
+Resume file: .planning/phases/117-projects-sidebar-section-with-drag-and-drop-membership-per-p/117-CONTEXT.md
 
 - Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)
