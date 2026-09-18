@@ -461,6 +461,52 @@ test_6_missing_jq_fails_fast() {
   assert_eq 0 "$wire_count" "no request json should be dropped when jq is missing"
 }
 
+# Test 7: request JSON is SINGLE-LINE (wire-protocol invariant).
+# The backend scan is line-delimited: `printf '%s\t' "$f"; cat; printf '\n'`
+# on the SSH path and the equivalent for the local FS scan. A multi-line
+# request body (e.g. from jq without -c) shows up as record-per-line in the
+# batched output and the parser sees only `{` on the first line, returning
+# `reason:malformed, message:"invalid JSON at position 1"`. Same trap
+# coordinator-instructions already documented — guard against regression.
+test_7_request_json_is_single_line() {
+  IMAGE_GEN_TIMEOUT_SEC=2 HOME="$FIXTURE" bash "$HELPER" "single-line probe" \
+    >/dev/null 2>/dev/null &
+  local helper_pid=$!
+
+  # Wait for the request json to appear.
+  local i=0
+  local req_file=""
+  while [ "$i" -lt 20 ]; do
+    for f in "$FIXTURE"/fleet/image-gen-requests/*.json; do
+      if [ -f "$f" ]; then
+        case "$f" in
+          *.success.json|*.failure.json) continue;;
+          *) req_file="$f"; break 2;;
+        esac
+      fi
+    done
+    sleep 0.1
+    i=$((i + 1))
+  done
+
+  if [ -z "$req_file" ]; then
+    fail "no request json appeared"
+    wait "$helper_pid" 2>/dev/null || true
+    return
+  fi
+
+  # Assert exactly one line in the request json.
+  local line_count
+  line_count=$(wc -l < "$req_file")
+  # `wc -l` counts trailing newlines. A single-line json ends with 0 newlines
+  # (or 1 if jq appends one) — either way, no more than 1.
+  if [ "$line_count" -gt 1 ]; then
+    fail "request json is multi-line ($line_count lines) — wire protocol requires single-line JSON"
+  fi
+
+  wait "$helper_pid" 2>/dev/null || true
+}
+
 # ============================================================================
 # MAIN
 # ============================================================================
@@ -475,6 +521,7 @@ run_test test_3_timeout_via_env_override
 run_test test_4_planted_success
 run_test test_5_planted_failure
 run_test test_6_missing_jq_fails_fast
+run_test test_7_request_json_is_single_line
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s  SKIP: %s\n' "$PASS" "$FAIL" "$SKIP"

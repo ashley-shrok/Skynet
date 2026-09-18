@@ -183,24 +183,31 @@ fi
 # assembly flows through `jq --arg` / `jq --argjson` for correct escaping.
 
 if [ -n "$json_file" ]; then
-  # Caller supplied the full JSON body verbatim. If --ref is also set, splice
-  # the ref field via jq so the backend scanner picks up the companion filename.
+  # Caller supplied the full JSON body verbatim. jq -c forces single-line
+  # output — the wire protocol is line-delimited (backend scan uses
+  # `printf '%s\t'; cat; printf '\n'` on the SSH path, and the local FS scan
+  # matches). Multi-line JSON breaks the parser with "invalid JSON at
+  # position 1" (same trap coordinator-instructions already documented).
   if [ -n "$ref_wire_name" ]; then
-    if ! jq --arg r "$ref_wire_name" '. + {ref: $r}' "$json_file" > "$req_tmp"; then
+    if ! jq -c --arg r "$ref_wire_name" '. + {ref: $r}' "$json_file" > "$req_tmp"; then
       printf 'image-gen: failed to splice --ref into --json body\n' >&2
       rm -f "$req_tmp" 2>/dev/null || true
       [ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
       exit 2
     fi
   else
-    # Copy verbatim (no --ref splice needed). Caller owns any ref field
-    # already present in the JSON body.
-    cp "$json_file" "$req_tmp"
+    # Compact through jq -c even for the pass-through case — caller-supplied
+    # JSON may itself be pretty-printed and would break the wire otherwise.
+    if ! jq -c '.' "$json_file" > "$req_tmp"; then
+      printf 'image-gen: failed to compact --json body\n' >&2
+      rm -f "$req_tmp" 2>/dev/null || true
+      exit 2
+    fi
   fi
 else
   requested_at=$(date -u +%FT%TZ)
   n_val="${n:-1}"
-  jq -n \
+  jq -cn \
     --arg prompt "$prompt" \
     --arg size "$size" \
     --arg quality "$quality" \
