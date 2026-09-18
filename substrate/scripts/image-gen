@@ -1,0 +1,323 @@
+#!/usr/bin/env bash
+# image-gen — file-drop broker helper for generic image generation via the fleet's image provider.
+#
+# Canonical copy lives in the Skynet repo at substrate/scripts/image-gen and is
+# distributed to every managed host (including the Skynet host itself) by the
+# fleet-substrate distributor (see src/backend/distributor/catalog.ts). Installed
+# per-box at ~/.local/bin/image-gen. Do NOT hand-edit the installed copy —
+# edits are made in the repo and land on all boxes via the next distributor sweep.
+#
+# Wire protocol (mirrors the Phase 99 spawn-request pattern; see .planning/phases/
+# 116-.../116-CONTEXT.md D-06..D-16 for the locked shape):
+#   - Request:  ~/fleet/image-gen-requests/<uuid>.json          (drop signal)
+#               ~/fleet/image-gen-requests/<uuid>.ref.<ext>     (optional companion)
+#   - Success:  ~/fleet/image-gen-requests/<uuid>.success.json  (metadata)
+#               ~/fleet/image-gen-requests/<uuid>.success.<i>.png (image bytes)
+#   - Failure:  ~/fleet/image-gen-requests/<uuid>.failure.json  ({reason, message?})
+#
+# Usage:
+#   image-gen "a cat"                                                       # simple
+#   image-gen "a portrait" --size 1024x1024 --n 2 --quality high            # flags
+#   image-gen "a landscape" --out ~/pictures/land.png                       # explicit output
+#   image-gen "a cat with hat" --ref /tmp/base-cat.png                      # image-to-image
+#   image-gen --json /path/to/full.json                                     # full-payload escape
+#   image-gen --json /path/to/full.json --ref /path/to/ref.png              # full-payload edit
+#
+# Env overrides (for tests / operator tuning):
+#   IMAGE_GEN_TIMEOUT_SEC   poll deadline in seconds (default 300 = 5 min per D-16)
+#
+# Exit status:
+#   0 — success. Each generated-image path printed on stdout (one per line);
+#       full success JSON copied to stderr for transcript-side debug.
+#   1 — failure or timeout. Failure JSON printed to stderr; nothing on stdout.
+#
+# Set flags: `-e` is intentionally NOT set — some subcommand non-zero exits are
+# expected on the polling / cleanup paths and would otherwise kill the script
+# mid-flight (matches agent-supervisor.sh:35 rationale).
+#
+# Safety: caller-supplied prompt content is NEVER shell-interpolated. All prompt
+# handling flows through `jq --arg` (correct JSON escape) or `printf '%s'` (safe
+# string passthrough) — see V10 in .planning/phases/116-.../116-RESEARCH.md.
+
+set -uo pipefail
+
+# ---- constants ---------------------------------------------------------------
+
+REQ_DIR="${HOME}/fleet/image-gen-requests"
+OUT_DIR="${HOME}/fleet/image-gen-outputs"
+POLL_INTERVAL_FAST="0.5"   # first 30s
+POLL_INTERVAL_SLOW="2"     # after 30s
+FAST_POLL_WINDOW_SEC=30
+TIMEOUT_SEC="${IMAGE_GEN_TIMEOUT_SEC:-300}"
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: image-gen <prompt> [--size WxH] [--n N] [--quality low|medium|high]
+                          [--out <path>] [--ref <path>] [--json <file>]
+       image-gen --json <file> [--ref <path>]
+       image-gen -h | --help
+
+Prints generated image path(s) on stdout, one per line, on exit 0.
+Prints failure JSON on stderr on non-zero exit.
+USAGE
+}
+
+# ---- arg parse ---------------------------------------------------------------
+
+prompt=""
+size=""
+n=""
+quality=""
+out=""
+ref=""
+json_file=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --size)    size="${2:-}";    shift 2;;
+    --n)       n="${2:-}";       shift 2;;
+    --quality) quality="${2:-}"; shift 2;;
+    --out)     out="${2:-}";     shift 2;;
+    --ref)     ref="${2:-}";     shift 2;;
+    --json)    json_file="${2:-}"; shift 2;;
+    -h|--help) usage; exit 0;;
+    --) shift; break;;
+    -*)
+      printf 'image-gen: unknown flag: %s\n' "$1" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      if [ -z "$prompt" ]; then
+        prompt="$1"
+      else
+        printf 'image-gen: unexpected positional arg after prompt: %s\n' "$1" >&2
+        usage
+        exit 2
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$prompt" ] && [ -z "$json_file" ]; then
+  printf 'image-gen: prompt (positional) OR --json <file> is required\n' >&2
+  usage
+  exit 2
+fi
+
+if [ -n "$json_file" ] && [ ! -f "$json_file" ]; then
+  printf 'image-gen: --json file not found: %s\n' "$json_file" >&2
+  exit 2
+fi
+
+if [ -n "$ref" ] && [ ! -f "$ref" ]; then
+  printf 'image-gen: --ref file not found: %s\n' "$ref" >&2
+  exit 2
+fi
+
+# ---- ensure fleet dirs exist (D-03: missing folder is not an error) ----------
+
+mkdir -p "$REQ_DIR" "$OUT_DIR"
+
+# ---- uuid --------------------------------------------------------------------
+# Prefer util-linux uuidgen; fall back to /proc/sys/kernel/random/uuid (RESEARCH A1).
+
+if command -v uuidgen >/dev/null 2>&1; then
+  uuid=$(uuidgen | tr '[:upper:]' '[:lower:]')
+else
+  uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr '[:upper:]' '[:lower:]')
+fi
+
+if [ -z "$uuid" ]; then
+  printf 'image-gen: could not generate uuid (uuidgen missing and /proc/sys/kernel/random/uuid unreadable)\n' >&2
+  exit 2
+fi
+
+req_path="$REQ_DIR/$uuid.json"
+req_tmp="$req_path.tmp.$$"
+success_file="$REQ_DIR/$uuid.success.json"
+failure_file="$REQ_DIR/$uuid.failure.json"
+
+# ---- ref file: WRITE FIRST (Pitfall 3 from RESEARCH.md) ---------------------
+# Write-order is commit-order for the two-file drop. The backend scanner
+# claims on observing the .json; the companion .ref.<ext> MUST already be
+# present at that instant, or the scan reads a null companion and treats
+# the request as malformed. So: ref first, then json, always in that order.
+
+ref_wire_name=""
+if [ -n "$ref" ]; then
+  ext="${ref##*.}"
+  # lower-case the extension so *.PNG normalises to *.png on the wire
+  ext=$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')
+  ref_wire_name="$uuid.ref.$ext"
+  ref_dest="$REQ_DIR/$ref_wire_name"
+  ref_tmp="$ref_dest.tmp.$$"
+  if ! cp "$ref" "$ref_tmp"; then
+    printf 'image-gen: failed to stage ref file at %s\n' "$ref_tmp" >&2
+    exit 2
+  fi
+  if ! mv "$ref_tmp" "$ref_dest"; then
+    printf 'image-gen: failed to commit ref file at %s\n' "$ref_dest" >&2
+    rm -f "$ref_tmp" 2>/dev/null || true
+    exit 2
+  fi
+fi
+
+# ---- request body assembly ---------------------------------------------------
+# Prefer jq (correct escape); fall back to printf if unavailable (RESEARCH A2).
+# The fallback path documents-by-comment that quote-safety is not guaranteed.
+
+if [ -n "$json_file" ]; then
+  # Caller supplied the full JSON body verbatim. If --ref is also set, splice
+  # the ref field via jq so the backend scanner picks up the companion filename.
+  if [ -n "$ref_wire_name" ] && command -v jq >/dev/null 2>&1; then
+    if ! jq --arg r "$ref_wire_name" '. + {ref: $r}' "$json_file" > "$req_tmp"; then
+      printf 'image-gen: failed to splice --ref into --json body\n' >&2
+      rm -f "$req_tmp" 2>/dev/null || true
+      [ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
+      exit 2
+    fi
+  else
+    # Copy verbatim (jq not present, or no --ref). Caller is responsible for
+    # any ref field already present in the JSON body.
+    cp "$json_file" "$req_tmp"
+  fi
+else
+  requested_at=$(date -u +%FT%TZ)
+  n_val="${n:-1}"
+  if command -v jq >/dev/null 2>&1; then
+    jq -n \
+      --arg prompt "$prompt" \
+      --arg size "$size" \
+      --arg quality "$quality" \
+      --argjson n_num "$n_val" \
+      --arg requested_at "$requested_at" \
+      --arg ref "$ref_wire_name" \
+      '
+      {prompt: $prompt, n: $n_num, requested_at: $requested_at}
+      + (if $size    != "" then {size: $size}       else {} end)
+      + (if $quality != "" then {quality: $quality} else {} end)
+      + (if $ref     != "" then {ref: $ref}         else {} end)
+      ' > "$req_tmp"
+  else
+    # WARNING: fallback path — no jq. Quote-safety in $prompt is not guaranteed
+    # (a literal `"` or newline in the prompt will break the JSON). Install jq
+    # on any host where prompts may contain those characters.
+    ref_field=""
+    if [ -n "$ref_wire_name" ]; then
+      ref_field=$(printf ',"ref":"%s"' "$ref_wire_name")
+    fi
+    size_field=""
+    if [ -n "$size" ]; then
+      size_field=$(printf ',"size":"%s"' "$size")
+    fi
+    quality_field=""
+    if [ -n "$quality" ]; then
+      quality_field=$(printf ',"quality":"%s"' "$quality")
+    fi
+    printf '{"prompt":"%s","n":%s,"requested_at":"%s"%s%s%s}\n' \
+      "$prompt" "$n_val" "$requested_at" \
+      "$size_field" "$quality_field" "$ref_field" \
+      > "$req_tmp"
+  fi
+fi
+
+# ---- atomic commit of the request json (D-10) --------------------------------
+
+if ! mv "$req_tmp" "$req_path"; then
+  printf 'image-gen: failed to commit request json at %s\n' "$req_path" >&2
+  rm -f "$req_tmp" 2>/dev/null || true
+  [ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
+  exit 2
+fi
+
+# ---- poll --------------------------------------------------------------------
+
+poll_start=$(date +%s)
+deadline=$(( poll_start + TIMEOUT_SEC ))
+
+while [ ! -f "$success_file" ] && [ ! -f "$failure_file" ]; do
+  now=$(date +%s)
+  if [ "$now" -ge "$deadline" ]; then
+    # Synthesize the D-27 `expired` failure so the caller's failure-handling
+    # path treats a caller-side timeout identically to a backend-side TTL fire.
+    printf '{"reason":"expired"}\n' >&2
+    rm -f "$req_path" 2>/dev/null || true
+    [ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
+    exit 1
+  fi
+  if [ $(( now - poll_start )) -lt "$FAST_POLL_WINDOW_SEC" ]; then
+    sleep "$POLL_INTERVAL_FAST"
+  else
+    sleep "$POLL_INTERVAL_SLOW"
+  fi
+done
+
+# ---- failure branch ----------------------------------------------------------
+
+if [ -f "$failure_file" ]; then
+  # Copy failure JSON to caller stderr BEFORE cleanup, so the transcript keeps
+  # the bytes even if the rm race-loses (belt-and-suspenders — the failure_file
+  # existed on the check above but a concurrent reaper could still remove it).
+  cat "$failure_file" >&2 2>/dev/null || true
+  rm -f "$failure_file" "$req_path" 2>/dev/null || true
+  [ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
+  exit 1
+fi
+
+# ---- success branch ----------------------------------------------------------
+
+# Move any success.<i>.png images out of the wire folder to the output location.
+# Multiple images (n>1): index suffix is appended before the extension when
+# --out was set explicitly, so "--out /tmp/foo.png" with n=2 lands as
+# /tmp/foo-0.png + /tmp/foo-1.png.
+
+paths=()
+i=0
+# Enable nullglob-style behavior by shopt or by checking each match manually;
+# the manual [ -f ] check works portably without shopt.
+for png in "$REQ_DIR/$uuid.success."*.png; do
+  [ -f "$png" ] || continue
+  if [ -n "$out" ]; then
+    # Custom output path — respect it verbatim for the first image; append
+    # -<i> suffix before the extension for subsequent images.
+    out_dir=$(dirname -- "$out")
+    out_base=$(basename -- "$out")
+    out_ext="${out_base##*.}"
+    out_stem="${out_base%.*}"
+    if [ "$i" -eq 0 ]; then
+      dest="$out"
+    else
+      dest="$out_dir/$out_stem-$i.$out_ext"
+    fi
+    mkdir -p "$out_dir" 2>/dev/null || true
+  else
+    dest="$OUT_DIR/$uuid-$i.png"
+  fi
+  if ! mv "$png" "$dest"; then
+    printf 'image-gen: failed to move %s -> %s\n' "$png" "$dest" >&2
+    # Continue trying the rest — a partial success is more useful than none.
+    continue
+  fi
+  paths+=("$dest")
+  i=$(( i + 1 ))
+done
+
+# D-14 stdout/stderr split:
+#   - metadata JSON to stderr (visible in transcript for debug)
+#   - image paths to stdout, one per line (grepable / `head -1`-able)
+
+cat "$success_file" >&2 2>/dev/null || true
+for p in "${paths[@]}"; do
+  printf '%s\n' "$p"
+done
+
+# ---- wire-file cleanup (D-05 — helper owns its own cleanup) ------------------
+
+rm -f "$success_file" "$req_path" 2>/dev/null || true
+# Sweep any leftover success PNGs that weren't picked up above (paranoid safety).
+rm -f "$REQ_DIR/$uuid.success."*.png 2>/dev/null || true
+[ -n "$ref_wire_name" ] && rm -f "$REQ_DIR/$ref_wire_name" 2>/dev/null || true
+
+exit 0
