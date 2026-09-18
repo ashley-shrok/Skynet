@@ -760,14 +760,13 @@ export function AppShell({
     // swapped the last-fallback slot from the hardcoded brand string to
     // brandingConfig.appName).
     const tmux = activeTmuxFromStore ?? tmuxSessionNames[activeTabId];
-    // Ashley 2026-09-18: browser tab title for identity sessions now shows
-    // the identity's `task` string (frontmatter task: field — what the agent
-    // is currently working on) rather than the displayName, so the tab
-    // surfaces the WORK not the AGENT. Falls back to displayName when the
-    // identity has no task set (null), then raw tmux name, then
-    // activeTab.label, then brandingConfig.appName. The "Untitled
-    // conversation" placeholder is intentionally NOT special-cased — if
-    // that's the task, that's what shows.
+    // Browser tab title for identity sessions shows the identity's `task`
+    // string (frontmatter task: field — what the agent is currently working
+    // on) rather than the displayName, so the tab surfaces the WORK not the
+    // AGENT. Falls back to displayName when the identity has no task set
+    // (null), then raw tmux name, then activeTab.label, then
+    // brandingConfig.appName. The "Untitled conversation" placeholder is
+    // intentionally NOT special-cased — if that's the task, that's what shows.
     const resolvedKey = (tmux ?? activeTab?.label ?? "").toLowerCase();
     const identity = resolvedKey ? identitiesByKey.get(resolvedKey) : null;
     document.title =
