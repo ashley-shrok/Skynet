@@ -50,7 +50,7 @@ import {
   DISCOVERY_EXEC_TIMEOUT_MS,
 } from "../claude-session/discover-identity-session-file.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
-import type { SessionState } from "./wire-protocol.js";
+import type { AppState, SessionState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
 import { writeSessionFileCache } from "./session-file-cache.js";
 // Phase 92 — v1 JSONL sweep wire contract (Plan 01). parseSweepJsonl is the
@@ -60,6 +60,7 @@ import { writeSessionFileCache } from "./session-file-cache.js";
 import {
   parseSweepJsonl,
   SWEEP_SCHEMA_VERSION,
+  type SweepAppLine,
   type SweepPidLine,
   type SweepIdentityLine,
 } from "./sweep-schema.js";
@@ -483,6 +484,26 @@ interface PerHostState {
   // is a full answer) — never on {ok:false} sweep failures, so transient SSH
   // hiccups don't flap the sidebar.
   lastTickLiveTreeIdentities: Set<string>;
+
+  // Phase 118 Plan 118-04 (D-11, D-12, D-13, D-02): per-host reconciliation
+  // set of source-C app slugs seen in the last successful sweep tick. Mirrors
+  // `lastTickLiveTreeIdentities` above verbatim (adopting Phase 115's
+  // `67b4a7ef` pattern for apps, per D-11). Populated at the end of each
+  // successful sweep with EVERY slug that entered the picture — healthy OR
+  // unhealthy (D-02 carve-out). Do NOT filter to healthy-only: an unhealthy
+  // app that persists across ticks would gone-and-re-add every tick,
+  // defeating D-13 (health-flip must be a single publishAppUpdate, never
+  // publishAppGoneByHostSlug + publishAppUpdate).
+  //
+  // Diff'd against previous tick on next success to fire
+  // publishAppGoneByHostSlug for silent removals (folder deleted, unit
+  // removed by archive-app.sh, D-01/D-02 dropped for any reason).
+  //
+  // Reconciliation ONLY runs on sweep success per D-12 (the {ok:false} early
+  // returns above in pollOneHostBatch never reach the reconciliation block,
+  // so transient SSH failures don't flap the sidebar). Matches the identity
+  // reconciliation guard.
+  lastTickLiveApps: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -1177,6 +1198,35 @@ function appearanceFromIdentityLine(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 118 Plan 118-04 — source-C app adapter (snake_case wire → camelCase
+// AppState).
+//
+// Pure field copy — no runtime validation, no defensive undefined checks.
+// The runtime validation gate is the AppStateSchema Zod at the wire boundary
+// (wire-protocol.ts, added by Plan 118-03). If the sweep script emits a
+// malformed app line, the parser in sweep-schema.ts has already cast it
+// leniently into SweepAppLine; downstream Zod validation on the client
+// rejects any drift without corrupting the server-side registry.
+//
+// Adapter drops NO fields, adds NO fields, invents NO defaults. Every one of
+// the seven D-05 fields plus the D-03 healthMessage carve-out is mirrored
+// 1:1 from the wire schema (snake_case) onto AppState (camelCase).
+// ---------------------------------------------------------------------------
+function adaptAppLineToState(hostId: string, line: SweepAppLine): AppState {
+  return {
+    hostId,
+    slug: line.slug,
+    title: line.title,
+    description: line.description,
+    port: line.port,
+    hasIcon: line.has_icon,
+    createdAtMs: line.created_at_ms,
+    isHealthy: line.is_healthy,
+    healthMessage: line.health_message,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Phase 99 — spawn-request scan helpers (D-01, D-02, D-03, D-17)
 //
 // One atomic read-and-delete exec per tick per host: lists
@@ -1702,10 +1752,21 @@ export function createSshPollOrchestrator(
     // identityRecycleState non-empty) → treat empty as suspicious and fall
     // back to legacy for this tick. Otherwise accept as a genuine
     // empty-box emission.
-    if (parsed.identityLines.length === 0 && parsed.pidLines.length === 0) {
+    //
+    // Phase 118 Plan 118-04: `appLines` participates in this "did the sweep
+    // emit ANYTHING" check — a box with zero identities + zero PIDs but N
+    // apps is a legitimate emission, not an empty one. Without this
+    // widening, an apps-only sweep would prematurely return here and
+    // bypass the compose+publish + reconciliation blocks below.
+    if (
+      parsed.identityLines.length === 0 &&
+      parsed.pidLines.length === 0 &&
+      parsed.appLines.length === 0
+    ) {
       const hasPriorContent =
         hostState.livenessMap.size > 0 ||
-        hostState.identityRecycleState.size > 0;
+        hostState.identityRecycleState.size > 0 ||
+        hostState.lastTickLiveApps.size > 0;
       if (hasPriorContent) {
         return { ok: false, reason: "empty-output-on-nonempty-box" };
       }
@@ -1790,6 +1851,60 @@ export function createSshPollOrchestrator(
       }
     }
     hostState.lastTickLiveTreeIdentities = thisTickLiveTreeIdentities;
+
+    // Phase 118 Plan 118-04 (D-01, D-02, D-11) — source-C compose+publish for
+    // apps. Each SweepAppLine that reached this scope has already passed the
+    // Python sweep script's D-01/D-02 filters (folder + card + unit checks,
+    // with the "unit exists but stopped" carve-out emitted as unhealthy).
+    // The orchestrator does NOT re-check inclusion here — the Python is the
+    // authority for what's in the picture. adaptAppLineToState is a pure
+    // snake_case → camelCase field copy; publishAppUpdate fans the resulting
+    // AppState frame out to all subscribers via the wire-protocol layer.
+    //
+    // This loop sits inside the sweep-SUCCESS scope: every {ok:false}
+    // early-return above in pollOneHostBatch (sweep null / schema mismatch
+    // / empty-output-on-nonempty-box) bypasses it — same discipline the
+    // identity + pid compose loops above already benefit from.
+    for (const appLine of parsed.appLines) {
+      deps.registry.publishAppUpdate(
+        host.id,
+        adaptAppLineToState(host.id, appLine),
+      );
+    }
+
+    // Phase 118 Plan 118-04 (D-11, D-12, D-13) — reconcile app cache with
+    // sweep. Mirrors the identity reconciliation block immediately above
+    // (adopts Phase 115's `67b4a7ef` pattern verbatim, per D-11).
+    //
+    // Any app slug that was in the previous tick's picture but is NOT in
+    // this tick's picture (folder deleted, unit removed by archive-app.sh,
+    // ceased passing D-01 or D-02 for any other silent reason) gets a
+    // publishAppGoneByHostSlug so the registry drops it from the cached
+    // apps map. Without this, the cache holds stale apps forever whenever
+    // one transitions out of the picture via a path that doesn't emit an
+    // explicit lifecycle event.
+    //
+    // LOAD-BEARING (RESEARCH § Pitfall 3 / D-02 + D-13): the tracking set
+    // holds ALL slugs in the picture — healthy AND unhealthy — NOT just
+    // healthy. Filtering to healthy-only would flap an unhealthy app off
+    // the sidebar every tick and defeat D-13's health-flip-is-update
+    // discipline. Every line in parsed.appLines contributes to the set
+    // regardless of is_healthy.
+    //
+    // Runs ONLY on sweep success — the {ok:false} early returns above in
+    // pollOneHostBatch never reach here, so transient SSH failures don't
+    // flap the sidebar (same D-12 guard the identity reconciliation gets by
+    // virtue of position in the sweep-success scope).
+    const thisTickLiveApps = new Set<string>();
+    for (const line of parsed.appLines) {
+      thisTickLiveApps.add(line.slug);
+    }
+    for (const previousSlug of hostState.lastTickLiveApps) {
+      if (!thisTickLiveApps.has(previousSlug)) {
+        deps.registry.publishAppGoneByHostSlug(host.id, previousSlug);
+      }
+    }
+    hostState.lastTickLiveApps = thisTickLiveApps;
 
     return {
       ok: true,
@@ -3006,6 +3121,13 @@ export function createSshPollOrchestrator(
         // tick to diff against). Subsequent ticks compare against this and
         // emit publishSessionGone for anything that dropped from the live tree.
         lastTickLiveTreeIdentities: new Set<string>(),
+        // Phase 118 Plan 118-04 (D-11): sibling reconciliation set for
+        // source-C app slugs. Initialized empty so the FIRST successful
+        // sweep for this host publishes nothing gone (no previous tick to
+        // diff against). Subsequent ticks compare against this and emit
+        // publishAppGoneByHostSlug for any slug that dropped out of the
+        // picture (folder deleted, unit removed, ceased passing D-01/D-02).
+        lastTickLiveApps: new Set<string>(),
         // Phase 92 — sweep-first / legacy-fallback dispatch cache. All three
         // fields are per-SSH-channel-lifetime: reset when pollOneHost sees a
         // fresh channel object reference (see PerHostState docblock above).
