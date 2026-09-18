@@ -143,9 +143,18 @@ export const IMAGE_GEN_SCAN_CMD = [
   "done",
 ].join(" ");
 
-/** UUID shape regex — defense-in-depth in the TS parser (matches
- *  ssh-poll-orchestrator.ts:1211). */
-const UUID_RE = /^[0-9a-f-]{36}$/i;
+/**
+ * UUID shape regex — strict canonical 8-4-4-4-12 dashed form.
+ *
+ * The prior loose form (`/^[0-9a-f-]{36}$/i`) accepted any 36-char string
+ * composed of hex or hyphens — including pathological cases like 36 hyphens
+ * (`------------------------------------`) or `abcdefff-abcd-abcd-abcd-abcdefabcde`
+ * (35 hex chars misspelled to reach 36 total). These would never be produced
+ * by `uuidgen` but a hostile caller writing files by hand could exploit the
+ * loose match. Tightened to the canonical dashed shape (matches the
+ * REF_PATTERN in parse-request-body.ts).
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Parse the batched stdout from the atomic scan exec into an array of

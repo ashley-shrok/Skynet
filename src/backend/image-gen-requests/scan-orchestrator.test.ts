@@ -473,6 +473,33 @@ describe("parseImageGenRequestBatch", () => {
     expect(parseImageGenRequestBatch("", "42")).toEqual([]);
     expect(parseImageGenRequestBatch("   \n", "42")).toEqual([]);
   });
+
+  it("P5: pathological 36-char basenames failing strict UUID_RE are skipped (defense-in-depth against a hostile caller writing files by hand)", () => {
+    // 36 hyphens — old loose regex `/^[0-9a-f-]{36}$/i` accepted this;
+    // canonical `uuidgen` output never produces it.
+    const allHyphens = "------------------------------------";
+    // 35 hex chars split across 4 dashed groups reaching 36 chars total
+    // (last group is 11 chars, not 12).
+    const wrongGroupLen = "abcdefff-abcd-abcd-abcd-abcdefabcde".padEnd(36, "-");
+    // 36 hex chars with no dashes at all (loose form accepted; strict rejects).
+    const noDashes = "abcdef0123456789abcdef0123456789abcd";
+
+    const stdout =
+      `${allHyphens}.json\t${JSON.stringify({ prompt: "x", requested_at: "2026-09-18T00:00:00Z" })}\n` +
+      `${wrongGroupLen}.json\t${JSON.stringify({ prompt: "x", requested_at: "2026-09-18T00:00:00Z" })}\n` +
+      `${noDashes}.json\t${JSON.stringify({ prompt: "x", requested_at: "2026-09-18T00:00:00Z" })}\n`;
+
+    const results = parseImageGenRequestBatch(stdout, "42");
+    expect(results).toEqual([]);
+  });
+
+  it("P6: canonical 8-4-4-4-12 dashed UUID is still accepted", () => {
+    const canonical = "abcdef01-2345-6789-abcd-ef0123456789";
+    const stdout = `${canonical}.json\t${buildValidRequest(canonical)}\n`;
+    const results = parseImageGenRequestBatch(stdout, "42");
+    expect(results.length).toBe(1);
+    expect(results[0].uuid).toBe(canonical);
+  });
 });
 
 // ---------------------------------------------------------------------------
