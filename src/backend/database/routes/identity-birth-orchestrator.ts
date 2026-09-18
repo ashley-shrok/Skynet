@@ -1491,9 +1491,9 @@ export async function birthIdentity(
       // Both primitives take conn nullable — REMOTE passes the SSH client,
       // LOCAL passes null. Same $HOME-prefixed path shape either way; the
       // primitive's LOCAL branch substitutes $HOME/fleet →
-      // parent-of-IDENTITIES_HOST_DIR (i.e. the /fleet bind mount root
-      // inside the container), NOT os.homedir()/fleet (which would land at
-      // /home/node/fleet — ephemeral overlay storage the supervisor on
+      // parent-of-IDENTITIES_HOST_DIR (i.e. /host-home/fleet under the
+      // host-home bind mount), NOT os.homedir()/fleet (which would land at
+      // /root/fleet — ephemeral overlay storage the supervisor on
       // the host can't see).
       // Defense in depth: HTTP handler validates opts.role, but re-check
       // here because role is shell-interpolated in the identity file body.
@@ -1507,11 +1507,12 @@ export async function birthIdentity(
       //   REMOTE: resolve $HOME via SSH exec — the target host's shell tells
       //           us where the user's fleet dir lives.
       //   LOCAL:  use getLocalIdentitiesRoot() — the container-side path
-      //           where the /fleet bind-mount sits (env IDENTITIES_HOST_DIR
-      //           falling back to os.homedir()/fleet/identities). Do NOT use
-      //           the container shell's $HOME — inside the Skynet container
-      //           that's /home/node which is NOT where the bind mount is,
-      //           and writes there land in ephemeral container storage
+      //           inside the host-home bind mount (env IDENTITIES_HOST_DIR
+      //           = /host-home/fleet/identities in production, falling back
+      //           to os.homedir()/fleet/identities in dev). Do NOT use the
+      //           container shell's $HOME — inside the Skynet container
+      //           that's /root which is NOT where the bind mount is, and
+      //           writes there land in ephemeral container storage
       //           (invisible to the supervisor on the host).
       // opts.name is already gated by IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE
       // above, so it's shell-safe.
@@ -1703,10 +1704,9 @@ export async function birthIdentity(
     //
     // Local branch (isLocalHostId=true): runs the SAME poll loop with a
     // null SSH conn. discoverIdentitySessionFile's LOCAL branch reads the
-    // container's bind-mounted host `.claude/projects/` via node fs (env
-    // CLAUDE_PROJECTS_HOST_DIR, defaulted in docker-compose.yml alongside
-    // the existing `/fleet` bind) — same routing shape as writeIdentityFile
-    // at per-identity-file.ts. Local births go through the wait for two
+    // container's bind-mounted host `.claude/projects/` via node fs, routed
+    // through HOME_HOST_DIR (= /host-home/.claude/projects/) — same routing
+    // shape as writeIdentityFile at per-identity-file.ts. Local births go through the wait for two
     // reasons: (1) the UI birth flow (POST /identities/birth, SSE) can now
     // target the Skynet host itself and its modal auto-route depends on
     // ended{ok:true} meaning "PrettyView has something real to render", and

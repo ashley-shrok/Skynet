@@ -466,23 +466,29 @@ describe("discoverIdentitySessionFile", () => {
 // ── LOCAL-branch cases (conn === null): 2026-09-13 ──────────────────────────
 //
 // discoverIdentitySessionFile now accepts (Client | null, identityName). When
-// conn is null, the sensor reads the local FS at CLAUDE_PROJECTS_HOST_DIR —
-// exercised by identity-birth-orchestrator's supervisor-wait for co-located
-// births. The tests below mirror CASE-H1/H2/H3/H6/H7/H8 semantics against a
-// real tmpdir fixture. execCommand is not touched on the null-conn path.
+// conn is null, the sensor reads the local FS under HOME_HOST_DIR/.claude/
+// projects/ — exercised by identity-birth-orchestrator's supervisor-wait for
+// co-located births. The tests below mirror CASE-H1/H2/H3/H6/H7/H8 semantics
+// against a real tmpdir fixture (tmpRoot is the home root; the seed function
+// writes into `<tmpRoot>/.claude/projects/<slug>/`, mirroring production
+// shape where /host-home/.claude/projects/ is the live path). execCommand is
+// not touched on the null-conn path.
 
 describe("discoverIdentitySessionFile — LOCAL branch (conn === null)", () => {
   let tmpRoot: string;
-  const prevEnv = process.env.CLAUDE_PROJECTS_HOST_DIR;
+  let projectsRoot: string;
+  const prevEnv = process.env.HOME_HOST_DIR;
 
   beforeEach(async () => {
     tmpRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "disco-local-"));
-    process.env.CLAUDE_PROJECTS_HOST_DIR = tmpRoot;
+    projectsRoot = path.join(tmpRoot, ".claude", "projects");
+    await fsp.mkdir(projectsRoot, { recursive: true });
+    process.env.HOME_HOST_DIR = tmpRoot;
   });
 
   afterEach(async () => {
-    if (prevEnv === undefined) delete process.env.CLAUDE_PROJECTS_HOST_DIR;
-    else process.env.CLAUDE_PROJECTS_HOST_DIR = prevEnv;
+    if (prevEnv === undefined) delete process.env.HOME_HOST_DIR;
+    else process.env.HOME_HOST_DIR = prevEnv;
     try {
       await fsp.rm(tmpRoot, { recursive: true, force: true });
     } catch {
@@ -496,7 +502,7 @@ describe("discoverIdentitySessionFile — LOCAL branch (conn === null)", () => {
     firstLine: string,
     mtimeSeconds: number,
   ): Promise<string> {
-    const projDir = path.join(tmpRoot, projectSlug);
+    const projDir = path.join(projectsRoot, projectSlug);
     await fsp.mkdir(projDir, { recursive: true });
     const full = path.join(projDir, fileName);
     await fsp.writeFile(full, firstLine + "\n", "utf8");
@@ -561,10 +567,9 @@ describe("discoverIdentitySessionFile — LOCAL branch (conn === null)", () => {
   });
 
   it("LOCAL-CASE-L5: missing projects root → returns null, no throw (fail-safe)", async () => {
-    process.env.CLAUDE_PROJECTS_HOST_DIR = path.join(
-      tmpRoot,
-      "does-not-exist",
-    );
+    // Point HOME_HOST_DIR at a nonexistent path so getLocalClaudeProjectsRoot's
+    // derived <root>/.claude/projects also doesn't exist.
+    process.env.HOME_HOST_DIR = path.join(tmpRoot, "does-not-exist");
     const result = await discoverIdentitySessionFile(null, "tanya");
     expect(result).toBe(null);
   });
@@ -582,7 +587,7 @@ describe("discoverIdentitySessionFile — LOCAL branch (conn === null)", () => {
 
   it("LOCAL-CASE-L7: file with no user-role line in first 4KB → skipped, returns null", async () => {
     const projDir = path.join(
-      tmpRoot,
+      projectsRoot,
       "-home-ubuntu-fleet-identities-tanya-workspace",
     );
     await fsp.mkdir(projDir, { recursive: true });

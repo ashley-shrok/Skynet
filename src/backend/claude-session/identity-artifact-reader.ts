@@ -1958,11 +1958,11 @@ export async function writeMarkdownFileAtomic(
   // used by identity-birth Step 2.5).
   //
   // $HOME resolution — do NOT use os.homedir(). Inside the Skynet container
-  // os.homedir() returns the runtime user's home (e.g. /home/node) which
-  // is NOT where the /fleet bind mount lives. The bind mount is at
-  // <container-root>/fleet mapped to the host's fleet dir; IDENTITIES_HOST_DIR
-  // (e.g. /fleet/identities) names that mount. Take the parent of
-  // IDENTITIES_HOST_DIR as the "fleet root inside the container" and
+  // os.homedir() returns the runtime user's home (e.g. /root) which is NOT
+  // where the host-home bind mount lives. The bind mount is at /host-home
+  // (via HOME_HOST_DIR), and IDENTITIES_HOST_DIR points inside it at
+  // /host-home/fleet/identities. Take the parent of IDENTITIES_HOST_DIR as
+  // the "fleet root inside the container" (= /host-home/fleet) and
   // substitute `$HOME/fleet` → that. Fallback for non-container runs uses
   // os.homedir()/fleet, mirroring getLocalIdentitiesRoot's fallback shape.
   if (conn === null) {

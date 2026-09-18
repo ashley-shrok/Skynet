@@ -18,11 +18,17 @@
  * Bypass approach mirrors the Phase 116 scanner bypass pattern in
  * `src/backend/utils/local-fleet-scan.ts` + the `isLocalHostId` branches in
  * `spawn-requests/scan-orchestrator.ts` and `image-gen-requests/scan-orchestrator.ts`:
- *   - The container already has `~/` bind-mounted at `getLocalFleetRoot()`
- *     (=`path.dirname(IDENTITIES_HOST_DIR)`), so writes to
- *     `<fleet-root>/.claude/skills/…`, `<fleet-root>/.local/bin/…`,
- *     `<fleet-root>/.config/systemd/user/…` land at the same paths a
+ *   - The container has the host's user-home bind-mounted at
+ *     `getLocalHomeRoot()` (=`HOME_HOST_DIR`, typically `/host-home`), so
+ *     writes to `<home-root>/.claude/skills/…`, `<home-root>/.local/bin/…`,
+ *     `<home-root>/.config/systemd/user/…` land at the same paths a
  *     `~/…`-based SSH push would touch on the local host's filesystem.
+ *   - Prior to the 2026-09-18 fix this used `path.dirname(IDENTITIES_HOST_DIR)`
+ *     assuming `~/` was mounted at `/fleet`; the mount actually only covered
+ *     `~/fleet`, so every `~/*` install landed under `/home/ubuntu/fleet/*`
+ *     instead of `/home/ubuntu/*` — invisible to systemd + the substrate
+ *     consumers. Fix: widened mount to full `~/` at `/host-home`, path
+ *     resolution now reads `HOME_HOST_DIR` directly rather than deriving.
  *   - The orchestrator (Task 2, server-substrate-orchestrator.ts) checks
  *     `isLocalHostId(parseInt(host.id, 10))` at the top of `executeSweeForHost`
  *     and — when true — early-returns after calling this module's
@@ -83,9 +89,9 @@
  */
 
 import path from "path";
+import os from "os";
 import fs from "fs/promises";
 import { systemLogger } from "../utils/logger.js";
-import { getLocalIdentitiesRoot } from "../claude-session/identity-artifact-reader.js";
 import { computeInstallMode } from "./sweep-logic.js";
 import type { CatalogEntry } from "./catalog.js";
 import type { BootstrapResult } from "./run-bootstrap.js";
@@ -126,27 +132,28 @@ export interface LocalInstallResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Return the local fleet root — the parent of `getLocalIdentitiesRoot()`.
- * In production: `/fleet`. In dev: `~/fleet`. This is the directory the
- * container's `~/` bind-mount points at, so `~/.claude/skills/foo/SKILL.md`
- * on the local host is `<root>/.claude/skills/foo/SKILL.md` inside the
- * container.
+ * Return the local user-home root — the container path where the host's
+ * `~/` is bind-mounted. In production: `/host-home` (via `HOME_HOST_DIR`).
+ * In dev: `os.homedir()`. This is the directory whose contents map 1:1
+ * onto the host user-home, so `~/.claude/skills/foo/SKILL.md` on the host
+ * is `<home-root>/.claude/skills/foo/SKILL.md` inside the container.
  *
- * Matches local-fleet-scan.ts's `getLocalFleetRoot()` convention.
+ * Distinct from local-fleet-scan.ts's `getLocalFleetRoot()`, which returns
+ * the *fleet* root (`~/fleet`) — a subdirectory of this one.
  */
-function getLocalFleetRoot(): string {
-  return path.dirname(getLocalIdentitiesRoot());
+function getLocalHomeRoot(): string {
+  return process.env.HOME_HOST_DIR || os.homedir();
 }
 
 /**
  * Resolve a catalog entry's `installPath` to the on-disk path inside the
- * container. Leading `~/` is replaced with `getLocalFleetRoot() + "/"`;
+ * container. Leading `~/` is replaced with `getLocalHomeRoot() + "/"`;
  * absolute paths (e.g. `/etc/claude-code/CLAUDE.md`) are passed through
  * verbatim.
  */
 function resolveInstalledPath(installPath: string): string {
   if (installPath.startsWith("~/")) {
-    return path.join(getLocalFleetRoot(), installPath.slice(2));
+    return path.join(getLocalHomeRoot(), installPath.slice(2));
   }
   return installPath;
 }
@@ -589,7 +596,7 @@ export async function bootstrapFleetSubstrateLocally(
   let skynetHostnameOk = false;
   let hadError = false;
 
-  const claudeDir = path.join(getLocalFleetRoot(), ".claude");
+  const claudeDir = path.join(getLocalHomeRoot(), ".claude");
 
   // Steps 1-3 — deliberately deferred as an environmental capability check.
   // The container-runtime env usually has XDG_RUNTIME_DIR set (inherited from

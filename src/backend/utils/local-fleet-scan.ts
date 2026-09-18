@@ -13,10 +13,12 @@
  * subsequent tick logs `"skipping host with in-flight scan (per-host guard)"`.
  *
  * Bypassing SSH entirely for the local host removes that failure mode: the
- * container already has `IDENTITIES_HOST_DIR` bind-mounted at `/fleet/identities`
- * (paren-dir is `/fleet`), which is where `~/fleet/spawn-requests/` and
- * `~/fleet/image-gen-requests/` live on the local host. Reading from the
- * bind-mount is byte-identical to what an SSH scan would have seen.
+ * container has the host's `~/` bind-mounted at `/host-home` (via
+ * HOME_HOST_DIR), and IDENTITIES_HOST_DIR points inside it at
+ * `/host-home/fleet/identities`. The parent (`/host-home/fleet`) is where
+ * `~/fleet/spawn-requests/` and `~/fleet/image-gen-requests/` live on the
+ * local host. Reading from the bind-mount is byte-identical to what an SSH
+ * scan would have seen.
  *
  * ## Semantics (must match the SSH scan commands byte-for-byte)
  *
@@ -64,13 +66,17 @@ import { getLocalIdentitiesRoot } from "../claude-session/identity-artifact-read
 /**
  * Returns the local fleet root directory — the parent of `IDENTITIES_HOST_DIR`.
  *
- * In production (container), `IDENTITIES_HOST_DIR=/fleet/identities`, so this
- * returns `/fleet`. Request folders sit alongside identities:
- *   - `/fleet/spawn-requests/`
- *   - `/fleet/image-gen-requests/`
+ * In production (container), `IDENTITIES_HOST_DIR=/host-home/fleet/identities`,
+ * so this returns `/host-home/fleet` (= `~/fleet` on host). Request folders
+ * sit alongside identities:
+ *   - `/host-home/fleet/spawn-requests/`
+ *   - `/host-home/fleet/image-gen-requests/`
  *
  * In dev (no env var), `getLocalIdentitiesRoot()` returns `~/fleet/identities`,
  * so this returns `~/fleet` — matches the SSH scan command's `~/fleet/...` root.
+ *
+ * Distinct from local-fleet-install.ts's `getLocalHomeRoot()`, which returns
+ * the user-home root (`~/`, a parent of this one).
  */
 function getLocalFleetRoot(): string {
   return path.dirname(getLocalIdentitiesRoot());

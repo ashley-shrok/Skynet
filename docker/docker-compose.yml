@@ -65,21 +65,33 @@ services:
       # .token-dead sentinels back.
       # NOT read_only — Skynet writes from the container.
       - tg-bridge-state:/state
-      # LOCAL-branch bind mount for co-located deployments (opt-in).  When
-      # a deployment's own box is registered as a Skynet host AND wants
-      # identity-artifact-reader / identity-birth / spawn-request-worker to
-      # skip SSH for that host, exposing the host's fleet dir here lets
-      # Skynet read AND write directly from disk.
-      # Opt-in shape: set SKYNET_FLEET_MOUNT_SRC in shell env at compose
+      # LOCAL-branch bind mount for co-located deployments (opt-in). When a
+      # deployment's own box is registered as a Skynet host AND wants
+      # identity-artifact-reader / identity-birth / spawn-request-worker /
+      # distributor to skip SSH for that host, exposing the host's user-home
+      # dir here lets Skynet read AND write directly from disk.
+      #
+      # Widened 2026-09-18 (bug: distributor local-FS install landed
+      # ~/.local/bin/* and ~/.claude/skills/* at /home/ubuntu/fleet/.local/*
+      # instead of /home/ubuntu/.local/* because the mount only covered
+      # ~/fleet, not all of ~/). Fix: mount full user-home at /host-home so
+      # every catalog `~/*` install path resolves correctly. Blast surface
+      # widened accordingly — the container can now read/write anything
+      # under the mounted user-home (including ~/.ssh, ~/.aws, etc.). This
+      # is a conscious tradeoff for co-located deployments only.
+      #
+      # Opt-in shape: set SKYNET_HOME_MOUNT_SRC in shell env at compose
       # invocation (typically via .env file at /opt/skynet/.env),
       # AND set IDENTITIES_LOCAL_HOST_IDS + IDENTITIES_HOST_DIR +
-      # ROLES_HOST_DIR in skynet.env.
-      # Mounted RW (2026-09-11): LOCAL-branch identity-birth writes
-      # <name>.md / avatar / relay.json here, and spawn-request worker
-      # writes the response file here. Read-only defeats those paths.
+      # ROLES_HOST_DIR + HOME_HOST_DIR in skynet.env.
+      # Mounted RW: LOCAL-branch identity-birth writes <name>.md / avatar /
+      # relay.json under /host-home/fleet/, spawn-request worker writes
+      # response files under /host-home/fleet/, and the fleet-substrate
+      # distributor writes to /host-home/.claude/skills/ + /host-home/.local/bin/
+      # + /host-home/.config/systemd/user/. Read-only defeats all of them.
       #
-      # HARD-FAIL if SKYNET_FLEET_MOUNT_SRC is unset (2026-09-12 user):
-      # the prior `:-/tmp` fallback silently mounted /tmp into /fleet when
+      # HARD-FAIL if SKYNET_HOME_MOUNT_SRC is unset (2026-09-12 user):
+      # the prior `:-/tmp` fallback silently mounted /tmp into the bind when
       # the env var didn't reach compose interpolation (sudo-env-strip
       # issue with `--env-file`), producing invisible-scanner + lost
       # spawn-requests. Fail-loud beats fail-quiet. If this errors on
@@ -87,32 +99,12 @@ services:
       # `--env-file /opt/skynet/.env` (or your deployment's equivalent
       # canonical env file) — required for BOTH steps because compose
       # interpolates volume paths at config-parse time, not just at up.
-      - ${SKYNET_FLEET_MOUNT_SRC:?SKYNET_FLEET_MOUNT_SRC must be set — pass --env-file /opt/skynet/.env to docker compose (required for BOTH build and up; see docker/docker-compose.yml note above)}:/fleet
-      # LOCAL-branch bind for the birth-flow supervisor-wait's discovery
-      # sensor. Exposes the host's `~/.claude/projects/` (where Claude Code
-      # writes per-session transcripts) into the container read-only, so
-      # discoverIdentitySessionFile's LOCAL branch can walk it via node fs
-      # when a birth targets the Skynet host itself (isLocalHostId=true).
-      # Without this mount, local births time out the 120s supervisor-wait
-      # (fail-safe: identity folder + Matrix account still on disk per Q2
-      # no-rollback lock; supervisor's next 15s tick still brings it up).
-      # Consumed via CLAUDE_PROJECTS_HOST_DIR below → getLocalClaudeProjectsRoot()
-      # in src/backend/claude-session/discover-identity-session-file.ts. RO
-      # because the sensor only reads. Default source matches the common
-      # deployment shape (ubuntu HOME on Debian/Ubuntu AWS AMIs); override
-      # SKYNET_CLAUDE_PROJECTS_MOUNT_SRC in skynet.env for other layouts.
-      - type: bind
-        source: ${SKYNET_CLAUDE_PROJECTS_MOUNT_SRC:-/home/ubuntu/.claude/projects}
-        target: /host-claude-projects
-        read_only: true
-        bind:
-          create_host_path: true
+      - ${SKYNET_HOME_MOUNT_SRC:?SKYNET_HOME_MOUNT_SRC must be set — pass --env-file /opt/skynet/.env to docker compose (required for BOTH build and up; see docker/docker-compose.yml note above)}:/host-home
     env_file:
       - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
     environment:
       PORT: "8080"
       SKYNET_CONSOLE_FORWARD_LOG_PATH: "/var/log/skynet/console-forward/console-forward.log"
-      CLAUDE_PROJECTS_HOST_DIR: "/host-claude-projects"
     depends_on:
       - guacd
     networks:

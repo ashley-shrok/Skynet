@@ -9,10 +9,10 @@
  * force a specific fs call to reject.
  *
  * Env-override strategy:
- *   - IDENTITIES_HOST_DIR is set per-test to `${tmpRoot}/identities`.
- *   - getLocalIdentitiesRoot() then returns `${tmpRoot}/identities`.
- *   - path.dirname(...) → tmpRoot. So the fleet root (where ~/.local/bin,
- *     ~/.claude, ~/.config live) is tmpRoot.
+ *   - HOME_HOST_DIR is set per-test to tmpRoot.
+ *   - getLocalHomeRoot() then returns tmpRoot. So the user-home root (where
+ *     ~/.local/bin, ~/.claude, ~/.config live) is tmpRoot — same shape as
+ *     a real /host-home mount on production.
  *
  * Test coverage (per PLAN.md `<behavior>` § NT1 AW1 CM1 HS1 RB1 BR1 BE1):
  *   - NT1 never-throw on FS error (ENOENT on bundled read, EACCES on write,
@@ -55,9 +55,9 @@ vi.mock("../utils/logger.js", () => ({
   },
 }));
 
-// A fresh tmpdir per test; env var swapped so getLocalIdentitiesRoot points here.
+// A fresh tmpdir per test; env var swapped so getLocalHomeRoot points here.
 let tmpRoot: string;
-let originalIdentitiesEnv: string | undefined;
+let originalHomeEnv: string | undefined;
 let originalSkynetUrlEnv: string | undefined;
 let originalXdgEnv: string | undefined;
 
@@ -69,19 +69,19 @@ async function importFresh() {
 beforeEach(async () => {
   vi.clearAllMocks();
   tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "local-fleet-install-test-"));
-  originalIdentitiesEnv = process.env.IDENTITIES_HOST_DIR;
+  originalHomeEnv = process.env.HOME_HOST_DIR;
   originalSkynetUrlEnv = process.env.SKYNET_PUBLIC_URL;
   originalXdgEnv = process.env.XDG_RUNTIME_DIR;
-  process.env.IDENTITIES_HOST_DIR = path.join(tmpRoot, "identities");
+  process.env.HOME_HOST_DIR = tmpRoot;
   // Default to no systemd — the test box likely has no user session.
   delete process.env.XDG_RUNTIME_DIR;
 });
 
 afterEach(async () => {
-  if (originalIdentitiesEnv === undefined) {
-    delete process.env.IDENTITIES_HOST_DIR;
+  if (originalHomeEnv === undefined) {
+    delete process.env.HOME_HOST_DIR;
   } else {
-    process.env.IDENTITIES_HOST_DIR = originalIdentitiesEnv;
+    process.env.HOME_HOST_DIR = originalHomeEnv;
   }
   if (originalSkynetUrlEnv === undefined) {
     delete process.env.SKYNET_PUBLIC_URL;

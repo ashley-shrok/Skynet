@@ -76,22 +76,23 @@ import { execCommand } from "../ssh/tmux-helper.js";
  * Returns the local Claude Code projects root — the parent of the per-cwd
  * subfolders the Claude CLI writes transcripts into.
  *
- * Prefers CLAUDE_PROJECTS_HOST_DIR (bind-mount path inside the Skynet
- * container, e.g. `/host-claude-projects`) over the os.homedir() fallback
- * (dev/host path `~/.claude/projects`). Mirrors getLocalIdentitiesRoot at
- * identity-artifact-reader.ts:218.
+ * Routes through HOME_HOST_DIR (bind-mount path inside the Skynet container,
+ * typically `/host-home`) with os.homedir() as the dev fallback. The
+ * container's host-home mount exposes `~/.claude/projects/` at
+ * `/host-home/.claude/projects/` — same shape as the direct dev path.
+ *
+ * Previously used a dedicated `CLAUDE_PROJECTS_HOST_DIR` env + its own
+ * `/host-claude-projects` bind mount; retired 2026-09-18 when the host-home
+ * mount was widened from `~/fleet` to `~/` (see local-fleet-install.ts for
+ * the widening rationale), making the dedicated projects mount redundant.
  *
  * Consumed by discoverIdentitySessionFile's LOCAL branch (conn === null),
  * which is exercised by identity-birth-orchestrator's supervisor-wait for
- * co-located births (isLocalHostId=true) — the container reaches the host's
- * `~/.claude/projects/` through this mount the same way `/fleet` reaches
- * the host's `~/fleet/`.
+ * co-located births (isLocalHostId=true).
  */
 export function getLocalClaudeProjectsRoot(): string {
-  return (
-    process.env.CLAUDE_PROJECTS_HOST_DIR ||
-    path.join(os.homedir(), ".claude", "projects")
-  );
+  const homeRoot = process.env.HOME_HOST_DIR || os.homedir();
+  return path.join(homeRoot, ".claude", "projects");
 }
 
 /**
