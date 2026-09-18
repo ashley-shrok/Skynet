@@ -2615,3 +2615,13 @@ Plans:
 - [x] 116-02-PLAN.md — Wave 1 caller side: substrate/skills/image-gen/SKILL.md (D-17 PHI directive top + D-18 inline echo + D-27 failure table) + substrate/scripts/image-gen bash helper (D-13 flag shape + D-14 stdout/stderr split + D-16 5-min timeout + Pitfall 3 ref-before-json write order) + two distributor catalog rows
 - [x] 116-03-PLAN.md — Wave 2 backend wire-up: export writeBinaryFileAtomic from identity-artifact-reader.ts + queue.ts (D-20 5-worker pool + FIFO waiter list) + worker.ts (Pitfall 5 TTL-at-dequeue + adapter call + response file drops) + scan-orchestrator.ts (always-on tick per RESEARCH.md Q2 correction + companion .ref.* fetch per D-07) + starter.ts boot block (token bucket singleton + queue.startPool + orchestrator wire) + tests
 - [x] 116-04-PLAN.md — Wave 2 integration validation: hermetic bash test driver for the helper (5 tests, inotify-based ref-before-json order proof) + vitest end-to-end wire test (9 tests covering happy + all 7 D-27 failure reasons + scan-integration composition, mocked SSH + mocked fetch)
+
+### Phase 117: projects — sidebar section with drag-and-drop membership, per-project context file, and id-skill amendment
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 116
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 117 to break down)
