@@ -56,7 +56,11 @@ import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
 // input mounted at the top of the pv-panel-scroll region.
-import { Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessagesSquare, Monitor, MoreVertical, Search, SquarePen, X } from "lucide-react";
+// Phase 119 Plan 04 (D-02): `AppWindow` glyph added for the new Apps section
+// header — mirrors the Archived section's `Archive` icon at the same
+// `size-3 text-[#5c6070]/85 shrink-0` typography, so the two sections read as
+// a family in the sidebar chrome.
+import { AppWindow, Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessagesSquare, Monitor, MoreVertical, Search, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -194,6 +198,14 @@ import { PrettyConversationRow } from "./PrettyConversationRow";
 // shape, see wire-protocol.ts / ssh-poll-orchestrator.ts).
 import { archiveIdentity } from "@/api/identity-archive-api";
 import { PrettyArchivedRow } from "./PrettyArchivedRow";
+// Phase 119 Plan 04 (D-01/D-02/D-03/D-04/D-05): sidebar Apps section. Consumes
+// the useAppTiles() hook (Plan 119-02, backed by the fleet-status app-frame
+// channel) and renders one <AppTile app={...}/> per entry (Plan 119-03) inside
+// a new .pv-apps-section group. Section chrome mirrors the Archived section
+// verbatim (D-02) EXCEPT it is not gated on `.length > 0` (D-05: always
+// present so the empty-expanded prompt is discoverable).
+import { AppTile } from "./AppTile";
+import { useAppTiles } from "@/state/app-tiles-store";
 import WeeklyUsageMeter from "./WeeklyUsageMeter";
 // Phase 91 Plan 05 — NewConversationModal: portal-mounted sibling of
 // GlobalFilesModal. Opened via the header three-dot menu "New conversation"
@@ -847,6 +859,21 @@ export function PrettyConversationsPanel({
   // (D-19). Collapsed by default per the design lock.
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const archivedRows = useArchivedFleetRows();
+
+  // Phase 119 Plan 04 (D-03): Apps section collapsed by default on every
+  // mount — mirrors the Archived-section discipline directly above. Content
+  // is lazy-rendered via `{appsExpanded && ...}` in the JSX block (D-03
+  // invariant: NO CSS `hidden` class, NO aria-only approach — content is
+  // not in the DOM at all until the user expands).
+  //
+  // Phase 119 Plan 04 (D-14 pass-through): `useAppTiles()` subscribes to the
+  // module-scoped app-tiles-store (Plan 119-02). Every frame notify from the
+  // fleet-status client (Plan 119-01 switch → Plan 119-02 publish fn) re-runs
+  // the memoised selector and yields a stable-sorted (D-15) array. Panel
+  // performs zero re-filtering / re-sorting — backend `app-frame-filter.ts`
+  // is the sole authority for host visibility per D-14 + Phase 118 D-15.
+  const [appsExpanded, setAppsExpanded] = useState(false);
+  const appTiles = useAppTiles();
 
   // Phase 41 Plan 02: search filter state (Task 2 will consume this for the
   // label-only flatten-and-filter render branch). Controlled input; the clear
@@ -2404,6 +2431,73 @@ export function PrettyConversationsPanel({
             <span>{loadingLabel}</span>
           </div>
         )}
+        {/* Phase 119 Plan 04 (D-01/D-02/D-03/D-04/D-05):
+            The sidebar Apps section — first content group under the search
+            input and above the search-vs-three-zone ternary below. Rendered
+            OUTSIDE the ternary (RESEARCH.md Pitfall 2) so the section stays
+            visible when the user is typing in the search box; putting this
+            block INSIDE either branch of the ternary would silently hide
+            the section during active search, violating the D-05 always-
+            present invariant that IS the campaign's discoverability point.
+
+            Chrome mirrors the Archived section at PrettyConversationsPanel
+            .tsx:1995-2033 verbatim (D-02): same button semantics, same
+            typography tokens, same rule-line gradient, same rotating
+            ChevronDown, same data-testid + aria-expanded + aria-controls
+            pattern. ONE difference vs Archived: the outer wrapper is NOT
+            gated on `appTiles.length > 0` (D-05 lock — the section header
+            renders unconditionally so a user with zero apps can still
+            discover the section).
+
+            Section body is lazy-rendered via `{appsExpanded && ...}`
+            (D-03) — the tile list and the D-04 empty-state prompt are
+            both inside that gate, so neither is in the DOM until the user
+            expands. When `appTiles.length === 0`, the D-04 empty-state
+            prompt renders as a single italic muted line (verbatim copy
+            per D-04, React-escaped text node — zero XSS surface). When
+            populated, one <AppTile
+            key={`${hostId}:${slug}`} app={app}/> per entry in the sort
+            order returned by useAppTiles() (D-15 sort applied at the
+            store level; the panel does not re-sort). */}
+        <div className="pv-panel-group pv-apps-section">
+          <button
+            type="button"
+            onClick={() => setAppsExpanded((v) => !v)}
+            className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full text-left"
+            data-testid="pretty-conversations-apps-header"
+            aria-expanded={appsExpanded}
+            aria-controls="pv-apps-section-content"
+          >
+            <AppWindow
+              className="size-3 text-[#5c6070]/85 shrink-0"
+              aria-hidden="true"
+            />
+            <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+              Apps
+            </span>
+            <span
+              aria-hidden="true"
+              className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+            />
+            <ChevronDown
+              className={`size-3 text-[#5c6070]/85 shrink-0 transition-transform ${appsExpanded ? "rotate-180" : ""}`}
+              aria-hidden="true"
+            />
+          </button>
+          {appsExpanded && (
+            <div id="pv-apps-section-content">
+              {appTiles.length === 0 ? (
+                <div className="pv-apps-empty px-4 py-2 text-[13px] italic text-[#5c6070]/85">
+                  Ask an agent to make an app for you.
+                </div>
+              ) : (
+                appTiles.map((app) => (
+                  <AppTile key={`${app.hostId}:${app.slug}`} app={app} />
+                ))
+              )}
+            </div>
+          )}
+        </div>
         {/* Phase 41 Plan 02 (user 2026-08-14): render tree BRANCHES on
             whether the search input has a non-empty trimmed query.
               - searchMatches !== null → FLAT match list — no divider chips,
