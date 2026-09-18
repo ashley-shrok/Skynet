@@ -401,6 +401,12 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     "offsetHeight",
   );
 
+  // Auto-accept the reset-button confirm() prompt in the reset-click tests
+  // below. Confirm gate itself is covered by ComposeBox.reset-confirm.test.tsx.
+  beforeEach(() => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     wsStubs.length = 0;

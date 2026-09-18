@@ -132,6 +132,7 @@ export function AgentBadgeWithMeter({
   // through post Wave 0 rewire. Test 8 regression gate.
   const handleReset = useCallback(async () => {
     if (resetInFlight) return;
+    if (!window.confirm("Reset the agent's context window?")) return;
     setResetInFlight(true);
     try {
       await authApi.post(

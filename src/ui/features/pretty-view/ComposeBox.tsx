@@ -2063,6 +2063,7 @@ export function ComposeBox({
   // right thing in either idle or recording state. Wired into the reset
   // button's onClick below.
   function handleResetClick() {
+    if (!window.confirm("Reset the agent's context window?")) return;
     if (voice.state === "recording") {
       void handleVoiceResetSend();
     } else {

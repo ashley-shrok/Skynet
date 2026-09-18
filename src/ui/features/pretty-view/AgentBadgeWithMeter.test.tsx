@@ -106,6 +106,10 @@ beforeEach(() => {
   mockedUseSessionIsWorking.mockReturnValue(false);
   mockedUseSessionIsRecycling.mockReturnValue(false);
   mockedUseSessionContextPct.mockReturnValue(null);
+  // Reset button now shows window.confirm() first (patched to prevent
+  // accidental resets). Auto-accept in tests that click it — the confirm
+  // gate itself is covered by the dedicated reset-confirm.test.tsx specs.
+  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -194,6 +198,18 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     const [url, body] = mockedPost.mock.calls[0];
     expect(url).toBe(`/agent-reset/5/${encodeURIComponent("nelly")}`);
     expect(body).toEqual({ body: "" });
+  });
+
+  it("Test 8a: confirm dismissed → no dispatch (accidental-reset guard)", () => {
+    // Override the default beforeEach stub with false.
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
+    const resetBtn = screen.getByRole("button", {
+      name: /reset context window/i,
+    });
+    fireEvent.click(resetBtn);
+    // No authApi.post call — the confirm gate short-circuited.
+    expect(mockedPost).not.toHaveBeenCalled();
   });
 
   it("Test 8b: tmux session with special chars → URL is properly encoded", async () => {

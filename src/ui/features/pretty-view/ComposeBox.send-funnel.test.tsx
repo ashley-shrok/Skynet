@@ -164,6 +164,10 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     });
     vi.useRealTimers();
     localStorage.clear();
+    // Reset button now shows window.confirm() first (patched to prevent
+    // accidental resets). Auto-accept in tests that click it — the confirm
+    // gate itself is covered by ComposeBox.reset-confirm.test.tsx.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
   afterEach(() => {

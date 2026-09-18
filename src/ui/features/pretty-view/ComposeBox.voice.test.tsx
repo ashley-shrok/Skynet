@@ -146,6 +146,11 @@ beforeEach(() => {
       json: () => Promise.resolve({ text: "hello world" }),
     }),
   );
+
+  // Reset button now shows window.confirm() first (patched to prevent
+  // accidental resets). Auto-accept in tests that click it — the confirm
+  // gate itself is covered by ComposeBox.reset-confirm.test.tsx.
+  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 
 afterEach(() => {

@@ -81,6 +81,10 @@ describe("useComposeSend — universal send-log hook (Phase 85 Plan 06)", () => 
     vi.clearAllMocks();
     // Patch #129 hygiene: localStorage draft mirror leaks between tests.
     localStorage.clear();
+    // Reset button now shows window.confirm() first (patched to prevent
+    // accidental resets). Auto-accept in tests that click it — the confirm
+    // gate itself is covered by ComposeBox.reset-confirm.test.tsx.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
   afterEach(() => {
