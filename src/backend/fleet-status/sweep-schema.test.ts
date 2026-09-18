@@ -20,6 +20,7 @@ import {
   isSweepLineOfCurrentSchema,
   type SweepIdentityLine,
   type SweepPidLine,
+  type SweepAppLine,
 } from "./sweep-schema.js";
 
 // ---------------------------------------------------------------------------
@@ -61,6 +62,27 @@ function makePidLine(overrides: Partial<SweepPidLine> = {}): SweepPidLine {
     per_session_stop_payload: null,
     dormant_a: false,
     jsonl_tail: null,
+    ...overrides,
+  };
+}
+
+// Phase 118 Plan 118-02: SweepAppLine fixture. Defaults describe a healthy
+// scratch-app on port 9591 with no icon. Callers override any field to exercise
+// the D-01 / D-02 / D-05 / D-06 corner cases. Spread `overrides` LAST so any
+// field (including line_kind or schema_version) can be flipped for negative
+// tests without editing this helper.
+function makeAppLine(overrides: Partial<SweepAppLine> = {}): SweepAppLine {
+  return {
+    line_kind: "app",
+    schema_version: 1,
+    slug: "test-app",
+    title: "Test App",
+    description: "A test app",
+    port: 9591,
+    has_icon: false,
+    created_at_ms: 1_700_000_000_000,
+    is_healthy: true,
+    health_message: null,
     ...overrides,
   };
 }
@@ -538,5 +560,217 @@ describe("Phase 111 mid-distribution: older-box line (no appearance keys) parses
     expect(omitting!.role).toBeUndefined();
     expect(omitting!.role_cosmetics).toBeUndefined();
     expect(omitting!.pinned).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 118 Plan 118-02: SweepAppLine dispatch + type-guard + parity extension
+// ---------------------------------------------------------------------------
+//
+// Plan 118-02 extends sweep-schema.ts with a `line_kind: "app"` line kind that
+// mirrors the Python side landed by 118-01. Additive-only: identity + pid
+// paths must stay green. Byte-name parity with the Python emit dict is the
+// wire contract this test block pins (D-05 seven fields at snake_case).
+
+describe("Phase 118 Plan 118-02: SweepAppLine dispatch", () => {
+  it("app line dispatch — parseSweepJsonl pushes a well-formed app line into appLines", () => {
+    const app = makeAppLine({ slug: "todo" });
+    const result = parseSweepJsonl(JSON.stringify(app));
+
+    expect(result.appLines).toHaveLength(1);
+    expect(result.appLines[0]).toEqual(app);
+    expect(result.appLines[0].slug).toBe("todo");
+    expect(result.appLines[0].line_kind).toBe("app");
+    expect(result.appLines[0].schema_version).toBe(1);
+    expect(result.appLines[0].title).toBe("Test App");
+    expect(result.appLines[0].description).toBe("A test app");
+    expect(result.appLines[0].port).toBe(9591);
+    expect(result.appLines[0].has_icon).toBe(false);
+    expect(result.appLines[0].created_at_ms).toBe(1_700_000_000_000);
+    expect(result.appLines[0].is_healthy).toBe(true);
+    expect(result.appLines[0].health_message).toBeNull();
+    expect(result.unknownLines).toBe(0);
+    expect(result.schemaMismatch).toBe(false);
+    // Identity + pid buckets stay empty on an app-only blob.
+    expect(result.identityLines).toHaveLength(0);
+    expect(result.pidLines).toHaveLength(0);
+  });
+
+  it("mixed dispatch — identity + pid + app lines all land in their buckets (regression guard)", () => {
+    // Regression guard for the additive extension: adding the `app` case
+    // must NOT break the identity or pid dispatch. All three buckets
+    // populate from a single blob.
+    const id = makeIdentityLine({ identity: "ashley" });
+    const pid = makePidLine({ pid: 999, identity: "ashley" });
+    const app = makeAppLine({ slug: "vision" });
+    const blob = [id, pid, app].map((x) => JSON.stringify(x)).join("\n");
+
+    const result = parseSweepJsonl(blob);
+
+    expect(result.identityLines).toHaveLength(1);
+    expect(result.pidLines).toHaveLength(1);
+    expect(result.appLines).toHaveLength(1);
+    expect(result.appLines[0].slug).toBe("vision");
+    expect(result.identityLines[0].identity).toBe("ashley");
+    expect(result.pidLines[0].pid).toBe(999);
+    expect(result.unknownLines).toBe(0);
+    expect(result.schemaMismatch).toBe(false);
+  });
+
+  it("schema mismatch on app — app line at wrong schema_version flips schemaMismatch and does NOT push into appLines", () => {
+    // Mirrors the identity schema-mismatch path — the app dispatch must
+    // respect the parser's existing "schemaMismatch flag, drop the line"
+    // discipline (sweep-schema.ts:301-305). It must NOT sneak into appLines
+    // just because line_kind matches.
+    const bad = makeAppLine({ slug: "wrong-version" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wire = { ...bad, schema_version: 999 as any };
+    const result = parseSweepJsonl(JSON.stringify(wire));
+
+    expect(result.schemaMismatch).toBe(true);
+    expect(result.appLines).toHaveLength(0);
+    // No collateral damage on the other buckets.
+    expect(result.identityLines).toHaveLength(0);
+    expect(result.pidLines).toHaveLength(0);
+  });
+
+  it("unknown line_kind — banana line at schema_version 1 still bumps unknownLines (forward-compat regression)", () => {
+    // The `app` dispatch is inserted BEFORE the `else { unknownLines += 1 }`
+    // branch. This test proves the forward-compat branch still fires for
+    // truly-unknown kinds, mixed alongside a valid app line.
+    const app = makeAppLine({ slug: "real-app" });
+    const banana = { line_kind: "banana", schema_version: 1, slug: "fake" };
+    const blob = [JSON.stringify(app), JSON.stringify(banana)].join("\n");
+
+    const result = parseSweepJsonl(blob);
+
+    expect(result.appLines).toHaveLength(1);
+    expect(result.appLines[0].slug).toBe("real-app");
+    expect(result.unknownLines).toBe(1);
+    expect(result.schemaMismatch).toBe(false);
+  });
+
+  it("isSweepLineOfCurrentSchema app — accepts app at schema_version 1, rejects other versions", () => {
+    // Well-formed app line at current schema — the widened type guard MUST
+    // accept it so downstream `switch(line.line_kind)` code stays exhaustive.
+    expect(
+      isSweepLineOfCurrentSchema({
+        line_kind: "app",
+        schema_version: 1,
+        slug: "ok",
+      }),
+    ).toBe(true);
+
+    // Wrong schema version — the schema_version check ABOVE the line_kind
+    // check must still gate this out. Regression guard for the ordering of
+    // the two checks (schema first, then kind).
+    expect(
+      isSweepLineOfCurrentSchema({
+        line_kind: "app",
+        schema_version: 2,
+        slug: "future-schema",
+      }),
+    ).toBe(false);
+
+    // Missing schema_version entirely — same gate, different failure mode.
+    expect(
+      isSweepLineOfCurrentSchema({ line_kind: "app", slug: "no-version" }),
+    ).toBe(false);
+  });
+
+  it("empty input appLines — parseSweepJsonl('') defaults appLines to []", () => {
+    // The extended SweepParseResult must always carry an `appLines` array,
+    // even in the fast-path empty-string branch (sweep-schema.ts:276-278).
+    // Consumers destructuring `parsed.appLines` must never see undefined.
+    const result = parseSweepJsonl("");
+    expect(result.appLines).toEqual([]);
+    expect(result.identityLines).toEqual([]);
+    expect(result.pidLines).toEqual([]);
+    expect(result.unknownLines).toBe(0);
+    expect(result.schemaMismatch).toBe(false);
+  });
+
+  it("app line dispatch is lenient — an app line missing `slug` still parses (does not throw)", () => {
+    // Plan 118-02 action (e): the app dispatch matches the identity + pid
+    // lenience discipline — cast, no runtime validation. A malformed app
+    // line (missing required `slug`) is still pushed into appLines with
+    // whatever shape it has; downstream consumers (118-04 adapter → 118-03
+    // Zod schema) are the runtime validation gate. Critical: parser MUST
+    // NOT throw. This test pins the "never throws" invariant explicitly.
+    const wire = {
+      line_kind: "app",
+      schema_version: 1,
+      // No slug — deliberately malformed.
+      title: "Malformed",
+      description: "Missing slug",
+      port: null,
+      has_icon: false,
+      created_at_ms: 0,
+      is_healthy: true,
+      health_message: null,
+    };
+
+    expect(() => parseSweepJsonl(JSON.stringify(wire))).not.toThrow();
+    const result = parseSweepJsonl(JSON.stringify(wire));
+    // Lenient discipline: the line lands in appLines with its incomplete
+    // shape. Runtime validation is downstream's problem (defense in depth).
+    expect(result.appLines).toHaveLength(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((result.appLines[0] as any).slug).toBeUndefined();
+    expect(result.schemaMismatch).toBe(false);
+    expect(result.unknownLines).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 118 Plan 118-02: SWEEP_FIELD_PARITY C-row extension
+// ---------------------------------------------------------------------------
+//
+// Plan 118-02 chose to extend SWEEP_FIELD_PARITY with C0..C7 entries covering
+// the seven D-05 app fields. The parity table's type-safety benefit is real
+// (PATTERNS § 2 recommended extending over adding a bare docblock). Keys:
+//   C0 — per-host source-C enumeration driver (~/fleet/apps/*/ scandir), skipped
+//   C1 — slug            → SweepAppLine.slug
+//   C2 — title           → SweepAppLine.title
+//   C3 — description     → SweepAppLine.description
+//   C4 — port            → SweepAppLine.port
+//   C5 — has_icon        → SweepAppLine.has_icon
+//   C6 — created_at_ms   → SweepAppLine.created_at_ms
+//   C7 — is_healthy      → SweepAppLine.is_healthy
+//   C8 — health_message  → SweepAppLine.health_message
+//
+// (C1..C8 cover all seven emitted fields plus health_message which is the
+// D-03 optional carve-out; C0 is the enumeration driver following the
+// A0/B0 precedent.)
+
+describe("Phase 118 Plan 118-02: SWEEP_FIELD_PARITY C-row coverage", () => {
+  it("C0 is the source-C enumeration driver, marked skipped", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parity = SWEEP_FIELD_PARITY as any;
+    expect(parity.C0).toBeDefined();
+    expect(parity.C0.field).toBeNull();
+    expect(parity.C0.skipped_reason).toMatch(/enumeration/i);
+  });
+
+  it("C1..C8 map to real SweepAppLine fields (byte-name parity with Python emit)", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parity = SWEEP_FIELD_PARITY as any;
+    const expected: Record<string, string> = {
+      C1: "slug",
+      C2: "title",
+      C3: "description",
+      C4: "port",
+      C5: "has_icon",
+      C6: "created_at_ms",
+      C7: "is_healthy",
+      C8: "health_message",
+    };
+    for (const [key, field] of Object.entries(expected)) {
+      expect(parity[key], `parity row ${key} missing`).toBeDefined();
+      expect(
+        parity[key].field,
+        `parity row ${key} should map to ${field}`,
+      ).toBe(field);
+    }
   });
 });
