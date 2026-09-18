@@ -25,7 +25,14 @@ import {
   FrontendInboundFrame,
   makePongFrame,
 } from "./wire-protocol.js";
-import type { SubscriptionRegistry } from "./subscription-registry.js";
+import {
+  createSubscriptionRegistry,
+  type SubscriptionRegistry,
+} from "./subscription-registry.js";
+import {
+  createAppFrameFilter,
+  type CheckHostAccessFn,
+} from "./app-frame-filter.js";
 import type { HostRecord } from "./host-id-resolver.js";
 
 // ---------------------------------------------------------------------------
@@ -45,13 +52,56 @@ interface AuthManagerLike {
 export interface FleetStatusServerOptions {
   port?: number;
   authManager: AuthManagerLike;
-  registry: SubscriptionRegistry;
+  /**
+   * Optional pre-built registry. When omitted, the server constructs one
+   * via `createSubscriptionRegistry` and (if `resolveHostOwnerById` is
+   * present) wires the Phase 118 Plan 118-05 per-user host-visibility
+   * filter into it. When provided, the server uses the passed registry
+   * as-is — the caller owns filter wiring in that case. This dual shape
+   * preserves backward-compat for pre-118-05 callers (starter.ts today
+   * passes a pre-built registry; starter.ts wiring update is deferred to
+   * the deploy motion per fleet directive #10).
+   */
+  registry?: SubscriptionRegistry;
   resolveHostRecordByName: (name: string) => Promise<HostRecord | null>;
+  /**
+   * Phase 118 Plan 118-05 (D-15): resolver mapping the wire-shaped
+   * hostId string (used inside fleet-status frames) to the numeric
+   * hostId + owner userId pair that `checkHostAccess` requires. When
+   * present, the server constructs the app-frame filter via
+   * `createAppFrameFilter({ resolveHostOwnerById })` and passes it to
+   * the internal registry factory. When absent, the registry runs
+   * unfiltered — production wiring in starter.ts MUST pass this at
+   * deploy time to close T-118-05-IL / T-118-03-IL info-disclosure gap.
+   */
+  resolveHostOwnerById?: (
+    hostIdStr: string,
+  ) => Promise<{ hostIdNum: number; hostUserId: string } | null>;
+  /**
+   * Phase 118 Plan 118-05: TTL override for the app-frame filter's
+   * per-(userId, hostIdStr) access cache. Defaults to 30s in
+   * createAppFrameFilter. Tests can pass 0 for deterministic per-call
+   * behavior.
+   */
+  appFrameFilterTtlMs?: number;
+  /**
+   * Phase 118 Plan 118-05: test seam — override the checkHostAccess
+   * dependency used inside the filter. Production callers omit this
+   * and get the real host-resolver.checkHostAccess.
+   */
+  _testCheckHostAccessOverride?: CheckHostAccessFn;
 }
 
 export interface FleetStatusServer {
   close: () => void;
   wss: WebSocketServer;
+  /**
+   * Phase 118 Plan 118-05: exposes the registry so callers that let the
+   * server construct one internally can still call publish* methods on
+   * it (tests + potential future in-process publishers). When `registry`
+   * was passed via options, this is that same reference.
+   */
+  registry: SubscriptionRegistry;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,8 +132,56 @@ function extractJwtToken(req: IncomingMessage): string | undefined {
 export function startFleetStatusServer(
   opts: FleetStatusServerOptions,
 ): FleetStatusServer {
-  const { authManager, registry, resolveHostRecordByName } = opts;
+  const { authManager, resolveHostRecordByName } = opts;
   const port = opts.port ?? 30012;
+
+  // Phase 118 Plan 118-05: build the per-user host-visibility filter when
+  // a resolver dep is provided AND no pre-built registry was passed in.
+  // The filter's TTL cache is scoped to this server instance's lifetime
+  // and dies when the WSS closes.
+  //
+  // When `opts.registry` is provided (starter.ts's current shape), the
+  // caller owns filter wiring — we do NOT construct one here to avoid
+  // double-filtering. starter.ts update to pass resolveHostOwnerById +
+  // let the server own registry construction is deferred to the deploy
+  // motion per fleet directive #10.
+  let registry: SubscriptionRegistry;
+  if (opts.registry !== undefined) {
+    registry = opts.registry;
+    if (opts.resolveHostOwnerById !== undefined) {
+      systemLogger.warn(
+        "Fleet-status: resolveHostOwnerById passed alongside pre-built registry — filter NOT wired (caller owns wiring)",
+        {
+          operation: "fleet_status_filter_wiring_skipped",
+          reason: "external_registry",
+        },
+      );
+    }
+  } else if (opts.resolveHostOwnerById !== undefined) {
+    const appFrameFilter = createAppFrameFilter({
+      resolveHostOwnerById: opts.resolveHostOwnerById,
+      ttlMs: opts.appFrameFilterTtlMs,
+      _checkHostAccess: opts._testCheckHostAccessOverride,
+    });
+    registry = createSubscriptionRegistry({ appFrameFilter });
+    systemLogger.info(
+      "Fleet-status: app-frame filter attached to internal registry",
+      {
+        operation: "fleet_status_filter_attached",
+        ttlMs: opts.appFrameFilterTtlMs ?? "default",
+      },
+    );
+  } else {
+    // Backward-compat: neither a registry nor a resolver was provided.
+    // Build an unfiltered registry (matches pre-118-05 default behavior).
+    registry = createSubscriptionRegistry();
+    systemLogger.warn(
+      "Fleet-status: no registry + no resolveHostOwnerById — running UNFILTERED (T-118-05-BF risk)",
+      {
+        operation: "fleet_status_unfiltered_mode",
+      },
+    );
+  }
 
   // Use path: undefined so we can dispatch manually per req.url
   const wss = new WebSocketServer({
@@ -154,6 +252,7 @@ export function startFleetStatusServer(
       });
     },
     wss,
+    registry,
   };
 }
 
