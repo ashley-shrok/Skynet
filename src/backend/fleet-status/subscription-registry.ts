@@ -79,10 +79,30 @@ export type AppFrameFilter = (
  * the filter's own guard passes those frames through unchanged
  * (backward-compat with existing session-only tests + any auth-skipping
  * harness).
+ *
+ * Phase 118 code-review HIGH-4 (fix pass 2026-09-18): `pendingAppFrames`
+ * holds app-frame deliveries that arrive between the moment subscribe()
+ * adds the entry to the Set and the moment the fire-and-forget
+ * app-snapshot resolves + sends. Snapshot MUST arrive before any
+ * subsequent update to prevent the picture-has-lied race: stale snapshot
+ * overwriting a fresher update in the client store.
+ *
+ *   null       — deliver normally (steady-state).
+ *   []         — queue is empty; snapshot has not yet flushed; incoming
+ *                app frames get pushed onto this array in fanOutApp
+ *                instead of sent immediately.
+ *   [frame…]   — queue has entries; drained (in order) right after the
+ *                subscribe-path snapshot succeeds, then set to null.
+ *
+ * Only app-* frames queue (session + archived-identity snapshots are
+ * delivered SYNCHRONOUSLY inside subscribe BEFORE the async app-snapshot
+ * block, so those are always ordered correctly). fanOut (sync) ignores
+ * this field; only fanOutApp checks it.
  */
 interface SubscriberEntry {
   send: SendFrame;
   userId?: string;
+  pendingAppFrames: FrontendOutboundFrameType[] | null;
 }
 
 /**
@@ -311,6 +331,30 @@ async function fanOutApp(
     Array.from(subscribers).map(async (entry) => {
       const projected = await filter(frame, entry.userId);
       if (projected === null) return;
+      // Phase 118 code-review HIGH-4 (fix pass 2026-09-18): if the
+      // subscribe-path app-snapshot has not yet flushed for this
+      // subscriber, queue the projected frame instead of delivering it
+      // immediately. The subscribe() closure drains this queue in order
+      // after the snapshot lands. This prevents the picture-has-lied
+      // race where a sweep-tick update overtakes the initial snapshot.
+      //
+      // Between reading the array and pushing to it we don't need a
+      // lock — Node runs one microtask at a time; the subscribe()
+      // drain-and-null happens in its own microtask; the queue is only
+      // ever mutated from single-turn callbacks.
+      //
+      // Post-await disposal guard: an entry can be dropped from
+      // `subscribers` while its filter promise is in flight (the
+      // subscriber disconnected). Check membership BEFORE the send —
+      // and BEFORE queueing — so a stale filter resolution cannot
+      // deliver frames to a disposed subscriber (HIGH-4-4 test seat).
+      if (!subscribers.has(entry)) {
+        return;
+      }
+      if (entry.pendingAppFrames !== null) {
+        entry.pendingAppFrames.push(projected);
+        return;
+      }
       try {
         entry.send(projected);
       } catch (err) {
@@ -407,9 +451,20 @@ export function createSubscriptionRegistry(
         }
       }
       if (entry === undefined) {
-        entry = { send: sendFrame, userId: ctx?.userId };
+        // Phase 118 code-review HIGH-4 (fix pass 2026-09-18): initialize
+        // pendingAppFrames = null (deliver normally) by default. Set to
+        // [] BELOW right before the fire-and-forget app-snapshot block
+        // when the filter is wired AND we have a userId — the ONLY
+        // scenario that produces a subscribe → snapshot race window.
+        entry = {
+          send: sendFrame,
+          userId: ctx?.userId,
+          pendingAppFrames: null,
+        };
         subscribers.add(entry);
       }
+      // Capture into a const the async closure below can safely close over.
+      const subscriberEntry = entry;
 
       // Immediately send a snapshot of current state.
       //
@@ -495,6 +550,17 @@ export function createSubscriptionRegistry(
       const rawSnapshot = makeAppSnapshotFrame(Array.from(apps.values()));
       if (appFrameFilter !== undefined && ctx?.userId !== undefined) {
         const userIdForFilter = ctx.userId;
+        // Phase 118 code-review HIGH-4 (fix pass 2026-09-18): open the
+        // queue-window BEFORE spawning the async snapshot. Any
+        // publishAppUpdate / publishAppGoneByHostSlug fired between now
+        // and when the snapshot's sendFrame call completes will land in
+        // subscriberEntry.pendingAppFrames instead of racing past the
+        // snapshot. The drain-and-null below flushes the queue in FIFO
+        // order right after the snapshot lands, then re-opens
+        // steady-state delivery. On disposer-during-window (see below)
+        // the entry is removed from `subscribers` so future drains have
+        // no observers to hit anyway.
+        subscriberEntry.pendingAppFrames = [];
         // Fire-and-forget — disposer must return synchronously.
         void (async () => {
           try {
@@ -510,6 +576,30 @@ export function createSubscriptionRegistry(
                 error: err instanceof Error ? err.message : "unknown",
               },
             );
+          } finally {
+            // Drain-and-null runs in BOTH success and failure branches.
+            // If snapshot fails, the client either resubscribes or the
+            // next sweep tick re-populates state — either way, blocking
+            // subsequent frames forever is the wrong choice. On failure
+            // the drain still flushes any queued frames so the client
+            // is not starved of updates that arrived during the window.
+            const pending = subscriberEntry.pendingAppFrames;
+            subscriberEntry.pendingAppFrames = null;
+            if (pending !== null && subscribers.has(subscriberEntry)) {
+              for (const f of pending) {
+                try {
+                  sendFrame(f);
+                } catch (err) {
+                  systemLogger.warn(
+                    "Fleet-status app-frame queue drain delivery failed",
+                    {
+                      operation: "fleet_status_fanout_failed",
+                      error: err instanceof Error ? err.message : "unknown",
+                    },
+                  );
+                }
+              }
+            }
           }
         })();
       } else {
@@ -543,7 +633,12 @@ export function createSubscriptionRegistry(
 
       // Return disposer
       return () => {
-        subscribers.delete(entry);
+        subscribers.delete(subscriberEntry);
+        // Phase 118 code-review HIGH-4 (fix pass 2026-09-18): also drop
+        // any queued app frames so if the snapshot promise settles
+        // AFTER disposal, the drain sees an empty queue and (via the
+        // `subscribers.has` guard) also skips delivery. Belt-and-braces.
+        subscriberEntry.pendingAppFrames = null;
 
         // Phase 39 — fire onLastUnsubscriber callbacks on 1 → 0 transition.
         // Same try/catch isolation pattern as onFirstSubscriber.

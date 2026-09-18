@@ -1045,4 +1045,185 @@ describe("subscription-registry", () => {
       expect(framesBad.filter((f) => f.type === "app-update")).toHaveLength(0);
     });
   });
+
+  // ─── Phase 118 code-review HIGH-4 (fix pass 2026-09-18) — snapshot-first ordering ─
+  // The subscribe-path app-snapshot is fire-and-forget. Between the moment the
+  // subscriber entry is added to the Set and the moment the async snapshot's
+  // sendFrame call completes, publishAppUpdate/publishAppGoneByHostSlug ticks
+  // COULD deliver updates before the snapshot — the frontend would then
+  // overwrite the newer state with the stale snapshot ("picture has lied"
+  // race). Queue-until-snapshot-flushes closes that window.
+  describe("Phase 118 HIGH-4 fix — subscribe-snapshot ordering", () => {
+    // A controllable filter — the test awaits `resolveFilter()` to release the
+    // in-flight snapshot promise, letting us fire publishes DURING the window
+    // deterministically without racing setTimeout.
+    function makeGatedFilter() {
+      let resolveFn: (() => void) | undefined;
+      const gate = new Promise<void>((r) => {
+        resolveFn = r;
+      });
+      const filter = vi.fn(async (frame: FrontendOutboundFrameType) => {
+        await gate;
+        return frame;
+      });
+      return {
+        filter,
+        release: () => {
+          if (resolveFn) resolveFn();
+        },
+      };
+    }
+
+    function makeAppState2(
+      hostId: string,
+      slug: string,
+      overrides: Partial<AppState> = {},
+    ): AppState {
+      return {
+        hostId,
+        slug,
+        title: `App ${slug}`,
+        description: "test app",
+        port: 9591,
+        hasIcon: false,
+        createdAtMs: 1_700_000_000_000,
+        isHealthy: true,
+        healthMessage: null,
+        ...overrides,
+      };
+    }
+
+    async function tick(): Promise<void> {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    it("HIGH-4-1: publishAppUpdate fired DURING the subscribe-snapshot window is queued — subscriber receives snapshot FIRST, then the update", async () => {
+      const { filter, release } = makeGatedFilter();
+      const registry = createSubscriptionRegistry({ appFrameFilter: filter });
+      // Seed a pre-existing app so the snapshot contents differ from the
+      // subsequent update (semantically distinct frames — proves ordering).
+      registry.publishAppUpdate("h1", makeAppState2("h1", "todo"));
+
+      const received: FrontendOutboundFrameType[] = [];
+      // Subscribe with a userId → filter engages → pendingAppFrames = []
+      registry.subscribe((f) => received.push(f), { userId: "U1" });
+
+      // In the queue-window: publish an app-update BEFORE the filter releases.
+      registry.publishAppUpdate(
+        "h1",
+        makeAppState2("h1", "todo", { title: "Updated Title" }),
+      );
+
+      // Snapshot promise still gated — receiving should NOT yet contain the
+      // filtered app-snapshot OR the queued app-update.
+      const appFramesBeforeRelease = received.filter(
+        (f) => f.type === "app-snapshot" || f.type === "app-update",
+      );
+      expect(appFramesBeforeRelease).toHaveLength(0);
+
+      release();
+      await tick();
+
+      // After release: app-snapshot arrives FIRST, then the queued update.
+      const appFrames = received.filter(
+        (f) => f.type === "app-snapshot" || f.type === "app-update",
+      );
+      expect(appFrames.length).toBeGreaterThanOrEqual(2);
+      expect(appFrames[0].type).toBe("app-snapshot");
+      expect(appFrames[1].type).toBe("app-update");
+      if (appFrames[1].type === "app-update") {
+        expect(appFrames[1].app.title).toBe("Updated Title");
+      }
+    });
+
+    it("HIGH-4-2: publishAppGoneByHostSlug fired DURING the subscribe-snapshot window is also queued after the snapshot", async () => {
+      const { filter, release } = makeGatedFilter();
+      const registry = createSubscriptionRegistry({ appFrameFilter: filter });
+      registry.publishAppUpdate("h1", makeAppState2("h1", "todo"));
+
+      const received: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => received.push(f), { userId: "U1" });
+
+      // Gone fires DURING the queue window.
+      registry.publishAppGoneByHostSlug("h1", "todo");
+
+      const appFramesBeforeRelease = received.filter(
+        (f) => f.type === "app-snapshot" || f.type === "app-gone",
+      );
+      expect(appFramesBeforeRelease).toHaveLength(0);
+
+      release();
+      await tick();
+
+      const appFrames = received.filter(
+        (f) => f.type === "app-snapshot" || f.type === "app-gone",
+      );
+      expect(appFrames.length).toBeGreaterThanOrEqual(2);
+      expect(appFrames[0].type).toBe("app-snapshot");
+      expect(appFrames[1].type).toBe("app-gone");
+    });
+
+    it("HIGH-4-3: after snapshot flushes, subsequent publishes deliver normally — the queue is null and no double-buffering occurs", async () => {
+      const { filter, release } = makeGatedFilter();
+      const registry = createSubscriptionRegistry({ appFrameFilter: filter });
+
+      const received: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => received.push(f), { userId: "U1" });
+
+      release();
+      await tick();
+      received.length = 0;
+
+      // Post-flush publish delivers normally — one fanOutApp round trip.
+      registry.publishAppUpdate("h1", makeAppState2("h1", "todo"));
+      await tick();
+
+      const updates = received.filter((f) => f.type === "app-update");
+      expect(updates).toHaveLength(1);
+
+      registry.publishAppUpdate(
+        "h1",
+        makeAppState2("h1", "todo", { title: "Second" }),
+      );
+      await tick();
+      const allUpdates = received.filter((f) => f.type === "app-update");
+      expect(allUpdates).toHaveLength(2);
+    });
+
+    it("HIGH-4-4: disposer called DURING the queue window — no leaked frames delivered after unsubscribe", async () => {
+      const { filter, release } = makeGatedFilter();
+      const registry = createSubscriptionRegistry({ appFrameFilter: filter });
+
+      const received: FrontendOutboundFrameType[] = [];
+      const dispose = registry.subscribe((f) => received.push(f), {
+        userId: "U1",
+      });
+
+      // Queue an update in the pending window
+      registry.publishAppUpdate("h1", makeAppState2("h1", "todo"));
+
+      // Dispose BEFORE the filter releases
+      dispose();
+
+      release();
+      await tick();
+
+      // No app frames should reach the subscriber (snapshot AND the queued
+      // update are dropped because the disposer removed the entry from the
+      // Set + nulled the queue).
+      const appFrames = received.filter(
+        (f) =>
+          f.type === "app-snapshot" ||
+          f.type === "app-update" ||
+          f.type === "app-gone",
+      );
+      // The snapshot might still land (fire-and-forget resolves and calls
+      // sendFrame regardless of Set membership — we still send the initial
+      // snapshot via the closure's sendFrame reference). But the QUEUED
+      // update MUST NOT be delivered — the drain checks
+      // `subscribers.has(entry)` first.
+      const queuedUpdates = appFrames.filter((f) => f.type === "app-update");
+      expect(queuedUpdates).toHaveLength(0);
+    });
+  });
 });
