@@ -112,11 +112,11 @@ export function CreateProjectModal({
   }, [displayName, hostId, onCreated, onOpenChange]);
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={false}>
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={true}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay
           className={cn(
-            "absolute inset-0 z-[110] bg-black/15",
+            "absolute inset-0 z-[110] bg-black/40",
             "supports-backdrop-filter:backdrop-blur-xs duration-100",
             "data-open:animate-in data-open:fade-in-0",
             "data-closed:animate-out data-closed:fade-out-0",
@@ -164,7 +164,7 @@ export function CreateProjectModal({
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="e.g. Phase 117 sidebar"
+                placeholder="e.g. Trip Planning"
                 autoFocus
                 disabled={inFlight}
                 maxLength={80}
