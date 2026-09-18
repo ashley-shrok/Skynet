@@ -44,6 +44,7 @@
 import { useSyncExternalStore } from "react";
 import type {
   FrontendOutboundFrame,
+  ProjectListEntry,
   SessionState,
 } from "./fleet-status-types.js";
 import { FRAME_SCHEMA_VERSION } from "./fleet-status-types.js";
@@ -79,6 +80,17 @@ export interface FleetStatusClientOptions {
     hostId: string,
     hostname: string,
   ) => void;
+  /**
+   * Phase 117 Plan 117-06 (D-37): fired on every `project-list-changed`
+   * frame from the backend (published by
+   * subscription-registry.publishProjectListChanged after every project
+   * create / archive / session project assignment; also re-emitted on WS
+   * reconnect via the registry snapshot replay). AppShell routes these into
+   * conversation-store's projects slice (setProjects) so the sidebar
+   * re-derives its per-project buckets. Optional for backward-compat with
+   * tests that don't need the callback.
+   */
+  onProjectListChanged?: (projects: ProjectListEntry[]) => void;
 }
 
 export interface FleetStatusClient {
@@ -97,7 +109,14 @@ export interface FleetStatusClient {
 export function createFleetStatusClient(
   opts: FleetStatusClientOptions,
 ): FleetStatusClient {
-  const { url, onSnapshot, onUpdate, onGone, onIdentityArchived } = opts;
+  const {
+    url,
+    onSnapshot,
+    onUpdate,
+    onGone,
+    onIdentityArchived,
+    onProjectListChanged,
+  } = opts;
 
   let reconnectAttempts = 0;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -228,6 +247,34 @@ export function createFleetStatusClient(
             name: parsed.name,
           });
           onIdentityArchived?.(parsed.name, parsed.hostId, parsed.hostname);
+          break;
+        case "project-list-changed":
+          // Phase 117 Plan 117-06 (D-37): distinct wire message published by
+          // subscription-registry.publishProjectListChanged after every
+          // project create / archive / session-project assignment (117-04 +
+          // 117-05). Routes into the frontend's projects store slice via
+          // the AppShell-provided onProjectListChanged callback
+          // (setProjects on conversation-store — sidebar re-derives buckets).
+          //
+          // Rule-2 correctness guard (Phase 117 Plan 117-06): the browser
+          // skips zod validation on inbound frames per fleet-status-types.ts,
+          // so a malformed frame with `projects` set to a non-array would
+          // reach here after JSON.parse. Short-circuit before invoking the
+          // callback so consumers cannot observe garbage payloads.
+          if (!Array.isArray(parsed.projects)) {
+            console.warn({
+              operation: "fleet_status_client_project_list_changed_malformed",
+              url,
+              projectsType: typeof parsed.projects,
+            });
+            break;
+          }
+          console.info({
+            operation: "fleet_status_client_project_list_changed",
+            url,
+            projectCount: parsed.projects.length,
+          });
+          onProjectListChanged?.(parsed.projects);
           break;
         default:
           // Unknown frame type — drop silently (forward-compatible)

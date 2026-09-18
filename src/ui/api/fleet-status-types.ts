@@ -330,9 +330,31 @@ export interface FrontendIdentityArchivedFrame {
   hostname: string;
 }
 
+// Phase 117 Plan 117-06 (D-37): project-list-changed frame — DISTINCT wire
+// message published by the backend on every project create / archive / session
+// project assignment via subscription-registry.publishProjectListChanged
+// (117-03). Consumed by fleet-status-client onmessage dispatch (added here) →
+// routes into the frontend's projects store slice via the AppShell-provided
+// onProjectListChanged callback (setProjects on conversation-store). Mirrors
+// wire-protocol.ts FrontendProjectListChangedFrameSchema. MUST stay in
+// lockstep — any wire-protocol change is mirrored here.
+export interface ProjectListEntry {
+  slug: string;
+  displayName: string;
+  hostId: string;
+  hostname: string;
+  archived: boolean;
+}
+export interface FrontendProjectListChangedFrame {
+  schemaVersion: typeof FRAME_SCHEMA_VERSION;
+  type: "project-list-changed";
+  projects: ProjectListEntry[];
+}
+
 export type FrontendOutboundFrame =
   | FrontendSnapshotFrame
   | FrontendUpdateFrame
   | FrontendGoneFrame
   | FrontendPongFrame
-  | FrontendIdentityArchivedFrame;
+  | FrontendIdentityArchivedFrame
+  | FrontendProjectListChangedFrame;
