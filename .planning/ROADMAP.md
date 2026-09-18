@@ -2660,3 +2660,13 @@ Plans:
 - [x] 119-04-PLAN.md — Integrate Apps section into PrettyConversationsPanel.tsx above the search-vs-three-zone ternary
 - [x] 119-05-PLAN.md — Backend GET /apps/:hostId/:slug/icon route + APP_SLUG_RE + readAppIconFile helper + database.ts mount + route tests
 - [x] 119-06-PLAN.md — Integration tests A15-A20 for the Apps section in PrettyConversationsPanel.test.tsx (D-18 three-layer closure)
+
+### Phase 120: First-class apps campaign shape 4: apps as a content type in the pane — leaf-content-type + reverse proxy + CSRF boundary check
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 119
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 120 to break down)
