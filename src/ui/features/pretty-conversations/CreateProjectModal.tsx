@@ -22,8 +22,9 @@
 // role="alert" is a built-in browser behavior).
 
 import { useCallback, useEffect, useState } from "react";
+import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { DialogTitle } from "@/components/dialog";
+import { DialogHeader, DialogTitle, DialogClose } from "@/components/dialog";
 import { Button } from "@/components/button";
 import { cn } from "@/lib/utils";
 import { createProject } from "@/api/project-list-api";
@@ -124,14 +125,14 @@ export function CreateProjectModal({
         />
         <DialogPrimitive.Content
           onInteractOutside={(e) => {
-            // X + Esc + Cancel are the only close paths.
+            // X + Esc are the only close paths (Cancel button retired).
             e.preventDefault();
           }}
           aria-label="New project"
           className={cn(
             "absolute inset-4 z-[120] outline-none",
             "flex flex-col overflow-hidden rounded-[24px]",
-            "md:max-w-[420px] md:max-h-[280px] md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2",
+            "md:max-w-[420px] md:max-h-[320px] md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2",
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
             "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           )}
@@ -147,9 +148,49 @@ export function CreateProjectModal({
           }}
           data-testid="create-project-modal"
         >
-          <DialogTitle className="px-6 pt-5 pb-2 text-[15px] font-semibold text-[#f0ebe0]">
-            New project
-          </DialogTitle>
+          {/* a11y: sr-only title for screen readers (visible title lives in the header row below) */}
+          <DialogTitle className="sr-only">New project</DialogTitle>
+
+          {/* ─── Header ───────────────────────────────────────────────────── */}
+          <DialogHeader
+            className="px-6 py-4 shrink-0 flex flex-row items-center gap-3"
+            style={{ borderBottom: "1px solid rgba(220, 225, 245, 0.10)" }}
+          >
+            <h2 className="text-[15px] font-semibold text-[#f0ebe0] flex-1">
+              New project
+            </h2>
+
+            {/* Glass X close button — mirrors NewConversationModal.tsx L325-352
+                (which was itself lifted verbatim from GlobalFilesModal.tsx). */}
+            <DialogClose asChild>
+              <button
+                type="button"
+                aria-label="Close"
+                title="Close"
+                data-testid="create-project-close"
+                className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color,box-shadow] duration-200"
+                style={{
+                  background: "rgba(255, 255, 255, 0.04)",
+                  border: "1px solid rgba(220, 225, 245, 0.10)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.10)";
+                  e.currentTarget.style.border =
+                    "1px solid rgba(220, 225, 245, 0.22)";
+                  e.currentTarget.style.boxShadow =
+                    "0 0 20px hsla(220, 60%, 50%, 0.25)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)";
+                  e.currentTarget.style.border =
+                    "1px solid rgba(220, 225, 245, 0.10)";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              >
+                <X className="size-4" />
+              </button>
+            </DialogClose>
+          </DialogHeader>
 
           <div className="flex flex-col flex-1 min-h-0 overflow-y-auto px-6 py-3 gap-3">
             <div className="flex flex-col gap-1">
@@ -194,15 +235,6 @@ export function CreateProjectModal({
             className="px-6 py-4 shrink-0 flex flex-row gap-2 justify-end"
             style={{ borderTop: "1px solid rgba(220, 225, 245, 0.10)" }}
           >
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => onOpenChange(false)}
-              disabled={inFlight}
-              data-testid="create-project-cancel"
-            >
-              Cancel
-            </Button>
             <Button
               type="button"
               onClick={() => {

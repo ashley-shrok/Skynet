@@ -2,13 +2,13 @@
  * Phase 117 Plan 117-09 Task 1 — CreateProjectModal tests.
  *
  * Behavior surface (see 117-09-PLAN.md Task 1 <behavior>):
- *   Test 1  — renders when open=true: dialog + name input + Submit + Cancel
+ *   Test 1  — renders when open=true: dialog + name input + Submit + Close
  *   Test 2  — does not render when open=false: dialog NOT in DOM
  *   Test 3  — Submit disabled with empty input
  *   Test 4  — Submit enabled with valid input
  *   Test 5  — Submit calls createProject(hostId, raw displayName); fires
  *             onCreated({slug, displayName}) + closes modal on success
- *   Test 6  — Cancel closes without firing onCreated
+ *   Test 6  — Close (X) closes without firing onCreated
  *   Test 7  — 409 duplicate slug: modal stays open + inline error shown
  *   Test 8  — 500 error: modal stays open + generic inline error shown
  *   Test 9  — Submit in-flight disables input + Submit button
@@ -92,7 +92,7 @@ describe("CreateProjectModal", () => {
     cleanup();
   });
 
-  it("Test 1 (renders open): dialog with name input + Submit + Cancel present", () => {
+  it("Test 1 (renders open): dialog with name input + Submit + Close (X) present", () => {
     renderModal({ open: true });
     expect(
       screen.getByRole("dialog", { name: /new project/i }),
@@ -101,7 +101,8 @@ describe("CreateProjectModal", () => {
     expect(
       screen.getByRole("button", { name: /create project/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+    // Cancel button retired; close is now the top-right glass X (aria-label="Close").
+    expect(screen.getByRole("button", { name: /close/i })).toBeInTheDocument();
   });
 
   it("Test 2 (renders closed): dialog NOT in DOM when open=false", () => {
@@ -150,10 +151,10 @@ describe("CreateProjectModal", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("Test 6 (cancel): Cancel closes without firing onCreated or createProject", () => {
+  it("Test 6 (close X): X button closes without firing onCreated or createProject", () => {
     const { onOpenChange, onCreated } = renderModal({ open: true });
     typeName("My Project");
-    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+    fireEvent.click(screen.getByRole("button", { name: /close/i }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(onCreated).not.toHaveBeenCalled();
     expect(createProjectSpy).not.toHaveBeenCalled();
