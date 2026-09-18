@@ -84,18 +84,30 @@ export function useCollapsedProjectSlugs(): {
     hydrateFromStorage(),
   );
 
-  const toggle = useCallback((slug: string): void => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
+  const toggle = useCallback(
+    (slug: string): void => {
+      // Phase 117 M4 fix (2026-09-18): pre-fix, this called
+      // persistToStorage(next) INSIDE the functional setCollapsed
+      // updater. React StrictMode double-invokes updaters in
+      // development, which caused localStorage.setItem to run TWICE
+      // per toggle in dev. setState updaters must be pure — no side
+      // effects.
+      //
+      // Fix: compute `next` explicitly outside the updater based on
+      // the current committed `collapsed` value from the render pass,
+      // call setCollapsed(next) with the pre-built Set, then call
+      // persistToStorage(next) exactly once. Because `collapsed` is
+      // captured in the useCallback closure, we depend on it in the
+      // deps array so `toggle` re-creates when `collapsed` flips
+      // identity (which it does on every real change).
+      const next = new Set(collapsed);
       if (next.has(slug)) next.delete(slug);
       else next.add(slug);
-      // Persist BEFORE returning so the read-back reflects the new set.
-      // Even if this throws (mocked in test 8), the in-memory `next` still
-      // reaches the caller — silent-catch is inside persistToStorage.
+      setCollapsed(next);
       persistToStorage(next);
-      return next;
-    });
-  }, []);
+    },
+    [collapsed],
+  );
 
   return { collapsed, toggle };
 }
