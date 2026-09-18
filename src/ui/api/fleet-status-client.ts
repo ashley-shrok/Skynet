@@ -43,6 +43,7 @@
 
 import { useSyncExternalStore } from "react";
 import type {
+  AppState,
   FrontendOutboundFrame,
   ProjectListEntry,
   SessionState,
@@ -91,6 +92,17 @@ export interface FleetStatusClientOptions {
    * tests that don't need the callback.
    */
   onProjectListChanged?: (projects: ProjectListEntry[]) => void;
+  // Phase 119 Plan 119-01 (D-14, D-16): fired on every `app-snapshot` /
+  // `app-update` / `app-gone` frame from the Phase 118 app-registry
+  // channel. Later 117-* plans wire these to the new app-tiles store
+  // slice's publish fns (`publishAppSnapshot` / `publishAppUpdate` /
+  // `publishAppGone`) in AppShell. Optional because this task adds the
+  // dispatch primitive standalone — the store slice + AppShell wiring
+  // land in follow-up plans. Omitting all three MUST NOT throw when app
+  // frames arrive (regression-tested in fleet-status-client.test.ts).
+  onAppSnapshot?: (apps: AppState[]) => void;
+  onAppUpdate?: (app: AppState) => void;
+  onAppGone?: (hostId: string, slug: string) => void;
 }
 
 export interface FleetStatusClient {
@@ -116,6 +128,9 @@ export function createFleetStatusClient(
     onGone,
     onIdentityArchived,
     onProjectListChanged,
+    onAppSnapshot,
+    onAppUpdate,
+    onAppGone,
   } = opts;
 
   let reconnectAttempts = 0;
@@ -275,6 +290,46 @@ export function createFleetStatusClient(
             projectCount: parsed.projects.length,
           });
           onProjectListChanged?.(parsed.projects);
+        case "app-snapshot":
+          // Phase 119 Plan 119-01 (D-14, D-16): Phase 118 app-registry
+          // snapshot on subscribe (also re-emitted on WS reconnect). Later
+          // 117-* plans wire the callback to publishAppSnapshot on the new
+          // app-tiles store slice, which clears-and-repopulates the store
+          // atomically (D-14 no partial states). Callback is optional so
+          // this task can land standalone ahead of the store slice.
+          console.info({
+            operation: "fleet_status_client_app_snapshot",
+            url,
+            appCount: parsed.apps.length,
+          });
+          onAppSnapshot?.(parsed.apps);
+          break;
+        case "app-update":
+          // Phase 119 Plan 119-01 (D-14): one app-state add / mutate on
+          // the Phase 118 channel. Health-flips (same slug, isHealthy
+          // changed) always emit — backend does NOT deduplicate — so
+          // consumers can rely on the callback firing whenever the tile's
+          // rendered state should update.
+          console.info({
+            operation: "fleet_status_client_app_update",
+            url,
+            hostId: parsed.app.hostId,
+            slug: parsed.app.slug,
+            isHealthy: parsed.app.isHealthy,
+          });
+          onAppUpdate?.(parsed.app);
+          break;
+        case "app-gone":
+          // Phase 119 Plan 119-01 (D-14): the app dropped out of the sweep
+          // (unit removed OR host lost visibility). Store slice deletes by
+          // `${hostId}:${slug}` compound key on receipt.
+          console.info({
+            operation: "fleet_status_client_app_gone",
+            url,
+            hostId: parsed.hostId,
+            slug: parsed.slug,
+          });
+          onAppGone?.(parsed.hostId, parsed.slug);
           break;
         default:
           // Unknown frame type — drop silently (forward-compatible)

@@ -1207,12 +1207,53 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const onProjectListChanged = vi.fn();
+// Phase 119 Plan 119-01 (D-14, D-16): app-frame dispatch tests
+//
+// Verifies the three new switch arms — `app-snapshot`, `app-update`,
+// `app-gone` — fire their corresponding optional callbacks with the parsed
+// payloads. Also verifies (a) the callbacks are optional (omitting them does
+// NOT throw when a real app frame arrives), and (b) unknown frame types
+// still fall through to the pre-existing default branch (no regression from
+// widening the union).
+//
+// These tests close RESEARCH.md Pitfall 1 at runtime — they would fail if
+// the switch dispatch silently dropped app frames into the default arm.
+// ---------------------------------------------------------------------------
+
+describe("fleet-status-client: app-frame dispatch (Phase 119 Plan 119-01)", () => {
+  // Realistic AppState payload — mirrors backend AppStateSchema
+  // (wire-protocol.ts:632-644) verbatim.
+  const sampleApp = {
+    hostId: "6",
+    slug: "scratch-sidebar-test",
+    title: "Scratch Sidebar Test",
+    description: "Test app for Phase 119 UAT",
+    port: 8080,
+    hasIcon: true,
+    createdAtMs: 1758211200000,
+    isHealthy: true,
+    healthMessage: null,
+  };
+
+  const sampleAppUnhealthy = {
+    ...sampleApp,
+    slug: "scratch-broken",
+    title: "Broken App",
+    isHealthy: false,
+    healthMessage: "unit exists but currently stopped",
+  };
+
+  it("dispatches app-snapshot frame to onAppSnapshot with the apps array", () => {
+    const onAppSnapshot = vi.fn();
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
     createFleetStatusClient({
       url: "ws://localhost/fleet-status/ws",
       onSnapshot: vi.fn(),
       onUpdate: vi.fn(),
       onGone: vi.fn(),
       onProjectListChanged,
+      onAppSnapshot,
     });
     const ws = latestWs();
     ws.onopen?.();
@@ -1253,6 +1294,113 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     // Deliberately do NOT wire onProjectListChanged.
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "app-snapshot",
+        apps: [sampleApp, sampleAppUnhealthy],
+      }),
+    });
+
+    expect(onAppSnapshot).toHaveBeenCalledTimes(1);
+    expect(onAppSnapshot).toHaveBeenCalledWith([sampleApp, sampleAppUnhealthy]);
+
+    // Structured logging is emitted with the plan-specified operation name.
+    const snapshotLogs = infoSpy.mock.calls.filter((args) =>
+      args.some(
+        (arg) =>
+          typeof arg === "object" &&
+          arg !== null &&
+          (arg as Record<string, unknown>).operation ===
+            "fleet_status_client_app_snapshot",
+      ),
+    );
+    expect(snapshotLogs.length).toBe(1);
+    infoSpy.mockRestore();
+  });
+
+  it("dispatches app-update frame to onAppUpdate with the parsed AppState", () => {
+    const onAppUpdate = vi.fn();
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+      onAppUpdate,
+    });
+    const ws = latestWs();
+    ws.onopen?.();
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "app-update",
+        app: sampleAppUnhealthy,
+      }),
+    });
+
+    expect(onAppUpdate).toHaveBeenCalledTimes(1);
+    expect(onAppUpdate).toHaveBeenCalledWith(sampleAppUnhealthy);
+
+    const updateLogs = infoSpy.mock.calls.filter((args) =>
+      args.some(
+        (arg) =>
+          typeof arg === "object" &&
+          arg !== null &&
+          (arg as Record<string, unknown>).operation ===
+            "fleet_status_client_app_update",
+      ),
+    );
+    expect(updateLogs.length).toBe(1);
+    infoSpy.mockRestore();
+  });
+
+  it("dispatches app-gone frame to onAppGone with (hostId, slug)", () => {
+    const onAppGone = vi.fn();
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+      onAppGone,
+    });
+    const ws = latestWs();
+    ws.onopen?.();
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "app-gone",
+        hostId: "6",
+        slug: "scratch-sidebar-test",
+      }),
+    });
+
+    expect(onAppGone).toHaveBeenCalledTimes(1);
+    expect(onAppGone).toHaveBeenCalledWith("6", "scratch-sidebar-test");
+
+    const goneLogs = infoSpy.mock.calls.filter((args) =>
+      args.some(
+        (arg) =>
+          typeof arg === "object" &&
+          arg !== null &&
+          (arg as Record<string, unknown>).operation ===
+            "fleet_status_client_app_gone",
+      ),
+    );
+    expect(goneLogs.length).toBe(1);
+    infoSpy.mockRestore();
+  });
+
+  it("does NOT throw when app frames arrive with all three callbacks omitted (they are optional)", () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+
+    // Construct the client with ZERO app-frame callbacks — mirrors how
+    // Phase 118-era AppShell will still wire the client before 119-02 lands.
     createFleetStatusClient({
       url: "ws://localhost/fleet-status/ws",
       onSnapshot: vi.fn(),
@@ -1262,6 +1410,7 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
     const ws = latestWs();
     ws.onopen?.();
 
+    // Deliver one of each app-frame arm — none of these should throw.
     expect(() => {
       ws.onmessage?.({
         data: JSON.stringify({
@@ -1276,6 +1425,23 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
               archived: false,
             },
           ],
+          type: "app-snapshot",
+          apps: [sampleApp],
+        }),
+      });
+      ws.onmessage?.({
+        data: JSON.stringify({
+          schemaVersion: FRAME_SCHEMA_VERSION,
+          type: "app-update",
+          app: sampleAppUnhealthy,
+        }),
+      });
+      ws.onmessage?.({
+        data: JSON.stringify({
+          schemaVersion: FRAME_SCHEMA_VERSION,
+          type: "app-gone",
+          hostId: "6",
+          slug: "scratch-sidebar-test",
         }),
       });
     }).not.toThrow();
@@ -1309,6 +1475,28 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
       onGone: vi.fn(),
       onIdentityArchived,
       onProjectListChanged,
+    // Connection stays open — the client did not close on the app-frame arrival.
+    expect(ws.readyState).toBe(1);
+  });
+
+  it("unknown frame types still hit the default branch without dispatching to any app callback (regression guard)", () => {
+    const onSnapshot = vi.fn();
+    const onUpdate = vi.fn();
+    const onGone = vi.fn();
+    const onAppSnapshot = vi.fn();
+    const onAppUpdate = vi.fn();
+    const onAppGone = vi.fn();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot,
+      onUpdate,
+      onGone,
+      onAppSnapshot,
+      onAppUpdate,
+      onAppGone,
     });
     const ws = latestWs();
     ws.onopen?.();
@@ -1372,12 +1560,16 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
     // Malformed frame — passes JSON.parse (browser skips zod per
     // fleet-status-types.ts) but projects is a string, not an array. The
     // switch-branch guard MUST short-circuit before invoking the callback.
+    // Deliver an unknown frame type — must NOT throw and must NOT invoke
+    // any callback (the default branch is a silent drop for forward-compat).
     expect(() => {
       ws.onmessage?.({
         data: JSON.stringify({
           schemaVersion: FRAME_SCHEMA_VERSION,
           type: "project-list-changed",
           projects: "not-an-array",
+          type: "some-future-frame-kind-that-does-not-exist",
+          payload: { anything: "goes" },
         }),
       });
     }).not.toThrow();
@@ -1450,5 +1642,14 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
 
     expect(logEntries.length).toBe(1);
     expect(logEntries[0].projectCount).toBe(3);
+    expect(onSnapshot).not.toHaveBeenCalled();
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(onGone).not.toHaveBeenCalled();
+    expect(onAppSnapshot).not.toHaveBeenCalled();
+    expect(onAppUpdate).not.toHaveBeenCalled();
+    expect(onAppGone).not.toHaveBeenCalled();
+
+    // Connection stays open.
+    expect(ws.readyState).toBe(1);
   });
 });
