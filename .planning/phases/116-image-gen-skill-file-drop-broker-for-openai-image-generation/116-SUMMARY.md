@@ -183,7 +183,28 @@ After Ashley's ship greenlight (D-28 — orchestrator-owned, not executor):
 - **Test failures:** 0
 - **Regression failures:** 0
 
+## Code Review Fixes
+
+Post-ship `/build` unbiased-review pass on 2026-09-18 (after phase close) surfaced 10 MEDIUM-severity findings that were applied as follow-up commits. Each fix is atomic (or grouped per subsystem), each covered by at least one new/updated test that would have caught the original bug. `npx vitest run src/backend/image-gen-requests/` and `bash substrate/scripts/tests/image-gen.test.sh` both green (139 vitest tests, 6 bash tests). `npx tsc --noEmit` clean.
+
+| # | Finding | File(s) | Commit |
+|---|---------|---------|--------|
+| 1 | UUID_RE too loose — accepted 36 hyphens / pathological 36-char basenames | `scan-orchestrator.ts` + `.test.ts` | `8185a7f7` |
+| 2 | `ref` companion filename UUID not matched to request UUID (cross-request confusion) | `scan-orchestrator.ts` + `.test.ts` + `end-to-end.test.ts` | `e5850670` |
+| 3+4+9 | 408/425 → provider_unavailable + parse 429 Retry-After + end-to-end 502/504 test coverage | `adapter.ts` + `adapter.test.ts` + `end-to-end.test.ts` | `1f83e05d` |
+| 5 | Unbounded queue depth — added MAX_QUEUE_DEPTH=10_000 + overflow-drop failure.json | `queue.ts` + `queue.test.ts` + `worker.ts` (façade export) | `3112bfc4` |
+| 6 | Unbounded companion ref size — added MAX_REF_BYTES=20MiB with `head -c` cap | `scan-orchestrator.ts` + `.test.ts` | `08ac0e7b` |
+| 7 | jq-missing corrupts JSON — removed unsafe fallback, require jq at startup | `substrate/scripts/image-gen` + `image-gen.test.sh` | `bdaf7c61` |
+| 8 | Token bucket displays fractional tokens — floor in getState() | `token-bucket.ts` + `.test.ts` | `ac64d586` |
+| 10 | Test gap: unknown top-level key rejected via full scan → worker pipeline | `end-to-end.test.ts` | `98da1842` |
+
+**Summary of impact:**
+- **Security/hardening:** FIX 1 (strict UUID regex), FIX 2 (cross-request ref confusion), FIX 5 (OOM protection), FIX 6 (companion size DoS)
+- **Correctness:** FIX 3 (408/425 status mapping), FIX 4 (Retry-After parsing), FIX 7 (jq fallback JSON corruption), FIX 8 (fractional tokens in logs)
+- **Test coverage:** FIX 9 (502/504 end-to-end), FIX 10 (unknown top-level key end-to-end)
+
 ---
 *Phase: 116-image-gen-skill-file-drop-broker-for-openai-image-generation*
 *Completed: 2026-09-18*
+*Code Review Fixes: 2026-09-18*
 *Rollup of 116-01, 116-02, 116-03, 116-04*
