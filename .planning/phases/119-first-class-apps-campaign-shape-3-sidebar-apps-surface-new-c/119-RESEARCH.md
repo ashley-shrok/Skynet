@@ -622,27 +622,27 @@ Nothing to migrate. Every pattern this phase uses is current-in-repo and battle-
 | A6 | The `substrate/skills/app-development/create-app.sh` uses kebab-case-only slugs (no underscores) | Discretion §APP_SLUG_RE | LOW — SKILL.md at line 104 says "kebab-case", grep confirms shape 1 vocabulary. Regex `/^[a-z0-9-]{1,64}$/` (no underscore) is correct. If wrong, widen to `/^[a-z0-9_-]{1,64}$/` to match IDENTITY_KEY_RE. |
 | A7 | Skynet container is same-origin with the app tabs a user opens ("Open in new tab") | Section §D-12 | MEDIUM — the shape file at line 30 asserts "the fresh tab inherits the user's authenticated session naturally via the browser session cookie." For this to work, the app URL (`/apps/:hostId/:slug`) must be under the SAME origin as the Skynet UI. If shape 4 proxies apps under a different subdomain, cookie scope issues arise. This is shape 4's problem, not shape 3's; Phase 119 opens the URL and lets shape 4 handle auth. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **How does `sftpReadFile` signal file-not-found?**
    - What we know: `readAvatarSiblingFile` uses a pre-check `ls` shell call to test file existence before calling `sftpReadFile` (`identity-artifact-reader.ts:2562-2564`), suggesting `sftpReadFile` may not have a clean null-return path.
    - What's unclear: Whether it throws with a specific error code or a specific message pattern.
-   - Recommendation: Executor reads the `sftpReadFile` signature at implementation time and picks the cleanest shape — either an `ls` pre-check like the identity reader, or a try/catch on the read with a specific ENOENT match.
+   - **RESOLVED:** Executor reads the `sftpReadFile` signature at implementation time and picks the cleanest shape — either an `ls` pre-check like the identity reader, or a try/catch on the read with a specific ENOENT match.
 
 2. **Which lucide-react glyph does Ashley visually prefer for the "Apps" header?**
    - What we know: CONTEXT.md D-02 lists 5 acceptable options; CONTEXT.md `Claude's Discretion` says "AppWindow reads most literally."
    - What's unclear: Whether Ashley's tasting-round preference has been captured elsewhere.
-   - Recommendation: Ship with `AppWindow` in Phase 119; swap during agent UAT if it looks wrong.
+   - **RESOLVED:** Ship with `AppWindow` in Phase 119; swap during agent UAT if it looks wrong.
 
 3. **Does the fleet-status client's snapshot ordering guarantee that app-snapshot arrives before any app-update on a fresh subscription?**
    - What we know: `subscription-registry.ts:487-489` documents "UNCONDITIONAL — an empty apps map still produces an app-snapshot," and Phase 118 D-16 requires snapshot-on-subscribe.
    - What's unclear: Whether the server guarantees the snapshot is FLUSHED before subsequent updates on the same connection.
-   - Recommendation: Frontend store treats `app-snapshot` as CLEAR-then-REPOPULATE (as the example code above does). If an update arrives before the snapshot (network race), it gets overwritten by the snapshot on arrival — acceptable, matches D-17's "no pre-first-frame state" model.
+   - **RESOLVED:** Frontend store treats `app-snapshot` as CLEAR-then-REPOPULATE (as the example code above does). If an update arrives before the snapshot (network race), it gets overwritten by the snapshot on arrival — acceptable, matches D-17's "no pre-first-frame state" model.
 
 4. **Is there a shared `error-red` token in the fleet UI palette for the unhealthy `healthMessage`?**
    - What we know: Grep of `pretty-conversations.css` found `#ff9a8a` (context menu danger item), `#f4a09b` (from CONTEXT.md tasting), warm-amber `hsla(35, 65%, 55%, 0.85)` (trapped-work indicator).
    - What's unclear: Whether a semantic `--color-pv-error` variable exists in the wider palette (grep of `--color-pv-` in `pretty-conversations.css:274` shows `--color-pv-border-quiet` — full palette may live in a different file).
-   - Recommendation: Use `#f4a09b` verbatim from the tasting; add a `.pv-app-unhealthy-message` selector; leave a comment inviting a future palette-token pass.
+   - **RESOLVED:** Use `#f4a09b` verbatim from the tasting; add a `.pv-app-unhealthy-message` selector; leave a comment inviting a future palette-token pass.
 
 ## Environment Availability
 
