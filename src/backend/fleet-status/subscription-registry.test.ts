@@ -829,4 +829,217 @@ describe("subscription-registry", () => {
       expect(updateFrames).toHaveLength(1);
     });
   });
+
+  // ─── Phase 118 Plan 118-05 — per-user host-visibility filter on app frames ─
+  // The registry accepts an optional `deps.appFrameFilter` in its factory.
+  // When present, the async fanOutApp helper wraps every app-* fan-out call
+  // and the subscribe-path snapshot emit — per-subscriber filtering. When
+  // absent (existing 118-03 tests + starter.ts without wiring) the registry
+  // uses the sync fanOut path unchanged (backward-compat).
+  //
+  // Session + archived-identity fan-out is UNAFFECTED (D-15 scopes to app
+  // frames only; identity frames get filtered "or will be" per D-15's own
+  // language — deferred to a follow-up plan).
+  describe("Phase 118 Plan 118-05 app-frame filter integration", () => {
+    function makeFilterAppState(
+      hostId: string,
+      slug: string,
+      overrides: Partial<AppState> = {},
+    ): AppState {
+      return {
+        hostId,
+        slug,
+        title: `App ${slug}`,
+        description: "test app",
+        port: 9591,
+        hasIcon: false,
+        createdAtMs: 1_700_000_000_000,
+        isHealthy: true,
+        healthMessage: null,
+        ...overrides,
+      };
+    }
+
+    async function tick(): Promise<void> {
+      // Small delay to let the fire-and-forget fanOutApp promises settle.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    it("Filter-1: no appFrameFilter dep → registry runs unfiltered (backward-compat with 118-03 tests)", async () => {
+      const registry = createSubscriptionRegistry(); // no deps
+      const received: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => received.push(f), { userId: "U1" });
+      received.length = 0;
+
+      registry.publishAppUpdate("h1", makeFilterAppState("h1", "todo"));
+      await tick();
+
+      const updates = received.filter((f) => f.type === "app-update");
+      expect(updates).toHaveLength(1);
+    });
+
+    it("Filter-2: filter dep present + bare subscriber (no ctx) → unfiltered (no userId → pass-through)", async () => {
+      const filterMock = vi.fn(async (frame: FrontendOutboundFrameType) => frame);
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+      const received: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => received.push(f)); // no ctx
+      received.length = 0;
+
+      registry.publishAppUpdate("h1", makeFilterAppState("h1", "todo"));
+      await tick();
+
+      const updates = received.filter((f) => f.type === "app-update");
+      expect(updates).toHaveLength(1);
+      // Filter WAS called (registry doesn't know per-subscriber ctx handling — the
+      // filter itself is expected to short-circuit when userId is undefined).
+      expect(filterMock).toHaveBeenCalled();
+      expect(filterMock.mock.calls[0][1]).toBeUndefined();
+    });
+
+    it("Filter-3: two subscribers with distinct userIds — filter drops for U2 on app-update", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          if (userId === "U2" && frame.type === "app-update") return null;
+          return frame;
+        },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      const framesU1: FrontendOutboundFrameType[] = [];
+      const framesU2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      registry.subscribe((f) => framesU2.push(f), { userId: "U2" });
+      await tick();
+      framesU1.length = 0;
+      framesU2.length = 0;
+
+      registry.publishAppUpdate("h1", makeFilterAppState("h1", "todo"));
+      await tick();
+
+      expect(framesU1.filter((f) => f.type === "app-update")).toHaveLength(1);
+      expect(framesU2.filter((f) => f.type === "app-update")).toHaveLength(0);
+    });
+
+    it("Filter-4: publishAppGoneByHostSlug filtered per-subscriber — U1 sees the gone, U2 does not", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          if (userId === "U2" && frame.type === "app-gone") return null;
+          return frame;
+        },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      // Seed the map so the gone actually fans out.
+      registry.publishAppUpdate("h1", makeFilterAppState("h1", "todo"));
+      await tick();
+
+      const framesU1: FrontendOutboundFrameType[] = [];
+      const framesU2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      registry.subscribe((f) => framesU2.push(f), { userId: "U2" });
+      await tick();
+      framesU1.length = 0;
+      framesU2.length = 0;
+
+      registry.publishAppGoneByHostSlug("h1", "todo");
+      await tick();
+
+      expect(framesU1.filter((f) => f.type === "app-gone")).toHaveLength(1);
+      expect(framesU2.filter((f) => f.type === "app-gone")).toHaveLength(0);
+    });
+
+    it("Filter-5: subscribe-path app-snapshot is filtered per userId (projected copy)", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, _userId?: string) => {
+          // Project the snapshot to only h1 apps (drop h2 apps entirely).
+          if (frame.type === "app-snapshot") {
+            return {
+              ...frame,
+              apps: frame.apps.filter((a) => a.hostId === "h1"),
+            };
+          }
+          return frame;
+        },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      // Seed with apps across two hosts BEFORE the subscribe.
+      registry.publishAppUpdate("h1", makeFilterAppState("h1", "todo"));
+      registry.publishAppUpdate("h2", makeFilterAppState("h2", "kanban"));
+      await tick();
+
+      const framesU1: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      await tick();
+
+      const snapshots = framesU1.filter((f) => f.type === "app-snapshot");
+      expect(snapshots).toHaveLength(1);
+      const snap = snapshots[0];
+      if (snap.type === "app-snapshot") {
+        expect(snap.apps).toHaveLength(1);
+        expect(snap.apps[0].hostId).toBe("h1");
+      }
+    });
+
+    it("Filter-6: session + archived-identity fan-out UNAFFECTED by widening (still sync + unfiltered)", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType) => frame,
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      const framesU1: FrontendOutboundFrameType[] = [];
+      const framesU2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      registry.subscribe((f) => framesU2.push(f), { userId: "U2" });
+      await tick();
+      framesU1.length = 0;
+      framesU2.length = 0;
+
+      // Session frame — must reach BOTH subscribers without going through filter.
+      const state = makeState("host-42", "tina", "session-1");
+      registry.publishSessionState("host-42", state);
+
+      // Archived identity frame — also must reach BOTH subscribers.
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+
+      // Filter was NOT called for session/archived (only app frames go through it).
+      expect(filterMock).not.toHaveBeenCalled();
+
+      expect(framesU1.filter((f) => f.type === "update")).toHaveLength(1);
+      expect(framesU2.filter((f) => f.type === "update")).toHaveLength(1);
+      expect(
+        framesU1.filter((f) => f.type === "identity-archived"),
+      ).toHaveLength(1);
+      expect(
+        framesU2.filter((f) => f.type === "identity-archived"),
+      ).toHaveLength(1);
+    });
+
+    it("Filter-7: filter throwing for one subscriber does NOT block delivery to others", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          if (userId === "U-bad") {
+            throw new Error("filter exploded");
+          }
+          return frame;
+        },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      const framesGood: FrontendOutboundFrameType[] = [];
+      const framesBad: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesGood.push(f), { userId: "U-good" });
+      registry.subscribe((f) => framesBad.push(f), { userId: "U-bad" });
+      await tick();
+      framesGood.length = 0;
+      framesBad.length = 0;
+
+      registry.publishAppUpdate("h1", makeFilterAppState("h1", "todo"));
+      await tick();
+
+      expect(framesGood.filter((f) => f.type === "app-update")).toHaveLength(1);
+      // Bad subscriber's filter threw → frame not delivered to them.
+      expect(framesBad.filter((f) => f.type === "app-update")).toHaveLength(0);
+    });
+  });
 });
