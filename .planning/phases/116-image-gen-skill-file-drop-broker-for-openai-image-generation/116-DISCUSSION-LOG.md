@@ -37,7 +37,7 @@
 | 10+ minutes | Very generous; caller blocks longer on real hangs | |
 
 **User's choice:** 5 minutes.
-**Notes:** Conditional on parallelized workers (see Area 4 Q1). Ashley: *"as long as we are parallelizing the image generation itself then i'm okay with five minutes."*
+**Notes:** Conditional on parallelized workers (see Area 4 Q1). the user: *"as long as we are parallelizing the image generation itself then i'm okay with five minutes."*
 
 ### Q4: Request folder path on the box
 | Option | Description | Selected |
@@ -81,7 +81,7 @@
 | Whole response JSON to stdout | Agent parses if it wants details | |
 | Paths on stdout, full JSON on stderr | Clean happy-path parse + debugging fallback | ✓ |
 
-**User's choice:** Paths on stdout, full JSON on stderr (this was the "my lean" that Ashley greenlit; the fourth option assembled during discussion).
+**User's choice:** Paths on stdout, full JSON on stderr (this was the "my lean" that the user greenlit; the fourth option assembled during discussion).
 **Notes:** Machine-parseable success (`exit 0` + N lines stdout); human-readable failure (non-zero exit + failure JSON on stderr).
 
 ### Q4: Default output location + wire-folder cleanup
@@ -92,7 +92,7 @@
 | Caller-required `--out`, no default | Forces explicit destination decision | |
 
 **User's choice:** Move to `~/fleet/image-gen-outputs/`, overridable with `--out`; wire files cleaned up per call.
-**Notes:** Ashley: *"let's make sure that the out put directory is in the fleet folder still if you think that's a good idea."* Under `~/fleet/` per the fleet rule against `/tmp` for anything worth surviving reboots.
+**Notes:** the user: *"let's make sure that the out put directory is in the fleet folder still if you think that's a good idea."* Under `~/fleet/` per the fleet rule against `/tmp` for anything worth surviving reboots.
 
 ---
 
@@ -105,7 +105,7 @@
 | Minimal 3-sentence version | "Your prompt leaves this deployment. MUST NOT include PHI... Paraphrase; if unsure, don't send." | ✓ |
 
 **User's choice:** Minimal 3-sentence version.
-**Notes:** Ashley: *"give me a version that is as minimal as possible."*
+**Notes:** the user: *"give me a version that is as minimal as possible."*
 
 ### Q2: Placement + prominence
 | Option | Description | Selected |
@@ -116,7 +116,7 @@
 | Top + inline echo at invocation section | Redundancy at both ends per research | ✓ |
 
 **User's choice:** Top + inline echo at invocation section, with `MUST NOT` phrasing.
-**Notes:** Ashley asked for research on instruction ordering before deciding. Findings from spawned research subagent: Liu et al. 2024 "Lost in the Middle" + Guo et al. 2024 serial-position effects + 2025 hierarchical-safety-adherence benchmark + Anthropic's own skill-authoring guidance. Middle-of-file is measurably weakest; top + inline echo is best per combined evidence. `MUST NOT` phrasing per Anthropic's skill-authoring docs.
+**Notes:** the user asked for research on instruction ordering before deciding. Findings from spawned research subagent: Liu et al. 2024 "Lost in the Middle" + Guo et al. 2024 serial-position effects + 2025 hierarchical-safety-adherence benchmark + Anthropic's own skill-authoring guidance. Middle-of-file is measurably weakest; top + inline echo is best per combined evidence. `MUST NOT` phrasing per Anthropic's skill-authoring docs.
 
 ### Q3: `content_blocked` failure guidance in skill body
 | Option | Description | Selected |
@@ -152,7 +152,7 @@
 | Add proactive backend self-throttle to never hit OpenAI's limit | Token bucket + queue upstream of the OpenAI call | ✓ |
 
 **User's choice:** Self-throttle via token bucket, env-configurable RPM (default 30), workers block on tokens; only if a 429 slips through do we return `rate_limited` (signals our own misconfiguration).
-**Notes:** Ashley: *"can we have like something in place on the back end that deliberately rate limits lower than whatever we think open a i does so that we never actually hit that from them and maybe there could be like a queue or something."*
+**Notes:** the user: *"can we have like something in place on the back end that deliberately rate limits lower than whatever we think open a i does so that we never actually hit that from them and maybe there could be like a queue or something."*
 
 ### Q3: TTL on queued requests (when caller's 5-min skill-side timeout fires while their request is still in the queue)
 | Option | Description | Selected |

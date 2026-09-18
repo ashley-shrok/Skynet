@@ -75,7 +75,7 @@ Phase 116 is the first shape of a potential future family of file-drop broker ca
   - `unknown` — Catch-all for anything the worker didn't classify. Message optional. Caller action: escalate to operator.
 
 ### Ship coordination
-- **D-28:** All changes in this phase ship as one atomic ship motion. Executor's remit stops at code + commit + tests green (per fleet rule 2026-08-08). Push, docker build, and docker compose up are orchestrator-owned and gated on Ashley's explicit ship greenlight (per fleet rule 2026-07-27 + 2026-08-29 strengthening — deploy-window boundary sits at `git push`). The fleet-substrate distributor sweep is what actually gets the skill + helper script onto every managed host after ship; that happens on the distributor's own schedule (typically within minutes of the container restart).
+- **D-28:** All changes in this phase ship as one atomic ship motion. Executor's remit stops at code + commit + tests green (per fleet rule 2026-08-08). Push, docker build, and docker compose up are orchestrator-owned and gated on the user's explicit ship greenlight (per fleet rule 2026-07-27 + 2026-08-29 strengthening — deploy-window boundary sits at `git push`). The fleet-substrate distributor sweep is what actually gets the skill + helper script onto every managed host after ship; that happens on the distributor's own schedule (typically within minutes of the container restart).
 
 ### Claude's Discretion (implementation-level, planner decides)
 - **Number of plans + wave breakdown.** The phase has ~5 distinct work surfaces (backend scanner extension in fleet-status; backend queue + worker pool + token bucket subsystem; OpenAI adapter; helper script + skill body distribution + catalog entry; test surface). Planner may split into 4-5 plans in 2-3 waves based on file overlap and test coupling. A 4-plan / 2-wave layout is likely reasonable: Wave 1 = queue+worker+adapter (independent modules) parallel with helper+skill (independent files); Wave 2 = fleet-status scanner extension (depends on Wave 1 queue).
@@ -173,7 +173,7 @@ Phase 116 is the first shape of a potential future family of file-drop broker ca
 - **Do NOT silently drop caller-specified params the backend doesn't recognize** (D-06). Reject the request with `reason: malformed` + descriptive message.
 - **Do NOT introduce message streaming** (fleet-wide standing directive: "Skynet has NO message streaming — ever, anywhere"). Response files are atomic writes; no partial-file streaming affordances.
 - **Do NOT hand-patch fleet-substrate-managed content on any host** (fleet-wide standing directive). All changes here go through the substrate distributor via the catalog.
-- **Do NOT push, docker build, or docker compose up as part of executor's remit** (fleet rule 2026-07-27 + 2026-08-29). Executor's remit stops at code + commit + tests green. Orchestrator owns the ship motion on Ashley's greenlight.
+- **Do NOT push, docker build, or docker compose up as part of executor's remit** (fleet rule 2026-07-27 + 2026-08-29). Executor's remit stops at code + commit + tests green. Orchestrator owns the ship motion on the user's greenlight.
 - **Do NOT put the throttle-rate config in branding.json** (D-21). Provider-integration config (rate, credential) lives in env; operator-facing aesthetic config (gamma, director spec) lives in branding.json. Different concerns, different surfaces.
 
 </code_context>

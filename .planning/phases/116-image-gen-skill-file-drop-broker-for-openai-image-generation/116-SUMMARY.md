@@ -159,12 +159,12 @@ All items from CONTEXT.md `<deferred>` remain deferred:
 - Per-host quota inside the fleet
 
 Additionally deferred from research:
-- Assumption A3 (OpenAI /edits multipart shape) — validated only on Ashley's first image-to-image call after ship
+- Assumption A3 (OpenAI /edits multipart shape) — validated only on the user's first image-to-image call after ship
 - T-116-01-06 uuid-in-ref == request-uuid check — shape check + backend-controlled prefix suffice for v1
 
 ## What's Ready to Ship
 
-After Ashley's ship greenlight (D-28 — orchestrator-owned, not executor):
+After the user's ship greenlight (D-28 — orchestrator-owned, not executor):
 
 1. Backend deploy — `docker compose up -d --force-recreate skynet` will pick up the new image-gen backend subsystem + starter.ts wiring + writeBinaryFileAtomic export. The 15-min deadman rollback timer applies per fleet rule.
 2. Fleet-substrate distributor sweep — will land `substrate/skills/image-gen/SKILL.md` at `~/.claude/skills/image-gen/SKILL.md` and `substrate/scripts/image-gen` at `~/.local/bin/image-gen` on every managed host that has `runsFleetSubstrate:true`. Typically completes within minutes of container restart.

@@ -181,7 +181,7 @@ The RESEARCH.md Q11 answer specified the end-to-end test structure as **Setup �
 
 Plan 01 flagged `Assumption A3` — that OpenAI's `/edits` endpoint accepts multipart form with a single image + prompt for `gpt-image-1`. Plan 04's e2e test does NOT include an image-to-image test case that would validate A3 (the RESEARCH.md Q11 template didn't include one, and the plan's `<behavior>` block also omits it — the adapter's own multipart-body construction is tested in adapter.test.ts under R1 "Multipart /edits path").
 
-**A3 status:** DEFERRED. The adapter's multipart FormData construction is unit-tested in adapter.test.ts. Real OpenAI acceptance of that multipart shape is validated only when an actual image-to-image request runs against the live API — which will happen on Ashley's first `image-gen "..." --ref /path/to/image` invocation after ship. If A3 is wrong, the surfaced failure will be a `malformed` or `unknown` reason on the caller's terminal, which is a self-diagnosing failure mode.
+**A3 status:** DEFERRED. The adapter's multipart FormData construction is unit-tested in adapter.test.ts. Real OpenAI acceptance of that multipart shape is validated only when an actual image-to-image request runs against the live API — which will happen on the user's first `image-gen "..." --ref /path/to/image` invocation after ship. If A3 is wrong, the surfaced failure will be a `malformed` or `unknown` reason on the caller's terminal, which is a self-diagnosing failure mode.
 
 ## Self-Check: PASSED
 
@@ -202,7 +202,7 @@ Plan 01 flagged `Assumption A3` — that OpenAI's `/edits` endpoint accepts mult
 - FOUND: `test -x substrate/scripts/image-gen` → true.
 - FOUND: grep counts on catalog.ts (2), SKILL.md (1), identity-artifact-reader.ts (1), starter.ts (2 for createImageGenScanOrchestrator), scan-orchestrator.ts (0 for ssh-poll-orchestrator imports).
 
-**Phase 116 status:** All 4 plans complete. Executor's remit ends at code + commit + tests green (D-28); push + docker build + docker compose up are orchestrator-owned and gated on Ashley's ship greenlight. The fleet-substrate distributor sweep will land the new skill + helper on every managed host on its own schedule after Skynet is redeployed with the new backend bundle.
+**Phase 116 status:** All 4 plans complete. Executor's remit ends at code + commit + tests green (D-28); push + docker build + docker compose up are orchestrator-owned and gated on the user's ship greenlight. The fleet-substrate distributor sweep will land the new skill + helper on every managed host on its own schedule after Skynet is redeployed with the new backend bundle.
 
 ---
 *Phase: 116-image-gen-skill-file-drop-broker-for-openai-image-generation*

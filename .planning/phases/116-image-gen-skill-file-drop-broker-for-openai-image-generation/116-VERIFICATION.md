@@ -311,10 +311,10 @@ None. Every truth is verifiable programmatically (file existence, grep
 patterns, test outcomes). No visual/UX/real-time/external-service
 verification is needed at phase-close time — the D-28 executor remit stops
 at code + commit + tests green; the substrate distributor + Skynet redeploy
-are orchestrator-owned motions that happen on Ashley's ship greenlight.
+are orchestrator-owned motions that happen on the user's ship greenlight.
 
 The only truly-live validation is Assumption A3 (multipart /edits shape),
-and that surfaces automatically as `malformed` or `unknown` on Ashley's
+and that surfaces automatically as `malformed` or `unknown` on the user's
 first image-to-image request — a self-diagnosing path.
 
 ---
