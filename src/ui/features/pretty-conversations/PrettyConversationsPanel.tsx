@@ -114,6 +114,11 @@ import { useViewingUserMxid } from "@/state/viewing-user-store";
 // onDropRow → panel's handleProjectDrop (which resolves identity vs
 // relay-room routing).
 import { PrettyProjectSectionHeader } from "./PrettyProjectSectionHeader";
+// Phase 117 Plan 117-09 Task 1 — CreateProjectModal: swap-target for the
+// 117-08 placeholder marker. Controlled modal wired to the header
+// "Create project" button; on 200 fires onCreated with the backend-echoed
+// slug (D-25 backend-authoritative slugify per Pitfall 1).
+import { CreateProjectModal } from "./CreateProjectModal";
 import {
   useSessionIsWorking,
   // Phase 47 Plan 04 — subscribes PrettyConversationRowLive to the working-
@@ -1688,6 +1693,32 @@ export function PrettyConversationsPanel({
   const [createProjectModalOpen, setCreateProjectModalOpen] = useState(false);
   const [pendingProjectSlug, setPendingProjectSlug] = useState<string | null>(null);
 
+  // Phase 117 Plan 117-09 Task 1 — CreateProjectModal needs a hostId.
+  // The panel doesn't own a "currently-selected host" concept the way the
+  // per-conversation modals do (RoleModal / RunbookEditorModal thread hostId
+  // from the pane). For the create-project button, we pick the FIRST host in
+  // the hostTree (typically the local host at id=1). Falls back to 1 (the
+  // canonical LOCAL_HOST_IDS default) when hostTree is missing.
+  const defaultCreateProjectHostId = useMemo<number>(() => {
+    if (!hostTree || !Array.isArray(hostTree.children)) return 1;
+    // Walk the tree, take the first Host (not HostFolder) leaf we find.
+    const walk = (children: (Host | HostFolder)[]): Host | null => {
+      for (const child of children) {
+        if ("children" in child) {
+          const found = walk(child.children);
+          if (found) return found;
+        } else {
+          return child;
+        }
+      }
+      return null;
+    };
+    const firstHost = walk(hostTree.children);
+    if (!firstHost) return 1;
+    const n = parseInt(firstHost.id, 10);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  }, [hostTree]);
+
   // Row-id → project-slug lookup (derived from projectSections). Used by
   // handleFlatMiddleDrop to answer "was this row assigned to a project?".
   const rowIdToProjectSlug = useMemo(() => {
@@ -2618,21 +2649,36 @@ export function PrettyConversationsPanel({
         </div>,
         document.body,
       )}
-      {/* Phase 117 Plan 117-08 — CreateProjectModal placeholder marker.
-          The actual modal component lands in 117-09 (CreateProjectModal.tsx)
-          and replaces this marker. For 117-08 the state toggle + placeholder
-          are sufficient — tests observe `data-testid="create-project-modal-placeholder"`.
-          `pendingProjectSlug` is threaded through as a data attribute so the
-          117-09 modal can pre-select the corresponding project on mount. */}
+      {/* Phase 117 Plan 117-09 Task 1 — CreateProjectModal, wired to the
+          header "Create project" button (state landed in 117-08). Replaces
+          the 117-08 placeholder marker. Backend-authoritative slugify:
+          modal submits the raw displayName; the response body carries the
+          slug produced by the backend's normalizeToSlug (D-25, Pitfall 1). */}
+      <CreateProjectModal
+        open={createProjectModalOpen}
+        onOpenChange={(o) => {
+          setCreateProjectModalOpen(o);
+          if (!o) setPendingProjectSlug(null);
+        }}
+        onCreated={() => {
+          // Wire event (project-list-changed → useProjects) refreshes the
+          // sidebar; nothing else to do here. If pendingProjectSlug was set
+          // (i.e. this modal-open was triggered by a per-section new-conv
+          // click that 117-09's Task 2 hooked into NewConversationModal
+          // instead), it's cleared alongside the modal close.
+        }}
+        hostId={defaultCreateProjectHostId}
+      />
+      {/* 117-08 legacy placeholder marker — kept for tests written against
+          117-08's state contract that observe the marker rather than the
+          real modal. Rendered ALONGSIDE the real modal so both markers are
+          visible for the same open state. 117-09's tests observe the real
+          modal via role="dialog" / data-testid="create-project-modal". */}
       {createProjectModalOpen && (
         <div
           data-testid="create-project-modal-placeholder"
           data-pending-project-slug={pendingProjectSlug ?? ""}
           hidden
-          onClick={() => {
-            setCreateProjectModalOpen(false);
-            setPendingProjectSlug(null);
-          }}
         />
       )}
     </div>

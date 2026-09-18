@@ -198,6 +198,29 @@ vi.mock("@/api/session-project-api", () => ({
     setRelayRoomProjectSpy(roomId, mxid, slug),
 }));
 
+// Phase 117 Plan 117-09 — project-list-api mock. The CreateProjectModal
+// (117-09 Task 1) imports createProject from this module; the modal only
+// fires the API on Submit-click, so tests that never click Submit see no
+// spy invocations. Stubbed to a successful envelope so any incidental
+// click path lands cleanly.
+const createProjectSpy = vi.fn<
+  (hostId: number, displayName: string) => Promise<{ ok: true; slug: string }>
+>(async (_hostId, name) => ({
+  ok: true as const,
+  slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+}));
+const archiveProjectSpy = vi.fn<
+  (hostId: number, slug: string) => Promise<{ ok: true }>
+>(async () => ({ ok: true as const }));
+vi.mock("@/api/project-list-api", () => ({
+  createProject: (hostId: number, displayName: string) =>
+    createProjectSpy(hostId, displayName),
+  archiveProject: (hostId: number, slug: string) =>
+    archiveProjectSpy(hostId, slug),
+  listProjects: vi.fn(async () => ({ projects: [] })),
+  listRelayRoomProjectTags: vi.fn(async () => ({ assignments: [] })),
+}));
+
 // viewing-user-store mock — panel-level handleProjectDrop uses userMxid for
 // the relay-room path.
 vi.mock("@/state/viewing-user-store", () => ({
@@ -829,7 +852,29 @@ describe("PrettyConversationsPanel: RDP drop refused (D-08)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 11 — project sections rendered in selector order (regression guard)
+// Test 11 (117-09 Task 1) — CreateProjectModal is wired to the header button
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: CreateProjectModal wire (117-09 Task 1)", () => {
+  it("Test 11: clicking Create project button renders the real CreateProjectModal (data-testid='create-project-modal')", () => {
+    const { getByLabelText, queryByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    // Real modal not visible before click.
+    expect(queryByTestId("create-project-modal")).toBeNull();
+    fireEvent.click(getByLabelText("Create project"));
+    // Real modal now visible (data-testid matches CreateProjectModal.tsx).
+    expect(queryByTestId("create-project-modal")).not.toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 12 — project sections rendered in selector order (regression guard)
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: project sections preserve selector order", () => {
