@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-18T00:06:51.541Z"
-last_activity: 2026-09-17 -- Phase 114 planning complete
+last_updated: "2026-09-18T00:56:07.562Z"
+last_activity: 2026-09-18
 progress:
   total_phases: 117
   completed_phases: 98
-  total_plans: 496
-  completed_plans: 488
+  total_plans: 500
+  completed_plans: 489
   percent: 84
 ---
 
@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** user never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 108 — birth-pipeline-role-folder-existence-check-insert-a-pre-step
+**Current focus:** Phase 116 — image-gen-skill-file-drop-broker-for-openai-image-generation
 
 ## Current Position
 
-Phase: 108 (birth-pipeline-role-folder-existence-check-insert-a-pre-step) — SHIPPING
-Plan: 1 of 1
+Phase: 116 (image-gen-skill-file-drop-broker-for-openai-image-generation) — EXECUTING
+Plan: 2 of 4
 
 Last activity (prior): 2026-09-10 -- Phase 103 execution started
 Last activity (prior): 2026-09-10 — Completed Phase 98 more-versatile-stt-tts-support (Amazon Polly + Amazon Transcribe swap for Chatterbox). All 5 waves shipped: Wave 1 (98-01 ffmpeg+SDK install, 98-02 kernels, 98-03 frontend catalog, 98-09 deploy doc), Wave 2 (98-04 AWS adapters, 98-05 migration one-shot + inline Dirent type fix), Wave 3 (98-06 voice.ts rewrite, 98-07 validator flip + inline roles-create followon fix), Wave 4 (98-08 tg-bridge rewire to Skynet /voice/transcribe), Wave 5 (98-10 Chatterbox kill, media-endpoints.ts deleted). Unbiased code review clean (1 HIGH + 3 MED + 2 LOW applied; 3 LOW deferred). Both backend + frontend tsc exit 0 across the full delta. Every plan has SUMMARY.md committed. All Chatterbox integration paths removed cleanly (no dual-provider seam). Ambient IMDS creds via Iris's `SkynetPollyTranscribeAccess` inline policy on `termix-ssm-role`. Voice-migration one-shot wipes existing identity voice values on boot (users re-pick from 7-voice Polly generative catalog). tg-bridge routes through Skynet `/voice/transcribe` (provider-agnostic). Held at push boundary per greenlight-at-push rule; ship in flight.
-Last activity: 2026-09-17 -- Phase 114 planning complete
+Last activity: 2026-09-18
 Last activity (prior): 2026-09-12 — Completed Phase 107 execution (vega): hide identity rows via disk sentinel. All 4 waves shipped as 10 code commits: (Wave 1) 107-01 primitive — extend ALLOWED_REL_PATHS to include `.hidden`, 10 primitive tests; (Wave 2) 107-02 backend fanout — `publicIdentity` gains `hidden:boolean` seventh arg populated by parallel `.hidden` probe alongside `.pinned` in same Promise.all wave, mirror pinnedConversationIds fanout for hiddenConversationIds in PUT /user-preferences sharing ONE connByHost + try/finally when both slices present in same body (HID-107-PUT-09 conn-sharing invariant), retire hiddenConversationIds DB read/write path, 15 new HID-107-* tests + all pre-existing green; (Wave 3a) 107-03 schema drop — `runHiddenColumnDrop` byte-mirror of `runPinColumnDrop`, wired into `migrateSchema()` AFTER pin preflight + BEFORE addColumnIfNotExists sweep with `phase-107-hidden-sentinel-migration` forceSave label batching both column drops + sweep in one atomic write, drizzle mirror + sweep line deleted, 2 migration tests; (Wave 3b) 107-04 frontend + affordance narrowing — `putHiddenIds(ids, identityHosts)` widened + `toBareIdentityKey` wire-strip reused + `getHiddenIds` retired + `Identity.hidden?: boolean` added + `deriveDiskHiddenIds` selector export, `hideConversation`/`unhideConversation` thread identityHosts via `buildIdentityHostsFromFleet` (H2 reuse), the both-loaded hydrate effect (from quick-260912-5q2) extended to derive hidden alongside pinned in one pass (one hydratedRef guards both, one dep array triggers both), Hide button narrowed to fleet-synthetic identity rows via `isFleetIdentityRow(row)` gate = `row.id.startsWith("fleet::") && row.kind !== "relay-room" && row.rdpHostRow !== true` applied at all 4 render sites (belt-and-suspenders panel-level defensive check preserved), 298 tests across 9 UI files all green. Total: 20 commits since baseline `289b79d7` (quick-260912-5q2 pin-hydration fix pushed to origin, then Phase 107 shape+CONTEXT+4 plans docs + Waves 1-4 test-first RED/GREEN pairs per plan + executor-committed per-plan docs for 01/02/03). All scoped tests green; `npm run build:backend` clean; `npx tsc --noEmit` clean. user acknowledged tradeoff: `.hidden` sentinel is identity-scoped not user-scoped (one user hides = hides for everyone) — mirrors `.pinned` scoping; multi-user rescoping is explicitly a future separate phase. HEAD `dbbf5b5e` LOCAL, NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule. Per /build pipeline: next is unbiased general-purpose subagent code review (step 5) + agent-side UAT (step 6) + deploy (step 7, needs user greenlight) + hand-off (step 8) + stakeholder notify (step 9). Shape file: `.planning/shapes/shape-hidden-identity-rows-via-sentinel.md`; phase artifacts at `.planning/phases/107-hide-identity-rows-via-disk-sentinel-mirror-phase-92-for-the/`.
 Last activity (prior): 2026-09-12 — Completed quick task 260912-0t4: hostId-scope identity lookup fixes cross-host cosmetics collision. Backend `identities.ts` first-host-wins dedup dropped; frontend `identities-store.ts` gained additive `byHostKey` map keyed `${hostId}::${identityKey.toLowerCase()}` alongside preserved `byKey`. Five consumer sites rewired (PrettyConversationRow + PrettyView + PrettyConversationsPanel×4 + IdentitySessionPane). `useSessionIdentity` widened to `(name, hostId?)` with byKey fallback. Four atomic code commits (`15112ca9`+`8c3c45f4`+`f0a31679`+`9d69753a`) plus docs. Ships in this batch.
 Last activity (prior): 2026-09-11 — Completed quick task 260911-wd1: add nullable `host_side_base` sibling column to `matrix_admin_creds` (Skynet DB), mirroring the existing `server_name` split pattern. Purpose: give Skynet fleets where the container-internal Matrix homeserver URL isn't reachable from managed hosts (e.g. aithercloud's setup — verified with Stacy via DM on `skynet.aithercloud.com` before deciding) a way to specify a separate host-reachable URL that gets written into per-identity `relay.json` files at birth. When null, consumers fall back to `homeserverBase` (preserves current behavior for fleets like t1000 where a single URL works everywhere). Three atomic commits on `feat/tab-title-from-tmux`: `eed58fb6` (schema column + store type widening + `setMatrixAdminHostSideBase` setter + store tests including sibling-independence invariant), `7f0545be` (`PATCH /matrix-admin/creds/host-side-base` admin-gated endpoint with http(s) validator + `GET /matrix-admin/creds` now surfaces `hostSideBase`), `0205f171` (new `relayJsonHomeserverBase` BirthDep wired at the three BirthDeps callers — identity-birth.ts primary + retry blocks + `spawn-requests/worker.ts` (3rd caller found during executor tsc pass) — plus deps-shape assertions in three orchestrator test helper files, all with `creds.hostSideBase ?? creds.homeserverBase` fallback discipline). Coalesce is surgical: `matrixHomeserver: creds.homeserverBase` STAYS unchanged at both identity-birth.ts sites — it feeds `extractServerName(deps.matrixHomeserver)` at orchestrator L864 which must stay bound to the URL used inside the container. Scoped verify 82/82 pass across three targeted test files (12 store + 43 routes + 27 identity-birth). `npm run build:backend` exit 0. HEAD `0205f171` LOCAL, NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule; data migration on t1000 (`PATCH /matrix-admin/creds/host-side-base` with `http://100.99.149.8:8008`) queued for post-deploy. Design flow: originally raised as broken `base: http://matrix:8008/_matrix/client/v3` in freshly-birthed aster's relay.json (Tanya's diagnosis) → three candidate designs analyzed → user reframed with the architectural observation that deploy-time service-endpoint config belongs in env vars, not DB → pragmatic call to land the column now to unblock LOCAL-branch birth reachability + bounty the env-var refactor for later (bounty `move-matrix-admin-config-to-env-vars` opened in role pool at `~/fleet/roles/box-maintainer/bounties/`). Stacy consulted on `skynet.aithercloud.com` DM: confirmed her setup structurally needs a second URL value regardless (container hairpin through Caddy vs public FQDN from managed hosts), agreed the column pattern works though flagged env-var preference for future (captured in the bounty). SUMMARY at `.planning/quick/260911-wd1-host-side-base-column/260911-wd1-SUMMARY.md`.
@@ -225,7 +225,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — user can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 98%
 Progress: [██████████] 100%
 Progress: [██████████] 100%
 
@@ -388,6 +388,7 @@ Progress: [██████████] 100%
 | Phase 107 P02 | 740 | 2 tasks | 4 files |
 | Phase 107 P03 | 196 | 1 tasks | 3 files |
 | Phase 107 P04 | ~21m | 2 tasks | 8 files |
+| Phase 116 P01 | 15min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -621,6 +622,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Local-branch (isLocalHostId=true) wait-for-supervisor block skipped and emits ended:ok:true directly per D-06/action step 7 (Phase A UAT scope is remote fleet hosts only)
 - [Phase ?]: POST /-route safety-net ended:false emit widened to include reason:sanitizeError(err) alongside the retry-route fix — Rule 2 extension for wire-parity completeness
 - [Phase ?]: Phase 106 Plan 106-04: replaced 10 pre-Phase-106 BirthProgress checklist tests with 5 targeted UX tests (spinner + modal-lock + refresh-order + alert x2); added chain-flow test to chain.test.tsx; expanded identities-store vi.mock to include refreshIdentities
+- [Phase 116]: 116-01: REF_PATTERN uses dashed UUID shape (8-4-4-4-12) instead of plan literal /[0-9a-f]{36}/ — plan literal would reject all real UUIDs (canonical UUID = 32 hex + 4 hyphens = 36 chars total) — Plan spec has a spelling-level typo; substituted the intent-preserving dashed regex and documented in REF_PATTERN comment
+- [Phase 116]: 116-01: Adapter body type declared as string | FormData instead of BodyInit — DOM types unavailable in backend ES2023-only tsconfig lib — Backend tsconfig.node.json lib is ES2023 only, no DOM; concrete union satisfies TS + Node fetch both
+- [Phase 116]: 116-01: Hand-rolled ~85-LOC token bucket (no bottleneck/p-limit/p-queue dep) — first token-bucket primitive in codebase, reusable for future rate-limited brokers — RESEARCH.md Alternatives Considered rejects those libs to minimize dep surface for ~50 LOC of code
 
 ### Pending Todos
 
@@ -985,7 +989,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-18T00:06:51.471Z
+Last session: 2026-09-18T00:55:04.167Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Phase 116 context gathered
 Last session: 2026-09-08T03:58:11.814Z
@@ -999,6 +1003,6 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: .planning/phases/116-image-gen-skill-file-drop-broker-for-openai-image-generation/116-CONTEXT.md
+Resume file: None
 
 - Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)
