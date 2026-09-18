@@ -2651,12 +2651,12 @@ Plans:
 **Goal:** Skynet's sidebar renders a new always-visible collapsible "Apps" section (below search, above Pinned) that consumes Phase 118's live app-frame subscription channel and paints one tile per app: healthy tiles show icon (served by a new mirror-of-identity-avatar backend endpoint) or first-letter fallback, unhealthy tiles grow a two-line body with the backend-authored healthMessage in muted red, right-click / long-press opens a context menu with "Open in new tab" that opens the app URL with noopener/noreferrer. All D-01..D-20 locks from CONTEXT.md honoured; left-click no-op and per-app theming deferred to shape 4.
 **Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-10, D-11, D-12, D-13, D-14, D-15, D-16, D-17, D-18, D-19, D-20
 **Depends on:** Phase 118
-**Plans:** 1/6 plans executed
+**Plans:** 2/6 plans executed
 
 Plans:
 - [x] 119-01-PLAN.md — Frontend WS type mirror + client dispatch extension (fleet-status-types.ts + fleet-status-client.ts)
 - [ ] 119-02-PLAN.md — app-tiles-store slice + useAppTiles hook + AppShell wiring
 - [ ] 119-03-PLAN.md — AppTile component + .pv-app-* CSS selectors + component tests
 - [ ] 119-04-PLAN.md — Integrate Apps section into PrettyConversationsPanel.tsx above the search-vs-three-zone ternary
-- [ ] 119-05-PLAN.md — Backend GET /apps/:hostId/:slug/icon route + APP_SLUG_RE + readAppIconFile helper + database.ts mount + route tests
+- [x] 119-05-PLAN.md — Backend GET /apps/:hostId/:slug/icon route + APP_SLUG_RE + readAppIconFile helper + database.ts mount + route tests
 - [ ] 119-06-PLAN.md — Integration tests A15-A20 for the Apps section in PrettyConversationsPanel.test.tsx (D-18 three-layer closure)
