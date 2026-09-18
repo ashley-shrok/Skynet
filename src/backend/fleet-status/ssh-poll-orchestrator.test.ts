@@ -28,7 +28,7 @@ import {
 } from "./ssh-poll-orchestrator.js";
 import type { PendingBirth } from "../spawn-requests/types.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
-import type { SessionState } from "./wire-protocol.js";
+import type { AppState, SessionState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
 import {
   readSessionFileCache,
@@ -39,6 +39,7 @@ import {
 // parser + schema-version gate as real sweep output.
 import {
   SWEEP_SCHEMA_VERSION,
+  type SweepAppLine,
   type SweepIdentityLine,
   type SweepPidLine,
   type SweepStatResult,
@@ -217,6 +218,13 @@ class MockRegistry implements SubscriptionRegistry {
     hostId: string;
     hostname: string;
   }> = [];
+  // Phase 118 Plan 118-04 (D-11, D-13, D-14): captures every publishAppUpdate
+  // and publishAppGoneByHostSlug call so batch-path reconciliation tests can
+  // assert on the source-C app frame fan-out. Kept as SEPARATE arrays from
+  // publishedGone (RESEARCH § Q9) — apps live in a distinct map from sessions
+  // and shoehorning them into publishedGone would blur the assertion surface.
+  publishedAppUpdates: Array<{ hostId: string; app: AppState }> = [];
+  publishedAppGone: Array<{ hostId: string; slug: string }> = [];
   subscribers = new Set<(frame: unknown) => void>();
 
   subscribe(sendFrame: (frame: unknown) => void): () => void {
@@ -256,6 +264,24 @@ class MockRegistry implements SubscriptionRegistry {
       tmuxSession: identityName,
       sessionId: "",
     });
+  }
+
+  // Phase 118 Plan 118-04 — app-scoped publish stubs. Match the
+  // SubscriptionRegistry interface added by Plan 118-03. Each stub pushes into
+  // its own array (kept separate from publishedGone per RESEARCH § Q9). The
+  // getAppSnapshot stub returns an empty array — these orchestrator tests do
+  // not exercise the subscribe-path app-snapshot re-emit (that behavior is
+  // covered by subscription-registry.test.ts Test 5).
+  publishAppUpdate(hostId: string, app: AppState): void {
+    this.publishedAppUpdates.push({ hostId, app });
+  }
+
+  publishAppGoneByHostSlug(hostId: string, slug: string): void {
+    this.publishedAppGone.push({ hostId, slug });
+  }
+
+  getAppSnapshot(): AppState[] {
+    return [];
   }
 
   getSnapshot(): SessionState[] {
@@ -339,6 +365,13 @@ function makeValidPayload(tasks: unknown[] = []): string {
 function makeSweepJsonl(input: {
   identities: Array<Partial<SweepIdentityLine> & { identity: string }>;
   pids: Array<Partial<SweepPidLine> & { identity: string; pid: number }>;
+  // Phase 118 Plan 118-04 — source-C app lines. Follows the same
+  // Partial-with-required-key discipline the identities + pids arrays use so
+  // callers spell out only the axes they care about. Defaults describe a
+  // healthy scratch app on port 9591 with no icon; every field can be
+  // overridden per-entry, including `line_kind` / `schema_version` for
+  // negative tests.
+  apps?: Array<Partial<SweepAppLine> & { slug: string }>;
   schemaVersionOverride?: number;
 }): string {
   const version = (input.schemaVersionOverride ?? SWEEP_SCHEMA_VERSION) as 1;
@@ -398,6 +431,26 @@ function makeSweepJsonl(input: {
       per_session_stop_payload: raw.per_session_stop_payload ?? null,
       dormant_a: raw.dormant_a ?? false,
       jsonl_tail: raw.jsonl_tail ?? null,
+    };
+    lines.push(JSON.stringify(line));
+  }
+  // Phase 118 Plan 118-04 — source-C app lines. Same default-when-omitted
+  // discipline the identity + pid loops use above. Fields default to a
+  // healthy scratch app; every field can be overridden per-entry (including
+  // is_healthy: false + health_message: "..." for the D-02 unhealthy carve-
+  // out and the D-13 health-flip regression test).
+  for (const raw of input.apps ?? []) {
+    const line: SweepAppLine = {
+      line_kind: "app",
+      schema_version: version,
+      slug: raw.slug,
+      title: raw.title ?? `Test App ${raw.slug}`,
+      description: raw.description ?? "Test app description",
+      port: raw.port ?? 9591,
+      has_icon: raw.has_icon ?? false,
+      created_at_ms: raw.created_at_ms ?? 1_700_000_000_000,
+      is_healthy: raw.is_healthy ?? true,
+      health_message: raw.health_message ?? null,
     };
     lines.push(JSON.stringify(line));
   }
@@ -8057,6 +8110,303 @@ describe("Phase 92 — batch sweep dispatch", () => {
 
     expect(deps.registry.publishedArchived).toHaveLength(0);
     expect(deps.registry.publishedStates).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 118 Plan 118-04 — source-C app reconciliation on the batch path.
+  //
+  // Load-bearing invariants (D-11, D-12, D-13, D-02):
+  //   (A1) Compose+publish loop fires publishAppUpdate exactly once per
+  //        SweepAppLine (snake_case → camelCase AppState adapter is a
+  //        pure field copy — no validation, no defensive undefined checks).
+  //   (A2) Reconciliation-on-success gate: an app in the previous tick's
+  //        live picture but NOT in this tick's picture fires exactly one
+  //        publishAppGoneByHostSlug per slug.
+  //   (A3) SSH-transient safety (Pitfall 1 / D-12): a {ok:false} early
+  //        return (sweep null / schema mismatch / etc.) MUST bypass the
+  //        reconciliation block — transient SSH failures do NOT flap the
+  //        sidebar. `lastTickLiveApps` stays untouched across the failure.
+  //   (A4) Health-flip discipline (Pitfall 3 / D-13): a same-slug tick with
+  //        `is_healthy` flipped emits ONE publishAppUpdate and ZERO
+  //        publishAppGoneByHostSlug — the tracking set holds ALL slugs in
+  //        the picture (healthy OR unhealthy per D-02), NOT just healthy.
+  //   (A5) Schema-version mismatch on an app line still triggers the same
+  //        connection-lifetime latch as identity+pid schema mismatches — the
+  //        batch path abandons this SSH channel until reconnect.
+  // -------------------------------------------------------------------------
+
+  it("Test P118-04-A1: first tick with two app lines fires publishAppUpdate twice + publishAppGoneByHostSlug zero times", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        apps: [{ slug: "todo" }, { slug: "notes" }],
+      }),
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // (a) Two publishAppUpdate calls — one per emitted app line.
+    expect(deps.registry.publishedAppUpdates).toHaveLength(2);
+    const slugs = deps.registry.publishedAppUpdates
+      .map((p) => p.app.slug)
+      .sort();
+    expect(slugs).toEqual(["notes", "todo"]);
+    // (b) Adapter mapped snake_case → camelCase correctly for both apps.
+    for (const { hostId, app } of deps.registry.publishedAppUpdates) {
+      expect(hostId).toBe("host-1");
+      expect(app.hostId).toBe("host-1");
+      expect(app.title).toBe(`Test App ${app.slug}`);
+      expect(app.description).toBe("Test app description");
+      expect(app.port).toBe(9591);
+      expect(app.hasIcon).toBe(false);
+      expect(app.createdAtMs).toBe(1_700_000_000_000);
+      expect(app.isHealthy).toBe(true);
+      expect(app.healthMessage).toBeNull();
+    }
+    // (c) Zero publishAppGoneByHostSlug — first tick has empty
+    //     lastTickLiveApps, nothing to reconcile against.
+    expect(deps.registry.publishedAppGone).toHaveLength(0);
+  });
+
+  it("Test P118-04-A2: second tick with one app removed fires publishAppGoneByHostSlug for the dropped slug", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    // Tick 1: two apps.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        apps: [{ slug: "todo" }, { slug: "notes" }],
+      }),
+    );
+
+    const capture = makeSetIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    // Tick 1 sanity — two updates, zero gone.
+    expect(deps.registry.publishedAppUpdates).toHaveLength(2);
+    expect(deps.registry.publishedAppGone).toHaveLength(0);
+
+    // Tick 2: "notes" disappears from disk; only "todo" survives.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        apps: [{ slug: "todo" }],
+      }),
+    );
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    // (a) Exactly one publishAppGoneByHostSlug on tick 2 — for "notes".
+    expect(deps.registry.publishedAppGone).toHaveLength(1);
+    expect(deps.registry.publishedAppGone[0]).toEqual({
+      hostId: "host-1",
+      slug: "notes",
+    });
+    // (b) Cumulative updates: 2 from tick 1 + 1 from tick 2 (for "todo").
+    //     The compose-publish loop fires per surviving slug per tick.
+    expect(deps.registry.publishedAppUpdates).toHaveLength(3);
+    const tick2Update = deps.registry.publishedAppUpdates[2];
+    expect(tick2Update.app.slug).toBe("todo");
+  });
+
+  it("Test P118-04-A3: sweep failure between two success ticks does NOT flap (zero publishAppGoneByHostSlug across the whole sequence)", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    // Tick 1: one app, sweep succeeds.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        apps: [{ slug: "todo" }],
+      }),
+    );
+    // Legacy responses wired so tick-2 fallback has data (batch failure
+    // triggers this-tick legacy fallback per Phase 92 dispatch discipline).
+    wireLegacyResponses(channel);
+
+    const capture = makeSetIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1 — success
+
+    // Tick 1 sanity: one update, zero gone.
+    expect(deps.registry.publishedAppUpdates).toHaveLength(1);
+    expect(deps.registry.publishedAppGone).toHaveLength(0);
+
+    // Tick 2: sweep returns null (SSH hiccup) → {ok:false} early return →
+    // reconciliation block MUST bypass.
+    channel.setResponse("~/.local/bin/fleet-status-sweep 2>/dev/null", null);
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn(); // tick 2 — failure
+    }
+
+    // (a) Zero publishAppGoneByHostSlug after the failure tick — this is the
+    //     load-bearing invariant (RESEARCH § Pitfall 1 / D-12). A transient
+    //     SSH failure must NOT emit a spurious gone for "todo".
+    expect(deps.registry.publishedAppGone).toHaveLength(0);
+
+    // Tick 3: sweep succeeds again with the same app.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        apps: [{ slug: "todo" }],
+      }),
+    );
+    if (pollFn) {
+      await pollFn.fn(); // tick 3 — success again
+    }
+
+    // (b) Still zero gone across the whole 3-tick sequence — the
+    //     lastTickLiveApps set was preserved across the failure so tick 3
+    //     sees "todo" in both previous and current pictures.
+    expect(deps.registry.publishedAppGone).toHaveLength(0);
+  });
+
+  it("Test P118-04-A4: health-flip on same slug emits ONE publishAppUpdate + ZERO publishAppGoneByHostSlug (D-13 update-not-gone-and-re-add)", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    // Tick 1: "todo" healthy.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        apps: [{ slug: "todo", is_healthy: true, health_message: null }],
+      }),
+    );
+
+    const capture = makeSetIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1 — healthy
+
+    expect(deps.registry.publishedAppUpdates).toHaveLength(1);
+    expect(deps.registry.publishedAppUpdates[0].app.isHealthy).toBe(true);
+    expect(deps.registry.publishedAppUpdates[0].app.healthMessage).toBeNull();
+
+    // Tick 2: SAME slug, is_healthy flipped to false + a healthMessage.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        apps: [
+          {
+            slug: "todo",
+            is_healthy: false,
+            health_message: "not running — ask an agent to check on it",
+          },
+        ],
+      }),
+    );
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn(); // tick 2 — unhealthy
+    }
+
+    // (a) Exactly ONE additional publishAppUpdate on tick 2 (total 2 across
+    //     both ticks) — the flip emits an update, not a gone+update pair.
+    expect(deps.registry.publishedAppUpdates).toHaveLength(2);
+    const tick2Update = deps.registry.publishedAppUpdates[1];
+    expect(tick2Update.app.slug).toBe("todo");
+    expect(tick2Update.app.isHealthy).toBe(false);
+    expect(tick2Update.app.healthMessage).toBe(
+      "not running — ask an agent to check on it",
+    );
+    // (b) Zero publishAppGoneByHostSlug across both ticks — the tracking set
+    //     holds ALL slugs in the picture (healthy OR unhealthy per D-02), so
+    //     the flip does NOT drop "todo" from lastTickLiveApps between ticks.
+    //     Regression on Pitfall 3.
+    expect(deps.registry.publishedAppGone).toHaveLength(0);
+  });
+
+  it("Test P118-04-A5: sweep emitting an app line with schema_version 999 latches sweepSchemaMismatchThisConnection + falls back to legacy", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    // Legacy responses so the fallback tick has data.
+    wireLegacyResponses(channel);
+    // Sweep emits a mixed blob whose lines carry schema_version 999.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        apps: [{ slug: "todo" }],
+        schemaVersionOverride: 999,
+      }),
+    );
+
+    const capture = makeSetIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    // (a) Schema-mismatch fallback warn logged (same shape identity+pid
+    //     schema mismatch emits — the parser's `schemaMismatch` flag is set
+    //     by any line's version drift, apps included).
+    expect(
+      (systemLogger.warn as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        (call) => {
+          const meta = call[1] as { operation?: string; reason?: string } | undefined;
+          return (
+            meta?.operation === "fleet_status_batch_fallback" &&
+            meta?.reason === "schema-mismatch"
+          );
+        },
+      ),
+    ).toBe(true);
+    // (b) NO publishAppUpdate fired — the batch path aborted at the schema
+    //     check before reaching the compose loop.
+    expect(deps.registry.publishedAppUpdates).toHaveLength(0);
+    expect(deps.registry.publishedAppGone).toHaveLength(0);
+    // (c) Tick 2 confirms the connection-lifetime latch — sweep exec did
+    //     NOT fire again (same latch identity+pid path uses).
+    const sweepCallsAfterTick1 = channel.countCallsMatching(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+    );
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn(); // tick 2 — latch keeps batch off
+    }
+    expect(
+      channel.countCallsMatching("~/.local/bin/fleet-status-sweep 2>/dev/null"),
+    ).toBe(sweepCallsAfterTick1);
   });
 });
 
