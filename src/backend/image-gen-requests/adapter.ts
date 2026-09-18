@@ -18,8 +18,9 @@
  *     `not_configured` — because "no key" and "bad key" are different
  *     operator problems.
  *   - Status-code mapping (D-23, D-24, D-27):
- *       429                                          → rate_limited
- *       5xx / AbortError                             → provider_unavailable
+ *       429                                          → rate_limited (Retry-After parsed if present)
+ *       408 (Request Timeout) / 425 (Too Early)      → provider_unavailable
+ *       5xx (500, 502, 503, 504, and Cloudflare 522/523/524) / AbortError → provider_unavailable
  *       400 with error.code === "content_policy_violation" → content_blocked
  *       400 other                                    → malformed
  *       anything else non-ok                         → unknown
@@ -56,6 +57,39 @@ const OPENAI_EDITS_URL = "https://api.openai.com/v1/images/edits";
  * caller-supplied model.
  */
 const OPENAI_MODEL = "gpt-image-1";
+
+/**
+ * Parse an RFC 7231 §7.1.3 Retry-After header value. The header may carry
+ * either a non-negative integer number of seconds ("30") OR an HTTP-date
+ * ("Fri, 31 Dec 2027 23:59:59 GMT"). Returns the wait time in seconds as a
+ * non-negative integer, or `null` if:
+ *   - The header is absent (`raw === null`).
+ *   - The value is neither an integer-seconds shape nor a parseable date.
+ *   - The value parses to a date in the past (negative wait).
+ *
+ * We never throw; malformed input just yields `null` so the adapter falls
+ * back to the bare `rate_limited` failure surface.
+ */
+export function parseRetryAfterSeconds(raw: string | null): number | null {
+  if (raw === null) return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+
+  // Integer-seconds form. Enforce the whole string is digits (no unit
+  // suffix, no fractional value — the RFC specifies a `delta-seconds` int).
+  if (/^\d+$/.test(trimmed)) {
+    const secs = Number(trimmed);
+    if (Number.isFinite(secs) && secs >= 0) return Math.floor(secs);
+    return null;
+  }
+
+  // HTTP-date form.
+  const parsedMs = Date.parse(trimmed);
+  if (Number.isNaN(parsedMs)) return null;
+  const deltaMs = parsedMs - Date.now();
+  if (deltaMs <= 0) return 0;
+  return Math.max(0, Math.floor(deltaMs / 1000));
+}
 
 /**
  * Discriminated-union return type for the adapter.
@@ -186,14 +220,43 @@ export async function callOpenAiImageGen(
     // Status-code mapping per D-23 / D-24 / D-27.
     // ---------------------------------------------------------------------
     if (res.status === 429) {
+      // Parse the Retry-After header when present. Per RFC 7231 §7.1.3 the
+      // value is either an integer number of seconds OR an HTTP-date. Populate
+      // `message` only when parsing yields a positive integer count of seconds
+      // — malformed or absent headers leave message unset (caller sees a bare
+      // rate_limited failure and infers a self-throttle misconfiguration per
+      // D-23).
+      const retryAfterRaw = res.headers.get("retry-after");
+      const retryAfterSec = parseRetryAfterSeconds(retryAfterRaw);
       systemLogger.warn("image-gen adapter: openai non-2xx", {
         operation: "image_gen_openai_non_2xx",
         status: 429,
         reason: "rate_limited",
+        // Do NOT log the header value itself — only whether a parseable
+        // value was extracted (avoids any risk of leaking upstream data).
+        retryAfterParsed: retryAfterSec !== null,
       });
+      if (retryAfterSec !== null) {
+        return { ok: false, reason: "rate_limited", message: `retry after ${retryAfterSec} seconds` };
+      }
       return { ok: false, reason: "rate_limited" };
     }
+    // 408 (Request Timeout) + 425 (Too Early) are transient-server signals per
+    // RFC 9110 §15.5 — the request never reached logical processing on the
+    // server side. Treat them as `provider_unavailable` (retryable at the
+    // caller's discretion, matching D-24 semantics), not `unknown`.
+    if (res.status === 408 || res.status === 425) {
+      systemLogger.warn("image-gen adapter: openai non-2xx", {
+        operation: "image_gen_openai_non_2xx",
+        status: res.status,
+        reason: "provider_unavailable",
+      });
+      return { ok: false, reason: "provider_unavailable" };
+    }
     if (res.status >= 500) {
+      // Covers 500, 502, 503, 504 (OpenAI-origin) AND 522/523/524
+      // (Cloudflare-edge) — all are transient upstream unavailability signals
+      // where the caller-side retry decision is correct.
       systemLogger.warn("image-gen adapter: openai non-2xx", {
         operation: "image_gen_openai_non_2xx",
         status: res.status,

@@ -168,11 +168,22 @@ function makeFetchSuccessResponse(pngBytesArr: Buffer[]): Response {
 }
 
 /** Build a fake OpenAI error response with a given status + optional body. */
-function makeFetchErrorResponse(status: number, body?: unknown): Response {
+function makeFetchErrorResponse(status: number, body?: unknown, headers?: Record<string, string>): Response {
   const payload = body ?? {};
+  const hdrMap = new Map<string, string>();
+  if (headers) {
+    for (const [k, v] of Object.entries(headers)) hdrMap.set(k.toLowerCase(), v);
+  }
+  const hdrShim = {
+    get(name: string): string | null {
+      const v = hdrMap.get(name.toLowerCase());
+      return v === undefined ? null : v;
+    },
+  };
   return {
     ok: false,
     status,
+    headers: hdrShim,
     json: async () => payload,
     text: async () => JSON.stringify(payload),
   } as unknown as Response;
@@ -311,6 +322,34 @@ describe("image-gen end-to-end: failure paths (D-27 enum)", () => {
     const deps = startPipeline();
 
     const uuid = "cccccccc-1111-2222-3333-444444444444";
+    enqueue(makeItem({ uuid }));
+    await drainQueue();
+
+    expect(deps.writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const call = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1]).toBe(`$HOME/fleet/image-gen-requests/${uuid}.failure.json`);
+    expect(JSON.parse(call[2] as string)).toEqual({ reason: "provider_unavailable" });
+  });
+
+  it("PROVIDER_UNAVAILABLE — 502 (Bad Gateway) end-to-end → failure.json {reason:'provider_unavailable'}", async () => {
+    fetchMock.mockResolvedValueOnce(makeFetchErrorResponse(502));
+    const deps = startPipeline();
+
+    const uuid = "c2222222-1111-2222-3333-444444444444";
+    enqueue(makeItem({ uuid }));
+    await drainQueue();
+
+    expect(deps.writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const call = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1]).toBe(`$HOME/fleet/image-gen-requests/${uuid}.failure.json`);
+    expect(JSON.parse(call[2] as string)).toEqual({ reason: "provider_unavailable" });
+  });
+
+  it("PROVIDER_UNAVAILABLE — 504 (Gateway Timeout) end-to-end → failure.json {reason:'provider_unavailable'}", async () => {
+    fetchMock.mockResolvedValueOnce(makeFetchErrorResponse(504));
+    const deps = startPipeline();
+
+    const uuid = "c4444444-1111-2222-3333-444444444444";
     enqueue(makeItem({ uuid }));
     await drainQueue();
 
