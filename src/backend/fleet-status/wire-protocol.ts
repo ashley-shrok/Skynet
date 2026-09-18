@@ -582,12 +582,57 @@ const FrontendIdentityArchivedFrameSchema = z.object({
   hostname: z.string(),
 });
 
+// ---------------------------------------------------------------------------
+// Phase 117 Plan 117-03 (D-37): FrontendProjectListChangedFrame — DISTINCT
+// wire message for the projects pool.
+//
+// Locked wire-shape decision (from 117-03 plan `<action>` block): projects
+// are NOT bolted onto SessionState or the identity-archived frame — they get
+// their OWN frame kind. Rationale:
+//   1. D-37 lock: projects are a distinct pool (host-level, not session-level
+//      or identity-level). Same rationale that separated identity-archived
+//      from SessionState in Phase 115.
+//   2. Full-array-on-every-emit (RESEARCH § Open Q #4): projects are cheap
+//      (< 20 typical), and a full replace is simpler than a delta. Frontend
+//      snapshotVersion invalidates on every publish which is fine per
+//      RESEARCH § Pitfall 4.
+//   3. Registry-cache-then-fanout discipline (matches Phase 115): the
+//      subscription-registry maintains a single-cell cache and byte-compares
+//      on publish to skip idempotent republishes. Snapshot-on-subscribe
+//      replays the cached array to reconnecting clients.
+//
+// Shape: { schemaVersion, type: "project-list-changed", projects: [...] }
+//   - projects: Array of { slug, displayName, hostId, hostname, archived }.
+//     Each project field is server-derived from the project's frontmatter
+//     (Wave 1's Phase 117 Plan 01 primitives).
+//
+// FRAME_SCHEMA_VERSION deliberately HELD AT 1 — ninth iteration of the
+// T-41-03-05 mitigation. Adding a new discriminated-union entry is additive
+// and does NOT break older clients (they see a `type` value they don't
+// handle and drop it silently at the default branch of the WS switch).
+// ---------------------------------------------------------------------------
+
+export const FrontendProjectListChangedFrameSchema = z.object({
+  schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
+  type: z.literal("project-list-changed"),
+  projects: z.array(
+    z.object({
+      slug: z.string(),
+      displayName: z.string(),
+      hostId: z.string(),
+      hostname: z.string(),
+      archived: z.boolean(),
+    }),
+  ),
+});
+
 export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendSnapshotFrameSchema,
   FrontendUpdateFrameSchema,
   FrontendGoneFrameSchema,
   FrontendPongFrameSchema,
   FrontendIdentityArchivedFrameSchema,
+  FrontendProjectListChangedFrameSchema,
 ]);
 
 export type FrontendOutboundFrameType = z.infer<typeof FrontendOutboundFrame>;
@@ -640,5 +685,27 @@ export function makeIdentityArchivedFrame(
     name,
     hostId,
     hostname,
+  };
+}
+
+/**
+ * Phase 117 Plan 117-03 (D-37): construct a `project-list-changed` frame
+ * carrying the FULL projects array. Called by subscription-registry's
+ * publishProjectListChanged after cache-hit deduplication. Wave 2 write
+ * routes invoke publishProjectListChanged (not this helper directly).
+ */
+export function makeProjectListChangedFrame(
+  projects: Array<{
+    slug: string;
+    displayName: string;
+    hostId: string;
+    hostname: string;
+    archived: boolean;
+  }>,
+): FrontendOutboundFrameType {
+  return {
+    schemaVersion: FRAME_SCHEMA_VERSION,
+    type: "project-list-changed",
+    projects,
   };
 }
