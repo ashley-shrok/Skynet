@@ -795,6 +795,19 @@ export function NewSessionDialog({
       }
 
       if (endedEvent && endedEvent.type === "ended" && endedEvent.ok) {
+        // Post-quick-260918-52n: identity folder name (= tmux session name)
+        // is derived from the MXID localpart, so it is NOT the raw user input
+        // (`riff`) but the composed handle (`riff-box-maintainer-2`, with a
+        // silent `-N` collision suffix). Read the authoritative value off the
+        // ended event — falling back to the input name only if the field is
+        // absent (older backend that predates the quick). Using the input
+        // here caused "tmux session '<short>' not found" on every birth
+        // because AppShell.tsx onCreateSession feeds opts.name into openTab's
+        // targetTmuxSession, and the supervisor named the session after the
+        // derived folder.
+        const bornName =
+          endedEvent.sessionName ?? endedEvent.identityId ?? name.toLowerCase();
+
         // Patch #319: refresh the identities store BEFORE opening the tab.
         // The store loads once on first useIdentities() mount and never
         // auto-refreshes; without this the just-born identity isn't in
@@ -816,7 +829,7 @@ export function NewSessionDialog({
         // PrettyView + missing-avatar symptoms. Naming the host directly means
         // the backend enumerates it and finds the folder birth just wrote.
         try {
-          await refreshIdentities({ [name.toLowerCase()]: hostIdNum });
+          await refreshIdentities({ [bornName]: hostIdNum });
         } catch { /* best-effort — row will resolve on next store refresh */ }
 
         // Success (D-16): call onCreate for focus-follow, then close modal.
@@ -826,10 +839,10 @@ export function NewSessionDialog({
         // [supervisor instead of Skynet] but the frontend behavior is identical).
         onCreate({
           host: selectedHost,
-          sessionName: name.toLowerCase(),
+          sessionName: bornName,
           path: normalizedPath,
           identityMode: true,
-          name: name.toLowerCase(),
+          name: bornName,
         });
         setBirthing(false);
         onClose();

@@ -853,12 +853,20 @@ describe("NewSessionDialog: Test K — collision clears when name changes", () =
 // payload — no title / brief / voice / colorHue / avatarCandidateId.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", () => {
-  it("Test R: Create with fully valid identity-mode ON form → onCreate called with narrowed payload (no cosmetic fields) after successful birth", async () => {
+  it("Test R: Create with fully valid identity-mode ON form → onCreate called with narrowed payload (no cosmetic fields) after successful birth; payload name+sessionName come from the ended event, NOT the raw user input", async () => {
     mockListIdentities.mockResolvedValue([]);
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
-    // Mock birth stream: immediate success
+    // Post-quick-260918-52n: user types the short pool name ("alicia") but
+    // the backend derives the folder + tmux session name from the MXID
+    // localpart ("alicia-box-maintainer-2"). The onCreate payload must carry
+    // the DERIVED name — that IS the tmux session AppShell attaches to.
     mockOpenBirthStream.mockReturnValueOnce(createMockStream([
-      { type: "ended", ok: true, identityId: "abc", sessionName: "alicia" },
+      {
+        type: "ended",
+        ok: true,
+        identityId: "alicia-box-maintainer-2",
+        sessionName: "alicia-box-maintainer-2",
+      },
     ]));
     const onCreate = vi.fn();
     const { getByLabelText, getByRole } = renderDialog({ onCreate });
@@ -881,7 +889,10 @@ describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", 
     });
     const arg = onCreate.mock.calls[0][0];
     expect(arg.identityMode).toBe(true);
-    expect(arg.name).toBe("alicia");
+    // Derived-from-ended-event, NOT the user input "alicia" — this is the
+    // regression guard for the "tmux session '<short>' not found" bug.
+    expect(arg.name).toBe("alicia-box-maintainer-2");
+    expect(arg.sessionName).toBe("alicia-box-maintainer-2");
     expect(arg.path).toBeDefined();
     expect(arg.host).toBeDefined();
     // Phase 86 Plan 86-04: cosmetic fields no longer live in the payload.
