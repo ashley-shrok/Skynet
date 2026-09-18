@@ -684,6 +684,202 @@ describe("Phase 111 Plan 111-02 — identityAppearance on SessionStateSchema", (
   });
 });
 
+// ─── Phase 117 Plan 117-03 — project-list-changed frame (D-37) ───────────────
+// Locks the distinct wire message shape for the projects pool. The frame
+// carries the FULL projects array on every emit (RESEARCH § Open Q #4 —
+// projects are cheap; a full-replace matches the Phase 115 registry-cache-
+// then-fanout discipline). Snapshot-on-subscribe replays the cached array
+// to reconnecting clients, mirroring the archivedIdentities replay pattern.
+// FRAME_SCHEMA_VERSION deliberately held at 1 — adding a discriminated-union
+// entry is additive and does NOT break older clients.
+
+describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", () => {
+  it("Test P117-03-1 (schema shape parse-happy): FrontendProjectListChangedFrameSchema.parse succeeds with a well-formed frame", async () => {
+    const { FrontendProjectListChangedFrameSchema } = await import(
+      "./wire-protocol.js"
+    );
+    const frame = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "project-list-changed",
+      projects: [
+        {
+          slug: "alpha",
+          displayName: "Alpha",
+          hostId: "1",
+          hostname: "t1000",
+          archived: false,
+        },
+      ],
+    };
+    const result = FrontendProjectListChangedFrameSchema.safeParse(frame);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.type).toBe("project-list-changed");
+      expect(result.data.projects).toHaveLength(1);
+      expect(result.data.projects[0].slug).toBe("alpha");
+    }
+  });
+
+  it("Test P117-03-2 (empty projects array is valid): parse with `projects: []` succeeds — represents 'no projects on any host'", async () => {
+    const { FrontendProjectListChangedFrameSchema } = await import(
+      "./wire-protocol.js"
+    );
+    const frame = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "project-list-changed",
+      projects: [],
+    };
+    const result = FrontendProjectListChangedFrameSchema.safeParse(frame);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.projects).toEqual([]);
+    }
+  });
+
+  it("Test P117-03-3 (schema rejects wrong type discriminant): parse with `type: 'identity-archived'` fails", async () => {
+    const { FrontendProjectListChangedFrameSchema } = await import(
+      "./wire-protocol.js"
+    );
+    const frame = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "identity-archived",
+      projects: [],
+    };
+    const result = FrontendProjectListChangedFrameSchema.safeParse(frame);
+    expect(result.success).toBe(false);
+  });
+
+  it("Test P117-03-4 (schema rejects wrong schemaVersion): parse with `schemaVersion: 99` fails", async () => {
+    const { FrontendProjectListChangedFrameSchema } = await import(
+      "./wire-protocol.js"
+    );
+    const frame = {
+      schemaVersion: 99,
+      type: "project-list-changed",
+      projects: [],
+    };
+    const result = FrontendProjectListChangedFrameSchema.safeParse(frame);
+    expect(result.success).toBe(false);
+  });
+
+  it("Test P117-03-5 (schema rejects missing project field): parse with a project missing `slug` fails", async () => {
+    const { FrontendProjectListChangedFrameSchema } = await import(
+      "./wire-protocol.js"
+    );
+    const frame = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "project-list-changed",
+      projects: [
+        {
+          // slug: missing
+          displayName: "Alpha",
+          hostId: "1",
+          hostname: "t1000",
+          archived: false,
+        },
+      ],
+    };
+    const result = FrontendProjectListChangedFrameSchema.safeParse(frame);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("slug"))).toBe(true);
+    }
+  });
+
+  it("Test P117-03-6 (schema rejects wrong archived type): parse with `archived: 'false'` (string) fails", async () => {
+    const { FrontendProjectListChangedFrameSchema } = await import(
+      "./wire-protocol.js"
+    );
+    const frame = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "project-list-changed",
+      projects: [
+        {
+          slug: "alpha",
+          displayName: "Alpha",
+          hostId: "1",
+          hostname: "t1000",
+          archived: "false",
+        },
+      ],
+    };
+    const result = FrontendProjectListChangedFrameSchema.safeParse(frame);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("archived"))).toBe(true);
+    }
+  });
+
+  it("Test P117-03-7 (discriminatedUnion accepts new frame AND still accepts identity-archived): additive extension preserves existing coverage", () => {
+    const projectFrame = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "project-list-changed",
+      projects: [
+        {
+          slug: "alpha",
+          displayName: "Alpha",
+          hostId: "1",
+          hostname: "t1000",
+          archived: false,
+        },
+      ],
+    };
+    expect(FrontendOutboundFrame.safeParse(projectFrame).success).toBe(true);
+
+    // Pre-existing identity-archived frame must STILL parse — regression guard.
+    const archivedFrame = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "identity-archived",
+      name: "wren",
+      hostId: "42",
+      hostname: "thenasty",
+    };
+    expect(FrontendOutboundFrame.safeParse(archivedFrame).success).toBe(true);
+  });
+
+  it("Test P117-03-8 (makeProjectListChangedFrame builder + round-trip): returns a frame with schemaVersion+type+projects; parses cleanly through FrontendOutboundFrame", async () => {
+    const { makeProjectListChangedFrame } = await import("./wire-protocol.js");
+    const projects = [
+      {
+        slug: "alpha",
+        displayName: "Alpha",
+        hostId: "1",
+        hostname: "t1000",
+        archived: false,
+      },
+      {
+        slug: "beta",
+        displayName: "Beta",
+        hostId: "2",
+        hostname: "workstation",
+        archived: true,
+      },
+    ];
+    const frame = makeProjectListChangedFrame(projects);
+    expect(frame.schemaVersion).toBe(FRAME_SCHEMA_VERSION);
+    expect(frame.type).toBe("project-list-changed");
+    if (frame.type === "project-list-changed") {
+      expect(frame.projects).toEqual(projects);
+    }
+
+    // Round-trip: builder output MUST parse via FrontendOutboundFrame.
+    const parsed = FrontendOutboundFrame.safeParse(frame);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("Test P117-03-9 (FRAME_SCHEMA_VERSION unchanged): adding a discriminated-union entry does NOT bump the version — additive-optional invariant", () => {
+    // Ninth iteration of the T-41-03-05 mitigation. Lineage:
+    //   Phase 41 lastMessageAt → Phase 47 aiTitle → Phase 52 dormant →
+    //   Phase 53 recycling → Phase 59 lastStopAt/lastStatusChangeAt →
+    //   Phase 62 activityMtime/stoppedMtime → Phase 90 contextPct →
+    //   Phase 111 identityAppearance → Phase 115 identity-archived frame →
+    //   THIS Phase 117 project-list-changed frame.
+    expect(FRAME_SCHEMA_VERSION).toBe(1);
+  });
+});
+
 // ─── Phase 115 Plan 115-06 — identity-archived frame (D-06, D-18) ────────────
 // Locks the distinct wire message shape for archive-tree rows. NOT bolted onto
 // SessionState (D-06 rationale: archived rows are inert and never join the
