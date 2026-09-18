@@ -42,6 +42,11 @@
 
 import { systemLogger } from "../utils/logger.js";
 import { parseRequestBody } from "./parse-request-body.js";
+import { isLocalHostId } from "../claude-session/identity-artifact-reader.js";
+import {
+  scanLocalFleetFolder,
+  readLocalFleetCompanionRef,
+} from "../utils/local-fleet-scan.js";
 import type { PendingImageGen } from "./types.js";
 
 /**
@@ -406,8 +411,82 @@ export function createImageGenScanOrchestrator(
   /**
    * Scan a single host: acquire channel → scanImageGenRequests → enqueue
    * results → release channel. Never throws (defense-in-depth try/catch).
+   *
+   * LOCAL bypass: when the host's numeric id is in IDENTITIES_LOCAL_HOST_IDS
+   * (e.g. Skynet's own hostId inside its container), SSH-to-self hangs
+   * indefinitely (acquireChannel never returns → per-host in-flight guard is
+   * held forever → every subsequent tick logs `skipping host with in-flight
+   * scan`). The bypass reads the request folder directly from the container-
+   * side bind-mount via `scanLocalFleetFolder` / `readLocalFleetCompanionRef`,
+   * with byte-identical semantics to the SSH IMAGE_GEN_SCAN_CMD +
+   * fetchCompanionRef path (36-char basename filter, atomic mv-claim,
+   * cross-request companion uuid guard, MAX_REF_BYTES cap).
    */
   async function scanOneHost(host: ImageGenScanHostRecord): Promise<void> {
+    // LOCAL bypass — skip SSH entirely for the container's own host.
+    const numericId = parseInt(host.id, 10);
+    if (isLocalHostId(numericId)) {
+      try {
+        const rawItems = await scanLocalFleetFolder("image-gen-requests");
+        if (rawItems.length === 0) return;
+        // Feed into the same parser the SSH path uses: build the same
+        // tab-separated stdout shape (`<filename>\t<contents>` per line)
+        // so parseImageGenRequestBatch's downstream contract stays 1:1.
+        const stdout = rawItems.map((r) => `${r.filename}\t${r.contents}`).join("\n");
+        const items = parseImageGenRequestBatch(stdout, host.id);
+        for (const item of items) {
+          if (item.malformedReason !== undefined) {
+            deps.enqueue(item);
+            continue;
+          }
+          const refName = item.body.ref;
+          if (refName === undefined) {
+            deps.enqueue(item);
+            continue;
+          }
+          const refBytes = await readLocalFleetCompanionRef(
+            "image-gen-requests",
+            refName,
+            MAX_REF_BYTES,
+            item.uuid,
+          );
+          if (refBytes === null) {
+            item.malformedReason = `ref companion missing or unreadable (local): ${refName}`;
+            systemLogger.warn(
+              "image-gen-scan: local companion ref fetch failed — marking malformed",
+              {
+                operation: "image_gen_scan_ref_fetch_failed_local",
+                fleetHostId: host.id,
+                uuid: item.uuid,
+                refFilename: refName,
+              },
+            );
+          } else {
+            item.refImage = refBytes;
+          }
+          deps.enqueue(item);
+        }
+        systemLogger.info("image-gen-scan: local exec complete", {
+          operation: "image_gen_scan_local_exec_complete",
+          fleetHostId: host.id,
+          claimed: items.length,
+        });
+      } catch (err) {
+        // scanLocalFleetFolder + readLocalFleetCompanionRef are already
+        // never-throw; this is belt-and-suspenders against future drift.
+        systemLogger.warn(
+          "Image-gen-scan: local per-host scan threw unexpectedly (should be unreachable)",
+          {
+            operation: "image_gen_scan_local_host_threw",
+            fleetHostId: host.id,
+            hostName: host.name,
+            error: err instanceof Error ? err.message : "unknown",
+          },
+        );
+      }
+      return;
+    }
+
     let channel: SshChannel | null = null;
     try {
       channel = await deps.acquireChannel(host);

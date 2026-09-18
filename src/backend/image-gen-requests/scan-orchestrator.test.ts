@@ -33,6 +33,25 @@ vi.mock("../utils/logger.js", () => ({
   },
 }));
 
+// Partial-mock identity-artifact-reader so we control isLocalHostId per test.
+// Default = false (matches "not local host" — existing SSH-branch tests keep
+// working without change).
+vi.mock("../claude-session/identity-artifact-reader.js", async (importActual) => {
+  const actual =
+    await importActual<typeof import("../claude-session/identity-artifact-reader.js")>();
+  return {
+    ...actual,
+    isLocalHostId: vi.fn().mockReturnValue(false),
+  };
+});
+
+// Mock the local-fleet-scan helpers — the LOCAL bypass path calls these; the
+// SSH-branch tests never trigger them so a default no-op is fine.
+vi.mock("../utils/local-fleet-scan.js", () => ({
+  scanLocalFleetFolder: vi.fn(async () => []),
+  readLocalFleetCompanionRef: vi.fn(async () => null),
+}));
+
 import {
   createImageGenScanOrchestrator,
   parseImageGenRequestBatch,
@@ -42,6 +61,11 @@ import {
   type ImageGenScanHostRecord,
   type SshChannel,
 } from "./scan-orchestrator.js";
+import { isLocalHostId } from "../claude-session/identity-artifact-reader.js";
+import {
+  scanLocalFleetFolder,
+  readLocalFleetCompanionRef,
+} from "../utils/local-fleet-scan.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -590,5 +614,179 @@ describe("scanImageGenRequests fail-open", () => {
     const channel = { exec: vi.fn(async () => "") } as unknown as SshChannel;
     const results = await scanImageGenRequests({ id: "1", name: "h1" }, channel);
     expect(results).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LB — LOCAL-host bypass (scan the container-side bind-mount, skip SSH)
+//
+// When the host record's numeric id is in IDENTITIES_LOCAL_HOST_IDS (i.e. the
+// container's own host), scanOneHost must skip acquireChannel entirely and
+// read via the local-fleet-scan helper instead. This closes the SSH-to-self
+// hang bug where the per-host in-flight guard stays held forever.
+// ---------------------------------------------------------------------------
+
+describe("LOCAL-host bypass", () => {
+  const isLocalHostIdMock = isLocalHostId as unknown as ReturnType<typeof vi.fn>;
+  const scanLocalMock = scanLocalFleetFolder as unknown as ReturnType<typeof vi.fn>;
+  const readCompanionMock = readLocalFleetCompanionRef as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    // Default: not local. Individual tests flip per host as needed.
+    isLocalHostIdMock.mockReturnValue(false);
+    scanLocalMock.mockReset().mockResolvedValue([]);
+    readCompanionMock.mockReset().mockResolvedValue(null);
+  });
+
+  it("LB1: local-host branch calls scanLocalFleetFolder and NOT acquireChannel/releaseChannel", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    const hosts: ImageGenScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+    ];
+    const { deps, acquireChannel, releaseChannel } = makeDeps({ hosts });
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(scanLocalMock).toHaveBeenCalledWith("image-gen-requests");
+    expect(acquireChannel).not.toHaveBeenCalled();
+    expect(releaseChannel).not.toHaveBeenCalled();
+  });
+
+  it("LB2: empty local scan → no enqueue", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    scanLocalMock.mockResolvedValue([]);
+    const hosts: ImageGenScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+    ];
+    const { deps, enqueueDep } = makeDeps({ hosts });
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(enqueueDep).not.toHaveBeenCalled();
+  });
+
+  it("LB3: local scan yields items → each enqueued in order (no companion when body.ref absent)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    const uuidA = "aaaaaaaa-1111-2222-3333-444444444444";
+    const uuidB = "bbbbbbbb-1111-2222-3333-444444444444";
+    scanLocalMock.mockResolvedValue([
+      { filename: `${uuidA}.json`, contents: buildValidRequest(uuidA) },
+      { filename: `${uuidB}.json`, contents: buildValidRequest(uuidB) },
+    ]);
+    const hosts: ImageGenScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+    ];
+    const { deps, enqueueDep } = makeDeps({ hosts });
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    // readCompanion NOT called (no body.ref).
+    expect(readCompanionMock).not.toHaveBeenCalled();
+    expect(enqueueDep).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(enqueueDep).mock.calls[0][0].uuid).toBe(uuidA);
+    expect(vi.mocked(enqueueDep).mock.calls[1][0].uuid).toBe(uuidB);
+  });
+
+  it("LB4: local scan with body.ref → readLocalFleetCompanionRef called and refImage attached", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    const uuid = "abcdef01-2345-6789-abcd-ef0123456789";
+    const refFilename = `${uuid}.ref.png`;
+    const fakeBytes = Buffer.from("fake-png-content");
+    scanLocalMock.mockResolvedValue([
+      { filename: `${uuid}.json`, contents: buildValidRequest(uuid, { ref: refFilename }) },
+    ]);
+    readCompanionMock.mockResolvedValue(fakeBytes);
+
+    const hosts: ImageGenScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+    ];
+    const { deps, enqueueDep } = makeDeps({ hosts });
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+
+    expect(readCompanionMock).toHaveBeenCalledWith(
+      "image-gen-requests",
+      refFilename,
+      MAX_REF_BYTES,
+      uuid,
+    );
+    expect(enqueueDep).toHaveBeenCalledTimes(1);
+    const enqueued: PendingImageGen = vi.mocked(enqueueDep).mock.calls[0][0];
+    expect(enqueued.refImage).toBeInstanceOf(Buffer);
+    expect(enqueued.refImage!.equals(fakeBytes)).toBe(true);
+    expect(enqueued.malformedReason).toBeUndefined();
+  });
+
+  it("LB5: local scan with body.ref but companion fetch returns null → malformedReason set", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    const uuid = "abcdef01-2345-6789-abcd-ef0123456789";
+    const refFilename = `${uuid}.ref.png`;
+    scanLocalMock.mockResolvedValue([
+      { filename: `${uuid}.json`, contents: buildValidRequest(uuid, { ref: refFilename }) },
+    ]);
+    readCompanionMock.mockResolvedValue(null); // missing / oversize / mismatch
+
+    const hosts: ImageGenScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+    ];
+    const { deps, enqueueDep } = makeDeps({ hosts });
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+
+    expect(enqueueDep).toHaveBeenCalledTimes(1);
+    const enqueued: PendingImageGen = vi.mocked(enqueueDep).mock.calls[0][0];
+    expect(enqueued.malformedReason).toBeDefined();
+    expect(enqueued.malformedReason).toMatch(/ref companion missing/i);
+    expect(enqueued.refImage).toBeUndefined();
+  });
+
+  it("LB6: local scan with malformed request body → item enqueued with malformedReason and companion fetch NOT attempted", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    const uuid = "abcdef01-2345-6789-abcd-ef0123456789";
+    // Missing required `prompt` → parser emits malformed PendingImageGen.
+    scanLocalMock.mockResolvedValue([
+      { filename: `${uuid}.json`, contents: JSON.stringify({ requested_at: "2026-09-18T00:00:00Z" }) },
+    ]);
+    const hosts: ImageGenScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+    ];
+    const { deps, enqueueDep } = makeDeps({ hosts });
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(readCompanionMock).not.toHaveBeenCalled();
+    expect(enqueueDep).toHaveBeenCalledTimes(1);
+    const enqueued: PendingImageGen = vi.mocked(enqueueDep).mock.calls[0][0];
+    expect(enqueued.malformedReason).toBeDefined();
+    expect(enqueued.malformedReason).toMatch(/prompt/i);
+  });
+
+  it("LB7: mixed fleet — local host uses local helper, remote host still uses SSH", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    const uuid = "aaaaaaaa-1111-2222-3333-444444444444";
+    scanLocalMock.mockResolvedValue([
+      { filename: `${uuid}.json`, contents: buildValidRequest(uuid) },
+    ]);
+    const hosts: ImageGenScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+      { id: "7", name: "remote", _connDetails: {} },
+    ];
+    const remoteChannel = { exec: vi.fn(async () => "") } as unknown as SshChannel;
+    const { deps, acquireChannel, enqueueDep } = makeDeps({
+      hosts,
+      acquireChannel: vi.fn(async () => remoteChannel),
+    });
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    // Local host: scanLocal called once, acquireChannel NOT called for it.
+    expect(scanLocalMock).toHaveBeenCalledTimes(1);
+    // Remote host: acquireChannel called exactly once (for host 7 only).
+    expect(acquireChannel).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(acquireChannel).mock.calls[0][0].id).toBe("7");
+    // Local host produced one enqueue; remote host produced none.
+    expect(enqueueDep).toHaveBeenCalledTimes(1);
   });
 });
