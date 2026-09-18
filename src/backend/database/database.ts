@@ -63,6 +63,13 @@ import runbooksEditorRoutes from "./routes/runbooks-editor.js";
 // + POST create + POST :slug/archive. JSON body per D-36a. Backend is
 // authoritative for slug derivation per Pitfall 1.
 import projectListRoutes from "./routes/project-list.js";
+// Phase 117 Plan 117-05 (D-05, D-05a, D-06, D-36a, D-37): /relay-rooms
+// router — POST /:roomId/project performs the read-modify-write on the
+// Matrix room's m.tag account_data via setRoomProjectTag (117-02).
+// Mounted at plural /relay-rooms to avoid collision with existing
+// /relay-room/create + /relay-room/:roomId/participants under the
+// singular /relay-room base.
+import relayRoomProjectTagRoutes from "./routes/relay-room-project-tag.js";
 // Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
 // POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook (Plan 40-02)
 // and editor open path (Plan 40-03) both consume this. Threat model
@@ -2019,6 +2026,14 @@ app.use("/relay-room", relayRoomCreateRoutes);
 // (WS route bound by relay-room-stream-server on port 30015) AND this REST
 // prefix — both blocks land in BOTH docker/nginx.conf AND docker/nginx-https.conf.
 app.use("/relay-room", relayRoomParticipantsRoutes);
+// Phase 117 Plan 117-05 (D-05, D-05a, D-36a): POST /relay-rooms/:roomId/project —
+// read-modify-write on the Matrix room's m.tag account_data via
+// setRoomProjectTag (117-02). Preserves non-project tags, strips any
+// existing u.project.*, adds the new u.project.<slug> (or clears when
+// project=null). Mounted at plural /relay-rooms to avoid collision with
+// the /relay-room mounts above; nginx location block already covers
+// the prefix by inclusion.
+app.use("/relay-rooms", relayRoomProjectTagRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote
