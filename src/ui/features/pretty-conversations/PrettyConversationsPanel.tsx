@@ -56,7 +56,7 @@ import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
 // input mounted at the top of the pv-panel-scroll region.
-import { Archive, ChevronDown, Drama, Globe, Loader2, Monitor, MoreVertical, Search, SquarePen, X } from "lucide-react";
+import { Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, Monitor, MoreVertical, Search, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -89,8 +89,31 @@ import {
   // (115-06 wire shape) — NOT from `state.identities` or any live-tier
   // pool. Consumed by the Archived section below (D-19 lazy-render).
   useArchivedFleetRows,
+  // Phase 117 Plan 117-08 (D-09, D-15, D-39): projects-derived selector output.
+  // The panel reads pinnedUnassigned/projectSections/rdp from the same
+  // useConversations() snapshot the store now emits (117-07 additive fields).
+  // useProjects is subscribed alongside so we react to fleet-status wire updates
+  // (project-list-changed frames flow through setProjects → notify → re-render).
+  useProjects,
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
+// Phase 117 Plan 117-08 (D-40): per-project collapse state (localStorage-backed
+// via the hook landed in 117-07). Consumers pass the collapsed set + toggle
+// callback into each PrettyProjectSectionHeader.
+import { useCollapsedProjectSlugs } from "@/state/use-collapsed-project-slugs";
+// Phase 117 Plan 117-08 (D-22): project drop-handler API surface. Landed by
+// 117-06 as thin authApi wrappers; called fire-and-forget from the panel's
+// handleProjectDrop / handleFlatMiddleDrop.
+import { setSessionProject, setRelayRoomProject } from "@/api/session-project-api";
+// Phase 117 Plan 117-08: viewing user's Matrix mxid — required for the
+// relay-room drop branch (setRelayRoomProject's second argument). Sourced from
+// the same hook the shared chat surface uses (viewing-user-store, Phase 90 P5).
+import { useViewingUserMxid } from "@/state/viewing-user-store";
+// Phase 117 Plan 117-08 Task 1 — per-project section wrapper landed earlier
+// in this plan. Consumes projectSections from the store selector; emits
+// onDropRow → panel's handleProjectDrop (which resolves identity vs
+// relay-room routing).
+import { PrettyProjectSectionHeader } from "./PrettyProjectSectionHeader";
 import {
   useSessionIsWorking,
   // Phase 47 Plan 04 — subscribes PrettyConversationRowLive to the working-
@@ -456,7 +479,36 @@ export function PrettyConversationsPanel({
   // Phase 41 Plan 01: destructure the three-zone shape — `middle` (flat
   // recency-sorted rows) + `rdpGroup` (nullable RDP sentinel group) replace
   // the retired `grouped: HostGroup[]` field.
-  const { activeSet: activeSetRows, pinned, middle, rdpGroup } = useConversations();
+  // Phase 117 Plan 117-08 (D-09, D-39): the store's derived selector now also
+  // emits pinnedUnassigned + projectSections + rdp alongside the pre-Phase-117
+  // pinned + middle + rdpGroup fields (117-07 additive extension). This plan
+  // consumes the NEW fields for the projects-aware render pass and keeps
+  // `pinned` (unchanged upstream — same array reference contract) for
+  // continuity with existing display filters (bounty toggle, etc). The
+  // pinned tier switches from `pinned` → `pinnedUnassigned` in the render
+  // block below so pinned-in-project rows float to their project section
+  // (D-19) instead of the top pinned zone.
+  const {
+    activeSet: activeSetRows,
+    pinned,
+    middle,
+    rdpGroup,
+    pinnedUnassigned,
+    projectSections,
+  } = useConversations();
+  // Subscribe to the projects list so the panel re-renders when the wire
+  // event flushes a new set through setProjects. useProjects() also feeds
+  // the derived selector's projectSections computation — subscribing here is
+  // required for the snapshot version to bump on project mutations.
+  useProjects();
+  // Per-project collapse state (D-40). Toggle is a callback threaded through
+  // PrettyProjectSectionHeader's `onToggleCollapse` prop.
+  const { collapsed: collapsedProjectSlugs, toggle: toggleProjectCollapse } =
+    useCollapsedProjectSlugs();
+  // Viewing user's mxid — required for the relay-room drop branch
+  // (setRelayRoomProject signature: roomId, userMxid, slug). Null before the
+  // /users/me fetch resolves — drop guards below refuse to fire when null.
+  const viewingUserMxid = useViewingUserMxid();
   const selectedId = useSelectedConversationId();
   const pinnedIds = usePinnedIds();
   // (Phase 115 Plan 115-02: prior useHiddenIds subscription retired per D-21.
@@ -939,13 +991,31 @@ export function PrettyConversationsPanel({
   //  D-21 — every row in the pinned/middle tiers is unconditionally visible
   //  now. 115-06 will re-introduce an archived partition sourced from the
   //  sweep's archived-tree, not from a hiddenIds set.)
+  // Phase 117 Plan 117-08 (D-09, D-19): the pinned tier now renders
+  // `pinnedUnassigned` (pinned rows with NO project assignment). Pinned rows
+  // that DO have a project assignment float to the top of their project
+  // section per D-19 — they're already inside projectSections[i].rows[0..].
+  // Pre-Phase-117 tests that never seed projectSections see
+  // pinnedUnassigned === pinned (identical arrays via the store's derived
+  // selector) so the switch is a no-op for them.
   const displayedPinned = anyFilterOn
-    ? pinned.filter(matchesFilterForRow)
-    : pinned;
+    ? pinnedUnassigned.filter(matchesFilterForRow)
+    : pinnedUnassigned;
   const displayedMiddle = anyFilterOn
     ? middle.filter(matchesFilterForRow)
     : middle;
   const displayedRdpGroup = rdpGroup;
+  // Phase 117 Plan 117-08: filter each project section's rows through the
+  // bounty-count filter when active. Sections stay in the derived selector's
+  // alphabetical order (D-15) regardless of filter state — empty sections
+  // continue to render as header-only per D-11.
+  const displayedProjectSections = anyFilterOn
+    ? projectSections.map((s) => ({
+        slug: s.slug,
+        displayName: s.displayName,
+        rows: s.rows.filter(matchesFilterForRow),
+      }))
+    : projectSections;
 
   // (Phase 115 Plan 115-02: prior `hiddenRows` accumulator retired per D-21
   //  alongside the Hidden section render block. 115-06 introduces an
@@ -1599,6 +1669,221 @@ export function PrettyConversationsPanel({
     onCloseSession?.(tabId);
   };
 
+  // ─── Phase 117 Plan 117-08 — projects DnD + create-project state ─────────────
+  //
+  // (a) createProjectModalOpen — state toggle wired to the header "Create
+  //     project" button. The actual CreateProjectModal component lands in
+  //     117-09; this plan only mounts a placeholder marker so downstream
+  //     tests + integration can verify the state flip. The placeholder gets
+  //     swapped for the real modal at 117-09's task-2 render insertion site.
+  //
+  // (b) pendingProjectSlug — set by handleNewConversationInProject when the
+  //     per-section new-conversation button fires. The 117-09 modal reads
+  //     this to pre-select the project in its dropdown. Cleared on close.
+  //
+  // (c) rowIdToProjectSlug — lookup table for the D-22 gesture #2 (drop-in-
+  //     middle clears). Built from the derived selector's projectSections so
+  //     the panel can answer "is this row currently assigned to a project?"
+  //     without a second store subscription. O(N) construction, O(1) lookup.
+  const [createProjectModalOpen, setCreateProjectModalOpen] = useState(false);
+  const [pendingProjectSlug, setPendingProjectSlug] = useState<string | null>(null);
+
+  // Row-id → project-slug lookup (derived from projectSections). Used by
+  // handleFlatMiddleDrop to answer "was this row assigned to a project?".
+  const rowIdToProjectSlug = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const section of projectSections) {
+      for (const row of section.rows) m.set(row.id, section.slug);
+    }
+    return m;
+  }, [projectSections]);
+
+  // (d) handleProjectDrop — fired by PrettyProjectSectionHeader's onDropRow.
+  //     The section-level component has already:
+  //       - type-gated on application/x-skynet-row
+  //       - parsed the payload safely
+  //       - validated `id` is a non-empty string
+  //       - refused rdpHostRow=true payloads (D-08 defense-in-depth)
+  //     The panel handler routes based on row kind:
+  //       - matrixRoomId set → relay-room row → setRelayRoomProject
+  //         (requires viewingUserMxid — if not yet resolved, log + skip)
+  //       - identityKey + host set → identity row → setSessionProject
+  //       - neither → console.warn + no-op (defensive; the derived selector
+  //         should never emit a row shape that misses both carriers)
+  //
+  // (e) handleFlatMiddleDrop — fired on the flat-middle container's onDrop.
+  //     Type-gated on application/x-skynet-row so badge drags + OS file drops
+  //     fall through (they're handled elsewhere in the panel). Clears the
+  //     project field only if the row IS currently in a project (per
+  //     rowIdToProjectSlug lookup). Non-project rows are no-ops.
+  //
+  // (f) handleNewConversationInProject — records the pending slug + opens
+  //     the modal. Full pre-fill behavior lands in 117-09 (modal reads
+  //     pendingProjectSlug to pre-select the project in its dropdown).
+  const handleProjectDrop = useCallback(
+    (
+      slug: string,
+      payload: {
+        id: string;
+        host?: { id: string } | null;
+        targetTmuxSession?: string | null;
+        matrixRoomId?: string | null;
+        rdpHostRow?: boolean;
+        identityKey?: string | null;
+      },
+    ) => {
+      // Defense-in-depth: RDP short-circuit (also handled at section-level).
+      if (payload.rdpHostRow === true) return;
+      // Relay-room path — matrixRoomId is the carrier.
+      if (typeof payload.matrixRoomId === "string" && payload.matrixRoomId.length > 0) {
+        if (!viewingUserMxid) {
+          // viewing-user mxid not yet resolved — skip rather than fire with a
+          // placeholder. The user will see the row stay in place; a fresh
+          // drop after the mxid fetch settles will succeed.
+          console.warn(`[project-drop] skipping relay-room drop — viewing user mxid not yet resolved (roomId=${payload.matrixRoomId})`);
+          return;
+        }
+        console.info(`[project-drop] slug=${slug} kind=relay-room roomId=${payload.matrixRoomId}`);
+        setRelayRoomProject(payload.matrixRoomId, viewingUserMxid, slug).catch(
+          (err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[project-drop] setRelayRoomProject failed: ${msg}`);
+          },
+        );
+        return;
+      }
+      // Identity path — need host + identityKey. Fall back to
+      // targetTmuxSession when identityKey isn't in the payload (older
+      // clients pre-117-08 didn't carry identityKey; sessionMatchKey is the
+      // canonical identity-name derivation).
+      if (!payload.host || typeof payload.host.id !== "string") return;
+      const hostIdNum = parseInt(payload.host.id, 10);
+      if (!Number.isFinite(hostIdNum) || hostIdNum <= 0) return;
+      const identityKey =
+        payload.identityKey ??
+        (payload.targetTmuxSession
+          ? sessionMatchKey(payload.targetTmuxSession) ?? payload.targetTmuxSession
+          : null);
+      if (!identityKey) {
+        console.warn(`[project-drop] identity row missing identityKey (rowId=${payload.id})`);
+        return;
+      }
+      console.info(`[project-drop] slug=${slug} kind=identity hostId=${hostIdNum} key=${identityKey}`);
+      setSessionProject(hostIdNum, identityKey, slug).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[project-drop] setSessionProject failed: ${msg}`);
+      });
+    },
+    [viewingUserMxid],
+  );
+
+  const [isFlatMiddleDragOver, setIsFlatMiddleDragOver] = useState(false);
+
+  useEffect(() => {
+    const onDragEnd = () => setIsFlatMiddleDragOver(false);
+    window.addEventListener("dragend", onDragEnd);
+    return () => window.removeEventListener("dragend", onDragEnd);
+  }, []);
+
+  const handleFlatMiddleDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      const types = e.dataTransfer?.types;
+      if (!(types && Array.from(types).includes("application/x-skynet-row"))) return;
+      e.preventDefault();
+      // Do NOT stopPropagation — the outer panel handler's badge drag machinery
+      // relies on unrelated MIMEs falling through, and the row MIME never
+      // reaches the outer handler because its badge type-gate rejects it.
+      setIsFlatMiddleDragOver(true);
+    },
+    [],
+  );
+
+  const handleFlatMiddleDragLeave = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      const types = e.dataTransfer?.types;
+      if (!(types && Array.from(types).includes("application/x-skynet-row"))) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const stillInside =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (stillInside) return;
+      setIsFlatMiddleDragOver(false);
+    },
+    [],
+  );
+
+  const handleFlatMiddleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      setIsFlatMiddleDragOver(false);
+      const raw = e.dataTransfer?.getData("application/x-skynet-row") ?? "";
+      if (raw === "") return;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      if (parsed === null || typeof parsed !== "object") return;
+      const p = parsed as {
+        id?: string;
+        host?: { id: string } | null;
+        targetTmuxSession?: string | null;
+        matrixRoomId?: string | null;
+        rdpHostRow?: boolean;
+        identityKey?: string | null;
+      };
+      if (typeof p.id !== "string" || p.id.length === 0) return;
+      if (p.rdpHostRow === true) return; // D-08 defense
+      // Only fire clear if the row IS currently in a project. Consult the
+      // rowIdToProjectSlug lookup built from the derived selector.
+      const currentSlug = rowIdToProjectSlug.get(p.id);
+      if (currentSlug === undefined) return; // no-op — not in any project
+      e.preventDefault();
+      e.stopPropagation();
+      // Route the clear the same way handleProjectDrop routes an assign,
+      // but with slug=null.
+      if (typeof p.matrixRoomId === "string" && p.matrixRoomId.length > 0) {
+        if (!viewingUserMxid) {
+          console.warn(`[project-drop] skipping clear — viewing user mxid not yet resolved`);
+          return;
+        }
+        console.info(`[project-drop] clear kind=relay-room roomId=${p.matrixRoomId}`);
+        setRelayRoomProject(p.matrixRoomId, viewingUserMxid, null).catch(
+          (err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[project-drop] setRelayRoomProject(null) failed: ${msg}`);
+          },
+        );
+        return;
+      }
+      if (!p.host || typeof p.host.id !== "string") return;
+      const hostIdNum = parseInt(p.host.id, 10);
+      if (!Number.isFinite(hostIdNum) || hostIdNum <= 0) return;
+      const identityKey =
+        p.identityKey ??
+        (p.targetTmuxSession
+          ? sessionMatchKey(p.targetTmuxSession) ?? p.targetTmuxSession
+          : null);
+      if (!identityKey) return;
+      console.info(`[project-drop] clear kind=identity hostId=${hostIdNum} key=${identityKey}`);
+      setSessionProject(hostIdNum, identityKey, null).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[project-drop] setSessionProject(null) failed: ${msg}`);
+      });
+    },
+    [rowIdToProjectSlug, viewingUserMxid],
+  );
+
+  const handleNewConversationInProject = useCallback((slug: string) => {
+    // Record the pending slug so 117-09's CreateProjectModal can pre-select
+    // the project in its dropdown. For 117-08, this is state-only — the
+    // full new-conversation flow lands in 117-09.
+    setPendingProjectSlug(slug);
+    setCreateProjectModalOpen(true);
+  }, []);
+
   // Phase 22 (SRIC-04): label for the `+ New role` launcher button.
   const newRoleLabel = t("nav.newRole", {
     defaultValue: "New role",
@@ -1709,6 +1994,23 @@ export function PrettyConversationsPanel({
                   onClick={() => setNewSessionDialogOpen(true)}
                 >
                   <SquarePen size={18} />
+                </button>
+                {/* Phase 117 Plan 117-08 (D-24) — Create project header
+                    button. Toggles createProjectModalOpen; the actual
+                    CreateProjectModal lands in 117-09 which replaces the
+                    placeholder marker rendered at the bottom of this panel. */}
+                <button
+                  type="button"
+                  className="pv-pencil"
+                  aria-label="Create project"
+                  title="Create project"
+                  data-testid="pv-header-create-project-button"
+                  onClick={() => {
+                    setPendingProjectSlug(null);
+                    setCreateProjectModalOpen(true);
+                  }}
+                >
+                  <FolderOpen size={18} />
                 </button>
                 <button
                   type="button"
@@ -1890,15 +2192,83 @@ export function PrettyConversationsPanel({
                 />
               ))}
             </div>
+            {/* Phase 117 Plan 117-08 (D-09, D-10, D-11) — projects zone.
+                Inserted BETWEEN the pinned zone (above) and the flat middle
+                (below) per D-09's vertical order lock. NO wrapping
+                super-section "Projects" label per D-10 — each header stands
+                alone. Empty sections still render as header-only per D-11.
+                Each section wraps its rows in a coral drop lane (D-22
+                gesture #1) via PrettyProjectSectionHeader. */}
+            {displayedProjectSections.map((section) => (
+              <PrettyProjectSectionHeader
+                key={section.slug}
+                slug={section.slug}
+                displayName={section.displayName}
+                collapsed={collapsedProjectSlugs.has(section.slug)}
+                onToggleCollapse={toggleProjectCollapse}
+                onNewConversationClick={handleNewConversationInProject}
+                onDropRow={handleProjectDrop}
+                rows={section.rows.map((row) => (
+                  <PrettyConversationRowLive
+                    key={row.id}
+                    row={row}
+                    selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
+                    pinned={isRowPinned(row)}
+                    variant={variant}
+                    onSelect={() => handleRowSelect(row)}
+                    onTogglePin={() => handleTogglePin(row)}
+                    onDeactivate={() => handleRowDeactivate(row)}
+                    onKill={() => handleRowKill(row)}
+                    onArchive={
+                      canonicalArchiveIdForRow(row) !== null
+                        ? () => handleArchive(row)
+                        : undefined
+                    }
+                    inActiveSet={activeSet.has(row.id)}
+                    sessionKey={sessionWorkingKey(row)}
+                    subtitleMode="identityTitle"
+                  />
+                ))}
+              />
+            ))}
             {/* Phase 41 Plan 01 (user 2026-08-14): FLAT middle zone.
                 No per-host divider chips (retired). Every non-pinned, non-
                 active-set, non-RDP row lands in `displayedMiddle` as a
                 single flat array from `snapshot.middle`, sorted by the
                 store's compareByRecencyDesc + insertion-order fallback.
                 Rendered inside ONE `.pv-panel-group` container without
-                per-host wrappers. */}
-            {displayedMiddle.length > 0 && (
-              <div className="pv-panel-group" data-middle-group="true">
+                per-host wrappers.
+
+                Phase 117 Plan 117-08 (D-22 gesture #2) — the flat-middle
+                container is also a drop target that CLEARS the project field
+                on a row currently assigned to a project. Type-gated on
+                application/x-skynet-row so the outer panel's badge-drag
+                machinery is not clobbered (badge MIME falls through to the
+                outer handler; row MIME is handled here). Renders regardless
+                of `displayedMiddle.length > 0` when there are projects to
+                clear from — the drop target needs to exist even on an empty
+                middle so users can drag out of a project section. */}
+            {(displayedMiddle.length > 0 || projectSections.length > 0) && (
+              <div
+                className="pv-panel-group relative"
+                data-middle-group="true"
+                data-testid="pv-panel-flat-middle"
+                style={{ isolation: "isolate" }}
+                onDragOver={handleFlatMiddleDragOver}
+                onDragLeave={handleFlatMiddleDragLeave}
+                onDrop={handleFlatMiddleDrop}
+              >
+                {isFlatMiddleDragOver && (
+                  <div
+                    data-testid="pv-flat-middle-drop-overlay"
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                      background: "rgba(255, 184, 150, 0.22)",
+                      border: "2px solid rgba(255, 184, 150, 0.60)",
+                      zIndex: 30,
+                    }}
+                  />
+                )}
                 {displayedMiddle.map((row) => (
                   <PrettyConversationRowLive
                     key={row.id}
@@ -2247,6 +2617,23 @@ export function PrettyConversationsPanel({
           ))}
         </div>,
         document.body,
+      )}
+      {/* Phase 117 Plan 117-08 — CreateProjectModal placeholder marker.
+          The actual modal component lands in 117-09 (CreateProjectModal.tsx)
+          and replaces this marker. For 117-08 the state toggle + placeholder
+          are sufficient — tests observe `data-testid="create-project-modal-placeholder"`.
+          `pendingProjectSlug` is threaded through as a data attribute so the
+          117-09 modal can pre-select the corresponding project on mount. */}
+      {createProjectModalOpen && (
+        <div
+          data-testid="create-project-modal-placeholder"
+          data-pending-project-slug={pendingProjectSlug ?? ""}
+          hidden
+          onClick={() => {
+            setCreateProjectModalOpen(false);
+            setPendingProjectSlug(null);
+          }}
+        />
       )}
     </div>
   );

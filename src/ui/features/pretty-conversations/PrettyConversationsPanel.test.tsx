@@ -277,6 +277,17 @@ vi.mock("@/state/conversation-store", () => ({
     // Phase 41 Plan 01: three-zone shape.
     middle: snapshot.middle,
     rdpGroup: snapshot.rdpGroup,
+    // Phase 117 Plan 117-08 — additive derived-selector fields. Backward-
+    // compat: when tests don't seed projects, pinnedUnassigned === pinned,
+    // projectSections is empty, and rdp === rdpGroup. Pre-Phase-117 tests
+    // continue to observe the exact same three-zone render.
+    pinnedUnassigned: snapshot.pinned,
+    projectSections: [] as Array<{
+      slug: string;
+      displayName: string;
+      rows: unknown[];
+    }>,
+    rdp: snapshot.rdpGroup,
   }),
   useSelectedConversationId: () => snapshot.selectedId,
   usePinnedIds: () => snapshot.pinnedIds,
@@ -319,6 +330,35 @@ vi.mock("@/state/conversation-store", () => ({
   // `mockArchivedFleetRows` so tests can seed the archived-rows pool +
   // exercise the section header + lazy-expand invariants.
   useArchivedFleetRows: () => mockArchivedFleetRows,
+  // Phase 117 Plan 117-08 — the panel now subscribes to useProjects() to
+  // trigger re-renders when the projects list changes via the fleet-status
+  // wire event. Existing tests don't seed projects — the derived selector's
+  // pinnedUnassigned/projectSections/rdp fields fall back to empty arrays
+  // when state.projects is empty, so pre-Phase-117 tests observe the flat
+  // middle exactly as before.
+  useProjects: () => [] as readonly {
+    slug: string;
+    displayName: string;
+    hostId: string;
+    hostname: string;
+    archived: boolean;
+  }[],
+}));
+
+// Phase 117 Plan 117-08 — collapse hook stub. Tests don't seed collapse
+// state; the panel reads the default empty Set + no-op toggle.
+vi.mock("@/state/use-collapsed-project-slugs", () => ({
+  useCollapsedProjectSlugs: () => ({
+    collapsed: new Set<string>() as ReadonlySet<string>,
+    toggle: () => {},
+  }),
+}));
+
+// Phase 117 Plan 117-08 — project drop API. Tests don't drop rows onto
+// project sections; stubs return an ok envelope in case any drop lands.
+vi.mock("@/api/session-project-api", () => ({
+  setSessionProject: vi.fn(async () => ({ ok: true })),
+  setRelayRoomProject: vi.fn(async () => ({ ok: true })),
 }));
 
 // Phase 92 Plan 04: getPinnedIds is RETIRED. The mock no longer surfaces it —

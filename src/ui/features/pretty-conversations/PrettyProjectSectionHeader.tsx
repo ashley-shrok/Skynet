@@ -95,7 +95,7 @@ export function PrettyProjectSectionHeader({
   onToggleCollapse,
   onNewConversationClick,
   onDropRow,
-}: PrettyProjectSectionHeaderProps): JSX.Element {
+}: PrettyProjectSectionHeaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
 
   // Window-level dragend for Escape-cancel path — a drag cancelled via

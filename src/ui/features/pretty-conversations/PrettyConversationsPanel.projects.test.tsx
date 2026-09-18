@@ -185,8 +185,12 @@ vi.mock("@/state/use-collapsed-project-slugs", () => ({
 }));
 
 // session-project-api mocks
-const setSessionProjectSpy = vi.fn(async () => ({ ok: true as const }));
-const setRelayRoomProjectSpy = vi.fn(async () => ({ ok: true as const }));
+const setSessionProjectSpy = vi.fn<
+  (hostId: number, key: string, slug: string | null) => Promise<{ ok: true }>
+>(async () => ({ ok: true as const }));
+const setRelayRoomProjectSpy = vi.fn<
+  (roomId: string, mxid: string, slug: string | null) => Promise<{ ok: true }>
+>(async () => ({ ok: true as const }));
 vi.mock("@/api/session-project-api", () => ({
   setSessionProject: (hostId: number, key: string, slug: string | null) =>
     setSessionProjectSpy(hostId, key, slug),

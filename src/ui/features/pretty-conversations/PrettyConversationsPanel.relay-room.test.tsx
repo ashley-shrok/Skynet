@@ -144,6 +144,10 @@ vi.mock("@/state/conversation-store", () => ({
     pinned: snapshot.pinned,
     middle: snapshot.middle,
     rdpGroup: snapshot.rdpGroup,
+    // Phase 117 Plan 117-08 — additive derived-selector fields.
+    pinnedUnassigned: snapshot.pinned,
+    projectSections: [],
+    rdp: snapshot.rdpGroup,
   }),
   useSelectedConversationId: () => snapshot.selectedId,
   usePinnedIds: () => snapshot.pinnedIds,
@@ -163,6 +167,20 @@ vi.mock("@/state/conversation-store", () => ({
   // Phase 115 Plan 115-06: archived-rows subscription consumed by the panel's
   // Archived section. Empty for these tests.
   useArchivedFleetRows: () => [],
+  // Phase 117 Plan 117-08 — useProjects subscription (empty for relay-room tests).
+  useProjects: () => [],
+}));
+
+// Phase 117 Plan 117-08 — collapse hook + drop API stubs.
+vi.mock("@/state/use-collapsed-project-slugs", () => ({
+  useCollapsedProjectSlugs: () => ({
+    collapsed: new Set<string>() as ReadonlySet<string>,
+    toggle: () => {},
+  }),
+}));
+vi.mock("@/api/session-project-api", () => ({
+  setSessionProject: vi.fn(async () => ({ ok: true })),
+  setRelayRoomProject: vi.fn(async () => ({ ok: true })),
 }));
 
 vi.mock("@/api/user-preferences-api", () => ({
