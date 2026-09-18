@@ -174,6 +174,24 @@ export function humanizeWakeupSchedule(schedule: unknown): string {
 /** Shared validator for identity keys — matches the 5 inline copies in server.ts pre-#92. */
 export const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
 
+/**
+ * Phase 117 Plan 117-01 (D-04): project slug validator — kebab-case-lowercased,
+ * strictly narrower than IDENTITY_KEY_RE. Underscore is REJECTED (D-04 spec
+ * calls out kebab-case only); uppercase is REJECTED (lowercased); length capped
+ * at 64 chars to match IDENTITY_KEY_RE's bound.
+ *
+ * The `.` and `/` characters are structurally impossible under this charset,
+ * which is the load-bearing path-traversal defense for createProject +
+ * archiveProject (Phase 117 threat T-117-01-01). Any user-supplied slug that
+ * survives PROJECT_SLUG_RE.test() cannot escape the projects/ root by
+ * construction.
+ *
+ * See Phase 117 CONTEXT.md D-01..D-04, D-25, D-30, D-36. Consumed by every
+ * new project primitive below plus every project route in Wave 2 (117-04) and
+ * the archive-cascade in 117-09.
+ */
+export const PROJECT_SLUG_RE = /^[a-z0-9-]{1,64}$/;
+
 // ---------------------------------------------------------------------------
 // Module-load: parse IDENTITIES_LOCAL_HOST_IDS once
 // ---------------------------------------------------------------------------
@@ -239,6 +257,31 @@ export function getLocalRolesRoot(): string {
   return (
     process.env.ROLES_HOST_DIR ||
     path.join(os.homedir(), "fleet", "roles")
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Local projects root — Phase 117 Plan 117-01 (byte-shape mirror of getLocal*Root)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the local projects root directory.
+ *
+ * Prefer PROJECTS_HOST_DIR env var (parallel to IDENTITIES_HOST_DIR + ROLES_HOST_DIR
+ * bind-mount) over os.homedir() fallback (dev path). Mirrors getLocalIdentitiesRoot /
+ * getLocalRolesRoot semantics.
+ *
+ * Consumed by every project primitive added in Phase 117 Plan 117-01 (listProjects,
+ * readProjectFile, createProject, archiveProject) plus the Wave 2 route layer that
+ * imports it directly for LOCAL-branch path construction.
+ *
+ * D-01: projects live at `~/fleet/projects/<slug>/` — a new sibling to
+ * ~/fleet/roles/ and ~/fleet/identities/ under the fleet substrate.
+ */
+export function getLocalProjectsRoot(): string {
+  return (
+    process.env.PROJECTS_HOST_DIR ||
+    path.join(os.homedir(), "fleet", "projects")
   );
 }
 
@@ -348,6 +391,169 @@ export async function resolveRoleForIdentity(
     );
   }
   return role;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 117 Plan 117-01 — session project-field read/write
+// ---------------------------------------------------------------------------
+//
+// Reads and writes the `project:` frontmatter key on the identity file
+// (`~/fleet/identities/<key>/<key>.md`). Membership per D-05 lives WITH the
+// thing being grouped: the identity file's frontmatter is the source of truth
+// for identity-associated conversations. No parallel index, no separate table.
+//
+// LOAD-BEARING CONSTRAINT (RESEARCH.md § Common Pitfalls #5):
+//   The writer MUST NOT go through extractCosmeticsFromFrontmatter — that
+//   helper is field-narrowing (accepts only the 7 known cosmetics fields:
+//   displayName, title, colorHue, voice, avatar, coordinator, task). Every
+//   other frontmatter field — role, project, and any user-added keys — would
+//   silently disappear on the round-trip.
+//
+//   Instead, both the reader and the writer parse the ENTIRE frontmatter
+//   block with yaml.load, and the writer emits via yaml.dump with
+//   sortKeys:false, lineWidth:-1, noRefs:true, forceQuotes:false (matches
+//   identity-birth-orchestrator.ts:575's buildIdentityFileBody options).
+//
+//   Absent-⇒-omit invariant: passing projectSlug=null DELETES the key from
+//   the parsed dict; the writer never emits `project: null` or `project: ''`.
+//   Matches the invariant identity-birth-orchestrator holds for
+//   title/voice/avatar/task.
+//
+// D-COVERAGE: D-05 (frontmatter IS source of truth), D-32 (id-skill reads
+// this same field on /id load), D-36 (backend surface list).
+//
+// PATH: identity file at $HOME/fleet/identities/<key>/<key>.md — NOT any
+// session JSONL file (Pitfall 2 in RESEARCH). readIdentityFile above is the
+// authoritative reader; readSessionProjectField delegates to it.
+
+/**
+ * Read the `project:` frontmatter key from an identity's markdown file.
+ *
+ * Returns the project slug when present + non-empty + string-typed. Returns
+ * null on any of: identity file missing, no `---...---` frontmatter block,
+ * missing `project:` key, empty-string value, non-string value, or js-yaml
+ * parse error. All null-returning paths are GRACEFUL — a broken identity
+ * file should not break every consumer of the field.
+ *
+ * D-05 / D-32 (Phase 117): the id-skill's project-awareness clause and the
+ * sidebar's project-bucketing selector both use this signal.
+ */
+export async function readSessionProjectField(
+  conn: SSHClientType | null,
+  identityKey: string,
+): Promise<string | null> {
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+
+  const { markdown } = await readIdentityFile(conn, identityKey);
+  if (markdown.length === 0) return null; // ENOENT / missing identity file
+
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n[\s\S]*$/);
+  if (!match) return null; // no frontmatter block
+
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(match[1]);
+  } catch (err) {
+    // Log loud, return null soft — mirrors extractRoleFromMarkdown's contract.
+    // A broken identity file should not throw for a mere project-field read.
+    systemLogger.warn(
+      "Identity frontmatter YAML parse failed — treating as no project",
+      {
+        operation: "frontmatter_yaml_parse_failed",
+        site: "readSessionProjectField",
+        error: err instanceof Error ? err.message : String(err),
+        snippet: match[1].slice(0, 200),
+      },
+    );
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object") return null;
+  const project = (parsed as Record<string, unknown>).project;
+  return typeof project === "string" && project.length > 0 ? project : null;
+}
+
+/**
+ * Write (or clear) the `project:` frontmatter key on an identity's markdown file.
+ *
+ * Semantics per D-05 + D-31:
+ *   - projectSlug === null   → DELETE the `project:` key from the frontmatter
+ *                              dict (absent-⇒-omit invariant). Never emits
+ *                              `project: null` or `project: ''`.
+ *   - projectSlug matches
+ *     PROJECT_SLUG_RE          → sets `parsed.project = projectSlug`.
+ *   - Any other input        → throws before any I/O.
+ *
+ * Load-bearing (Pitfall 5): the round-trip is a FULL yaml.load / yaml.dump
+ * pair — NOT extractCosmeticsFromFrontmatter. Every unknown frontmatter key
+ * survives untouched. If the identity file has a `custom: foo` field, it
+ * survives; if it has `role: worker`, it survives; if a future migration
+ * adds a new key, it survives without a code change here.
+ *
+ * yaml.dump options (matches identity-birth-orchestrator.ts:575 verbatim):
+ *   sortKeys:false, lineWidth:-1, noRefs:true, forceQuotes:false.
+ *
+ * Atomic write via writeMarkdownFileAtomic — tmp+rename discipline; a mid-
+ * write crash leaves the prior identity file intact.
+ *
+ * Throws when the identity file is missing, has no frontmatter block, or the
+ * frontmatter fails to parse (write path — cannot silently repair).
+ */
+export async function writeSessionProjectField(
+  conn: SSHClientType | null,
+  identityKey: string,
+  projectSlug: string | null,
+): Promise<void> {
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+  if (projectSlug !== null && !PROJECT_SLUG_RE.test(projectSlug)) {
+    throw new Error("invalid project slug");
+  }
+
+  const { markdown } = await readIdentityFile(conn, identityKey);
+  if (markdown.length === 0) {
+    throw new Error(`identity ${identityKey} file missing`);
+  }
+
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  if (!match) {
+    throw new Error(`identity ${identityKey} has no frontmatter`);
+  }
+  const frontmatterRaw = match[1];
+  const bodyAfter = match[2];
+
+  // Full yaml.load — preserves ALL keys (NOT extractCosmeticsFromFrontmatter).
+  let parsed: Record<string, unknown>;
+  try {
+    const loaded = yaml.load(frontmatterRaw) as Record<string, unknown> | null;
+    parsed = loaded ?? {};
+  } catch (err) {
+    throw new Error(
+      `identity ${identityKey} frontmatter parse failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  // Mutate the ONE `project` key. Absent-⇒-omit: DELETE, never null.
+  if (projectSlug === null) {
+    delete parsed.project;
+  } else {
+    parsed.project = projectSlug;
+  }
+
+  const yamlBody = yaml.dump(parsed, {
+    sortKeys: false,
+    lineWidth: -1,
+    noRefs: true,
+    forceQuotes: false,
+  });
+
+  const newContents = `---\n${yamlBody}---\n${bodyAfter}`;
+  const targetPath = `$HOME/fleet/identities/${identityKey}/${identityKey}.md`;
+  await writeMarkdownFileAtomic(conn, targetPath, newContents);
 }
 
 // ---------------------------------------------------------------------------

@@ -278,9 +278,12 @@ describe("writeSessionProjectField — LOCAL branch", () => {
     const writtenStr = written.toString("utf-8");
 
     // Round-trip preserves role / displayName / task AND adds project.
+    // yaml.dump default emits scalars unquoted when safe (forceQuotes:false):
+    // 'W' loads as string W and re-emits as bare W. Assert on the KEY: VALUE
+    // shape, not the quote style.
     expect(writtenStr).toContain("role: worker");
-    expect(writtenStr).toContain("displayName: 'W'");
-    expect(writtenStr).toContain("task: foo");
+    expect(writtenStr).toMatch(/displayName: '?W'?/);
+    expect(writtenStr).toMatch(/task: '?foo'?/);
     expect(writtenStr).toContain("project: alpha");
     // Body preserved byte-for-byte after the frontmatter block.
     expect(writtenStr).toMatch(/---\nsome body text\n$/);
@@ -326,7 +329,7 @@ describe("writeSessionProjectField — LOCAL branch", () => {
     expect(frontmatter).not.toContain("project: ''");
     // Other fields preserved.
     expect(frontmatter).toContain("role: worker");
-    expect(frontmatter).toContain("displayName: 'W'");
+    expect(frontmatter).toMatch(/displayName: '?W'?/);
     expect(frontmatter).toContain("task: foo");
   });
 
@@ -371,7 +374,7 @@ describe("writeSessionProjectField — LOCAL branch", () => {
     expect(frontmatter).toContain("project: alpha");
     // And the existing keys.
     expect(frontmatter).toContain("role: worker");
-    expect(frontmatter).toContain("displayName: 'W'");
+    expect(frontmatter).toMatch(/displayName: '?W'?/);
   });
 
   it("Test 12b: writes atomically via writeMarkdownFileAtomic — tmp file then rename to target", async () => {
