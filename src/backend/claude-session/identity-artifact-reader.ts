@@ -192,6 +192,16 @@ export const IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/;
  */
 export const PROJECT_SLUG_RE = /^[a-z0-9-]{1,64}$/;
 
+/**
+ * Phase 119 Plan 05 (D-06): validator for first-class app slugs.
+ * Kebab-case only (shape 1 lock — `create-app.sh` requires kebab-case; no
+ * underscores). Bounded length matches IDENTITY_KEY_RE. Enforced BOTH at
+ * the route (src/backend/database/routes/apps.ts) AND inside readAppIconFile
+ * (defence-in-depth) because the slug is interpolated into a shell `ls`
+ * command over SSH on the REMOTE branch.
+ */
+export const APP_SLUG_RE = /^[a-z0-9-]{1,64}$/;
+
 // ---------------------------------------------------------------------------
 // Module-load: parse IDENTITIES_LOCAL_HOST_IDS once
 // ---------------------------------------------------------------------------
@@ -3379,6 +3389,88 @@ export async function readAvatarSiblingFile(
     throw new Error("avatar exceeds cap on disk");
   }
   return { bytes, mime: AVATAR_MIME_FROM_EXT[extToRead], ext: extToRead };
+}
+
+// ---------------------------------------------------------------------------
+// App-icon reader — Phase 119 Plan 05 Task 1 (D-06)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read a first-class app's icon file (~/fleet/apps/<slug>/icon.webp).
+ *
+ * Mirrors readAvatarSiblingFile's LOCAL/REMOTE branching discipline but with
+ * ONE deliberate simplification: a SINGLE filename (`icon.webp`) — no
+ * multi-extension cascade. Shape 1 §80-82 locks the disk contract: agents
+ * convert artwork to WebP before dropping it in, so the reader never has to
+ * guess at an extension (Pitfall 5 lock from Phase 119 RESEARCH.md).
+ *
+ * Contract:
+ *   - Returns {bytes, mime: "image/webp"} when the file exists and is under
+ *     IDMEDIT_MAX_AVATAR_BYTES.
+ *   - Returns null when the file is absent (LOCAL: ENOENT; REMOTE: the `ls`
+ *     probe returns empty stdout).
+ *   - Throws on invalid slug (defence-in-depth — the route also gates,
+ *     but this helper is the shell-safety guard for the interpolation
+ *     inside the REMOTE-branch `ls` command).
+ *   - Throws on oversized file (defence-in-depth against a corrupt/attacker
+ *     drop that bypassed write-side capping).
+ *   - Throws on SSH-layer errors (route catches and returns 502 with a
+ *     canned "unreachable" body — matches identity-avatar discipline).
+ *
+ * Shell safety: APP_SLUG_RE forbids `/`, `.`, `..`, `$`, `;`, `&`, backtick,
+ * and whitespace — the double-quoted interpolation `"${targetPath}"` is
+ * therefore safe for the `ls` probe. See threat-register T-119-05-01 and
+ * T-119-05-02 in the plan for STRIDE analysis.
+ */
+export async function readAppIconFile(
+  conn: SSHClientType | null,
+  slug: string,
+): Promise<{ bytes: Buffer; mime: "image/webp" } | null> {
+  if (!APP_SLUG_RE.test(slug)) {
+    throw new Error("invalid slug");
+  }
+
+  if (conn === null) {
+    // ─── LOCAL branch ────────────────────────────────────────────────
+    // Rooted at $HOME/fleet/apps/<slug>/icon.webp. Uses os.homedir() rather
+    // than an env-var-configurable root because first-class apps are always
+    // sibling to the identities tree on the same box (no bind-mount split
+    // like IDENTITIES_HOST_DIR — apps live under the user's real home).
+    const filePath = path.join(os.homedir(), "fleet", "apps", slug, "icon.webp");
+    try {
+      const bytes = await fs.readFile(filePath);
+      if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
+        throw new Error("icon exceeds cap on disk");
+      }
+      return { bytes, mime: "image/webp" };
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  // ─── REMOTE branch ─────────────────────────────────────────────────
+  // Mirror the readAvatarSiblingFile REMOTE-branch shape: probe with `ls`
+  // first (short round-trip, distinguishes ENOENT cleanly from SSH errors),
+  // then read via SFTP. Interpolating ${slug} directly is shell-safe because
+  // APP_SLUG_RE has already gated the value.
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+  const targetPath = `${remoteHome}/fleet/apps/${slug}/icon.webp`;
+  const lsCmd = `ls "${targetPath}" 2>/dev/null || true`;
+  const lsOut = (await execWithTimeout(conn, lsCmd)).trim();
+  if (lsOut === "") return null;
+
+  const bytes = await sftpReadFile(conn, targetPath);
+  if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
+    throw new Error("icon exceeds cap on disk");
+  }
+  return { bytes, mime: "image/webp" };
 }
 
 // ---------------------------------------------------------------------------
