@@ -179,8 +179,15 @@ export function AppTile({ app }: AppTileProps): React.ReactElement {
   // URL construction — mirrors the backend GET /apps/:hostId/:slug/icon
   // path shape (D-06 / RESEARCH.md discretion). The "Open in new tab"
   // action opens the app's own URL, NOT the /icon subpath.
-  const iconUrl = `/apps/${app.hostId}/${app.slug}/icon`;
-  const openUrl = `/apps/${app.hostId}/${app.slug}`;
+  //
+  // Code-review MEDIUM-1 (fix pass 2026-09-18): defensive
+  // encodeURIComponent on both hostId and slug — today APP_SLUG_RE gates
+  // the wire (hostId numeric, slug kebab-case), so unencoded interpolation
+  // is safe. But encoding here means a future backend regression that
+  // widens either shape cannot expose an unencoded interpolation from
+  // this frontend surface. Cheap defence-in-depth.
+  const iconUrl = `/apps/${encodeURIComponent(app.hostId)}/${encodeURIComponent(app.slug)}/icon`;
+  const openUrl = `/apps/${encodeURIComponent(app.hostId)}/${encodeURIComponent(app.slug)}`;
 
   const showFallback = !app.hasIcon || imgFailed;
   const initialLetter =
