@@ -2524,3 +2524,173 @@ describe("Phase 108: role-folder existence probe (D-13 A-E)", () => {
   });
 });
 
+// ===========================================================================
+// Quick 260918-52n (2026-09-18): identity folder name derives from mxid
+// localpart. Purpose — kill two production bugs verified live tonight:
+//   1. Claude Code auto-resume of the OLD JSONL at
+//      ~/.claude/projects/-home-ubuntu-fleet-identities-<name>-workspace/
+//      when a pool name is reused (anthem/piano/ballad/lullaby all
+//      resumed prior Sep 13-16 sessions).
+//   2. agent-supervisor.sh retire_identity "State 3" archive-name
+//      collision (~/fleet/identities-archive/<name>/ already exists).
+// Both structurally fixed for birth-forward identities.
+//
+// Q2 no-rollback lock preserved — this test asserts zero rm/rm -rf/rmdir
+// invocations across all execCommand calls (same anti-rollback assertion
+// pattern as Test C1/C2/B in the Phase 75 block above).
+// ===========================================================================
+
+describe("Quick 260918-52n: identity folder name derived from mxid localpart", () => {
+  // Local anti-rollback assertion helper — matches Phase 75's
+  // assertNoRmRfInExecCalls from Test C/C2/B, kept per-block so the Q2
+  // lock is re-asserted at every test that touches the derived-folder
+  // path (grep-recoverable rationale that survives casual refactors).
+  function assertNoRmRfInExecCalls(mockFn: Mock): void {
+    const rmCalls = mockFn.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[1] === "string" && /rm\s+-rf|rm\s+-r|rm\s+-f/.test(call[1] as string),
+    );
+    expect(rmCalls).toHaveLength(0);
+  }
+
+  it("birth with poolPicked=true + role + existing account creates folder at derived mxid-localpart path (not at bare pool name)", async () => {
+    // REMOTE branch — asserts against SSH exec strings for the mkdir + the
+    // module-level writeMarkdownFileAtomic module mock for the relay.json
+    // path. (LOCAL Step 8 routes through fs.writeFile in per-identity-file.ts,
+    // not through the module mock — REMOTE is the cleaner assertion path.)
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+
+    // Simulate: @anthem-box-maintainer:<server> already exists (total:1) →
+    // ordinal search advances to @anthem-box-maintainer-2:<server> which is
+    // free (total:0). Expected identityFolderName = "anthem-box-maintainer-2".
+    const countMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, total: 1 }) // @anthem-box-maintainer: taken
+      .mockResolvedValueOnce({ ok: true, total: 0 }); // @anthem-box-maintainer-2: free
+
+    const mintMock = vi.fn().mockResolvedValue({
+      ok: true,
+      mxid: "@anthem-box-maintainer-2:synapse.example.com",
+      password: "mock",
+      status: 201,
+    });
+    const loginMock = vi.fn().mockResolvedValue({
+      ok: true,
+      accessToken: "syt_derived_folder_test",
+    });
+
+    // Track the mkdir command that creates the identity folder tree
+    // (contains "wakeups") so we can assert its path. Role probe defaults
+    // to "exists" via beforeEach; collision probe returns "missing" so
+    // birth proceeds past Step 1.
+    let step2MkdirCmd = "";
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd !== "string") return Promise.resolve("");
+      if (cmd.trim() === "echo $HOME") return Promise.resolve("/home/ubuntu\n");
+      if (cmd.includes("fleet/roles/")) return Promise.resolve("exists");
+      if (cmd.includes("fleet/identities/") && cmd.includes("echo missing"))
+        return Promise.resolve("missing");
+      if (cmd.includes("wakeups")) {
+        step2MkdirCmd = cmd;
+      }
+      return Promise.resolve("");
+    });
+
+    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
+    const mockWriteAvatar = vi.fn().mockResolvedValue(undefined);
+    const mockDiscover = vi.fn().mockResolvedValue("/mock/session.jsonl");
+
+    const deps = makeDeps({
+      matrixCountUsersMatching: countMock,
+      matrixCreateOrUpdateUser: mintMock,
+      matrixLoginAsUser: loginMock,
+      writeMarkdownFileAtomic: mockWriteMd,
+      writeAvatarSiblingFile: mockWriteAvatar,
+      discoverIdentitySessionFile: mockDiscover,
+    });
+
+    const opts = makeOpts({
+      name: "anthem",
+      role: "box-maintainer",
+      poolPicked: true,
+    });
+
+    const { events, emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // Expected identityFolderName (derived from mxid @anthem-box-maintainer-2:...
+    // via slice — leading @ + trailing :serverName stripped).
+    const derivedName = "anthem-box-maintainer-2";
+
+    // (a) countMock advanced through both ordinals — proves derivation ran.
+    expect(countMock).toHaveBeenCalledTimes(2);
+
+    // (b) mint was called with the DERIVED mxid (ordinal-2 form), NOT the
+    //     legacy @anthem:server form.
+    expect(mintMock).toHaveBeenCalledTimes(1);
+    const mintedMxid = mintMock.mock.calls[0]?.[0] as string;
+    expect(mintedMxid).toBe(`@${derivedName}:synapse.example.com`);
+    expect(mintedMxid).not.toBe("@anthem:synapse.example.com");
+
+    // (c) Step 2 mkdir exec command contains the DERIVED folder path (with
+    //     wakeups suffix), NOT the bare pool name.
+    expect(step2MkdirCmd).toContain(`fleet/identities/${derivedName}/wakeups`);
+    expect(step2MkdirCmd).not.toContain("fleet/identities/anthem/wakeups");
+
+    // (d) writeMarkdownFileAtomic (deps-level, Step 2.5 identity .md write)
+    //     was called with a path ending in /<derivedName>/<derivedName>.md
+    //     — NOT /anthem/anthem.md.
+    expect(mockWriteMd).toHaveBeenCalled();
+    const mdWriteCall = mockWriteMd.mock.calls.find(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && (c[1] as string).endsWith(".md"),
+    );
+    expect(mdWriteCall).toBeDefined();
+    expect(mdWriteCall![1]).toContain(`/${derivedName}/${derivedName}.md`);
+    expect(mdWriteCall![1]).not.toContain("/anthem/anthem.md");
+
+    // (e) module-level writeMarkdownFileAtomic (Step 8 relay.json write via
+    //     per-identity-file's REMOTE branch) is called with the DERIVED
+    //     folder path, NOT the bare pool name.
+    const relayJsonWrites = mockWriteMarkdownFileAtomicModule.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
+    );
+    expect(relayJsonWrites.length).toBeGreaterThanOrEqual(1);
+    expect(relayJsonWrites[0][1]).toBe(
+      `fleet/identities/${derivedName}/relay.json`,
+    );
+
+    // (f) writeAvatarSiblingFile was called with identityFolderName as the
+    //     folder-key argument (second positional) — the derived name, not
+    //     opts.name.
+    expect(mockWriteAvatar).toHaveBeenCalled();
+    expect(mockWriteAvatar.mock.calls[0][1]).toBe(derivedName);
+
+    // (g) discoverIdentitySessionFile probes by derived folder name —
+    //     agent-supervisor's tmux session name matches the folder name,
+    //     which is what the JSONL discovery path is keyed on.
+    expect(mockDiscover).toHaveBeenCalled();
+    expect(mockDiscover.mock.calls[0][1]).toBe(derivedName);
+
+    // (h) ended event on success carries identityFolderName as both
+    //     identityId AND sessionName (the identity IS its folder name).
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect(endedEvent).toBeDefined();
+    expect((endedEvent as { ok: boolean }).ok).toBe(true);
+    expect((endedEvent as { identityId?: string }).identityId).toBe(derivedName);
+    expect((endedEvent as { sessionName?: string }).sessionName).toBe(derivedName);
+
+    // (i) Q2 no-rollback anti-rollback assertion: zero rm / rm -rf / rm -r /
+    //     rm -f invocations across all execCommand calls (parallel to the
+    //     assertNoRmRfInExecCalls pattern used in the Phase 75 describe block
+    //     above). Guards against a future refactor introducing a naive
+    //     "clean up on failed birth" branch that would re-open the
+    //     agent-supervisor race Q2 was written to prevent.
+    assertNoRmRfInExecCalls(mockExecCommand);
+  }, 30_000);
+});

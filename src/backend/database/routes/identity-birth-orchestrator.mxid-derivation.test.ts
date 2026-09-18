@@ -480,7 +480,14 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
     expect(countMock).not.toHaveBeenCalled();
   }, 30_000);
 
-  it("(s) opts.poolPicked === true + admin count failure → Step 6 emits step:6:failed with sanitized admin_count_failed reason", async () => {
+  it("(s) opts.poolPicked === true + admin count failure → Step 1 emits step:1:failed with sanitized admin_count_failed reason", async () => {
+    // 2026-09-18 (quick 260918-52n): MXID derivation moved OUT of Step 6 and
+    // INTO Step 1 of birthIdentity so the on-disk folder-existence probe
+    // runs against the derived path. As a consequence, deriveMxidWithOrdinal
+    // failures (like admin_count_failed on Synapse admin API) now attribute
+    // to step:1:failed instead of step:6:failed. This preserves Q2
+    // no-rollback (Step 1 has no on-disk side effects — nothing to roll
+    // back). Mint is not called because Step 6 never runs.
     const countMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 502,
@@ -507,24 +514,26 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
     await vi.runAllTimersAsync();
     await birthPromise;
 
-    // Step 6 failure attribution — admin_count_failed surfaces via sanitizeError
-    const step6Failed = events.find(
+    // Step 1 failure attribution — admin_count_failed surfaces via
+    // sanitizeError. (Was step 6 before 2026-09-18 quick 260918-52n.)
+    const step1Failed = events.find(
       (e) =>
         e.type === "step" &&
-        (e as { n: number }).n === 6 &&
+        (e as { n: number }).n === 1 &&
         (e as { phase: string }).phase === "failed",
     );
-    expect(step6Failed).toBeDefined();
-    const reason = (step6Failed as { reason?: string }).reason ?? "";
+    expect(step1Failed).toBeDefined();
+    const reason = (step1Failed as { reason?: string }).reason ?? "";
     expect(reason).toMatch(/admin_count_failed/);
 
-    // mint MUST NOT have been called — derivation failed before mint
+    // mint MUST NOT have been called — derivation failed before mint (Step
+    // 6 never ran because Step 1 aborted).
     expect(mintMock).not.toHaveBeenCalled();
 
-    // ended event with ok:false + failedStep:6
+    // ended event with ok:false + failedStep:1
     const endedEvent = events.find((e) => e.type === "ended");
     expect(endedEvent).toBeDefined();
     expect((endedEvent as { ok: boolean }).ok).toBe(false);
-    expect((endedEvent as { failedStep?: number }).failedStep).toBe(6);
+    expect((endedEvent as { failedStep?: number }).failedStep).toBe(1);
   }, 30_000);
 });
