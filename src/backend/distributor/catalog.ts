@@ -303,6 +303,17 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.claude/skills/role/SKILL.md",
     restartHook: null,
   },
+  // Phase 116: file-drop broker skill body — carries the D-17 PHI directive
+  // at top primacy plus the D-18 recency echo inline in the invocation
+  // section. No restart hook — on-demand-loaded skill file (Claude Code
+  // re-reads on next skill invocation).
+  {
+    slug: "image-gen-skill",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/image-gen/SKILL.md",
+    installPath: "~/.claude/skills/image-gen/SKILL.md",
+    restartHook: null,
+  },
 
   // --- helper scripts (8 rows prior to Phase 95 addition, 9 total — all under ~/.local/bin/) ---
   // agent-supervisor is the sole entry with a restart hook: bytes must be
@@ -356,6 +367,17 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/claude-usage-collector.py",
     installPath: "~/.local/bin/claude-usage-collector",
+    restartHook: null,
+  },
+  // Phase 116: file-drop broker helper for the image-gen skill. On-demand
+  // executable — no restart hook. Callers invoke as `image-gen "..."`;
+  // helper drops a request file into ~/fleet/image-gen-requests/ and polls
+  // for the response before printing paths on stdout / JSON on stderr.
+  {
+    slug: "image-gen-helper",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/image-gen",
+    installPath: "~/.local/bin/image-gen",
     restartHook: null,
   },
 
