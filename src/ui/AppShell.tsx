@@ -91,6 +91,12 @@ import {
   // boot-time hydration path (listProjects + listRelayRoomProjectTags).
   setProjects,
   setRoomProjectAssignments,
+  // Phase 117 H1 fix (2026-09-18): identity-project map setter fed by an
+  // AppShell effect that derives the Map from useIdentities() on every
+  // identities-store change. Closes the loop between the identity carrier
+  // (D-05 — identity file's `project:` frontmatter) and projectForRow's
+  // per-row bucket resolution.
+  setIdentityProjectAssignments,
 } from "@/state/conversation-store";
 import type { ProjectRow } from "@/state/conversation-store";
 // Phase 117 Plan 117-07 (Fix 1 gate): boot-time hydration API — listProjects
@@ -1386,6 +1392,32 @@ export function AppShell({
       cancelled = true;
     };
   }, [allHosts]);
+
+  // Phase 117 H1 fix (2026-09-18): identity-project assignments ────────────
+  //
+  // The frontend's `state.identityProjectAssignments` Map is what
+  // projectForRow() reads to bucket identity conversations into their
+  // project section. The map is keyed on `${hostId}::${identityKey.toLowerCase()}`
+  // and its values are project slugs.
+  //
+  // Nothing in production code (pre-H1) ever called setIdentityProjectAssignments
+  // — only tests did. This effect closes the loop by deriving the Map from
+  // useIdentities() on every identities-store change. Combined with M6's
+  // wire-schema extension for IdentityAppearanceSchema.project, this covers
+  // both boot hydration AND live WS source-B updates.
+  //
+  // The setter's identity-equal-skip absorbs no-op fires (StrictMode
+  // double-invoke, listeners-fire-without-changes, etc.).
+  useEffect(() => {
+    const next = new Map<string, string>();
+    for (const identity of identitiesByKey.values()) {
+      if (identity.project == null) continue;
+      if (typeof identity.hostId !== "number") continue;
+      const key = `${identity.hostId}::${identity.identityKey.toLowerCase()}`;
+      next.set(key, identity.project);
+    }
+    setIdentityProjectAssignments(next);
+  }, [identitiesByKey]);
 
   // Custom event bridge: any surface can request a tab open via skynet:open-tab
   useEffect(() => {
