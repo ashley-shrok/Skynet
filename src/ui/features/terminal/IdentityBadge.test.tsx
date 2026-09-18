@@ -174,6 +174,42 @@ describe("IdentityBadge — single-variant + onLongPress (quick 260806-lzd)", ()
     // Sanity: also no button role available in the DOM.
     expect(screen.queryByRole("button")).toBeNull();
   });
+
+  // Right-click opens the badge's custom context menu; browsers fire
+  // pointerdown with button=2. Without a guard, the 500ms long-press
+  // timer arms and fires togglePrettyMode when the user lingers on the
+  // menu. Only button=0 (primary) should arm the long-press.
+  it("H: pointerdown with button=2 (right-click) does NOT arm the long-press", () => {
+    const onLongPress = vi.fn();
+    const onClick = vi.fn();
+    render(
+      <IdentityBadge
+        identityKey="tina"
+        onClick={onClick}
+        onLongPress={onLongPress}
+      />,
+    );
+    const root = screen.getByTestId("identity-badge-root");
+    fireEvent.pointerDown(root, { button: 2 });
+    vi.advanceTimersByTime(600);
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
+
+  it("I: pointerdown with button=1 (middle-click) does NOT arm the long-press", () => {
+    const onLongPress = vi.fn();
+    const onClick = vi.fn();
+    render(
+      <IdentityBadge
+        identityKey="tina"
+        onClick={onClick}
+        onLongPress={onLongPress}
+      />,
+    );
+    const root = screen.getByTestId("identity-badge-root");
+    fireEvent.pointerDown(root, { button: 1 });
+    vi.advanceTimersByTime(600);
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

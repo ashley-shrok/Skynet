@@ -164,6 +164,31 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         },
       });
 
+      const spec = specForTab({
+        type: tab.type,
+        host: { name: host.name, id: host.id },
+        targetTmuxSession: effectiveTmuxSession,
+      });
+      if (spec !== null) {
+        items.push({
+          label: "Move to new window",
+          onClick: () => {
+            const payload = encodeWorkspaceSpec({
+              tabs: [spec],
+              activeIndex: 0,
+              only: true,
+            });
+            const w = window.open("#" + payload, "_blank");
+            // Popup-blocker safety: window.open returns null when blocked.
+            // Only tear down the current tab if the new window opened OK,
+            // otherwise the user would lose their session with nowhere to go.
+            if (w !== null) {
+              onCloseTab?.(tabId);
+            }
+          },
+        });
+      }
+
       // Phase 115 Plan 115-06 (D-01, D-02, D-03, D-04): Archive item.
       // Mirrors the panel row menu's Archive slot BYTE-FOR-BYTE — same
       // label, same danger styling, same confirmation copy, same
@@ -180,6 +205,9 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
       // Matches PrettyConversationsPanel.handleArchive's resolution
       // strategy verbatim so the confirmation copy reads identically on
       // both surfaces.
+      //
+      // Placed LAST in the menu — most destructive item at the bottom,
+      // matching the row menu's Archive placement.
       if (shadowFleetId !== null && effectiveTmuxSession !== null) {
         const identityKey = sessionMatchKey(effectiveTmuxSession) ?? effectiveTmuxSession;
         const resolved =
@@ -209,31 +237,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
                 errMessage: err instanceof Error ? err.message : String(err),
               });
             });
-          },
-        });
-      }
-
-      const spec = specForTab({
-        type: tab.type,
-        host: { name: host.name, id: host.id },
-        targetTmuxSession: effectiveTmuxSession,
-      });
-      if (spec !== null) {
-        items.push({
-          label: "Move to new window",
-          onClick: () => {
-            const payload = encodeWorkspaceSpec({
-              tabs: [spec],
-              activeIndex: 0,
-              only: true,
-            });
-            const w = window.open("#" + payload, "_blank");
-            // Popup-blocker safety: window.open returns null when blocked.
-            // Only tear down the current tab if the new window opened OK,
-            // otherwise the user would lose their session with nowhere to go.
-            if (w !== null) {
-              onCloseTab?.(tabId);
-            }
           },
         });
       }

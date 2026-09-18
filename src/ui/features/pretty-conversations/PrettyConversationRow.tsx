@@ -1348,24 +1348,6 @@ export function PrettyConversationRow({
               label: pinned ? "Unpin" : "Pin",
               onClick: onTogglePin,
             });
-            // Phase 115 Plan 115-06 (D-01 / D-02 / D-03): Archive item —
-            // red-styled, gated on `onArchive` being provided. The panel
-            // provides onArchive ONLY for fleet-synthetic identity-backed
-            // rows (via canonicalArchiveIdForRow) — the affordance-narrowing
-            // gate that Phase 107's Hide item used is preserved verbatim at
-            // the panel side, mirrored by the panel's `onArchive={...}` prop
-            // shape. Confirmation dialog + POST + pane-close side effect
-            // live in the panel's handleArchive; this callback fires
-            // unconditionally, handleArchive owns the composition (matches
-            // the Kill shape: row emits the click; panel wraps it in
-            // window.confirm before the mutation).
-            if (onArchive) {
-              items.push({
-                label: "Archive",
-                onClick: onArchive,
-                danger: true,
-              });
-            }
             // quick-260804-uo4: Open/Move in new window — desktop-only (not rendered
             // on mobile variant). Bifurcates label on inActiveSet. Builds a TabSpec
             // via specForTab; skipped for tabs that aren't URL-addressable (specForTab
@@ -1424,6 +1406,21 @@ export function PrettyConversationRow({
               items.push({
                 label: "Kill",
                 onClick: onKill,
+                danger: true,
+              });
+            }
+            // Phase 115 Plan 115-06 (D-01 / D-02 / D-03): Archive item —
+            // red-styled, gated on `onArchive` being provided. The panel
+            // provides onArchive ONLY for fleet-synthetic identity-backed
+            // rows (via canonicalArchiveIdForRow). Confirmation dialog +
+            // POST + pane-close side effect live in the panel's
+            // handleArchive; this callback fires unconditionally.
+            // Placed LAST in the menu — most destructive item at the
+            // bottom, matching Kill's position rationale.
+            if (onArchive) {
+              items.push({
+                label: "Archive",
+                onClick: onArchive,
                 danger: true,
               });
             }

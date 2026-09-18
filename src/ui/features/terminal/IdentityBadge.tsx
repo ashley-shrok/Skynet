@@ -1,5 +1,9 @@
 import { useEffect, useRef } from "react";
-import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
+import type {
+  DragEvent as ReactDragEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { GitPullRequestDraft } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -334,7 +338,14 @@ export function IdentityBadge({
       }
     };
     const handlePointerDown = onLongPress
-      ? () => {
+      ? (e: ReactPointerEvent<HTMLButtonElement>) => {
+          // Right-click opens the badge's custom context menu via
+          // onContextMenu (native suppressed by preventDefault). Without
+          // this guard, pointerdown with button=2 arms the 500ms timer;
+          // if the user hovers the menu past 500ms before releasing,
+          // togglePrettyMode fires and swaps to terminal mid-menu. Only
+          // the primary (left) button should arm the long-press.
+          if (e.button !== 0) return;
           // Fresh press → reset the fired flag so a prior completed
           // long-press does not indefinitely swallow taps.
           longPressFiredRef.current = false;
