@@ -133,6 +133,47 @@ vi.mock("../branding/branding-config-loader.js", () => ({
   readInstancePolicyBytes: vi.fn(async () => null),
 }));
 
+// Quick 260918-5lb: identity-artifact-reader is the source of isLocalHostId.
+// Default the routing predicate to false so existing describe blocks
+// (I-STARTUP, I-RETRY, I-PERSISTENT, I-ON-ADD, T-11) continue to exercise
+// the SSH path exactly as they did pre-fix. Individual tests in the new
+// I-LOCAL-BYPASS block override with mockReturnValue(true) for the local-host
+// id they set up. Mocking the whole module (not just the export) sidesteps
+// its ssh2 + js-yaml side-effect imports which the integration harness does
+// not otherwise resolve.
+vi.mock("../claude-session/identity-artifact-reader.js", () => ({
+  isLocalHostId: vi.fn(() => false),
+  // The orchestrator only imports isLocalHostId; the local install helper
+  // pulls in getLocalIdentitiesRoot but that path is mocked below via
+  // local-fleet-install.js so it never resolves this module for its own
+  // reads. Included here for defense-in-depth against future importers.
+  getLocalIdentitiesRoot: vi.fn(() => "/fleet/identities"),
+}));
+
+// Quick 260918-5lb: local-fleet-install is delegated to by executeSweeForHost
+// on the local branch. Spy on both public functions so LB1-LB4 can assert the
+// helper IS called for local hosts (and only local hosts), and control the
+// returned counters to drive the bookkeeping-parity tests (LB3). Default
+// return shape is a clean sweep so any accidental non-local-host invocation
+// (should not happen) still resolves without crashing the fixture.
+vi.mock("./local-fleet-install.js", () => ({
+  installFleetSubstrateLocally: vi.fn(async () => ({
+    itemsChecked: 24,
+    itemsChanged: 0,
+    itemsFailed: 0,
+  })),
+  bootstrapFleetSubstrateLocally: vi.fn(async () => ({
+    alreadyEnabled: true,
+    bootstrapRan: false,
+    daemonReloadRan: true,
+    settingsPatchOk: true,
+    gsdContextMonitorCleanupOk: true,
+    skynetParentOk: true,
+    skynetHostnameOk: true,
+    hadError: false,
+  })),
+}));
+
 // ---------------------------------------------------------------------------
 // Mocks needed only for the I-ON-ADD route-invocation harness
 // (mirrors the scaffold in host.test.ts)
@@ -306,6 +347,11 @@ import { systemLogger, sshLogger } from "../utils/logger.js";
 import { SystemCrypto } from "../utils/system-crypto.js";
 import { FieldCrypto } from "../utils/field-crypto.js";
 import { readInstancePolicyBytes } from "../branding/branding-config-loader.js";
+import { isLocalHostId } from "../claude-session/identity-artifact-reader.js";
+import {
+  installFleetSubstrateLocally,
+  bootstrapFleetSubstrateLocally,
+} from "./local-fleet-install.js";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
 
 // ---------------------------------------------------------------------------
@@ -1416,6 +1462,350 @@ describe("Phase 75 — server-substrate integration", () => {
           "fleet_substrate_system_root_skip",
       );
       expect(skipCalls.length).toBe(0);
+
+      orch.stop();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // I-LOCAL-BYPASS (quick 260918-5lb): distributor local-FS bypass for the
+  // container's own host record. When isLocalHostId returns true for a host's
+  // numeric id, executeSweeForHost MUST skip deps.acquireChannel entirely
+  // and delegate to the local-FS helper. Non-local hosts continue on the SSH
+  // path unchanged.
+  //
+  // The failure mode this suite pins: post-fix regression where SSH-to-self
+  // would silently re-appear because a future edit to executeSweeForHost
+  // routed the local host through acquireChannel again, re-wedging the
+  // for-of loop on container recreate.
+  //
+  // Written retroactively as regression coverage after Task 2's orchestrator
+  // edit already landed the GREEN behavior.
+  // -------------------------------------------------------------------------
+
+  describe("I-LOCAL-BYPASS (distributor local-FS bypass): local host uses fs, not ssh", () => {
+    it("LB1 — acquireChannel NEVER called for the local host; still called for non-local hosts", async () => {
+      const rows = [
+        makeRow({
+          id: 5,
+          name: "remote-a",
+          credentialId: 100,
+          cred_id: 100,
+          cred_systemPassword: "ct-a",
+        }),
+        makeRow({
+          id: 6,
+          name: "t1000-local",
+          credentialId: 101,
+          cred_id: 101,
+          cred_systemPassword: "ct-b",
+        }),
+        makeRow({
+          id: 7,
+          name: "remote-c",
+          credentialId: 102,
+          cred_id: 102,
+          cred_systemPassword: "ct-c",
+        }),
+      ];
+      const stubDb = makeDb(rows);
+
+      // isLocalHostId returns true only for id=6.
+      vi.mocked(isLocalHostId).mockImplementation((n?: number) => n === 6);
+
+      const acquireCalls: string[] = [];
+      const acquireChannel = vi.fn(async (host: { id: string }) => {
+        acquireCalls.push(host.id);
+        return makeSuccessChannel();
+      });
+
+      const orch = createServerSubstrateOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHosts(
+            stubDb as Parameters<typeof listSubstrateHosts>[0],
+          ),
+        acquireChannel,
+        releaseChannel: vi.fn(),
+        setInterval,
+        clearInterval,
+        now: () => Date.now(),
+        retryIntervalMs: 30000,
+        persistentFailureThreshold: 3,
+      });
+
+      await orch.start();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // The local host (id=6) MUST NOT have been the target of acquireChannel.
+      expect(acquireCalls).not.toContain("6");
+      // Non-local hosts (id=5, id=7) MUST have been swept via SSH.
+      expect(acquireCalls).toContain("5");
+      expect(acquireCalls).toContain("7");
+      expect(acquireCalls.length).toBe(2);
+
+      orch.stop();
+    });
+
+    it("LB2 — installFleetSubstrateLocally + bootstrapFleetSubstrateLocally ARE called for local host, NOT for non-local hosts", async () => {
+      const rows = [
+        makeRow({
+          id: 5,
+          name: "remote-a",
+          credentialId: 100,
+          cred_id: 100,
+          cred_systemPassword: "ct-a",
+        }),
+        makeRow({
+          id: 6,
+          name: "t1000-local",
+          credentialId: 101,
+          cred_id: 101,
+          cred_systemPassword: "ct-b",
+        }),
+      ];
+      const stubDb = makeDb(rows);
+
+      vi.mocked(isLocalHostId).mockImplementation((n?: number) => n === 6);
+
+      const acquireChannel = vi.fn(async () => makeSuccessChannel());
+
+      const orch = createServerSubstrateOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHosts(
+            stubDb as Parameters<typeof listSubstrateHosts>[0],
+          ),
+        acquireChannel,
+        releaseChannel: vi.fn(),
+        setInterval,
+        clearInterval,
+        now: () => Date.now(),
+        retryIntervalMs: 30000,
+        persistentFailureThreshold: 3,
+      });
+
+      await orch.start();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Both local-branch helpers called exactly once, for the local host only.
+      expect(vi.mocked(installFleetSubstrateLocally)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(bootstrapFleetSubstrateLocally)).toHaveBeenCalledTimes(1);
+      const installArg = vi.mocked(installFleetSubstrateLocally).mock.calls[0][0];
+      expect(installArg.id).toBe("6");
+      expect(installArg.name).toBe("t1000-local");
+      const bootstrapArg = vi.mocked(bootstrapFleetSubstrateLocally).mock.calls[0][0];
+      expect(bootstrapArg.id).toBe("6");
+      expect(bootstrapArg.name).toBe("t1000-local");
+
+      orch.stop();
+    });
+
+    it("LB3 — bookkeeping parity: clean local sweep marks host done (skipped on retry tick)", async () => {
+      const rows = [
+        makeRow({
+          id: 6,
+          name: "t1000-local",
+          credentialId: 101,
+          cred_id: 101,
+          cred_systemPassword: "ct-b",
+        }),
+      ];
+      const stubDb = makeDb(rows);
+
+      vi.mocked(isLocalHostId).mockImplementation((n?: number) => n === 6);
+      // Clean sweep: itemsFailed = 0 → local host marked done for this uptime.
+      vi.mocked(installFleetSubstrateLocally).mockResolvedValue({
+        itemsChecked: 24,
+        itemsChanged: 0,
+        itemsFailed: 0,
+      });
+
+      let capturedTickFn: (() => Promise<void> | void) | null = null;
+      const setIntervalMock = vi.fn(
+        (fn: () => Promise<void> | void, _ms: number) => {
+          capturedTickFn = fn;
+          return 1 as unknown as ReturnType<typeof setInterval>;
+        },
+      );
+
+      const orch = createServerSubstrateOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHosts(
+            stubDb as Parameters<typeof listSubstrateHosts>[0],
+          ),
+        acquireChannel: vi.fn(async () => makeSuccessChannel()),
+        releaseChannel: vi.fn(),
+        setInterval: setIntervalMock,
+        clearInterval: vi.fn(),
+        now: () => Date.now(),
+        retryIntervalMs: 30000,
+        persistentFailureThreshold: 3,
+      });
+
+      await orch.start();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(vi.mocked(installFleetSubstrateLocally)).toHaveBeenCalledTimes(1);
+
+      // Fire retry tick — host is marked done, should NOT be re-swept.
+      expect(capturedTickFn).not.toBeNull();
+      await capturedTickFn!();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Still just the one call — the retry tick short-circuited on
+      // sweepedThisInstance.has(host.id).
+      expect(vi.mocked(installFleetSubstrateLocally)).toHaveBeenCalledTimes(1);
+
+      orch.stop();
+    });
+
+    it("LB3b — bookkeeping parity: 3 failing local sweeps fire logPersistentFailure exactly once", async () => {
+      const rows = [
+        makeRow({
+          id: 6,
+          name: "t1000-local",
+          credentialId: 101,
+          cred_id: 101,
+          cred_systemPassword: "ct-b",
+        }),
+      ];
+      const stubDb = makeDb(rows);
+
+      vi.mocked(isLocalHostId).mockImplementation((n?: number) => n === 6);
+      // Every sweep returns itemsFailed > 0 → consecutiveFailures increments.
+      vi.mocked(installFleetSubstrateLocally).mockResolvedValue({
+        itemsChecked: 24,
+        itemsChanged: 0,
+        itemsFailed: 1,
+      });
+
+      let capturedTickFn: (() => Promise<void> | void) | null = null;
+      const setIntervalMock = vi.fn(
+        (fn: () => Promise<void> | void, _ms: number) => {
+          capturedTickFn = fn;
+          return 1 as unknown as ReturnType<typeof setInterval>;
+        },
+      );
+
+      const orch = createServerSubstrateOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHosts(
+            stubDb as Parameters<typeof listSubstrateHosts>[0],
+          ),
+        acquireChannel: vi.fn(async () => makeSuccessChannel()),
+        releaseChannel: vi.fn(),
+        setInterval: setIntervalMock,
+        clearInterval: vi.fn(),
+        now: () => Date.now(),
+        retryIntervalMs: 30000,
+        persistentFailureThreshold: 3,
+      });
+
+      // Failure #1 (startup pass).
+      await orch.start();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Failures #2 and #3 via the retry tick — the 3rd fires the alert.
+      await capturedTickFn!();
+      await Promise.resolve();
+      await Promise.resolve();
+      await capturedTickFn!();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const warnMock = systemLogger.warn as ReturnType<typeof vi.fn>;
+      const persistentCalls = warnMock.mock.calls.filter(
+        (call: unknown[]) =>
+          (call[1] as Record<string, unknown> | undefined)?.operation ===
+          "fleet_substrate_host_persistent_failure",
+      );
+      expect(persistentCalls.length).toBe(1);
+      expect(
+        (persistentCalls[0][1] as Record<string, unknown>).consecutiveFailures,
+      ).toBe(3);
+      expect(
+        (persistentCalls[0][1] as Record<string, unknown>).hostName,
+      ).toBe("t1000-local");
+
+      // 4th failure MUST NOT re-alert.
+      await capturedTickFn!();
+      await Promise.resolve();
+      await Promise.resolve();
+      const persistentCallsAfter = warnMock.mock.calls.filter(
+        (call: unknown[]) =>
+          (call[1] as Record<string, unknown> | undefined)?.operation ===
+          "fleet_substrate_host_persistent_failure",
+      );
+      expect(persistentCallsAfter.length).toBe(1); // still 1
+
+      orch.stop();
+    });
+
+    it("LB4 — for-await loop does NOT wedge on local host: [non-local, local, non-local] all complete in one pass", async () => {
+      // Regression guard against the original hang: without the bypass, the
+      // middle host (local) would hang forever in acquireChannel and the
+      // third host would never be reached.
+      const rows = [
+        makeRow({
+          id: 5,
+          name: "remote-a",
+          credentialId: 100,
+          cred_id: 100,
+          cred_systemPassword: "ct-a",
+        }),
+        makeRow({
+          id: 6,
+          name: "t1000-local",
+          credentialId: 101,
+          cred_id: 101,
+          cred_systemPassword: "ct-b",
+        }),
+        makeRow({
+          id: 7,
+          name: "remote-c",
+          credentialId: 102,
+          cred_id: 102,
+          cred_systemPassword: "ct-c",
+        }),
+      ];
+      const stubDb = makeDb(rows);
+
+      vi.mocked(isLocalHostId).mockImplementation((n?: number) => n === 6);
+
+      const acquireCallOrder: string[] = [];
+      const acquireChannel = vi.fn(async (host: { id: string }) => {
+        acquireCallOrder.push(host.id);
+        return makeSuccessChannel();
+      });
+
+      const orch = createServerSubstrateOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHosts(
+            stubDb as Parameters<typeof listSubstrateHosts>[0],
+          ),
+        acquireChannel,
+        releaseChannel: vi.fn(),
+        setInterval,
+        clearInterval,
+        now: () => Date.now(),
+        retryIntervalMs: 30000,
+        persistentFailureThreshold: 3,
+      });
+
+      await orch.start();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // All three hosts observed by the for-of loop — non-local via
+      // acquireChannel, local via installFleetSubstrateLocally.
+      expect(acquireCallOrder).toEqual(["5", "7"]);
+      expect(vi.mocked(installFleetSubstrateLocally)).toHaveBeenCalledTimes(1);
+      // Sweep tick count is 1 (single startup pass), NOT stuck mid-loop.
+      expect(orch.getSweepTickCount()).toBe(1);
 
       orch.stop();
     });
