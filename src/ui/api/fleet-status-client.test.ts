@@ -1176,3 +1176,279 @@ describe("useSessionContextPct hook (Phase 90 Wave 0)", () => {
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// Phase 117 Plan 117-06 Task 2 — onProjectListChanged option + WS dispatch
+// ---------------------------------------------------------------------------
+//
+// Locks the new `project-list-changed` frame dispatch:
+//   - New callback option onProjectListChanged?: (projects) => void
+//   - New switch case "project-list-changed" invoking the callback
+//   - Structured console.info log with operation:
+//     "fleet_status_client_project_list_changed" and projectCount
+//   - Regression guard on the existing dispatch branches (identity-archived,
+//     snapshot) — Phase 115 wiring must not break.
+//   - Malformed frames (projects not an array) MUST NOT invoke the callback
+//     with garbage. This is a Rule-2 correctness guard added to the switch
+//     branch because the browser skips zod (see fleet-status-types.ts).
+//
+// Uses the same MockWebSocket harness as Tests 1-10. Fake timers already
+// installed by the top-level beforeEach.
+
+describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed dispatch", () => {
+  beforeEach(() => {
+    __disposeAllClientsForTest();
+    MockWebSocket.instances = [];
+  });
+
+  // Test P117-06-1 — onProjectListChanged callback fires with the projects array
+  it("Test 1 (project-list-changed callback fires): valid frame invokes onProjectListChanged once with parsed.projects", () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const onProjectListChanged = vi.fn();
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+      onProjectListChanged,
+    });
+    const ws = latestWs();
+    ws.onopen?.();
+
+    const projects = [
+      {
+        slug: "alpha",
+        displayName: "Alpha",
+        hostId: "1",
+        hostname: "host-a",
+        archived: false,
+      },
+      {
+        slug: "beta",
+        displayName: "Beta",
+        hostId: "1",
+        hostname: "host-a",
+        archived: false,
+      },
+    ];
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "project-list-changed",
+        projects,
+      }),
+    });
+
+    expect(onProjectListChanged).toHaveBeenCalledTimes(1);
+    expect(onProjectListChanged).toHaveBeenCalledWith(projects);
+  });
+
+  // Test P117-06-2 — missing callback is a no-op (no throw, no crash);
+  //                  structured info log still fires.
+  it("Test 2 (missing callback no-op): frame arrives without onProjectListChanged wired — no throw, structured info log still fires", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // Deliberately do NOT wire onProjectListChanged.
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+    });
+    const ws = latestWs();
+    ws.onopen?.();
+
+    expect(() => {
+      ws.onmessage?.({
+        data: JSON.stringify({
+          schemaVersion: FRAME_SCHEMA_VERSION,
+          type: "project-list-changed",
+          projects: [
+            {
+              slug: "alpha",
+              displayName: "Alpha",
+              hostId: "1",
+              hostname: "host-a",
+              archived: false,
+            },
+          ],
+        }),
+      });
+    }).not.toThrow();
+
+    // Structured info log still fires.
+    const structuredLogs = infoSpy.mock.calls
+      .flat()
+      .filter(
+        (arg) =>
+          typeof arg === "object" &&
+          arg !== null &&
+          (arg as Record<string, unknown>).operation ===
+            "fleet_status_client_project_list_changed",
+      );
+    expect(structuredLogs.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // Test P117-06-3 — regression guard: identity-archived + snapshot branches
+  //                  still work.
+  it("Test 3 (regression guard): identity-archived + snapshot dispatch untouched by the extension", () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const onSnapshot = vi.fn();
+    const onIdentityArchived = vi.fn();
+    const onProjectListChanged = vi.fn();
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot,
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+      onIdentityArchived,
+      onProjectListChanged,
+    });
+    const ws = latestWs();
+    ws.onopen?.();
+
+    // identity-archived
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "identity-archived",
+        name: "wren",
+        hostId: "1",
+        hostname: "host-a",
+      }),
+    });
+    expect(onIdentityArchived).toHaveBeenCalledTimes(1);
+    expect(onIdentityArchived).toHaveBeenCalledWith("wren", "1", "host-a");
+
+    // snapshot
+    const states = [
+      {
+        hostId: "h1",
+        tmuxSession: "s1",
+        sessionId: "sid1",
+        pid: 1,
+        status: "busy",
+        backgroundTasks: [],
+        updatedAt: 0,
+      },
+    ];
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "snapshot",
+        states,
+      }),
+    });
+    expect(onSnapshot).toHaveBeenCalledTimes(1);
+    expect(onSnapshot).toHaveBeenCalledWith(states);
+
+    // The project-list-changed callback MUST NOT have been fired for either.
+    expect(onProjectListChanged).not.toHaveBeenCalled();
+  });
+
+  // Test P117-06-4 — malformed frame (projects not an array) is REJECTED
+  //                  before invoking the callback. Rule-2 correctness guard.
+  it("Test 4 (malformed frame rejected before dispatch): projects: 'not-an-array' does not invoke the callback", () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const onProjectListChanged = vi.fn();
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+      onProjectListChanged,
+    });
+    const ws = latestWs();
+    ws.onopen?.();
+
+    // Malformed frame — passes JSON.parse (browser skips zod per
+    // fleet-status-types.ts) but projects is a string, not an array. The
+    // switch-branch guard MUST short-circuit before invoking the callback.
+    expect(() => {
+      ws.onmessage?.({
+        data: JSON.stringify({
+          schemaVersion: FRAME_SCHEMA_VERSION,
+          type: "project-list-changed",
+          projects: "not-an-array",
+        }),
+      });
+    }).not.toThrow();
+
+    expect(onProjectListChanged).not.toHaveBeenCalled();
+  });
+
+  // Test P117-06-5 — structured console.info log with operation identifier
+  //                  and projectCount.
+  it("Test 5 (structured log entry): console.info fires once with operation='fleet_status_client_project_list_changed' and projectCount", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+      onProjectListChanged: vi.fn(),
+    });
+    const ws = latestWs();
+    ws.onopen?.();
+
+    const projects = [
+      {
+        slug: "alpha",
+        displayName: "Alpha",
+        hostId: "1",
+        hostname: "host-a",
+        archived: false,
+      },
+      {
+        slug: "beta",
+        displayName: "Beta",
+        hostId: "2",
+        hostname: "host-b",
+        archived: false,
+      },
+      {
+        slug: "gamma",
+        displayName: "Gamma",
+        hostId: "2",
+        hostname: "host-b",
+        archived: false,
+      },
+    ];
+
+    // Snapshot info-log calls BEFORE the frame so we can isolate the delta.
+    const callsBefore = infoSpy.mock.calls.length;
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "project-list-changed",
+        projects,
+      }),
+    });
+
+    // Find the exactly-one project-list-changed structured log entry.
+    const logEntries = infoSpy.mock.calls
+      .slice(callsBefore)
+      .flat()
+      .filter(
+        (arg) =>
+          typeof arg === "object" &&
+          arg !== null &&
+          (arg as Record<string, unknown>).operation ===
+            "fleet_status_client_project_list_changed",
+      ) as Array<Record<string, unknown>>;
+
+    expect(logEntries.length).toBe(1);
+    expect(logEntries[0].projectCount).toBe(3);
+  });
+});
