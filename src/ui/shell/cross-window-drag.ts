@@ -33,10 +33,9 @@ const CHANNEL_NAME = "skynet-drag-accept";
 // leaving the subscriber with no match and silently skipping the source-
 // close. 60s is generous enough that only genuinely abandoned drags reap
 // (e.g. user Esc-cancels and never drops), while still bounding the map.
-// Symptom trace: term.gigaashley.click console log 2026-09-18 21:03:48 —
-// George dragstart (dragId 723f1d9d) at line 543 saw no accept-match because
-// the deliberate cross-window drop exceeded the old reap; Magma (85dc69dc)
-// second drag was faster and worked.
+// Symptom trace (2026-09-18): first cross-window drag saw no accept-match
+// because the deliberate cross-window drop exceeded the old 5s reap; the
+// second drag on the same session was faster and worked as expected.
 const REAP_MS = 60000;
 
 let channel: BroadcastChannel | null = null;
