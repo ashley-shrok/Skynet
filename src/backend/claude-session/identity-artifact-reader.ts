@@ -793,12 +793,20 @@ export async function createProject(
   }
 
   // REMOTE — probe with `test -d`, both branches echo a distinguishable token.
-  const remoteDir = `$HOME/fleet/projects/${slug}`;
-  const escapedDir = shellEscape(remoteDir);
+  //
+  // Phase 117 H3 fix (2026-09-18): pre-fix, this wrapped
+  // "$HOME/fleet/projects/${slug}" via shellEscape, which single-quoted
+  // the whole string and DISABLED $HOME expansion — the shell saw a
+  // literal "$HOME" path segment, so the test -d always reported
+  // "missing" and mkdir created a literal-$HOME directory in the SSH
+  // user's cwd. Slugs are already PROJECT_SLUG_RE-validated ([a-z0-9-])
+  // so double-quoted interpolation is safe (no shell metacharacters
+  // in the slug). Same pattern as the other REMOTE readers in this
+  // module.
   const probeOut = (
     await execWithTimeout(
       conn,
-      `test -d ${escapedDir} && echo ok || echo missing`,
+      `test -d "$HOME/fleet/projects/${slug}" && echo ok || echo missing`,
     )
   ).trim();
   if (probeOut === "ok") {
@@ -806,7 +814,7 @@ export async function createProject(
     (err as NodeJS.ErrnoException).code = "EEXIST";
     throw err;
   }
-  await execWithTimeout(conn, `mkdir -p ${escapedDir}`);
+  await execWithTimeout(conn, `mkdir -p "$HOME/fleet/projects/${slug}"`);
   await writeMarkdownFileAtomic(
     conn,
     `$HOME/fleet/projects/${slug}/project.md`,
@@ -845,11 +853,14 @@ export async function archiveProject(
     return;
   }
 
-  const src = `$HOME/fleet/projects/${slug}`;
-  const dest = `$HOME/fleet/projects/archive/${slug}`;
+  // Phase 117 H3 fix (2026-09-18): same $HOME shell-quoting bug as
+  // createProject — shellEscape wraps in single quotes which disables
+  // $HOME expansion. Use double-quoted interpolation directly.
+  // PROJECT_SLUG_RE ([a-z0-9-]) blocks all shell metacharacters in the
+  // slug, so double-quoted interpolation is safe.
   const cmd =
-    `mkdir -p ${shellEscape("$HOME/fleet/projects/archive")} && ` +
-    `mv ${shellEscape(src)} ${shellEscape(dest)}`;
+    `mkdir -p "$HOME/fleet/projects/archive" && ` +
+    `mv "$HOME/fleet/projects/${slug}" "$HOME/fleet/projects/archive/${slug}"`;
   await execWithTimeout(conn, cmd);
 }
 

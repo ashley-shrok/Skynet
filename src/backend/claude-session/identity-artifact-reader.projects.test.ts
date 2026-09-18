@@ -685,7 +685,7 @@ describe("createProject — LOCAL branch", () => {
 });
 
 describe("createProject — REMOTE branch", () => {
-  it("Test C4: happy — probe with test -d (shell-escaped slug), mkdir -p, then writeMarkdownFileAtomic REMOTE", async () => {
+  it("Test C4 (H3 fix): happy — probe with test -d using double-quoted $HOME (NOT single-quoted), mkdir -p, then writeMarkdownFileAtomic REMOTE", async () => {
     const { conn, sftp, sftpCalls } = buildMockConn();
     let probeCmd = "";
     let mkdirCmd = "";
@@ -703,13 +703,18 @@ describe("createProject — REMOTE branch", () => {
 
     await createProject(conn, "alpha", "Alpha One");
 
-    // Probe fired with shell-escaped slug (single-quoted).
+    // Phase 117 H3 fix (2026-09-18): probe fired with double-quoted
+    // $HOME (NOT single-quoted via shellEscape). Single-quoting the whole
+    // path would suppress $HOME expansion on the remote shell.
     expect(probeCmd).toContain("test -d");
-    expect(probeCmd).toContain("'"); // shellEscape single-quote wrapping
-    expect(probeCmd).toContain("alpha");
-    // mkdir -p fired.
+    expect(probeCmd).toContain('"$HOME/fleet/projects/alpha"');
+    // Regression: the probe command MUST NOT contain a single-quoted
+    // $HOME (which was the pre-fix bug).
+    expect(probeCmd).not.toContain("'$HOME");
+    // mkdir -p fired with double-quoted $HOME.
     expect(mkdirCmd).toContain("mkdir -p");
-    expect(mkdirCmd).toContain("alpha");
+    expect(mkdirCmd).toContain('"$HOME/fleet/projects/alpha"');
+    expect(mkdirCmd).not.toContain("'$HOME");
 
     // Atomic write REMOTE branch fired.
     expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
@@ -775,7 +780,7 @@ describe("archiveProject — LOCAL branch", () => {
 });
 
 describe("archiveProject — REMOTE branch", () => {
-  it("Test A3: happy — single exec with mkdir -p archive && mv <src> <dest>, slug shell-escaped", async () => {
+  it("Test A3 (H3 fix): happy — single exec with mkdir -p archive && mv <src> <dest>, using double-quoted $HOME (NOT single-quoted)", async () => {
     const { conn } = buildMockConn();
     let execedCmd = "";
     execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
@@ -787,14 +792,14 @@ describe("archiveProject — REMOTE branch", () => {
 
     // Single exec.
     expect(execCommandMock).toHaveBeenCalledTimes(1);
-    // mkdir -p archive dir precedes mv.
-    expect(execedCmd).toMatch(
-      /mkdir -p .*fleet\/projects\/archive.* && mv /,
-    );
-    expect(execedCmd).toContain("alpha");
-    // shellEscape single-quote wrapping present.
-    expect(execedCmd).toContain("'");
-    // Destination path pattern.
-    expect(execedCmd).toContain("fleet/projects/archive/");
+    // Phase 117 H3 fix (2026-09-18): mkdir -p archive dir precedes mv,
+    // and BOTH paths use double-quoted $HOME so the remote shell can
+    // actually expand $HOME. Pre-fix, shellEscape wrapped in single
+    // quotes and disabled $HOME expansion.
+    expect(execedCmd).toContain('mkdir -p "$HOME/fleet/projects/archive"');
+    expect(execedCmd).toContain('mv "$HOME/fleet/projects/alpha"');
+    expect(execedCmd).toContain('"$HOME/fleet/projects/archive/alpha"');
+    // Regression: MUST NOT single-quote-wrap $HOME.
+    expect(execedCmd).not.toContain("'$HOME");
   });
 });
