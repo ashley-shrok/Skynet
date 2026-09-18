@@ -48,9 +48,14 @@
  */
 
 import { systemLogger } from "../utils/logger.js";
-import { scanSpawnRequests } from "../fleet-status/ssh-poll-orchestrator.js";
+import {
+  scanSpawnRequests,
+  parseSpawnRequestBatch,
+} from "../fleet-status/ssh-poll-orchestrator.js";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
 import type { HostRecord } from "../fleet-status/host-id-resolver.js";
+import { isLocalHostId } from "../claude-session/identity-artifact-reader.js";
+import { scanLocalFleetFolder } from "../utils/local-fleet-scan.js";
 import type { PendingBirth } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -144,8 +149,52 @@ export function createSpawnScanOrchestrator(
    * Scan a single host: acquire channel → scanSpawnRequests → enqueue results
    * → release channel. Never throws (defense-in-depth try/catch). Fails open
    * on any SSH-side error (matches `scanSpawnRequests`' own fail-open contract).
+   *
+   * LOCAL bypass: when the host's numeric id is in IDENTITIES_LOCAL_HOST_IDS
+   * (e.g. Skynet's own hostId inside its container), SSH-to-self hangs
+   * indefinitely (acquireChannel never returns → per-host in-flight guard is
+   * held forever → every subsequent tick logs `skipping host with in-flight
+   * scan`). The bypass reads the request folder directly from the container-
+   * side bind-mount via `scanLocalFleetFolder`, with byte-identical semantics
+   * to the SSH SPAWN_REQUESTS_SCAN_CMD path (36-char basename filter, atomic
+   * mv-claim). Downstream parseSpawnRequestBatch handles the same malformed-
+   * enqueue path the SSH branch uses.
    */
   async function scanOneHost(host: SpawnScanHostRecord): Promise<void> {
+    // LOCAL bypass — skip SSH entirely for the container's own host.
+    const numericId = parseInt(host.id, 10);
+    if (isLocalHostId(numericId)) {
+      try {
+        const rawItems = await scanLocalFleetFolder("spawn-requests");
+        if (rawItems.length === 0) return;
+        // Feed into the same parser the SSH path uses: build the same
+        // tab-separated stdout shape (`<filename>\t<contents>` per line)
+        // so parseSpawnRequestBatch's downstream contract stays 1:1.
+        const stdout = rawItems.map((r) => `${r.filename}\t${r.contents}`).join("\n");
+        const items = parseSpawnRequestBatch(stdout, host.id);
+        for (const item of items) {
+          deps.enqueue(item);
+        }
+        systemLogger.info("Spawn-scan: local exec complete", {
+          operation: "spawn_scan_local_exec_complete",
+          fleetHostId: host.id,
+          claimed: items.length,
+        });
+      } catch (err) {
+        // scanLocalFleetFolder is already never-throw; belt-and-suspenders.
+        systemLogger.warn(
+          "Spawn-scan: local per-host scan threw unexpectedly (should be unreachable)",
+          {
+            operation: "spawn_scan_local_host_threw",
+            fleetHostId: host.id,
+            hostName: host.name,
+            error: err instanceof Error ? err.message : "unknown",
+          },
+        );
+      }
+      return;
+    }
+
     let channel: SshChannel | null = null;
     try {
       channel = await deps.acquireChannel(host);

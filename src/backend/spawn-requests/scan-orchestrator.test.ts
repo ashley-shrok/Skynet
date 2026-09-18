@@ -34,15 +34,42 @@ vi.mock("../utils/logger.js", () => ({
 
 vi.mock("../fleet-status/ssh-poll-orchestrator.js", () => ({
   scanSpawnRequests: vi.fn(async () => []),
+  // parseSpawnRequestBatch used by the LOCAL bypass to feed tab-separated
+  // stdout back into the standard parser. Default returns [] so tests that
+  // don't opt into local-mode see the pre-fix baseline.
+  parseSpawnRequestBatch: vi.fn(() => []),
 }));
 
 vi.mock("./queue.js", () => ({
   enqueue: vi.fn(),
 }));
 
+// Partial-mock identity-artifact-reader so we control isLocalHostId per test.
+// Default = false (matches "not local host" — existing SSH-branch tests keep
+// working without change).
+vi.mock("../claude-session/identity-artifact-reader.js", async (importActual) => {
+  const actual =
+    await importActual<typeof import("../claude-session/identity-artifact-reader.js")>();
+  return {
+    ...actual,
+    isLocalHostId: vi.fn().mockReturnValue(false),
+  };
+});
+
+// Mock the local-fleet-scan helper — LOCAL bypass path calls this. SSH-branch
+// tests never trigger it; a default no-op keeps the pre-fix baseline.
+vi.mock("../utils/local-fleet-scan.js", () => ({
+  scanLocalFleetFolder: vi.fn(async () => []),
+}));
+
 import { createSpawnScanOrchestrator } from "./scan-orchestrator.js";
-import { scanSpawnRequests } from "../fleet-status/ssh-poll-orchestrator.js";
+import {
+  scanSpawnRequests,
+  parseSpawnRequestBatch,
+} from "../fleet-status/ssh-poll-orchestrator.js";
 import { enqueue } from "./queue.js";
+import { isLocalHostId } from "../claude-session/identity-artifact-reader.js";
+import { scanLocalFleetFolder } from "../utils/local-fleet-scan.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -378,5 +405,116 @@ describe("lifecycle", () => {
     await orch.start();
     await flush();
     expect(releaseChannel).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LB — LOCAL-host bypass (scan the container-side bind-mount, skip SSH)
+//
+// When the host record's numeric id is in IDENTITIES_LOCAL_HOST_IDS (i.e. the
+// container's own host), scanOneHost must skip acquireChannel entirely and
+// read via the local-fleet-scan helper instead. This closes the SSH-to-self
+// hang bug where the per-host in-flight guard stays held forever.
+// ---------------------------------------------------------------------------
+
+describe("LOCAL-host bypass", () => {
+  const isLocalHostIdMock = isLocalHostId as unknown as ReturnType<typeof vi.fn>;
+  const scanLocalMock = scanLocalFleetFolder as unknown as ReturnType<typeof vi.fn>;
+  const parseSpawnMock = parseSpawnRequestBatch as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    isLocalHostIdMock.mockReturnValue(false);
+    scanLocalMock.mockReset().mockResolvedValue([]);
+    parseSpawnMock.mockReset().mockReturnValue([]);
+  });
+
+  it("LB1: local-host branch calls scanLocalFleetFolder and NOT acquireChannel/releaseChannel/scanSpawnRequests", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    const hosts: SpawnScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+    ];
+    const { deps, acquireChannel, releaseChannel } = makeDeps({ hosts });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(scanLocalMock).toHaveBeenCalledWith("spawn-requests");
+    expect(acquireChannel).not.toHaveBeenCalled();
+    expect(releaseChannel).not.toHaveBeenCalled();
+    expect(vi.mocked(scanSpawnRequests)).not.toHaveBeenCalled();
+  });
+
+  it("LB2: empty local scan → no enqueue and no parseSpawnRequestBatch call", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    scanLocalMock.mockResolvedValue([]);
+    const hosts: SpawnScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+    ];
+    const { deps, enqueueDep } = makeDeps({ hosts });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(enqueueDep).not.toHaveBeenCalled();
+    expect(parseSpawnMock).not.toHaveBeenCalled();
+  });
+
+  it("LB3: local scan yields items → each enqueued (via parseSpawnRequestBatch on the reconstructed tab-separated stdout)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    const uuidA = "aaaaaaaa-1111-2222-3333-444444444444";
+    const uuidB = "bbbbbbbb-1111-2222-3333-444444444444";
+    scanLocalMock.mockResolvedValue([
+      { filename: `${uuidA}.json`, contents: '{"role":"r","task":null,"requested_at":"2026-09-18T00:00:00Z"}' },
+      { filename: `${uuidB}.json`, contents: '{"role":"r2","task":null,"requested_at":"2026-09-18T00:00:00Z"}' },
+    ]);
+    const claimed: PendingBirth[] = [
+      makePendingBirth(uuidA, "6"),
+      makePendingBirth(uuidB, "6"),
+    ];
+    parseSpawnMock.mockReturnValue(claimed);
+    const hosts: SpawnScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+    ];
+    const { deps, enqueueDep } = makeDeps({ hosts });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+
+    // parseSpawnRequestBatch received the tab-separated shape with both items.
+    expect(parseSpawnMock).toHaveBeenCalledTimes(1);
+    const [stdoutArg, hostIdArg] = parseSpawnMock.mock.calls[0];
+    expect(hostIdArg).toBe("6");
+    expect(stdoutArg).toContain(`${uuidA}.json\t`);
+    expect(stdoutArg).toContain(`${uuidB}.json\t`);
+
+    expect(enqueueDep).toHaveBeenCalledTimes(2);
+    expect(enqueueDep).toHaveBeenNthCalledWith(1, claimed[0]);
+    expect(enqueueDep).toHaveBeenNthCalledWith(2, claimed[1]);
+  });
+
+  it("LB4: mixed fleet — local host uses local helper, remote host still uses SSH scanSpawnRequests", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 6);
+    const uuid = "aaaaaaaa-1111-2222-3333-444444444444";
+    scanLocalMock.mockResolvedValue([
+      { filename: `${uuid}.json`, contents: '{"role":"r","task":null,"requested_at":"2026-09-18T00:00:00Z"}' },
+    ]);
+    parseSpawnMock.mockReturnValue([makePendingBirth(uuid, "6")]);
+
+    const hosts: SpawnScanHostRecord[] = [
+      { id: "6", name: "skynet-local", _connDetails: {} },
+      { id: "7", name: "remote", _connDetails: {} },
+    ];
+    // Remote host's scanSpawnRequests returns one distinct item.
+    vi.mocked(scanSpawnRequests).mockResolvedValue([makePendingBirth("remote-uuid", "7")]);
+    const { deps, acquireChannel, enqueueDep } = makeDeps({ hosts });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+
+    // Local: scanLocal called once, acquireChannel NOT called for host 6.
+    expect(scanLocalMock).toHaveBeenCalledTimes(1);
+    // Remote: acquireChannel called exactly once (host 7).
+    expect(acquireChannel).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(acquireChannel).mock.calls[0][0].id).toBe("7");
+    // Both hosts' items enqueued.
+    expect(enqueueDep).toHaveBeenCalledTimes(2);
   });
 });
