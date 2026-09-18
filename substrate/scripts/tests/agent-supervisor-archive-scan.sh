@@ -1249,6 +1249,478 @@ test_retire_kills_live_tmux_session() {
 }
 
 # ============================================================
+# WORKSPACE REPO CLEANUP TESTS (safety gate + retire-hook integration)
+# ============================================================
+#
+# Fixture-repo helpers build real git repositories on disk with controlled state.
+# The origin URL defaults to a network URL string (github.com/fake/repo.git) — git
+# never contacts it because we fake origin/main locally with update-ref, so the
+# tests are hermetic and offline-safe.
+#
+# make_safe_fixture_repo <dir> [origin_url]
+#   Creates a repo at <dir> with one initial commit on main, fakes origin/main
+#   pointing at HEAD, and sets main's upstream to origin/main — the shape's
+#   "safe to delete" baseline.
+make_safe_fixture_repo() {
+  local dir="$1"
+  local origin_url="${2:-https://github.com/fake/repo.git}"
+  mkdir -p "$dir"
+  ( cd "$dir" || return 1
+    git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main 2>/dev/null; }
+    git config user.email test@test.local
+    git config user.name test
+    git remote add origin "$origin_url" 2>/dev/null || true
+    printf 'hello\n' > README
+    git add README
+    git commit -q -m init
+    # Fake origin/main pointing at HEAD — simulates a fully-pushed clone.
+    git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)"
+    git branch -q --set-upstream-to=origin/main main 2>/dev/null
+  ) >/dev/null 2>&1
+}
+
+test_workspace_safe_repo_returns_empty_reason() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_eq "" "$reason" "safe repo baseline: reason must be empty (all six gates pass)"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_no_git_dir_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  mkdir -p "$scratch/ws/not-a-repo"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$scratch/ws/not-a-repo" )
+  assert_neq "" "$reason" "no .git dir: reason must be non-empty"
+  assert_grep "no-git-dir" "$reason" "no .git dir: reason must mention no-git-dir"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_no_origin_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  ( cd "$repo" && git remote remove origin ) >/dev/null 2>&1
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "no-origin-remote" "$reason" "no origin remote: reason must mention no-origin-remote"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_filesystem_origin_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo" "/some/local/path/repo.git"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "origin-is-filesystem-path" "$reason" "filesystem origin: reason must mention filesystem-path"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_file_scheme_origin_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo" "file:///some/path/repo.git"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "origin-is-filesystem-path" "$reason" "file:// origin: reason must mention filesystem-path"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_ssh_scp_origin_safe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo" "git@github.com:foo/bar.git"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_eq "" "$reason" "SCP-like SSH origin (git@host:path): must be recognized as network URL"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_uncommitted_changes_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  printf 'modified\n' >> "$repo/README"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "working-tree-dirty" "$reason" "uncommitted change: reason must mention working-tree-dirty"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_untracked_file_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  printf 'new\n' > "$repo/untracked.txt"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "working-tree-dirty" "$reason" "untracked non-ignored file: reason must mention working-tree-dirty"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_gitignored_untracked_safe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  # Add .gitignore ignoring build/ then commit it so working tree is clean.
+  printf 'build/\n' > "$repo/.gitignore"
+  ( cd "$repo" && git add .gitignore && git commit -q -m gitignore && \
+    git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)" ) >/dev/null 2>&1
+  # Create a build/ directory with a file — should be ignored.
+  mkdir -p "$repo/build"
+  printf 'built\n' > "$repo/build/artifact"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_eq "" "$reason" "gitignored untracked file: must NOT count against safety (reason='$reason')"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_unpushed_commit_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  # Add a local commit that is ahead of origin/main.
+  ( cd "$repo" && printf 'local\n' > local.txt && git add local.txt && git commit -q -m local ) >/dev/null 2>&1
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "ahead" "$reason" "unpushed commit: reason must mention ahead"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_no_upstream_branch_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  # Create a branch with no upstream configured.
+  ( cd "$repo" && git checkout -q -b orphan && printf 'x\n' > x && git add x && git commit -q -m orphan ) >/dev/null 2>&1
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "has-no-upstream" "$reason" "branch with no upstream: reason must mention has-no-upstream"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_gone_upstream_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  # Delete the fake remote-tracking ref → main's upstream becomes [gone].
+  ( cd "$repo" && git update-ref -d refs/remotes/origin/main ) >/dev/null 2>&1
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "upstream-gone" "$reason" "gone upstream: reason must mention upstream-gone"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_stash_entry_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  ( cd "$repo" && printf 'temp\n' >> README && git stash push -q -m 'temp' ) >/dev/null 2>&1
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "stash-entries" "$reason" "stash present: reason must mention stash-entries"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_no_workspace_dir_noop() {
+  local scratch; scratch=$(setup_scratch)
+  mkdir -p "$scratch/tina"  # identity dir with NO workspace/
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_repos tina "$scratch/tina" 2>&1 )
+  # No log entries expected — the function returns early.
+  if printf '%s' "$out" | grep -q 'workspace-cleanup'; then
+    fail "no-workspace-dir: must not log anything (got: $out)"
+  fi
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_deletes_safe_repo() {
+  local scratch; scratch=$(setup_scratch)
+  local wsdir="$scratch/tina/workspace"
+  make_safe_fixture_repo "$wsdir/skynet"
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_repos tina "$scratch/tina" 2>&1 )
+  assert_nofile "$wsdir/skynet" "safe repo: must be deleted"
+  assert_grep "deleted safe repo at $wsdir/skynet" "$out" "safe repo: log must record deletion"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_preserves_unsafe_repo() {
+  local scratch; scratch=$(setup_scratch)
+  local wsdir="$scratch/tina/workspace"
+  make_safe_fixture_repo "$wsdir/skynet"
+  # Introduce local-only work.
+  ( cd "$wsdir/skynet" && printf 'local\n' > local && git add local && \
+    git commit -q -m local ) >/dev/null 2>&1
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_repos tina "$scratch/tina" 2>&1 )
+  assert_file "$wsdir/skynet/.git" "unsafe repo: must remain in place"
+  assert_grep "WARN: 'tina' workspace-cleanup: skipped repo" "$out" "unsafe repo: log must be at WARN with reason"
+  assert_grep "ahead" "$out" "unsafe repo: log must include the reason (ahead)"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_mixed_safe_and_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local wsdir="$scratch/tina/workspace"
+  make_safe_fixture_repo "$wsdir/safe-repo"
+  make_safe_fixture_repo "$wsdir/dirty-repo"
+  printf 'dirty\n' >> "$wsdir/dirty-repo/README"  # uncommitted change
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_repos tina "$scratch/tina" 2>&1 )
+  assert_nofile "$wsdir/safe-repo" "mixed: safe repo must be deleted"
+  assert_file   "$wsdir/dirty-repo/.git" "mixed: unsafe repo must remain"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_non_repo_files_untouched() {
+  local scratch; scratch=$(setup_scratch)
+  local wsdir="$scratch/tina/workspace"
+  mkdir -p "$wsdir"
+  printf 'notes\n' > "$wsdir/notes.md"
+  mkdir -p "$wsdir/scratch-dir"
+  printf 'x\n' > "$wsdir/scratch-dir/x.txt"
+  make_safe_fixture_repo "$wsdir/skynet"
+  ( _source_supervisor "$scratch"
+    clean_workspace_repos tina "$scratch/tina" ) >/dev/null 2>&1
+  assert_file "$wsdir/notes.md" "non-repo file at workspace root: must remain"
+  assert_file "$wsdir/scratch-dir/x.txt" "non-repo dir contents: must remain"
+  assert_nofile "$wsdir/skynet" "safe repo alongside non-repo content: must still be deleted"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_nested_repo_pruned() {
+  local scratch; scratch=$(setup_scratch)
+  local wsdir="$scratch/tina/workspace"
+  make_safe_fixture_repo "$wsdir/outer"
+  # Nest a second independent repo INSIDE the outer, one level down. This makes the
+  # outer "dirty" (untracked directory), so outer should be preserved AND inner
+  # should NOT be independently scanned/deleted (prune-on-find on the outer).
+  make_safe_fixture_repo "$wsdir/outer/subdir/inner"
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_repos tina "$scratch/tina" 2>&1 )
+  # Outer preserved (untracked subdir made it dirty).
+  assert_file "$wsdir/outer/.git" "nested: outer with untracked subrepo dir must remain (dirty)"
+  # Inner also preserved — never independently evaluated.
+  assert_file "$wsdir/outer/subdir/inner/.git" "nested: inner must remain (came with outer)"
+  # Log must NOT reference the inner path independently.
+  if printf '%s' "$out" | grep -q "workspace-cleanup:.*outer/subdir/inner"; then
+    fail "nested: inner repo must NOT appear in log independently (was: $out)"
+  fi
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_nested_repo_within_safe_outer_deleted_together() {
+  local scratch; scratch=$(setup_scratch)
+  local wsdir="$scratch/tina/workspace"
+  make_safe_fixture_repo "$wsdir/outer"
+  # Add .gitignore that ignores subdir/, then commit it — so outer stays clean
+  # even with the nested repo present.
+  printf 'subdir/\n' > "$wsdir/outer/.gitignore"
+  ( cd "$wsdir/outer" && git add .gitignore && git commit -q -m gitignore && \
+    git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)" ) >/dev/null 2>&1
+  make_safe_fixture_repo "$wsdir/outer/subdir/inner"
+  ( _source_supervisor "$scratch"
+    clean_workspace_repos tina "$scratch/tina" ) >/dev/null 2>&1
+  # Outer safe → outer deleted → inner comes with it.
+  assert_nofile "$wsdir/outer" "nested inside safe outer: whole tree deleted together"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_depth_limit_respected() {
+  local scratch; scratch=$(setup_scratch)
+  local wsdir="$scratch/tina/workspace"
+  # Repo at depth 3 (workspace/a/b/c) should be scanned.
+  make_safe_fixture_repo "$wsdir/a/b/c"
+  # Repo at depth 4 (workspace/a2/b2/c2/d2) should NOT be scanned — beyond the shape's cap.
+  make_safe_fixture_repo "$wsdir/a2/b2/c2/d2"
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_repos tina "$scratch/tina" 2>&1 )
+  assert_nofile "$wsdir/a/b/c" "depth 3: repo must be scanned and deleted"
+  assert_file "$wsdir/a2/b2/c2/d2/.git" "depth 4: repo must NOT be scanned (beyond cap)"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_hook_fires_before_folder_move() {
+  # Integration test: a safe repo inside a live identity's workspace/ MUST be
+  # deleted by clean_workspace_repos BEFORE step 4b moves the folder, so the
+  # archived folder does not contain it.
+  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
+  local scratch; scratch=$(setup_scratch)
+  fixture_identity "$scratch" tina --cursor-age-days 200
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
+  make_safe_fixture_repo "$scratch/tina/workspace/skynet"
+  start_stub_homeserver 200 || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
+  local rc=0 out
+  out=$( _source_supervisor "$scratch"
+         retire_identity "tina" 2>&1 ) || rc=$?
+  stop_stub_homeserver
+  assert_eq "0" "$rc" "hook-before-move: retire must succeed"
+  assert_file "${scratch}-archive/tina" "hook-before-move: identity folder must be in archive"
+  # The safe repo MUST NOT survive into the archived folder — deletion runs BEFORE the move.
+  assert_nofile "${scratch}-archive/tina/workspace/skynet" \
+    "hook-before-move: safe repo must be gone from the archived workspace (deleted before move)"
+  # And the log line must be present.
+  assert_grep "workspace-cleanup: deleted safe repo" "$out" \
+    "hook-before-move: retire log must include the cleanup line"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_detached_head_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  # Add a second commit, then detach HEAD at the first commit — leaving the branch
+  # tip ahead of HEAD, with HEAD pointing at a commit still reachable from main but
+  # NOT via a symbolic ref (detached).
+  ( cd "$repo" && \
+    git commit --allow-empty -q -m second && \
+    git checkout -q "$(git rev-parse HEAD~1)" ) >/dev/null 2>&1
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "detached-head" "$reason" "detached HEAD: reason must mention detached-head"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_local_branch_upstream_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo"
+  # Create a second branch whose upstream points at the LOCAL main branch, not at
+  # any refs/remotes/* ref. Shape wording: "upstream still exists on the remote"
+  # — a local-branch upstream does not satisfy this.
+  ( cd "$repo" && \
+    git checkout -q -b feature && \
+    git branch -q --set-upstream-to=main feature ) >/dev/null 2>&1
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "non-remote-upstream" "$reason" "local-branch upstream: reason must mention non-remote-upstream"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_unknown_scheme_origin_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  # A non-URL-shaped origin: no scheme, no leading /, no @host: pattern.
+  make_safe_fixture_repo "$repo" "some-word-that-is-not-a-url"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "origin-unknown-scheme" "$reason" "unknown-scheme origin: reason must mention origin-unknown-scheme"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_relative_filesystem_origin_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo" "./relative/path/repo.git"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "origin-is-filesystem-path" "$reason" "./ origin: reason must mention filesystem-path"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_dotdot_filesystem_origin_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  make_safe_fixture_repo "$repo" "../parent/repo.git"
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  assert_grep "origin-is-filesystem-path" "$reason" "../ origin: reason must mention filesystem-path"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_no_commits_unsafe() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/ws/skynet"
+  # Repo with an origin remote but no commits — no local branches yet.
+  mkdir -p "$repo"
+  ( cd "$repo" && \
+    git init -q -b main 2>/dev/null || { git init -q && git checkout -q -b main 2>/dev/null; }
+    git config user.email test@test.local
+    git config user.name test
+    git remote add origin https://github.com/fake/repo.git ) >/dev/null 2>&1
+  local reason
+  reason=$( _source_supervisor "$scratch"
+            _workspace_repo_safety_reason "$repo" )
+  # A brand-new repo with no commits either fails detached-head (no symbolic ref
+  # yet on some git versions) or no-local-branches (once init lays down HEAD ptr
+  # but no refs/heads/main entry exists yet). Either fail-closed reason is
+  # acceptable — both keep the repo untouched, which is what the shape wants.
+  if ! printf '%s' "$reason" | grep -qE "no-local-branches|detached-head"; then
+    fail "no-commits repo: reason must be a fail-closed token (got: '$reason')"
+  fi
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_symlinked_workspace_refused() {
+  local scratch; scratch=$(setup_scratch)
+  mkdir -p "$scratch/tina"
+  mkdir -p "$scratch/elsewhere"
+  make_safe_fixture_repo "$scratch/elsewhere/skynet"
+  ln -s "$scratch/elsewhere" "$scratch/tina/workspace"
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_repos tina "$scratch/tina" 2>&1 )
+  assert_grep "workspace is a symlink" "$out" "symlinked workspace: must WARN and refuse to follow"
+  # And the repo behind the symlink must be untouched.
+  assert_file "$scratch/elsewhere/skynet/.git" \
+    "symlinked workspace: repo behind the symlink must NOT be deleted"
+  teardown_scratch "$scratch"
+}
+
+test_workspace_cleanup_unsafe_repo_travels_with_archive() {
+  # Integration test: an unsafe repo (dirty tree) MUST survive into the moved
+  # archive folder — the safety gate protects local-only work.
+  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
+  local scratch; scratch=$(setup_scratch)
+  fixture_identity "$scratch" tina --cursor-age-days 200
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
+  make_safe_fixture_repo "$scratch/tina/workspace/skynet"
+  printf 'dirty\n' >> "$scratch/tina/workspace/skynet/README"  # make it unsafe
+  start_stub_homeserver 200 || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
+  local rc=0 out
+  out=$( _source_supervisor "$scratch"
+         retire_identity "tina" 2>&1 ) || rc=$?
+  stop_stub_homeserver
+  assert_eq "0" "$rc" "unsafe-travels: retire must still succeed"
+  assert_file "${scratch}-archive/tina/workspace/skynet/.git" \
+    "unsafe-travels: dirty repo must survive into the archived workspace (never blocks retire)"
+  assert_grep "workspace-cleanup: skipped repo" "$out" \
+    "unsafe-travels: retire log must record the skip"
+  teardown_scratch "$scratch"
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 printf '=== agent-supervisor-archive-scan test driver ===\n'
@@ -1313,6 +1785,42 @@ run_test test_sentinel_scan_on_malformed_identity_does_not_crash
 
 # --- Phase 115 /close follow-up: real-tmux-session teardown gap closure ---
 run_test test_retire_kills_live_tmux_session
+
+# --- Workspace repo cleanup at retire time ---
+# Safety-gate unit tests
+run_test test_workspace_safe_repo_returns_empty_reason
+run_test test_workspace_no_git_dir_unsafe
+run_test test_workspace_no_origin_unsafe
+run_test test_workspace_filesystem_origin_unsafe
+run_test test_workspace_file_scheme_origin_unsafe
+run_test test_workspace_ssh_scp_origin_safe
+run_test test_workspace_uncommitted_changes_unsafe
+run_test test_workspace_untracked_file_unsafe
+run_test test_workspace_gitignored_untracked_safe
+run_test test_workspace_unpushed_commit_unsafe
+run_test test_workspace_no_upstream_branch_unsafe
+run_test test_workspace_gone_upstream_unsafe
+run_test test_workspace_stash_entry_unsafe
+# Additional fail-closed cases surfaced by post-implementation code review
+run_test test_workspace_detached_head_unsafe
+run_test test_workspace_local_branch_upstream_unsafe
+run_test test_workspace_unknown_scheme_origin_unsafe
+run_test test_workspace_relative_filesystem_origin_unsafe
+run_test test_workspace_dotdot_filesystem_origin_unsafe
+run_test test_workspace_no_commits_unsafe
+# clean_workspace_repos walker/pruner tests
+run_test test_workspace_cleanup_no_workspace_dir_noop
+run_test test_workspace_cleanup_deletes_safe_repo
+run_test test_workspace_cleanup_preserves_unsafe_repo
+run_test test_workspace_cleanup_mixed_safe_and_unsafe
+run_test test_workspace_cleanup_non_repo_files_untouched
+run_test test_workspace_cleanup_nested_repo_pruned
+run_test test_workspace_cleanup_nested_repo_within_safe_outer_deleted_together
+run_test test_workspace_cleanup_depth_limit_respected
+run_test test_workspace_cleanup_symlinked_workspace_refused
+# Integration with retire_identity
+run_test test_workspace_cleanup_hook_fires_before_folder_move
+run_test test_workspace_cleanup_unsafe_repo_travels_with_archive
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

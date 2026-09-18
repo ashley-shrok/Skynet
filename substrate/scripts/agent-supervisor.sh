@@ -348,6 +348,245 @@ get_freshness_epoch() {
   printf '%s' "${mtime:-0}"
 }
 
+# ---- workspace repo cleanup at retire time ----
+# clean_workspace_repos(name, iddir)
+#
+# Between STEP 4a (sentinel delete) and STEP 4b (folder move), scan the identity's
+# workspace/ tree for safely-re-clonable git repositories and delete them so they
+# don't inflate the archived folder. A repository is safe to delete when it has a
+# network remote AND has no local-only work of any kind.
+#
+# Scans up to 3 levels of nesting below <iddir>/workspace/. When a repo is found,
+# recursion stops for its subtree — a repo containing nested repos is treated as
+# one unit: outer safe → whole tree comes down together; outer unsafe → whole
+# tree preserved (nested repos never independently rescued from within a dirty
+# outer).
+#
+# Never blocks retire. Unsafe repos and errors log at WARN and are left in place;
+# retire proceeds normally regardless.
+#
+# Return: 0 always.
+
+# _workspace_repo_safety_reason(repo_root)
+#
+# Print an empty string if the repo is safe to delete; otherwise print a short
+# non-empty reason. Fails closed: any check that cannot run produces a non-empty
+# reason (repo treated as unsafe).
+#
+# Safety gate — ALL must hold for the empty-string "safe" result:
+#   (1) `origin` remote exists AND URL is a network scheme (http/https/git/ssh/scp-like)
+#       — a filesystem-path origin is unsafe (not durable re-clone source).
+#   (2) Working tree has no uncommitted changes (staged or unstaged).
+#   (3) Working tree has no untracked files that aren't gitignored.
+#       (2+3 are folded into one `git status --porcelain` check — empty output covers both.)
+#   (4) Every local branch's upstream-track is not "ahead" — no unpushed commits.
+#   (5) Every local branch has an upstream configured AND upstream is not "[gone]".
+#   (6) No stash entries.
+_workspace_repo_safety_reason() {
+  local repo="$1"
+
+  # Must have a .git DIRECTORY (submodules use .git files — auto-excluded).
+  if [ ! -d "$repo/.git" ]; then
+    printf 'no-git-dir'
+    return 0
+  fi
+
+  # Bounded git operations — a hung repo must never stall retire.
+  local git_tmo=(timeout -k 5 20)
+
+  # HEAD must be a symbolic ref (i.e. checked out on a branch), NOT detached.
+  # A detached HEAD could hold commits unreachable from any local branch — the
+  # branch-enumeration step below would then wave through those local-only commits.
+  # Shape philosophy: "anything that MIGHT be local-only work is treated as local-only."
+  if ! "${git_tmo[@]}" git -C "$repo" symbolic-ref -q HEAD >/dev/null 2>&1; then
+    printf 'detached-head'
+    return 0
+  fi
+
+  # (1) origin remote must be a network URL.
+  local origin_url
+  if ! origin_url=$("${git_tmo[@]}" git -C "$repo" remote get-url origin 2>/dev/null); then
+    printf 'no-origin-remote'
+    return 0
+  fi
+  case "$origin_url" in
+    /*|./*|../*|file:*)
+      printf 'origin-is-filesystem-path'
+      return 0
+      ;;
+    https://*|http://*|git://*|ssh://*|*@*:*)
+      : # network — proceed
+      ;;
+    *)
+      printf 'origin-unknown-scheme'
+      return 0
+      ;;
+  esac
+
+  # (2)+(3) working tree clean AND no non-ignored untracked files.
+  # -c forces showUntrackedFiles=normal so a repo-config override cannot mask untracked.
+  local status_out
+  if ! status_out=$("${git_tmo[@]}" git -c status.showUntrackedFiles=normal \
+      -C "$repo" status --porcelain 2>/dev/null); then
+    printf 'git-status-failed'
+    return 0
+  fi
+  if [ -n "$status_out" ]; then
+    local entry_count
+    entry_count=$(printf '%s\n' "$status_out" | wc -l | tr -d ' ')
+    printf 'working-tree-dirty-%s-entries' "$entry_count"
+    return 0
+  fi
+
+  # (6) no stash entries. Fail-closed on any git-stash-list failure (timeout, corrupt
+  # refs/stash, etc.) — the shape's paranoid-fail-closed commitment forbids silent skips.
+  local stash_out stash_count
+  if ! stash_out=$("${git_tmo[@]}" git -C "$repo" stash list 2>/dev/null); then
+    printf 'stash-list-failed'
+    return 0
+  fi
+  if [ -n "$stash_out" ]; then
+    stash_count=$(printf '%s\n' "$stash_out" | wc -l | tr -d ' ')
+    printf '%s-stash-entries' "$stash_count"
+    return 0
+  fi
+
+  # (4)+(5) every local branch: has an upstream, upstream is a REMOTE-tracking ref,
+  # upstream not gone, and no commits ahead. Shape wording: "upstream still exists
+  # on the remote" — a branch whose upstream points at another LOCAL branch (e.g.
+  # `git branch --set-upstream-to=main feature`) does not satisfy that; treat as
+  # unsafe so any ahead-count on the local upstream doesn't hide local-only work.
+  local branch_info
+  if ! branch_info=$("${git_tmo[@]}" git -C "$repo" for-each-ref \
+      --format='%(refname:short)|%(upstream)|%(upstream:track)' \
+      refs/heads 2>/dev/null); then
+    printf 'branch-enum-failed'
+    return 0
+  fi
+  if [ -z "$branch_info" ]; then
+    printf 'no-local-branches'
+    return 0
+  fi
+  local branch upstream track
+  while IFS='|' read -r branch upstream track; do
+    [ -z "$branch" ] && continue
+    if [ -z "$upstream" ]; then
+      printf 'branch-%s-has-no-upstream' "$branch"
+      return 0
+    fi
+    case "$upstream" in
+      refs/remotes/*)
+        : # remote upstream — proceed with track check
+        ;;
+      *)
+        printf 'branch-%s-non-remote-upstream' "$branch"
+        return 0
+        ;;
+    esac
+    case "$track" in
+      '')
+        : # up-to-date — safe
+        ;;
+      *'[gone]'*)
+        printf 'branch-%s-upstream-gone' "$branch"
+        return 0
+        ;;
+      *ahead*)
+        printf 'branch-%s-ahead-%s' "$branch" "$track"
+        return 0
+        ;;
+      *behind*)
+        : # only behind — safe (nothing local to lose)
+        ;;
+      *)
+        printf 'branch-%s-unknown-track-%s' "$branch" "$track"
+        return 0
+        ;;
+    esac
+  done <<< "$branch_info"
+
+  # All six checks passed.
+  printf ''
+  return 0
+}
+
+clean_workspace_repos() {
+  local name="$1"
+  local iddir="$2"
+  local wsdir="$iddir/workspace"
+
+  # Nothing to do if no workspace/.
+  [ -d "$wsdir" ] || return 0
+
+  # Refuse to follow a symlinked workspace/. Shape: "no symlinks followed to elsewhere
+  # on the disk." A symlink here could point outside the identity folder entirely.
+  if [ -L "$wsdir" ]; then
+    log "WARN: '$name' workspace-cleanup: workspace is a symlink — refusing to follow"
+    return 0
+  fi
+
+  # Find candidate .git DIRECTORIES up to 3 levels of nesting below wsdir.
+  #   repo at workspace/foo/       → .git at depth 2
+  #   repo at workspace/foo/bar/   → .git at depth 3
+  #   repo at workspace/a/b/c/     → .git at depth 4
+  # -maxdepth 4 captures repo roots at nesting levels 1, 2, and 3 as specified
+  # in the shape. Deeper repos are intentionally out of scope.
+  #
+  # Capture find's stderr rather than dropping it: an unreadable subdirectory is
+  # exactly the "unchecked" case the shape wants surfaced with a WARN, not silently
+  # skipped. Any repo below the unreadable dir will not be seen by find and will
+  # simply travel with the archive folder — safe outcome, but observability matters.
+  local find_err
+  find_err=$(mktemp)
+  local -a git_dirs=()
+  local g
+  while IFS= read -r -d '' g; do
+    git_dirs+=("$g")
+  done < <(find "$wsdir" -maxdepth 4 -name .git -type d -print0 2>"$find_err" | sort -z)
+  if [ -s "$find_err" ]; then
+    local errline
+    while IFS= read -r errline; do
+      [ -z "$errline" ] && continue
+      log "WARN: '$name' workspace-cleanup: scan error — $errline"
+    done < "$find_err"
+  fi
+  rm -f "$find_err"
+
+  [ "${#git_dirs[@]}" -eq 0 ] && return 0
+
+  # Convert each .git dir to its repo root, and prune descendants — a repo whose
+  # root is inside another discovered repo is NOT independently scanned.
+  local -a repo_roots=()
+  local root existing skip
+  for g in "${git_dirs[@]}"; do
+    root="${g%/.git}"
+    skip=0
+    for existing in "${repo_roots[@]}"; do
+      case "$root/" in
+        "$existing/"*) skip=1; break ;;
+      esac
+    done
+    [ "$skip" -eq 0 ] && repo_roots+=("$root")
+  done
+
+  # Evaluate each candidate; delete safe ones, log the unsafe ones with a reason.
+  local reason
+  for root in "${repo_roots[@]}"; do
+    reason=$(_workspace_repo_safety_reason "$root")
+    if [ -z "$reason" ]; then
+      if rm -rf "$root" 2>/dev/null; then
+        log "'$name' workspace-cleanup: deleted safe repo at $root"
+      else
+        log "WARN: '$name' workspace-cleanup: rm -rf FAILED at $root — leaving in place"
+      fi
+    else
+      log "WARN: '$name' workspace-cleanup: skipped repo at $root — $reason"
+    fi
+  done
+
+  return 0
+}
+
 # ---- retire action (Phase 94 base; Phase 115 reorder) ----
 # retire_identity(name)
 #
@@ -545,6 +784,14 @@ retire_identity() {
   # present (the 180-day dormancy path never wrote it, so this is a no-op for that trigger path).
   rm -f "$iddir/.archive-requested" 2>/dev/null || true
   log "'$name' retire step 4a: sentinel .archive-requested deleted (if present)"
+
+  # =============================================================================================
+  # STEP 4a½: Workspace repo cleanup — delete safely-re-clonable repos so they don't inflate the
+  # archived folder. Fires uniformly for both trigger paths (dormancy sweep AND sentinel drop).
+  # Never blocks retire — unsafe repos and errors log at WARN and are left in place; the folder
+  # move in STEP 4b carries them along.
+  # =============================================================================================
+  clean_workspace_repos "$name" "$iddir"
 
   # =============================================================================================
   # STEP 4b (Phase 115 D-13; was Phase 94 step 1): Move identity folder to archive sibling.
