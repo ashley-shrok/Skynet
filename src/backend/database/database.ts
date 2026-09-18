@@ -53,6 +53,10 @@ import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
 import skillsEditorRoutes from "./routes/skills-editor.js";
 // Phase 89 Plan 02: /runbooks-editor router — 7 endpoints (list-runbooks / list-files / read / write / create / delete-file / delete-runbook) for editing role-scoped runbook folders on managed hosts. Mount + nginx block sit alongside the /skills-editor pair.
 import runbooksEditorRoutes from "./routes/runbooks-editor.js";
+// Phase 117 Plan 04 (D-25, D-30, D-36a, D-37): /projects router — GET list
+// + POST create + POST :slug/archive. JSON body per D-36a. Backend is
+// authoritative for slug derivation per Pitfall 1.
+import projectListRoutes from "./routes/project-list.js";
 // Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
 // POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook (Plan 40-02)
 // and editor open path (Plan 40-03) both consume this. Threat model
@@ -1959,6 +1963,12 @@ app.use("/global-files", globalFilesReadWriteRoutes);
 app.use("/skills-editor", skillsEditorRoutes);
 // Phase 89 Plan 02: /runbooks-editor router — mounted alongside /skills-editor. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf (parity load-bearing per patch #446 arc).
 app.use("/runbooks-editor", runbooksEditorRoutes);
+// Phase 117 Plan 04 (D-25, D-30, D-36a, D-37): /projects router — GET list
+// + POST create + POST :slug/archive. JSON body per D-36a. Mounted alongside
+// /runbooks-editor BEFORE any late catch-alls. Every successful write path
+// triggers subscription-registry.publishProjectListChanged so connected WS
+// clients re-hydrate the sidebar's projects zone.
+app.use("/projects", projectListRoutes);
 // Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
 // POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook + editor
 // open path both consume this. Threat model T-40-01/T-40-02 mitigations

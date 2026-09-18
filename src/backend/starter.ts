@@ -484,6 +484,16 @@ if (process.env.VITEST !== "true") {
       // The subscription registry is shared between the WS server and the orchestrator
       const registry = createSubscriptionRegistry();
 
+      // Phase 117 Plan 117-04: publish the same instance to the module-level
+      // singleton so Express routes (mounted in database.ts) can reach it at
+      // request time via getSubscriptionRegistry(). Same object — every
+      // publish path (WS server, orchestrator, project-list route, session-
+      // project-write route) fans out through the SAME subscriber set.
+      const { setSubscriptionRegistry } = await import(
+        "./fleet-status/subscription-registry.js"
+      );
+      setSubscriptionRegistry(registry);
+
       startFleetStatusServer({
         port: 30012,
         authManager,

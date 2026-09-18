@@ -30,7 +30,11 @@ type SendFrame = (frame: FrontendOutboundFrameType) => void;
 // Phase 117 Plan 117-03 (D-37): shape of a project row on the
 // project-list-changed frame. Mirrors the zod schema in
 // wire-protocol.ts (FrontendProjectListChangedFrameSchema.projects).
-type ProjectListEntry = {
+//
+// Phase 117 Plan 117-04: promoted to `export` so Wave 2 write routes
+// (project-list.ts, session-project-write.ts) can typecheck the entries
+// they build to hand to publishProjectListChanged. No runtime shape change.
+export type ProjectListEntry = {
   slug: string;
   displayName: string;
   hostId: string;
@@ -455,3 +459,59 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
 
 // Re-export the FRAME_SCHEMA_VERSION for consumers that need it
 export { FRAME_SCHEMA_VERSION };
+
+// ---------------------------------------------------------------------------
+// Phase 117 Plan 117-04: module-level singleton accessor.
+//
+// The registry is created in `starter.ts` and dep-injected into
+// fleet-status-server + ssh-poll-orchestrator. Database routes (like
+// `project-list.ts` and `session-project-write.ts`) mount inside
+// `database.ts` before starter.ts creates the registry — so they cannot
+// receive it via a constructor argument.
+//
+// Rather than plumbing the registry down through the Express app locals
+// or a request middleware, the router calls `getSubscriptionRegistry()`
+// at REQUEST time (not module-import time). By the time an HTTP request
+// hits the route, starter.ts has already run and called
+// `setSubscriptionRegistry(registry)` — so the accessor returns the same
+// instance the WS server is fanning out through.
+//
+// If the accessor is called before starter.ts has populated the cell
+// (e.g. in a test that only mounts the router without a registry), it
+// returns `null` — the route's fanout call becomes a no-op rather than
+// crashing.
+// ---------------------------------------------------------------------------
+
+let sharedRegistry: SubscriptionRegistry | null = null;
+
+/**
+ * Set the process-wide singleton registry. Called exactly once by
+ * `starter.ts` after `createSubscriptionRegistry()` — same instance that
+ * is dep-injected into the WS server and the SSH-poll orchestrator, so
+ * every publish path fans out through the SAME subscriber set.
+ */
+export function setSubscriptionRegistry(
+  registry: SubscriptionRegistry,
+): void {
+  sharedRegistry = registry;
+}
+
+/**
+ * Access the process-wide singleton registry. Returns `null` if the
+ * registry has not been set yet — callers MUST tolerate null (typically
+ * by skipping the fanout with a warn log). Do NOT throw on null; the
+ * absence of a registry means the WS layer is not initialized, not that
+ * the caller is misusing the API.
+ */
+export function getSubscriptionRegistry(): SubscriptionRegistry | null {
+  return sharedRegistry;
+}
+
+/**
+ * Test-only reset for the module-level cell. Vitest suites that create
+ * their own registry should call this in `afterEach` to prevent leakage
+ * across test files.
+ */
+export function __resetSubscriptionRegistryForTests(): void {
+  sharedRegistry = null;
+}
