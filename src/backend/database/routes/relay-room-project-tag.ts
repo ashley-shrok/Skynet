@@ -60,6 +60,7 @@ import { users } from "../db/schema.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { setRoomProjectTag } from "../../matrix/matrix-room-tag-client.js";
+import { assertAdminErr } from "../../matrix/matrix-admin-narrow.js";
 import { PROJECT_SLUG_RE } from "../../claude-session/identity-artifact-reader.js";
 // Phase 117 H2 fix (2026-09-18): getSubscriptionRegistry import removed —
 // this route no longer publishes anything after a room-tag write (see the
@@ -225,6 +226,7 @@ router.post(
     }
 
     if (!result.ok) {
+      assertAdminErr(result);
       databaseLogger.warn(
         `matrix room-tag write failed userMxid=${userMxid} roomId=${roomId} status=${result.status} error=${result.error}`,
       );

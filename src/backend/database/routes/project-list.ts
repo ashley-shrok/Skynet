@@ -97,18 +97,28 @@ export function normalizeToSlug(input: string): string {
  *
  * Returns a positive integer or a { error } tuple describing the reason.
  */
-function parseHostId(
-  raw: unknown,
-): { ok: true; hostId: number } | { ok: false; error: string } {
+interface ParsedHostOk {
+  ok: true;
+  hostId: number;
+  error: null;
+}
+interface ParsedHostErr {
+  ok: false;
+  hostId: null;
+  error: string;
+}
+type ParsedHost = ParsedHostOk | ParsedHostErr;
+
+function parseHostId(raw: unknown): ParsedHost {
   if (raw === undefined || raw === null || raw === "") {
-    return { ok: false, error: "hostId is required" };
+    return { ok: false, hostId: null, error: "hostId is required" };
   }
   const hostId =
     typeof raw === "number" ? raw : parseInt(String(raw), 10);
   if (!Number.isFinite(hostId) || hostId <= 0 || !Number.isInteger(hostId)) {
-    return { ok: false, error: "hostId must be a positive integer" };
+    return { ok: false, hostId: null, error: "hostId must be a positive integer" };
   }
-  return { ok: true, hostId };
+  return { ok: true, hostId, error: null };
 }
 
 /**

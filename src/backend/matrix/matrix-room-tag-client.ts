@@ -27,6 +27,7 @@
 import { databaseLogger } from "../utils/logger.js";
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 import { ensureUserToken } from "./matrix-admin-client.js";
+import { assertAdminErr } from "./matrix-admin-narrow.js";
 import { PROJECT_SLUG_RE } from "../claude-session/identity-artifact-reader.js";
 
 /** 30s AbortController timeout for every account_data fetch. */
@@ -87,6 +88,7 @@ export async function getRoomTags(
   // failures (whatever loginAsUser saw) without wrapping.
   const tokenResult = await ensureUserToken(userMxid);
   if (!tokenResult.ok) {
+    assertAdminErr(tokenResult);
     return tokenResult;
   }
 
@@ -208,6 +210,7 @@ export async function setRoomProjectTag(
   // returned without a second loginAsUser round-trip.
   const tokenResult = await ensureUserToken(userMxid);
   if (!tokenResult.ok) {
+    assertAdminErr(tokenResult);
     return tokenResult;
   }
 
