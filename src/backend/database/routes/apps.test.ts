@@ -362,3 +362,68 @@ describe("GET /apps/:hostId/:slug/icon — SSH connection lifecycle", () => {
     expect(readAppIconFileMock).toHaveBeenCalledWith(null, "scratch-test");
   });
 });
+
+// ===========================================================================
+// Code-review MEDIUM-4 (fix pass 2026-09-18): three coverage-gap tests
+//   T13 — LOCAL branch 502 when readAppIconFile throws (oversize / IO error).
+//         T12d asserted the 200-on-present path but no test covered the
+//         LOCAL branch's throw → 502 mapping (the route's outer catch block).
+//   T14 — route-boundary APP_SLUG_RE rejects a slug that would pass a naive
+//         length check but fails the regex (e.g., contains `_`). Asserts
+//         readAppIconFile is NEVER called — the defence-in-depth guard at
+//         the route boundary catches it before the reader ever runs.
+//   T15 — If-None-Match provided but does NOT match the current ETag → 200
+//         with fresh bytes + the fresh ETag. T9 covers the match → 304 path;
+//         this closes the "stale client ETag → correct fresh delivery" case.
+// ===========================================================================
+
+describe("GET /apps/:hostId/:slug/icon — code-review MEDIUM-4 coverage gaps", () => {
+  it("T13: LOCAL branch — readAppIconFile throws → 502 (canned body)", async () => {
+    isLocalHostIdMock.mockReturnValueOnce(true);
+    readAppIconFileMock.mockRejectedValueOnce(
+      new Error("icon exceeds cap on disk"),
+    );
+    const res = await httpGet(server, "/apps/1/scratch-test/icon");
+    expect(res.status).toBe(502);
+    expect(res.body).toMatchObject({ error: "app home box unreachable" });
+    // Sanity: LOCAL branch skipped connect entirely; reader was called.
+    expect(connectOneShotMock).not.toHaveBeenCalled();
+    expect(readAppIconFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("T14: slug with underscore fails route-boundary APP_SLUG_RE → 400, reader never called", async () => {
+    // `scratch_test` passes a naive [a-z0-9_-]{1,64} check but fails the
+    // strict APP_SLUG_RE `[a-z0-9-]{1,64}` (no underscore allowed).
+    const res = await httpGet(server, "/apps/1/scratch_test/icon");
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({
+      error: expect.stringMatching(/slug must match/i),
+    });
+    // Defence-in-depth invariant: the route-boundary regex catches it
+    // BEFORE any host resolution, SSH work, or reader invocation.
+    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+    expect(connectOneShotMock).not.toHaveBeenCalled();
+    expect(readAppIconFileMock).not.toHaveBeenCalled();
+  });
+
+  it("T15: If-None-Match provided but does NOT match current ETag → 200 + fresh bytes + fresh ETag", async () => {
+    const FRESH_BYTES = Buffer.from([0xff, 0xee, 0xdd, 0xcc]);
+    readAppIconFileMock.mockResolvedValueOnce({
+      bytes: FRESH_BYTES,
+      mime: "image/webp",
+    });
+    const res = await httpGet(server, "/apps/1/scratch-test/icon", {
+      "if-none-match": '"disk-stale-etag-value"',
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/webp");
+    expect(res.headers["content-length"]).toBe(String(FRESH_BYTES.byteLength));
+    // ETag must be the fresh md5(FRESH_BYTES), NOT the stale one the
+    // caller sent. Route uses strict-equality on If-None-Match, so any
+    // mismatch (including the sentinel above) must fall through to 200.
+    expect(res.headers["etag"]).toBeDefined();
+    expect(res.headers["etag"]).toMatch(/^"disk-[0-9a-f]+"$/);
+    expect(res.headers["etag"]).not.toBe('"disk-stale-etag-value"');
+    expect(res.rawBody.equals(FRESH_BYTES)).toBe(true);
+  });
+});
