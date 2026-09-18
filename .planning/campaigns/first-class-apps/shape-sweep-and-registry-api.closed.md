@@ -100,3 +100,53 @@ The host-visibility filter is a single existing function used consistently acros
 **Phase-number rule (fleet-standard).** Whichever free phase number this shape takes when `/gsd:phase` slots it into ROADMAP.md is fine; if a peer identity races us to that slot mid-plan, the fleet's phase-collision auto-resolve kicks in — no user check needed for pure slot collisions.
 
 **Cross-shape ordering (from the campaign):** shape 3 and shape 4 both depend on shape 2 landing and can proceed in parallel or in either order once it's in. Shape 3 delivers standalone value (sidebar visibility + open-in-new-tab) even before shape 4.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-18
+**Vehicle used:** GSD phase (Phase 118, plans 118-01 through 118-05, plus a post-code-review fix pass on 2026-09-18)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · the existing every-few-seconds look-around is extended to also enumerate apps on each managed box; Skynet holds the fleet-wide picture in memory and broadcasts it over the same live channel, filtered per user
+- **Shape: where apps live** — present · sweep enumerates `~/fleet/apps/<slug>/`; reads the small metadata card; reads the systemd unit for the port; checks for an icon file
+- **Shape: what the look-around learns (three checks + carve-out)** — present · three inclusion checks (card parses, unit exists, unit active) plus the exact carve-out for defined-but-inactive units with a short human-readable diagnostic
+- **Shape: per-box findings the sweep emits** — present · every field the shape names is on the wire: which box, slug, title, description, port, has-icon, folder-created-at, is-healthy, health message
+- **Shape: where the picture lives** — present · in-memory fleet-wide map, keyed by host and slug, sibling to the identity map; no database, no persistence, restart wipes it
+- **Shape: how the picture stays fresh (reconciliation-on-success)** — present · reconciliation set (`lastTickLiveApps`) reconciled only at end of a successful per-host sweep; failure returns bypass the block; adopts the same `67b4a7ef` identity pattern
+- **Shape: how clients read it** — present · snapshot on subscribe + delta frames on add/remove/health-change over the same live channel
+- **Shape: how the pieces relate** — present · disk is the source of truth; sweep observes; in-memory picture reflects the most recent observation; wire broadcasts what the picture holds; Skynet writes nothing
+- **Philosophy: disk is the truth** — present · no server-side authoring; no persistence tier; restart is safe
+- **Philosophy: look-around cadence governs freshness** — present · no eager-refresh nudge or push mechanism; freshness IS the sweep cadence
+- **Philosophy: not usable means not in the picture** — present · the three-check filter is functional (folder + card + unit-active), with the single defined-but-stopped carve-out
+- **Philosophy: one health tier** — present · binary `is_healthy` + short message; no crash counters, no port-collision detection, no application-level probes
+- **Philosophy: piggyback existing plumbing (four pieces)** — partial · sweep, in-memory picture, live channel, and reconciliation pattern all reuse the identity precedents; the fifth piece — the host-visibility filter — turned out not to exist at the identity-frame layer, so the material built a new one scoped to app frames only (endorsed as drift; separate bounty spun up)
+- **Prior context: shape 1 disk convention** — present · sweep reads exactly what shape 1 lays down — app folder, `app.json`, systemd unit with `PORT=` env, `icon.webp`
+- **What would make it wrong: ghost tiles** — present · reconciliation-on-success drops slugs the current picture doesn't contain; test P118-04-A2 locks the drop behaviour
+- **What would make it wrong: silent absence for broken apps** — present · defined-but-stopped carve-out emits with `is_healthy=false` + the exact human string; test P118-04-A4 locks the health-flip
+- **What would make it wrong: user seeing another user's apps** — present · an app-frame filter was built from scratch on top of the existing `checkHostAccess`; deny-by-default on unknown host and on error; per-frame + per-snapshot projection paths tested
+- **What would make it wrong: Skynet writing app state** — present · no persistence — apps map is in-memory only, rebuilt from disk on next successful sweep after restart
+- **What would make it wrong: sidebar flap on transient network** — present · sweep-null and schema-mismatch early-returns bypass the reconciliation block; test P118-04-A3 locks zero flap across a null-sweep tick
+- **What would make it wrong: per-app permission model** — present · filter answers visibility purely via `checkHostAccess(hostId, user, 'read')` — no per-app logic anywhere
+- **What would make it wrong: cadence assumptions leaking** — present · no client-visible timing coupling; no create-to-visible latency promise; snapshot-on-subscribe is the only ordering guarantee
+- **Scope edges (IN)** — present · sweep extension, per-app findings, in-memory picture, reconciliation-on-success, new frame kinds on the existing channel, host-visibility filter application to app frames, tests at the parse and reconciliation layers — all present
+- **Scope edges (OUT — sidebar surface, open/proxy, extra health signals, provenance, push, orphan-unit cleanup)** — present · no sidebar rendering built; no open-in-place or proxy; no additional health signals; no server-authored provenance; no push/registration on the app side; no orphan-unit cleanup
+- **Scope edges (deferred — eager-refresh nudge, HTTP snapshot endpoint)** — present · no nudge/push; no HTTP endpoint alongside the WS channel
+- **Scope edges (tempting but no — second health tier, per-user app state, grace window)** — present · none of these snuck in; `is_healthy` is binary; no favorites/hidden/labels; no was-up-recently grace
+
+### Additions (in the result, not in the shape)
+
+- A hard cap of 50 apps per box plus a 3-second cumulative wall-clock budget on the sweep's app enumeration, with a structured warn when either fires — endorsed-as-drift
+- A 30-second per-(user, host) TTL cache in front of the app-frame filter's host-access check, trading a bounded revocation-staleness window for DB-pressure reduction — endorsed-as-drift
+- A brand-new per-user host-visibility filter built specifically for app frames (`app-frame-filter.ts` + `fanOutApp` path), rather than reuse of an existing identity-frame filter which does not in fact exist — identity frames continue to fan out unfiltered — endorsed-as-drift
+
+### Follow-ups
+
+- General-policy bounty to audit and close metadata-visibility gaps across identity frames and any other host-scoped surfaces (identity fanOut is currently unfiltered — zero impact in the current effectively-single-user fleet but a real gap if the multi-user threat model changes) — bounty
+
+### Notes
+
+The material conforms strongly. Every named failure mode has a corresponding guard in the code and, in most cases, a dedicated test (P118-04-A1..A5 lock the reconciliation, transient-failure, health-flip, and schema-mismatch invariants). The three additions all trace to safety/perf hardening reviewed and accepted before land. One shape-level premise turned out to be inaccurate — the shape claimed an identity-frame host-visibility filter already existed and apps would piggyback it; in fact no such filter was in place, and the material built a fresh app-only filter. User has scoped the identity-frame gap into a separate bounty. Worth carrying forward: (1) the shape's assumption that an existing plumbing piece is in place is worth verifying before writing shape files, especially when the piece is load-bearing on a "what would make it wrong" item; (2) the `fanOut` path is now bifurcated (sync for identities, async-with-filter for apps) — future identity-filter work will need to unify this or duplicate the async-with-queue-window pattern the app path uses to preserve subscribe-time ordering.
