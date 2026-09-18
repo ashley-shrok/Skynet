@@ -142,11 +142,18 @@ describe("fleet-status-server", () => {
     authManager = makeStubAuthManager("test-token", "test-user");
     resolveHostRecordByName = vi.fn();
 
+    // Phase 118 code-review HIGH-1b (fix pass 2026-09-18): these tests
+    // intentionally use the bare-registry shape (branch 1 without a
+    // resolver) — that path now emits fleet_status_unfiltered_mode by
+    // default. Ack the unfiltered mode so the warn does not pollute
+    // test logs; the dedicated Server-Warn test below verifies the
+    // warn DOES fire when the ack flag is absent.
     server = startFleetStatusServer({
       port: 0, // ephemeral
       authManager: authManager as unknown as Parameters<typeof startFleetStatusServer>[0]["authManager"],
       registry,
       resolveHostRecordByName,
+      acknowledgeUnfilteredMode: true,
     });
 
     port = (server.wss.address() as AddressInfo).port;
@@ -362,6 +369,69 @@ describe("fleet-status-server", () => {
         expect(ctx).not.toHaveProperty("currentTarget");
       }
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 118 code-review HIGH-1b (fix pass 2026-09-18) — external-registry
+  // unfiltered-mode warn. Defense in depth on top of starter.ts's
+  // resolveHostOwnerById wiring: even if a future regression drops the
+  // wiring, the log path fires so the state is grep-observable.
+  // -------------------------------------------------------------------------
+  it("Warn-1: pre-built registry without resolveHostOwnerById AND without ack emits fleet_status_unfiltered_mode warn (source: external_registry)", () => {
+    const warnSpy = vi.mocked(systemLogger.warn);
+    warnSpy.mockClear();
+
+    const bareRegistry = createSubscriptionRegistry();
+    const localAuth = makeStubAuthManager("t", "u");
+    const localServer = startFleetStatusServer({
+      port: 0,
+      authManager: localAuth as unknown as Parameters<
+        typeof startFleetStatusServer
+      >[0]["authManager"],
+      registry: bareRegistry,
+      resolveHostRecordByName: vi.fn(),
+      // no acknowledgeUnfilteredMode → warn MUST fire
+    });
+
+    const unfilteredWarns = warnSpy.mock.calls.filter(
+      ([, ctx]) =>
+        typeof ctx === "object" &&
+        ctx !== null &&
+        (ctx as Record<string, unknown>).operation ===
+          "fleet_status_unfiltered_mode" &&
+        (ctx as Record<string, unknown>).source === "external_registry",
+    );
+    expect(unfilteredWarns.length).toBeGreaterThanOrEqual(1);
+
+    localServer.close();
+  });
+
+  it("Warn-2: pre-built registry + acknowledgeUnfilteredMode=true suppresses the warn (existing test-harness callers stay quiet)", () => {
+    const warnSpy = vi.mocked(systemLogger.warn);
+    warnSpy.mockClear();
+
+    const bareRegistry = createSubscriptionRegistry();
+    const localAuth = makeStubAuthManager("t", "u");
+    const localServer = startFleetStatusServer({
+      port: 0,
+      authManager: localAuth as unknown as Parameters<
+        typeof startFleetStatusServer
+      >[0]["authManager"],
+      registry: bareRegistry,
+      resolveHostRecordByName: vi.fn(),
+      acknowledgeUnfilteredMode: true,
+    });
+
+    const unfilteredWarns = warnSpy.mock.calls.filter(
+      ([, ctx]) =>
+        typeof ctx === "object" &&
+        ctx !== null &&
+        (ctx as Record<string, unknown>).operation ===
+          "fleet_status_unfiltered_mode",
+    );
+    expect(unfilteredWarns).toHaveLength(0);
+
+    localServer.close();
   });
 });
 

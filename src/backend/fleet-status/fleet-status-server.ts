@@ -90,6 +90,17 @@ export interface FleetStatusServerOptions {
    * and get the real host-resolver.checkHostAccess.
    */
   _testCheckHostAccessOverride?: CheckHostAccessFn;
+  /**
+   * Phase 118 code-review HIGH-1b (fix pass 2026-09-18): explicit opt-out
+   * for the loud `fleet_status_unfiltered_mode` warn in branch 1 (pre-built
+   * registry, no resolveHostOwnerById). Defense-in-depth on top of the
+   * starter.ts wiring (HIGH-1a) — if a future regression drops the resolver
+   * dep, the log path fires so the state is grep-able. Tests + intentional
+   * unfiltered callers (session-only tests using
+   * `createSubscriptionRegistry()` with no deps) can pass `true` to
+   * suppress the warn. Default undefined → warn fires.
+   */
+  acknowledgeUnfilteredMode?: boolean;
 }
 
 export interface FleetStatusServer {
@@ -154,6 +165,22 @@ export function startFleetStatusServer(
         {
           operation: "fleet_status_filter_wiring_skipped",
           reason: "external_registry",
+        },
+      );
+    } else if (opts.acknowledgeUnfilteredMode !== true) {
+      // Phase 118 code-review HIGH-1b (fix pass 2026-09-18): defense in
+      // depth. Branch 1 (pre-built registry, no resolver) is the SILENT
+      // unfiltered path — the regression HIGH-1a fixed lived here. Emit
+      // the same loud warn the fully-default branch 3 emits so if a
+      // future caller drops resolveHostOwnerById the state is grep-able
+      // via `operation: "fleet_status_unfiltered_mode"`. Callers that
+      // WANT the unfiltered shape (session-only tests + backward-compat
+      // harnesses) pass acknowledgeUnfilteredMode: true.
+      systemLogger.warn(
+        "Fleet-status: pre-built registry provided without resolveHostOwnerById — running UNFILTERED (T-118-05-BF risk)",
+        {
+          operation: "fleet_status_unfiltered_mode",
+          source: "external_registry",
         },
       );
     }
