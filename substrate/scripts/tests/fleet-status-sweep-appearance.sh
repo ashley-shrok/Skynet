@@ -503,6 +503,129 @@ else:
   assert_eq "ok" "$result" "case 10: stdout must contain only valid JSON with schema_version==1"
 }
 
+# Case 11: project happy path.
+# Identity with `project: trip-planning` → identity_cosmetics.project ==
+# "trip-planning". Phase 117 M6 follow-up.
+test_case_11_project_happy_path() {
+  make_identity "wanderer" "---
+role: traveler
+project: trip-planning
+---
+body
+"
+  make_role "traveler" "---
+title: Traveler
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_has_field "$out" "wanderer" "identity_cosmetics.project"
+  assert_identity_field "$out" "wanderer" "identity_cosmetics.project" '"trip-planning"'
+}
+
+# Case 12: project absent.
+# Identity with no project frontmatter → identity_cosmetics has no project
+# key (absent, not null). Guards the "no publisher no field" contract.
+test_case_12_project_absent() {
+  make_identity "homebody" "---
+role: traveler
+---
+body
+"
+  make_role "traveler" "---
+title: Traveler
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_no_field "$out" "homebody" "identity_cosmetics.project"
+}
+
+# Case 13: malformed project slug — silent-drop.
+# PROJECT_SLUG_RE requires [a-z0-9-]{1,64}. Uppercase, spaces, underscores,
+# or overlength must NOT emit the field (bogus values must not paint an
+# identity into a nonexistent section).
+test_case_13_project_malformed_slug_dropped() {
+  make_identity "bad1" "---
+role: traveler
+project: Trip Planning
+---
+body
+"
+  make_identity "bad2" "---
+role: traveler
+project: trip_planning
+---
+body
+"
+  make_identity "bad3" "---
+role: traveler
+project: ../etc/passwd
+---
+body
+"
+  make_role "traveler" "---
+title: Traveler
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_no_field "$out" "bad1" "identity_cosmetics.project"
+  assert_identity_no_field "$out" "bad2" "identity_cosmetics.project"
+  assert_identity_no_field "$out" "bad3" "identity_cosmetics.project"
+}
+
+# Case 14: project on the ROLE file must NOT be extracted.
+# Same discipline as task — project is per-identity, allowed_keys gate on
+# role reads excludes it. Even if a role.md carries `project: something`,
+# it must never surface in role_cosmetics.
+test_case_14_project_not_inherited_from_role() {
+  make_identity "riderr" "---
+role: rolewithproject
+---
+body
+"
+  make_role "rolewithproject" "---
+title: Role With Project
+project: shouldnotappear
+---
+"
+  local out
+  out=$(run_sweep)
+  # role_cosmetics has the title but NOT project.
+  assert_identity_has_field "$out" "riderr" "role_cosmetics.title"
+  assert_identity_no_field "$out" "riderr" "role_cosmetics.project"
+  # And the identity file has no project field either, so identity_cosmetics
+  # must also be project-less (no accidental inheritance path).
+  assert_identity_no_field "$out" "riderr" "identity_cosmetics.project"
+}
+
+# Case 15: quoted project slug survives.
+# Writers may emit `project: "trip-planning"` (matching the colorHue-quoted
+# tolerance). Strip surrounding matched quotes before PROJECT_SLUG_RE.
+test_case_15_project_quoted() {
+  make_identity "quoted" "---
+role: traveler
+project: \"trip-planning\"
+---
+body
+"
+  make_identity "squoted" "---
+role: traveler
+project: 'trip-planning'
+---
+body
+"
+  make_role "traveler" "---
+title: Traveler
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_field "$out" "quoted" "identity_cosmetics.project" '"trip-planning"'
+  assert_identity_field "$out" "squoted" "identity_cosmetics.project" '"trip-planning"'
+}
+
 # Global stderr/stdout purity check:
 # Run the sweep with stderr redirected to a file; assert the file is allowed
 # to be non-empty while every stdout line still parses as JSON.
@@ -551,6 +674,11 @@ run_test test_case_07b_colorhue_quoted
 run_test test_case_08_quoted_and_commented
 run_test test_case_09_bounded_read
 run_test test_case_10_stdout_purity
+run_test test_case_11_project_happy_path
+run_test test_case_12_project_absent
+run_test test_case_13_project_malformed_slug_dropped
+run_test test_case_14_project_not_inherited_from_role
+run_test test_case_15_project_quoted
 run_test test_global_stderr_stdout_separation
 
 printf '\n===============================\n'

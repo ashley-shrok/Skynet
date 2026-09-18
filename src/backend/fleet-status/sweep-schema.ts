@@ -83,6 +83,16 @@ export interface SweepRawCosmetics {
   task?: string;
   avatar?: string;
   coordinator?: boolean;
+  /**
+   * Phase 117 M6 follow-up: project slug from identity frontmatter (validated
+   * by the sweep script against PROJECT_SLUG_RE = /^[a-z0-9-]{1,64}$/ before
+   * emission — see fleet-status-sweep.py `_read_frontmatter_cosmetics`).
+   * Only emitted for identity files, never role files (allowed_keys gate).
+   * Consumed by `resolveIdentityAppearance` which threads it into
+   * `IdentityAppearance.project`; the frontend's identities-store then keys
+   * project-membership derivations on the resulting field.
+   */
+  project?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -121,6 +121,12 @@ SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 # traversal (T-111-01).
 ROLE_NAME_OK = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
+# Project slug validation — mirrors PROJECT_SLUG_RE at
+# src/backend/claude-session/identity-artifact-reader.ts:193
+# (Phase 117 D-05 identity carrier). Applied BEFORE emitting a `project`
+# frontmatter value so a malformed slug never reaches identity_cosmetics.
+PROJECT_SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
+
 # ---------------------------------------------------------------------------
 # Phase 32 discovery — mirrors discover-identity-session-file.ts.
 # ---------------------------------------------------------------------------
@@ -702,6 +708,23 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
                     cosmetics["task"] = val
                 continue
 
+        # --- project: kebab-case slug, validated against PROJECT_SLUG_RE
+        # (Phase 117 D-05 identity carrier). Per-identity, same discipline as
+        # `task` — a role file's project: is NOT extracted (allowed_keys gate
+        # controls that). Strip surrounding matching quotes so both bare
+        # (`project: trip-planning`) and quoted (`project: "trip-planning"`)
+        # forms survive. Malformed slugs are silently dropped — a garbage
+        # frontmatter value must not paint the identity into a bogus section.
+        if "project" in allowed_keys:
+            m_proj = re.match(
+                r"^project:\s*(.+?)\s*(#.*)?$", line.rstrip("\n")
+            )
+            if m_proj:
+                raw_proj = m_proj.group(1).strip().strip('"').strip("'").strip()
+                if PROJECT_SLUG_RE.match(raw_proj):
+                    cosmetics["project"] = raw_proj
+                continue
+
         # --- colorHue: int, must be in 0..359 (mirrors identity-artifact-reader.ts) ---
         # Accept bare (`324`) OR single/double-quoted (`'324'` / `"324"`) forms.
         # MDXEditor's frontmatter dialog emits the quoted form on save, and
@@ -859,7 +882,12 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
         identity_path = os.path.join(home, "fleet", "identities", name, name + ".md")
         identity_cosmetics, role = _read_frontmatter_cosmetics(
             identity_path,
-            ("displayName", "title", "colorHue", "voice", "task", "coordinator"),
+            # Phase 117 M6 follow-up: `project` extracted so DnD assignments
+            # written by /identities/:key/project (session-project-write.ts)
+            # propagate through the fleet-status pulse's identity_cosmetics
+            # channel. Same discipline as `task` — per-identity, NOT
+            # inherited from the role.
+            ("displayName", "title", "colorHue", "voice", "task", "coordinator", "project"),
         )
         if identity_cosmetics is None:
             _log("identity_cosmetics_unreadable", identity=name[:40])
