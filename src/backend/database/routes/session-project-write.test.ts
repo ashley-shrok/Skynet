@@ -262,8 +262,11 @@ describe("POST /identities/:key/project", () => {
     expect(writeSessionProjectField).toHaveBeenCalledWith(null, "wren", "alpha");
     // LOCAL branch must not open an SSH connection.
     expect(connectOneShot).not.toHaveBeenCalled();
-    // publishProjectListChanged fires exactly once on success.
-    expect(mockPublishProjectListChanged).toHaveBeenCalledTimes(1);
+    // Phase 117 M5 fix (2026-09-18): session-field writes do NOT change
+    // the projects[] list, so this route no longer publishes anything —
+    // and no longer re-enumerates via listProjects.
+    expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
+    expect(listProjects).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
@@ -288,7 +291,10 @@ describe("POST /identities/:key/project", () => {
     );
     // Finally block must close the SSH connection.
     expect(stubConn.end).toHaveBeenCalledTimes(1);
-    expect(mockPublishProjectListChanged).toHaveBeenCalledTimes(1);
+    // Phase 117 M5 fix (2026-09-18): no publish, no extra listProjects
+    // round-trip on a session-field write.
+    expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
+    expect(listProjects).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------

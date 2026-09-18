@@ -57,9 +57,13 @@ import {
   IDENTITY_KEY_RE,
   PROJECT_SLUG_RE,
   writeSessionProjectField,
-  listProjects,
+  // Phase 117 M5 fix (2026-09-18): listProjects import removed —
+  // this route no longer re-enumerates the host's project list after
+  // a session-field write (which does not change the list itself).
 } from "../../claude-session/identity-artifact-reader.js";
-import { getSubscriptionRegistry } from "../../fleet-status/subscription-registry.js";
+// Phase 117 M5 fix (2026-09-18): getSubscriptionRegistry import removed —
+// this route no longer publishes on the projects-list channel after a
+// session-field write (see the intentionally-omitted publish block below).
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -191,39 +195,25 @@ router.post(
         return;
       }
 
-      // 6. Post-write wire event (D-37) — fire publishProjectListChanged
-      // with the current projects list on this host. The projects[] array
-      // does NOT change on a session-field write (only which conversations
-      // belong to a project changes), so the registry's JSON.stringify
-      // idempotent-skip absorbs the no-op fanout when the array is
-      // byte-identical. Publish failure MUST NOT roll back the write —
-      // the disk change is source-of-truth; a lost WS event just means
-      // clients re-hydrate on next reconnect.
-      try {
-        const registry = getSubscriptionRegistry();
-        if (registry) {
-          const current = await listProjects(conn);
-          const hostname =
-            (host as unknown as { name?: string }).name ?? String(hostId);
-          registry.publishProjectListChanged(
-            current.map((p) => ({
-              slug: p.slug,
-              displayName: p.displayName,
-              hostId: String(hostId),
-              hostname,
-              archived: false,
-            })),
-          );
-        }
-      } catch (publishErr) {
-        databaseLogger.warn(
-          `project-list-changed publish failed after session-project write key=${key} hostId=${hostId}: ${
-            publishErr instanceof Error
-              ? publishErr.message
-              : String(publishErr)
-          }`,
-        );
-      }
+      // 6. Post-write wire event (D-37) — INTENTIONALLY OMITTED.
+      //
+      // Phase 117 M5 fix (2026-09-18): pre-fix, this route re-enumerated
+      // the host's projects list via listProjects(conn) — one extra SSH
+      // round-trip — and handed the (unchanged) array to
+      // publishProjectListChanged. The projects[] array itself does NOT
+      // change on a session-field write (only which conversation belongs
+      // to a project changes), so the registry's idempotent-skip absorbed
+      // it 100% of the time; net effect was pure wasted work on every
+      // drag.
+      //
+      // If a per-session membership ping is needed downstream, that
+      // should be a distinct session-project-changed frame carrying
+      // {key, hostId, project} without touching the projects cache — but
+      // that's out of scope for this fix pass (same treatment as H2 on
+      // relay-room-project-tag).
+      //
+      // Note: getSubscriptionRegistry and listProjects are intentionally
+      // NOT called here now.
 
       // Audit log per T-117-05 (repudiation): who wrote what.
       databaseLogger.info(
