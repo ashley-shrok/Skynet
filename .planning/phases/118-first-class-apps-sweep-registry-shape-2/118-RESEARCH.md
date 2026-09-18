@@ -779,7 +779,7 @@ whole thing." Update and gone frames are yes/no since they're per-app.
   seam pattern.
 - `src/backend/distributor/catalog.ts:375-395` — sweep-script row #8;
   installPath contract; no changes needed.
-- `.planning/phases/118-first-class-apps-sweep-registry-shape-2/116-CONTEXT.md`
+- `.planning/phases/118-first-class-apps-sweep-registry-shape-2/118-CONTEXT.md`
   — the D-01..D-23 spec, authoritative.
 - Git commit `67b4a7ef` diff (verbatim) — Phase 115 reconciliation pattern.
 

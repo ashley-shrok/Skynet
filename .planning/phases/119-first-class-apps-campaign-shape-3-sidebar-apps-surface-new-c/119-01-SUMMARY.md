@@ -44,7 +44,7 @@ metrics:
 
 # Phase 119 Plan 01: Extend frontend WS type mirror + client dispatch for app frames Summary
 
-Closed the load-bearing Pitfall 1 gap from `117-RESEARCH.md`: Phase 118 shipped the backend `AppStateSchema` + three app-frame schemas at `src/backend/fleet-status/wire-protocol.ts:632-663`, but the frontend hand-maintained mirror at `src/ui/api/fleet-status-types.ts` never gained the corresponding arms, and the `fleet-status-client.ts` onmessage switch was silently dropping every app frame into its `default:` branch. This plan widens the mirror, adds three optional callbacks + three switch cases, and adds five scoped tests that would fail if the silent-drop regression ever reappeared.
+Closed the load-bearing Pitfall 1 gap from `119-RESEARCH.md`: Phase 118 shipped the backend `AppStateSchema` + three app-frame schemas at `src/backend/fleet-status/wire-protocol.ts:632-663`, but the frontend hand-maintained mirror at `src/ui/api/fleet-status-types.ts` never gained the corresponding arms, and the `fleet-status-client.ts` onmessage switch was silently dropping every app frame into its `default:` branch. This plan widens the mirror, adds three optional callbacks + three switch cases, and adds five scoped tests that would fail if the silent-drop regression ever reappeared.
 
 ## What Was Built
 

@@ -86,7 +86,7 @@
  *   2. `installMode: "user-home" | "system-root"` — OPTIONAL FIELD with
  *      default "user-home" because it only affects post-write behavior
  *      (path quoting + ownership + directory creation), not source shape.
- *      The 49 bundled rows omit the field and inherit the "user-home" default,
+ *      The 51 bundled rows omit the field and inherit the "user-home" default,
  *      keeping the diff minimal. The twinkie row sets it explicitly to
  *      "system-root" (writes to /etc/claude-code/CLAUDE.md root:root 0644,
  *      gated on hosts.username === "root" per Plan 05).

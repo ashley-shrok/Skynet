@@ -97,7 +97,7 @@ Deliver the sidebar surface that renders Phase 118's live app-frame subscription
 - `.planning/campaigns/first-class-apps/tasting-tile-visuals.html` and `tasting-tile-details.html` — the two tasting artifacts used during /open + discuss-phase to lock the visual decisions (variant A, iconless first-letter fallback, unhealthy two-line rendering). Served on `Skynet-8899.serve.term.gigaashley.click` during shape work; safe to shut down after plan-phase consumes them.
 
 ### Prior phase context (heavy relevance)
-- `.planning/phases/118-first-class-apps-sweep-registry-shape-2/116-CONTEXT.md` — the DIRECT precursor. All 23 D-decisions (especially D-01/D-02 inclusion filter, D-03 healthMessage backend-authoring, D-05 seven-field emit shape, D-06 hasIcon boolean, D-14 three frame types, D-15 host-visibility filter, D-16 snapshot-on-subscribe) describe the wire this phase consumes. **Read immediately after the shape file.**
+- `.planning/phases/118-first-class-apps-sweep-registry-shape-2/118-CONTEXT.md` — the DIRECT precursor. All 23 D-decisions (especially D-01/D-02 inclusion filter, D-03 healthMessage backend-authoring, D-05 seven-field emit shape, D-06 hasIcon boolean, D-14 three frame types, D-15 host-visibility filter, D-16 snapshot-on-subscribe) describe the wire this phase consumes. **Read immediately after the shape file.**
 - `.planning/phases/115-identity-archiving-from-the-frontend/115-CONTEXT.md` — establishes the archived-section chrome + lazy-render invariant (D-19 there) that Phase 119 mirrors for the Apps section.
 
 ### The Skynet-side sidebar code being extended

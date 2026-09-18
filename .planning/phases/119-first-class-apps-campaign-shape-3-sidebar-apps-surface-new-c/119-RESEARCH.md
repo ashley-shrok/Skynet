@@ -18,7 +18,7 @@ The second highest-leverage finding is that the sidebar's `.pv-panel-scroll` str
 
 ### Locked Decisions
 
-All twenty D-decisions from `117-CONTEXT.md`'s `<decisions>` block are LOCKED. Verbatim summary (planner: use the CONTEXT for full text):
+All twenty D-decisions from `119-CONTEXT.md`'s `<decisions>` block are LOCKED. Verbatim summary (planner: use the CONTEXT for full text):
 
 - **D-01** placement — first content group under search, above Pinned.
 - **D-02** section header mirrors Archived chrome at `PrettyConversationsPanel.tsx:1997-2020` verbatim; label "Apps"; icon = lucide `AppWindow` recommended (planner's discretion — see D-below).
@@ -706,9 +706,9 @@ Skip — Phase 119 is a pure code-and-config phase with no new external tool dep
 - `~/fleet/roles/box-maintainer/box-maintainer.md:200-224` — deploy discipline (executor stops at code + tests green; NEVER worktrees; NEVER streaming affordances)
 - `package.json` — vitest ^4.1.8, @testing-library/react ^16.3.2, react ^19.2.5, lucide-react ^1.28.0, express ^5.2.1
 - `.planning/config.json` — nyquist_validation: false (skip Validation Architecture section); security_enforcement: true (include Security Domain)
-- `.planning/phases/119-first-class-apps-campaign-shape-3-sidebar-apps-surface-new-c/117-CONTEXT.md` — 20 D-decisions authoritative for this phase
+- `.planning/phases/119-first-class-apps-campaign-shape-3-sidebar-apps-surface-new-c/119-CONTEXT.md` — 20 D-decisions authoritative for this phase
 - `.planning/campaigns/first-class-apps/shape-sidebar-apps-surface.md` — locked shape file (opened 2026-09-18)
-- `.planning/phases/118-first-class-apps-sweep-registry-shape-2/116-CONTEXT.md` — Phase 118 D-14/D-15/D-16 wire contract + filter authority + snapshot-on-subscribe
+- `.planning/phases/118-first-class-apps-sweep-registry-shape-2/118-CONTEXT.md` — Phase 118 D-14/D-15/D-16 wire contract + filter authority + snapshot-on-subscribe
 
 ### Secondary (MEDIUM confidence)
 
