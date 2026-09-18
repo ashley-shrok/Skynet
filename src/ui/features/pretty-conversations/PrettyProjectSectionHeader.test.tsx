@@ -206,6 +206,81 @@ describe("PrettyProjectSectionHeader — callbacks", () => {
     // Header toggle NOT fired (stopPropagation on the inner button).
     expect(onToggleCollapse).not.toHaveBeenCalled();
   });
+
+  // Phase 117 M3 fix (2026-09-18): pre-fix, the outer header element was
+  // <button> and inside it was a <span role="button" tabIndex={0}> for
+  // the new-conversation action — nesting an interactive element inside
+  // a <button> is invalid HTML. Fix: outer is <div role="button"
+  // tabIndex={0}> with keyboard handler, new-conversation is a <button>
+  // sibling (not nested). Tests below lock the fix.
+  it("Test M3 A: outer container is <div role='button'> NOT <button>; new-conversation control is a <button> that is NOT nested inside another <button>", () => {
+    const { getByTestId } = render(
+      <PrettyProjectSectionHeader
+        slug="delta"
+        displayName="Delta"
+        collapsed={false}
+        onToggleCollapse={vi.fn()}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        rows={null}
+      />,
+    );
+    const outer = getByTestId("pv-project-section-header-delta");
+    // Regression defense (M3): outer element MUST be <div>, not <button>.
+    // Nesting a <button> inside a <button> is invalid HTML.
+    expect(outer.tagName.toLowerCase()).toBe("div");
+    // ARIA button semantics preserved.
+    expect(outer.getAttribute("role")).toBe("button");
+    expect(outer.getAttribute("tabindex")).toBe("0");
+    // Inner new-conversation button is a <button>.
+    const newConv = getByTestId("pv-project-section-new-conv-delta");
+    expect(newConv.tagName.toLowerCase()).toBe("button");
+    // Regression defense: no ancestor of the new-conversation button
+    // should be a <button> element (invalid HTML nesting).
+    let ancestor: HTMLElement | null = newConv.parentElement;
+    while (ancestor) {
+      expect(ancestor.tagName.toLowerCase()).not.toBe("button");
+      ancestor = ancestor.parentElement;
+    }
+  });
+
+  it("Test M3 B: keyboard Enter on outer div fires onToggleCollapse (WAI-ARIA button pattern)", () => {
+    const onToggleCollapse = vi.fn();
+    const { getByTestId } = render(
+      <PrettyProjectSectionHeader
+        slug="epsilon"
+        displayName="Epsilon"
+        collapsed={false}
+        onToggleCollapse={onToggleCollapse}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        rows={null}
+      />,
+    );
+    const outer = getByTestId("pv-project-section-header-epsilon");
+    fireEvent.keyDown(outer, { key: "Enter" });
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1);
+    expect(onToggleCollapse).toHaveBeenCalledWith("epsilon");
+  });
+
+  it("Test M3 C: keyboard Space on outer div fires onToggleCollapse (WAI-ARIA button pattern)", () => {
+    const onToggleCollapse = vi.fn();
+    const { getByTestId } = render(
+      <PrettyProjectSectionHeader
+        slug="zeta"
+        displayName="Zeta"
+        collapsed={false}
+        onToggleCollapse={onToggleCollapse}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        rows={null}
+      />,
+    );
+    const outer = getByTestId("pv-project-section-header-zeta");
+    fireEvent.keyDown(outer, { key: " " });
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1);
+    expect(onToggleCollapse).toHaveBeenCalledWith("zeta");
+  });
 });
 
 describe("PrettyProjectSectionHeader — drop lane", () => {

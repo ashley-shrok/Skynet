@@ -195,9 +195,27 @@ export function PrettyProjectSectionHeader({
           }}
         />
       )}
-      <button
-        type="button"
+      {/* Phase 117 M3 fix (2026-09-18): outer container was <button> which
+          then nested a <span role="button" tabIndex={0}> for the new-
+          conversation action. Nesting an interactive element inside a
+          <button> is invalid HTML; screen readers, keyboard nav, and
+          mobile a11y engines behave inconsistently. Fix: outer is now
+          <div role="button" tabIndex={0}> with an explicit keyboard
+          handler for Enter/Space per WAI-ARIA authoring practices, and
+          the new-conversation control is a proper <button> sibling
+          inside — no nested-clickable structure. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => onToggleCollapse(slug)}
+        onKeyDown={(e) => {
+          // WAI-ARIA button pattern: Enter and Space both fire the
+          // collapse toggle. preventDefault on Space avoids page scroll.
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggleCollapse(slug);
+          }
+        }}
         onContextMenu={(e) => {
           // Phase 117 Plan 117-09 Task 2 (D-14) — right-click / long-press
           // opens the shared context menu (Edit project file + Archive
@@ -205,7 +223,7 @@ export function PrettyProjectSectionHeader({
           // suppressed inside the callback (`e.preventDefault()`).
           if (onContextMenu) onContextMenu(slug, displayName, e);
         }}
-        className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full text-left"
+        className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full text-left cursor-pointer"
         data-testid={`pv-project-section-header-${slug}`}
         aria-expanded={!collapsed}
         aria-controls={`pv-project-section-content-${slug}`}
@@ -221,21 +239,18 @@ export function PrettyProjectSectionHeader({
           aria-hidden="true"
           className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
         />
-        {/* Nested button: stopPropagation on the click so the header's
-            collapse toggle does NOT fire when the new-conversation button
-            is pressed. */}
-        <span
-          role="button"
-          tabIndex={0}
+        {/* Sibling <button>, not nested. stopPropagation on click/key so
+            the outer div's collapse toggle does NOT fire when the new-
+            conversation control is used. */}
+        <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             onNewConversationClick(slug);
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
               e.stopPropagation();
-              onNewConversationClick(slug);
             }
           }}
           data-testid={`pv-project-section-new-conv-${slug}`}
@@ -244,12 +259,12 @@ export function PrettyProjectSectionHeader({
           title={`New conversation in ${displayName}`}
         >
           <SquarePen className="size-3" aria-hidden="true" />
-        </span>
+        </button>
         <ChevronDown
           className={`size-3 text-[#5c6070]/85 shrink-0 transition-transform ${collapsed ? "" : "rotate-180"}`}
           aria-hidden="true"
         />
-      </button>
+      </div>
       {!collapsed && (
         <div id={`pv-project-section-content-${slug}`}>{rows}</div>
       )}
