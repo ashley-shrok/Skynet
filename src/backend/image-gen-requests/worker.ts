@@ -371,3 +371,19 @@ export async function processImageGen(
     });
   }
 }
+
+/**
+ * Public façade over the internal writeFailureFile. Exposed so callers
+ * outside the worker's own processImageGen path (e.g. queue.ts's
+ * overflow-drop protection) can drop a proper failure file for a rejected
+ * item — otherwise the caller would see a silent timeout instead of a
+ * descriptive `{reason:"unknown", message:"queue full — try again later"}`
+ * failure. Never throws (inner writeFailureFile owns the try/catch).
+ */
+export async function writeImageGenFailureFile(
+  item: PendingImageGen,
+  deps: WorkerDeps,
+  payload: FailureResponse,
+): Promise<void> {
+  await writeFailureFile(item, deps, payload);
+}

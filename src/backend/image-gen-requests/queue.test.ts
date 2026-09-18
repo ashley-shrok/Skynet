@@ -30,6 +30,7 @@ import {
   stopPool,
   __resetForTests,
   WORKER_COUNT,
+  MAX_QUEUE_DEPTH,
   type ProcessImageGenFn,
 } from "./queue.js";
 import type { PendingImageGen } from "./types.js";
@@ -39,15 +40,26 @@ import type { WorkerDeps } from "./worker.js";
 // Mock systemLogger so log calls don't error in test environment
 // ---------------------------------------------------------------------------
 
-vi.mock("../utils/logger.js", () => ({
-  systemLogger: {
+vi.mock("../utils/logger.js", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     success: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  // Provide every export the transitively-imported modules read
+  // (worker.ts → ssh/host-resolver.ts pulls in `logger`, etc.). Post-FIX 5,
+  // queue.ts runtime-imports worker.ts to expose writeImageGenFailureFile,
+  // so every logger export the worker's transitive graph consumes must be
+  // present in this mock or the module load errors.
+  return {
+    systemLogger: mockLogger,
+    sshLogger: mockLogger,
+    databaseLogger: mockLogger,
+    logger: mockLogger,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -242,6 +254,89 @@ describe("image-gen queue", () => {
 
   it("Test 8: WORKER_COUNT is exported as the D-20 named constant (5)", () => {
     expect(WORKER_COUNT).toBe(5);
+  });
+
+  it("Test 10: MAX_QUEUE_DEPTH exported and finite", () => {
+    expect(Number.isFinite(MAX_QUEUE_DEPTH)).toBe(true);
+    expect(MAX_QUEUE_DEPTH).toBeGreaterThan(0);
+  });
+
+  it("Test 11: enqueue past MAX_QUEUE_DEPTH → new item rejected, failure.json dropped via workerDeps", async () => {
+    // Track failure-file writes: any writeMarkdownFileAtomic call means the
+    // overflow-drop path fired.
+    const writeMarkdownFileAtomic = vi.fn().mockResolvedValue(undefined);
+    const writeBinaryFileAtomic = vi.fn().mockResolvedValue(undefined);
+
+    const workerDeps: WorkerDeps = {
+      writeMarkdownFileAtomic,
+      writeBinaryFileAtomic,
+      isLocalHostId: vi.fn().mockReturnValue(true),
+      resolveHostById: vi.fn(),
+      connectOneShot: vi.fn(),
+      execCommand: vi.fn(),
+      callOpenAiImageGen: vi.fn(),
+      tokenBucket: { acquire: vi.fn(), getState: vi.fn() } as unknown as WorkerDeps["tokenBucket"],
+      now: () => Date.now(),
+    };
+
+    // Register a process fn that BLOCKS forever so no items leave the pending
+    // queue — this lets us fill the queue up to the cap without racing with
+    // worker drain.
+    const blockingProcess: ProcessImageGenFn = vi.fn().mockImplementation(
+      () => new Promise<void>(() => {}),
+    );
+    setProcessImageGen(blockingProcess);
+    setWorkerDeps(workerDeps);
+    // NOTE: do NOT startPool() — no drain → items sit in pending.
+
+    // Fill to the cap. Use padded uuids so each is unique + a valid hex
+    // shape isn't required (queue doesn't validate).
+    for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
+      enqueue(
+        makePendingImageGen({
+          uuid: `cap-item-${i.toString().padStart(6, "0")}-0000-0000-0000-000000000000`,
+        }),
+      );
+    }
+
+    // No failure drops yet — every enqueue below the cap succeeds.
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+
+    // The (MAX_QUEUE_DEPTH + 1)th item MUST be rejected.
+    const rejectItem = makePendingImageGen({
+      uuid: "reject00-0000-0000-0000-000000000000",
+    });
+    enqueue(rejectItem);
+
+    // Give the fire-and-forget failure-file drop a microtask to fire.
+    await flush();
+
+    // writeMarkdownFileAtomic fired exactly once — for the rejected item.
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const call = writeMarkdownFileAtomic.mock.calls[0];
+    // The path names the rejected uuid's failure.json.
+    expect(call[1]).toContain("reject00-0000-0000-0000-000000000000.failure.json");
+    // Body contains the queue-full failure shape.
+    const body = JSON.parse(call[2] as string);
+    expect(body.reason).toBe("unknown");
+    expect(body.message).toContain("queue full");
+  });
+
+  it("Test 12: overflow-drop is safe when workerDeps is not wired (warn-log only, no throw)", () => {
+    // No setWorkerDeps() — mimic a mis-wired startup or a very early scan tick.
+    setProcessImageGen(vi.fn().mockResolvedValue(undefined));
+
+    // Fill to the cap.
+    for (let i = 0; i < MAX_QUEUE_DEPTH; i++) {
+      enqueue(
+        makePendingImageGen({
+          uuid: `cap2-item-${i.toString().padStart(5, "0")}-0000-0000-0000-000000000000`,
+        }),
+      );
+    }
+
+    // The (cap + 1) enqueue MUST NOT throw when workerDeps is null.
+    expect(() => enqueue(makePendingImageGen({ uuid: "no-deps00-0000-0000-0000-000000000000" }))).not.toThrow();
   });
 
   it("Test 9: stopPool prevents new drains (workers exit their loop)", async () => {
