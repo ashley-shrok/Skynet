@@ -22,6 +22,20 @@
 # without a manual `systemctl --user restart agent-supervisor` or a host
 # reboot.
 #
+# AppArmor: Ubuntu 24.04's dbus-daemon enforces AppArmor DBus mediation
+# via SO_PEERSEC — even when SASL EXTERNAL auth passes (uid matches) and
+# the socket is world-writable, the daemon consults AppArmor on the very
+# first `org.freedesktop.DBus.Hello` and refuses if the peer's label is
+# not permitted to send on that bus. Docker's stock `docker-default`
+# profile is not permitted, so the container's `systemctl --user` calls
+# fail with `Permission denied` (Error.AccessDenied) regardless of mount
+# and env. The overlay drops the container's AppArmor confinement to
+# unconfined, which is a broader widening than just DBus — it removes
+# every `docker-default` mediation for this container. Proportionate on
+# the same "container already trusted with host-user unit restarts + full
+# host-home mount" grounds that justify the socket bind above; call it
+# out separately here so the widening is not silent.
+#
 # UID assumption: hardcoded to 1000 (matches every current fleet peer's
 # service-user uid). When the first non-1000 deployment shows up, promote
 # this to a compose interpolation like `/run/user/${SKYNET_HOST_UID}` and
@@ -58,3 +72,8 @@ services:
       # inside the container without this var errors "Failed to connect
       # to bus: No medium found" (systemd's stock error for absent DBus).
       XDG_RUNTIME_DIR: /run/user/1000
+    security_opt:
+      # See "AppArmor" paragraph in the header. Without this, dbus-daemon's
+      # AppArmor mediation refuses the container's `Hello` call on the
+      # session bus even after the SASL EXTERNAL uid check passes.
+      - apparmor=unconfined
