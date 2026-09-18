@@ -36,6 +36,14 @@ export type RawCosmetics = {
   task?: string;
   avatar?: string;
   coordinator?: boolean;
+  /**
+   * Phase 117 Plan 117-07 (D-05 identity carrier): project slug from the
+   * identity's frontmatter `project:` field. Per-identity, NOT inherited from
+   * the role — same discipline as `task` (D-05 write-once semantic). Permissive
+   * on read (any non-empty string is surfaced); dangling slugs handled at
+   * frontend render time (D-07 graceful degradation).
+   */
+  project?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -58,6 +66,12 @@ export type ResolvedIdentityAppearance = {
   voice: string | null;
   /** NOT inherited from the role — task is per-identity (D-05 write-once at birth). */
   task: string | null;
+  /**
+   * Phase 117 Plan 117-07 (D-05 identity carrier): project slug from the
+   * identity's frontmatter `project:` field. NOT inherited from the role —
+   * same discipline as `task` (per-identity write-once). Null when absent.
+   */
+  project: string | null;
   coordinator: boolean;
   role: string | null;
   /**
@@ -164,6 +178,13 @@ export function resolveIdentityAppearance(args: {
   // --- task: per-identity ONLY, NOT inherited from the role (D-05 write-once at birth) ---
   const task = typeof cosmetics.task === "string" ? cosmetics.task : null;
 
+  // --- project: per-identity ONLY, NOT inherited from the role (Phase 117 D-05) ---
+  // Same discipline as `task`. A role's `project:` frontmatter is NOT a
+  // fallback — project membership is a per-identity assignment carried in
+  // the identity file (not the role file).
+  const project =
+    typeof cosmetics.project === "string" ? cosmetics.project : null;
+
   // --- displayName: identity ?? capitalizeFirst(identityKey), NOT the role's displayName ---
   // NOTE: roleCosmetics.displayName is intentionally NOT a fallback here.
   // The safe default is always capitalizeFirstIdentityKey(identityKey).
@@ -191,6 +212,7 @@ export function resolveIdentityAppearance(args: {
     colorHue,
     voice,
     task,
+    project,
     coordinator,
     role,
     roleDefaults,

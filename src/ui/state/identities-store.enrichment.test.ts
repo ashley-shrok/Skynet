@@ -229,6 +229,7 @@ function makeIdentity(
     avatarEtag: "",
     coordinator: false,
     task: null,
+    project: null,
   };
   // Phase 92 D-04 — new field on the Identity type. Optional to preserve
   // compat with callsites that don't care about the pin projection.
@@ -335,6 +336,7 @@ function makeIdentityWithFlags(
     avatarEtag: "",
     coordinator: false,
     task: null,
+    project: null,
   };
   if (opts.pinned !== undefined) {
     (base as Identity & { pinned?: boolean }).pinned = opts.pinned;
@@ -502,6 +504,7 @@ function makeIdentityFull(
     avatarEtag: "",
     coordinator: false,
     task: null,
+    project: null,
     pinned: false,
     roleDefaults: null,
     ...overrides,

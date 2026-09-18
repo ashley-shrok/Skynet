@@ -32,6 +32,8 @@ const FIXTURE: Identity = {
   avatarUrl: "/identities/tina/avatar?hostId=1",
   avatarEtag: "etag-1",
   coordinator: false,
+  task: null,
+  project: null,
 };
 
 // Mock identities-store: byKey.get("tina") returns FIXTURE so the badge renders.

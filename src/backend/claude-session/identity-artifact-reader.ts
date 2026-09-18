@@ -2994,6 +2994,14 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
    * present-with-bad-value via `"task" in cosmetics`.
    */
   task?: string;
+  /**
+   * Phase 117 Plan 117-07 (D-05 identity carrier): project slug from the
+   * identity's frontmatter `project:` field. Permissive narrowing — dangling
+   * / mistyped slugs are handled at render time by the frontend selector's
+   * graceful-degradation branch per D-07. Strict PROJECT_SLUG_RE validation
+   * fires only at the WRITE path (writeSessionProjectField from 117-01).
+   */
+  project?: string;
 } {
   const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
@@ -3024,6 +3032,7 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
     avatar?: string;
     coordinator?: boolean;
     task?: string;
+    project?: string;
   } = {};
   if (typeof src.displayName === "string" && src.displayName.length > 0) {
     out.displayName = src.displayName;
@@ -3069,6 +3078,14 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
   // Phase 80 Plan 80-03: task narrowing — mirrors voice/title pattern.
   if (typeof src.task === "string" && src.task.length > 0) {
     out.task = src.task;
+  }
+  // Phase 117 Plan 117-07 (D-05 identity carrier): project narrowing — same
+  // permissive shape as task. PROJECT_SLUG_RE strict-check lives at the WRITE
+  // path (writeSessionProjectField from 117-01); the reader is permissive so
+  // dangling / mistyped slugs surface for the frontend selector's
+  // graceful-degradation branch (D-07) instead of being silently dropped.
+  if (typeof src.project === "string" && src.project.length > 0) {
+    out.project = src.project;
   }
   return out;
 }

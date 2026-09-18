@@ -70,6 +70,13 @@ import projectListRoutes from "./routes/project-list.js";
 // /relay-room/create + /relay-room/:roomId/participants under the
 // singular /relay-room base.
 import relayRoomProjectTagRoutes from "./routes/relay-room-project-tag.js";
+// Phase 117 Plan 117-07 (Fix 1 gate / D-05 relay-room carrier): GET
+// /relay-rooms/project-tags — boot-time enumerator that walks the acting
+// user's Matrix rooms and returns every room whose account_data has a
+// `u.project.<slug>` tag. Frontend hydrates roomProjectAssignments at
+// AppShell mount from this endpoint (partial hydration on per-room errors).
+// Mounted at plural /relay-rooms alongside 117-05's project-tag write route.
+import relayRoomProjectTagsListRoutes from "./routes/relay-room-project-tags-list.js";
 // Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
 // POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook (Plan 40-02)
 // and editor open path (Plan 40-03) both consume this. Threat model
@@ -2034,6 +2041,11 @@ app.use("/relay-room", relayRoomParticipantsRoutes);
 // the /relay-room mounts above; nginx location block already covers
 // the prefix by inclusion.
 app.use("/relay-rooms", relayRoomProjectTagRoutes);
+// Phase 117 Plan 117-07 (Fix 1 / D-05 relay-room carrier): GET
+// /relay-rooms/project-tags?hostId=<n> — enumerator that returns rooms
+// with u.project.<slug> account_data tags. Chains cleanly with the
+// /:roomId/project write route above (non-overlapping sub-paths).
+app.use("/relay-rooms", relayRoomProjectTagsListRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote

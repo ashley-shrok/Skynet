@@ -161,6 +161,36 @@ export type ConversationList = {
   pinned: ConversationRow[];
   middle: ConversationRow[];
   rdpGroup: HostGroup | null;
+  // ─── Phase 117 Plan 117-07 (D-05, D-07, D-08, D-11, D-15, D-16, D-19, D-39) ─
+  // Projects-derived selector output. Additive to the pre-Phase-117 shape —
+  // existing consumers keep using `pinned/middle/rdpGroup`. New Wave 4 (117-08)
+  // consumers use `pinnedUnassigned/projectSections/rdp`. Rendering choice
+  // between the two views is a per-consumer decision; the store computes both.
+  /**
+   * Pinned rows that have NO project assignment. These float to the sidebar's
+   * top pinned zone per D-19's "pinned + unassigned" branch. Pinned rows that
+   * DO have a project assignment float to the top of their project section
+   * (see `projectSections[i].rows[0]`) instead — NOT here.
+   */
+  pinnedUnassigned: ConversationRow[];
+  /**
+   * Per-project buckets, sorted alphabetical by displayName (D-15). Each
+   * section carries its rows in the order: pinned-in-project first (D-19),
+   * then remaining rows alphabetical by displayName (D-16). Rows whose
+   * project slug points to a nonexistent project fall to `middle` instead
+   * (D-07 graceful degradation). RDP rows never appear here (D-08).
+   */
+  projectSections: Array<{
+    slug: string;
+    displayName: string;
+    rows: ConversationRow[];
+  }>;
+  /**
+   * RDP-eligible synthetic host rows. Same content as `rdpGroup.rows` (a
+   * duplicate reference to keep the "one bucket per new-shape field" symmetry
+   * clean). Null iff no RDP-eligible hosts (mirrors rdpGroup).
+   */
+  rdp: HostGroup | null;
 };
 
 // Plan 07-01 (TG-12): fleet-discovered tmux session shape. Re-declared here
@@ -400,6 +430,29 @@ type State = {
   // does, both records survive as distinct rows). Consumed via
   // useArchivedFleetRows below by the panel's Archived section.
   archivedFleetRows: ArchivedFleetRow[];
+  // ─── Phase 117 Plan 117-07 (D-05, D-37, D-39) — projects slice ────────────
+  // Backend-authoritative list of projects, hydrated from two sources:
+  //   1. Boot-time HTTP hydration via `listProjects(hostId)` (per-host fetch,
+  //      aggregated to a flat ProjectRow[] before setProjects fires).
+  //   2. Wire-event updates via `onProjectListChanged` on fleet-status-client
+  //      (the WS publishes the full array on every create/archive/rename per
+  //      117-03's registry.publishProjectListChanged).
+  // Both paths funnel through `setProjects` — identity-equal-skip absorbs
+  // no-op reemissions (see setProjects body).
+  projects: ProjectRow[];
+  // Per-identity project-membership assignment. Keyed on `${hostId}::${identityKey}`
+  // (matching the identity's home box + on-disk name). Populated by AppShell's
+  // identity-hydration path — reads identity.project from GET /identities and
+  // stitches (hostId, identityKey) → slug. The projects-derived selector reads
+  // this map to route each identity conversation into its project section
+  // (D-05 identity carrier — frontmatter is the source of truth).
+  identityProjectAssignments: Map<string, string>;
+  // Relay-room project-membership assignment. Keyed on roomId (m.tag account_data
+  // event is per-user-per-room in Matrix, so one slot per room suffices).
+  // Populated by AppShell's boot-time hydration via GET /relay-rooms/project-tags
+  // (117-07 relay-room-project-tags-list route) — D-05 relay-room carrier is
+  // the u.project.<slug> Matrix account_data tag.
+  roomProjectAssignments: Map<string, string>;
 };
 
 /**
@@ -412,6 +465,22 @@ export type ArchivedFleetRow = {
   hostId: number;
   name: string;
   hostname: string;
+};
+
+/**
+ * Phase 117 Plan 117-07 (D-37, D-39): shape of a project entry in the
+ * frontend. Mirrors the wire event payload from 117-03
+ * (FrontendProjectListChangedFrame's `projects[]` element). The setter
+ * `setProjects` accepts this array shape verbatim from the fleet-status
+ * client's `onProjectListChanged` callback + from the boot-time
+ * `listProjects(hostId)` HTTP hydration path.
+ */
+export type ProjectRow = {
+  slug: string;
+  displayName: string;
+  hostId: string;
+  hostname: string;
+  archived: boolean;
 };
 
 let state: State = {
@@ -430,6 +499,11 @@ let state: State = {
   // frames on connect re-populate the whole array (the setter is a REPLACE,
   // not an APPEND — the backend is the authority on the current archive set).
   archivedFleetRows: [],
+  // Phase 117 Plan 117-07 (D-37): empty projects on boot; hydrated by
+  // AppShell's boot-time listProjects fetch + wire event.
+  projects: [],
+  identityProjectAssignments: new Map<string, string>(),
+  roomProjectAssignments: new Map<string, string>(),
 };
 
 // Plan 06-04 race defense (T-06-04-04): openTab's setTabs is batched — the
@@ -886,6 +960,12 @@ function computeSnapshot(): ConversationList {
     emittedIds.add(row.id);
   }
   pinned.sort(compareByHostRoleLabel);
+  // Phase 117 Plan 117-07: capture the set of row ids that landed in the pinned
+  // tier so the projects-derived selector below can distinguish pinned-in-project
+  // (float to project section top per D-19) from unpinned-in-project (alphabetical
+  // by displayName). Cheaper than re-deriving shadow-id for each row a second time.
+  const pinnedRowIdSet = new Set<string>();
+  for (const r of pinned) pinnedRowIdSet.add(r.id);
 
   // ── Middle zone (Phase 41 Plan 01): FLAT list of non-pinned / non-RDP
   //    identity-tmux + fleet-synthetic rows, sorted by compareByRecencyDesc.
@@ -1017,11 +1097,189 @@ function computeSnapshot(): ConversationList {
       ? { hostId: "__rdp__", hostName: "", rows: rdpRows }
       : null;
 
+  // ─── Phase 117 Plan 117-07 — projects-derived selector (D-05, D-07, D-08,
+  //   D-11, D-15, D-16, D-19, D-39) ─────────────────────────────────────────
+  //
+  // Bucket every row into one of: `pinnedUnassigned` (pinned + no project),
+  // per-project section (pinned float to top of section per D-19; otherwise
+  // sorted alphabetical by displayName per D-16), `middle` (unpinned + no
+  // project or dangling project ref per D-07), or `rdp` (unchanged — RDP
+  // rows never enter a project section per D-08).
+  //
+  // Resolver contract (per D-05 two-carrier membership):
+  //   1. RDP row → assignment = null (defense-in-depth D-08 exclusion).
+  //   2. Relay-room row (row.roomId set) → look up state.roomProjectAssignments.
+  //   3. Identity-associated row (row.host set) → look up
+  //      state.identityProjectAssignments keyed on `${hostId}::${identityKey}`
+  //      where identityKey is derived from targetTmuxSession (falls back to
+  //      the sessionMatchKey helper for the same convention identities-store uses).
+  //   4. Slug returned but not in state.projects → treat as null (D-07).
+  //
+  // The pinned + middle rows built above are re-bucketed here into the new
+  // shape. Existing `pinned`, `middle`, `rdpGroup` fields remain populated for
+  // backward-compat with pre-Phase-117 consumers.
+  const projectsBySlug = new Map<string, ProjectRow>();
+  for (const p of state.projects) projectsBySlug.set(p.slug, p);
+
+  // Helper: resolve a row → project slug (or null).
+  function projectForRow(row: ConversationRow): string | null {
+    if (row.rdpHostRow === true) return null; // D-08 defense
+    if (row.roomId !== undefined) {
+      const raw = state.roomProjectAssignments.get(row.roomId);
+      if (raw === undefined) return null;
+      // D-07 graceful degradation: dangling slug → null.
+      return projectsBySlug.has(raw) ? raw : null;
+    }
+    // Identity-associated: key = `${hostId}::${identityKey}`. Use
+    // targetTmuxSession (canonical identity name lives in the tmux session
+    // name convention). Falls back to null when host is undefined (e.g.
+    // relay-room rows already handled above; pure fleet-only rows without
+    // a resolved host on this tick).
+    if (!row.host) return null;
+    const identityKey =
+      row.targetTmuxSession !== null && row.targetTmuxSession !== ""
+        ? sessionMatchKey(row.targetTmuxSession) ?? row.targetTmuxSession
+        : null;
+    if (identityKey === null) return null;
+    const mapKey = `${row.host.id}::${identityKey}`;
+    const raw = state.identityProjectAssignments.get(mapKey);
+    if (raw === undefined) return null;
+    return projectsBySlug.has(raw) ? raw : null;
+  }
+
+  // Row → displayName for the intra-project D-16 alphabetical sort. For
+  // identity rows, use the identity's displayName if available on
+  // identitiesByKey; else fall back to row.label (which mirrors the tmux
+  // session name for identity conversations). For relay-room rows, use
+  // row.roomTitle. Case-insensitive throughout.
+  function rowDisplayName(row: ConversationRow): string {
+    if (row.roomId !== undefined) {
+      return row.roomTitle ?? row.label ?? "";
+    }
+    // Identity: prefer identitiesByKey (matches Phase 25's role sort convention).
+    if (row.targetTmuxSession) {
+      const matchKey = sessionMatchKey(row.targetTmuxSession);
+      if (matchKey) {
+        const identity = state.identitiesByKey.get(matchKey);
+        if (identity?.displayName) return identity.displayName;
+      }
+    }
+    return row.label ?? "";
+  }
+
+  // Aggregate every candidate row (pinned + middle + fleet-synthetic) so the
+  // selector considers the full universe when bucketing into project sections.
+  // We deliberately walk `pinned` (from the pinned tier above) + `middleRows`
+  // (from the middle tier above); RDP rows are handled separately.
+  const pinnedUnassigned: ConversationRow[] = [];
+  const projectRowsBySlug = new Map<string, ConversationRow[]>();
+  // Middle for the new derived shape — starts from the existing middleRows
+  // then filters out rows that get promoted into a project section.
+  const derivedMiddle: ConversationRow[] = [];
+
+  // Pinned rows: assign to project section (pinned-in-project → project top)
+  // or to pinnedUnassigned (pinned + no project).
+  for (const row of pinned) {
+    const slug = projectForRow(row);
+    if (slug === null) {
+      pinnedUnassigned.push(row);
+    } else {
+      // D-19: pinned in-project floats to top of that section — mark by
+      // prepending to a per-slug bucket that we later sort with pinned-first
+      // discipline (we track pinned rows via state.pinnedIds membership).
+      const bucket = projectRowsBySlug.get(slug) ?? [];
+      bucket.push(row);
+      projectRowsBySlug.set(slug, bucket);
+    }
+  }
+
+  // Middle rows: assign to project section OR keep in derivedMiddle.
+  for (const row of middleRows) {
+    const slug = projectForRow(row);
+    if (slug === null) {
+      derivedMiddle.push(row);
+    } else {
+      const bucket = projectRowsBySlug.get(slug) ?? [];
+      bucket.push(row);
+      projectRowsBySlug.set(slug, bucket);
+    }
+  }
+
+  // Build projectSections. Every project in state.projects gets a section,
+  // even if empty (D-11). Rows within each section: pinned first (D-19),
+  // then alphabetical by displayName (D-16). Sections sorted alphabetical
+  // by displayName (D-15).
+  const projectSections: Array<{
+    slug: string;
+    displayName: string;
+    rows: ConversationRow[];
+  }> = [];
+  for (const project of state.projects) {
+    const rowsRaw = projectRowsBySlug.get(project.slug) ?? [];
+    // Split into pinned + unpinned (D-19). state.pinnedIds is the pin oracle.
+    const pinnedInProject: ConversationRow[] = [];
+    const unpinnedInProject: ConversationRow[] = [];
+    for (const row of rowsRaw) {
+      // pin check: mirrors the pinned-tier logic above — a row is pinned iff
+      // its id (or fleet-shadow id) is in state.pinnedIds. The pinned tier
+      // above already selected rows using state.pinnedIds, so rows arriving
+      // here from `pinned` are all pinned; rows from `middleRows` are not.
+      // Rather than re-derive shadow-id here, key off the source array via
+      // a stamp: use a Set of ids we know are pinned from the pinned tier.
+      // (Cheaper than a shadow-id lookup for each row.)
+      if (pinnedRowIdSet.has(row.id)) pinnedInProject.push(row);
+      else unpinnedInProject.push(row);
+    }
+    // Alphabetical by displayName within each subgroup.
+    pinnedInProject.sort((a, b) =>
+      rowDisplayName(a).localeCompare(rowDisplayName(b), undefined, {
+        sensitivity: "base",
+      }),
+    );
+    unpinnedInProject.sort((a, b) =>
+      rowDisplayName(a).localeCompare(rowDisplayName(b), undefined, {
+        sensitivity: "base",
+      }),
+    );
+    projectSections.push({
+      slug: project.slug,
+      displayName: project.displayName,
+      rows: [...pinnedInProject, ...unpinnedInProject],
+    });
+  }
+  // Sort sections alphabetical by displayName (D-15).
+  projectSections.sort((a, b) =>
+    a.displayName.localeCompare(b.displayName, undefined, {
+      sensitivity: "base",
+    }),
+  );
+
   // The snapshot carries EVERY row. (Phase 115 Plan 115-02: the earlier
   // Phase 107 Hidden section — including its hiddenIds subscription and
   // canonicalHideIdForRow resolver — was retired per D-21. The archive
   // gesture ships in 115-06 with a distinct archived-tree data source.)
-  return { activeSet: [], pinned, middle: middleRows, rdpGroup };
+  // Phase 117 Plan 117-07 (D-39): rows that land in a project section (which
+  // requires state.projects to be non-empty AND a valid assignment through
+  // identityProjectAssignments / roomProjectAssignments) are promoted out of
+  // `middle`. Pre-Phase-117 code paths — where state.projects is empty and no
+  // assignment maps are populated — see `middle` unchanged from the
+  // pre-Phase-117 shape (all non-pinned non-RDP rows). So this is
+  // backward-compatible in practice: the pre-Phase-117 sidebar continues to
+  // render `middle` verbatim until Wave 4 (117-08) swaps to the new fields.
+  return {
+    activeSet: [],
+    pinned,
+    middle: derivedMiddle,
+    rdpGroup,
+    // Phase 117 Plan 117-07 (D-39): projects-derived output. Wave 4 (117-08)
+    // reads pinnedUnassigned / projectSections / rdp INSTEAD of pinned / middle
+    // / rdpGroup for the projects-aware render. The pinnedUnassigned field
+    // subsumes the "top pinned zone" from pre-Phase-117; pinned-in-project
+    // rows flow into their project section instead (D-19).
+    pinnedUnassigned,
+    projectSections,
+    rdp: rdpGroup,
+  };
 }
 
 function getSnapshot(): ConversationList {
@@ -1966,6 +2224,115 @@ export function useArchivedFleetRows(): readonly ArchivedFleetRow[] {
   );
 }
 
+// ─── Phase 117 Plan 117-07 (D-05, D-37, D-39): projects slice ────────────────
+// Backend-authoritative project list, fed from two sources through this
+// single setter: (a) boot-time HTTP hydration via `listProjects(hostId)`
+// aggregated across managed hosts; (b) wire-event updates via
+// `onProjectListChanged` on the fleet-status-client. Both paths hit
+// `setProjects` — identity-equal-skip absorbs no-op re-emissions so an
+// unchanged wire snapshot on reconnect does not churn subscribers.
+//
+// Shape mirrors ArchivedFleetRow's setter byte-for-byte (see :1903-1955).
+
+/**
+ * Replace the projects array with `rows`. Identity-equal skip: same length AND
+ * every entry field-equal to the current slot → no mutation, no notify.
+ */
+export function setProjects(rows: readonly ProjectRow[]): void {
+  const cur = state.projects;
+  if (rows.length === cur.length) {
+    let equal = true;
+    for (let i = 0; i < rows.length; i++) {
+      const a = rows[i];
+      const b = cur[i];
+      if (
+        a.slug !== b.slug ||
+        a.displayName !== b.displayName ||
+        a.hostId !== b.hostId ||
+        a.hostname !== b.hostname ||
+        a.archived !== b.archived
+      ) {
+        equal = false;
+        break;
+      }
+    }
+    if (equal) return;
+  }
+  state = { ...state, projects: rows.slice() };
+  notify();
+}
+
+function getProjectsSnapshot(): readonly ProjectRow[] {
+  return state.projects;
+}
+
+export function useProjects(): readonly ProjectRow[] {
+  return useSyncExternalStore(
+    subscribe,
+    getProjectsSnapshot,
+    getProjectsSnapshot,
+  );
+}
+
+/**
+ * Replace the identity → project map with `map` (D-05 identity carrier).
+ * Keyed on `${hostId}::${identityKey}`. Called by AppShell's identity
+ * hydration path after listIdentities resolves. Same-content skip via
+ * shallow Map-equality (size + every key/value pair match).
+ */
+export function setIdentityProjectAssignments(
+  map: ReadonlyMap<string, string>,
+): void {
+  const cur = state.identityProjectAssignments;
+  if (map.size === cur.size) {
+    let equal = true;
+    for (const [k, v] of map) {
+      if (cur.get(k) !== v) {
+        equal = false;
+        break;
+      }
+    }
+    if (equal) return;
+  }
+  state = { ...state, identityProjectAssignments: new Map(map) };
+  notify();
+}
+
+/**
+ * Replace the room → project map with `map` (D-05 relay-room carrier).
+ * Keyed on Matrix roomId. Called by AppShell's boot-time hydration via GET
+ * /relay-rooms/project-tags aggregated per host. Same-content skip via
+ * shallow Map-equality.
+ */
+export function setRoomProjectAssignments(
+  map: ReadonlyMap<string, string>,
+): void {
+  const cur = state.roomProjectAssignments;
+  if (map.size === cur.size) {
+    let equal = true;
+    for (const [k, v] of map) {
+      if (cur.get(k) !== v) {
+        equal = false;
+        break;
+      }
+    }
+    if (equal) return;
+  }
+  state = { ...state, roomProjectAssignments: new Map(map) };
+  notify();
+}
+
+// Test-only reset — same shape as __resetPinnedIdsForTest et al.
+export function __resetProjectsForTest(): void {
+  state = {
+    ...state,
+    projects: [],
+    identityProjectAssignments: new Map<string, string>(),
+    roomProjectAssignments: new Map<string, string>(),
+  };
+  notify();
+}
+
 // quick-260727-kbw: fleet-loaded gate for the panel's mount-effect
 // getPinnedIds fetch. The panel MUST NOT fire the *initial* hydratePinned
 // IdsFromServer fetch until state.fleetSessions has been populated at
@@ -2101,6 +2468,11 @@ export function __getSnapshotForTest(): SnapshotForTest {
     pinned: list.pinned,
     middle: list.middle,
     rdpGroup: list.rdpGroup,
+    // Phase 117 Plan 117-07: pass through the projects-derived fields so
+    // tests reading __getSnapshotForTest see the same shape hooks return.
+    pinnedUnassigned: list.pinnedUnassigned,
+    projectSections: list.projectSections,
+    rdp: list.rdp,
     selectedId: state.selectedId,
     pinnedIds: state.pinnedIds,
     // quick-260821-m36: exposed for the flag-flip-on-fetch-failure test.

@@ -619,6 +619,13 @@ export function mergeIdentityAppearance(
       avatarEtag: "",
       coordinator: appearance.coordinator === true,
       task: typeof appearance.task === "string" ? appearance.task : null,
+      // Phase 117 Plan 117-07 (D-05 identity carrier): project field surfaces
+      // on the identity row. `appearance.project` is not carried by the wire
+      // schema today (IdentityAppearanceSchema does not include it — extending
+      // the schema would require a snapshotVersion bump), so default to null
+      // here on the pulse-append path; the GET /identities fetch (which does
+      // carry the field) supplies the authoritative value on the next merge.
+      project: null,
       roleDefaults: appearance.roleDefaults ?? null,
       pinned: appearance.pinned === true,
     };
@@ -874,6 +881,11 @@ export function readAppearanceCache(): Identity[] {
           avatarEtag: item.avatarEtag,
           coordinator: item.coordinator,
           task: item.task,
+          // Phase 117 Plan 117-07 (D-05 identity carrier): project field
+          // survives cache round-trip. Older cache entries that predate the
+          // field deserialize as `undefined` → coerce to null so the Identity
+          // type's `project: string | null` invariant holds.
+          project: typeof item.project === "string" ? item.project : null,
           pinned: item.pinned === true,
           roleDefaults: item.roleDefaults ?? null,
         });
@@ -905,6 +917,11 @@ export function writeAppearanceCache(list: Identity[]): void {
       avatarEtag: i.avatarEtag,
       coordinator: i.coordinator,
       task: i.task,
+      // Phase 117 Plan 117-07 (D-05 identity carrier): persist project field
+      // through the cache round-trip so a page refresh doesn't temporarily
+      // drop the identity's project assignment before the first GET
+      // /identities completes.
+      project: i.project,
       pinned: i.pinned === true,
       roleDefaults: i.roleDefaults ?? null,
     }));

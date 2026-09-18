@@ -185,6 +185,8 @@ function makeIdentity(hue: number, name = "nelly"): Identity {
     colorHue: hue,
     voice: null,
     role: null,
+    task: null,
+    project: null,
     avatarMime: "image/png",
     // Empty avatarUrl → the row falls back to the initial-letter render path
     // (avoids any real network fetch during tests).

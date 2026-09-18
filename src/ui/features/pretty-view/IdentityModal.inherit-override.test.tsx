@@ -137,6 +137,7 @@ const BASE_IDENTITY: Identity = {
   avatarEtag: "etag-v1",
   coordinator: false,
   task: null,
+  project: null,
   roleDefaults: {
     title: "Box maintainer",
     colorHue: 216,

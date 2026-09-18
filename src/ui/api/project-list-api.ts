@@ -75,3 +75,31 @@ export async function archiveProject(
     handleApiError(error, "archive project");
   }
 }
+
+/**
+ * Phase 117 Plan 117-07 (Fix 1 / D-05 relay-room carrier): boot-time
+ * enumerator that returns every joined relay-room whose account_data carries
+ * a `u.project.<slug>` tag. AppShell aggregates the per-host results into a
+ * flat Map<roomId, slug> and passes it to setRoomProjectAssignments before
+ * the first render.
+ *
+ * Endpoint: GET /relay-rooms/project-tags?hostId=<n>
+ * Response: `{ assignments: Array<{ roomId: string, slug: string }> }`
+ *
+ * Partial-hydration discipline: per-room Matrix errors are swallowed
+ * server-side (logged as warn, entry omitted from the returned array). The
+ * frontend just consumes whatever the backend returns.
+ */
+export async function listRelayRoomProjectTags(
+  hostId: number,
+): Promise<{ assignments: Array<{ roomId: string; slug: string }> }> {
+  try {
+    const url = `/relay-rooms/project-tags?hostId=${encodeURIComponent(String(hostId))}`;
+    const response = await authApi.get(url);
+    return response.data as {
+      assignments: Array<{ roomId: string; slug: string }>;
+    };
+  } catch (error) {
+    handleApiError(error, "list relay-room project tags");
+  }
+}

@@ -83,6 +83,8 @@ function makeIdentity(
     avatarUrl: "/avatar.png",
     avatarEtag: "abc",
     coordinator: false,
+    task: null,
+    project: null,
   };
 }
 

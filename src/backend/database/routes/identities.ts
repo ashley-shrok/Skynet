@@ -165,6 +165,11 @@ export function publicIdentity(
      *  When present-and-string, surfaced verbatim; otherwise emitted as null
      *  (matches voice/title null-fallback shape). */
     task?: string;
+    /** Phase 117 Plan 117-07 (D-05 identity carrier): project slug from
+     *  identity file frontmatter. When present-and-string, surfaced verbatim;
+     *  otherwise emitted as null. Not inherited from role (per-identity, same
+     *  write-once discipline as `task`). */
+    project?: string;
   } = {},
   role: string | null = null,
   /** Phase 85 Plan 85-01 Task 2: role's raw cosmetic frontmatter, merged
@@ -218,6 +223,11 @@ export function publicIdentity(
     // extractCosmeticsFromFrontmatter's task narrowing). Not merged with
     // role: task is per-identity (D-05 write-once at birth).
     task: resolved.task,
+    // Phase 117 Plan 117-07 (D-05 identity carrier): project slug from
+    // identity file frontmatter. Same per-identity discipline as `task` —
+    // not inherited from the role. Consumed by the frontend's
+    // conversation-store projects-derived selector (Wave 4 sidebar).
+    project: resolved.project,
     avatarMime:
       typeof cosmetics.avatarMime === "string" ? cosmetics.avatarMime : "",
     // Phase 68: hostId baked into avatarUrl so the frontend no longer needs

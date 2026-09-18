@@ -302,6 +302,7 @@ const BASE_IDENTITY: Identity = {
   voice: null,
   role: "box-maintainer",
   task: null,
+  project: null,
   avatarMime: "image/png",
   avatarUrl: "/identities/tabitha/avatar?hostId=7",
   avatarEtag: "etag-1",

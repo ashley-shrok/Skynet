@@ -135,6 +135,7 @@ function makeIdentityWithTask(overrides: Partial<Identity> = {}): Identity {
     avatarEtag: "",
     coordinator: false,
     task: "build the pool endpoint",
+    project: null,
     ...overrides,
   };
 }

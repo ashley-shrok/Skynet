@@ -131,6 +131,7 @@ const BASE_IDENTITY: Identity = {
   voice: null,
   role: null,
   task: null,
+  project: null,
   avatarMime: "image/png",
   avatarUrl: "/identities/tina/avatar?hostId=1",
   avatarEtag: "etag-1",

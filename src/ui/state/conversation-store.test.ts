@@ -108,6 +108,8 @@ function makeIdentity(
     avatarUrl: "",
     avatarEtag: "",
     coordinator: false,
+    task: null,
+    project: null,
     ...(overrides ?? {}),
   };
 }

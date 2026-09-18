@@ -32,6 +32,13 @@ export interface Identity {
    *  task). Present-and-truthy gates the task-primary UI treatment on chat +
    *  list surfaces (D-06 fallback semantics). */
   task: string | null;
+  /** Phase 117 Plan 117-07 (D-05 identity carrier): project slug from
+   *  identity file frontmatter. Null when absent. Non-optional to match the
+   *  backend emitter's always-emit posture (publicIdentity emits `null` when
+   *  the field is missing on disk, per identity-appearance's fallback).
+   *  Consumed by the frontend's conversation-store projects-derived selector
+   *  to bucket the identity's conversation into a project section. */
+  project: string | null;
   /** Phase 92 Plan 02 (D-03/D-04): presence of `~/fleet/identities/<key>/.pinned`
    *  sentinel on the identity's home host, populated by the backend
    *  publicIdentity fanout via identityFileExists in the same Promise.all wave
