@@ -2634,3 +2634,13 @@ Plans:
 - [x] 117-08-PLAN.md — Frontend UI: PrettyProjectSectionHeader (header row + hover-only coral drop lane with verbatim D-23 palette + type-gate on application/x-skynet-row + RDP refuse per D-08); PrettyConversationsPanel integration (project sections rendered BETWEEN pinned zone and flat middle per D-09, no super-section label per D-10, empty sections visible per D-11, flat-middle clear-drop per D-22 gesture #2, create-project button state toggle)
 - [x] 117-09-PLAN.md — Frontend UI: CreateProjectModal (raw displayName to backend, 409 dup surfaces inline, no live slug preview per D-26); archive-project cascade with verbatim D-29 confirmation + Promise.allSettled parallel archiveIdentity + archiveProject folder-move; new-conversation-inside-project pre-select via NewConversationModal `preSelectedProject` prop (D-27); context-menu wiring (Edit + Archive per D-14); one blocking human-verify checkpoint exercising the full lifecycle end-to-end
 - [x] 117-10-PLAN.md — Substrate: substrate/skills/id/SKILL.md body edit inserting the project-awareness clause into § 2 (Loading an existing identity) between the identity-file-specialization step and the runbooks-enumeration step per D-32/D-33; no distributor/catalog.ts change; ships last so 117-09's human-verify closes the sidebar UAT gate before the substrate change lands
+
+### Phase 118: First-class apps — sweep + registry (shape 2)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 115
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 118 to break down)
