@@ -565,6 +565,295 @@ function shellEscape(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 117 Plan 117-01 — project directory primitives
+// ---------------------------------------------------------------------------
+//
+// Reads and writes at $HOME/fleet/projects/<slug>/... — a NEW sibling to
+// ~/fleet/roles/ and ~/fleet/identities/ under the fleet substrate (D-01).
+// Every function branches on conn===null (LOCAL: fs.promises against the
+// PROJECTS_HOST_DIR / os.homedir fallback) vs conn!==null (REMOTE: SSH exec
+// + SFTP via writeMarkdownFileAtomic) — same discipline as readIdentityFile
+// at :441-475.
+//
+// Slug safety: every entrypoint gates on PROJECT_SLUG_RE BEFORE any I/O.
+// `.` and `/` are structurally absent from the charset [a-z0-9-] so path
+// traversal (T-117-01-01) is impossible by construction. REMOTE-branch
+// shell interpolation additionally passes user-derived values through
+// shellEscape as belt-and-suspenders defense against future regex loosening
+// (T-117-01-02).
+//
+// Archive discipline (D-30): listProjects excludes the `archive/` subdirectory
+// from the enumeration; archived projects are invisible in v1. archiveProject
+// moves the whole slug dir to $HOME/fleet/projects/archive/<slug>/ — mirrors
+// the Phase 115 identity-archive tree destination shape.
+
+/**
+ * Enumerate all non-archived projects under $HOME/fleet/projects/.
+ *
+ * Returns an array of {slug, displayName} sorted ascending by slug. Excludes
+ * the `archive/` subdirectory per D-30. `displayName` comes from each
+ * project.md's frontmatter (system-read `displayName:` key); when missing or
+ * unreadable, falls back to the slug itself so a bare directory still shows
+ * up in the sidebar.
+ *
+ * LOCAL branch: fs.readdir with withFileTypes:true, filter to dirs matching
+ * PROJECT_SLUG_RE and name !== "archive". ENOENT on the root → [] (graceful).
+ *
+ * REMOTE branch: `find "$HOME/fleet/projects" -mindepth 1 -maxdepth 1 -type d
+ * ! -name archive -printf '%f\\n' 2>/dev/null || true` — the `|| true` handles
+ * "projects dir missing" as empty stdout, matching listIdentityKeysOnHost's
+ * error tolerance.
+ */
+export async function listProjects(
+  conn: SSHClientType | null,
+): Promise<Array<{ slug: string; displayName: string }>> {
+  let slugs: string[];
+
+  if (conn === null) {
+    const root = getLocalProjectsRoot();
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await fs.readdir(root, { withFileTypes: true });
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return [];
+      }
+      throw err;
+    }
+    slugs = entries
+      .filter(
+        (e) =>
+          e.isDirectory() &&
+          e.name !== "archive" &&
+          PROJECT_SLUG_RE.test(e.name),
+      )
+      .map((e) => e.name)
+      .sort();
+  } else {
+    const cmd =
+      `find "$HOME/fleet/projects" -mindepth 1 -maxdepth 1 -type d ! -name archive -printf '%f\\n' 2>/dev/null || true`;
+    const stdout = await execWithTimeout(conn, cmd);
+    slugs = stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((n) => n.length > 0 && PROJECT_SLUG_RE.test(n))
+      .sort();
+  }
+
+  // For each slug, best-effort read of project.md to extract displayName.
+  // Any failure falls back to the slug — a bare project dir is still a project.
+  const out: Array<{ slug: string; displayName: string }> = [];
+  for (const slug of slugs) {
+    let displayName = slug;
+    try {
+      const { markdown } = await readProjectFile(conn, slug);
+      if (markdown.length > 0) {
+        const fmMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+        if (fmMatch) {
+          try {
+            const parsed = yaml.load(fmMatch[1]) as Record<
+              string,
+              unknown
+            > | null;
+            if (parsed !== null && typeof parsed === "object") {
+              const dn = (parsed as Record<string, unknown>).displayName;
+              if (typeof dn === "string" && dn.length > 0) {
+                displayName = dn;
+              }
+            }
+          } catch {
+            // parse failure → keep slug fallback
+          }
+        }
+      }
+    } catch {
+      // read failure → keep slug fallback
+    }
+    out.push({ slug, displayName });
+  }
+  return out;
+}
+
+/**
+ * Read the project.md file at $HOME/fleet/projects/<slug>/project.md.
+ *
+ * Returns {markdown: string}; empty string on ENOENT (mirrors readIdentityFile).
+ * Throws on invalid slug (before any I/O).
+ */
+export async function readProjectFile(
+  conn: SSHClientType | null,
+  slug: string,
+): Promise<{ markdown: string }> {
+  if (!PROJECT_SLUG_RE.test(slug)) {
+    throw new Error("invalid project slug");
+  }
+
+  if (conn === null) {
+    const root = getLocalProjectsRoot();
+    const filePath = path.join(root, slug, "project.md");
+    try {
+      const markdown = await fs.readFile(filePath, "utf-8");
+      return { markdown };
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return { markdown: "" };
+      }
+      throw err;
+    }
+  }
+
+  // REMOTE — slug is regex-validated so interpolation inside double quotes is
+  // safe (same argument as readIdentityFile at :472 patch #95).
+  const cmd = `cat "$HOME/fleet/projects/${slug}/project.md" 2>/dev/null || true`;
+  const stdout = await execWithTimeout(conn, cmd);
+  return { markdown: stdout };
+}
+
+/**
+ * Create a new project directory at $HOME/fleet/projects/<slug>/ with a bare
+ * project.md whose frontmatter carries `displayName: <value>` and empty body
+ * (D-25).
+ *
+ * Duplicate-slug rejection: probes the target dir BEFORE any write. If it
+ * already exists, throws an Error whose `.code === "EEXIST"` so the route
+ * layer can 409 it distinguishably.
+ *
+ * Slug validated via PROJECT_SLUG_RE. displayName validated as string with
+ * trimmed length in [1, 80] (T-117-01 security-domain V5 cap). Both gates
+ * fire before any I/O.
+ */
+export async function createProject(
+  conn: SSHClientType | null,
+  slug: string,
+  displayName: string,
+): Promise<void> {
+  if (!PROJECT_SLUG_RE.test(slug)) {
+    throw new Error("invalid project slug");
+  }
+  if (typeof displayName !== "string") {
+    throw new Error("invalid displayName (must be string)");
+  }
+  const trimmed = displayName.trim();
+  if (trimmed.length < 1 || trimmed.length > 80) {
+    throw new Error(
+      "invalid displayName (length must be between 1 and 80 characters)",
+    );
+  }
+
+  // Compose the bare project.md body via canonical yaml.dump options.
+  const yamlBody = yaml.dump(
+    { displayName },
+    {
+      sortKeys: false,
+      lineWidth: -1,
+      noRefs: true,
+      forceQuotes: false,
+    },
+  );
+  const body = `---\n${yamlBody}---\n`;
+
+  if (conn === null) {
+    const root = getLocalProjectsRoot();
+    const projectDir = path.join(root, slug);
+    const targetFile = path.join(projectDir, "project.md");
+
+    // Probe BEFORE any write — dupe rejection distinguishable via .code
+    let dirExists = false;
+    try {
+      await fs.stat(projectDir);
+      dirExists = true;
+    } catch (err: unknown) {
+      if (
+        !(
+          typeof err === "object" &&
+          err !== null &&
+          (err as NodeJS.ErrnoException).code === "ENOENT"
+        )
+      ) {
+        throw err;
+      }
+    }
+    if (dirExists) {
+      const err = new Error(`project slug already exists: ${slug}`);
+      (err as NodeJS.ErrnoException).code = "EEXIST";
+      throw err;
+    }
+
+    await fs.mkdir(projectDir, { recursive: true });
+    await writeMarkdownFileAtomic(null, targetFile, body);
+    return;
+  }
+
+  // REMOTE — probe with `test -d`, both branches echo a distinguishable token.
+  const remoteDir = `$HOME/fleet/projects/${slug}`;
+  const escapedDir = shellEscape(remoteDir);
+  const probeOut = (
+    await execWithTimeout(
+      conn,
+      `test -d ${escapedDir} && echo ok || echo missing`,
+    )
+  ).trim();
+  if (probeOut === "ok") {
+    const err = new Error(`project slug already exists: ${slug}`);
+    (err as NodeJS.ErrnoException).code = "EEXIST";
+    throw err;
+  }
+  await execWithTimeout(conn, `mkdir -p ${escapedDir}`);
+  await writeMarkdownFileAtomic(
+    conn,
+    `$HOME/fleet/projects/${slug}/project.md`,
+    body,
+  );
+}
+
+/**
+ * Move the project directory at $HOME/fleet/projects/<slug>/ to
+ * $HOME/fleet/projects/archive/<slug>/ (D-30). Mirrors the identity-archive
+ * tree destination pattern from Phase 115.
+ *
+ * Slug validated via PROJECT_SLUG_RE — since `.` and `/` are not in the
+ * charset, path-traversal payloads like `../etc` are rejected before any
+ * I/O (T-117-01-01 path-traversal defense).
+ *
+ * Does NOT overwrite an existing archived slug: fs.rename onto an existing
+ * directory is a filesystem error and is allowed to propagate. Callers wanting
+ * "archive-anyway" semantics must clear the destination first (not v1 scope).
+ */
+export async function archiveProject(
+  conn: SSHClientType | null,
+  slug: string,
+): Promise<void> {
+  if (!PROJECT_SLUG_RE.test(slug)) {
+    throw new Error("invalid project slug");
+  }
+
+  if (conn === null) {
+    const root = getLocalProjectsRoot();
+    const archiveRoot = path.join(root, "archive");
+    const src = path.join(root, slug);
+    const dest = path.join(archiveRoot, slug);
+    await fs.mkdir(archiveRoot, { recursive: true });
+    await fs.rename(src, dest);
+    return;
+  }
+
+  const src = `$HOME/fleet/projects/${slug}`;
+  const dest = `$HOME/fleet/projects/archive/${slug}`;
+  const cmd =
+    `mkdir -p ${shellEscape("$HOME/fleet/projects/archive")} && ` +
+    `mv ${shellEscape(src)} ${shellEscape(dest)}`;
+  await execWithTimeout(conn, cmd);
+}
+
+// ---------------------------------------------------------------------------
 // Timeout constant
 // ---------------------------------------------------------------------------
 
