@@ -199,7 +199,20 @@ async function writeFailureFile(
       return;
     }
 
-    const hostDetails = await deps.resolveHostById(item.hostIdNum, item.userId);
+    // Re-resolve host-owner userId at process-time. item.userId is "" for
+    // scan-orch items (see parse-request-body.ts) — resolveHostById needs a
+    // real userId for field decryption, so we look it up via a direct
+    // plaintext-FK query on hosts.userId (Pitfall 3, mirrors spawn-requests).
+    const ownerUserId = await deps.getHostOwnerUserId(item.hostIdNum);
+    if (!ownerUserId) {
+      systemLogger.warn("image-gen worker: host-owner userId not found for failure write", {
+        operation: "image_gen_response_host_owner_not_found",
+        uuid: item.uuid,
+        hostIdNum: item.hostIdNum,
+      });
+      return;
+    }
+    const hostDetails = await deps.resolveHostById(item.hostIdNum, ownerUserId);
     if (!hostDetails) {
       systemLogger.warn("image-gen worker: host details not found for failure write", {
         operation: "image_gen_response_host_not_found",
@@ -285,7 +298,20 @@ async function writeSuccessResponse(
     }
 
     // REMOTE branch — single SSH connection covers all N PNGs + 1 JSON.
-    const hostDetails = await deps.resolveHostById(item.hostIdNum, item.userId);
+    // Re-resolve host-owner userId at process-time. item.userId is "" for
+    // scan-orch items (see parse-request-body.ts) — resolveHostById needs a
+    // real userId for field decryption, so we look it up via a direct
+    // plaintext-FK query on hosts.userId (Pitfall 3, mirrors spawn-requests).
+    const ownerUserId = await deps.getHostOwnerUserId(item.hostIdNum);
+    if (!ownerUserId) {
+      systemLogger.warn("image-gen worker: host-owner userId not found for success write", {
+        operation: "image_gen_response_host_owner_not_found",
+        uuid: item.uuid,
+        hostIdNum: item.hostIdNum,
+      });
+      return;
+    }
+    const hostDetails = await deps.resolveHostById(item.hostIdNum, ownerUserId);
     if (!hostDetails) {
       systemLogger.warn("image-gen worker: host details not found for success write", {
         operation: "image_gen_response_host_not_found",

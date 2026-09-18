@@ -107,6 +107,7 @@ function buildTestDeps(overrides?: Partial<WorkerDeps>): WorkerDeps {
       authType: "password",
       password: "secret",
     }),
+    getHostOwnerUserId: vi.fn().mockResolvedValue("user_abc"),
     callOpenAiImageGen: vi.fn().mockResolvedValue(successResult),
     tokenBucket: mockTokenBucket,
     now: vi.fn().mockReturnValue(Date.parse("2026-09-18T00:00:30Z")), // 30s after requested_at
@@ -260,9 +261,10 @@ describe("image-gen worker.processImageGen", () => {
 
     await processImageGen(item, deps);
 
-    // LOCAL branch: no SSH connection needed.
+    // LOCAL branch: no SSH connection needed and no host-owner lookup needed.
     expect(deps.connectOneShot).not.toHaveBeenCalled();
     expect(deps.resolveHostById).not.toHaveBeenCalled();
+    expect(deps.getHostOwnerUserId).not.toHaveBeenCalled();
 
     // Both writes get conn=null and the correct $HOME/fleet/image-gen-requests path.
     const binCalls = (deps.writeBinaryFileAtomic as ReturnType<typeof vi.fn>).mock.calls;
@@ -319,6 +321,124 @@ describe("image-gen worker.processImageGen", () => {
 
     await expect(processImageGen(item, deps)).resolves.toBeUndefined();
     // No SFTP write because there's no host to connect to.
+    expect(deps.connectOneShot).not.toHaveBeenCalled();
+    expect(deps.writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("REMOTE success write: getHostOwnerUserId is called before resolveHostById; resolveHostById receives the returned ownerUserId, NOT item.userId", async () => {
+    // Bug-guard for the Phase 116 E2E fix: scan-orchestrator populates
+    // item.userId = "", so the worker MUST re-resolve the host owner at
+    // process-time and pass THAT userId (not item.userId) to resolveHostById.
+    // Without this, resolveHostById returns null on every REMOTE call and
+    // response images are silently dropped.
+    const item = makePendingImageGen({ userId: "" }); // scan-orch shape
+    const adapterResult: AdapterResult = {
+      ok: true,
+      images: [Buffer.from("png-0")],
+      generation_time_ms: 111,
+    };
+    const RESOLVED_OWNER_ID = "user_owner_from_db_lookup";
+    const deps = buildTestDeps({
+      callOpenAiImageGen: vi.fn().mockResolvedValue(adapterResult),
+      getHostOwnerUserId: vi.fn().mockResolvedValue(RESOLVED_OWNER_ID),
+    });
+
+    // Capture the ORDER of the two host-side lookups so we can prove
+    // getHostOwnerUserId ran before resolveHostById.
+    const callOrder: string[] = [];
+    (deps.getHostOwnerUserId as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push("getHostOwnerUserId");
+      return RESOLVED_OWNER_ID;
+    });
+    (deps.resolveHostById as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      callOrder.push("resolveHostById");
+      return {
+        ip: "10.0.0.1",
+        port: 22,
+        username: "user",
+        authType: "password",
+        password: "secret",
+      };
+    });
+
+    await processImageGen(item, deps);
+
+    // Call-order invariant: owner lookup FIRST, then host resolution.
+    expect(callOrder).toEqual(["getHostOwnerUserId", "resolveHostById"]);
+
+    // getHostOwnerUserId was called with the numeric host id.
+    expect(deps.getHostOwnerUserId).toHaveBeenCalledTimes(1);
+    expect(deps.getHostOwnerUserId).toHaveBeenCalledWith(item.hostIdNum);
+
+    // Critical: resolveHostById received the RESOLVED owner id, NOT item.userId (which was "").
+    expect(deps.resolveHostById).toHaveBeenCalledTimes(1);
+    expect(deps.resolveHostById).toHaveBeenCalledWith(item.hostIdNum, RESOLVED_OWNER_ID);
+    // Explicit negative assertion — item.userId ("") must NEVER be passed through.
+    expect(deps.resolveHostById).not.toHaveBeenCalledWith(item.hostIdNum, "");
+  });
+
+  it("REMOTE success write: when getHostOwnerUserId returns null, response is skipped with 'host-owner userId not found' log (no resolveHostById, no SSH)", async () => {
+    // If the host row was deleted between scan-tick and worker drain,
+    // getHostOwnerUserId returns null. Worker must log + return without
+    // calling resolveHostById or opening an SSH connection.
+    const item = makePendingImageGen({ userId: "" });
+    const adapterResult: AdapterResult = {
+      ok: true,
+      images: [Buffer.from("png-0")],
+      generation_time_ms: 100,
+    };
+    const deps = buildTestDeps({
+      callOpenAiImageGen: vi.fn().mockResolvedValue(adapterResult),
+      getHostOwnerUserId: vi.fn().mockResolvedValue(null),
+    });
+
+    await expect(processImageGen(item, deps)).resolves.toBeUndefined();
+
+    // getHostOwnerUserId was called (the gate).
+    expect(deps.getHostOwnerUserId).toHaveBeenCalledTimes(1);
+    // resolveHostById was NEVER called (short-circuited on the null-owner gate).
+    expect(deps.resolveHostById).not.toHaveBeenCalled();
+    // No SSH connection opened, no file dropped.
+    expect(deps.connectOneShot).not.toHaveBeenCalled();
+    expect(deps.writeBinaryFileAtomic).not.toHaveBeenCalled();
+    expect(deps.writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("REMOTE failure write: getHostOwnerUserId is called before resolveHostById on the failure path too", async () => {
+    // Same invariant as the success-write test, but for the failure branch.
+    const item = makePendingImageGen({ userId: "" });
+    const RESOLVED_OWNER_ID = "user_owner_from_db_lookup";
+    const deps = buildTestDeps({
+      callOpenAiImageGen: vi.fn().mockResolvedValue({ ok: false, reason: "rate_limited" } as AdapterResult),
+      getHostOwnerUserId: vi.fn().mockResolvedValue(RESOLVED_OWNER_ID),
+    });
+
+    await processImageGen(item, deps);
+
+    expect(deps.getHostOwnerUserId).toHaveBeenCalledTimes(1);
+    expect(deps.getHostOwnerUserId).toHaveBeenCalledWith(item.hostIdNum);
+    expect(deps.resolveHostById).toHaveBeenCalledTimes(1);
+    expect(deps.resolveHostById).toHaveBeenCalledWith(item.hostIdNum, RESOLVED_OWNER_ID);
+    expect(deps.resolveHostById).not.toHaveBeenCalledWith(item.hostIdNum, "");
+
+    // Failure JSON was still dropped.
+    expect(deps.writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const call = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1]).toBe(`$HOME/fleet/image-gen-requests/${item.uuid}.failure.json`);
+    expect(JSON.parse(call[2] as string)).toEqual({ reason: "rate_limited" });
+  });
+
+  it("REMOTE failure write: when getHostOwnerUserId returns null, response is skipped without opening SSH", async () => {
+    const item = makePendingImageGen({ userId: "" });
+    const deps = buildTestDeps({
+      callOpenAiImageGen: vi.fn().mockResolvedValue({ ok: false, reason: "unknown" } as AdapterResult),
+      getHostOwnerUserId: vi.fn().mockResolvedValue(null),
+    });
+
+    await expect(processImageGen(item, deps)).resolves.toBeUndefined();
+
+    expect(deps.getHostOwnerUserId).toHaveBeenCalledTimes(1);
+    expect(deps.resolveHostById).not.toHaveBeenCalled();
     expect(deps.connectOneShot).not.toHaveBeenCalled();
     expect(deps.writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
