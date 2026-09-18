@@ -1439,44 +1439,27 @@ describe("PrettyConversationsPanel: all four header buttons gated on onCreateSes
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: desktop header title", () => {
-  it("Test 7 (patch #257 + Phase 70 Plan 04): desktop variant renders brand lockup (icon <img> + wordmark <img>) in .pv-title with .pv-panel-header treatment", () => {
+  it("Test 7: desktop variant renders icon-only brand lockup in .pv-title with .pv-panel-header treatment (wordmark removed)", () => {
     const { container, queryByAltText } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
-    // Phase 70 Plan 04: brand lockup is now two <img> tags driven by the
-    // branding store (Plan 70-03). Bundled-default sentinel gives:
-    //   - wordmark: src="/branding/wordmark.png", alt="SKYNET" (from
-    //     brandingConfig.appName default)
-    //   - icon:     src="/branding/icon.png" as <img class="pv-header-logo"
-    //               aria-hidden="true"> — SVG component retired at Phase 70.
-    const wordmark = queryByAltText("SKYNET") as HTMLImageElement | null;
-    expect(wordmark).toBeTruthy();
-    expect(wordmark!.tagName).toBe("IMG");
-    expect(wordmark!.getAttribute("src")).toBe("/branding/wordmark.png");
-    expect(wordmark!.className).toContain("pv-header-wordmark");
+    // Wordmark removed — only the icon <img> renders in the header lockup.
+    expect(queryByAltText("SKYNET")).toBeNull();
+    expect(container.querySelector(".pv-header-wordmark")).toBeNull();
 
-    // The wordmark's containing .pv-title lockup carries the class-toggle
-    // treatment (12px + 700 + 0.1em letter-spacing + UPPERCASE + --color-pv-fg).
-    const titleEl = wordmark!.closest(".pv-title") as HTMLElement | null;
+    const titleEl = container.querySelector(".pv-title") as HTMLElement | null;
     expect(titleEl).toBeTruthy();
     expect(titleEl!.className).toContain("pv-title");
 
-    // Header-logo is now an <img> (Phase 70 Plan 04 replaced the inline
-    // SVG with brandingConfig.iconPath). Still carries the aria-hidden
-    // decorative attribute + .pv-header-logo class for CSS continuity.
     const logoImg = titleEl!.querySelector("img.pv-header-logo") as HTMLImageElement | null;
     expect(logoImg).toBeTruthy();
     expect(logoImg!.getAttribute("aria-hidden")).toBe("true");
     expect(logoImg!.getAttribute("src")).toBe("/branding/icon.png");
 
-    // Header row container carries `.pv-panel-header` — CSS handles layout
-    // (14px 16px padding, hairline border-bottom via --color-pv-border-quiet,
-    // display:flex, justify-content:space-between).
     const headerRow = container.querySelector(
       "[data-testid='pretty-conversations-panel'] .pv-panel-header",
     ) as HTMLElement | null;
     expect(headerRow).toBeTruthy();
-    // Title is a descendant of the header row.
     expect(headerRow!.contains(titleEl!)).toBe(true);
   });
 });
@@ -1486,7 +1469,7 @@ describe("PrettyConversationsPanel: desktop header title", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
-  it("Test 8 (patch #257 + spec-change patch #144 f + Phase 70 Plan 04): mobile variant renders brand lockup (same shape as desktop)", () => {
+  it("Test 8: mobile variant renders icon-only brand lockup (same shape as desktop, wordmark removed)", () => {
     const { container, queryByAltText, queryByRole } = render(
       <PrettyConversationsPanel
         variant="mobile"
@@ -1495,36 +1478,20 @@ describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
         onDeactivateRow={() => {}}
       />,
     );
-    // Phase 70 Plan 04: mobile + desktop render identical header brand-lockup
-    // shape — two <img> tags driven by brandingConfig. Bundled-default sentinel
-    // renders wordmark alt="SKYNET" src="/branding/wordmark.png" and icon
-    // src="/branding/icon.png" aria-hidden. Mobile mirrors Test 7's contract.
-    const wordmark = queryByAltText("SKYNET") as HTMLImageElement | null;
-    expect(wordmark).toBeTruthy();
-    expect(wordmark!.tagName).toBe("IMG");
-    expect(wordmark!.getAttribute("src")).toBe("/branding/wordmark.png");
-    expect(wordmark!.className).toContain("pv-header-wordmark");
+    // Wordmark removed on mobile too — mirrors desktop.
+    expect(queryByAltText("SKYNET")).toBeNull();
+    expect(container.querySelector(".pv-header-wordmark")).toBeNull();
 
-    // The `.pv-title` element is present on mobile (Fix f removed the
-    // showDesktopTitle gate).
-    const titleEl = wordmark!.closest(".pv-title") as HTMLElement | null;
+    const titleEl = container.querySelector(".pv-title") as HTMLElement | null;
     expect(titleEl).toBeTruthy();
-    expect(container.querySelector(".pv-title")).toBeTruthy();
 
-    // Header-logo is now an <img> (Phase 70 Plan 04 replaced the inline
-    // SVG with brandingConfig.iconPath). Same aria-hidden + class contract
-    // on mobile as desktop.
     const logoImg = titleEl!.querySelector("img.pv-header-logo") as HTMLImageElement | null;
     expect(logoImg).toBeTruthy();
     expect(logoImg!.getAttribute("aria-hidden")).toBe("true");
     expect(logoImg!.getAttribute("src")).toBe("/branding/icon.png");
 
-    // Header row container still carries `.pv-panel-header` even on mobile.
     expect(container.querySelector(".pv-panel-header")).toBeTruthy();
 
-    // Phase 23 (GEFM-01): the individual pencil button is replaced by a single
-    // MoreVertical menu button (data-testid="pv-header-menu-button", aria-label="More
-    // actions"). Carries the pv-pencil class for chrome parity.
     const menuBtn = container.querySelector('[data-testid="pv-header-menu-button"]') as HTMLElement | null;
     expect(menuBtn).toBeTruthy();
     expect(menuBtn!.className).toContain("pv-pencil");

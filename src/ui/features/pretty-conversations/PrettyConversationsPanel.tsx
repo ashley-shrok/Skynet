@@ -2182,9 +2182,6 @@ export function PrettyConversationsPanel({
             className="pv-title"
             style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
           >
-            {/* Whole lockup (icon + wordmark) is the home link. There is no
-                router in this app, so this is a real navigation to the app
-                root — getBasePath keeps it correct under a sub-path deploy. */}
             <a
               href={`${getBasePath()}/`}
               aria-label={`${brandingConfig.appName} home`}
@@ -2196,11 +2193,6 @@ export function PrettyConversationsPanel({
                 alt=""
                 aria-hidden="true"
                 className="pv-header-logo"
-              />
-              <img
-                src={brandingConfig.wordmarkPath}
-                alt={brandingConfig.appName}
-                className="pv-header-wordmark"
               />
             </a>
           </span>
