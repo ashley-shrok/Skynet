@@ -1271,7 +1271,7 @@ function putCachedUserToken(mxid: string, token: string, now: number): void {
  * or expiry. Returns the token on success or the loginAsUser error verbatim
  * on failure (preserves the pre-H2 caller-visible error semantics).
  */
-async function ensureUserToken(
+export async function ensureUserToken(
   mxid: string,
 ): Promise<{ ok: true; token: string } | AdminErr> {
   const now = Date.now();
