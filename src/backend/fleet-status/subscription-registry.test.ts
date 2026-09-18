@@ -480,4 +480,188 @@ describe("subscription-registry", () => {
       expect(archivedFrames).toHaveLength(2);
     });
   });
+
+  // ─── Phase 117 Plan 117-03 — publishProjectListChanged (D-37) ──────────────
+  // Wire event for the projects pool. Full-array-replace on every emit;
+  // idempotent byte-identity skip via JSON.stringify canonicalization.
+  // Snapshot-on-subscribe replays the cached array to reconnecting clients.
+
+  describe("publishProjectListChanged (Phase 117 Plan 117-03)", () => {
+    const projectA = {
+      slug: "alpha",
+      displayName: "Alpha",
+      hostId: "1",
+      hostname: "t1000",
+      archived: false,
+    };
+    const projectB = {
+      slug: "beta",
+      displayName: "Beta",
+      hostId: "2",
+      hostname: "workstation",
+      archived: false,
+    };
+
+    it("Test P117-03-1: publishProjectListChanged fans out on delta — subscribers receive a project-list-changed frame with the full array", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      // Drop the initial snapshot frame.
+      receivedFrames.length = 0;
+
+      registry.publishProjectListChanged([projectA]);
+
+      const projectFrames = receivedFrames.filter(
+        (f) => f.type === "project-list-changed",
+      );
+      expect(projectFrames).toHaveLength(1);
+      const frame = projectFrames[0];
+      if (frame.type === "project-list-changed") {
+        expect(frame.schemaVersion).toBe(FRAME_SCHEMA_VERSION);
+        expect(frame.projects).toEqual([projectA]);
+      }
+    });
+
+    it("Test P117-03-2: publishProjectListChanged is idempotent on byte-identical repeat — second call is a no-op", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      registry.publishProjectListChanged([projectA]);
+      registry.publishProjectListChanged([projectA]);
+      registry.publishProjectListChanged([projectA]);
+
+      const projectFrames = receivedFrames.filter(
+        (f) => f.type === "project-list-changed",
+      );
+      expect(projectFrames).toHaveLength(1);
+    });
+
+    it("Test P117-03-3: publishProjectListChanged fires on delta after cached state — [a] → [a, b] produces a second frame", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      registry.publishProjectListChanged([projectA]);
+      registry.publishProjectListChanged([projectA, projectB]);
+
+      const projectFrames = receivedFrames.filter(
+        (f) => f.type === "project-list-changed",
+      );
+      expect(projectFrames).toHaveLength(2);
+      const secondFrame = projectFrames[1];
+      if (secondFrame.type === "project-list-changed") {
+        expect(secondFrame.projects).toEqual([projectA, projectB]);
+      }
+    });
+
+    it("Test P117-03-4: publishProjectListChanged with empty array from cached non-empty state — subscribers receive a real delta with projects: []", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      registry.publishProjectListChanged([projectA]);
+      registry.publishProjectListChanged([]);
+
+      const projectFrames = receivedFrames.filter(
+        (f) => f.type === "project-list-changed",
+      );
+      expect(projectFrames).toHaveLength(2);
+      const emptyFrame = projectFrames[1];
+      if (emptyFrame.type === "project-list-changed") {
+        expect(emptyFrame.projects).toEqual([]);
+      }
+    });
+
+    it("Test P117-03-5: snapshot-on-subscribe replay — pre-seed the registry, then subscribe a new client; new client receives the cached array", () => {
+      const registry = createSubscriptionRegistry();
+
+      registry.publishProjectListChanged([projectA, projectB]);
+
+      // Subscribe AFTER the publish — the replay frame arrives on subscribe.
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+
+      const projectFrames = receivedFrames.filter(
+        (f) => f.type === "project-list-changed",
+      );
+      expect(projectFrames).toHaveLength(1);
+      const frame = projectFrames[0];
+      if (frame.type === "project-list-changed") {
+        expect(frame.projects).toEqual([projectA, projectB]);
+      }
+
+      // Regression guard: the archived-identities snapshot replay must ALSO
+      // still work on the same subscribe. Publish an archived identity
+      // BEFORE the subscribe of a fresh client and confirm both replays fire.
+      const registry2 = createSubscriptionRegistry();
+      registry2.publishProjectListChanged([projectA]);
+      registry2.publishIdentityArchived("wren", "42", "thenasty");
+
+      const received2: FrontendOutboundFrameType[] = [];
+      registry2.subscribe((f) => received2.push(f));
+
+      const proj = received2.filter((f) => f.type === "project-list-changed");
+      const arch = received2.filter((f) => f.type === "identity-archived");
+      expect(proj).toHaveLength(1);
+      expect(arch).toHaveLength(1);
+    });
+
+    it("Test P117-03-6: snapshot replay when no publish has occurred — no project-list-changed frame is fanned out; archived-identities replay still fires independently", () => {
+      const registry = createSubscriptionRegistry();
+
+      // Only publish an archived identity — do NOT publish a project list.
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+
+      const projectFrames = receivedFrames.filter(
+        (f) => f.type === "project-list-changed",
+      );
+      const archivedFrames = receivedFrames.filter(
+        (f) => f.type === "identity-archived",
+      );
+      expect(projectFrames).toHaveLength(0);
+      expect(archivedFrames).toHaveLength(1);
+    });
+
+    it("Test P117-03-7: idempotent-skip compares deeply (JSON.stringify canonicalization) — distinct arrays with identical field values do NOT re-fan", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      // Two distinct arrays with byte-identical serialized shape.
+      const arr1 = [
+        {
+          slug: "alpha",
+          displayName: "Alpha",
+          hostId: "1",
+          hostname: "t1000",
+          archived: false,
+        },
+      ];
+      const arr2 = [
+        {
+          slug: "alpha",
+          displayName: "Alpha",
+          hostId: "1",
+          hostname: "t1000",
+          archived: false,
+        },
+      ];
+
+      registry.publishProjectListChanged(arr1);
+      registry.publishProjectListChanged(arr2);
+
+      const projectFrames = receivedFrames.filter(
+        (f) => f.type === "project-list-changed",
+      );
+      expect(projectFrames).toHaveLength(1);
+    });
+  });
 });
