@@ -410,6 +410,18 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   //
   //    Never throws in normal operation — all failures go through emit() as
   //    {type:"ended", ok:false}.
+  //
+  //    2026-09-18 (quick 260918-52n): folder uniqueness now comes from mxid
+  //    uniqueness — deriveMxidWithOrdinal iterates ordinals against Synapse
+  //    inside birthIdentity Step 1, and the identity folder path is derived
+  //    from the mxid localpart. So the COLLISION_REASON "identity already
+  //    exists on this host" branch below is expected to be RARE post-quick.
+  //    It now only fires when an orphaned folder from a prior failed birth
+  //    still occupies the derived path (e.g. Step 8 crashed after Step 2's
+  //    mkdir but before the supervisor picked the folder up, and the
+  //    ordinal search happened to converge on the same suffix). The retry
+  //    loop is still worth keeping for that edge case — no functional
+  //    change to the loop itself.
   let endedEvent: (BirthEvent & { type: "ended" }) | null = null;
   // Capture the most recent step:failed reason. Orchestrator surfaces failure
   // classifications on step events (not on ended — the ended type has no reason

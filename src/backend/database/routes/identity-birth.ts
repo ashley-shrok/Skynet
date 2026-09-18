@@ -695,13 +695,43 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
       // displayName mirrors the orchestrator's Step 2.5 derivation
       const displayName =
         key.length > 0 ? key[0].toUpperCase() + key.slice(1) : key;
+
+      // 2026-09-18 (quick 260918-52n): runRelayMintAndWrite no longer derives
+      // the MXID internally — the caller passes it. The retry route operates
+      // on an already-on-disk folder, so:
+      //   identityFolderName = the folder that already exists (= `key`)
+      //   mxid               = `@${key}:${serverName}` (legacy shape)
+      // The legacy shape is correct here: retry is invoked BY KEY on an
+      // existing folder, so we can't run deriveMxidWithOrdinal (that would
+      // pick a fresh ordinal and mint a NEW account, not repair the
+      // partially-failed birth). Match the original pre-refactor behavior:
+      // retry always took the legacy branch (poolPicked=undefined).
+      //
+      // serverName derivation mirrors runRelayMintAndWrite's pre-refactor
+      // block: prefer creds.serverName when set (explicit override for
+      // deployments where homeserverBase host != real Matrix server_name),
+      // else strip scheme/port/path from homeserverBase.
+      const rawHost = creds.serverName != null
+        ? creds.serverName
+        : creds.homeserverBase
+            .replace(/^https?:\/\//, "")
+            .split("/")[0]
+            .split(":")[0];
+      const retryMxid = `@${key}:${rawHost}`;
+
       // runRelayMintAndWrite emits ended{ok:false, failedStep:N} on any step
       // failure via its internal runStep, so we only need to catch here for
       // "unexpected error, no ended emitted yet" and for the success path
       // (which does NOT emit ended — the retry route emits ended{ok:true}
       // on success below).
       await runRelayMintAndWrite(
-        { name: key, displayName, hostId },
+        {
+          name: key,
+          displayName,
+          hostId,
+          mxid: retryMxid,
+          identityFolderName: key,
+        },
         (e: BirthEvent) => {
           emit(e);
           if (e.type === "ended") endedEmitted = true;

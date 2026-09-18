@@ -638,6 +638,107 @@ function extractServerName(homeserverBase: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// 2026-09-18 (quick 260918-52n): MXID + identity-folder-name derivation
+// ---------------------------------------------------------------------------
+//
+// Shared helper — invoked in Step 1 of birthIdentity BEFORE the folder-
+// existence probe, and by the retry route in identity-birth.ts to compute
+// the same values for a re-invocation against an existing folder.
+//
+// Returns `{ mxid, identityFolderName }` where identityFolderName is the
+// MXID localpart (a plain slice: leading `@` stripped, `:<serverName>`
+// suffix stripped). identityFolderName is used for ALL folder/file path
+// construction downstream (identity dir, identity file basename, avatar
+// filename, relay.json path, tmux session name, JSONL discovery key).
+//
+// Purpose (fixes two production bugs verified 2026-09-18):
+//   1. Claude Code auto-resume of the OLD JSONL at
+//      ~/.claude/projects/-home-ubuntu-fleet-identities-<name>-workspace/
+//      when a pool name is reused. deriveMxidWithOrdinal guarantees MXID
+//      uniqueness against Synapse; deriving the folder name from the MXID
+//      means the workspace path is also structurally unique.
+//   2. agent-supervisor's retire_identity "State 3" archive-name collision
+//      (identities-archive/<name>/ already exists → mv refuses → archive
+//      silently fails, identity stuck). Folder uniqueness ⇒ archive path
+//      uniqueness.
+//
+// Note: opts.name is still used for displayName (UI badge) and the H1
+// heading inside <name>.md — those are human-readable strings, not
+// filesystem identifiers, so they stay short ("Anthem", not
+// "Anthem-box-maintainer-2").
+async function deriveMxidAndFolderName(
+  input: { name: string; role?: string; poolPicked?: boolean },
+  deps: {
+    matrixServerName: string | null;
+    matrixHomeserver: string;
+    matrixCountUsersMatching: (
+      mxid: string,
+    ) => Promise<
+      | { ok: true; total: number }
+      | { ok: false; status: number; error: string }
+    >;
+  },
+): Promise<{ mxid: string; identityFolderName: string }> {
+  // Server-name suffix for the mxid — same branching that used to live at
+  // the top of runRelayMintAndWrite (L886-889 pre-refactor).
+  const serverName =
+    deps.matrixServerName != null
+      ? deps.matrixServerName
+      : extractServerName(deps.matrixHomeserver);
+
+  let mxid: string;
+  if (input.poolPicked === true && typeof input.role === "string") {
+    let baseHandle: string | null = null;
+    try {
+      baseHandle = composeMxidLocalpart(input.name, input.role);
+    } catch (e) {
+      // Silent fallback for `mxid_name_not_pool_shape` ONLY — matches shape
+      // file's "user can edit the name to anything" invariant. Other errors
+      // (e.g. `mxid_role_malformed`) rethrow to fail Step 1 loudly since
+      // role names are gate-validated upstream.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.startsWith("mxid_name_not_pool_shape")) {
+        throw e;
+      }
+      baseHandle = null;
+    }
+    if (baseHandle !== null) {
+      mxid = await deriveMxidWithOrdinal(
+        baseHandle,
+        serverName,
+        deps.matrixCountUsersMatching,
+      );
+    } else {
+      // Silent-fallback branch (name-not-pool-shape catch above).
+      mxid = `@${input.name}:${serverName}`;
+    }
+  } else {
+    // Legacy branch — unchanged behavior for pre-Phase-80 identities and the
+    // retry route (poolPicked undefined).
+    mxid = `@${input.name}:${serverName}`;
+  }
+
+  // identityFolderName = MXID localpart (strip leading `@` and `:<serverName>`
+  // suffix by explicit slice). We control the composition so this is a plain
+  // slice — do NOT regex-strip (a future serverName containing regex
+  // metacharacters would silently break).
+  const identityFolderName = mxid.slice(1, mxid.length - serverName.length - 1);
+
+  // Defense-in-depth on the DERIVED value. composeMxidLocalpart output is
+  // already lowercase-kebab and the legacy branch just echoes opts.name
+  // (which passed IDENTITY_KEY_RE upstream), so this should never fire —
+  // but a future change to the localpart shape must not silently break
+  // folder-safety.
+  if (!IDENTITY_KEY_RE.test(identityFolderName)) {
+    throw new Error(
+      `derived identityFolderName fails IDENTITY_KEY_RE gate: ${JSON.stringify(identityFolderName)}`,
+    );
+  }
+
+  return { mxid, identityFolderName };
+}
+
+// ---------------------------------------------------------------------------
 // Phase 80 Plan 80-03b — A1 lock MXID derivation helpers
 // ---------------------------------------------------------------------------
 //
@@ -817,23 +918,24 @@ export async function runRelayMintAndWrite(
      */
     hostId: number;
     /**
-     * Phase 80 Plan 80-03b A1 lock: kebab-case-lowercase role name (matches
-     * BirthOptions.role). Only consumed when poolPicked === true — used by
-     * composeMxidLocalpart to build the PascalCase-hyphenated MXID base handle.
-     * Optional so the retry route (which does not know the role from its
-     * request body) can invoke this helper without triggering derivation —
-     * retry always takes the legacy MXID branch (poolPicked undefined).
+     * 2026-09-18 (quick 260918-52n): the fully-derived MXID
+     * (`@<localpart>:<serverName>`). Derivation now happens in Step 1 of
+     * birthIdentity (or at the retry-route call site in identity-birth.ts)
+     * via the shared deriveMxidAndFolderName helper, so this helper no
+     * longer computes the MXID internally — it just uses what the caller
+     * derived. Step 6 (admin-mint) consumes it as the Synapse admin PUT
+     * target; Step 7 threads it into the relay.json body.
      */
-    role?: string;
+    mxid: string;
     /**
-     * Phase 80 Plan 80-03b A1 lock: when true, Step 6 derives the MXID from
-     * composeMxidLocalpart(name, role) + deriveMxidWithOrdinal instead of
-     * using the legacy `@<name>:<server>` shape. Retry route leaves this
-     * undefined so retry always uses the legacy shape (retry operates on the
-     * already-on-disk identity folder, so the folder name IS the correct
-     * MXID localpart source for the retry semantics).
+     * 2026-09-18 (quick 260918-52n): the MXID localpart (leading `@` and
+     * `:<serverName>` suffix stripped). Used by Step 8 as the identity
+     * folder key for the relay.json write path
+     * (`fleet/identities/<identityFolderName>/relay.json`). Identical to
+     * MXID localpart to guarantee folder-name uniqueness (deriveMxidWithOrdinal
+     * enforces MXID uniqueness against Synapse).
      */
-    poolPicked?: boolean;
+    identityFolderName: string;
   },
   emit: (e: BirthEvent) => void,
   deps: BirthDeps,
@@ -868,29 +970,14 @@ export async function runRelayMintAndWrite(
     }
   }
 
-  // Server-name suffix for the mxid.
-  //   1. Prefer deps.matrixServerName when non-null — this is the explicit
-  //      override from matrix_admin_creds.serverName (set via
-  //      PATCH /matrix-admin/creds/server-name). Load-bearing when
-  //      homeserverBase is a URL whose host doesn't match synapse's real
-  //      server_name (e.g. `http://matrix:8008` internal docker alias vs
-  //      `t1000.taild9b663.ts.net` actual server_name).
-  //   2. Fall back to extractServerName(deps.matrixHomeserver) — preserves
-  //      the pre-2026-09-11 behavior for deployments where the URL host IS
-  //      the server_name (the common case).
-  // NEVER a hardcoded fallback per D-OQ7 (island-model per 75-CONTEXT.md
-  // § Philosophy).
-  // Use loose `!= null` so both null (explicit no-override) AND undefined
-  // (older callers not passing the field yet) fall through to URL-host
-  // derivation. Defensive vs test doubles / older deps assemblies.
-  const serverName =
-    deps.matrixServerName != null
-      ? deps.matrixServerName
-      : extractServerName(deps.matrixHomeserver);
-  // Phase 80 Plan 80-03b: mxid is now a `let` — Step 6 assigns based on the
-  // poolPicked branch (derived MXID for the pool-picked path, legacy shape
-  // otherwise). Steps 7 and 8 read the final value.
-  let mxid: string;
+  // 2026-09-18 (quick 260918-52n): MXID derivation moved OUT of Step 6 and
+  // into Step 1 of birthIdentity (or into the retry-route call site in
+  // identity-birth.ts). The caller passes both the fully-derived MXID and
+  // the identityFolderName; this helper just uses them. See
+  // deriveMxidAndFolderName above for the shared derivation logic and
+  // rationale (fixes Claude-Code session-resume + agent-supervisor
+  // archive-name collision bugs).
+  const mxid = opts.mxid;
 
   // Closure-scoped state passed between the three steps.
   let agentPassword = "";
@@ -899,10 +986,10 @@ export async function runRelayMintAndWrite(
   // -------------------------------------------------------------------------
   // Step 6: admin-mint (createOrUpdateUser) + inline login-as-user
   //
-  // Phase 80 Plan 80-03b A1 lock: MXID derivation lives INSIDE Step 6's runStep
-  // (BEFORE matrixCreateOrUpdateUser) so derivation failures attribute to
-  // step 6 as an SSE step-failed event — Q2 no-rollback discipline preserved,
-  // no new numbered SSE step introduced.
+  // 2026-09-18 (quick 260918-52n): MXID derivation used to live INSIDE this
+  // runStep block. It has been hoisted into Step 1 of birthIdentity so the
+  // on-disk folder-existence probe runs against the correct
+  // (mxid-localpart-derived) path. See deriveMxidAndFolderName.
   //
   // D-OQ6 lock: matrixLoginAsUser is called immediately after
   // matrixCreateOrUpdateUser inside the same runStep so the relay.json body
@@ -911,44 +998,6 @@ export async function runRelayMintAndWrite(
   // (still an admin-mint concern from the caller's POV).
   // -------------------------------------------------------------------------
   await runStep(6, async () => {
-    // Phase 80 Plan 80-03b A1 lock — derive MXID when poolPicked === true.
-    // Legacy branch (poolPicked absent/false OR retry-route caller) uses the
-    // existing `@<name>:<server>` shape unchanged. See CONTEXT.md `<domain>`
-    // for the DIVERGE rationale.
-    if (opts.poolPicked === true && typeof opts.role === "string") {
-      let baseHandle: string | null = null;
-      try {
-        baseHandle = composeMxidLocalpart(opts.name, opts.role);
-      } catch (e) {
-        // Silent fallback for `mxid_name_not_pool_shape` ONLY — matches shape
-        // file's "user can edit the name to anything" invariant. Other errors
-        // (e.g. `mxid_role_malformed`) rethrow to fail Step 6 loudly since
-        // role names are gate-validated upstream (ROLE_NAME_PATTERN in the
-        // route handler + Step 2.5 re-check) so a malformed role at Step 6
-        // is a genuine bug.
-        const msg = e instanceof Error ? e.message : String(e);
-        if (!msg.startsWith("mxid_name_not_pool_shape")) {
-          throw e;
-        }
-        baseHandle = null;
-      }
-      if (baseHandle !== null) {
-        mxid = await deriveMxidWithOrdinal(
-          baseHandle,
-          serverName,
-          deps.matrixCountUsersMatching,
-        );
-      } else {
-        // Silent-fallback branch (name-not-pool-shape catch above).
-        mxid = `@${opts.name}:${serverName}`;
-      }
-    } else {
-      // Legacy branch — unchanged behavior for pre-Phase-80 identities, the
-      // retry route (opts.poolPicked undefined), and any manually-created
-      // identity whose name was not pool-picked by the frontend.
-      mxid = `@${opts.name}:${serverName}`;
-    }
-
     agentPassword = generateAgentPassword();
     const mintResult = await deps.matrixCreateOrUpdateUser(
       mxid,
@@ -1060,7 +1109,11 @@ export async function runRelayMintAndWrite(
   // agent-supervisor race. runStep(8)'s catch is unchanged.
   // -------------------------------------------------------------------------
   await runStep(8, async () => {
-    await writeIdentityFile(opts.name, "relay.json", relayJsonBody, {
+    // 2026-09-18 (quick 260918-52n): first arg is the identity folder key
+    // used to build `fleet/identities/<key>/relay.json` — swap opts.name →
+    // opts.identityFolderName so the write lands under the mxid-localpart-
+    // derived path (matches the folder created in Step 2).
+    await writeIdentityFile(opts.identityFolderName, "relay.json", relayJsonBody, {
       hostId: opts.hostId,
       conn,
       chmod: 0o600,
@@ -1166,10 +1219,19 @@ export async function birthIdentity(
   }
 
   // -------------------------------------------------------------------------
-  // Phase 68 Plan 03: identityId is now opts.name (the identityKey).
-  // There is no DB-generated nanoid — the identity IS its folder name on disk.
+  // 2026-09-18 (quick 260918-52n): identityFolderName is derived inside
+  // Step 1 (below) from the MXID localpart via deriveMxidAndFolderName —
+  // NOT from opts.name. This is what makes ~/fleet/identities/<key>/
+  // structurally unique across pool-name reuse and keeps agent-supervisor's
+  // retire_identity archive-move safe from name collisions. Steps 2, 6, 7,
+  // 8 and the supervisor-wait block reference these values via closure.
+  //
+  // Legacy identityId (was opts.name) is retired — the ended event now
+  // carries identityFolderName as both identityId AND sessionName because
+  // the identity IS its folder name on disk (also the tmux session name).
   // -------------------------------------------------------------------------
-  const identityId = opts.name;
+  let mxid = "";
+  let identityFolderName = "";
 
   // -------------------------------------------------------------------------
   // Branch selection: SSH vs local
@@ -1244,15 +1306,49 @@ export async function birthIdentity(
     // any state mutation (mirrors the pre-Phase-68 early-abort discipline).
     // -----------------------------------------------------------------------
     await runStep(1, async () => {
-      // Phase 108: role-folder existence probe — MUST run FIRST inside
-      // runStep(1) so a bogus role fails BEFORE any durable side effect
-      // (avatar-cache mutation, identity folder mkdir, identity file write,
-      // Matrix admin-mint with role baked into MXID localpart, relay creds
-      // mint, relay.json SFTP write). Throw string matches worker.ts:95
-      // regex `/role.*not found/i` → FailureResponse{reason:"role_unknown"}
-      // via mapEndedEventToReason. opts.role is validated upstream by
-      // ROLE_NAME_PATTERN so interpolation is safe (same
-      // validate-then-interpolate discipline as the collision probe below).
+      // 2026-09-18 (quick 260918-52n): derive MXID + identityFolderName FIRST
+      // so all downstream file/folder path construction (role-folder probe
+      // uses opts.role — unaffected; identity-collision probe below uses
+      // identityFolderName; Step 2's identityDir; Step 2.5's identity file +
+      // avatar sibling paths; Step 8's relay.json path) references the
+      // structurally-unique folder key.
+      //
+      // Order inside Step 1:
+      //   (a) derive mxid + identityFolderName            ← this block
+      //   (b) role-folder existence probe                  (Phase 108)
+      //   (c) avatar candidate check                       (Phase 66)
+      //   (d) on-disk collision probe using derived path   (Phase 68)
+      //
+      // Any derivation error attributes to Step 1 as a step-failed SSE
+      // event (Q2 no-rollback preserved — Step 1 has no on-disk side
+      // effects, so throwing here is safe). For poolPicked=true this may
+      // call deps.matrixCountUsersMatching (Synapse admin API) before the
+      // role probe — a countUsersMatching failure surfaces as
+      // `admin_count_failed: <err> (<status>)`, categorized by
+      // sanitizeError as a generic reason (no Q2 rollback concern; no
+      // folder yet).
+      {
+        const derived = await deriveMxidAndFolderName(
+          { name: opts.name, role: opts.role, poolPicked: opts.poolPicked },
+          {
+            matrixServerName: deps.matrixServerName,
+            matrixHomeserver: deps.matrixHomeserver,
+            matrixCountUsersMatching: deps.matrixCountUsersMatching,
+          },
+        );
+        mxid = derived.mxid;
+        identityFolderName = derived.identityFolderName;
+      }
+
+      // Phase 108: role-folder existence probe — MUST run BEFORE any
+      // durable side effect (avatar-cache mutation, identity folder mkdir,
+      // identity file write, Matrix admin-mint with role baked into MXID
+      // localpart, relay creds mint, relay.json SFTP write). Throw string
+      // matches worker.ts:95 regex `/role.*not found/i` →
+      // FailureResponse{reason:"role_unknown"} via mapEndedEventToReason.
+      // opts.role is validated upstream by ROLE_NAME_PATTERN so
+      // interpolation is safe (same validate-then-interpolate discipline
+      // as the collision probe below).
       if (useLocal) {
         // LOCAL branch — a shell probe would expand $HOME to the Skynet
         // container's node user home, NOT the /fleet bind mount. Use
@@ -1312,11 +1408,16 @@ export async function birthIdentity(
       //           actual on-disk state, and Step 2.5 would silently
       //           overwrite an existing identity's <name>.md + relay.json.
       //           (2026-09-11 sub-agent review HIGH #1.)
-      // opts.name is already gated by IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE so
-      // it's safe to interpolate into the double-quoted path (matches the
-      // same "validate-then-interpolate" pattern as identity-clone.ts:119).
+      // 2026-09-18 (quick 260918-52n): probe path uses identityFolderName
+      // (derived above from MXID localpart), NOT opts.name. On pool-picked
+      // births with a role, this path is `<pool>-<role>[-N]` — structurally
+      // unique per Synapse account, so the collision probe here now catches
+      // ONLY the rare case where a prior failed birth left an orphaned
+      // folder AND the current mxid ordinal search happened to converge on
+      // the same suffix. identityFolderName is IDENTITY_KEY_RE-gated inside
+      // deriveMxidAndFolderName so interpolation is safe.
       if (useLocal) {
-        const probeDir = path.join(getLocalIdentitiesRoot(), opts.name);
+        const probeDir = path.join(getLocalIdentitiesRoot(), identityFolderName);
         try {
           await fs.access(probeDir);
           throw new Error("identity already exists on this host");
@@ -1328,7 +1429,7 @@ export async function birthIdentity(
         }
       } else {
         const probeOut = await exec(
-          `if [ -d "$HOME/fleet/identities/${opts.name}" ]; then echo exists; else echo missing; fi`,
+          `if [ -d "$HOME/fleet/identities/${identityFolderName}" ]; then echo exists; else echo missing; fi`,
         );
         if (probeOut.trim() === "exists") {
           throw new Error("identity already exists on this host");
@@ -1410,17 +1511,22 @@ export async function birthIdentity(
       //           (invisible to the supervisor on the host).
       // opts.name is already gated by IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE
       // above, so it's shell-safe.
+      // 2026-09-18 (quick 260918-52n): identityDir + identityFilePath +
+      // avatarFilename derive from identityFolderName (mxid localpart)
+      // instead of opts.name. This keeps ~/fleet/identities/<key>/,
+      // <key>.md, and <key>.<avatarExt> all in sync with the mxid, so a
+      // reused pool name never collides with a prior identity's folder.
       let identityDir: string;
       if (useLocal) {
-        identityDir = `${getLocalIdentitiesRoot()}/${opts.name}`;
+        identityDir = `${getLocalIdentitiesRoot()}/${identityFolderName}`;
       } else {
         const remoteHome = (await exec("echo $HOME")).trim();
         if (!remoteHome || remoteHome.includes("\n")) {
           throw new Error("could not resolve $HOME");
         }
-        identityDir = `${remoteHome}/fleet/identities/${opts.name}`;
+        identityDir = `${remoteHome}/fleet/identities/${identityFolderName}`;
       }
-      const identityFilePath = `${identityDir}/${opts.name}.md`;
+      const identityFilePath = `${identityDir}/${identityFolderName}.md`;
 
       // 1. Create the identity folder tree — wakeups/ + workspace/ (generic
       //    working dir per D-04) plus touch handoff.md to satisfy id skill's
@@ -1454,7 +1560,10 @@ export async function birthIdentity(
           );
         }
         avatarExt = derivedExt;
-        avatarFilename = `${opts.name}.${avatarExt}`;
+        // 2026-09-18 (quick 260918-52n): avatar sibling filename tracks the
+        // folder name (mxid localpart), NOT opts.name — matches identityDir
+        // and identityFilePath naming above.
+        avatarFilename = `${identityFolderName}.${avatarExt}`;
       }
 
       // 3. Compose the identity file body via the Phase 66 builder —
@@ -1494,7 +1603,12 @@ export async function birthIdentity(
       //    writeAvatarSiblingFile already has a LOCAL branch (conn === null
       //    routes to Node fs — see identity-artifact-reader.ts L2104-L2111).
       if (birthCandidate !== null) {
-        await deps.writeAvatarSiblingFile(conn, opts.name, avatarExt!, birthCandidate.bytes);
+        // 2026-09-18 (quick 260918-52n): writeAvatarSiblingFile's second arg
+        // is the identity folder key it uses to build the target path (see
+        // identity-artifact-reader.ts L2270/2279). Swap opts.name →
+        // identityFolderName so the sibling avatar lands next to the
+        // identity file inside the derived folder.
+        await deps.writeAvatarSiblingFile(conn, identityFolderName, avatarExt!, birthCandidate.bytes);
       }
     });
 
@@ -1522,17 +1636,21 @@ export async function birthIdentity(
         opts.name.length > 0
           ? opts.name[0].toUpperCase() + opts.name.slice(1)
           : opts.name;
-      // Phase 80 Plan 80-03b A1 lock: thread role + poolPicked into the helper
-      // so its Step 6 can derive the PascalCase-hyphenated MXID when the
-      // frontend pool-picked the name. Absent poolPicked → helper takes the
-      // legacy `@<name>:<server>` branch (backward compat preserved).
+      // 2026-09-18 (quick 260918-52n): pass the mxid + identityFolderName
+      // derived in Step 1 into the helper. runRelayMintAndWrite no longer
+      // derives the MXID itself — it just uses what Step 1 computed. This
+      // keeps folder path (Step 8's writeIdentityFile) and mxid (Step 6's
+      // admin mint) in sync with the Step 1 folder-existence probe.
+      // displayName still derives from opts.name (UI badge shows "Anthem",
+      // not "Anthem-box-maintainer-2") — this is the sole surviving
+      // opts.name consumer downstream of Step 1 by design.
       await runRelayMintAndWrite(
         {
           name: opts.name,
           displayName,
           hostId: opts.hostId,
-          role: opts.role,
-          poolPicked: opts.poolPicked,
+          mxid,
+          identityFolderName,
         },
         emit,
         deps,
@@ -1560,10 +1678,13 @@ export async function birthIdentity(
     //   (the transcript JSONL with `/id <name>` as its first user-turn),
     //   then close the SSE stream with ended{ok:true}.
     //
-    // Signal (D-05): `discoverIdentitySessionFile(conn, opts.name)` — the
-    // SAME sensor fleet-status and sessions.ts already trust for "this is a
-    // live agent session, not a bare shell." Do NOT invent a parallel sensor
-    // per shape file §"What would make it wrong" bullet 7.
+    // Signal (D-05): `discoverIdentitySessionFile(conn, identityFolderName)`
+    // — the SAME sensor fleet-status and sessions.ts already trust for
+    // "this is a live agent session, not a bare shell." Do NOT invent a
+    // parallel sensor per shape file §"What would make it wrong" bullet 7.
+    // (2026-09-18 quick 260918-52n: probe key is the mxid-localpart-derived
+    // folder name, not opts.name — the tmux session name matches the
+    // folder.)
     //
     // Cadence (D-07): every WAIT_FOR_SUPERVISOR_POLL_MS (2s).
     // Timeout: after WAIT_FOR_SUPERVISOR_TIMEOUT_MS (300s), emit
@@ -1608,14 +1729,20 @@ export async function birthIdentity(
           clientAborted = true;
           break;
         }
-        discoveredPath = await deps.discoverIdentitySessionFile(supervisorSensorConn, opts.name);
+        // 2026-09-18 (quick 260918-52n): probe by identityFolderName —
+        // agent-supervisor.sh opens its tmux session named after the
+        // on-disk folder, and discoverIdentitySessionFile hashes that name
+        // into the `~/.claude/projects/-home-ubuntu-fleet-identities-<key>-
+        // workspace/` project path. Using opts.name here would look at the
+        // wrong project directory for pool-picked births.
+        discoveredPath = await deps.discoverIdentitySessionFile(supervisorSensorConn, identityFolderName);
         if (discoveredPath !== null) break;
         await sleep(WAIT_FOR_SUPERVISOR_POLL_MS);
       }
       if (clientAborted) {
         databaseLogger.warn("identity birth: client aborted during supervisor wait", {
           operation: "identity_birth_client_aborted",
-          identityKey: opts.name,
+          identityKey: identityFolderName,
           hostId: opts.hostId,
           elapsedMs: Date.now() - waitStartMs,
         });
@@ -1628,7 +1755,7 @@ export async function birthIdentity(
         // log captures the operation-key for post-mortem correlation.
         databaseLogger.warn("identity birth: supervisor wait timed out", {
           operation: "identity_birth_supervisor_wait_timeout",
-          identityKey: opts.name,
+          identityKey: identityFolderName,
           hostId: opts.hostId,
           timeoutMs: WAIT_FOR_SUPERVISOR_TIMEOUT_MS,
         });
@@ -1639,7 +1766,12 @@ export async function birthIdentity(
 
     // All steps completed successfully (and — for the remote branch — the
     // supervisor's transcript signal fired within the timeout window).
-    emit({ type: "ended", ok: true, identityId, sessionName: opts.name });
+    // 2026-09-18 (quick 260918-52n): identityId + sessionName both carry
+    // identityFolderName — the identity IS its folder name on disk (also
+    // the tmux session name agent-supervisor opens). Frontend consumers
+    // (NewSessionDialog etc.) that keyed off opts.name for tab-open will
+    // see the mxid-localpart-derived value now.
+    emit({ type: "ended", ok: true, identityId: identityFolderName, sessionName: identityFolderName });
   } catch (e) {
     if (e instanceof BirthAborted) {
       // Failure event already emitted by runStep — no re-emit
