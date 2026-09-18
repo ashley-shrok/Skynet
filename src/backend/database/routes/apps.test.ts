@@ -96,6 +96,20 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
   execCommand: vi.fn().mockResolvedValue(""),
 }));
 
+// ---------------------------------------------------------------------------
+// Registry-holder mock — HIGH-1 redirect route reads via getRegistry().
+// Individual tests configure getAppSnapshot's return via getAppSnapshotMock.
+// ---------------------------------------------------------------------------
+
+const getAppSnapshotMock = vi.fn<() => unknown[]>();
+const getRegistryMock = vi.fn<() => unknown>();
+
+vi.mock("../../fleet-status/registry-holder.js", () => ({
+  getRegistry: () => getRegistryMock(),
+  setRegistry: vi.fn(),
+  _resetRegistryForTesting: vi.fn(),
+}));
+
 function makeFakeConnWithEnd() {
   return { __fake: "ssh-conn", end: vi.fn() };
 }
@@ -154,6 +168,11 @@ function httpGet(
 
 let server: http.Server;
 
+// HIGH-1 redirect route defaults: SKYNET_COOKIE_DOMAIN must be set for the
+// route to compute a target URL. Preserve the original so tests that
+// intentionally unset it (T-HIGH-1-05) restore for the next test.
+const ORIGINAL_COOKIE_DOMAIN = process.env.SKYNET_COOKIE_DOMAIN;
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockUserId = "test-user";
@@ -161,6 +180,10 @@ beforeEach(() => {
   // readAppIconFile returns null (404). Individual tests override as needed.
   isLocalHostIdMock.mockReturnValue(false);
   resolveHostByIdMock.mockResolvedValue({
+    // HIGH-1: host.name IS the tailscale hostname the redirect route uses
+    // to build `<hostname>-<port>.serve.<domain>`. Default to "t1000" so
+    // tests that don't override see a realistic value.
+    name: "t1000",
     ip: "10.0.0.5",
     port: 22,
     username: "ubuntu",
@@ -169,6 +192,14 @@ beforeEach(() => {
   });
   connectOneShotMock.mockResolvedValue(makeFakeConnWithEnd());
   readAppIconFileMock.mockResolvedValue(null);
+  // HIGH-1 redirect defaults: registry present, app absent (individual
+  // tests populate the snapshot for the 302 path).
+  getAppSnapshotMock.mockReturnValue([]);
+  getRegistryMock.mockReturnValue({
+    getAppSnapshot: () => getAppSnapshotMock(),
+  });
+  // HIGH-1 default: SKYNET_COOKIE_DOMAIN set so the route can build a URL.
+  process.env.SKYNET_COOKIE_DOMAIN = "term.example.com";
 
   const app = express();
   app.use("/apps", appsRouter);
@@ -176,7 +207,14 @@ beforeEach(() => {
   server.listen(0);
 });
 
-afterEach(() => new Promise<void>((resolve) => server.close(() => resolve())));
+afterEach(() => {
+  if (ORIGINAL_COOKIE_DOMAIN === undefined) {
+    delete process.env.SKYNET_COOKIE_DOMAIN;
+  } else {
+    process.env.SKYNET_COOKIE_DOMAIN = ORIGINAL_COOKIE_DOMAIN;
+  }
+  return new Promise<void>((resolve) => server.close(() => resolve()));
+});
 
 // ===========================================================================
 // Test 1 — 401 without JWT (authenticateJWT gate)
@@ -425,5 +463,201 @@ describe("GET /apps/:hostId/:slug/icon — code-review MEDIUM-4 coverage gaps", 
     expect(res.headers["etag"]).toMatch(/^"disk-[0-9a-f]+"$/);
     expect(res.headers["etag"]).not.toBe('"disk-stale-etag-value"');
     expect(res.rawBody.equals(FRESH_BYTES)).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Code-review HIGH-1 (fix pass 2026-09-18): GET /apps/:hostId/:slug — 302
+// redirect to the app's serve-URL. The route:
+//   1. Authenticates via authenticateJWT (401 without token)
+//   2. Validates slug via APP_SLUG_RE (400 on fail)
+//   3. Validates hostId as positive integer (400 on fail)
+//   4. Reads SKYNET_COOKIE_DOMAIN from env (500 on unset)
+//   5. Resolves host via resolveHostById → 502 on null/throw
+//   6. Reads app from registry.getAppSnapshot() → 404 on missing OR null-port
+//   7. Redirects 302 to `https://<hostname>-<port>.serve.<domain>`
+//
+// Every branch is exercised below. The 200/302 path also asserts the
+// Location header matches the constructed serve-URL exactly.
+// ===========================================================================
+
+describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
+  // -----------------------------------------------------------------------
+  // Helper: HEAD-style GET that does NOT auto-follow redirects. The default
+  // httpGet helper above doesn't follow redirects either (Node's http.request
+  // returns whatever the server sent), so we can reuse it and inspect
+  // res.status + res.headers.location directly.
+  // -----------------------------------------------------------------------
+
+  it("HIGH-1-T1: 401 without JWT", async () => {
+    mockUserId = null;
+    const res = await httpGet(server, "/apps/1/scratch-test");
+    expect(res.status).toBe(401);
+    // Downstream mocks should not have been called at all.
+    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+    expect(getAppSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("HIGH-1-T2: 400 on invalid slug (uppercase)", async () => {
+    const res = await httpGet(server, "/apps/1/BADSLUG");
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({
+      error: expect.stringMatching(/slug must match/i),
+    });
+    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+  });
+
+  it("HIGH-1-T3: 400 on invalid hostId (non-numeric)", async () => {
+    const res = await httpGet(server, "/apps/abc/scratch-test");
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({
+      error: expect.stringMatching(/hostId/i),
+    });
+    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+  });
+
+  it("HIGH-1-T4: 400 on zero hostId", async () => {
+    const res = await httpGet(server, "/apps/0/scratch-test");
+    expect(res.status).toBe(400);
+    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+  });
+
+  it("HIGH-1-T5: 500 when SKYNET_COOKIE_DOMAIN env is unset", async () => {
+    delete process.env.SKYNET_COOKIE_DOMAIN;
+    const res = await httpGet(server, "/apps/1/scratch-test");
+    expect(res.status).toBe(500);
+    expect(res.body).toMatchObject({
+      error: expect.stringMatching(/serve-url parent/i),
+    });
+    // Fail-fast BEFORE any host resolution or registry read.
+    expect(resolveHostByIdMock).not.toHaveBeenCalled();
+    expect(getAppSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("HIGH-1-T6: 502 when resolveHostById returns null (unknown host OR no access)", async () => {
+    resolveHostByIdMock.mockResolvedValueOnce(null);
+    const res = await httpGet(server, "/apps/999/scratch-test");
+    expect(res.status).toBe(502);
+    expect(res.body).toMatchObject({ error: "app home box unreachable" });
+    // Registry NOT consulted after host-resolve fails.
+    expect(getAppSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("HIGH-1-T7: 502 when resolveHostById throws", async () => {
+    resolveHostByIdMock.mockRejectedValueOnce(new Error("DB error"));
+    const res = await httpGet(server, "/apps/1/scratch-test");
+    expect(res.status).toBe(502);
+    expect(res.body).toMatchObject({ error: "app home box unreachable" });
+  });
+
+  it("HIGH-1-T8: 503 when registry-holder returns null (boot-order regression)", async () => {
+    getRegistryMock.mockReturnValueOnce(null);
+    const res = await httpGet(server, "/apps/1/scratch-test");
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({
+      error: expect.stringMatching(/registry not yet available/i),
+    });
+  });
+
+  it("HIGH-1-T9: 404 when app is not in the registry snapshot", async () => {
+    // Registry has SOME app but not the one requested.
+    getAppSnapshotMock.mockReturnValueOnce([
+      {
+        hostId: "1",
+        slug: "different-app",
+        title: "Different",
+        description: "",
+        port: 3000,
+        hasIcon: false,
+        createdAtMs: 0,
+        isHealthy: true,
+        healthMessage: null,
+      },
+    ]);
+    const res = await httpGet(server, "/apps/1/scratch-test");
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({
+      error: expect.stringMatching(/no longer present/i),
+    });
+  });
+
+  it("HIGH-1-T10: 404 when app is present in registry but port is null", async () => {
+    // Unhealthy stopped-unit case: sweep observed the folder but no
+    // listening port. Cannot construct a serve URL.
+    getAppSnapshotMock.mockReturnValueOnce([
+      {
+        hostId: "1",
+        slug: "scratch-test",
+        title: "Scratch Test",
+        description: "",
+        port: null,
+        hasIcon: false,
+        createdAtMs: 0,
+        isHealthy: false,
+        healthMessage: "unit exists but currently stopped",
+      },
+    ]);
+    const res = await httpGet(server, "/apps/1/scratch-test");
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({
+      error: expect.stringMatching(/not currently serving/i),
+    });
+  });
+
+  it("HIGH-1-T11: 302 redirect on happy path — Location = https://<hostname>-<port>.serve.<domain>", async () => {
+    // Host resolves to name "t1000" (beforeEach default); registry has
+    // the app on port 3020. Expected target:
+    //   https://t1000-3020.serve.term.example.com
+    getAppSnapshotMock.mockReturnValueOnce([
+      {
+        hostId: "1",
+        slug: "scratch-test",
+        title: "Scratch Test",
+        description: "",
+        port: 3020,
+        hasIcon: false,
+        createdAtMs: 0,
+        isHealthy: true,
+        healthMessage: null,
+      },
+    ]);
+    const res = await httpGet(server, "/apps/1/scratch-test");
+    expect(res.status).toBe(302);
+    expect(res.headers["location"]).toBe(
+      "https://t1000-3020.serve.term.example.com",
+    );
+  });
+
+  it("HIGH-1-T12: 302 uses the host record's `name` (case preserved per D-13)", async () => {
+    // Ashley's t1000 stores display case as "Skynet". D-13 preserves it
+    // on the returned host row; the LOWER() lookup happens in
+    // resolveHostByName, not in resolveHostById. The redirect route just
+    // consumes host.name verbatim.
+    resolveHostByIdMock.mockResolvedValueOnce({
+      name: "Skynet",
+      ip: "10.0.0.1",
+      port: 22,
+      username: "ubuntu",
+      authType: "key",
+      key: "fake-key",
+    });
+    getAppSnapshotMock.mockReturnValueOnce([
+      {
+        hostId: "42",
+        slug: "my-app",
+        title: "My App",
+        description: "",
+        port: 8080,
+        hasIcon: true,
+        createdAtMs: 0,
+        isHealthy: true,
+        healthMessage: null,
+      },
+    ]);
+    const res = await httpGet(server, "/apps/42/my-app");
+    expect(res.status).toBe(302);
+    expect(res.headers["location"]).toBe(
+      "https://Skynet-8080.serve.term.example.com",
+    );
   });
 });

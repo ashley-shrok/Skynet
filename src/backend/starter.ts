@@ -549,6 +549,20 @@ if (process.env.VITEST !== "true") {
       // Registry is now server-owned — pull it back for the orchestrator
       // lifecycle wiring (onFirstSubscriber / onLastUnsubscriber below).
       const registry = fleetStatusServer.registry;
+      // Phase 119 code review HIGH-1 (fix pass 2026-09-18): publish the
+      // registry reference to a process-wide singleton so the new
+      // GET /apps/:hostId/:slug redirect route (src/backend/database/routes/apps.ts)
+      // can look up an app's port from getAppSnapshot() without threading
+      // the closure-scoped reference through the Express router
+      // construction path. This is a read-only accessor — the WS server +
+      // poll orchestrator continue to receive the registry via
+      // constructor args (see below).
+      {
+        const { setRegistry } = await import(
+          "./fleet-status/registry-holder.js"
+        );
+        setRegistry(registry);
+      }
       systemLogger.info("Fleet-status WS server initialized", {
         operation: "fleet_status_init",
         port: 30012,
