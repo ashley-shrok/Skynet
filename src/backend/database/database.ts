@@ -25,6 +25,12 @@ import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
 // identity's host. Mounted BEFORE the generic /identities router so the
 // :key/archive sub-route isn't intercepted by the generic /:identityKey handler.
 import identityArchiveRoutes from "./routes/identity-archive.js";
+// Phase 117 Plan 117-05 (D-05, D-31, D-36a, D-37): user-initiated project
+// membership write — POST /identities/:key/project writes (or clears)
+// the `project:` frontmatter field on the identity's markdown file via
+// writeSessionProjectField (117-01). Mounted alongside the sibling
+// /:key/archive sub-route BEFORE the generic /identities router.
+import sessionProjectWriteRoutes from "./routes/session-project-write.js";
 import identityBirthRoutes from "./routes/identity-birth.js";
 import matrixAdminRoutes from "../matrix/matrix-admin-routes.js";
 import telegramRoutes from "../telegram/routes.js";
@@ -1932,6 +1938,15 @@ app.use("/identities", identityNoDormancyRoutes);
 // :key/archive sub-route isn't intercepted by identitiesRoutes's /:identityKey
 // handlers. Same discipline as the exists-on-host + no-dormancy mounts above.
 app.use("/identities", identityArchiveRoutes);
+// Phase 117 Plan 117-05 (D-05, D-31, D-36a, D-37): POST /identities/:key/project —
+// writes the `project:` frontmatter field on the identity file via the 117-01
+// writer. Mounted alongside identity-archive; the two /:key/<action> sub-routes
+// are non-overlapping (:key/archive vs :key/project) and BOTH mount BEFORE
+// the generic /identities router so /:key/project isn't shadowed by
+// identitiesRoutes's /:identityKey handlers. Every successful write triggers
+// subscription-registry.publishProjectListChanged so connected WS clients
+// re-hydrate the sidebar's projects zone.
+app.use("/identities", sessionProjectWriteRoutes);
 // Phase 22 (SRIC-02): /roles?hostId=<n> — target-host-side role directory
 // enumeration. Standalone mount; kept ABOVE /identities to preserve match
 // precedence should a future /roles subpath ever collide.
