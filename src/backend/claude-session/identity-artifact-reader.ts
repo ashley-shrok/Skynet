@@ -2013,10 +2013,31 @@ export async function writeMarkdownFileAtomic(
     });
   });
 
+  // $HOME expansion — SFTP servers don't expand shell variables. If caller
+  // passed a `$HOME/...`-prefixed path (the fleet-broker convention shared
+  // with spawn-requests + image-gen), resolve the remote home via
+  // sftp.realpath(".") — SFTP cwd on connection is the user's home dir.
+  let resolvedTarget = targetPath;
+  let resolvedTmp = tmpPath;
+  if (targetPath.startsWith("$HOME/") || targetPath === "$HOME") {
+    const remoteHome = await new Promise<string>((resolve, reject) => {
+      sftp.realpath(".", (err, absPath) => {
+        if (err) return reject(err);
+        resolve(absPath);
+      });
+    });
+    if (targetPath === "$HOME") {
+      resolvedTarget = remoteHome;
+    } else {
+      resolvedTarget = remoteHome + "/" + targetPath.slice("$HOME/".length);
+    }
+    resolvedTmp = resolvedTarget + ".tmp";
+  }
+
   try {
     // Write to .tmp first (atomic-write pattern: crash leaves prior file intact)
     await new Promise<void>((resolve, reject) => {
-      sftp.writeFile(tmpPath, buf, { mode: 0o644 }, (err) => {
+      sftp.writeFile(resolvedTmp, buf, { mode: 0o644 }, (err) => {
         if (err) return reject(err);
         resolve();
       });
@@ -2026,7 +2047,7 @@ export async function writeMarkdownFileAtomic(
     // see prologue for the EEXIST → SSH2_FX_FAILURE trap that made
     // plain sftp.rename unsafe for existing-file overwrites).
     await new Promise<void>((resolve, reject) => {
-      sftp.ext_openssh_rename(tmpPath, targetPath, (err) => {
+      sftp.ext_openssh_rename(resolvedTmp, resolvedTarget, (err) => {
         if (err) return reject(err);
         resolve();
       });
@@ -2034,17 +2055,17 @@ export async function writeMarkdownFileAtomic(
 
     sshLogger.info("identity-artifact-reader: identity_markdown_write", {
       operation: "identity_markdown_write",
-      targetPath,
+      targetPath: resolvedTarget,
       bytes,
     });
   } catch (err) {
     sshLogger.error(
       "identity-artifact-reader: identity_markdown_write failed",
       err instanceof Error ? err : new Error(String(err)),
-      { operation: "identity_markdown_write_error", targetPath, bytes },
+      { operation: "identity_markdown_write_error", targetPath: resolvedTarget, bytes },
     );
     // Best-effort cleanup of the .tmp file — fire-and-forget
-    sftp.unlink(tmpPath, () => {});
+    sftp.unlink(resolvedTmp, () => {});
     throw err;
   } finally {
     sftp.end();
@@ -2091,10 +2112,30 @@ async function sftpWriteBinaryAtomic(
     });
   });
 
+  // $HOME expansion — same rationale as writeMarkdownFileAtomic's REMOTE
+  // branch above: SFTP doesn't expand shell variables. Resolve via
+  // sftp.realpath(".") whose cwd is the connecting user's home dir.
+  let resolvedTarget = targetPath;
+  let resolvedTmp = tmpPath;
+  if (targetPath.startsWith("$HOME/") || targetPath === "$HOME") {
+    const remoteHome = await new Promise<string>((resolve, reject) => {
+      sftp.realpath(".", (err, absPath) => {
+        if (err) return reject(err);
+        resolve(absPath);
+      });
+    });
+    if (targetPath === "$HOME") {
+      resolvedTarget = remoteHome;
+    } else {
+      resolvedTarget = remoteHome + "/" + targetPath.slice("$HOME/".length);
+    }
+    resolvedTmp = resolvedTarget + ".tmp";
+  }
+
   try {
     // Write to .tmp first (atomic-write pattern: crash leaves prior file intact)
     await new Promise<void>((resolve, reject) => {
-      sftp.writeFile(tmpPath, bytes, { mode: 0o644 }, (err) => {
+      sftp.writeFile(resolvedTmp, bytes, { mode: 0o644 }, (err) => {
         if (err) return reject(err);
         resolve();
       });
@@ -2104,7 +2145,7 @@ async function sftpWriteBinaryAtomic(
     // see writeMarkdownFileAtomic's prologue for the EEXIST → SSH2_FX_FAILURE
     // trap that made plain sftp.rename unsafe for existing-file overwrites).
     await new Promise<void>((resolve, reject) => {
-      sftp.ext_openssh_rename(tmpPath, targetPath, (err) => {
+      sftp.ext_openssh_rename(resolvedTmp, resolvedTarget, (err) => {
         if (err) return reject(err);
         resolve();
       });
@@ -2112,17 +2153,17 @@ async function sftpWriteBinaryAtomic(
 
     sshLogger.info("identity-artifact-reader: identity_avatar_write", {
       operation: "identity_avatar_write",
-      targetPath,
+      targetPath: resolvedTarget,
       bytes: byteLen,
     });
   } catch (err) {
     sshLogger.error(
       "identity-artifact-reader: identity_avatar_write failed",
       err instanceof Error ? err : new Error(String(err)),
-      { operation: "identity_avatar_write_error", targetPath, bytes: byteLen },
+      { operation: "identity_avatar_write_error", targetPath: resolvedTarget, bytes: byteLen },
     );
     // Best-effort cleanup of the .tmp file — fire-and-forget
-    sftp.unlink(tmpPath, () => {});
+    sftp.unlink(resolvedTmp, () => {});
     throw err;
   } finally {
     sftp.end();
