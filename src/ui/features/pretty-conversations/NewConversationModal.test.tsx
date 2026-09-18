@@ -90,6 +90,16 @@ vi.mock("@/api/relay-room-create-api", () => ({
     mockCreateRelayRoom(...args),
 }));
 
+// Phase 117 Plan 117-09 Task 2 — setRelayRoomProject follow-up mock. After a
+// successful createRelayRoom, if preSelectedProject prop is non-null the modal
+// fires setRelayRoomProject(roomId, mxid, slug) to write the u.project.<slug>
+// tag onto the newly minted room's account_data. Follow-up is fire-and-forget:
+// success is not blocking the onCreated + close path.
+vi.mock("@/api/session-project-api", () => ({
+  setRelayRoomProject: vi.fn(async () => ({ ok: true as const })),
+  setSessionProject: vi.fn(async () => ({ ok: true as const })),
+}));
+
 // ─── Component under test ─────────────────────────────────────────────────────
 import { NewConversationModal } from "./NewConversationModal";
 
@@ -633,5 +643,99 @@ describe("NewConversationModal", () => {
     expect(src).toContain("md:-translate-y-1/2");
     // Guard against regression to the prior anchored-both-edges pattern.
     expect(src).not.toContain("md:inset-y-8");
+  });
+
+  // ─── Phase 117 Plan 117-09 Task 2 tests ──────────────────────────────────
+
+  it("Test 20 (preSelectedProject prop): after successful room create, setRelayRoomProject is called with the pre-selected slug", async () => {
+    // Import the mock so we can spy on setRelayRoomProject.
+    const { setRelayRoomProject } = await import("@/api/session-project-api");
+    (setRelayRoomProject as unknown as ReturnType<typeof vi.fn>).mockClear();
+
+    mockCreateRelayRoom.mockResolvedValueOnce({
+      ok: true as const,
+      roomId: "!roomAlpha:thenasty.taild9b663.ts.net",
+      sessionId: "s-alpha",
+      roomTitle: "Alpha chat",
+    });
+
+    const onOpenChange = vi.fn();
+    const onCreated = vi.fn();
+    render(
+      <NewConversationModal
+        open={true}
+        onOpenChange={onOpenChange}
+        onCreated={onCreated}
+        preSelectedProject="alpha"
+      />,
+    );
+    // Wait for the user fetch to resolve.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    setRoomName("Chat");
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: /bob/i })).toBeInTheDocument();
+    });
+    clickParticipantRow("bob");
+    const createBtn = screen.getByRole("button", { name: /^create$/i });
+    await waitFor(() => expect(createBtn).not.toBeDisabled());
+
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
+    // After createRelayRoom resolves, setRelayRoomProject fires with the
+    // room's id + viewing-user mxid + preSelectedProject slug.
+    await waitFor(() => {
+      expect(setRelayRoomProject).toHaveBeenCalledTimes(1);
+    });
+    expect(setRelayRoomProject).toHaveBeenCalledWith(
+      "!roomAlpha:thenasty.taild9b663.ts.net",
+      "@ashley:thenasty.taild9b663.ts.net",
+      "alpha",
+    );
+  });
+
+  it("Test 21 (preSelectedProject omitted): no setRelayRoomProject call fires after room create", async () => {
+    const { setRelayRoomProject } = await import("@/api/session-project-api");
+    (setRelayRoomProject as unknown as ReturnType<typeof vi.fn>).mockClear();
+
+    mockCreateRelayRoom.mockResolvedValueOnce({
+      ok: true as const,
+      roomId: "!roomBeta:thenasty.taild9b663.ts.net",
+      sessionId: "s-beta",
+      roomTitle: "Beta chat",
+    });
+
+    render(
+      <NewConversationModal
+        open={true}
+        onOpenChange={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    setRoomName("Chat");
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: /bob/i })).toBeInTheDocument();
+    });
+    clickParticipantRow("bob");
+    const createBtn = screen.getByRole("button", { name: /^create$/i });
+    await waitFor(() => expect(createBtn).not.toBeDisabled());
+
+    await act(async () => {
+      fireEvent.click(createBtn);
+    });
+
+    // No follow-up fires when preSelectedProject is omitted / null.
+    await waitFor(() => {
+      expect(mockCreateRelayRoom).toHaveBeenCalledTimes(1);
+    });
+    expect(setRelayRoomProject).not.toHaveBeenCalled();
   });
 });

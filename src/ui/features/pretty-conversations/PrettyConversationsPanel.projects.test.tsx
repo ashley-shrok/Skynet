@@ -874,6 +874,304 @@ describe("PrettyConversationsPanel: CreateProjectModal wire (117-09 Task 1)", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 117-09 Task 2 — archive-project cascade + section context menu + new-conv wire
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", () => {
+  // A9 — hoist confirm/prompt mocks. window.confirm returning true → cascade
+  // fires; returning false → cancel path.
+  const confirmSpy = vi.spyOn(window, "confirm");
+  afterEach(() => {
+    confirmSpy.mockReset();
+  });
+
+  it("A9 Test 1 (D-29 verbatim warning): right-click header + click 'Archive project' shows the exact confirmation copy", () => {
+    const hostA = makeHost("1", "hostA");
+    const rowA = makeRow({ id: "in-alpha", host: hostA, targetTmuxSession: "wren" });
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [rowA] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    confirmSpy.mockReturnValue(false);
+
+    const { container, getByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    fireEvent.contextMenu(header);
+    // Context menu appears with "Archive project" item.
+    fireEvent.click(getByText("Archive project"));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "About to archive this project AND all conversations inside it. Drag conversations out first if you want to keep any active.",
+    );
+  });
+
+  it("A9 Test 2 (cascade fires N archiveIdentity + archiveProject after): 3 identity members → 3 archiveIdentity + 1 archiveProject", async () => {
+    const hostA = makeHost("1", "hostA");
+    const row1 = makeRow({ id: "r1", host: hostA, targetTmuxSession: "wren" });
+    const row2 = makeRow({ id: "r2", host: hostA, targetTmuxSession: "sparrow" });
+    const row3 = makeRow({ id: "r3", host: hostA, targetTmuxSession: "finch" });
+    setSnapshot({
+      projectSections: [
+        { slug: "alpha", displayName: "Alpha", rows: [row1, row2, row3] },
+      ],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    confirmSpy.mockReturnValue(true);
+
+    const { container, getByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    fireEvent.contextMenu(header);
+    fireEvent.click(getByText("Archive project"));
+
+    // Wait for the async cascade to settle.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Read the archiveIdentity spy from the vi.mock; expose via import.
+    const { archiveIdentity } = await import("@/api/identity-archive-api");
+    expect(archiveIdentity).toHaveBeenCalledTimes(3);
+    expect(archiveProjectSpy).toHaveBeenCalledTimes(1);
+    expect(archiveProjectSpy).toHaveBeenCalledWith(1, "alpha");
+  });
+
+  it("A9 Test 3 (partial failure): 1 archiveIdentity throws → archiveProject STILL fires; console.error logs", async () => {
+    const hostA = makeHost("1", "hostA");
+    const row1 = makeRow({ id: "r1", host: hostA, targetTmuxSession: "wren" });
+    const row2 = makeRow({ id: "r2", host: hostA, targetTmuxSession: "sparrow" });
+    setSnapshot({
+      projectSections: [
+        { slug: "alpha", displayName: "Alpha", rows: [row1, row2] },
+      ],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    confirmSpy.mockReturnValue(true);
+
+    const { archiveIdentity } = await import("@/api/identity-archive-api");
+    // First call throws; second succeeds.
+    (archiveIdentity as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(async () => {
+        throw new Error("cannot reach host");
+      })
+      .mockImplementationOnce(async () => ({ ok: true }));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { container, getByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    fireEvent.contextMenu(header);
+    fireEvent.click(getByText("Archive project"));
+
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // archiveProject STILL fires despite partial failure (Promise.allSettled semantics).
+    expect(archiveProjectSpy).toHaveBeenCalledWith(1, "alpha");
+    // Partial-failure logged.
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("A9 Test 3a (Fix 3 — mixed identity + relay-room cascade): BOTH archiveIdentity + setRelayRoomProject(null) fire before archiveProject", async () => {
+    const hostA = makeHost("1", "hostA");
+    const identityRow = makeRow({
+      id: "identity-1",
+      host: hostA,
+      targetTmuxSession: "wren",
+    });
+    const relayRow = makeRow({
+      id: "relay-1",
+      host: undefined,
+      targetTmuxSession: null,
+      kind: "relay-room",
+      roomId: "!abc:host",
+    });
+    setSnapshot({
+      projectSections: [
+        { slug: "alpha", displayName: "Alpha", rows: [identityRow, relayRow] },
+      ],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    confirmSpy.mockReturnValue(true);
+
+    const { archiveIdentity } = await import("@/api/identity-archive-api");
+
+    const { container, getByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    fireEvent.contextMenu(header);
+    fireEvent.click(getByText("Archive project"));
+
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Both member spies fired exactly once.
+    expect(archiveIdentity).toHaveBeenCalledTimes(1);
+    expect(archiveIdentity).toHaveBeenCalledWith(1, "wren");
+    expect(setRelayRoomProjectSpy).toHaveBeenCalledTimes(1);
+    expect(setRelayRoomProjectSpy).toHaveBeenCalledWith(
+      "!abc:host",
+      "@user:matrix.example",
+      null,
+    );
+    // Then archiveProject fired.
+    expect(archiveProjectSpy).toHaveBeenCalledTimes(1);
+    expect(archiveProjectSpy).toHaveBeenCalledWith(1, "alpha");
+  });
+
+  it("A9 Test 4 (cancel): user clicks Cancel in confirm → no cascade, no archiveProject", async () => {
+    const hostA = makeHost("1", "hostA");
+    const rowA = makeRow({ id: "r1", host: hostA, targetTmuxSession: "wren" });
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [rowA] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    confirmSpy.mockReturnValue(false);
+
+    const { container, getByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    fireEvent.contextMenu(header);
+    fireEvent.click(getByText("Archive project"));
+
+    const { archiveIdentity } = await import("@/api/identity-archive-api");
+    expect(archiveIdentity).not.toHaveBeenCalled();
+    expect(archiveProjectSpy).not.toHaveBeenCalled();
+    expect(setRelayRoomProjectSpy).not.toHaveBeenCalled();
+  });
+
+  it("A9 Test 5 (empty project): 0 members → skip cascade, just archiveProject", async () => {
+    setSnapshot({
+      projectSections: [{ slug: "empty", displayName: "Empty", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "empty", displayName: "Empty", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    confirmSpy.mockReturnValue(true);
+
+    const { container, getByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector('[data-testid="pv-project-section-header-empty"]') as HTMLElement;
+    fireEvent.contextMenu(header);
+    fireEvent.click(getByText("Archive project"));
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const { archiveIdentity } = await import("@/api/identity-archive-api");
+    expect(archiveIdentity).not.toHaveBeenCalled();
+    expect(setRelayRoomProjectSpy).not.toHaveBeenCalled();
+    expect(archiveProjectSpy).toHaveBeenCalledTimes(1);
+    expect(archiveProjectSpy).toHaveBeenCalledWith(1, "empty");
+  });
+
+  it("A9 Test 6 (context menu items): right-click header shows BOTH 'Edit project file' and 'Archive project'", () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+
+    const { container, queryByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    fireEvent.contextMenu(header);
+
+    expect(queryByText("Edit project file")).not.toBeNull();
+    expect(queryByText("Archive project")).not.toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A9 Test 9 (Task 2 panel wiring) — SquarePen fires NewConversationModal with
+// preSelectedProject set to the section's slug.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: new-conversation-in-project wire (117-09 Task 2)", () => {
+  it("A9 Test 9: clicking section's SquarePen opens NewConversationModal with preSelectedProject = section slug", () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const squarePen = container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement;
+    expect(squarePen).not.toBeNull();
+    fireEvent.click(squarePen);
+
+    // The panel writes the pre-selected slug into a data attribute on the
+    // NewConversationModal wrapper so the wire is observable in tests without
+    // reaching into modal internals. The modal itself lands via createRelayRoom.
+    const wrapper = container.querySelector('[data-testid="pv-new-conv-modal-wrapper"]');
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.getAttribute("data-pre-selected-project")).toBe("alpha");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Test 12 — project sections rendered in selector order (regression guard)
 // ─────────────────────────────────────────────────────────────────────────────
 
