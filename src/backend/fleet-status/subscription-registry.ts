@@ -14,6 +14,7 @@ import {
   makeUpdateFrame,
   makeGoneFrame,
   makeIdentityArchivedFrame,
+  makeProjectListChangedFrame,
 } from "./wire-protocol.js";
 // Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism):
 // contextPct is PROMOTED from PrettyView-local useState to a per-session
@@ -25,6 +26,17 @@ import {
 import { getContextPct } from "./contextpct-store.js";
 
 type SendFrame = (frame: FrontendOutboundFrameType) => void;
+
+// Phase 117 Plan 117-03 (D-37): shape of a project row on the
+// project-list-changed frame. Mirrors the zod schema in
+// wire-protocol.ts (FrontendProjectListChangedFrameSchema.projects).
+type ProjectListEntry = {
+  slug: string;
+  displayName: string;
+  hostId: string;
+  hostname: string;
+  archived: boolean;
+};
 
 export interface SubscriptionRegistry {
   /**
@@ -63,6 +75,25 @@ export interface SubscriptionRegistry {
     hostId: string,
     hostname: string,
   ): void;
+
+  /**
+   * Phase 117 Plan 117-03 (D-37): publish a project-list-changed frame
+   * carrying the FULL projects array (not a delta — per RESEARCH § Open Q #4,
+   * projects are cheap and full-replace matches the Phase 115 registry-
+   * cache-then-fanout discipline).
+   *
+   * Snapshot-on-subscribe: reconnecting clients get the cached array
+   * replayed on subscribe (mirrors the archivedIdentities replay pattern
+   * in the subscribe() body).
+   *
+   * Idempotent: byte-identical array replay is a no-op via JSON.stringify
+   * canonicalization compare against a single-cell cache. Cache-hit → no
+   * fanout; cache-miss → cache is replaced and the frame fans out.
+   *
+   * Empty array is a valid state (represents "no projects on any host") —
+   * publishing [] after a non-empty cache IS a delta and DOES fan out.
+   */
+  publishProjectListChanged(projects: ProjectListEntry[]): void;
 
   /**
    * Mark a session as gone. If the key exists in the map:
@@ -176,6 +207,14 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
     string,
     { name: string; hostId: string; hostname: string }
   >();
+  // Phase 117 Plan 117-03 (D-37): single-cell cache for the projects pool.
+  // The wire event carries the WHOLE array on every emit (per RESEARCH §
+  // Open Q #4 — full-replace, not delta), so a single nullable cell is
+  // enough. `null` means "no publish has occurred yet" — snapshot-on-
+  // subscribe skips the project-list replay in that state. Idempotent-skip
+  // in publishProjectListChanged compares JSON.stringify(projects) against
+  // JSON.stringify(projectListCache) to drop no-op republishes at cache-hit.
+  let projectListCache: ProjectListEntry[] | null = null;
 
   return {
     subscribe(sendFrame: SendFrame, ctx?: { userId: string }): () => void {
@@ -223,6 +262,27 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
             "Fleet-status archived-identity snapshot delivery failed",
             {
               operation: "fleet_status_archived_snapshot_failed",
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
+        }
+      }
+
+      // Phase 117 Plan 117-03 (D-37): replay the cached project list on
+      // subscribe. Guarded on non-null cache so a fresh registry (no publish
+      // yet) does NOT fan out a spurious empty frame — the frontend must not
+      // learn "no projects" from a registry that has never been told what
+      // the projects ARE. When the first publish lands it will carry the
+      // real array (which may legitimately be empty for a host with no
+      // projects on disk).
+      if (projectListCache !== null) {
+        try {
+          sendFrame(makeProjectListChangedFrame(projectListCache));
+        } catch (err) {
+          systemLogger.warn(
+            "Fleet-status project-list snapshot delivery failed",
+            {
+              operation: "fleet_status_project_list_snapshot_failed",
               error: err instanceof Error ? err.message : "unknown",
             },
           );
@@ -309,6 +369,27 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
       }
       archivedIdentities.set(key, { name, hostId, hostname });
       fanOut(subscribers, makeIdentityArchivedFrame(name, hostId, hostname));
+    },
+
+    publishProjectListChanged(projects: ProjectListEntry[]): void {
+      // Deep-equal skip via JSON.stringify canonicalization. Field types
+      // are small strings + booleans; stringify cost is O(N × avg field
+      // size) which for realistic N (< 20 projects) is negligible per
+      // RESEARCH § Pitfall 4. `null` cache serializes to the literal
+      // string "null" which cannot collide with any valid array
+      // serialization ("[...]"), so a first publish after registry
+      // creation always fans out.
+      const nextSerialized = JSON.stringify(projects);
+      const prevSerialized =
+        projectListCache === null ? null : JSON.stringify(projectListCache);
+      if (prevSerialized === nextSerialized) {
+        return;
+      }
+      // Defensive copy so a caller mutating the array post-publish cannot
+      // silently corrupt the cache (and thus poison future idempotent-skip
+      // comparisons and snapshot-on-subscribe replays).
+      projectListCache = projects.slice();
+      fanOut(subscribers, makeProjectListChangedFrame(projects));
     },
 
     publishSessionGone(
