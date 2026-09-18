@@ -85,7 +85,22 @@ import {
   // (added by 115-06 alongside the distinct wire message shape) to route
   // archive-tree rows into the frontend's inert archived pool.
   upsertArchivedFleetRow,
+  // Phase 117 Plan 117-07 (D-37 / D-39): projects slice mutator + relay-room
+  // and identity project-assignment map setters. Fed by the fleet-status
+  // client's onProjectListChanged callback (wire event from 117-03) AND the
+  // boot-time hydration path (listProjects + listRelayRoomProjectTags).
+  setProjects,
+  setRoomProjectAssignments,
 } from "@/state/conversation-store";
+import type { ProjectRow } from "@/state/conversation-store";
+// Phase 117 Plan 117-07 (Fix 1 gate): boot-time hydration API — listProjects
+// per host (project list) + listRelayRoomProjectTags per host (u.project.<slug>
+// account_data enumeration for relay-room membership). Feeds setProjects +
+// setRoomProjectAssignments before the first WS snapshot arrives.
+import {
+  listProjects,
+  listRelayRoomProjectTags,
+} from "@/api/project-list-api";
 import { getSessionList, killTmuxSession } from "@/api/sessions-api";
 import {
   consumePendingWorkspace,
@@ -648,6 +663,17 @@ export function AppShell({
         if (!Number.isFinite(hostIdNum)) return;
         upsertArchivedFleetRow({ hostId: hostIdNum, name, hostname });
       },
+      // Phase 117 Plan 117-07 (D-37): project-list-changed wire frame from
+      // 117-03's registry.publishProjectListChanged. Backend fires this on
+      // every project create / archive / session-project reassignment; the
+      // frame carries the FULL project list on every emit (registry
+      // idempotent-skip absorbs no-op fanouts). We pass the array verbatim
+      // to setProjects — its identity-equal-skip absorbs churn on WS reconnect.
+      // The wire type `ProjectListEntry` on fleet-status-types.ts mirrors
+      // ProjectRow byte-for-byte (both are {slug, displayName, hostId,
+      // hostname, archived}), so no field massaging is required at the
+      // adapter boundary.
+      onProjectListChanged: (projects) => setProjects(projects),
       onGone: (hostId, tmuxSession, sessionId) => {
         // The three pre-existing publishes — mark per-session state. These are
         // orthogonal to membership and must remain. Do NOT reorder.
@@ -1280,6 +1306,85 @@ export function AppShell({
           : t,
       ),
     );
+  }, [allHosts]);
+
+  // ── Phase 117 Plan 117-07 (D-05 two-carrier membership + D-39) — boot-time
+  //    hydration for projects state ─────────────────────────────────────────
+  //
+  // Fires once per allHosts refresh. Fetches the project list AND the
+  // relay-room project-tag assignments (Fix 1 gate — D-05 relay-room carrier
+  // is NOT deferred) for every managed host in parallel. Per-host failures
+  // are swallowed (partial hydration is better than none) so a single flaky
+  // host does not blank the entire projects state.
+  //
+  // Wire-event updates from 117-03's publishProjectListChanged flow through
+  // the same setProjects setter — identity-equal-skip absorbs the no-op
+  // when the boot hydration and first WS snapshot are byte-identical, so
+  // there is NO race between the two paths and NO gratuitous re-render.
+  //
+  // Room-project assignments come from GET /relay-rooms/project-tags. Matrix
+  // rooms are fleet-wide (one relay room shared across all hosts), so the
+  // per-host fetches return the SAME set — dedup by roomId; last write wins.
+  useEffect(() => {
+    if (allHosts.length === 0) return;
+    let cancelled = false;
+
+    void (async () => {
+      // Aggregate ProjectRow[] across managed hosts. listProjects returns
+      // {projects: ProjectSummary[]}; enrich with hostId + hostname to
+      // become ProjectRow (the shape setProjects wants).
+      const projectResults = await Promise.all(
+        allHosts.map(async (h) => {
+          try {
+            const { projects } = await listProjects(parseInt(h.id, 10));
+            const rows: ProjectRow[] = projects.map((p) => ({
+              slug: p.slug,
+              displayName: p.displayName,
+              hostId: h.id,
+              hostname: h.name,
+              archived: p.archived,
+            }));
+            return rows;
+          } catch {
+            return [] as ProjectRow[];
+          }
+        }),
+      );
+      if (cancelled) return;
+      const aggregated: ProjectRow[] = projectResults.flat();
+      setProjects(aggregated);
+
+      // Relay-room project-tag hydration (Fix 1 gate). Aggregates the
+      // per-host assignments into a single Map<roomId, slug>. Since relay
+      // rooms are fleet-wide, the same room may be returned by multiple
+      // hosts — we dedupe on roomId with last-write-wins semantics (all
+      // hosts should agree on the assignment, so any consistent choice is
+      // fine).
+      const tagResults = await Promise.all(
+        allHosts.map(async (h) => {
+          try {
+            const { assignments } = await listRelayRoomProjectTags(
+              parseInt(h.id, 10),
+            );
+            return assignments;
+          } catch {
+            return [] as Array<{ roomId: string; slug: string }>;
+          }
+        }),
+      );
+      if (cancelled) return;
+      const roomMap = new Map<string, string>();
+      for (const list of tagResults) {
+        for (const { roomId, slug } of list) {
+          roomMap.set(roomId, slug);
+        }
+      }
+      setRoomProjectAssignments(roomMap);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [allHosts]);
 
   // Custom event bridge: any surface can request a tab open via skynet:open-tab
