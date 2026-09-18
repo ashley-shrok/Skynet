@@ -1965,6 +1965,12 @@ export async function writeMarkdownFileAtomic(
   // the "fleet root inside the container" (= /host-home/fleet) and
   // substitute `$HOME/fleet` → that. Fallback for non-container runs uses
   // os.homedir()/fleet, mirroring getLocalIdentitiesRoot's fallback shape.
+  //
+  // LOCAL contract: `$HOME/fleet/*` and `$HOME/fleet` route through the fleet
+  // root; anything else is treated as an absolute path. Plain `$HOME/<non-fleet>`
+  // shapes are NOT supported — a future caller needing user-home writes outside
+  // the fleet subtree must route through HOME_HOST_DIR explicitly (see
+  // local-fleet-install.ts's getLocalHomeRoot pattern).
   if (conn === null) {
     const fleetRoot = process.env.IDENTITIES_HOST_DIR
       ? path.dirname(process.env.IDENTITIES_HOST_DIR)
@@ -1974,10 +1980,6 @@ export async function writeMarkdownFileAtomic(
       localPath = path.join(fleetRoot, targetPath.slice("$HOME/fleet/".length));
     } else if (targetPath === "$HOME/fleet") {
       localPath = fleetRoot;
-    } else if (targetPath.startsWith("$HOME/")) {
-      localPath = path.join(os.homedir(), targetPath.slice("$HOME/".length));
-    } else if (targetPath === "$HOME") {
-      localPath = os.homedir();
     } else {
       localPath = targetPath;
     }
@@ -2177,9 +2179,9 @@ async function sftpWriteBinaryAtomic(
  * binary payloads. Two branches, byte-shape-identical to
  * writeMarkdownFileAtomic:
  *
- *   LOCAL (conn === null)  — resolves $HOME / $HOME/fleet in the same way
+ *   LOCAL (conn === null)  — resolves $HOME/fleet in the same way
  *     writeMarkdownFileAtomic does (IDENTITIES_HOST_DIR parent for
- *     $HOME/fleet, os.homedir() fallback for $HOME/ and $HOME) and writes
+ *     $HOME/fleet; anything else is treated as an absolute path) and writes
  *     bytes via fs.writeFile(tmp) → fs.rename(tmp, target). Best-effort tmp
  *     cleanup on error.
  *   REMOTE (conn is SSHClientType) — delegates to the existing private
@@ -2211,7 +2213,10 @@ export async function writeBinaryFileAtomic(
 ): Promise<void> {
   const byteLen = bytes.byteLength;
 
-  // LOCAL branch — mirrors writeMarkdownFileAtomic L1968-L2005 exactly.
+  // LOCAL branch — mirrors writeMarkdownFileAtomic. Same contract:
+  // `$HOME/fleet/*` and `$HOME/fleet` route through the fleet root; anything
+  // else is treated as an absolute path. Non-fleet `$HOME/` shapes not
+  // supported (would need HOME_HOST_DIR routing — see local-fleet-install.ts).
   if (conn === null) {
     const fleetRoot = process.env.IDENTITIES_HOST_DIR
       ? path.dirname(process.env.IDENTITIES_HOST_DIR)
@@ -2221,10 +2226,6 @@ export async function writeBinaryFileAtomic(
       localPath = path.join(fleetRoot, targetPath.slice("$HOME/fleet/".length));
     } else if (targetPath === "$HOME/fleet") {
       localPath = fleetRoot;
-    } else if (targetPath.startsWith("$HOME/")) {
-      localPath = path.join(os.homedir(), targetPath.slice("$HOME/".length));
-    } else if (targetPath === "$HOME") {
-      localPath = os.homedir();
     } else {
       localPath = targetPath;
     }
