@@ -670,7 +670,6 @@ describe("subscription-registry", () => {
       expect(projectFrames).toHaveLength(1);
     });
   });
-||||||| base
 
   // ─── Phase 118 Plan 118-03 — apps map + publish surface (D-09/D-10/D-13/D-14/D-16) ─
   // Sibling to the SessionState map: apps live in their own Map<`${hostId}:${slug}`,

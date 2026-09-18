@@ -258,18 +258,20 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     },
   );
 
-  it("Test T-07: sourceKind discriminant — 26 bundled + 1 runtime row (Phase 114 D-22 + Phase 116 additions + task-field-check)", () => {
+  it("Test T-07: sourceKind discriminant — 52 bundled + 1 runtime row (Phase 114 D-22 + Phase 116 additions + task-field-check + 26 app-development rows)", () => {
     // Regression guard for Phase 114 D-12 + D-14: the catalog is a
     // discriminated union on sourceKind. Phase 116 added 2 bundled rows
-    // (image-gen-skill + image-gen-helper); task-field-check adds a 26th
-    // bundled row (UserPromptSubmit hook). Runtime row (twinkie) unchanged at 1.
+    // (image-gen-skill + image-gen-helper); task-field-check adds one more
+    // bundled row (UserPromptSubmit hook); first-class-apps shape 1 adds 26
+    // bundled rows (app-development skill + helpers + starter template).
+    // Runtime row (twinkie) unchanged at 1.
     const bundled = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "bundled",
     );
     const runtime = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "runtime",
     );
-    expect(bundled.length).toBe(26);
+    expect(bundled.length).toBe(52);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

@@ -530,16 +530,6 @@ if (process.env.VITEST !== "true") {
         }
       }
 
-      // Phase 117 Plan 117-04: publish the same instance to the module-level
-      // singleton so Express routes (mounted in database.ts) can reach it at
-      // request time via getSubscriptionRegistry(). Same object — every
-      // publish path (WS server, orchestrator, project-list route, session-
-      // project-write route) fans out through the SAME subscriber set.
-      const { setSubscriptionRegistry } = await import(
-        "./fleet-status/subscription-registry.js"
-      );
-      setSubscriptionRegistry(registry);
-
       const fleetStatusServer = startFleetStatusServer({
         port: 30012,
         authManager,
@@ -549,6 +539,16 @@ if (process.env.VITEST !== "true") {
       // Registry is now server-owned — pull it back for the orchestrator
       // lifecycle wiring (onFirstSubscriber / onLastUnsubscriber below).
       const registry = fleetStatusServer.registry;
+
+      // Phase 117 Plan 117-04: publish the same instance to the module-level
+      // singleton so Express routes (mounted in database.ts) can reach it at
+      // request time via getSubscriptionRegistry(). Same object — every
+      // publish path (WS server, orchestrator, project-list route, session-
+      // project-write route) fans out through the SAME subscriber set.
+      const { setSubscriptionRegistry } = await import(
+        "./fleet-status/subscription-registry.js"
+      );
+      setSubscriptionRegistry(registry);
       // Phase 119 code review HIGH-1 (fix pass 2026-09-18): publish the
       // registry reference to a process-wide singleton so the new
       // GET /apps/:hostId/:slug redirect route (src/backend/database/routes/apps.ts)

@@ -290,6 +290,7 @@ export function createFleetStatusClient(
             projectCount: parsed.projects.length,
           });
           onProjectListChanged?.(parsed.projects);
+          break;
         case "app-snapshot":
           // Phase 119 Plan 119-01 (D-14, D-16): Phase 118 app-registry
           // snapshot on subscribe (also re-emitted on WS reconnect). Later
