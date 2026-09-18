@@ -40,6 +40,9 @@ import {
 } from "../claude-session/identity-artifact-reader.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { SSH_CONNECT_TIMEOUT_MS } from "../database/routes/identity-birth-orchestrator.js";
+import { getDb } from "../database/db/index.js";
+import { hosts } from "../database/db/schema.js";
+import { eq } from "drizzle-orm";
 import type { Client as SSHClientType } from "ssh2";
 import { callOpenAiImageGen } from "./adapter.js";
 import type { TokenBucket } from "./token-bucket.js";
@@ -67,6 +70,38 @@ const DEFAULT_SUCCESS_SIZE = "1024x1024";
 const IMAGE_GEN_DIR = "$HOME/fleet/image-gen-requests";
 
 // ---------------------------------------------------------------------------
+// getHostOwnerUserId (exported for test injection into WorkerDeps)
+// ---------------------------------------------------------------------------
+
+/**
+ * Look up the owner userId of a host via a direct Drizzle query.
+ * Does NOT use resolveHostById — that requires a pre-known userId for field
+ * decryption; hosts.userId is a plaintext foreign key (Pitfall 3).
+ *
+ * Mirrors the canonical shape from spawn-requests/worker.ts:113-127 — the
+ * scan-orchestrator populates `item.userId = ""` (see parse-request-body.ts),
+ * so the worker MUST re-resolve the owner at process-time before calling
+ * resolveHostById (which needs a real userId for field decryption). Without
+ * this, resolveHostById returns null and the response file is silently dropped
+ * (bug surfaced during Phase 116 E2E verification).
+ */
+export const getHostOwnerUserId = async (hostIdNum: number): Promise<string | null> => {
+  const rows = await getDb()
+    .select({ userId: hosts.userId })
+    .from(hosts)
+    .where(eq(hosts.id, hostIdNum))
+    .limit(1);
+
+  systemLogger.info("image-gen worker: host-owner lookup", {
+    operation: "image_gen_host_owner_lookup",
+    hostIdNum,
+    found: rows.length > 0,
+  });
+
+  return rows[0]?.userId ?? null;
+};
+
+// ---------------------------------------------------------------------------
 // WorkerDeps — dependency-injection interface (stable from Task 1)
 // ---------------------------------------------------------------------------
 
@@ -83,6 +118,9 @@ const IMAGE_GEN_DIR = "$HOME/fleet/image-gen-requests";
  *     by identity-artifact-reader.ts as part of Task 1).
  *   - isLocalHostId — LOCAL-vs-REMOTE routing per item.hostIdNum.
  *   - resolveHostById — REMOTE branch host-details lookup.
+ *   - getHostOwnerUserId — REMOTE branch host-owner userId lookup at
+ *     process-time. Required because scan-orchestrator populates
+ *     item.userId = "" (Pitfall 3, mirrors spawn-requests's pattern).
  *   - callOpenAiImageGen — the adapter from Plan 01. Never throws in
  *     normal operation (returns AdapterResult discriminated union).
  *   - tokenBucket — the boot-time-singleton token bucket (D-21). The worker
@@ -97,6 +135,7 @@ export interface WorkerDeps {
   writeBinaryFileAtomic: typeof writeBinaryFileAtomic;
   isLocalHostId: typeof isLocalHostId;
   resolveHostById: typeof resolveHostById;
+  getHostOwnerUserId: (hostIdNum: number) => Promise<string | null>;
   callOpenAiImageGen: typeof callOpenAiImageGen;
   tokenBucket: TokenBucket;
   now: () => number;
@@ -119,6 +158,7 @@ export function buildProductionDeps(tokenBucket: TokenBucket): WorkerDeps {
     writeBinaryFileAtomic,
     isLocalHostId,
     resolveHostById,
+    getHostOwnerUserId,
     callOpenAiImageGen,
     tokenBucket,
     now: () => Date.now(),
