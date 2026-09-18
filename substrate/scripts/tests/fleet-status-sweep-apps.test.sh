@@ -19,6 +19,7 @@
 #   5. no icon        — app.json + valid unit, no icon     → has_icon: false
 #   6. with icon      — app.json + valid unit + icon.webp  → has_icon: true
 #   7. slug injection — bad folder name (uppercase, >40)   → no line, stderr log
+#   8. folder count cap — 51 valid apps → ≤50 lines + cap_hit warn (MEDIUM-4)
 #
 # Exits 0 on all-pass; exits 1 on any failure with a diagnostic naming the
 # failing test. Skips cleanly with exit 0 when `systemctl --user is-system-
@@ -419,6 +420,76 @@ test_case_07_slug_injection() {
   assert_stderr_contains "app_slug_skipped" "case7 slug_skipped log"
 }
 
+# Case 8: MEDIUM-4 folder-count cap — 51 valid apps must produce at most
+# APP_ENUM_CAP (50) app lines + a stderr warn tagged
+# fleet_status_apps_cap_hit. Apps use registered-but-inactive units so
+# each still emits (D-02 carve-out: emit unhealthy for stopped) — proves
+# the cap fires on emission count, not on any subset. daemon-reload runs
+# ONCE at the end (per-unit reloads would be O(n²) system-wide).
+test_case_08_folder_count_cap() {
+  local user_unit_dir="$HOME/.config/systemd/user"
+  mkdir -p "$user_unit_dir"
+
+  local i slug port=9700
+  for i in $(seq 1 51); do
+    slug="sweep-t116-cap-$i"
+    mkdir -p "$FIXTURE/fleet/apps/$slug"
+    python3 -c "
+import json, sys
+sys.stdout.write(json.dumps({'title': 'Cap $i', 'description': 'MEDIUM-4 test'}))
+" > "$FIXTURE/fleet/apps/$slug/app.json"
+
+    # Write the unit file directly; batch a single daemon-reload below.
+    cat > "$user_unit_dir/app-${slug}.service" <<UNIT
+[Unit]
+Description=Phase 118 MEDIUM-4 test unit for slug=${slug}
+
+[Service]
+Type=simple
+Environment=PORT=$((port + i))
+ExecStart=/bin/sleep 3600
+UNIT
+    # Register for cleanup regardless of start-state (units are INACTIVE
+    # in this test — D-02 carve-out still emits them, so each still
+    # counts against the cap).
+    REGISTERED_UNITS+=("$slug")
+  done
+
+  systemctl --user daemon-reload
+
+  local out
+  out=$(run_sweep)
+
+  # Count emitted app lines with the sweep-t116-cap- prefix.
+  local emitted_count
+  emitted_count=$(printf '%s' "$out" | python3 -c "
+import sys, json
+n = 0
+for l in sys.stdin.read().splitlines():
+    l = l.strip()
+    if not l:
+        continue
+    try:
+        obj = json.loads(l)
+    except json.JSONDecodeError:
+        continue
+    if obj.get('line_kind') == 'app' and obj.get('slug', '').startswith('sweep-t116-cap-'):
+        n += 1
+print(n)
+" 2>/dev/null)
+
+  # At most APP_ENUM_CAP (50) app lines from the cap-prefix set.
+  if [ "$emitted_count" -gt 50 ]; then
+    fail "case8 cap: expected ≤ 50 app lines, got $emitted_count"
+  fi
+  if [ "$emitted_count" -lt 50 ]; then
+    fail "case8 cap: expected exactly 50 cap-prefix app lines (cap value), got $emitted_count"
+  fi
+
+  # Stderr must contain the fleet_status_apps_cap_hit warn.
+  assert_stderr_contains "fleet_status_apps_cap_hit" "case8 cap_hit log"
+}
+
 # ============================================================
 # RUNNER
 # ============================================================
@@ -435,6 +506,7 @@ run_test test_case_04_stopped_unit
 run_test test_case_05_no_icon
 run_test test_case_06_with_icon
 run_test test_case_07_slug_injection
+run_test test_case_08_folder_count_cap
 
 printf '\n===============================\n'
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"

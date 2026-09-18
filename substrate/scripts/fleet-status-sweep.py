@@ -92,6 +92,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import traceback
 from datetime import datetime
 
@@ -191,6 +192,19 @@ APP_SLUG_MAX_LEN = 40
 # subprocess per app × 1.5s worst-case × Ashley's ~10-app ceiling = comfortably
 # inside the 8s exec budget (T-118-01-DoS).
 APP_SUBPROCESS_TIMEOUT_SEC = 1.5
+
+# Phase 118 code-review MEDIUM-4 (fix pass 2026-09-18): DoS-hardening caps on
+# the source-C app enumeration in _enumerate_apps. Prior shape iterated
+# os.scandir(~/fleet/apps) with no upper bound; a malicious folder-creator or
+# a bug spawning 100+ directories could each incur a ~1.5s systemctl call and
+# dwarf the 8s exec ceiling. Ashley's design ceiling is ~10 apps per box
+# (D-15 discussion, RESEARCH § Q6); 50 leaves 5× headroom.
+APP_ENUM_CAP = 50
+# Cumulative wall-clock budget for _enumerate_apps. If the app loop passes
+# this threshold, bail with a structured warn and keep whatever we've built
+# so far — the sweep still emits its identity + pid lines and the caller
+# still gets a valid (partial) JSONL blob for this tick.
+APP_ENUM_WALLCLOCK_BUDGET_SEC = 3.0
 
 
 # ---------------------------------------------------------------------------
@@ -1309,14 +1323,55 @@ def _enumerate_apps(home):
     subprocess call (T-118-01-SL defense-in-depth). Symlinks are rejected
     at scandir time (follow_symlinks=False) to prevent path-traversal
     outside ~/fleet/apps/ (T-118-01-PT).
+
+    Phase 118 code-review MEDIUM-4 (fix pass 2026-09-18): TWO DoS caps
+    apply before any subprocess call:
+      1. APP_ENUM_CAP folder-count cap: after APP_ENUM_CAP valid slugs
+         have been processed, stop enumerating. Emit fleet_status_apps_
+         cap_hit with the observed folder count so operators see the
+         signal.
+      2. APP_ENUM_WALLCLOCK_BUDGET_SEC cumulative wall-clock cap: if the
+         time spent inside the loop crosses this threshold, bail and
+         return whatever we've built. Same warn shape (kind: "wallclock").
+    Both caps preserve fail-open discipline — the sweep still emits its
+    identity + pid lines, and the caller gets a valid partial JSONL blob.
     """
     root = os.path.join(home, "fleet", "apps")
     out = []
+    total_seen = 0
+    started = time.monotonic()
     try:
         with os.scandir(root) as it:
             for entry in it:
                 if not entry.is_dir(follow_symlinks=False):
                     continue
+                total_seen += 1
+                # MEDIUM-4 folder-count cap. Count BEFORE slug validation so
+                # `total_seen` reflects folders actually present on disk (not
+                # just the ones that passed the regex). The cap fires on the
+                # (N+1)th valid folder, so `out` may hold up to APP_ENUM_CAP
+                # entries when we break here.
+                if len(out) >= APP_ENUM_CAP:
+                    _log(
+                        "fleet_status_apps_cap_hit",
+                        kind="count",
+                        cap=APP_ENUM_CAP,
+                        observed=total_seen,
+                    )
+                    break
+                # MEDIUM-4 wall-clock budget. Check BEFORE each iteration's
+                # subprocess call so we bail before eating another 1.5s.
+                elapsed = time.monotonic() - started
+                if elapsed > APP_ENUM_WALLCLOCK_BUDGET_SEC:
+                    _log(
+                        "fleet_status_apps_cap_hit",
+                        kind="wallclock",
+                        budget_sec=APP_ENUM_WALLCLOCK_BUDGET_SEC,
+                        elapsed_sec=round(elapsed, 3),
+                        observed=total_seen,
+                        emitted=len(out),
+                    )
+                    break
                 slug = entry.name
                 if (
                     not APP_SLUG_RE.match(slug)
