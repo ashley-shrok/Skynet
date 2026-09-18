@@ -39,7 +39,7 @@ key-decisions:
   - "Local-branch entry point is executeSweeForHost (NOT sweepOneHost / start()) — all entry points funnel through executeSweeForHost so a single branch there catches startup + retry + on-add paths."
   - "Bootstrap runs BEFORE the catalog install on the local branch — mirrors run-sweep.ts:127 ordering exactly so agent-supervisor.service enable + skynet-parent/skynet-hostname writes complete before any catalog row lands."
   - "Extract applySweepBookkeeping helper — SSH branch and local branch share IDENTICAL post-sweep state transitions by construction, not by copy-paste. Any future bookkeeping change lands in one place."
-  - "Systemd steps 1-3 (systemctl enable / settings.json patch / gsd-context-monitor cleanup) skip-with-warn on the local branch when XDG_RUNTIME_DIR is absent — documented environmental limitation, does NOT set hadError. In the container these steps are handled by other means (image build + Ashley's manual container recreate)."
+  - "Systemd steps 1-3 (systemctl enable / settings.json patch / gsd-context-monitor cleanup) skip-with-warn on the local branch when XDG_RUNTIME_DIR is absent — documented environmental limitation, does NOT set hadError. In the container these steps are handled by other means (image build + the user's manual container recreate)."
   - "Never-throw contract locked with tests NT1 + BE1 — every FS error path returns a structured result and logs via systemLogger.warn. A throw here would re-wedge the exact for-of loop this module exists to unwedge."
   - "system-root euid gate uses process.geteuid?.() === 0 (with undefined-guard for non-POSIX) — non-root skip-with-warn + itemsFailed++, no throw. Container process runs as root (write proceeds); dev machine does not (skip-with-warn)."
 
@@ -121,7 +121,7 @@ Per the plan's `<verify>` blocks:
 - **Combined final scoped run** across all 5 touched-and-adjacent files — **75/75 pass, 4.28s**
 - **`npm run build:backend`** — clean, no TS errors, on every commit boundary.
 
-Fleet test discipline honored: no full-suite `npx vitest run` invocation. That's Ashley's per-deploy greenlight gate, not an executor gate.
+Fleet test discipline honored: no full-suite `npx vitest run` invocation. That's the user's per-deploy greenlight gate, not an executor gate.
 
 ## Git Branch State (for orchestrator handoff)
 
@@ -135,7 +135,7 @@ Fleet test discipline honored: no full-suite `npx vitest run` invocation. That's
   2b45d38c test(distributor): add failing tests for local-FS install helper
   ```
 - **Working tree:** clean except for the untracked plan folder `.planning/quick/260918-5lb-fix-fleet-substrate-distributor-hang-aft/` (orchestrator handles docs commit per executor remit).
-- **NOT done by executor (per constraints):** no `git push`, no `git pull --rebase`, no `docker build`, no `docker compose up`, no ROADMAP.md updates, no STATE.md updates, no full vitest suite. All deploy-window motion is Ashley's + the orchestrator's.
+- **NOT done by executor (per constraints):** no `git push`, no `git pull --rebase`, no `docker build`, no `docker compose up`, no ROADMAP.md updates, no STATE.md updates, no full vitest suite. All deploy-window motion is the user's + the orchestrator's.
 
 ## User Setup Required
 
@@ -143,7 +143,7 @@ None — pure code-only change inside the Skynet repo. No new env vars, no new d
 
 ## Next Phase Readiness
 
-- **Ready for orchestrator handoff.** SUMMARY.md written, all commits atomic, scoped tests green, backend build clean. Orchestrator can now run its docs commit + build + deploy dance whenever Ashley greenlights.
+- **Ready for orchestrator handoff.** SUMMARY.md written, all commits atomic, scoped tests green, backend build clean. Orchestrator can now run its docs commit + build + deploy dance whenever the user greenlights.
 - **Deferred (out of scope for this quick):** systemd steps 1-3 on the local branch (`systemctl --user daemon-reload` / enable-linger / enable --now). Currently skip-with-warn. If a future need arises to actively install/enable the `agent-supervisor.service` unit from the local branch (rather than relying on the container image's build-time enable), that would be a follow-up task — likely a small `child_process.spawn` block gated on the presence of the systemd-user socket. No blocker for the current fix (the local host already has the unit enabled by container-build convention).
 
 ## Self-Check: PASSED
