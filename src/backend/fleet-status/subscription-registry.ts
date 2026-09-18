@@ -7,14 +7,21 @@
  * Key convention: `${hostId}:${tmuxSession ?? ''}` — mirrors session-working-store.ts.
  */
 import { systemLogger } from "../utils/logger.js";
-import type { SessionState, FrontendOutboundFrameType } from "./wire-protocol.js";
+import type {
+  AppState,
+  FrontendOutboundFrameType,
+  SessionState,
+} from "./wire-protocol.js";
 import {
   FRAME_SCHEMA_VERSION,
-  makeSnapshotFrame,
-  makeUpdateFrame,
+  makeAppGoneFrame,
+  makeAppSnapshotFrame,
+  makeAppUpdateFrame,
   makeGoneFrame,
   makeIdentityArchivedFrame,
   makeProjectListChangedFrame,
+  makeSnapshotFrame,
+  makeUpdateFrame,
 } from "./wire-protocol.js";
 // Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism):
 // contextPct is PROMOTED from PrettyView-local useState to a per-session
@@ -131,6 +138,36 @@ export interface SubscriptionRegistry {
   publishIdentityGoneByName(hostId: string, identityName: string): void;
 
   /**
+   * Phase 118 Plan 118-03 (D-09, D-13, D-14): publish an add/mutate for one
+   * source-C app. The apps map is indexed by `${hostId}:${slug}` (a separate
+   * key helper `makeAppKey` — NOT reused with makeKey because slug and
+   * tmuxSession could collide in a shared map; here they live in different
+   * maps but the helper carries the discipline).
+   *
+   * NO byte-equality idempotence guard — D-13 requires that a health-flip
+   * (same slug, isHealthy changed) always emits an app-update. Every publish
+   * call fans out.
+   *
+   * Called from ssh-poll-orchestrator.ts (Plan 118-04) inside the per-host
+   * successful-sweep loop.
+   */
+  publishAppUpdate(hostId: string, app: AppState): void;
+
+  /**
+   * Phase 118 Plan 118-03 (D-11, D-14): remove one source-C app from the map
+   * and fan out an app-gone frame. No-op when the key is absent (prevents
+   * churn on repeated reconciliation ticks after an app is already dropped).
+   * Called from ssh-poll-orchestrator.ts (Plan 118-04) per-host reconciliation.
+   */
+  publishAppGoneByHostSlug(hostId: string, slug: string): void;
+
+  /**
+   * Return all current AppState values as an array (order not guaranteed).
+   * Symmetric with getSnapshot() for sessions.
+   */
+  getAppSnapshot(): AppState[];
+
+  /**
    * Return all current SessionState values as an array (order not guaranteed).
    */
   getSnapshot(): SessionState[];
@@ -170,6 +207,18 @@ export interface SubscriptionRegistry {
 
 function makeKey(hostId: string, tmuxSession: string | null): string {
   return `${hostId}:${tmuxSession ?? ""}`;
+}
+
+/**
+ * Phase 118 Plan 118-03 (D-09, T-118-03-KC): compose the key for the sibling
+ * apps map. Kept DISTINCT from makeKey — the two callers live in different
+ * maps (the apps map vs. the session state map), so byte-level string
+ * collisions between a slug and a tmuxSession are structurally impossible
+ * here; the named helper mirrors the makeKey precedent for readability and
+ * keeps the discipline that slugs and tmuxSessions are NEVER interchangeable.
+ */
+function makeAppKey(hostId: string, slug: string): string {
+  return `${hostId}:${slug}`;
 }
 
 function fanOut(
@@ -219,6 +268,13 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
   // in publishProjectListChanged compares JSON.stringify(projects) against
   // JSON.stringify(projectListCache) to drop no-op republishes at cache-hit.
   let projectListCache: ProjectListEntry[] | null = null;
+  // Phase 118 Plan 118-03 (D-09): sibling map for source-C apps, indexed by
+  // `${hostId}:${slug}` via makeAppKey. Populated by publishAppUpdate, drained
+  // by publishAppGoneByHostSlug, and re-emitted to every new subscriber via
+  // subscribe() as an app-snapshot frame. In-memory only per D-10 — no DB
+  // persistence, restart wipes it, next successful sweep tick rebuilds it
+  // from disk-on-boxes.
+  const apps = new Map<string, AppState>();
 
   return {
     subscribe(sendFrame: SendFrame, ctx?: { userId: string }): () => void {
@@ -291,6 +347,28 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
             },
           );
         }
+      }
+
+      // Phase 118 Plan 118-03 (D-14, D-16): re-emit the current apps map as
+      // one app-snapshot frame so a reconnecting client sees the current app
+      // picture without waiting for the next 2s sweep tick. Emit is
+      // UNCONDITIONAL — an empty apps map still produces an app-snapshot with
+      // apps: [] (a valid state — proves the emit happens alongside the
+      // session + archived snapshots). The per-user host-visibility filter is
+      // NOT applied here at this phase; Plan 118-05 will wrap this emit and
+      // the publishApp* fanouts with the filter (see T-118-03-IL: 118-05 MUST
+      // land in the same deploy as 118-03 + 118-04 to close the info-
+      // disclosure gap).
+      try {
+        sendFrame(makeAppSnapshotFrame(Array.from(apps.values())));
+      } catch (err) {
+        systemLogger.warn(
+          "Fleet-status app-snapshot delivery failed",
+          {
+            operation: "fleet_status_app_snapshot_failed",
+            error: err instanceof Error ? err.message : "unknown",
+          },
+        );
       }
 
       // Phase 39 — fire onFirstSubscriber callbacks on 0 → 1 transition when ctx is provided.
@@ -429,6 +507,35 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
         subscribers,
         makeGoneFrame(hostId, existing.tmuxSession, existing.sessionId),
       );
+    },
+
+    publishAppUpdate(hostId: string, app: AppState): void {
+      // Phase 118 Plan 118-03 (D-09, D-13, D-14): insert-or-replace at
+      // `${hostId}:${slug}` and fan out an app-update frame. NO byte-equality
+      // guard — a health-flip (same slug, isHealthy changed) MUST always
+      // emit. Every publish call fans out.
+      const key = makeAppKey(hostId, app.slug);
+      apps.set(key, app);
+      fanOut(subscribers, makeAppUpdateFrame(app));
+    },
+
+    publishAppGoneByHostSlug(hostId: string, slug: string): void {
+      // Phase 118 Plan 118-03 (D-11, D-14): remove from the apps map and fan
+      // out an app-gone frame. No-op if the key is absent (prevents churn on
+      // repeated reconciliation ticks after an app is already dropped —
+      // mirrors publishSessionGone / publishIdentityGoneByName).
+      const key = makeAppKey(hostId, slug);
+      if (!apps.has(key)) {
+        return;
+      }
+      apps.delete(key);
+      fanOut(subscribers, makeAppGoneFrame(hostId, slug));
+    },
+
+    getAppSnapshot(): AppState[] {
+      // Phase 118 Plan 118-03 — symmetric with getSnapshot() for sessions.
+      // Order is Map insertion order; callers must not depend on it.
+      return Array.from(apps.values());
     },
 
     getSnapshot(): SessionState[] {

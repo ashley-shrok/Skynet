@@ -92,10 +92,12 @@ describe("subscription-registry", () => {
     const receivedFrames: FrontendOutboundFrameType[] = [];
     registry.subscribe((frame) => receivedFrames.push(frame));
 
-    // First frame should be a snapshot with both states
-    expect(receivedFrames).toHaveLength(1);
-    const snapshotFrame = receivedFrames[0];
-    expect(snapshotFrame.type).toBe("snapshot");
+    // Phase 118 Plan 118-03 (Rule 3 additive-extension ripple): subscribe()
+    // now emits an app-snapshot alongside the session snapshot. Assert the
+    // session-snapshot shape by TYPE-FILTERING rather than by position.
+    const snapshotFrames = receivedFrames.filter((f) => f.type === "snapshot");
+    expect(snapshotFrames).toHaveLength(1);
+    const snapshotFrame = snapshotFrames[0];
     if (snapshotFrame.type === "snapshot") {
       expect(snapshotFrame.schemaVersion).toBe(FRAME_SCHEMA_VERSION);
       expect(snapshotFrame.states).toHaveLength(2);
