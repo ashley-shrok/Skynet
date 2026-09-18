@@ -45,6 +45,40 @@ fi
 cp -a "$APP_DIR" "$DEST"
 log "copied app folder -> $DEST"
 
+# The raw cp above captures a potentially-torn snapshot of db.sqlite because
+# SQLite in WAL mode has three coordinated files (main, -wal, -shm). Overwrite
+# with a consistent snapshot via VACUUM INTO — SQLite's own online-backup
+# primitive, which produces a WAL-checkpointed, corruption-safe copy even
+# against a live writer.
+if [ -f "$APP_DIR/db.sqlite" ]; then
+    export PATH="$HOME/.bun/bin:$PATH"
+    if ! command -v bun >/dev/null 2>&1; then
+        die "bun not on PATH — needed for consistent SQLite snapshot; run bootstrap.sh first"
+    fi
+
+    rm -f "$DEST/db.sqlite" "$DEST/db.sqlite-wal" "$DEST/db.sqlite-shm"
+
+    tmp_backup_script=$(mktemp --suffix=.js)
+    trap "rm -f '$tmp_backup_script'" RETURN 2>/dev/null || true
+    cat > "$tmp_backup_script" <<'JSEOF'
+import { Database } from "bun:sqlite";
+const [, , srcPath, dstPath] = process.argv;
+const src = new Database(srcPath, { readonly: true });
+// Escape any single quotes in the destination path for the SQL literal.
+const dstQuoted = dstPath.replace(/'/g, "''");
+src.exec(`VACUUM INTO '${dstQuoted}'`);
+src.close();
+JSEOF
+
+    if bun "$tmp_backup_script" "$APP_DIR/db.sqlite" "$DEST/db.sqlite"; then
+        log "snapshotted db.sqlite via VACUUM INTO (WAL-checkpointed, consistent)"
+    else
+        rm -f "$tmp_backup_script"
+        die "VACUUM INTO snapshot failed — the folder was copied but db.sqlite in the snapshot may be missing or inconsistent"
+    fi
+    rm -f "$tmp_backup_script"
+fi
+
 if [ -f "$UNIT_FILE" ]; then
     cp -a "$UNIT_FILE" "$DEST/app-$SLUG.service.snapshot"
     log "copied unit file -> $DEST/app-$SLUG.service.snapshot"

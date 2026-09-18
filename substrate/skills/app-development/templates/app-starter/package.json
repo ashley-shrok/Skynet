@@ -7,7 +7,7 @@
     "dev": "bun --bun x vite dev",
     "build": "bun --bun x vite build",
     "preview": "bun --bun x vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check": "bun --bun x svelte-kit sync && bun --bun x svelte-check --tsconfig ./tsconfig.json",
     "db:generate": "bun --bun x drizzle-kit generate",
     "db:studio": "bun --bun x drizzle-kit studio",
     "prepare": "svelte-kit sync || echo ''"

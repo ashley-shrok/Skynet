@@ -442,12 +442,14 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- app-development skill (23 rows: SKILL.md + 5 helper scripts + 17 starter template files) ---
+  // --- app-development skill (26 rows: SKILL.md + 5 helper scripts + 20 starter template files) ---
   // First-class-apps campaign, shape 1 (2026-09-17). Ships the canonical
   // app-development skill that teaches fleet agents to build user-facing apps
   // under ~/fleet/apps/<slug>/. The skill folder on managed boxes lands at
   // ~/.claude/skills/app-development/. No restart hook — skills are read at
   // /id load time; new bytes land on the identity's next recycle.
+  // The 20 template files include a pre-generated initial Drizzle migration
+  // (SQL + meta journal + meta snapshot) alongside the 17 source files.
   {
     slug: "app-development-skill",
     bundledPath: "/app/fleet-substrate/skills/app-development/SKILL.md",

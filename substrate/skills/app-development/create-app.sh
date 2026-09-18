@@ -71,50 +71,13 @@ log "slug:  $SLUG"
 log "title: $TITLE"
 log "dir:   $APP_DIR"
 
-PORT=""
-{
-    # fd 200 -> lock file; flock blocks until we hold the exclusive lock.
-    exec 200>"$LOCK_FILE"
-    flock -x 200
+# --- Cleanup trap (armed BEFORE any state mutation) -------------------------
+# The trap fires on EXIT (success or failure). CLEANUP_ON_FAIL controls whether
+# it actually rolls back — it stays 0 until we've committed enough state to
+# need cleanup, then flips to 1. Armed early so a failure inside the port-claim
+# subshell doesn't leave an orphan unit file.
 
-    # Collect ports already claimed by existing systemd units on this box.
-    USED_PORTS=""
-    if compgen -G "$HOME/.config/systemd/user/app-*.service" > /dev/null; then
-        USED_PORTS=$(grep -h '^Environment=PORT=' "$HOME"/.config/systemd/user/app-*.service 2>/dev/null \
-                     | sed 's/^Environment=PORT=//' \
-                     | sort -u)
-    fi
-
-    for candidate in $(seq 9501 9599); do
-        if ! printf '%s\n' "$USED_PORTS" | grep -qx "$candidate"; then
-            PORT=$candidate
-            break
-        fi
-    done
-
-    if [ -z "$PORT" ]; then
-        die "no free port in 9501-9599 — archive some apps before creating another"
-    fi
-
-    log "port:  $PORT (claiming atomically)"
-
-    # Render + install the systemd unit RIGHT NOW while we hold the lock.
-    # Once this file exists, subsequent create-app scans will see this port
-    # as taken.
-    sed \
-        -e "s|__SLUG__|$SLUG|g" \
-        -e "s|__APP_DIR__|$APP_DIR|g" \
-        -e "s|__PORT__|$PORT|g" \
-        "$TEMPLATE_DIR/app-SLUG.service.template" > "$UNIT_FILE"
-
-    log "wrote systemd unit: $UNIT_FILE"
-
-    # Lock releases on subshell exit.
-}
-
-# From here on, the port is claimed by our unit file. Any failure needs to
-# roll back the unit file + folder to release the port.
-CLEANUP_ON_FAIL=1
+CLEANUP_ON_FAIL=0
 cleanup() {
     if [ "$CLEANUP_ON_FAIL" = "1" ]; then
         log "cleaning up partial create (rolling back port claim)..."
@@ -126,6 +89,64 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+
+# --- Port claim (real subshell — fd 200 + lock scoped to this block only) ---
+# Command substitution runs in a subshell; fd 200 opens there, flock holds the
+# exclusive lock, port is picked, unit file is written, subshell exits (closing
+# fd, releasing lock), and the picked port is captured via stdout.
+
+PORT=$(
+    exec 200>"$LOCK_FILE"
+    flock -x 200
+
+    # Collect ports already claimed by installed systemd units.
+    USED_PORTS=""
+    if compgen -G "$HOME/.config/systemd/user/app-*.service" > /dev/null; then
+        USED_PORTS=$(grep -h '^Environment=PORT=' "$HOME"/.config/systemd/user/app-*.service 2>/dev/null \
+                     | sed 's/^Environment=PORT=//')
+    fi
+    # Also reserve ports of archived apps so their stashed units can be
+    # restored to the same slot later. Without this, archived-then-restore
+    # breaks the moment a new app claims the freed slot.
+    if compgen -G "$HOME/fleet/apps-archive/*/app-*.service.archived" > /dev/null; then
+        ARCHIVED_PORTS=$(grep -h '^Environment=PORT=' "$HOME"/fleet/apps-archive/*/app-*.service.archived 2>/dev/null \
+                         | sed 's/^Environment=PORT=//')
+        USED_PORTS=$(printf '%s\n%s' "$USED_PORTS" "$ARCHIVED_PORTS")
+    fi
+    USED_PORTS=$(printf '%s\n' "$USED_PORTS" | sort -u)
+
+    picked=""
+    for candidate in $(seq 9501 9599); do
+        if ! printf '%s\n' "$USED_PORTS" | grep -qx "$candidate"; then
+            picked=$candidate
+            break
+        fi
+    done
+
+    if [ -z "$picked" ]; then
+        echo "no free port in 9501-9599 — archive some apps first (or hard-delete some archived ones)" >&2
+        exit 1
+    fi
+
+    # Write via a temp file + atomic rename so a mid-write sed failure can't
+    # leave a partial unit on disk.
+    tmp_unit=$(mktemp "$HOME/.config/systemd/user/.app-$SLUG.XXXXXX")
+    sed \
+        -e "s|__SLUG__|$SLUG|g" \
+        -e "s|__APP_DIR__|$APP_DIR|g" \
+        -e "s|__PORT__|$picked|g" \
+        "$TEMPLATE_DIR/app-SLUG.service.template" > "$tmp_unit"
+    mv "$tmp_unit" "$UNIT_FILE"
+
+    printf '%s' "$picked"
+)
+[ -n "$PORT" ] || die "port claim failed"
+
+log "port:  $PORT (claimed atomically)"
+log "wrote systemd unit: $UNIT_FILE"
+
+# Port is now claimed on disk — any failure past this point needs rollback.
+CLEANUP_ON_FAIL=1
 
 # --- Scaffold the app folder -----------------------------------------------
 
@@ -139,13 +160,13 @@ rm -f "$APP_DIR/app-SLUG.service.template"
 
 # --- Substitutions ---------------------------------------------------------
 
-# app.json — set title, leave description blank for the agent to fill in.
-cat > "$APP_DIR/app.json" <<JSON
-{
-  "title": "$TITLE",
-  "description": ""
-}
-JSON
+# app.json — set title (JSON-escaped via python; TITLE is arbitrary input),
+# leave description blank for the agent to fill in.
+python3 - "$APP_DIR/app.json" "$TITLE" <<'PYEOF'
+import json, sys, pathlib
+p = pathlib.Path(sys.argv[1])
+p.write_text(json.dumps({"title": sys.argv[2], "description": ""}, indent=2) + "\n")
+PYEOF
 log "wrote app.json (title=\"$TITLE\", description empty — fill it in when you know what the app is)"
 
 # package.json — set the "name" field to the slug so it doesn't collide

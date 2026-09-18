@@ -37,7 +37,7 @@ UNIT_FILE="$HOME/.config/systemd/user/app-$SLUG.service"
 [ -d "$APP_DIR" ]     || die "app not found at $APP_DIR"
 [ ! -e "$ARCHIVE_DIR" ] || die "archive slot already occupied at $ARCHIVE_DIR — rename or remove that first"
 
-# --- Stash the unit file inside the folder ---------------------------------
+# --- Stash the unit file inside the folder (before anything moves) ---------
 
 if [ -f "$UNIT_FILE" ]; then
     cp "$UNIT_FILE" "$APP_DIR/app-$SLUG.service.archived"
@@ -46,7 +46,9 @@ else
     log "no installed unit file at $UNIT_FILE — proceeding without stash"
 fi
 
-# --- Stop + disable ---------------------------------------------------------
+# --- Stop + disable BEFORE the folder move ---------------------------------
+# Stopping first means when we move the folder the process has already
+# released any open handles under it (SQLite in particular).
 
 if systemctl --user list-unit-files 2>/dev/null | grep -q "^app-$SLUG.service"; then
     systemctl --user disable --now "app-$SLUG.service" 2>/dev/null || true
@@ -55,16 +57,25 @@ else
     log "no active systemd unit for app-$SLUG (nothing to stop)"
 fi
 
+# --- Move to archive — the destructive commit step -------------------------
+# If mv fails (cross-filesystem, permissions, disk-full, name-collision race),
+# re-enable + re-start the unit so the app is left running rather than dead
+# under a torn-down archive.
+
+if ! mv "$APP_DIR" "$ARCHIVE_DIR"; then
+    log "ERROR: mv failed. Re-enabling app-$SLUG.service so the app keeps running..."
+    systemctl --user enable --now "app-$SLUG.service" 2>/dev/null || true
+    die "archive failed: could not move $APP_DIR to $ARCHIVE_DIR. App restored to running state."
+fi
+log "moved $APP_DIR -> $ARCHIVE_DIR"
+
+# --- Remove the installed unit file + daemon-reload -----------------------
+# Folder is now safely at ARCHIVE_DIR, so removing the unit is safe.
+
 if [ -f "$UNIT_FILE" ]; then
     rm -f "$UNIT_FILE"
     log "removed installed unit file $UNIT_FILE"
 fi
-
 systemctl --user daemon-reload
-
-# --- Move to archive --------------------------------------------------------
-
-mv "$APP_DIR" "$ARCHIVE_DIR"
-log "moved $APP_DIR -> $ARCHIVE_DIR"
 
 log "done — $SLUG is archived. Recover with restore-app.sh if the user changes her mind."
