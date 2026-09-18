@@ -151,6 +151,17 @@ import {
   seedSessionAiTitle,
 } from "@/state/session-working-store";
 import { publishFleetStatusWaitingFor } from "@/state/session-waiting-store";
+// Phase 119 Plan 119-02 (D-14, D-16): the standalone app-tiles store slice
+// consumes the three app frames dispatched by 119-01's fleet-status-client
+// switch cases. AppShell wires the callbacks below (createFleetStatusClient
+// call) so that every app-snapshot / app-update / app-gone frame lands in
+// the store atomically per D-14. Store is deliberately NOT bolted onto
+// conversation-store / identities-store / any session store (D-16).
+import {
+  publishAppSnapshot,
+  publishAppUpdate,
+  publishAppGone,
+} from "@/state/app-tiles-store";
 import { useAnyIdentityModalOpen } from "@/state/identity-modal-open-store";
 import {
   publishFleetStatusTmuxSession,
@@ -699,6 +710,22 @@ export function AppShell({
         // Relay-room rows are structurally immune: they carry no hostId and no
         // sessionName, so removeFleetSession's tuple filter cannot match one.
         removeFleetSession(goneHostId, tmuxSession);
+      },
+      // Phase 119 Plan 119-02 (D-14): route the three Phase 118 app frames
+      // into the app-tiles-store slice. Store handles atomic reconciliation
+      // per D-14 (snapshot = full-list replacement, update = one-key upsert,
+      // gone = one-key delete). No host-visibility re-check here — Phase 118
+      // D-15's app-frame-filter is the sole authority (client re-filter would
+      // drift). No try/catch — publish fns are pure Map + notify (no failure
+      // surface); a thrown error would rightfully surface at the client.
+      onAppSnapshot: (apps) => {
+        publishAppSnapshot(apps);
+      },
+      onAppUpdate: (app) => {
+        publishAppUpdate(app);
+      },
+      onAppGone: (hostId, slug) => {
+        publishAppGone(hostId, slug);
       },
     });
 
