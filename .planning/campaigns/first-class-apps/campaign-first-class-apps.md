@@ -47,6 +47,7 @@ Empty until close-time approvals populate it.
 - **Sidebar tile visual shape.** Icon + title, icon + title + description, grouped by host or flat. Decided as part of shape 3.
 - **Removal flow.** Deleting a folder removes the app on next sweep, but the systemd unit still needs cleanup. Whether that's a script invocation or a natural part of the delete command is a shape-1 design call.
 - **Sweep freshness.** Existing sweep cadence is the starting point. If apps feel laggy after create, an eager-refresh nudge (agent touches a sentinel file, or the create script pings Skynet) is a small follow-up — not a shape.
+- **Proxying apps into the client — Origin-header behavior.** *Discovered during shape 1 (2026-09-18).* Apps in the starter template disable SvelteKit's default same-origin CSRF check because when the client proxies a browser POST through to `http://127.0.0.1:<port>`, the browser's Origin header names the client's domain rather than the loopback socket. Whichever shape wires up the proxy (currently shape 4, `shape-app-pane-content-type`) needs to decide: (a) preserve/rewrite Origin so the framework's default same-origin check works, (b) add a compensating check upstream at the proxy layer, or (c) explicitly accept the residual CSRF surface given the tailnet's other guardrails. The disable is currently baked into the starter template's framework config; whichever option shape 4 lands may require an updater on the starter.
 
 ## Sequencing
 

@@ -19,5 +19,16 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=app-__SLUG__
 
+# Process-hardening — cheap defense-in-depth against a compromised app or
+# dependency. NoNewPrivileges blocks setuid escalation. PrivateTmp isolates
+# /tmp per unit. ProtectSystem=strict makes the filesystem read-only except
+# the app's own folder (via ReadWritePaths). RestrictAddressFamilies drops
+# obscure socket families the app never legitimately needs.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=__APP_DIR__
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
 [Install]
 WantedBy=default.target
