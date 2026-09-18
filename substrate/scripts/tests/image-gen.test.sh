@@ -408,6 +408,59 @@ test_5_planted_failure() {
   fi
 }
 
+# Test 6: helper fails fast with a clear stderr message when jq is missing
+# (FIX 7). Constructs a scratch PATH containing every command the helper needs
+# EXCEPT jq — symlinking known binaries in from /usr/bin so the helper still
+# resolves date, mv, cp, cat, uuidgen etc.
+test_6_missing_jq_fails_fast() {
+  local nojq_bin="$FIXTURE/nojq-bin"
+  mkdir -p "$nojq_bin"
+
+  # Symlink every command the helper touches EXCEPT jq. If any of these are
+  # missing on the test host, the test skips.
+  local needed=(bash date mv cp cat head sleep printf grep basename dirname tr sed uuidgen mkdir rm ls)
+  local missing=""
+  for cmd in "${needed[@]}"; do
+    local resolved
+    resolved=$(command -v "$cmd" 2>/dev/null || true)
+    if [ -z "$resolved" ]; then
+      missing="$missing $cmd"
+      continue
+    fi
+    ln -s "$resolved" "$nojq_bin/$cmd" 2>/dev/null || true
+  done
+  if [ -n "$missing" ]; then
+    printf 'SKIP  %s (missing prerequisite commands:%s)\n' "$CURRENT_TEST" "$missing"
+    SKIP=$((SKIP + 1))
+    return
+  fi
+
+  # Confirm jq is NOT resolvable through the scratch PATH.
+  if PATH="$nojq_bin" command -v jq >/dev/null 2>&1; then
+    printf 'SKIP  %s (unable to hide jq via PATH shim)\n' "$CURRENT_TEST"
+    SKIP=$((SKIP + 1))
+    return
+  fi
+
+  # Invoke the helper with the jq-less PATH. Must exit non-zero AND surface
+  # the "jq is required" message on stderr.
+  PATH="$nojq_bin" HOME="$FIXTURE" IMAGE_GEN_TIMEOUT_SEC=2 \
+    bash "$HELPER" "hello" > "$FIXTURE/stdout" 2> "$FIXTURE/stderr"
+  local rc=$?
+
+  if [ "$rc" -eq 0 ]; then
+    fail "expected non-zero exit when jq is missing, got 0"
+  fi
+  if ! grep -q "jq is required" "$FIXTURE/stderr"; then
+    fail "expected 'jq is required' in stderr, got: $(cat "$FIXTURE/stderr")"
+  fi
+
+  # No wire files should have been dropped — the check fires before mkdir.
+  local wire_count
+  wire_count=$(ls "$FIXTURE"/fleet/image-gen-requests/*.json 2>/dev/null | wc -l)
+  assert_eq 0 "$wire_count" "no request json should be dropped when jq is missing"
+}
+
 # ============================================================================
 # MAIN
 # ============================================================================
@@ -421,6 +474,7 @@ run_test test_2_ref_before_json_write_order
 run_test test_3_timeout_via_env_override
 run_test test_4_planted_success
 run_test test_5_planted_failure
+run_test test_6_missing_jq_fails_fast
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s  SKIP: %s\n' "$PASS" "$FAIL" "$SKIP"

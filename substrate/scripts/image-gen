@@ -35,9 +35,11 @@
 # expected on the polling / cleanup paths and would otherwise kill the script
 # mid-flight (matches agent-supervisor.sh:35 rationale).
 #
-# Safety: caller-supplied prompt content is NEVER shell-interpolated. All prompt
-# handling flows through `jq --arg` (correct JSON escape) or `printf '%s'` (safe
-# string passthrough) — see V10 in .planning/phases/116-.../116-RESEARCH.md.
+# Safety: caller-supplied prompt content is NEVER shell-interpolated. All
+# prompt handling flows through `jq --arg` (correct JSON escape). jq is
+# REQUIRED — checked at startup (FIX 7); the prior printf-based fallback did
+# not quote-safely handle `"` or newlines in prompts and could generate
+# malformed JSON that the backend rejects.
 
 set -uo pipefail
 
@@ -116,6 +118,18 @@ if [ -n "$ref" ] && [ ! -f "$ref" ]; then
   exit 2
 fi
 
+# ---- jq availability check (FIX 7) -------------------------------------------
+# jq is REQUIRED. The prior implementation had a printf-based fallback that
+# did NOT quote-safely handle `"` or newlines in the prompt — a caller with
+# a legitimate quote (e.g. `image-gen 'a "friendly" cat'`) would generate
+# malformed JSON that the backend parser rejects as `reason: "malformed"`.
+# Fail-fast at startup with a clear install hint is safer than a
+# silently-broken request drop.
+if ! command -v jq >/dev/null 2>&1; then
+  printf 'image-gen: jq is required but not installed — install via '"'"'apt install jq'"'"' or equivalent\n' >&2
+  exit 2
+fi
+
 # ---- ensure fleet dirs exist (D-03: missing folder is not an error) ----------
 
 mkdir -p "$REQ_DIR" "$OUT_DIR"
@@ -165,13 +179,13 @@ if [ -n "$ref" ]; then
 fi
 
 # ---- request body assembly ---------------------------------------------------
-# Prefer jq (correct escape); fall back to printf if unavailable (RESEARCH A2).
-# The fallback path documents-by-comment that quote-safety is not guaranteed.
+# jq is guaranteed present here (checked at startup — FIX 7). All JSON
+# assembly flows through `jq --arg` / `jq --argjson` for correct escaping.
 
 if [ -n "$json_file" ]; then
   # Caller supplied the full JSON body verbatim. If --ref is also set, splice
   # the ref field via jq so the backend scanner picks up the companion filename.
-  if [ -n "$ref_wire_name" ] && command -v jq >/dev/null 2>&1; then
+  if [ -n "$ref_wire_name" ]; then
     if ! jq --arg r "$ref_wire_name" '. + {ref: $r}' "$json_file" > "$req_tmp"; then
       printf 'image-gen: failed to splice --ref into --json body\n' >&2
       rm -f "$req_tmp" 2>/dev/null || true
@@ -179,48 +193,26 @@ if [ -n "$json_file" ]; then
       exit 2
     fi
   else
-    # Copy verbatim (jq not present, or no --ref). Caller is responsible for
-    # any ref field already present in the JSON body.
+    # Copy verbatim (no --ref splice needed). Caller owns any ref field
+    # already present in the JSON body.
     cp "$json_file" "$req_tmp"
   fi
 else
   requested_at=$(date -u +%FT%TZ)
   n_val="${n:-1}"
-  if command -v jq >/dev/null 2>&1; then
-    jq -n \
-      --arg prompt "$prompt" \
-      --arg size "$size" \
-      --arg quality "$quality" \
-      --argjson n_num "$n_val" \
-      --arg requested_at "$requested_at" \
-      --arg ref "$ref_wire_name" \
-      '
-      {prompt: $prompt, n: $n_num, requested_at: $requested_at}
-      + (if $size    != "" then {size: $size}       else {} end)
-      + (if $quality != "" then {quality: $quality} else {} end)
-      + (if $ref     != "" then {ref: $ref}         else {} end)
-      ' > "$req_tmp"
-  else
-    # WARNING: fallback path — no jq. Quote-safety in $prompt is not guaranteed
-    # (a literal `"` or newline in the prompt will break the JSON). Install jq
-    # on any host where prompts may contain those characters.
-    ref_field=""
-    if [ -n "$ref_wire_name" ]; then
-      ref_field=$(printf ',"ref":"%s"' "$ref_wire_name")
-    fi
-    size_field=""
-    if [ -n "$size" ]; then
-      size_field=$(printf ',"size":"%s"' "$size")
-    fi
-    quality_field=""
-    if [ -n "$quality" ]; then
-      quality_field=$(printf ',"quality":"%s"' "$quality")
-    fi
-    printf '{"prompt":"%s","n":%s,"requested_at":"%s"%s%s%s}\n' \
-      "$prompt" "$n_val" "$requested_at" \
-      "$size_field" "$quality_field" "$ref_field" \
-      > "$req_tmp"
-  fi
+  jq -n \
+    --arg prompt "$prompt" \
+    --arg size "$size" \
+    --arg quality "$quality" \
+    --argjson n_num "$n_val" \
+    --arg requested_at "$requested_at" \
+    --arg ref "$ref_wire_name" \
+    '
+    {prompt: $prompt, n: $n_num, requested_at: $requested_at}
+    + (if $size    != "" then {size: $size}       else {} end)
+    + (if $quality != "" then {quality: $quality} else {} end)
+    + (if $ref     != "" then {ref: $ref}         else {} end)
+    ' > "$req_tmp"
 fi
 
 # ---- atomic commit of the request json (D-10) --------------------------------
