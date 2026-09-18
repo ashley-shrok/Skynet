@@ -24,7 +24,11 @@ vi.mock("../utils/logger.js", () => ({
 }));
 
 import { createSubscriptionRegistry } from "./subscription-registry.js";
-import type { FrontendOutboundFrameType, SessionState } from "./wire-protocol.js";
+import type {
+  AppState,
+  FrontendOutboundFrameType,
+  SessionState,
+} from "./wire-protocol.js";
 import { FRAME_SCHEMA_VERSION } from "./wire-protocol.js";
 import { systemLogger } from "../utils/logger.js";
 // Phase 90 Plan 00 Wave 0 — contextPct promotion.
@@ -662,6 +666,165 @@ describe("subscription-registry", () => {
         (f) => f.type === "project-list-changed",
       );
       expect(projectFrames).toHaveLength(1);
+    });
+  });
+||||||| base
+
+  // ─── Phase 118 Plan 118-03 — apps map + publish surface (D-09/D-10/D-13/D-14/D-16) ─
+  // Sibling to the SessionState map: apps live in their own Map<`${hostId}:${slug}`,
+  // AppState> populated by publishAppUpdate, drained by publishAppGoneByHostSlug,
+  // and snapshotted to every new subscriber via the subscribe() path. In-memory
+  // only (D-10) — no DB writes. NO idempotence guard on publishAppUpdate (D-13:
+  // health-flips must always fan out).
+  describe("Phase 118 apps map + publish surface", () => {
+    function makeAppState(
+      hostId: string,
+      slug: string,
+      overrides: Partial<AppState> = {},
+    ): AppState {
+      return {
+        hostId,
+        slug,
+        title: `App ${slug}`,
+        description: "test app",
+        port: 9591,
+        hasIcon: false,
+        createdAtMs: 1_700_000_000_000,
+        isHealthy: true,
+        healthMessage: null,
+        ...overrides,
+      };
+    }
+
+    it("Test 1: publishAppUpdate inserts into the apps map + fans out exactly one app-update frame", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0; // drop snapshots
+
+      const app = makeAppState("h1", "todo");
+      registry.publishAppUpdate("h1", app);
+
+      // Map contains the entry
+      const snap = registry.getAppSnapshot();
+      expect(snap).toHaveLength(1);
+      expect(snap[0]).toMatchObject({ hostId: "h1", slug: "todo" });
+
+      // Exactly one app-update frame
+      const updateFrames = receivedFrames.filter((f) => f.type === "app-update");
+      expect(updateFrames).toHaveLength(1);
+      const [frame] = updateFrames;
+      expect(frame).toMatchObject({
+        type: "app-update",
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        app,
+      });
+    });
+
+    it("Test 2: publishAppUpdate is NOT idempotent — repeated identical publishes fan out every time (D-13 health-flip discipline)", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      const app = makeAppState("h1", "todo");
+      registry.publishAppUpdate("h1", app);
+      registry.publishAppUpdate("h1", app);
+
+      const updateFrames = receivedFrames.filter((f) => f.type === "app-update");
+      expect(updateFrames).toHaveLength(2);
+    });
+
+    it("Test 3: publishAppGoneByHostSlug for a known key removes the entry + fans out one app-gone frame", () => {
+      const registry = createSubscriptionRegistry();
+      registry.publishAppUpdate("h1", makeAppState("h1", "todo"));
+
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0; // drop snapshots
+
+      registry.publishAppGoneByHostSlug("h1", "todo");
+
+      // Map no longer contains the entry
+      expect(registry.getAppSnapshot()).toHaveLength(0);
+
+      // Exactly one app-gone frame
+      const goneFrames = receivedFrames.filter((f) => f.type === "app-gone");
+      expect(goneFrames).toHaveLength(1);
+      expect(goneFrames[0]).toMatchObject({
+        type: "app-gone",
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        hostId: "h1",
+        slug: "todo",
+      });
+    });
+
+    it("Test 4: publishAppGoneByHostSlug for an unknown key is a no-op — no fan-out, no change to map", () => {
+      const registry = createSubscriptionRegistry();
+      const sender = vi.fn();
+      registry.subscribe(sender);
+      sender.mockClear(); // drop snapshot
+
+      registry.publishAppGoneByHostSlug("h1", "nonexistent");
+
+      expect(sender).not.toHaveBeenCalled();
+      expect(registry.getAppSnapshot()).toHaveLength(0);
+    });
+
+    it("Test 5: late subscriber receives an app-snapshot frame carrying every previously-published app", () => {
+      const registry = createSubscriptionRegistry();
+      registry.publishAppUpdate("h1", makeAppState("h1", "todo"));
+      registry.publishAppUpdate("h2", makeAppState("h2", "kanban"));
+
+      // Subscribe AFTER publishes
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+
+      const snapshotFrames = receivedFrames.filter(
+        (f) => f.type === "app-snapshot",
+      );
+      expect(snapshotFrames).toHaveLength(1);
+      const [frame] = snapshotFrames;
+      if (frame.type === "app-snapshot") {
+        expect(frame.apps).toHaveLength(2);
+        const slugs = frame.apps.map((a) => a.slug).sort();
+        expect(slugs).toEqual(["kanban", "todo"]);
+      }
+    });
+
+    it("Test 6: subscribing with no published apps still emits an app-snapshot frame carrying apps: []", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+
+      const snapshotFrames = receivedFrames.filter(
+        (f) => f.type === "app-snapshot",
+      );
+      expect(snapshotFrames).toHaveLength(1);
+      const [frame] = snapshotFrames;
+      if (frame.type === "app-snapshot") {
+        expect(frame.apps).toEqual([]);
+      }
+    });
+
+    it("Test 7: publishAppUpdate fan-out uses the shared try/catch fanOut — one throwing subscriber does NOT starve others", () => {
+      const registry = createSubscriptionRegistry();
+      const goodFrames: FrontendOutboundFrameType[] = [];
+      // Bad subscriber throws
+      const badSender = vi.fn(() => {
+        throw new Error("boom");
+      });
+      registry.subscribe(badSender);
+      registry.subscribe((f) => goodFrames.push(f));
+      goodFrames.length = 0; // drop snapshots
+      badSender.mockClear();
+
+      registry.publishAppUpdate("h1", makeAppState("h1", "todo"));
+
+      // Bad subscriber was invoked (and threw); good subscriber still got the frame.
+      expect(badSender).toHaveBeenCalledTimes(1);
+      const updateFrames = goodFrames.filter((f) => f.type === "app-update");
+      expect(updateFrames).toHaveLength(1);
     });
   });
 });

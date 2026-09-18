@@ -856,6 +856,5 @@ export function makeAppGoneFrame(
     type: "app-gone",
     hostId,
     slug,
->>>>>>> d80f3f04 (feat(116-03): add AppState + three app frame schemas + factories)
   };
 }
