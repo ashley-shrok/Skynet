@@ -26,7 +26,18 @@
 // 15.4+ and every other modern browser 2016+; tests may shim it).
 
 const CHANNEL_NAME = "skynet-drag-accept";
-const REAP_MS = 5000;
+// 60s — was 5000, but a manual cross-window drag can easily take longer than
+// five seconds (user positions cursor across panes, alt-tabs to the target
+// window, drops deliberately). At 5s the armedDrags entry got reaped before
+// the target's accept message could arrive back through BroadcastChannel,
+// leaving the subscriber with no match and silently skipping the source-
+// close. 60s is generous enough that only genuinely abandoned drags reap
+// (e.g. user Esc-cancels and never drops), while still bounding the map.
+// Symptom trace: term.gigaashley.click console log 2026-09-18 21:03:48 —
+// George dragstart (dragId 723f1d9d) at line 543 saw no accept-match because
+// the deliberate cross-window drop exceeded the old reap; Magma (85dc69dc)
+// second drag was faster and worked.
+const REAP_MS = 60000;
 
 let channel: BroadcastChannel | null = null;
 const armedDrags = new Map<string, string>(); // dragId → tabId
@@ -42,7 +53,13 @@ function ensureChannel(): BroadcastChannel | null {
     const dragId = (data as { acceptedDragId?: unknown }).acceptedDragId;
     if (typeof dragId !== "string" || dragId.length === 0) return;
     const tabId = armedDrags.get(dragId);
-    if (tabId === undefined) return;
+    if (tabId === undefined) {
+      // eslint-disable-next-line no-console
+      console.info(
+        `[cross-window-drag] accept received but no armed drag matches — likely reaped (drag exceeded REAP_MS=${REAP_MS}) or wrong window; dragId=${dragId}`,
+      );
+      return;
+    }
     armedDrags.delete(dragId);
     for (const sub of acceptSubscribers) {
       try {
@@ -80,6 +97,10 @@ export function armOutboundDrag(dragId: string, tabId: string): void {
   }
   ensureChannel();
   armedDrags.set(dragId, tabId);
+  // eslint-disable-next-line no-console
+  console.info(
+    `[cross-window-drag] arm tabId=${tabId} dragId=${dragId} reapMs=${REAP_MS}`,
+  );
   setTimeout(() => armedDrags.delete(dragId), REAP_MS);
 }
 
@@ -94,6 +115,8 @@ export function postDragAccept(dragId: string): void {
   if (typeof dragId !== "string" || dragId.length === 0) return;
   const ch = ensureChannel();
   if (ch === null) return;
+  // eslint-disable-next-line no-console
+  console.info(`[cross-window-drag] post dragId=${dragId}`);
   ch.postMessage({ acceptedDragId: dragId });
 }
 
