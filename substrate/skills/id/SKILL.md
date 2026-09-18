@@ -204,7 +204,19 @@ Note the frontmatter's `task:` field — the record of what you are working on. 
 
 3. Read any per-identity specialization from the slim identity file (usually empty; the pointer alone is fine).
 
-4. Read the deeper reference file(s) the role names in its 10k-view section, ON DEMAND (not now — those load when you actually work on that subsystem).
+4. **Read the project file, if any.** Check the identity file's frontmatter for a
+   `project: <slug>` key. If present:
+   - Read `~/fleet/projects/<slug>/project.md` into context — it names what this
+     project is for, plus any shared conventions or references the project needs.
+   - Silently enumerate the top-level contents of `~/fleet/projects/<slug>/`. Hold
+     the names in context. Each file's contents load on demand via a normal Read
+     tool call — same shape as the runbooks enumeration below.
+   - If the frontmatter has no `project:` field, OR the slug points to a directory
+     that doesn't exist on disk, OR points to an archived project at
+     `~/fleet/projects/archive/<slug>/`, this step is a graceful no-op — continue
+     without it.
+
+5. Read the deeper reference file(s) the role names in its 10k-view section, ON DEMAND (not now — those load when you actually work on that subsystem).
 
 Read **`~/fleet/identities/<name>/handoff.md`** — your where-we-left-off carry from the last session. Handoff is per-identity, in the identity folder. See § The handoff for what it holds and how to act on it: anything under `## Do this first` is pre-authorized, so surface it in the announce line and begin it in this same turn
 rather than asking whether to proceed.
