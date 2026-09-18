@@ -1,6 +1,6 @@
 # Opt-in overlay for co-located deployments where the Skynet container
-# should be able to `systemctl --user <verb> <unit>` on the host — used by
-# the fleet-substrate distributor's local branch to restart long-running
+# should be able to restart host user systemd units — used by the
+# fleet-substrate distributor's local branch to restart long-running
 # consumers (agent-supervisor.service) after a substrate file changes on
 # disk. Without this overlay, local-branch restart-hook firing skips-with-
 # warn (documented environmental limitation — mirrors the SSH branch's
@@ -8,10 +8,15 @@
 #
 # What it grants: the container's process (running as root inside the
 # container) gains read/write access to the host user's systemd session
-# bus at /run/user/1000. From there, `systemctl --user` reaches the
-# ubuntu-scoped user manager and can start/stop/restart any of that user's
-# units. Nothing else on the host is newly reachable — the socket is
-# scoped to the user's session, not system-wide.
+# bus at /run/user/1000. From there, `busctl --user call` reaches the
+# ubuntu-scoped user manager's `org.freedesktop.systemd1` and can
+# start/stop/restart any of that user's units. `systemctl --user` is not
+# used because it bypasses the session bus and speaks a version-locked
+# protocol to `$XDG_RUNTIME_DIR/systemd/private` — see the "AppArmor +
+# transport" paragraph below and fireRestartHookLocally's docstring in
+# src/backend/distributor/local-fleet-install.ts. Nothing else on the
+# host is newly reachable — the socket is scoped to the user's session,
+# not system-wide.
 #
 # Trust posture: this is a real widening. Enable only on boxes where you
 # accept that "if the container is compromised, the attacker can restart
@@ -22,19 +27,36 @@
 # without a manual `systemctl --user restart agent-supervisor` or a host
 # reboot.
 #
-# AppArmor: Ubuntu 24.04's dbus-daemon enforces AppArmor DBus mediation
-# via SO_PEERSEC — even when SASL EXTERNAL auth passes (uid matches) and
-# the socket is world-writable, the daemon consults AppArmor on the very
-# first `org.freedesktop.DBus.Hello` and refuses if the peer's label is
-# not permitted to send on that bus. Docker's stock `docker-default`
-# profile is not permitted, so the container's `systemctl --user` calls
-# fail with `Permission denied` (Error.AccessDenied) regardless of mount
-# and env. The overlay drops the container's AppArmor confinement to
-# unconfined, which is a broader widening than just DBus — it removes
-# every `docker-default` mediation for this container. Proportionate on
-# the same "container already trusted with host-user unit restarts + full
-# host-home mount" grounds that justify the socket bind above; call it
-# out separately here so the widening is not silent.
+# AppArmor + transport: two independent host↔container barriers block
+# the naive `systemctl --user` route from a Skynet container running under
+# Docker's stock profile against a modern Ubuntu host.
+#
+# 1. AppArmor. Ubuntu 24.04's dbus-daemon enforces AppArmor DBus mediation
+#    via SO_PEERSEC — even when SASL EXTERNAL auth passes (uid matches) and
+#    the socket is world-writable, the daemon consults AppArmor on the very
+#    first `org.freedesktop.DBus.Hello` and refuses if the peer's label is
+#    not permitted to send on that bus. Docker's stock `docker-default`
+#    profile is not permitted; the container's DBus call fails with
+#    `Permission denied` (Error.AccessDenied) regardless of mount and env.
+#    Fix: the overlay drops the container's AppArmor confinement to
+#    `unconfined` (see `security_opt` below). This is a broader widening
+#    than just DBus — it removes every `docker-default` mediation for this
+#    container. Proportionate on the same "container already trusted with
+#    host-user unit restarts + full host-home mount" grounds that justify
+#    the socket bind above; called out separately so the widening is not
+#    silent.
+#
+# 2. Systemd version skew. Even with AppArmor out of the way,
+#    `systemctl --user` does NOT talk to the session bus for its own
+#    connections — it goes straight to `$XDG_RUNTIME_DIR/systemd/private`,
+#    a systemd-internal socket whose handshake protocol is version-locked
+#    to the peer manager's systemd. Container image built on Debian 12
+#    (systemd 252) fails against a host running Ubuntu 24.04 (systemd 255)
+#    with `Failed to connect to bus: No data available`. Fix: the
+#    distributor's `fireRestartHookLocally` uses `busctl --user call
+#    org.freedesktop.systemd1 … Manager.RestartUnit` — which speaks vanilla
+#    D-Bus over the session bus, routing through the version-agnostic
+#    dbus-daemon rather than the version-locked private socket.
 #
 # UID assumption: hardcoded to 1000 (matches every current fleet peer's
 # service-user uid). When the first non-1000 deployment shows up, promote
@@ -68,12 +90,13 @@ services:
       # session manager.
       - /run/user/1000:/run/user/1000
     environment:
-      # Points systemctl --user at the mounted session bus. `systemctl`
-      # inside the container without this var errors "Failed to connect
-      # to bus: No medium found" (systemd's stock error for absent DBus).
+      # Points `busctl --user` at the mounted session bus at
+      # $XDG_RUNTIME_DIR/bus. Without this var, busctl errors "Failed to
+      # connect to bus: No medium found".
       XDG_RUNTIME_DIR: /run/user/1000
     security_opt:
-      # See "AppArmor" paragraph in the header. Without this, dbus-daemon's
-      # AppArmor mediation refuses the container's `Hello` call on the
-      # session bus even after the SASL EXTERNAL uid check passes.
+      # See "AppArmor + transport" paragraph in the header. Without this,
+      # dbus-daemon's AppArmor mediation refuses the container's `Hello`
+      # call on the session bus even after the SASL EXTERNAL uid check
+      # passes.
       - apparmor=unconfined

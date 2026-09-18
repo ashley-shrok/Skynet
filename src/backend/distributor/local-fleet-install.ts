@@ -120,9 +120,10 @@ export interface LocalInstallDeps {
   now?: () => number;
   /**
    * Optional injectable restart-hook firer (for tests). Defaults to the real
-   * `fireRestartHookLocally` which invokes `systemctl --user restart <unit>`
-   * against the host's user DBus session (requires the host-systemd override
-   * compose file to be enabled — see docker/docker-compose.host-systemd.override.yml).
+   * `fireRestartHookLocally` which invokes systemd's `RestartUnit` method via
+   * `busctl --user call` against the host's user DBus session bus (requires
+   * the host-systemd override compose file to be enabled — see
+   * docker/docker-compose.host-systemd.override.yml).
    */
   fireRestartHook?: (
     unitName: string,
@@ -161,20 +162,35 @@ function getLocalHomeRoot(): string {
 }
 
 /**
- * Fire `systemctl --user restart <unit>` against the host's user systemd
- * session bus from inside the container. Mirrors `restartUserUnit` in
- * ssh-push.ts but uses the bind-mounted DBus socket (via the host-systemd
- * compose override) instead of an SSH channel.
+ * Restart a host user unit from inside the container by calling
+ * `org.freedesktop.systemd1.Manager.RestartUnit` via `busctl --user call`
+ * against the host's user DBus session bus. Mirrors `restartUserUnit` in
+ * ssh-push.ts but uses the bind-mounted session-bus socket (via the
+ * host-systemd compose override) instead of an SSH channel.
+ *
+ * Why busctl and not `systemctl --user restart`: `systemctl` bypasses the
+ * DBus session bus and connects directly to
+ * `$XDG_RUNTIME_DIR/systemd/private` — a systemd-internal socket whose
+ * handshake is version-locked to the systemd running the peer user manager.
+ * On co-located deployments where the container's systemd tooling (from
+ * Debian 12 bookworm: systemd 252) is older than the host's
+ * (Ubuntu 24.04 noble: systemd 255), that private-socket handshake fails
+ * with `Failed to connect to bus: No data available`. `busctl` instead
+ * speaks vanilla D-Bus to the dbus-daemon on the session bus, which routes
+ * to `org.freedesktop.systemd1` regardless of the manager's systemd
+ * version — structurally sidestepping the version-skew failure mode
+ * rather than assuming the two sides stay in lockstep.
  *
  * Requires the deployer to have opted-in via
  * `docker/docker-compose.host-systemd.override.yml`, which bind-mounts
- * `/run/user/1000:/run/user/1000` and sets `XDG_RUNTIME_DIR=/run/user/1000`
- * in the container env. When the override is absent, `XDG_RUNTIME_DIR` is
- * unset in the container process, and this function skip-with-warns using
- * `operation: local_fleet_install_restart_skip` and does NOT count as a
- * failure — same recovery shape as the SSH branch's "channel returned null"
- * case (see restartUserUnit in ssh-push.ts) and the local-fleet-bootstrap's
- * systemd_capability_check skip.
+ * `/run/user/1000:/run/user/1000`, sets `XDG_RUNTIME_DIR=/run/user/1000`
+ * in the container env, AND drops the container's AppArmor confinement so
+ * dbus-daemon's mediation accepts the `Hello` call. When the override is
+ * absent, `XDG_RUNTIME_DIR` is unset in the container process, and this
+ * function skip-with-warns using `operation: local_fleet_install_restart_skip`
+ * and does NOT count as a failure — same recovery shape as the SSH branch's
+ * "channel returned null" case (see restartUserUnit in ssh-push.ts) and the
+ * local-fleet-bootstrap's systemd_capability_check skip.
  *
  * Never throws — every exec is wrapped. Caller is responsible for the
  * `itemsFailed++` / logItemFailed pattern when returning `{ok: false,
@@ -194,9 +210,21 @@ async function fireRestartHookLocally(
     };
   }
   try {
-    await execFile("systemctl", ["--user", "restart", unitName], {
-      env: process.env,
-    });
+    await execFile(
+      "busctl",
+      [
+        "--user",
+        "call",
+        "org.freedesktop.systemd1",
+        "/org/freedesktop/systemd1",
+        "org.freedesktop.systemd1.Manager",
+        "RestartUnit",
+        "ss",
+        unitName,
+        "replace",
+      ],
+      { env: process.env },
+    );
     return { ok: true };
   } catch (err) {
     const errorMessage =
@@ -554,7 +582,7 @@ export async function installFleetSubstrateLocally(
               `local-fleet-install: restart-hook failed for ${entry.slug} — ${restartResult.errorMessage}`,
               {
                 operation: "local_fleet_install_restart_error",
-                site: "systemctl_exec",
+                site: "busctl_exec",
                 fleetHostId: host.id,
                 hostName: host.name,
                 entrySlug: entry.slug,
