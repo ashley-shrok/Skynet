@@ -122,3 +122,75 @@ Related pointers:
 - Sidebar feature directory: the planning phase will identify the concrete files during discuss-phase — kept shape-neutral here per the no-code-symbols rule
 
 This file feeds `/gsd:discuss-phase` directly as CONTEXT.md seed material (per fleet rule: shape files feed discuss-phase, don't re-do the discovery `/open` already did).
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-18
+**Vehicle used:** GSD phase
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · New collapsible Apps section renders above pinned group, always present, populated from the fleet-wide subscription channel
+- **Shape: header row (icon + uppercase 'Apps' + fading rule + chevron, collapsed by default)** — present · Panel adds a group header mirroring the archived-section chrome; icon, uppercase label 'Apps', gradient rule, rotating chevron, collapsed-by-default
+- **Shape: empty-expanded state (single muted italic line 'Ask an agent to make an app for you.')** — present · Renders the verbatim italic muted line inside the expanded-only gate
+- **Shape: populated state (flat tile list, no host grouping, stable client-side sort)** — present · Flat list; alphabetical by title with hostId:slug tiebreak via locale-aware compare in the store
+- **Shape: tile visual (conversation-row bubble family; rounded-square icon slot; title only; neutral hue)** — partial · Bubble treatment, rounded-square icon slot, neutral hue all present; title-only broken by an intentional second-line unhealthy variant added after the shape was written (see additions)
+- **Shape: iconless first-letter monogram fallback on the same neutral hue** — present · Fallback letter renders inside the icon slot on the inherited neutral hue; per-app hue explicitly not emitted
+- **Shape: context menu with single 'Open in new tab' action** — present · Right-click opens the existing context menu with exactly one item; touch long-press wires the same menu via a 500ms timer with movement cancel
+- **Shape: Open in new tab lands authenticated** — present · Fresh tab opens with a noopener/noreferrer window features string and relies on the browser session cookie as the shape prescribes
+- **Shape: live subscription wiring (snapshot/update/gone) with atomic reconciliation** — present · Three new frame arms mirrored, client dispatches to a standalone store slice that replaces the map atomically per frame
+- **Shape: no second client-side filter (backend visibility trusted)** — present · Store consumes whatever the channel delivers; no re-fetch, no additional filter
+- **Shape: placement below search input, above Pinned group** — present · Rendered outside the search-vs-three-zone ternary; A19/A20 tests lock placement
+- **Philosophy: discoverability first** — present · Section header renders unconditionally regardless of tile count
+- **Philosophy: reuse existing sidebar vocabulary** — present · Archived-section chrome, tile bubble treatment, existing context menu component all reused
+- **Philosophy: deliver standalone value (no in-view / drag-into-split needed)** — present · Left-click is a deliberate no-op; only 'Open in new tab' ships
+- **Philosophy: render atomically on frame arrival (no streaming/skeletons)** — present · Store publishes replace-whole-map on snapshot; no partial states, no skeletons, no loading affordance
+- **Philosophy: same visibility model as identities** — present · Backend filtering is sole enforcement; client renders whatever arrives
+- **Prior context: reuses archived-section header + tile bubble + context menu components** — present · All three vocabulary pieces reused as prescribed
+- **Prior context: consumes the fleet-wide subscription channel from the prior shape** — present · Three app frame types flow from the prior shape's channel through the client dispatch into the store
+- **Prior context: archived-section lazy-render convention (rows not mounted until expanded)** — present · Gate on the expanded flag suppresses the entire section body including tiles and empty-state prompt
+- **What would make it wrong: section only appears when the user has apps** — present · Outer wrapper is not gated on tile count; test A15 locks it
+- **What would make it wrong: tiles leak apps the user doesn't have access to** — present · No client-side filter added; store rendering trusts the backend-filtered channel
+- **What would make it wrong: sidebar layout thrashes when frames arrive** — present · Stable sort key (title with hostId:slug tiebreak) computed via memoisation; no re-sort on unchanged data
+- **What would make it wrong: opening a tile in a new tab lands unauthenticated** — present · Target URL is under the Skynet origin so the session cookie carries; matches the shape's model
+- **What would make it wrong: tile visual competes with or overwhelms the conversation list** — present · Base tile is same visual weight as conversation rows; muted-red unhealthy line is small and only appears in the unhealthy branch (endorsed drift)
+- **What would make it wrong: section always mounted even when collapsed** — present · Lazy-render via the expanded flag keeps tile DOM out until expanded; test A16 locks it
+- **What would make it wrong: a 'streaming' affordance sneaks in** — present · No skeletons, no per-tile spinners, no loading state; store returns empty until first frame
+- **What would make it wrong: tile with no icon renders blank** — present · First-letter monogram fallback in the icon slot; image error also flips to fallback
+- **Scope edges IN: new collapsible section positioned correctly** — present
+- **Scope edges IN: header chrome matches existing pattern** — present
+- **Scope edges IN: empty-expanded prompt verbatim** — present
+- **Scope edges IN: populated flat tile list from frame stream** — present
+- **Scope edges IN: tile visual (bubble, rounded-square icon, title only, neutral hue)** — partial · Title-only broken by the endorsed unhealthy second-line drift; rest present
+- **Scope edges IN: real-icon serving via new backend endpoint mirroring identity-avatar** — present · Auth-gated, slug-validated, host-resolved, SSH-fetched with 404/502 shapes mirroring identity-avatar
+- **Scope edges IN: monogram fallback on the same neutral hue** — present
+- **Scope edges IN: context menu with single 'Open in new tab'** — present · Exactly one item
+- **Scope edges IN: live channel wiring + atomic reconciliation** — present
+- **Scope edges IN: stable client-side ordering (leaning alphabetical by title)** — present · Alphabetical with hostId:slug tiebreak
+- **Scope edges IN: lazy render when collapsed** — present
+- **Scope edges IN: test coverage (empty, populated, mixed icons, context menu, order stability)** — present · Component tests, store tests, and panel integration tests all cover the D-18 three-layer bar
+- **Scope edges OUT: click-to-open in current view** — present · Left-click is a documented no-op; cursor deemphasised
+- **Scope edges OUT: drag into split leaf** — present · No drag handlers on the tile
+- **Scope edges OUT: in-view / embedded rendering of the app** — present · Nothing embeds the app; only external new-tab open
+- **Scope edges OUT: additional context menu actions (rename/delete/launch/share)** — present · Menu holds exactly one item
+- **Scope edges OUT: per-app colour or theming** — present · No inline per-app hue emitted; test locks this
+- **Scope edges OUT: app-management affordances from the sidebar** — present · No create/edit/delete controls anywhere in the section
+- **Tempting but no: section hidden until user has apps** — present · Not hidden; header always renders
+- **Tempting but no: 'create app' button in the section header** — present · No such button
+- **Tempting but no: streaming affordances for individual tiles** — present · No skeletons, no per-tile spinners
+- **Tempting but no: per-app hues on day one** — present · Neutral hue only
+
+### Additions (in the result, not in the shape)
+
+- Two-line unhealthy variant on the tile — a small muted-red italic second line under the title carrying the health message when the tile is unhealthy; dedicated CSS selector and dedicated component tests — endorsed-as-drift
+
+### Follow-ups
+
+- Amend the shape file (or a follow-up note in the campaign artifact) to record the tasting-round decision that added the unhealthy two-line variant, so the shape file matches the built result — accepted-as-drift
+
+### Notes
+
+The material conforms to the shape both ways with one exception: a two-line unhealthy variant on the tile (muted-red italic message under the title) that was not in the shape file but was decided during a tasting round after the shape was written. The user endorsed it as drift the shape file failed to capture. Every failure-mode guard is in place, every OUT/tempting-but-no item is genuinely absent, and every IN item is present. Pattern worth carrying forward: when a tasting round produces a design decision after a shape file is written, the shape file needs to be amended in-place before /close, otherwise the divergence surfaces as an addition at conformance-review time. Also worth noting: the shape file does not mention the health flag fields at all, even though the prior shape's close-out explicitly landed them on the wire with the expectation that the client would render the unhealthy state — the shape 3 author appears not to have carried that expectation forward, which is what created the drift.
