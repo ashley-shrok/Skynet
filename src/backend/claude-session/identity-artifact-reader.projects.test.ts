@@ -438,3 +438,363 @@ describe("writeSessionProjectField — REMOTE branch", () => {
     expect(writeStr).toContain("role: worker");
   });
 });
+
+// ===========================================================================
+// Task 2: listProjects + readProjectFile + createProject + archiveProject
+// ===========================================================================
+
+/**
+ * Helper: build a Dirent-shaped object for fs.readdir({withFileTypes:true})
+ * mocks. Vitest doesn't include fs.Dirent so we duck-type it.
+ */
+function makeDirent(name: string, isDir: boolean): {
+  name: string;
+  isDirectory: () => boolean;
+  isFile: () => boolean;
+} {
+  return {
+    name,
+    isDirectory: () => isDir,
+    isFile: () => !isDir,
+  };
+}
+
+describe("listProjects — LOCAL branch", () => {
+  it("Test L1: happy — three dirs (alpha, beta, archive); archive EXCLUDED; sorted by slug; displayName pulled from each project.md", async () => {
+    // fs.readdir on the root returns 3 dirents.
+    fsReaddirMock.mockImplementation((p: string, opts?: unknown) => {
+      const _ = opts;
+      if (typeof p === "string" && p.endsWith("projects")) {
+        return Promise.resolve([
+          makeDirent("beta", true),
+          makeDirent("alpha", true),
+          makeDirent("archive", true),
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    // Each project.md read returns the frontmatter shape.
+    fsReadFileMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.includes("/alpha/project.md")) {
+        return Promise.resolve("---\ndisplayName: 'Alpha One'\n---\n");
+      }
+      if (typeof p === "string" && p.includes("/beta/project.md")) {
+        return Promise.resolve("---\ndisplayName: 'Beta'\n---\n");
+      }
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      return Promise.reject(err);
+    });
+
+    const result = await listProjects(null);
+    expect(result).toEqual([
+      { slug: "alpha", displayName: "Alpha One" },
+      { slug: "beta", displayName: "Beta" },
+    ]);
+    // archive MUST NOT appear anywhere.
+    expect(result.some((p) => p.slug === "archive")).toBe(false);
+  });
+
+  it("Test L2: displayName fallback — falls back to slug when project.md missing or has no displayName", async () => {
+    fsReaddirMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.endsWith("projects")) {
+        return Promise.resolve([
+          makeDirent("alpha", true), // no project.md at all
+          makeDirent("beta", true), // project.md exists but no displayName in frontmatter
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    fsReadFileMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.includes("/alpha/project.md")) {
+        const err = new Error("ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        return Promise.reject(err);
+      }
+      if (typeof p === "string" && p.includes("/beta/project.md")) {
+        return Promise.resolve("---\nrole: something-else\n---\n");
+      }
+      return Promise.reject(new Error("unexpected path: " + p));
+    });
+
+    const result = await listProjects(null);
+    expect(result).toEqual([
+      { slug: "alpha", displayName: "alpha" },
+      { slug: "beta", displayName: "beta" },
+    ]);
+  });
+
+  it("Test L3: missing root — fs.readdir ENOENT → returns []", async () => {
+    fsReaddirMock.mockImplementation(() => {
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      return Promise.reject(err);
+    });
+
+    const result = await listProjects(null);
+    expect(result).toEqual([]);
+  });
+});
+
+describe("listProjects — REMOTE branch", () => {
+  it("Test L4: happy — find command contains ! -name archive; two entries sorted", async () => {
+    const { conn } = buildMockConn();
+    let findCmdSeen = "";
+    execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
+      if (cmd.startsWith("find ")) {
+        findCmdSeen = cmd;
+        // Return in NON-sorted order to prove sort happens client-side.
+        return Promise.resolve("beta\nalpha\n");
+      }
+      if (cmd.startsWith("cat ") && cmd.includes("/alpha/project.md")) {
+        return Promise.resolve("---\ndisplayName: 'Alpha One'\n---\n");
+      }
+      if (cmd.startsWith("cat ") && cmd.includes("/beta/project.md")) {
+        return Promise.resolve("---\ndisplayName: 'Beta'\n---\n");
+      }
+      return Promise.resolve("");
+    });
+
+    const result = await listProjects(conn);
+
+    expect(findCmdSeen).toContain("! -name archive");
+    expect(findCmdSeen).toContain("$HOME/fleet/projects");
+    expect(result).toEqual([
+      { slug: "alpha", displayName: "Alpha One" },
+      { slug: "beta", displayName: "Beta" },
+    ]);
+  });
+
+  it("Test L5: only-slug-valid entries — BADENTRY! filtered out via PROJECT_SLUG_RE gate", async () => {
+    const { conn } = buildMockConn();
+    execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
+      if (cmd.startsWith("find ")) {
+        return Promise.resolve("alpha\nBADENTRY!\nbeta\n");
+      }
+      if (cmd.startsWith("cat ")) {
+        return Promise.resolve(""); // no project.md → displayName falls back to slug
+      }
+      return Promise.resolve("");
+    });
+
+    const result = await listProjects(conn);
+    expect(result.map((r) => r.slug)).toEqual(["alpha", "beta"]);
+    expect(result.some((r) => r.slug === "BADENTRY!")).toBe(false);
+  });
+});
+
+describe("readProjectFile", () => {
+  it("Test R1: LOCAL happy — returns {markdown: '...body'} from $HOME/fleet/projects/alpha/project.md", async () => {
+    fsReadFileMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.includes("/alpha/project.md")) {
+        return Promise.resolve("---\ndisplayName: 'Alpha'\n---\nbody");
+      }
+      return Promise.reject(new Error("unexpected: " + p));
+    });
+
+    const result = await readProjectFile(null, "alpha");
+    expect(result).toEqual({ markdown: "---\ndisplayName: 'Alpha'\n---\nbody" });
+  });
+
+  it("Test R2: LOCAL missing — fs.readFile ENOENT → returns {markdown: ''}", async () => {
+    // fsReadFileMock default is ENOENT-reject.
+    const result = await readProjectFile(null, "alpha");
+    expect(result).toEqual({ markdown: "" });
+  });
+
+  it("Test R3: invalid slug — 'Alpha' (uppercase) throws before any I/O", async () => {
+    await expect(readProjectFile(null, "Alpha")).rejects.toThrow(
+      /invalid project slug/,
+    );
+    expect(fsReadFileMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("createProject — LOCAL branch", () => {
+  it("Test C1: happy — mkdir recursive, then writeMarkdownFileAtomic with frontmatter displayName + empty body", async () => {
+    // stat rejects with ENOENT (dir does not yet exist) → OK to proceed.
+    fsStatMock.mockImplementation(() => {
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      return Promise.reject(err);
+    });
+
+    await createProject(null, "alpha", "Alpha One");
+
+    // fs.mkdir was called with recursive:true on the project dir.
+    expect(fsMkdirMock).toHaveBeenCalled();
+    const mkdirCall = fsMkdirMock.mock.calls.find(
+      (c) => typeof c[0] === "string" && (c[0] as string).endsWith("/alpha"),
+    );
+    expect(mkdirCall).toBeDefined();
+    expect(mkdirCall![1]).toMatchObject({ recursive: true });
+
+    // Atomic write went through writeFile+rename.
+    expect(fsWriteFileMock).toHaveBeenCalledTimes(1);
+    const written = fsWriteFileMock.mock.calls[0][1] as Buffer;
+    const writtenStr = written.toString("utf-8");
+
+    // Frontmatter carries the displayName; body is empty per D-25.
+    expect(writtenStr).toMatch(/^---\ndisplayName: '?Alpha One'?\n---\n/);
+    // Body after frontmatter is empty (no # heading, no seed content).
+    const bodyMatch = writtenStr.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
+    expect(bodyMatch).not.toBeNull();
+    expect(bodyMatch![1]).toBe("");
+
+    // Rename target is $HOME/fleet/projects/alpha/project.md.
+    const renameTo = fsRenameMock.mock.calls[0][1] as string;
+    expect(renameTo.endsWith("/projects/alpha/project.md")).toBe(true);
+  });
+
+  it("Test C2: rejects dupe slug — stat succeeds → throws EEXIST-shaped error; no mkdir/write fires", async () => {
+    // stat resolves (dir exists) → EEXIST path.
+    fsStatMock.mockResolvedValueOnce({
+      isDirectory: () => true,
+    } as unknown as import("node:fs").Stats);
+
+    await expect(
+      createProject(null, "alpha", "Alpha One"),
+    ).rejects.toMatchObject({
+      code: "EEXIST",
+    });
+
+    // No I/O after the probe.
+    expect(fsMkdirMock).not.toHaveBeenCalled();
+    expect(fsWriteFileMock).not.toHaveBeenCalled();
+  });
+
+  it("Test C3: rejects invalid slug — 'Alpha' throws before any I/O", async () => {
+    await expect(createProject(null, "Alpha", "Alpha One")).rejects.toThrow(
+      /invalid project slug/,
+    );
+    expect(fsStatMock).not.toHaveBeenCalled();
+    expect(fsMkdirMock).not.toHaveBeenCalled();
+    expect(fsWriteFileMock).not.toHaveBeenCalled();
+  });
+
+  it("Test C3b: rejects empty/oversize displayName — no I/O", async () => {
+    await expect(createProject(null, "alpha", "")).rejects.toThrow(
+      /displayName/,
+    );
+    await expect(
+      createProject(null, "alpha", "x".repeat(81)),
+    ).rejects.toThrow(/displayName/);
+    expect(fsMkdirMock).not.toHaveBeenCalled();
+    expect(fsWriteFileMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("createProject — REMOTE branch", () => {
+  it("Test C4: happy — probe with test -d (shell-escaped slug), mkdir -p, then writeMarkdownFileAtomic REMOTE", async () => {
+    const { conn, sftp, sftpCalls } = buildMockConn();
+    let probeCmd = "";
+    let mkdirCmd = "";
+    execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
+      if (cmd.includes("test -d")) {
+        probeCmd = cmd;
+        return Promise.resolve("missing\n");
+      }
+      if (cmd.startsWith("mkdir -p")) {
+        mkdirCmd = cmd;
+        return Promise.resolve("");
+      }
+      return Promise.resolve("");
+    });
+
+    await createProject(conn, "alpha", "Alpha One");
+
+    // Probe fired with shell-escaped slug (single-quoted).
+    expect(probeCmd).toContain("test -d");
+    expect(probeCmd).toContain("'"); // shellEscape single-quote wrapping
+    expect(probeCmd).toContain("alpha");
+    // mkdir -p fired.
+    expect(mkdirCmd).toContain("mkdir -p");
+    expect(mkdirCmd).toContain("alpha");
+
+    // Atomic write REMOTE branch fired.
+    expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
+    const renameArgs = sftp.ext_openssh_rename.mock.calls[0];
+    expect(renameArgs[1]).toBe("/home/tester/fleet/projects/alpha/project.md");
+
+    // Written contents carry displayName frontmatter.
+    const writeCall = sftpCalls.find((c) => c.op === "writeFile");
+    expect(writeCall).toBeDefined();
+    const writeStr = (writeCall!.args[1] as Buffer).toString("utf-8");
+    expect(writeStr).toMatch(/displayName: '?Alpha One'?/);
+  });
+
+  it("Test C5: REMOTE rejects dupe — probe returns ok → EEXIST-shaped throw; no mkdir/write fires", async () => {
+    const { conn, sftp } = buildMockConn();
+    execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
+      if (cmd.includes("test -d")) {
+        return Promise.resolve("ok\n");
+      }
+      return Promise.resolve("");
+    });
+
+    await expect(createProject(conn, "alpha", "Alpha One")).rejects.toMatchObject({
+      code: "EEXIST",
+    });
+
+    // mkdir MUST NOT have fired.
+    const mkdirCall = execCommandMock.mock.calls.find(
+      (c) => typeof c[1] === "string" && (c[1] as string).startsWith("mkdir -p"),
+    );
+    expect(mkdirCall).toBeUndefined();
+    // SFTP writeFile MUST NOT have fired.
+    expect(sftp.writeFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("archiveProject — LOCAL branch", () => {
+  it("Test A1: happy — mkdir archive/ recursive, then rename projects/<slug> → projects/archive/<slug>", async () => {
+    await archiveProject(null, "alpha");
+
+    // archive/ dir created with recursive:true.
+    expect(fsMkdirMock).toHaveBeenCalled();
+    const mkdirCall = fsMkdirMock.mock.calls.find(
+      (c) => typeof c[0] === "string" && (c[0] as string).endsWith("/archive"),
+    );
+    expect(mkdirCall).toBeDefined();
+    expect(mkdirCall![1]).toMatchObject({ recursive: true });
+
+    // rename from projects/alpha → projects/archive/alpha.
+    expect(fsRenameMock).toHaveBeenCalledTimes(1);
+    const [renameFrom, renameTo] = fsRenameMock.mock.calls[0];
+    expect((renameFrom as string).endsWith("/projects/alpha")).toBe(true);
+    expect((renameTo as string).endsWith("/projects/archive/alpha")).toBe(true);
+  });
+
+  it("Test A2: invalid slug — '../etc' throws before any I/O (path-traversal defense)", async () => {
+    await expect(archiveProject(null, "../etc")).rejects.toThrow(
+      /invalid project slug/,
+    );
+    expect(fsMkdirMock).not.toHaveBeenCalled();
+    expect(fsRenameMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("archiveProject — REMOTE branch", () => {
+  it("Test A3: happy — single exec with mkdir -p archive && mv <src> <dest>, slug shell-escaped", async () => {
+    const { conn } = buildMockConn();
+    let execedCmd = "";
+    execCommandMock.mockImplementation((_conn: unknown, cmd: string) => {
+      execedCmd = cmd;
+      return Promise.resolve("");
+    });
+
+    await archiveProject(conn, "alpha");
+
+    // Single exec.
+    expect(execCommandMock).toHaveBeenCalledTimes(1);
+    // mkdir -p archive dir precedes mv.
+    expect(execedCmd).toMatch(
+      /mkdir -p .*fleet\/projects\/archive.* && mv /,
+    );
+    expect(execedCmd).toContain("alpha");
+    // shellEscape single-quote wrapping present.
+    expect(execedCmd).toContain("'");
+    // Destination path pattern.
+    expect(execedCmd).toContain("fleet/projects/archive/");
+  });
+});
