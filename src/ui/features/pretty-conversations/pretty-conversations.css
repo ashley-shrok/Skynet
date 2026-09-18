@@ -1357,3 +1357,156 @@
   -webkit-mask-size: contain;
   mask-size: contain;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHASE 117 — .pv-apps-section (sidebar Apps surface, shape 3)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Selectors below back the AppTile component (src/ui/features/pretty-
+   conversations/AppTile.tsx). They deliberately inherit the .pv-row +
+   .pv-avatar glass treatment already defined above so app tiles read as
+   first-class residents of the sidebar bubble family. Two disciplined
+   deviations:
+
+     - .pv-app-tile OVERRIDES `cursor: default` (D-13 — left-click is a
+       deliberate no-op in v1; shape 4 owns primary-click affordance).
+       .pv-row's default `cursor: pointer` (line 345) does not apply.
+     - .pv-app-icon-slot changes ONLY border-radius (10px rounded-square,
+       iOS-app-icon target per D-10 Claude discretion) vs .pv-avatar's 999px
+       round disc. All other tokens (40x40, gradient, border, shadow stack,
+       letter typography) are inherited verbatim by cascading the
+       .pv-app-icon-slot selector alongside .pv-avatar in most rules OR
+       by re-declaring the same tokens locally so the class stands alone
+       when read.
+
+   NO per-app --pv-hue emission (D-09). Tiles inherit the .pv-row fallback
+   hue 216 (line 338). NO selected-state override on the app tile (D-13 —
+   no primary-click affordance to reflect).
+
+   Letter typography for the iconless fallback lives on the PARENT
+   .pv-app-icon-slot (mirrors Pitfall 3 from RESEARCH.md — .pv-avatar-initial
+   in the identity row has NO CSS rule of its own; the letter inherits from
+   .pv-avatar). The child .pv-app-icon-initial has NO standalone rule.
+
+   D-11 muted-red healthMessage token: #f4a09b (from the tasting-round
+   selection). Open Question 4 (RESEARCH.md) invites a future semantic-error
+   palette-token pass — no such token exists in the pv- palette today, so
+   the raw hex ships in v1.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pv-app-tile {
+  /* No --pv-hue declaration — inherit the .pv-row fallback 216 (D-09). */
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  color: #fbf5e8;
+  /* D-13 override: .pv-row's `cursor: pointer` (line 345) is replaced with
+     `cursor: default` here so users understand the tile is not primary-
+     clickable in v1. Right-click / long-press context menu still fires. */
+  cursor: default;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  border-radius: var(--radius-pv-bubble);
+  overflow: hidden;
+  background: linear-gradient(160deg,
+    hsla(var(--pv-hue), 50%, 38%, 0.55),
+    hsla(var(--pv-hue), 45%, 24%, 0.60));
+  border: 1px solid hsla(var(--pv-hue), 65%, 55%, 0.32);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 220, 170, 0.18),
+    0 0 0 0.5px hsla(var(--pv-hue), 70%, 55%, 0.20),
+    0 0 32px hsla(var(--pv-hue), 70%, 52%, 0.18);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+.pv-app-tile:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 220, 170, 0.22),
+    0 0 0 0.5px hsla(var(--pv-hue), 70%, 55%, 0.28),
+    0 0 40px hsla(var(--pv-hue), 70%, 52%, 0.26);
+  border-color: hsla(var(--pv-hue), 65%, 55%, 0.42);
+}
+
+/* D-10: rounded-square icon slot, 40x40, .pv-avatar treatment except
+   border-radius: 10px (Claude discretion, iOS-app-icon target). Letter
+   typography lives on THIS parent so `<span className="pv-app-icon-initial">L</span>`
+   inherits color / font-size / font-weight / letter-spacing without needing
+   its own rule (Pitfall 3 mitigation — no phantom class). */
+.pv-app-icon-slot {
+  position: relative;
+  overflow: visible;
+  z-index: 1;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg,
+    hsla(var(--pv-hue), 45%, 25%, 0.72),
+    hsla(var(--pv-hue), 40%, 15%, 0.82));
+  border: 1px solid hsla(var(--pv-hue), 65%, 55%, 0.40);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.6),
+    inset 0 2px 0 rgba(255, 235, 190, 0.35),
+    0 0 24px hsla(var(--pv-hue), 65%, 55%, 0.40);
+  color: #fbf5e8;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+
+.pv-app-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+/* D-10 title-only body: vertical flex column. Second line (unhealthy
+   healthMessage) grows only when the D-11 branch fires. */
+.pv-app-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.pv-app-title {
+  color: #fbf5e8;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* D-11 unhealthy variant: two-line tile, muted-red italic healthMessage
+   below the title. Only rendered when `!isHealthy && healthMessage != null`.
+   Colour #f4a09b is the tasting-round pick; no semantic-error token exists
+   in the pv- palette today (grep of --color-pv-* returned only
+   --color-pv-border-quiet). Open Question 4 (RESEARCH.md) invites a future
+   palette-token pass to swap this raw hex for a named token. */
+.pv-app-unhealthy-message {
+  color: #f4a09b;
+  font-style: italic;
+  font-size: 11.5px;
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
