@@ -2187,7 +2187,7 @@ export function AppShell({
 
   // ─── Cross-window drag/drop (2026-09-17) ───────────────────────────────
   //
-  // Ashley: when a drag ends up in a DIFFERENT same-origin Skynet window
+  // When a drag ends up in a DIFFERENT same-origin Skynet window
   // (two Chrome windows/tabs each running Skynet), the receiving window
   // should verify the payload resolves to a real (host + identity) it has
   // access to and open a fresh session for it — rather than blindly planting

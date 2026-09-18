@@ -335,7 +335,7 @@ export function IdentityBadge({
         // parent supplies it. armOutboundDrag records the {dragId → tabId}
         // pair locally so the accept-subscriber in AppShell can close this
         // window's source tab when the target echoes the dragId back over
-        // BroadcastChannel (hard-move semantics per Ashley 2026-09-17).
+        // BroadcastChannel (hard-move semantics per user directive 2026-09-17).
         const dragId = mintDragId();
         armOutboundDrag(dragId, id);
         e.dataTransfer.setData("text/plain", id);
