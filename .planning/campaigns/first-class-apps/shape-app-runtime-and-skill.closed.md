@@ -117,3 +117,74 @@ Identity folders under `~/fleet/identities/` and their `~/fleet/identities-archi
 **No plan mode, no /gsd:quick, no GSD phase.** All three delegate too much: plan mode adds a gate between us that we don't need, /gsd:quick and GSD phase dispatch to executors that would work autonomously. Inline is the shape of "we do this together."
 
 **Working tree.** `~/skynet-vision` on branch `feat/tab-title-from-tmux`. Campaign artifact + this shape file committed to that branch. No branch dance needed.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-18
+**Vehicle used:** inline
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · A single canonical skill that teaches agents to build a user-facing app on their box, following a fixed on-disk shape.
+- **Shape: where apps live** — present · Apps live under a canonical top-level folder on the agent's box, with siblings for archive and safety snapshots.
+- **Shape: metadata file** — present · Two-field metadata (title + description) inside each app folder; slug from folder name, port from the systemd unit, icon from a conventional filename, created-at from folder timestamp.
+- **Shape: the stack** — present · Bun runtime, SvelteKit framework, Tailwind styling, Drizzle over SQLite, adapter-node in production. No menu.
+- **Shape: process model** — present · One systemd `--user` unit per app, one port per app in the 9501-9599 range, linger enabled, port owned by the unit and not repeated in metadata.
+- **Shape: authentication** — present · Skill says the app builds no auth; the edge upstream is the security boundary; reflex trigger warns against writing a login form.
+- **Shape: the skill (name + locked description)** — present · Skill named `app-development`; description present verbatim as agreed.
+- **Shape: bundled helpers** — present · All five present (bootstrap, create-app, archive-app, restore-app, backup-app) doing what the shape described.
+- **Shape: starter template** — present · Working small to-do-list app with framework skeleton, Tailwind, Drizzle schema, initial migration pre-shipped in `drizzle/`, systemd unit template with substitution markers. (Fix applied post-review: the initial migration is now pre-generated in the template rather than generated at scaffold time.)
+- **Shape: iteration workflow** — present · Two modes taught explicitly — production under systemd and dev-mode foreground with hot reload — plus the rhythm to move between them.
+- **Shape: backup-before-editing** — present · Skill teaches snapshotting the app before risky edits; appears in reflex-trigger list.
+- **Shape: removal — archive by default** — present · Archive is the taught default; hard-delete only on explicit user request, and even then mention what you're doing.
+- **Shape: distribution** — present · Entire skill folder registered in the substrate distributor's catalog; rides the next sweep to every managed box.
+- **Philosophy: the convention IS the API** — present · No registry, no registration endpoint — disk is the truth.
+- **Philosophy: one canonical stack, not a menu** — present · Skill body explicitly forbids stack branching and calls out temptations.
+- **Philosophy: zero drift by construction** — present · Every fact lives in one place; the folder name IS the slug, the unit IS the port authority, the metadata file only carries what has no natural home elsewhere.
+- **Philosophy: archive, don't delete** — present · Archive is the taught reflex; hard-delete is the explicit exception.
+- **Philosophy: edge handles auth; apps don't** — present · Called out in the skill body and reflex-trigger list.
+- **Philosophy: build-step tax accepted deliberately** — present · Skill body implicitly accepts the tax by walking through the build and per-app dependency install.
+- **Philosophy: starter is bigger than the archive's, and that's fine** — present · Starter ships as a full working small app across many files.
+- **Prior context: reuse durable parts, reverse the parts that don't scale** — present · No portal, no shared registry, no hand-written SQL; per-app SQLite + per-app systemd unit + linger + port range + numbered-migration pattern retained.
+- **Scope edges (in): new skill file with full body** — present.
+- **Scope edges (in): five bundled helper scripts** — present.
+- **Scope edges (in): starter template as working small app** — present.
+- **Scope edges (in): substrate distributor catalog entry** — present · 26 rows registered (one per file, matching the byte-compare mechanism).
+- **Scope edges (in): end-to-end verification on this box** — present · The full create → serve → POST persist → backup → archive → restore (same port, data preserved) → hard-delete flow was walked twice on this box during the session; the second walk verified the post-fix behavior. Ashley witnessed both.
+- **Scope edges (out): sweep, sidebar, main-pane leaf, image-gen deferred** — present · None crept in.
+- **Scope edges (tempting but no): no UI style prescribed beyond Tailwind + desktop-and-phone** — present.
+- **Scope edges (tempting but no): no extra metadata fields** — present · Exactly title + description; reflex trigger against adding fields.
+- **Scope edges (tempting but no): no dev-vs-prod systemd unit** — present · Only production unit; dev mode is foreground.
+- **Scope edges (tempting but no): only Bun runtime** — present.
+- **Scope edges (tempting but no): only SQLite database** — present.
+- **Scope edges (tempting but no): no cross-app plumbing** — present.
+- **What would make it wrong: an agent building auth into an app** — present · Dedicated section plus reflex trigger.
+- **What would make it wrong: metadata file getting bigger over time** — present · Two-fields-forever rule + reflex trigger.
+- **What would make it wrong: someone parsing the README for anything the client renders** — present · README framed as maintainer documentation; the metadata file is the source of truth for the tile.
+- **What would make it wrong: a shared registry file coming back** — present · No registry file; reflex trigger against portal-like listings.
+- **What would make it wrong: editing an already-applied migration** — present · Skill body and reflex triggers explicitly forbid this; workflow generates new numbered migrations on schema changes.
+- **What would make it wrong: create step hardcoding IP/user/box-specific state** — present · Unit template uses substitution markers only; runtime knobs from env; nothing box-specific.
+- **What would make it wrong: a silent hard-delete** — present · Archive is the taught default; hard-delete requires explicit user request and a mention.
+- **What would make it wrong: two agents racing on the same port** — present · Create helper takes an exclusive lock, scans existing units, writes the new unit file under the lock — closing the race by the filesystem.
+- **What would make it wrong: starter template drifting from the skill body** — present · Starter's structure and behavior match the skill body — Bun scripts, SvelteKit routes, Drizzle schema location, systemd unit template, viewport meta, Tailwind wiring.
+- **What would make it wrong: editing an existing app without backing up first** — present · "Back it up FIRST" is step 2 of the edit recipe, plus a reflex trigger.
+
+### Additions (in the result, not in the shape)
+
+- Framework config disables the built-in same-origin check on form submissions — accepted-as-sanctioned-drift (in-the-spirit-of-shape: the auth story says the app trusts every arriving request; enforcing same-origin would reject proxied requests the client already gated).
+- Archive step stashes a copy of the retired app's systemd unit file inside the archived folder so restore can bring it back on its original port — accepted-as-drift (natural consequence of preserving port stability across archive/restore, which the shape implies).
+- Restore step refuses when the original port is now in use by another app on the box — accepted-as-drift (necessary corollary of the port-stashing choice above; hard-failing beats silent reallocation).
+- Icon fallback chain widened to three formats — FIXED post-review (narrowed back to `icon.webp` only, matching the shape exactly).
+
+### Follow-ups
+
+- Pre-generated initial migration not shipped in the starter template (starter description said "first migration generated") — FIXED post-review (initial migration now ships in `templates/app-starter/drizzle/`; create-app.sh no longer runs the generate step).
+- End-to-end verification "cannot-verify" from disk alone (folders empty) — RESOLVED (Ashley was in the session and witnessed the full E2E walk on this box, twice: once for the original commit and once for the post-fix commit).
+- CSRF-check-disabled as a security-posture decision worth naming explicitly — endorsed as sanctioned drift; the trade is documented inline in the framework config file's comment and is in the spirit of the shape's auth story.
+
+### Notes
+
+Overall the material conforms strongly to the shape — the on-disk convention, the stack, the process model, the metadata contract, the five helpers, the skill body's reflex triggers, and the catalog registration are all present and match. The port-race guard uses exactly the pattern the shape called for (exclusive lock plus write-the-unit-under-the-lock). The reflex-trigger list is thorough and covers every failure mode the shape named. Three small design details that were made below the shape's resolution and are now recorded here as accepted-as-drift: the same-origin-check disable, the archive-stash-inside-folder mechanism, and the restore-refuses-on-port-collision behavior. Two divergences were fixed post-review to bring the material back into strict conformance: the icon fallback chain (narrowed) and the pre-generated initial migration (now ships in the template).
