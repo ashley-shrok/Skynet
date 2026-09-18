@@ -378,6 +378,16 @@ export const IdentityAppearanceSchema = z.object({
   roleDefaults: z.record(z.string(), z.unknown()).nullable(),
   avatarUrl: z.string(),
   pinned: z.boolean(),
+  // Phase 117 M6 fix (2026-09-18): `project` field from the identity file's
+  // frontmatter (D-05 identity carrier). resolveIdentityAppearance already
+  // returns this on the resolved appearance, and the source-B publisher hands
+  // it to the frontend via SessionState.identityAppearance — but pre-fix,
+  // this schema did NOT declare it, so zod's default strip behavior removed
+  // it in transit. Combined with H1, that made live-updating identity
+  // project assignments impossible over the WS. Nullable (identity file
+  // has no project frontmatter) + optional (backward compat with older
+  // publishers that don't emit the field yet).
+  project: z.string().nullable().optional(),
 });
 
 export type IdentityAppearance = z.infer<typeof IdentityAppearanceSchema>;

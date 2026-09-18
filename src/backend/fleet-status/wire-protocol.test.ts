@@ -682,6 +682,74 @@ describe("Phase 111 Plan 111-02 — identityAppearance on SessionStateSchema", (
       expect(paths.some((p) => p.includes("displayName"))).toBe(true);
     }
   });
+
+  // Phase 117 M6 fix (2026-09-18): IdentityAppearanceSchema now carries
+  // `project` (nullable + optional). This lets the source-B pulse publisher
+  // propagate identity project frontmatter over the WS instead of the
+  // frontend hardcoding `project: null` for pulse-appended identities.
+  it("Test P117-M6 A: identityAppearance accepts `project: <slug>` (string)", () => {
+    const result = SessionStateSchema.safeParse({
+      ...validSessionState,
+      identityAppearance: {
+        ...validAppearance,
+        project: "alpha",
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.identityAppearance).toMatchObject({
+        project: "alpha",
+      });
+    }
+  });
+
+  it("Test P117-M6 B: identityAppearance accepts `project: null` (identity has no project frontmatter)", () => {
+    const result = SessionStateSchema.safeParse({
+      ...validSessionState,
+      identityAppearance: {
+        ...validAppearance,
+        project: null,
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.identityAppearance).toMatchObject({
+        project: null,
+      });
+    }
+  });
+
+  it("Test P117-M6 C: identityAppearance accepts `project` absent (back-compat with pre-M6 publisher)", () => {
+    // validAppearance itself omits `project` — this test confirms that's
+    // still valid post-fix (schema field is .optional()).
+    const result = SessionStateSchema.safeParse({
+      ...validSessionState,
+      identityAppearance: validAppearance,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // project is undefined (not present in the parsed data) — the
+      // frontend's merge path treats `undefined` as "no signal this tick".
+      expect(
+        (result.data.identityAppearance as { project?: unknown }).project,
+      ).toBeUndefined();
+    }
+  });
+
+  it("Test P117-M6 D: identityAppearance rejects numeric `project` (nested schema type check)", () => {
+    const result = SessionStateSchema.safeParse({
+      ...validSessionState,
+      identityAppearance: {
+        ...validAppearance,
+        project: 42,
+      },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("project"))).toBe(true);
+    }
+  });
 });
 
 // ─── Phase 117 Plan 117-03 — project-list-changed frame (D-37) ───────────────

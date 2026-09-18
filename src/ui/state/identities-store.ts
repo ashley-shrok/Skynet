@@ -619,13 +619,18 @@ export function mergeIdentityAppearance(
       avatarEtag: "",
       coordinator: appearance.coordinator === true,
       task: typeof appearance.task === "string" ? appearance.task : null,
-      // Phase 117 Plan 117-07 (D-05 identity carrier): project field surfaces
-      // on the identity row. `appearance.project` is not carried by the wire
-      // schema today (IdentityAppearanceSchema does not include it — extending
-      // the schema would require a snapshotVersion bump), so default to null
-      // here on the pulse-append path; the GET /identities fetch (which does
-      // carry the field) supplies the authoritative value on the next merge.
-      project: null,
+      // Phase 117 M6 fix (2026-09-18): `project` is now carried by
+      // IdentityAppearanceSchema (nullable+optional). The source-B pulse
+      // therefore delivers the identity's current project frontmatter on
+      // every tick, and we pipe it through here instead of hardcoding null.
+      // `appearance.project` can be:
+      //   - string → identity has a project frontmatter field
+      //   - null   → identity file has no project frontmatter
+      //   - undefined → older publisher not yet emitting the field (back-compat)
+      // We coalesce undefined and null to null so the frontend consumer sees
+      // a stable string|null shape.
+      project:
+        typeof appearance.project === "string" ? appearance.project : null,
       roleDefaults: appearance.roleDefaults ?? null,
       pinned: appearance.pinned === true,
     };
@@ -719,6 +724,18 @@ export function mergeIdentityAppearance(
       next.pinned = appearance.pinned;
       changed = true;
       pinChanged = true;
+    }
+  }
+  // Phase 117 M6 fix (2026-09-18): project is a membership axis (D-05
+  // identity carrier). Like pinned, a `null` here is a REAL fact — the
+  // identity file's frontmatter has no project field — not an absence.
+  // DO write on string→null transitions (the "clear project" gesture on
+  // the frontend must round-trip through this path). Only skip on
+  // undefined (older publisher not emitting the field yet).
+  if (appearance.project !== undefined) {
+    if (next.project !== appearance.project) {
+      next.project = appearance.project;
+      changed = true;
     }
   }
 
