@@ -3544,6 +3544,11 @@ export function PrettyView({
           onClick={() => setIsIdentityModalOpen(true)}
           onLongPress={onTogglePrettyMode}
           tabId={tabId}
+          dragDescriptor={{
+            tabType: "terminal",
+            sessionKind: "harness",
+            targetTmuxSession: tmuxSession || null,
+          }}
           onContextMenu={
             identityBadgeContextMenuItems &&
             identityBadgeContextMenuItems.length > 0

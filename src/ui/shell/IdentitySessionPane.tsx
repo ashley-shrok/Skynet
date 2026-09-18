@@ -573,6 +573,11 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
               onClick={() => setIsIdentityModalOpen(true)}
               onLongPress={() => setIsPrettyMode((v) => !v)}
               tabId={tabId}
+              dragDescriptor={{
+                tabType: "terminal",
+                sessionKind: "harness",
+                targetTmuxSession: effectiveTmuxSession,
+              }}
             />
           )}
 

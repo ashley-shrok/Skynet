@@ -7,6 +7,8 @@ import type {
 import { GitPullRequestDraft } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
+import type { TabType } from "@/types/ui-types";
+import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
 // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId into identity.avatarUrl.
 // Phase 104 Plan 02: the `hostId` prop below is REACTIVATED for the trapped-
 // work store lookup (superseding the Phase 68 "no longer used" note). Existing
@@ -59,6 +61,20 @@ export interface IdentityBadgeProps {
   // paths use, so no explicit disambiguation code is needed — same
   // mechanism Phase 56 patch #511 established for PrettyConversationRow).
   tabId?: string;
+  // Optional descriptor for cross-window drag support. When present AND the
+  // badge is a drag source, the dragstart payload includes these fields so a
+  // drop in a DIFFERENT same-origin Skynet window can open a fresh session
+  // for the same (host + identity + session kind) rather than plant a leaf
+  // pointing at this window's tabId (which the target doesn't know about,
+  // producing the "Session no longer exists" placeholder). Absent for legacy
+  // call sites and tests — same-window drag/drop works unchanged.
+  dragDescriptor?: {
+    tabType: TabType;
+    sessionKind?: "harness" | "relay-room";
+    relayRoomId?: string;
+    relayRoomTitle?: string | null;
+    targetTmuxSession?: string | null;
+  };
   // Right-click / context-menu handler. Wired to both render branches
   // (interactive <button> + non-interactive <div>) so callers can attach
   // a pretty-view menu (e.g. "Move to new window") at the badge site
@@ -81,6 +97,7 @@ export function IdentityBadge({
   onClick,
   onLongPress,
   tabId,
+  dragDescriptor,
   onContextMenu,
 }: IdentityBadgeProps) {
   const { byKey, byHostKey } = useIdentities();
@@ -310,14 +327,31 @@ export function IdentityBadge({
           clearTimeout(timerRef.current);
           timerRef.current = null;
         }
+        // Cross-window drag: mint a dragId + carry enough descriptor for a
+        // target window to open a fresh session for the same identity on the
+        // same host without needing to consult a source-window session
+        // registry. hostId + identityKey are always emitted (they're first-
+        // class props); dragDescriptor is optional and only emitted when the
+        // parent supplies it. armOutboundDrag records the {dragId → tabId}
+        // pair locally so the accept-subscriber in AppShell can close this
+        // window's source tab when the target echoes the dragId back over
+        // BroadcastChannel (hard-move semantics per Ashley 2026-09-17).
+        const dragId = mintDragId();
+        armOutboundDrag(dragId, id);
         e.dataTransfer.setData("text/plain", id);
         e.dataTransfer.setData(
           "application/x-skynet-badge",
-          JSON.stringify({ tabId: id }),
+          JSON.stringify({
+            tabId: id,
+            dragId,
+            identityKey,
+            hostId: hostId ?? null,
+            descriptor: dragDescriptor ?? null,
+          }),
         );
         e.dataTransfer.effectAllowed = "move";
         console.info(
-          `[badge-drag] tabId=${id} hasIdentity=${identity !== null}`,
+          `[badge-drag] tabId=${id} dragId=${dragId} hasIdentity=${identity !== null} hasDescriptor=${dragDescriptor !== undefined}`,
         );
       }
     : undefined;

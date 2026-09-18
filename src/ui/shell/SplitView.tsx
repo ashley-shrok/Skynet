@@ -206,6 +206,9 @@ const Pane = memo(function Pane({
   onDropRowInTree,
   onReplaceInTree,
   onSwapInTree,
+  onDropBadgeInTree,
+  onCenterDropBadge,
+  onCloseStalePane,
 }: {
   tab: Tab | null;
   tabId: string;
@@ -243,6 +246,23 @@ const Pane = memo(function Pane({
   // `.planning/phases/64-multi-view-center-drop/64-CONTEXT.md` §
   // In-scope item 3.
   onSwapInTree?: (tabIdA: string, tabIdB: string) => void;
+  // Cross-window badge drop handlers (2026-09-17). When provided, badge
+  // drops route through AppShell's descriptor resolver — same-window drops
+  // resolve to the local tabId (existing swap/insert behavior); cross-
+  // window drops resolve to a freshly-opened session for the descriptor
+  // and dispatch to replace/insert. Fallback to onSwapInTree /
+  // onOpenSessionInTree when absent (keeps existing tests + call sites
+  // unchanged).
+  onDropBadgeInTree?: (
+    payload: unknown,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
+  onCenterDropBadge?: (payload: unknown, targetTabId: string) => void;
+  // Rescue affordance when a leaf references a tabId that no longer exists
+  // in tabs[] (e.g. cross-window drag left a stranger tabId, or a session
+  // died mid-view). Wired by AppShell to removeLeaf(splitTree, tabId).
+  onCloseStalePane?: (tabId: string) => void;
 }) {
   // Phase 57 Plan 02 — dropPreview replaces the Phase 56 `isDragOver: boolean`.
   // Stores the current edge-zone pick from `computeEdgeZone` (Plan 57-01) and
@@ -482,6 +502,19 @@ const Pane = memo(function Pane({
                 );
                 return;
               }
+              // Cross-window-aware badge center-drop: onCenterDropBadge
+              // (when wired) routes through AppShell's descriptor resolver
+              // and decides swap-vs-replace based on whether the source
+              // tabId is local. Fall back to raw onSwapInTree when the
+              // callback isn't wired (tests / legacy paths).
+              if (onCenterDropBadge) {
+                // eslint-disable-next-line no-console
+                console.info(
+                  `[pv-split-drop] center-drop dispatch=badge-resolver path=${JSON.stringify(path)} sourceTabId=${sourceTabId} targetTabId=${tabId}`,
+                );
+                onCenterDropBadge(parsed, tabId);
+                return;
+              }
               // eslint-disable-next-line no-console
               console.info(
                 `[pv-split-drop] center-drop dispatch=swap path=${JSON.stringify(path)} sourceTabId=${sourceTabId} targetTabId=${tabId}`,
@@ -568,6 +601,31 @@ const Pane = memo(function Pane({
           );
         }
       }
+      // Cross-window-aware badge edge-drop (2026-09-17). When onDropBadgeInTree
+      // is wired AND the payload carries the badge MIME, route through
+      // AppShell's descriptor resolver — same-window resolves to local tabId
+      // (parity with the text/plain fallback below); cross-window opens a
+      // fresh session for the descriptor. Silent-reject when the resolver
+      // returns null, preventing the "Session no longer exists" black hole
+      // that the old text/plain fallback produced on unknown tabIds.
+      const badgeJson =
+        e.dataTransfer?.getData("application/x-skynet-badge") ?? "";
+      if (badgeJson && onDropBadgeInTree) {
+        try {
+          const parsed = JSON.parse(badgeJson);
+          // eslint-disable-next-line no-console
+          console.info(
+            `[pv-split-drop] pane dispatch=badge-resolver payloadTabId=${parsed?.tabId ?? "?"} identity=${parsed?.identityKey ?? "?"} hostId=${parsed?.hostId ?? "?"} hasDescriptor=${parsed?.descriptor != null}`,
+          );
+          onDropBadgeInTree(parsed, path, edge);
+          return;
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[pv-split-drop] pane badge-payload parse failed — falling back to text/plain: ${(err as Error).message}`,
+          );
+        }
+      }
       const payloadTabId = e.dataTransfer?.getData("text/plain") ?? "";
       // eslint-disable-next-line no-console
       console.info(
@@ -607,6 +665,8 @@ const Pane = memo(function Pane({
     onOpenSessionInTree,
     onReplaceInTree,
     onSwapInTree,
+    onDropBadgeInTree,
+    onCenterDropBadge,
     tabId,
   ]);
 
@@ -645,12 +705,27 @@ const Pane = memo(function Pane({
           without adding a title bar. */}
       {tab === null && (
         <div
-          className="absolute inset-0 flex items-center justify-center pointer-events-none z-20"
+          className="absolute inset-0 flex items-center justify-center gap-3 z-20"
           data-testid="pane-stale-tab-placeholder"
         >
-          <span className="opacity-40 text-xs font-medium select-none">
+          <span className="opacity-40 text-xs font-medium select-none pointer-events-none">
             Session no longer exists
           </span>
+          {onCloseStalePane && (
+            <button
+              type="button"
+              data-testid="pane-stale-tab-close"
+              aria-label="Close stale pane"
+              title="Close stale pane"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCloseStalePane(tabId);
+              }}
+              className="cursor-pointer text-xs font-medium opacity-50 hover:opacity-100 transition-opacity px-2 py-1 rounded border border-current"
+            >
+              Close
+            </button>
+          )}
         </div>
       )}
       <div className="flex-1 min-h-0 overflow-hidden relative">
@@ -723,6 +798,9 @@ function PaneTree({
   onDropRowInTree,
   onReplaceInTree,
   onSwapInTree,
+  onDropBadgeInTree,
+  onCenterDropBadge,
+  onCloseStalePane,
 }: {
   node: SplitNode;
   path: SplitPath;
@@ -747,6 +825,13 @@ function PaneTree({
     targetTabId: string,
   ) => void;
   onSwapInTree?: (tabIdA: string, tabIdB: string) => void;
+  onDropBadgeInTree?: (
+    payload: unknown,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
+  onCenterDropBadge?: (payload: unknown, targetTabId: string) => void;
+  onCloseStalePane?: (tabId: string) => void;
 }) {
   if (node.kind === "session") {
     const tab = tabs.find((tt) => tt.id === node.tabId) ?? null;
@@ -762,6 +847,9 @@ function PaneTree({
         onDropRowInTree={onDropRowInTree}
         onReplaceInTree={onReplaceInTree}
         onSwapInTree={onSwapInTree}
+        onDropBadgeInTree={onDropBadgeInTree}
+        onCenterDropBadge={onCenterDropBadge}
+        onCloseStalePane={onCloseStalePane}
       />
     );
   }
@@ -787,6 +875,9 @@ function PaneTree({
           onDropRowInTree={onDropRowInTree}
           onReplaceInTree={onReplaceInTree}
           onSwapInTree={onSwapInTree}
+          onDropBadgeInTree={onDropBadgeInTree}
+          onCenterDropBadge={onCenterDropBadge}
+          onCloseStalePane={onCloseStalePane}
         />
       </div>
       <Divider direction={node.direction} />
@@ -805,6 +896,9 @@ function PaneTree({
           onDropRowInTree={onDropRowInTree}
           onReplaceInTree={onReplaceInTree}
           onSwapInTree={onSwapInTree}
+          onDropBadgeInTree={onDropBadgeInTree}
+          onCenterDropBadge={onCenterDropBadge}
+          onCloseStalePane={onCloseStalePane}
         />
       </div>
     </div>
@@ -825,6 +919,9 @@ export const SplitView = memo(function SplitView({
   onDropRowInTree,
   onReplaceInTree,
   onSwapInTree,
+  onDropBadgeInTree,
+  onCenterDropBadge,
+  onCloseStalePane,
 }: {
   tabs: Tab[];
   splitTree: SplitNode | null;
@@ -853,6 +950,14 @@ export const SplitView = memo(function SplitView({
   // AppShell to `swapInTree` (functional-updater around split-tree
   // `swapLeaves` from Plan 64-01).
   onSwapInTree?: (tabIdA: string, tabIdB: string) => void;
+  // Cross-window badge drop handlers (2026-09-17). See Pane props above.
+  onDropBadgeInTree?: (
+    payload: unknown,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
+  onCenterDropBadge?: (payload: unknown, targetTabId: string) => void;
+  onCloseStalePane?: (tabId: string) => void;
 }) {
   useEffect(() => {
     const id = requestAnimationFrame(() => onTerminalResize?.());
@@ -880,6 +985,9 @@ export const SplitView = memo(function SplitView({
         onDropRowInTree={onDropRowInTree}
         onReplaceInTree={onReplaceInTree}
         onSwapInTree={onSwapInTree}
+        onDropBadgeInTree={onDropBadgeInTree}
+        onCenterDropBadge={onCenterDropBadge}
+        onCloseStalePane={onCloseStalePane}
       />
     </div>
   );

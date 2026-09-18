@@ -100,6 +100,10 @@ import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
 import { insertAtEdge, removeLeaf, findLeaf, getNodeAt, collectTabIds, replaceLeaf, swapLeaves } from "@/lib/split-tree";
 import { computeNearestEdge, overlayGeometryForZone } from "@/shell/SplitView";
 import {
+  postDragAccept,
+  subscribeToDragAccepts,
+} from "@/shell/cross-window-drag";
+import {
   encodeSplitTreeToUrl,
   decodeSplitTreeFromUrl,
 } from "@/lib/split-tree-url";
@@ -2170,6 +2174,214 @@ export function AppShell({
     [],
   );
 
+  // Rescue affordance for the "Session no longer exists" pane placeholder in
+  // SplitView. Fires when the user clicks the placeholder's Close button on a
+  // leaf whose tabId is no longer present in tabs[] — cross-window drag left
+  // a stranger tabId, or a session died mid-view. Prunes the leaf and
+  // collapses any resulting single-child split via split-tree removeLeaf.
+  const closeStalePane = useCallback((tabId: string) => {
+    // eslint-disable-next-line no-console
+    console.info(`[pv-split-tree] closeStalePane tabId=${tabId}`);
+    setSplitTree((prev) => removeLeaf(prev, tabId));
+  }, []);
+
+  // ─── Cross-window drag/drop (2026-09-17) ───────────────────────────────
+  //
+  // Ashley: when a drag ends up in a DIFFERENT same-origin Skynet window
+  // (two Chrome windows/tabs each running Skynet), the receiving window
+  // should verify the payload resolves to a real (host + identity) it has
+  // access to and open a fresh session for it — rather than blindly planting
+  // a leaf pointing at a stranger tabId (which produced the "Session no
+  // longer exists" placeholder pane and had no dismiss affordance until
+  // this pass added the Close button above).
+  //
+  // Wire (see @/shell/cross-window-drag for the transport):
+  //   1. Source (drag origin) — IdentityBadge / PrettyConversationRow mint
+  //      a dragId at dragstart, arm {dragId → tabId} in the module, and
+  //      embed dragId in the drag payload.
+  //   2. Target (drop landing) — resolveBadgePayloadTabId / the existing
+  //      resolveRowPayloadTabId map descriptor→tabId, opening a fresh tab
+  //      if needed. On success, post BroadcastChannel accept with dragId.
+  //   3. Source (again) — subscribeToDragAccepts fires with the tabId that
+  //      was armed for the dragId. We doCloseTab that tabId — the drag
+  //      behaves as a hard MOVE (session lives in exactly one window).
+  //
+  // Same-window drops don't loop back (BroadcastChannel doesn't deliver a
+  // post to the sender's own channel — spec-guaranteed), so same-window
+  // drag/swap behavior is unchanged.
+
+  const resolveBadgePayloadTabId = useCallback(
+    (payload: {
+      tabId?: string | null;
+      identityKey?: string | null;
+      hostId?: number | null;
+      descriptor?: {
+        tabType?: TabType;
+        sessionKind?: "harness" | "relay-room";
+        relayRoomId?: string;
+        relayRoomTitle?: string | null;
+        targetTmuxSession?: string | null;
+      } | null;
+    }): string | null => {
+      // Same-window: tabId already known to this window's tabs[].
+      if (
+        typeof payload.tabId === "string" &&
+        tabs.some((t) => t.id === payload.tabId)
+      ) {
+        return payload.tabId;
+      }
+      // Cross-window: descriptor is required to open a fresh session.
+      const descriptor = payload.descriptor;
+      if (!descriptor) return null;
+      // Relay-room: hostless tab, keyed by relayRoomId.
+      if (
+        descriptor.sessionKind === "relay-room" &&
+        typeof descriptor.relayRoomId === "string" &&
+        descriptor.relayRoomId.length > 0
+      ) {
+        return openTab(null, "terminal", undefined, {
+          sessionKind: "relay-room",
+          relayRoomId: descriptor.relayRoomId,
+          relayRoomTitle: descriptor.relayRoomTitle ?? null,
+          label: descriptor.relayRoomTitle ?? descriptor.relayRoomId,
+        });
+      }
+      // Host-based session (terminal/rdp/vnc/telnet). hostId lookup against
+      // this window's flat host map — target window must have this host in
+      // its own tree for the fresh-open to succeed. Missing host = silent
+      // reject (no black hole).
+      if (typeof payload.hostId !== "number") return null;
+      const host = hostsById.get(payload.hostId);
+      if (!host) return null;
+      const type: TabType = descriptor.tabType ?? "terminal";
+      if (type === "rdp") return openTab(host, "rdp");
+      if (type === "terminal") {
+        return openTab(host, "terminal", undefined, {
+          targetTmuxSession: descriptor.targetTmuxSession ?? null,
+          label: descriptor.targetTmuxSession ?? undefined,
+          allowCreateTmux: false,
+        });
+      }
+      return openTab(host, type);
+    },
+    [tabs, hostsById, openTab],
+  );
+
+  // Edge-zone badge drop handler — the counterpart to onDropRowInTree for
+  // the row MIME. Resolves payload to a real tabId (same-window match or
+  // cross-window fresh-open), inserts into the split tree, echoes the
+  // dragId back so the source window can hard-close its outbound tab.
+  const onDropBadgeInTree = useCallback(
+    (
+      payload: {
+        tabId?: string | null;
+        dragId?: string | null;
+        identityKey?: string | null;
+        hostId?: number | null;
+        descriptor?: {
+          tabType?: TabType;
+          sessionKind?: "harness" | "relay-room";
+          relayRoomId?: string;
+          relayRoomTitle?: string | null;
+          targetTmuxSession?: string | null;
+        } | null;
+      },
+      path: SplitPath,
+      edge: DropEdge,
+    ) => {
+      const resolvedTabId = resolveBadgePayloadTabId(payload);
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop] onDropBadgeInTree resolve payloadTabId=${payload.tabId ?? "?"} identity=${payload.identityKey ?? "?"} hostId=${payload.hostId ?? "?"} → resolvedTabId=${resolvedTabId ?? "(null — aborting)"}`,
+      );
+      if (resolvedTabId === null) return;
+      openSessionInTree(resolvedTabId, path, edge);
+      selectConversationDeferred(resolvedTabId);
+      if (typeof payload.dragId === "string" && payload.dragId.length > 0) {
+        postDragAccept(payload.dragId);
+      }
+    },
+    [resolveBadgePayloadTabId, openSessionInTree],
+  );
+
+  // Center-zone badge drop handler. Same-window: swap (both tabs live in
+  // this window's tabs[], both remain live post-swap). Cross-window: the
+  // resolver opens a fresh tab for the descriptor, then replaceLeaf swaps
+  // the fresh tab into the target slot; the target's previous tab remains
+  // in tabs[] but no longer occupies a pane (parity with row-replace).
+  // Distinguisher: resolvedTabId === payload.tabId means same-window (the
+  // resolver returned the local tabId as-is); otherwise the resolver just
+  // opened fresh.
+  const onCenterDropBadge = useCallback(
+    (
+      payload: {
+        tabId?: string | null;
+        dragId?: string | null;
+        identityKey?: string | null;
+        hostId?: number | null;
+        descriptor?: {
+          tabType?: TabType;
+          sessionKind?: "harness" | "relay-room";
+          relayRoomId?: string;
+          relayRoomTitle?: string | null;
+          targetTmuxSession?: string | null;
+        } | null;
+      },
+      targetTabId: string,
+    ) => {
+      const resolvedTabId = resolveBadgePayloadTabId(payload);
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop] onCenterDropBadge resolve payloadTabId=${payload.tabId ?? "?"} identity=${payload.identityKey ?? "?"} hostId=${payload.hostId ?? "?"} → resolvedTabId=${resolvedTabId ?? "(null — aborting)"} targetTabId=${targetTabId}`,
+      );
+      if (resolvedTabId === null) return;
+      if (resolvedTabId === targetTabId) {
+        // Self-drop — same-window drop of the badge onto its own pane.
+        // Existing swap-with-self collapses to a no-op; we mirror that.
+        // eslint-disable-next-line no-console
+        console.info(
+          `[pv-split-drop] center-self-drop-ignored (badge) resolvedTabId=${resolvedTabId}`,
+        );
+        return;
+      }
+      if (resolvedTabId === payload.tabId) {
+        // Same-window: both source and target live in tabs[] — swap.
+        swapInTree(resolvedTabId, targetTabId);
+      } else {
+        // Cross-window: resolvedTabId was just freshly opened — replace.
+        replaceInTree(resolvedTabId, targetTabId);
+      }
+      if (typeof payload.dragId === "string" && payload.dragId.length > 0) {
+        postDragAccept(payload.dragId);
+      }
+    },
+    [resolveBadgePayloadTabId, swapInTree, replaceInTree],
+  );
+
+  // Accept subscription — when a target window echoes back a dragId that
+  // was armed as an outbound drag from THIS window, hard-close the source
+  // tab so the drag behaves as a MOVE (session lives in one window at a
+  // time). BroadcastChannel deliberately does NOT deliver a post back to
+  // the sender's own channel, so same-window drops don't reach here.
+  //
+  // Ref pattern: subscribe ONCE at mount; the callback reads doCloseTab
+  // through a ref so it doesn't get pinned to a stale render's closure.
+  const doCloseTabRef = useRef(doCloseTab);
+  useEffect(() => {
+    doCloseTabRef.current = doCloseTab;
+  });
+  useEffect(() => {
+    const unsub = subscribeToDragAccepts((tabId) => {
+      // eslint-disable-next-line no-console
+      console.info(
+        `[cross-window-drag] source-close-on-accept tabId=${tabId}`,
+      );
+      doCloseTabRef.current(tabId);
+    });
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Patch #511 (Phase 56 hotfix follow-up): the drag payload from
   // PrettyConversationRow now carries the full row shape (host,
   // targetTmuxSession, fleetOnly, rdpHostRow) alongside the row.id. The
@@ -2218,6 +2430,7 @@ export function AppShell({
     (
       payload: {
         id: string;
+        dragId?: string | null;
         host: Host | null;
         targetTmuxSession: string | null;
         fleetOnly: boolean;
@@ -2234,6 +2447,13 @@ export function AppShell({
       if (tabId === null) return;
       openSessionInTree(tabId, path, edge);
       selectConversationDeferred(tabId);
+      // Cross-window: echo the dragId back so the source window can hard-
+      // close its outbound tab (move semantics). Same-window drops don't
+      // loop back through BroadcastChannel (spec-guaranteed), so this is
+      // a no-op there.
+      if (typeof payload.dragId === "string" && payload.dragId.length > 0) {
+        postDragAccept(payload.dragId);
+      }
     },
     [resolveRowPayloadTabId, openSessionInTree],
   );
@@ -3205,6 +3425,44 @@ export function AppShell({
                     // no additional wiring needed.
                     onReplaceInTree={replaceInTree}
                     onSwapInTree={swapInTree}
+                    onDropBadgeInTree={(payload, path, edge) =>
+                      onDropBadgeInTree(
+                        payload as {
+                          tabId?: string | null;
+                          dragId?: string | null;
+                          identityKey?: string | null;
+                          hostId?: number | null;
+                          descriptor?: {
+                            tabType?: TabType;
+                            sessionKind?: "harness" | "relay-room";
+                            relayRoomId?: string;
+                            relayRoomTitle?: string | null;
+                            targetTmuxSession?: string | null;
+                          } | null;
+                        },
+                        path,
+                        edge,
+                      )
+                    }
+                    onCenterDropBadge={(payload, targetTabId) =>
+                      onCenterDropBadge(
+                        payload as {
+                          tabId?: string | null;
+                          dragId?: string | null;
+                          identityKey?: string | null;
+                          hostId?: number | null;
+                          descriptor?: {
+                            tabType?: TabType;
+                            sessionKind?: "harness" | "relay-room";
+                            relayRoomId?: string;
+                            relayRoomTitle?: string | null;
+                            targetTmuxSession?: string | null;
+                          } | null;
+                        },
+                        targetTabId,
+                      )
+                    }
+                    onCloseStalePane={closeStalePane}
                   />
                 </div>
               )}

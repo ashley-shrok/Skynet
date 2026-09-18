@@ -145,6 +145,7 @@ import type { Identity } from "@/api/identities-api";
 import { useTrappedWork } from "@/state/trapped-work-store";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { cn } from "@/lib/utils";
+import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
 import { roleDisplayName } from "@/lib/role-display-name";
@@ -956,11 +957,23 @@ export function PrettyConversationRow({
       // fleet-only detached row (not yet in openTabs) — the split then
       // referenced a tab id that didn't exist, rendering an empty "Pane
       // 1 empty" cell in place of the intended session.
+      //
+      // Cross-window drag (2026-09-17): mint a dragId and arm the outbound
+      // drag so a drop in a DIFFERENT same-origin Skynet window can echo
+      // the dragId back via BroadcastChannel; AppShell's accept subscriber
+      // then closes this window's source tab (hard-move semantics). Rows
+      // already carry the descriptor pieces (host + targetTmuxSession +
+      // fleetOnly + rdpHostRow) that AppShell's resolveRowPayloadTabId
+      // needs to open a fresh session in the target window, so no new
+      // fields are needed here — just the dragId.
+      const dragId = mintDragId();
+      armOutboundDrag(dragId, row.id);
       e.dataTransfer.setData("text/plain", row.id);
       e.dataTransfer.setData(
         "application/x-skynet-row",
         JSON.stringify({
           id: row.id,
+          dragId,
           host: row.host ?? null,
           targetTmuxSession: row.targetTmuxSession ?? null,
           fleetOnly: row.fleetOnly === true,
