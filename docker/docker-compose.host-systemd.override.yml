@@ -1,0 +1,60 @@
+# Opt-in overlay for co-located deployments where the Skynet container
+# should be able to `systemctl --user <verb> <unit>` on the host — used by
+# the fleet-substrate distributor's local branch to restart long-running
+# consumers (agent-supervisor.service) after a substrate file changes on
+# disk. Without this overlay, local-branch restart-hook firing skips-with-
+# warn (documented environmental limitation — mirrors the SSH branch's
+# "channel returned null" recovery).
+#
+# What it grants: the container's process (running as root inside the
+# container) gains read/write access to the host user's systemd session
+# bus at /run/user/1000. From there, `systemctl --user` reaches the
+# ubuntu-scoped user manager and can start/stop/restart any of that user's
+# units. Nothing else on the host is newly reachable — the socket is
+# scoped to the user's session, not system-wide.
+#
+# Trust posture: this is a real widening. Enable only on boxes where you
+# accept that "if the container is compromised, the attacker can restart
+# arbitrary ubuntu-user systemd units." For the co-located deployment
+# shape (Skynet running on t1000 to manage t1000 itself; equivalent
+# elsewhere) this is a proportionate tradeoff — without it the distributor
+# can update supervisor bytes on disk but can't get them into memory
+# without a manual `systemctl --user restart agent-supervisor` or a host
+# reboot.
+#
+# UID assumption: hardcoded to 1000 (matches every current fleet peer's
+# service-user uid). When the first non-1000 deployment shows up, promote
+# this to a compose interpolation like `/run/user/${SKYNET_HOST_UID}` and
+# document the env-var default.
+#
+# Prerequisites on the host:
+#   - The service user must have a running systemd-user session. On
+#     Debian/Ubuntu this requires `loginctl enable-linger <user>` to have
+#     been run once (else the /run/user/<uid> dir only exists while the
+#     user has an active login and disappears on logout).
+#   - The unit(s) the distributor wants to restart must be enabled under
+#     the ubuntu user's systemd-user scope (typically via
+#     `~/.config/systemd/user/<unit>.service` + `systemctl --user enable`).
+#
+# How to opt in:
+#   Merge this file into every compose invocation. Two shapes:
+#     (a) explicit `-f` list: `docker compose -f docker/docker-compose.yml \
+#         -f docker/docker-compose.host-systemd.override.yml <verb>`
+#     (b) `COMPOSE_FILE` env var in /opt/skynet/.env (or equivalent):
+#         `COMPOSE_FILE=docker/docker-compose.yml:docker/docker-compose.host-systemd.override.yml`
+#         — compose reads this automatically on every invocation, so peer
+#         identities running `docker compose <anything>` from the repo tree
+#         pick it up without remembering the `-f` list.
+
+services:
+  skynet:
+    volumes:
+      # Host user systemd session bus — read/write so the container's
+      # `systemctl --user restart <unit>` can reach the ubuntu user's
+      # session manager.
+      - /run/user/1000:/run/user/1000
+    environment:
+      # Points systemctl --user at the mounted session bus. `systemctl`
+      # inside the container without this var errors "Failed to connect
+      # to bus: No medium found" (systemd's stock error for absent DBus).
+      XDG_RUNTIME_DIR: /run/user/1000

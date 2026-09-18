@@ -407,6 +407,157 @@ describe("RB1 — /etc/ system-root row behavior (euid gate)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// RH1 — restart-hook fires after changed items with non-null restartHook
+// ---------------------------------------------------------------------------
+
+describe("RH1 — restart-hook fires after changed items", () => {
+  it("changed file with restartHook → fireRestartHook invoked with unit name", async () => {
+    const bundled = { bytes: Buffer.from("new content\n"), mode: 0o100755 };
+    const entry: CatalogEntry = {
+      slug: "agent-supervisor",
+      sourceKind: "bundled",
+      bundledPath: "/app/fleet-substrate/scripts/agent-supervisor.sh",
+      installPath: "~/.local/bin/agent-supervisor",
+      restartHook: "agent-supervisor.service",
+    };
+
+    const fireRestartHookMock = vi.fn(async () => ({ ok: true as const }));
+
+    const { installFleetSubstrateLocally } = await importFresh();
+    const result = await installFleetSubstrateLocally(host, catalogOf([entry]), {
+      readBundledBytes: makeBundledReader({ [entry.bundledPath]: bundled }),
+      fireRestartHook: fireRestartHookMock,
+    });
+
+    expect(result.itemsChanged).toBe(1);
+    expect(result.itemsFailed).toBe(0);
+    expect(fireRestartHookMock).toHaveBeenCalledTimes(1);
+    expect(fireRestartHookMock).toHaveBeenCalledWith("agent-supervisor.service");
+  });
+
+  it("changed file with null restartHook → fireRestartHook NOT invoked", async () => {
+    const bundled = { bytes: Buffer.from("data\n"), mode: 0o100644 };
+    const entry: CatalogEntry = {
+      slug: "no-hook",
+      sourceKind: "bundled",
+      bundledPath: "/app/fleet-substrate/skills/foo/SKILL.md",
+      installPath: "~/.claude/skills/foo/SKILL.md",
+      restartHook: null,
+    };
+
+    const fireRestartHookMock = vi.fn(async () => ({ ok: true as const }));
+
+    const { installFleetSubstrateLocally } = await importFresh();
+    await installFleetSubstrateLocally(host, catalogOf([entry]), {
+      readBundledBytes: makeBundledReader({ [entry.bundledPath]: bundled }),
+      fireRestartHook: fireRestartHookMock,
+    });
+
+    expect(fireRestartHookMock).not.toHaveBeenCalled();
+  });
+
+  it("bytes-match skip → fireRestartHook NOT invoked (only on real change)", async () => {
+    const bytes = Buffer.from("stable\n");
+    const bundled = { bytes, mode: 0o100755 };
+    const entry: CatalogEntry = {
+      slug: "agent-supervisor",
+      sourceKind: "bundled",
+      bundledPath: "/app/fleet-substrate/scripts/agent-supervisor.sh",
+      installPath: "~/.local/bin/agent-supervisor",
+      restartHook: "agent-supervisor.service",
+    };
+
+    // Pre-plant matching bytes so the item skips.
+    const finalPath = path.join(tmpRoot, ".local/bin/agent-supervisor");
+    await fs.mkdir(path.dirname(finalPath), { recursive: true });
+    await fs.writeFile(finalPath, bytes);
+
+    const fireRestartHookMock = vi.fn(async () => ({ ok: true as const }));
+
+    const { installFleetSubstrateLocally } = await importFresh();
+    const result = await installFleetSubstrateLocally(host, catalogOf([entry]), {
+      readBundledBytes: makeBundledReader({ [entry.bundledPath]: bundled }),
+      fireRestartHook: fireRestartHookMock,
+    });
+
+    expect(result.itemsChanged).toBe(0);
+    expect(fireRestartHookMock).not.toHaveBeenCalled();
+  });
+
+  it("restart-hook skipped (XDG_RUNTIME_DIR unset) → itemsFailed stays 0, warn logged", async () => {
+    const bundled = { bytes: Buffer.from("bytes\n"), mode: 0o100755 };
+    const entry: CatalogEntry = {
+      slug: "agent-supervisor",
+      sourceKind: "bundled",
+      bundledPath: "/app/fleet-substrate/scripts/agent-supervisor.sh",
+      installPath: "~/.local/bin/agent-supervisor",
+      restartHook: "agent-supervisor.service",
+    };
+
+    const fireRestartHookMock = vi.fn(async () => ({
+      ok: false as const,
+      skipped: true,
+      errorMessage: "XDG_RUNTIME_DIR unset",
+    }));
+
+    const { installFleetSubstrateLocally } = await importFresh();
+    const { systemLogger } = await import("../utils/logger.js");
+    const result = await installFleetSubstrateLocally(host, catalogOf([entry]), {
+      readBundledBytes: makeBundledReader({ [entry.bundledPath]: bundled }),
+      fireRestartHook: fireRestartHookMock,
+    });
+
+    expect(result.itemsChanged).toBe(1);
+    expect(result.itemsFailed).toBe(0); // skip is not a failure
+    const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
+    const skipLog = warnCalls.find(
+      (c) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation ===
+          "local_fleet_install_restart_skip",
+    );
+    expect(skipLog).toBeDefined();
+  });
+
+  it("restart-hook real failure → itemsFailed++, warn logged", async () => {
+    const bundled = { bytes: Buffer.from("bytes\n"), mode: 0o100755 };
+    const entry: CatalogEntry = {
+      slug: "agent-supervisor",
+      sourceKind: "bundled",
+      bundledPath: "/app/fleet-substrate/scripts/agent-supervisor.sh",
+      installPath: "~/.local/bin/agent-supervisor",
+      restartHook: "agent-supervisor.service",
+    };
+
+    const fireRestartHookMock = vi.fn(async () => ({
+      ok: false as const,
+      skipped: false,
+      errorMessage: "unit not found",
+    }));
+
+    const { installFleetSubstrateLocally } = await importFresh();
+    const { systemLogger } = await import("../utils/logger.js");
+    const result = await installFleetSubstrateLocally(host, catalogOf([entry]), {
+      readBundledBytes: makeBundledReader({ [entry.bundledPath]: bundled }),
+      fireRestartHook: fireRestartHookMock,
+    });
+
+    expect(result.itemsChanged).toBe(1); // bytes DID update
+    expect(result.itemsFailed).toBe(1); // restart is a separate failure
+    const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
+    const errLog = warnCalls.find(
+      (c) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation ===
+          "local_fleet_install_restart_error",
+    );
+    expect(errLog).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // BR1 — bootstrap covers skynet-parent + skynet-hostname
 // ---------------------------------------------------------------------------
 

@@ -91,10 +91,14 @@
 import path from "path";
 import os from "os";
 import fs from "fs/promises";
+import { execFile as execFileCb } from "child_process";
+import { promisify } from "util";
 import { systemLogger } from "../utils/logger.js";
 import { computeInstallMode } from "./sweep-logic.js";
 import type { CatalogEntry } from "./catalog.js";
 import type { BootstrapResult } from "./run-bootstrap.js";
+
+const execFile = promisify(execFileCb);
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -114,6 +118,17 @@ export interface LocalInstallDeps {
   resolvedRuntimeBytes?: Map<string, Buffer | null>;
   /** Injectable clock for durationMs — defaults to Date.now. */
   now?: () => number;
+  /**
+   * Optional injectable restart-hook firer (for tests). Defaults to the real
+   * `fireRestartHookLocally` which invokes `systemctl --user restart <unit>`
+   * against the host's user DBus session (requires the host-systemd override
+   * compose file to be enabled — see docker/docker-compose.host-systemd.override.yml).
+   */
+  fireRestartHook?: (
+    unitName: string,
+  ) => Promise<
+    { ok: true } | { ok: false; skipped: boolean; errorMessage: string }
+  >;
 }
 
 /**
@@ -143,6 +158,53 @@ export interface LocalInstallResult {
  */
 function getLocalHomeRoot(): string {
   return process.env.HOME_HOST_DIR || os.homedir();
+}
+
+/**
+ * Fire `systemctl --user restart <unit>` against the host's user systemd
+ * session bus from inside the container. Mirrors `restartUserUnit` in
+ * ssh-push.ts but uses the bind-mounted DBus socket (via the host-systemd
+ * compose override) instead of an SSH channel.
+ *
+ * Requires the deployer to have opted-in via
+ * `docker/docker-compose.host-systemd.override.yml`, which bind-mounts
+ * `/run/user/1000:/run/user/1000` and sets `XDG_RUNTIME_DIR=/run/user/1000`
+ * in the container env. When the override is absent, `XDG_RUNTIME_DIR` is
+ * unset in the container process, and this function skip-with-warns using
+ * `operation: local_fleet_install_restart_skip` and does NOT count as a
+ * failure — same recovery shape as the SSH branch's "channel returned null"
+ * case (see restartUserUnit in ssh-push.ts) and the local-fleet-bootstrap's
+ * systemd_capability_check skip.
+ *
+ * Never throws — every exec is wrapped. Caller is responsible for the
+ * `itemsFailed++` / logItemFailed pattern when returning `{ok: false,
+ * skipped: false}`; a skip is not a failure.
+ */
+async function fireRestartHookLocally(
+  unitName: string,
+): Promise<
+  { ok: true } | { ok: false; skipped: boolean; errorMessage: string }
+> {
+  if (!process.env.XDG_RUNTIME_DIR) {
+    return {
+      ok: false,
+      skipped: true,
+      errorMessage:
+        "XDG_RUNTIME_DIR unset — host-systemd compose override not enabled",
+    };
+  }
+  try {
+    await execFile("systemctl", ["--user", "restart", unitName], {
+      env: process.env,
+    });
+    return { ok: true };
+  } catch (err) {
+    const errorMessage =
+      err instanceof Error
+        ? err.message.slice(0, 500)
+        : String(err).slice(0, 500);
+    return { ok: false, skipped: false, errorMessage };
+  }
 }
 
 /**
@@ -265,6 +327,7 @@ export async function installFleetSubstrateLocally(
   deps: LocalInstallDeps,
 ): Promise<LocalInstallResult> {
   const now = deps.now ?? Date.now;
+  const fireRestartHook = deps.fireRestartHook ?? fireRestartHookLocally;
   const startMs = now();
   let itemsChecked = 0;
   let itemsChanged = 0;
@@ -461,6 +524,46 @@ export async function installFleetSubstrateLocally(
         }
 
         itemsChanged++;
+        let restartHookFired: string | null = null;
+        if (entry.restartHook !== null) {
+          const restartResult = await fireRestartHook(entry.restartHook);
+          if (restartResult.ok === true) {
+            restartHookFired = entry.restartHook;
+          } else if (restartResult.skipped) {
+            // Documented environmental skip (host-systemd override not
+            // enabled). Bytes DID update, restart just couldn't fire.
+            // Symmetric with local-fleet-bootstrap's systemd_capability_check
+            // skip — DO NOT bump itemsFailed.
+            systemLogger.warn(
+              `local-fleet-install: restart-hook skipped for ${entry.slug} — ${restartResult.errorMessage}`,
+              {
+                operation: "local_fleet_install_restart_skip",
+                site: "xdg_runtime_dir_gate",
+                fleetHostId: host.id,
+                hostName: host.name,
+                entrySlug: entry.slug,
+                restartHook: entry.restartHook,
+              },
+            );
+          } else {
+            // Real restart failure — bytes updated but the unit didn't
+            // cycle. Mirror the remote branch's per-item failure counter
+            // bump (run-sweep.ts:314-334).
+            itemsFailed++;
+            systemLogger.warn(
+              `local-fleet-install: restart-hook failed for ${entry.slug} — ${restartResult.errorMessage}`,
+              {
+                operation: "local_fleet_install_restart_error",
+                site: "systemctl_exec",
+                fleetHostId: host.id,
+                hostName: host.name,
+                entrySlug: entry.slug,
+                restartHook: entry.restartHook,
+                error: restartResult.errorMessage,
+              },
+            );
+          }
+        }
         systemLogger.info(
           `local-fleet-install: installed ${entry.slug}`,
           {
@@ -471,6 +574,7 @@ export async function installFleetSubstrateLocally(
             installPath: entry.installPath,
             finalPath,
             changeKind: installed.bytes === null ? "installed-new" : "bytes-updated",
+            restartHookFired,
           },
         );
       } catch (err) {
