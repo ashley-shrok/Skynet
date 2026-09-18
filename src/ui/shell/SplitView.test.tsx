@@ -1133,6 +1133,80 @@ describe("SplitView — Phase 64: center-drop replace-vs-swap", () => {
     expect(rowDropSpy).not.toHaveBeenCalled();
   });
 
+  it("Phase 64 Test 6b (2026-09-18): row-mime center-drop prefers onCenterDropRow when wired — passes full parsed payload + target tabId; onReplaceInTree NOT called", () => {
+    // Regression coverage for the fleet-only-detached-row bug: a sidebar
+    // row whose id is a fleet-synthetic string (e.g. `fleet::7::aqua`) was
+    // planted raw into the tree via the onReplaceInTree fallback, producing
+    // a stale leaf that cascaded into a full-screen normal-view overlay
+    // covering the split-view. Fix wired a new onCenterDropRow callback
+    // that hands the full payload to AppShell so resolveRowPayloadTabId
+    // opens a fresh tab before the tree op. This test verifies SplitView
+    // prefers that callback when wired (and the fallback in Test 6 still
+    // works when it isn't). Bounty: center-drop-row-resolver.
+    const swapSpy =
+      vi.fn<(a: string, b: string) => void>();
+    const replaceSpy =
+      vi.fn<(replacement: string, target: string) => void>();
+    const centerRowSpy =
+      vi.fn<(payload: unknown, targetTabId: string) => void>();
+    const openSpy =
+      vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
+    const rowDropSpy =
+      vi.fn<(payload: unknown, path: SplitPath, edge: DropEdge) => void>();
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabTarget]}
+        onSwapInTree={swapSpy}
+        onReplaceInTree={replaceSpy}
+        onCenterDropRow={centerRowSpy}
+        onOpenSessionInTree={openSpy}
+        onDropRowInTree={rowDropSpy}
+      />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    // Fleet-only-detached row payload — id is a fleet-synthetic string
+    // that is NOT a real tabId. Pre-fix this went straight into
+    // replaceLeaf; post-fix it's handed to onCenterDropRow so AppShell
+    // can resolveRowPayloadTabId → openTab first.
+    const detachedPayload = {
+      id: "fleet::7::aqua",
+      host: null,
+      targetTmuxSession: "aqua",
+      fleetOnly: true,
+      rdpHostRow: false,
+    };
+    dispatchDropAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-row", "text/plain"],
+      getData: (k: string) =>
+        k === "application/x-skynet-row"
+          ? JSON.stringify(detachedPayload)
+          : k === "text/plain"
+            ? "fleet::7::aqua"
+            : "",
+    });
+    expect(centerRowSpy).toHaveBeenCalledTimes(1);
+    expect(centerRowSpy).toHaveBeenCalledWith(detachedPayload, "target");
+    expect(replaceSpy).not.toHaveBeenCalled();
+    expect(swapSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(rowDropSpy).not.toHaveBeenCalled();
+    // Structured log confirms which dispatch branch fired — useful in
+    // production forensics via console-forward-logs when triaging drag
+    // reports.
+    const resolverLog = infoSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("center-drop dispatch=row-resolver"),
+      ),
+    );
+    expect(resolverLog).toBe(true);
+  });
+
   it("Phase 64 Test 7: badge-mime self-drop (source === target) is silent — no handler called, structured log emitted", () => {
     const swapSpy =
       vi.fn<(a: string, b: string) => void>();

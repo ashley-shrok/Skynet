@@ -205,6 +205,7 @@ const Pane = memo(function Pane({
   onOpenSessionInTree,
   onDropRowInTree,
   onReplaceInTree,
+  onCenterDropRow,
   onSwapInTree,
   onDropBadgeInTree,
   onCenterDropBadge,
@@ -240,6 +241,18 @@ const Pane = memo(function Pane({
     replacementTabId: string,
     targetTabId: string,
   ) => void;
+  // Row-source center-drop resolver (2026-09-18). When wired, takes
+  // precedence over onReplaceInTree for row-mime center drops — passes the
+  // full parsed payload upstream so AppShell can route through
+  // resolveRowPayloadTabId (opens a fresh tab for fleet-only-detached rows
+  // whose row.id is a fleet-synthetic string, not a real tabId). Fixes the
+  // symmetric miss to patch #511: edge-drop went through the resolver;
+  // center-drop planted the raw synthetic id into the tree and produced a
+  // stale leaf that cascaded into a full-screen normal-view overlay. See
+  // `bounties/center-drop-row-resolver/fix-center-drop-row-resolver.md`.
+  // Falls back to onReplaceInTree when absent (keeps existing tests / any
+  // legacy call sites unchanged).
+  onCenterDropRow?: (payload: unknown, targetTabId: string) => void;
   // Phase 64 Plan 02 — center-drop-from-open-badge dispatch. AppShell wires
   // this to `swapInTree` (functional-updater around split-tree
   // `swapLeaves`). See
@@ -547,6 +560,24 @@ const Pane = memo(function Pane({
                 );
                 return;
               }
+              // Row-source center-drop: prefer onCenterDropRow when wired
+              // so AppShell can resolve the payload via
+              // resolveRowPayloadTabId — for fleet-only-detached rows,
+              // row.id is a fleet-synthetic string (e.g. `fleet::7::aqua`)
+              // and MUST NOT be planted raw into the tree. Fall back to
+              // the raw onReplaceInTree branch when the resolver callback
+              // isn't wired (tests / legacy paths); the fallback preserves
+              // pre-fix behavior for already-open rows where row.id IS the
+              // tabId. See
+              // `bounties/center-drop-row-resolver/fix-center-drop-row-resolver.md`.
+              if (onCenterDropRow) {
+                // eslint-disable-next-line no-console
+                console.info(
+                  `[pv-split-drop] center-drop dispatch=row-resolver path=${JSON.stringify(path)} rowId=${sourceTabId} targetTabId=${tabId}`,
+                );
+                onCenterDropRow(parsed, tabId);
+                return;
+              }
               // eslint-disable-next-line no-console
               console.info(
                 `[pv-split-drop] center-drop dispatch=replace-rich path=${JSON.stringify(path)} rowId=${sourceTabId} targetTabId=${tabId}`,
@@ -664,6 +695,7 @@ const Pane = memo(function Pane({
     onDropRowInTree,
     onOpenSessionInTree,
     onReplaceInTree,
+    onCenterDropRow,
     onSwapInTree,
     onDropBadgeInTree,
     onCenterDropBadge,
@@ -797,6 +829,7 @@ function PaneTree({
   onOpenSessionInTree,
   onDropRowInTree,
   onReplaceInTree,
+  onCenterDropRow,
   onSwapInTree,
   onDropBadgeInTree,
   onCenterDropBadge,
@@ -824,6 +857,8 @@ function PaneTree({
     replacementTabId: string,
     targetTabId: string,
   ) => void;
+  // Row-source center-drop resolver (2026-09-18) — see Pane props.
+  onCenterDropRow?: (payload: unknown, targetTabId: string) => void;
   onSwapInTree?: (tabIdA: string, tabIdB: string) => void;
   onDropBadgeInTree?: (
     payload: unknown,
@@ -846,6 +881,7 @@ function PaneTree({
         onOpenSessionInTree={onOpenSessionInTree}
         onDropRowInTree={onDropRowInTree}
         onReplaceInTree={onReplaceInTree}
+        onCenterDropRow={onCenterDropRow}
         onSwapInTree={onSwapInTree}
         onDropBadgeInTree={onDropBadgeInTree}
         onCenterDropBadge={onCenterDropBadge}
@@ -874,6 +910,7 @@ function PaneTree({
           onOpenSessionInTree={onOpenSessionInTree}
           onDropRowInTree={onDropRowInTree}
           onReplaceInTree={onReplaceInTree}
+          onCenterDropRow={onCenterDropRow}
           onSwapInTree={onSwapInTree}
           onDropBadgeInTree={onDropBadgeInTree}
           onCenterDropBadge={onCenterDropBadge}
@@ -895,6 +932,7 @@ function PaneTree({
           onOpenSessionInTree={onOpenSessionInTree}
           onDropRowInTree={onDropRowInTree}
           onReplaceInTree={onReplaceInTree}
+          onCenterDropRow={onCenterDropRow}
           onSwapInTree={onSwapInTree}
           onDropBadgeInTree={onDropBadgeInTree}
           onCenterDropBadge={onCenterDropBadge}
@@ -918,6 +956,7 @@ export const SplitView = memo(function SplitView({
   onOpenSessionInTree,
   onDropRowInTree,
   onReplaceInTree,
+  onCenterDropRow,
   onSwapInTree,
   onDropBadgeInTree,
   onCenterDropBadge,
@@ -946,6 +985,8 @@ export const SplitView = memo(function SplitView({
     replacementTabId: string,
     targetTabId: string,
   ) => void;
+  // Row-source center-drop resolver (2026-09-18) — see Pane props.
+  onCenterDropRow?: (payload: unknown, targetTabId: string) => void;
   // Phase 64 Plan 02 — center-drop-from-open-badge dispatch. Wired by
   // AppShell to `swapInTree` (functional-updater around split-tree
   // `swapLeaves` from Plan 64-01).
@@ -984,6 +1025,7 @@ export const SplitView = memo(function SplitView({
         onOpenSessionInTree={onOpenSessionInTree}
         onDropRowInTree={onDropRowInTree}
         onReplaceInTree={onReplaceInTree}
+        onCenterDropRow={onCenterDropRow}
         onSwapInTree={onSwapInTree}
         onDropBadgeInTree={onDropBadgeInTree}
         onCenterDropBadge={onCenterDropBadge}

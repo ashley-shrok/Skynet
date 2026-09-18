@@ -2458,6 +2458,56 @@ export function AppShell({
     [resolveRowPayloadTabId, openSessionInTree],
   );
 
+  // Center-zone row drop handler (2026-09-18). Row-source counterpart to
+  // onCenterDropBadge — resolves the payload through resolveRowPayloadTabId
+  // BEFORE hitting the tree. Without this, a fleet-only-detached row
+  // (row.id = fleet-synthetic string like `fleet::7::aqua`) planted the
+  // raw id into the tree via replaceLeaf, the DOM-placement effect at
+  // :2531-2586 relocated the displaced session's node back to normal-view,
+  // and the normal-view display gate at :3478-3491 showed it full-screen
+  // over the split-view (user saw the "replaced" pane taking the whole
+  // area). Symmetric miss to patch #511 which fixed the same trap on the
+  // edge-drop path via `onDropRowInTree` — center-drop needed the same
+  // treatment. Always dispatches to replaceInTree (never swapInTree): row
+  // drops originate from the sidebar and signal "replace what was here",
+  // not "swap slots" — if the user wanted a swap they'd drag the badge.
+  // Full write-up: `bounties/center-drop-row-resolver/`.
+  const onCenterDropRow = useCallback(
+    (
+      payload: {
+        id: string;
+        dragId?: string | null;
+        host: Host | null;
+        targetTmuxSession: string | null;
+        fleetOnly: boolean;
+        rdpHostRow: boolean;
+      },
+      targetTabId: string,
+    ) => {
+      const resolvedTabId = resolveRowPayloadTabId(payload);
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop] onCenterDropRow resolve rowId=${payload.id} fleetOnly=${payload.fleetOnly === true} rdpHostRow=${payload.rdpHostRow === true} hostId=${payload.host?.id ?? "?"} tmux=${payload.targetTmuxSession ?? "?"} → resolvedTabId=${resolvedTabId ?? "(null — aborting)"} targetTabId=${targetTabId}`,
+      );
+      if (resolvedTabId === null) return;
+      if (resolvedTabId === targetTabId) {
+        // Self-drop — sidebar row for the target's own tab dropped onto
+        // itself. replaceLeaf's same-id branch is a no-op, but log it for
+        // parity with the badge-side and to avoid a needless setSplitTree.
+        // eslint-disable-next-line no-console
+        console.info(
+          `[pv-split-drop] center-self-drop-ignored (row) resolvedTabId=${resolvedTabId}`,
+        );
+        return;
+      }
+      replaceInTree(resolvedTabId, targetTabId);
+      if (typeof payload.dragId === "string" && payload.dragId.length > 0) {
+        postDragAccept(payload.dragId);
+      }
+    },
+    [resolveRowPayloadTabId, replaceInTree],
+  );
+
   // ─── Sidebar ─────────────────────────────────────────────────────────────
   // Phase 11 Plan 03: handleRailClick + editHostInManager RETIRED — the rail
   // is gone, HostsPanel is gone, no consumers remain.
@@ -3423,7 +3473,28 @@ export function AppShell({
                     // source MIME). Both go through setSplitTree so the
                     // URL-sync effect at :868 auto-encodes the new tree —
                     // no additional wiring needed.
+                    //
+                    // 2026-09-18: onCenterDropRow is the resolver-aware
+                    // counterpart to onReplaceInTree — SplitView prefers it
+                    // when wired so row.id from fleet-only-detached rows
+                    // (fleet-synthetic strings) gets resolved to a real
+                    // tabId before hitting the tree. onReplaceInTree stays
+                    // as the fallback (kept for existing tests / any
+                    // future consumer that only needs the raw shape).
                     onReplaceInTree={replaceInTree}
+                    onCenterDropRow={(payload, targetTabId) =>
+                      onCenterDropRow(
+                        payload as {
+                          id: string;
+                          dragId?: string | null;
+                          host: Host | null;
+                          targetTmuxSession: string | null;
+                          fleetOnly: boolean;
+                          rdpHostRow: boolean;
+                        },
+                        targetTabId,
+                      )
+                    }
                     onSwapInTree={swapInTree}
                     onDropBadgeInTree={(payload, path, edge) =>
                       onDropBadgeInTree(
