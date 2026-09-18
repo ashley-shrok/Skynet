@@ -88,11 +88,19 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
 // subscription-registry singleton accessor — Wave 2 route relies on this
 // to reach the WS registry that starter.ts creates. See getSubscriptionRegistry
 // export added in Phase 117 Plan 04.
+//
+// Phase 117 M8 fix (2026-09-18): the mock now consults a mutable flag so
+// specific tests can simulate the null-registry path (a startup-timing
+// bug in production; a common state during initial test setup).
 const mockPublishProjectListChanged = vi.fn();
+let mockRegistryIsNull = false;
 vi.mock("../../fleet-status/subscription-registry.js", () => ({
-  getSubscriptionRegistry: () => ({
-    publishProjectListChanged: mockPublishProjectListChanged,
-  }),
+  getSubscriptionRegistry: () =>
+    mockRegistryIsNull
+      ? null
+      : {
+          publishProjectListChanged: mockPublishProjectListChanged,
+        },
 }));
 
 // ---------------------------------------------------------------------------
@@ -107,6 +115,9 @@ import {
   createProject,
   archiveProject,
 } from "../../claude-session/identity-artifact-reader.js";
+// Phase 117 M8 fix (2026-09-18): import the mocked databaseLogger so
+// null-registry tests can assert the warning is logged.
+import { databaseLogger } from "../../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // HTTP request helper
@@ -196,6 +207,9 @@ let server: http.Server;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Phase 117 M8 fix (2026-09-18): reset the null-registry flag between
+  // tests so a null-registry test doesn't leak into subsequent tests.
+  mockRegistryIsNull = false;
 
   // Default: user owns host 5 (local) and host 7 (remote); host 99 not owned.
   (resolveHostById as Mock).mockImplementation((hostId: number) => {
@@ -376,6 +390,37 @@ describe("POST /projects", () => {
     ]);
   });
 
+  // Phase 117 M8 fix (2026-09-18): pre-fix, when getSubscriptionRegistry()
+  // returned null (startup-timing bug in production; expected during
+  // tests), the code silently no-op'd the publish. Post-fix, a warning
+  // is logged so the failure is visible.
+  it("Test 8b (M8 fix): null registry on create → publish silently skipped BUT a warning is logged", async () => {
+    mockRegistryIsNull = true;
+
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "my-project", displayName: "My Project" },
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects",
+      body: { hostId: 5, displayName: "My Project" },
+    });
+
+    // Create still succeeds — the null-registry is a startup-timing
+    // bug, not a request failure.
+    expect(res.status).toBe(200);
+    expect(createProject).toHaveBeenCalledTimes(1);
+    // publishProjectListChanged CANNOT be called (registry is null).
+    expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
+    // M8 regression: a warning MUST be logged so the failure is visible.
+    expect(databaseLogger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /subscription registry not initialized.*hostId=5.*slug=my-project.*op=create/,
+      ),
+    );
+  });
+
   it("Test 9: auto-slugify variants — normalizeToSlug is authoritative", async () => {
     // Whitespace + punctuation → single dashes, trimmed, lowercased.
     expect(normalizeToSlug("  Foo  Bar!! ")).toBe("foo-bar");
@@ -478,6 +523,30 @@ describe("POST /projects/:slug/archive", () => {
     // Post-archive, the enriched wire event carries the current (post-archive)
     // list — in this test the list is empty (project just archived).
     expect(mockPublishProjectListChanged.mock.calls[0][0]).toEqual([]);
+  });
+
+  // Phase 117 M8 fix (2026-09-18): null-registry on archive path also logs.
+  it("Test 13b (M8 fix): null registry on archive → publish silently skipped BUT a warning is logged", async () => {
+    mockRegistryIsNull = true;
+    (listProjects as Mock).mockResolvedValue([]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects/my-project/archive",
+      body: { hostId: 5 },
+    });
+
+    // Archive still succeeds.
+    expect(res.status).toBe(200);
+    expect(archiveProject).toHaveBeenCalledTimes(1);
+    // No publish (registry null).
+    expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
+    // M8 regression: warning logged.
+    expect(databaseLogger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /subscription registry not initialized.*hostId=5.*slug=my-project.*op=archive/,
+      ),
+    );
   });
 
   it("Test 14: bad slug (uppercase / metacharacters) → 400 (PROJECT_SLUG_RE gate)", async () => {

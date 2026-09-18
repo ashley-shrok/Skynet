@@ -306,6 +306,17 @@ router.post(
           registry.publishProjectListChanged(
             enrichForWire(current, hostId, host.name ?? String(hostId)),
           );
+        } else {
+          // Phase 117 M8 fix (2026-09-18): getSubscriptionRegistry() returns
+          // null when the singleton hasn't been initialized yet (starter.ts
+          // wires it during bootstrap). In tests that's expected; in
+          // production it means a request landed BEFORE the registry was
+          // available — a startup-timing bug, not a silent success. Log
+          // a warning so the failure is visible instead of dropping the
+          // WS fanout silently.
+          databaseLogger.warn(
+            `project-list-changed publish skipped: subscription registry not initialized (hostId=${hostId} slug=${slug} op=create)`,
+          );
         }
       } catch (publishErr) {
         // Publishing failure MUST NOT roll back the create. Log and continue.
@@ -400,6 +411,13 @@ router.post(
           const current = await listProjects(conn);
           registry.publishProjectListChanged(
             enrichForWire(current, hostId, host.name ?? String(hostId)),
+          );
+        } else {
+          // Phase 117 M8 fix (2026-09-18): null-registry-at-request-time is
+          // a startup-timing bug in production. Log a warning so the
+          // failure is visible instead of dropping the WS fanout silently.
+          databaseLogger.warn(
+            `project-list-changed publish skipped: subscription registry not initialized (hostId=${hostId} slug=${slug} op=archive)`,
           );
         }
       } catch (publishErr) {
