@@ -77,6 +77,13 @@ export interface PrettyProjectSectionHeaderProps {
   onNewConversationClick: (slug: string) => void;
   /** Fired on a successful drop with the section's slug + parsed row payload. */
   onDropRow: (slug: string, payload: PrettyProjectDropPayload) => void;
+  /**
+   * Phase 117 Plan 117-09 Task 2 (D-14) — right-click / long-press handler
+   * on the header. The panel opens a shared context menu at the pointer
+   * coords with "Edit project file" + "Archive project" items. When
+   * omitted, right-clicking falls through to browser default (no menu).
+   */
+  onContextMenu?: (slug: string, displayName: string, e: React.MouseEvent) => void;
 }
 
 const ROW_MIME = "application/x-skynet-row";
@@ -95,6 +102,7 @@ export function PrettyProjectSectionHeader({
   onToggleCollapse,
   onNewConversationClick,
   onDropRow,
+  onContextMenu,
 }: PrettyProjectSectionHeaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -190,6 +198,13 @@ export function PrettyProjectSectionHeader({
       <button
         type="button"
         onClick={() => onToggleCollapse(slug)}
+        onContextMenu={(e) => {
+          // Phase 117 Plan 117-09 Task 2 (D-14) — right-click / long-press
+          // opens the shared context menu (Edit project file + Archive
+          // project). Panel binds the callback; browser default is
+          // suppressed inside the callback (`e.preventDefault()`).
+          if (onContextMenu) onContextMenu(slug, displayName, e);
+        }}
         className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full text-left"
         data-testid={`pv-project-section-header-${slug}`}
         aria-expanded={!collapsed}

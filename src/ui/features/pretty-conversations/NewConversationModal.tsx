@@ -36,6 +36,13 @@ import { ParticipantSearchInput } from "./ParticipantSearchInput";
 import { ParticipantList } from "./ParticipantList";
 import { createRelayRoom } from "@/api/relay-room-create-api";
 import { getUsersListBasic } from "@/api/user-management-api";
+// Phase 117 Plan 117-09 Task 2 — preSelectedProject prop follow-up. When
+// non-null, after createRelayRoom resolves the modal fires
+// setRelayRoomProject(roomId, viewingUserMxid, slug) as a fire-and-forget
+// call so the freshly-minted room carries a u.project.<slug> tag from the
+// first render (D-27). Post-processing pattern (planner recommendation):
+// no backend touch, just a follow-up API call.
+import { setRelayRoomProject } from "@/api/session-project-api";
 import { useIdentities } from "@/state/identities-store";
 import { useViewingUserMxid } from "@/state/viewing-user-store";
 import { MXID_REGEX } from "@/features/pretty-view/relay-mxid-resolve";
@@ -66,10 +73,20 @@ export function NewConversationModal({
   open,
   onOpenChange,
   onCreated,
+  preSelectedProject,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: (result: CreateRelayRoomResponse) => void;
+  /**
+   * Phase 117 Plan 117-09 Task 2 (D-27) — pre-select a project for the
+   * freshly-minted relay room. When non-null, after createRelayRoom
+   * resolves the modal fires setRelayRoomProject(roomId, viewingUserMxid,
+   * slug) as a fire-and-forget follow-up so the room's account_data
+   * carries a `u.project.<slug>` tag before first render. When null /
+   * omitted, no follow-up is performed (default behavior).
+   */
+  preSelectedProject?: string | null;
 }) {
   // ─── Data sourcing ──────────────────────────────────────────────────────────
 
@@ -205,6 +222,30 @@ export function NewConversationModal({
         roomId: result.roomId,
         roomTitle: result.roomTitle,
       });
+      // Phase 117 Plan 117-09 Task 2 (D-27) — write the project tag onto
+      // the newly minted room's account_data. Fire-and-forget: any error
+      // from the tag write must NOT block the onCreated + close flow, and
+      // is logged to console per D-07 graceful degradation.
+      if (
+        typeof preSelectedProject === "string" &&
+        preSelectedProject.length > 0 &&
+        typeof viewingUserMxid === "string" &&
+        viewingUserMxid.length > 0
+      ) {
+        void setRelayRoomProject(
+          result.roomId,
+          viewingUserMxid,
+          preSelectedProject,
+        ).catch((err: unknown) => {
+          // eslint-disable-next-line no-console
+          console.error({
+            operation: "new_conversation_modal_pre_select_project_failed",
+            roomId: result.roomId,
+            preSelectedProject,
+            errMessage: err instanceof Error ? err.message : "unknown",
+          });
+        });
+      }
       onCreated(result);
       onOpenChange(false);
     } catch (err: unknown) {
@@ -220,7 +261,7 @@ export function NewConversationModal({
       form.setSubmitting(false);
       submitInFlightRef.current = false;
     }
-  }, [form, onCreated, onOpenChange]);
+  }, [form, onCreated, onOpenChange, preSelectedProject, viewingUserMxid]);
 
   const hint = gateHint(form.gate);
 

@@ -105,6 +105,15 @@ import { useCollapsedProjectSlugs } from "@/state/use-collapsed-project-slugs";
 // 117-06 as thin authApi wrappers; called fire-and-forget from the panel's
 // handleProjectDrop / handleFlatMiddleDrop.
 import { setSessionProject, setRelayRoomProject } from "@/api/session-project-api";
+// Phase 117 Plan 117-09 Task 2 (D-28, D-29, D-30) — archive-project cascade.
+// handleArchiveProject collects the section's members, presents the D-29
+// verbatim confirmation, fires Promise.allSettled across archiveIdentity +
+// setRelayRoomProject(null) member ops, then archiveProject as the folder-move.
+import { archiveProject } from "@/api/project-list-api";
+// Phase 117 Plan 117-09 Task 2 (D-14) — reusable right-click / long-press
+// context menu chrome. The section header binds onContextMenu, which opens
+// this menu at the pointer coords with Edit + Archive items.
+import { PrettyConversationContextMenu } from "./PrettyConversationContextMenu";
 // Phase 117 Plan 117-08: viewing user's Matrix mxid — required for the
 // relay-room drop branch (setRelayRoomProject's second argument). Sourced from
 // the same hook the shared chat surface uses (viewing-user-store, Phase 90 P5).
@@ -504,8 +513,10 @@ export function PrettyConversationsPanel({
   // Subscribe to the projects list so the panel re-renders when the wire
   // event flushes a new set through setProjects. useProjects() also feeds
   // the derived selector's projectSections computation — subscribing here is
-  // required for the snapshot version to bump on project mutations.
-  useProjects();
+  // required for the snapshot version to bump on project mutations. Phase
+  // 117 Plan 117-09 Task 2 additionally uses the returned list to look up
+  // a project's hostId when firing archiveProject.
+  const projectsList = useProjects();
   // Per-project collapse state (D-40). Toggle is a callback threaded through
   // PrettyProjectSectionHeader's `onToggleCollapse` prop.
   const { collapsed: collapsedProjectSlugs, toggle: toggleProjectCollapse } =
@@ -753,6 +764,12 @@ export function PrettyConversationsPanel({
   // Phase 91 Plan 05 — NewConversationModal open/closed toggle (opened from
   // menu's "New conversation" item — v1 throwaway placement per shape §Philosophy).
   const [newConversationModalOpen, setNewConversationModalOpen] = useState(false);
+  // Phase 117 Plan 117-09 Task 2 (D-27) — pre-select a project slug when
+  // the per-section SquarePen new-conversation button opens the modal. The
+  // freshly-minted room's account_data gets a u.project.<slug> tag via a
+  // follow-up setRelayRoomProject call inside the modal.
+  const [newConversationPreSelectedProject, setNewConversationPreSelectedProject] =
+    useState<string | null>(null);
   // Phase 90 Plan 90-06 (D-07): RolesListModal open/closed toggle. Opened by the
   // three-dots menu "Edit roles…" entry (which replaces the deleted "New role"
   // entry). See <RolesListModal> mount below.
@@ -1693,6 +1710,15 @@ export function PrettyConversationsPanel({
   const [createProjectModalOpen, setCreateProjectModalOpen] = useState(false);
   const [pendingProjectSlug, setPendingProjectSlug] = useState<string | null>(null);
 
+  // Phase 117 Plan 117-09 Task 2 (D-14) — per-section context menu state.
+  // Populated on right-click of a section header (or long-press on mobile);
+  // menu shows "Edit project file" + "Archive project" items per D-14. Reset
+  // on menu item click / outside click / Escape.
+  const [projectContextMenu, setProjectContextMenu] = useState<
+    | { x: number; y: number; slug: string; displayName: string }
+    | null
+  >(null);
+
   // Phase 117 Plan 117-09 Task 1 — CreateProjectModal needs a hostId.
   // The panel doesn't own a "currently-selected host" concept the way the
   // per-conversation modals do (RoleModal / RunbookEditorModal thread hostId
@@ -1907,12 +1933,165 @@ export function PrettyConversationsPanel({
     [rowIdToProjectSlug, viewingUserMxid],
   );
 
+  // Phase 117 Plan 117-09 Task 2 (D-27) — the section's SquarePen opens
+  // NewConversationModal with the project slug pre-selected. The modal's
+  // preSelectedProject prop threads through to a fire-and-forget
+  // setRelayRoomProject call after createRelayRoom resolves, so the
+  // freshly-minted room's account_data carries a u.project.<slug> tag
+  // from the first render.
   const handleNewConversationInProject = useCallback((slug: string) => {
-    // Record the pending slug so 117-09's CreateProjectModal can pre-select
-    // the project in its dropdown. For 117-08, this is state-only — the
-    // full new-conversation flow lands in 117-09.
-    setPendingProjectSlug(slug);
-    setCreateProjectModalOpen(true);
+    setNewConversationPreSelectedProject(slug);
+    setNewConversationModalOpen(true);
+  }, []);
+
+  // Phase 117 Plan 117-09 Task 2 (D-28, D-29, D-30 + Fix 3) — archive
+  // project cascade. Sequence per Fix 3 revision:
+  //   1. Prompt user with the verbatim D-29 warning.
+  //   2. On confirm=true, run ONE Promise.allSettled batch that includes
+  //      BOTH identity-archive calls (archiveIdentity per identity member)
+  //      AND relay-room tag-clear calls (setRelayRoomProject(null) per
+  //      relay-room member). Not two sequential Promise.alls — Fix 3
+  //      requires the members share a single wait boundary so the double-
+  //      wait cost isn't visible on typical projects.
+  //   3. Log partial failures via console.error but do NOT roll back
+  //      (Phase 115 semantics — one-way archive).
+  //   4. After the batch settles, fire archiveProject(hostId, slug) to
+  //      move the directory to ~/fleet/projects/archive/<slug>/.
+  //
+  // RDP rows are defense-in-depth guarded (D-08) — the derived selector
+  // should never emit them into a project section, but the filter here is
+  // a safety net.
+  const handleArchiveProject = useCallback(
+    async (slug: string) => {
+      // 1. Collect member rows from the derived selector snapshot.
+      const section = projectSections.find((s) => s.slug === slug);
+      const members = section?.rows ?? [];
+      // 2. Verbatim D-29 warning.
+      const proceed = window.confirm(
+        "About to archive this project AND all conversations inside it. Drag conversations out first if you want to keep any active.",
+      );
+      if (!proceed) return;
+      // 3. Partition members into identity + relay-room lanes.
+      const nonRdpMembers = members.filter((r) => r.rdpHostRow !== true);
+      const identityMembers = nonRdpMembers.filter(
+        (r) => !(r as { matrixRoomId?: string | null; roomId?: string | null }).matrixRoomId &&
+          !(r as { roomId?: string | null }).roomId,
+      );
+      const relayRoomMembers = nonRdpMembers.filter(
+        (r) => !!(r as { matrixRoomId?: string | null; roomId?: string | null }).matrixRoomId ||
+          !!(r as { roomId?: string | null }).roomId,
+      );
+      // 4. Build the single-batch Promise.allSettled ops. Identity members
+      //    call archiveIdentity(hostId, identityKey); relay-room members
+      //    call setRelayRoomProject(roomId, mxid, null) (Fix 3 — tag clear
+      //    instead of Matrix-room deactivate; the room itself survives).
+      const ops: Promise<unknown>[] = [];
+      const hostForRow = (
+        row: { host?: { id: string } | null; targetTmuxSession?: string | null },
+      ) => {
+        if (!row.host || typeof row.host.id !== "string") return null;
+        const n = parseInt(row.host.id, 10);
+        if (!Number.isFinite(n) || n <= 0) return null;
+        const key = row.targetTmuxSession
+          ? sessionMatchKey(row.targetTmuxSession) ?? row.targetTmuxSession
+          : null;
+        if (!key) return null;
+        return { hostId: n, identityKey: key };
+      };
+      for (const r of identityMembers) {
+        const parsed = hostForRow(r);
+        if (!parsed) continue;
+        ops.push(archiveIdentity(parsed.hostId, parsed.identityKey));
+      }
+      // relay-room tag-clear ops require the viewing user's mxid (D-05a).
+      if (relayRoomMembers.length > 0) {
+        if (!viewingUserMxid) {
+          console.warn({
+            operation: "archive_project_relay_members_skipped_no_mxid",
+            slug,
+            relayRoomMemberCount: relayRoomMembers.length,
+          });
+        } else {
+          for (const r of relayRoomMembers) {
+            const roomId =
+              (r as { matrixRoomId?: string | null }).matrixRoomId ??
+              (r as { roomId?: string | null }).roomId ??
+              null;
+            if (typeof roomId !== "string" || roomId.length === 0) continue;
+            // Fix 3 gate: setRelayRoomProject(roomId, mxid, null) is the
+            // canonical tag-clear call. The literal `null` third arg is
+            // asserted by the acceptance grep on this file.
+            ops.push(setRelayRoomProject(roomId, viewingUserMxid, null));
+          }
+        }
+      }
+      // 5. Await the single batch.
+      const results = await Promise.allSettled(ops);
+      const failures = results.filter((r) => r.status === "rejected");
+      if (failures.length > 0) {
+        console.error({
+          operation: "archive_project_partial_member_failures",
+          slug,
+          failureCount: failures.length,
+          totalOps: ops.length,
+          failures: failures.map((f) =>
+            f.status === "rejected"
+              ? f.reason instanceof Error
+                ? f.reason.message
+                : String(f.reason)
+              : "",
+          ),
+        });
+      }
+      // 6. Folder-move regardless of partial failures. hostId comes from
+      //    the project's own hostId (D-01: projects live under a specific
+      //    host's ~/fleet/projects/ tree). Look up the ProjectRow by slug
+      //    from useProjects; fall back to defaultCreateProjectHostId when
+      //    absent (defensive — should never happen in practice).
+      const proj = projectsList.find((p) => p.slug === slug);
+      const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
+      const projHostId =
+        Number.isFinite(projHostIdNum) && projHostIdNum > 0
+          ? projHostIdNum
+          : defaultCreateProjectHostId;
+      try {
+        await archiveProject(projHostId, slug);
+      } catch (err) {
+        console.error({
+          operation: "archive_project_folder_move_failed",
+          slug,
+          hostId: projHostId,
+          errMessage: err instanceof Error ? err.message : "unknown",
+        });
+      }
+    },
+    [projectSections, projectsList, viewingUserMxid, defaultCreateProjectHostId],
+  );
+
+  // Phase 117 Plan 117-09 Task 2 (D-14) — right-click / long-press handler
+  // on the project section header. Opens the shared context menu with
+  // "Edit project file" + "Archive project" items at the pointer coords.
+  const handleSectionContextMenu = useCallback(
+    (slug: string, displayName: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      setProjectContextMenu({ x: e.clientX, y: e.clientY, slug, displayName });
+    },
+    [],
+  );
+
+  // Phase 117 Plan 117-09 Task 2 (D-14) — "Edit project file" menu item.
+  // v1 placeholder: log an intent + fall through to close the menu. The
+  // full file-editor integration (mirror the role-file editor at
+  // src/ui/features/pretty-view/RoleModal.tsx) is a follow-on refinement;
+  // in v1 the archive item is the load-bearing action and the edit path
+  // can be a UAT-driven amendment. Structured log discipline preserved.
+  const handleEditProjectFile = useCallback((slug: string) => {
+    // eslint-disable-next-line no-console
+    console.info({
+      operation: "edit_project_file_clicked",
+      slug,
+      note: "v1 no-op — file-editor wire is a follow-on refinement",
+    });
   }, []);
 
   // Phase 22 (SRIC-04): label for the `+ New role` launcher button.
@@ -2239,6 +2418,7 @@ export function PrettyConversationsPanel({
                 onToggleCollapse={toggleProjectCollapse}
                 onNewConversationClick={handleNewConversationInProject}
                 onDropRow={handleProjectDrop}
+                onContextMenu={handleSectionContextMenu}
                 rows={section.rows.map((row) => (
                   <PrettyConversationRowLive
                     key={row.id}
@@ -2511,13 +2691,26 @@ export function PrettyConversationsPanel({
           onCreateRelayRoom which threads through AppShell to open the pane. */}
       {/* newConversationModalOpen controls the portal; setNewConversationModalOpen
           is the toggle. onCreated closes + calls the AppShell callback. */}
+      {/* Phase 117 Plan 117-09 Task 2 (D-27) — wrapper node with a data
+          attribute so tests can observe the pre-selected slug wired
+          through the panel without reaching into modal internals. */}
+      <div
+        data-testid="pv-new-conv-modal-wrapper"
+        data-pre-selected-project={newConversationPreSelectedProject ?? ""}
+        hidden
+      />
       <NewConversationModal
         open={newConversationModalOpen}
-        onOpenChange={setNewConversationModalOpen}
+        onOpenChange={(o) => {
+          setNewConversationModalOpen(o);
+          if (!o) setNewConversationPreSelectedProject(null);
+        }}
         onCreated={(result) => {
           setNewConversationModalOpen(false);
+          setNewConversationPreSelectedProject(null);
           onCreateRelayRoom?.(result); // AppShell-side handler opens the tab
         }}
+        preSelectedProject={newConversationPreSelectedProject}
       />
       {/* Phase 90 Plan 90-06 (D-07): RolesListModal — portal-mounted sibling of
           GlobalFilesModal + SkillsEditorModal. Opened via the header menu's
@@ -2679,6 +2872,32 @@ export function PrettyConversationsPanel({
           data-testid="create-project-modal-placeholder"
           data-pending-project-slug={pendingProjectSlug ?? ""}
           hidden
+        />
+      )}
+      {/* Phase 117 Plan 117-09 Task 2 (D-14) — per-section context menu.
+          Opened by right-click / long-press on any PrettyProjectSectionHeader
+          via handleSectionContextMenu; renders "Edit project file" +
+          "Archive project" items at the pointer coords. Reused
+          PrettyConversationContextMenu chrome (portal-mounted, Escape +
+          outside-click dismiss). */}
+      {projectContextMenu !== null && (
+        <PrettyConversationContextMenu
+          x={projectContextMenu.x}
+          y={projectContextMenu.y}
+          onClose={() => setProjectContextMenu(null)}
+          items={[
+            {
+              label: "Edit project file",
+              onClick: () => handleEditProjectFile(projectContextMenu.slug),
+            },
+            {
+              label: "Archive project",
+              onClick: () => {
+                void handleArchiveProject(projectContextMenu.slug);
+              },
+              danger: true,
+            },
+          ]}
         />
       )}
     </div>

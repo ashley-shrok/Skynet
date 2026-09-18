@@ -878,11 +878,12 @@ describe("PrettyConversationsPanel: CreateProjectModal wire (117-09 Task 1)", ()
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", () => {
-  // A9 — hoist confirm/prompt mocks. window.confirm returning true → cascade
-  // fires; returning false → cancel path.
-  const confirmSpy = vi.spyOn(window, "confirm");
-  afterEach(() => {
-    confirmSpy.mockReset();
+  // A9 — window.confirm spy is re-installed each test because the file-level
+  // afterEach restores all mocks. Store the current spy in a let so tests
+  // access the live instance.
+  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    confirmSpy = vi.spyOn(window, "confirm");
   });
 
   it("A9 Test 1 (D-29 verbatim warning): right-click header + click 'Archive project' shows the exact confirmation copy", () => {
