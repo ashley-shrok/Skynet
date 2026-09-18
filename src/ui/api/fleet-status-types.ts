@@ -113,6 +113,37 @@ export interface IdentityAppearance {
 // SessionState — published state for a (host, tmuxSession)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// AppState — mirror of backend AppStateSchema (wire-protocol.ts:632-644)
+// ---------------------------------------------------------------------------
+
+/**
+ * Phase 119 Plan 119-01 (D-14, D-16): frontend mirror of the backend
+ * `AppStateSchema` at `src/backend/fleet-status/wire-protocol.ts:632-644`.
+ * Field-for-field verbatim — `hostId` and `slug` are STRINGS on the wire
+ * (matches backend), not numbers.
+ *
+ * This mirror closes RESEARCH.md Pitfall 1: Phase 118 shipped the backend
+ * app-frame types but did NOT extend the frontend type mirror, so the switch
+ * in `fleet-status-client.ts` was silently dropping app frames at the default
+ * branch. Extending this file + widening `FrontendOutboundFrame` below is the
+ * load-bearing first step every downstream 117-* plan depends on.
+ *
+ * MUST stay in lockstep with the backend schema — any change to
+ * wire-protocol.ts `AppStateSchema` MUST be mirrored here.
+ */
+export interface AppState {
+  hostId: string;
+  slug: string;
+  title: string;
+  description: string;
+  port: number | null;
+  hasIcon: boolean;
+  createdAtMs: number;
+  isHealthy: boolean;
+  healthMessage: string | null;
+}
+
 export interface SessionState {
   hostId: string;
   tmuxSession: string | null;
@@ -351,10 +382,40 @@ export interface FrontendProjectListChangedFrame {
   projects: ProjectListEntry[];
 }
 
+// Phase 119 Plan 119-01 (D-14, D-16): three new frame arms mirroring the
+// Phase 118 backend wire-protocol.ts app-snapshot / app-update / app-gone
+// schemas (wire-protocol.ts:646-663). Together they carry the sidebar's live
+// app-registry view — snapshot on subscribe / update on state change / gone
+// on removal. Consumed by the `fleet-status-client.ts` switch dispatch
+// (extended in the same plan/task pair) which forwards to three optional
+// callbacks that later 117-* plans wire to the app-tiles store slice. MUST
+// stay in lockstep with the backend schemas.
+export interface FrontendAppSnapshotFrame {
+  schemaVersion: typeof FRAME_SCHEMA_VERSION;
+  type: "app-snapshot";
+  apps: AppState[];
+}
+
+export interface FrontendAppUpdateFrame {
+  schemaVersion: typeof FRAME_SCHEMA_VERSION;
+  type: "app-update";
+  app: AppState;
+}
+
+export interface FrontendAppGoneFrame {
+  schemaVersion: typeof FRAME_SCHEMA_VERSION;
+  type: "app-gone";
+  hostId: string;
+  slug: string;
+}
+
 export type FrontendOutboundFrame =
   | FrontendSnapshotFrame
   | FrontendUpdateFrame
   | FrontendGoneFrame
   | FrontendPongFrame
   | FrontendIdentityArchivedFrame
-  | FrontendProjectListChangedFrame;
+  | FrontendProjectListChangedFrame
+  | FrontendAppSnapshotFrame
+  | FrontendAppUpdateFrame
+  | FrontendAppGoneFrame;
