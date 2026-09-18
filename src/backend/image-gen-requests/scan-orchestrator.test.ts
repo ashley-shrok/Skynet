@@ -416,6 +416,39 @@ describe("companion-ref fetch", () => {
     expect(enqueued.refImage).toBeUndefined();
   });
 
+  it("R2b: companion ref filename with foreign uuid → malformedReason set BEFORE any cat exec (cross-request companion guard)", async () => {
+    // Request drops with body.ref pointing at a DIFFERENT uuid's companion.
+    // The parser accepts the shape (any `<uuid>.ref.<ext>` matches) but the
+    // scan-orchestrator's fetchCompanionRef enforces the uuid must match.
+    const uuid = "aaaaaaaa-1111-2222-3333-444444444444";
+    const foreignRefFilename = "bbbbbbbb-9999-8888-7777-666666666666.ref.png";
+    const scanStdout = makeScanStdout([
+      { uuid, body: buildValidRequest(uuid, { ref: foreignRefFilename }) },
+    ]);
+
+    // The exec should ONLY be called once (for the scan itself) — the
+    // uuid-mismatch guard fires before any `cat` runs.
+    const exec = vi.fn().mockResolvedValueOnce(scanStdout);
+    const channel = { exec } as unknown as SshChannel;
+
+    const { deps, enqueueDep } = makeDeps({
+      acquireChannel: vi.fn(async () => channel),
+    });
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+
+    // Guard ran BEFORE the SSH `cat` — only the scan exec fired.
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(exec.mock.calls[0][0]).toBe(IMAGE_GEN_SCAN_CMD);
+
+    expect(enqueueDep).toHaveBeenCalledTimes(1);
+    const enqueued: PendingImageGen = vi.mocked(enqueueDep).mock.calls[0][0];
+    expect(enqueued.malformedReason).toBeDefined();
+    expect(enqueued.malformedReason).toContain("does not match request uuid");
+    expect(enqueued.refImage).toBeUndefined();
+  });
+
   it("R3: no companion fetch when body.ref absent → channel.exec called exactly once", async () => {
     const uuid = "abcdef01-2345-6789-abcd-ef0123456789";
     const scanStdout = makeScanStdout([

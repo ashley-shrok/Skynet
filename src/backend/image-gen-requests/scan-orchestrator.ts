@@ -238,13 +238,32 @@ export function parseImageGenRequestBatch(
  * `<uuid>.ref.<ext>` shape — no shell metacharacters, no path traversal), so
  * shell-interpolating it here is safe.
  *
+ * **Cross-request companion protection:** The parser accepts any `<uuid>.ref.<ext>`
+ * shape but does not know the request's own uuid at parse time. We enforce the
+ * `refFilename` starts with `<requestUuid>.ref.` here — otherwise caller-A can
+ * drop `<uuid-A>.json` referencing `<uuid-B>.ref.png` and steal caller-B's ref
+ * bytes. Mismatch is treated as `malformed` so the worker drops a proper
+ * failure file (caller sees a descriptive error instead of a silent timeout).
+ *
  * Returns the Buffer on success, or a string reason on failure (the caller
  * attaches it as `malformedReason` so the worker drops a `malformed` failure).
  */
 async function fetchCompanionRef(
   channel: SshChannel,
   refFilename: string,
+  requestUuid: string,
 ): Promise<{ ok: true; bytes: Buffer } | { ok: false; reason: string }> {
+  // Cross-request companion guard — the ref filename's embedded uuid MUST
+  // match the request's own uuid. Prevents a hostile caller from writing a
+  // request that references another caller's ref file.
+  const expectedPrefix = `${requestUuid}.ref.`;
+  if (!refFilename.startsWith(expectedPrefix)) {
+    return {
+      ok: false,
+      reason: `ref filename uuid does not match request uuid: ${refFilename}`,
+    };
+  }
+
   // The parser already restricted ref to `^<uuid>\.ref\.(png|jpg|jpeg|webp)$`
   // so shell-interpolating the value is safe. Still quote it for defense in
   // depth. Use base64 -w0 (no line wrapping) — the entire payload arrives on
@@ -304,7 +323,7 @@ export async function scanImageGenRequests(
     if (item.malformedReason !== undefined) continue; // skip malformed entries
     const refName = item.body.ref;
     if (refName === undefined) continue;
-    const refResult = await fetchCompanionRef(channel, refName);
+    const refResult = await fetchCompanionRef(channel, refName, item.uuid);
     // Explicit `=== true` narrowing per the same tsc 6.0.3 discriminated-
     // union quirk documented in Plan 01 (spawn-requests parser, adapter) —
     // `if (refResult.ok)` does NOT narrow the ok:false branch under strict

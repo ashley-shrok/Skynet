@@ -493,4 +493,71 @@ describe("image-gen end-to-end: SCAN_INTEGRATION", () => {
 
     orch.stop();
   });
+
+  it("scan tick with foreign-uuid ref → failure.json {reason:'malformed'} lands, adapter NEVER called", async () => {
+    // Caller-A drops a request that names caller-B's companion file. The
+    // parser accepts the shape (any <uuid>.ref.<ext> passes) but the
+    // scan-orchestrator's fetchCompanionRef enforces the embedded uuid MUST
+    // match the request's own uuid — otherwise caller-A can steal caller-B's
+    // ref bytes. Verify the malformed rejection makes it end-to-end to a
+    // failure.json drop without any OpenAI call.
+    const requestUuid = "11111111-2222-3333-4444-555555555555";
+    const foreignRefFilename = "99999999-8888-7777-6666-555555555555.ref.png";
+    const requestBody = JSON.stringify({
+      prompt: "a mountain",
+      requested_at: new Date().toISOString(),
+      n: 1,
+      ref: foreignRefFilename,
+    });
+    const scanStdout = `${requestUuid}.json\t${requestBody}\n`;
+
+    // channel.exec: only ONE call expected (the scan); the uuid-mismatch
+    // guard fires before any cat/base64 exec.
+    const channelExec = vi.fn(async (cmd: string) => {
+      if (cmd === IMAGE_GEN_SCAN_CMD) return scanStdout;
+      // Return "" for anything else so the assertion below is meaningful.
+      return "";
+    });
+    const channel: SshChannel = { exec: channelExec };
+
+    const hosts: ImageGenScanHostRecord[] = [
+      { id: "42", name: "test-host", _connDetails: {} },
+    ];
+
+    const deps = startPipeline();
+
+    const setIntervalMock = vi.fn(
+      (_fn: () => Promise<void> | void, _ms: number) => 1 as unknown as ReturnType<typeof setInterval>,
+    );
+    const clearIntervalMock = vi.fn();
+    const orch = createImageGenScanOrchestrator({
+      listSubstrateHosts: async () => hosts,
+      acquireChannel: async () => channel,
+      releaseChannel: vi.fn(),
+      enqueue,
+      setInterval: setIntervalMock,
+      clearInterval: clearIntervalMock,
+      now: () => Date.now(),
+      scanIntervalMs: 10000,
+    });
+
+    await orch.start();
+    await drainQueue();
+
+    // fetch NEVER fired — foreign-uuid ref short-circuits before adapter.
+    expect(fetchMock).not.toHaveBeenCalled();
+    // Only the scan exec ran (no companion cat/base64).
+    expect(channelExec).toHaveBeenCalledTimes(1);
+
+    // failure.json dropped with reason=malformed and the descriptive message.
+    expect(deps.writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    expect(deps.writeBinaryFileAtomic).not.toHaveBeenCalled();
+    const call = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1]).toBe(`$HOME/fleet/image-gen-requests/${requestUuid}.failure.json`);
+    const parsed = JSON.parse(call[2] as string);
+    expect(parsed.reason).toBe("malformed");
+    expect(parsed.message).toContain("does not match request uuid");
+
+    orch.stop();
+  });
 });
