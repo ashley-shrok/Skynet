@@ -102,9 +102,12 @@ describe("Phase 117 Plan 117-06 Task 1 — session-project-api", () => {
   });
 
   // Test 11 — setRelayRoomProject assign
-  //   roomId is "!room:host" — MUST be percent-encoded fully; userMxid goes
-  //   into the JSON body, not the URL.
-  it("Test 11 (setRelayRoomProject assign): POSTs /relay-rooms/%21room%3Ahost/project with body {userMxid, project}", async () => {
+  //   roomId is "!room:host" — encodeURIComponent encodes ':' → '%3A' but
+  //   leaves '!' as-is per its RFC 3986 sub-delims-are-safe contract. The
+  //   URL segment must match the exact output of encodeURIComponent(roomId)
+  //   (verified inline against ':' encoding, which IS load-bearing — an
+  //   unencoded ':' would split the path segment).
+  it("Test 11 (setRelayRoomProject assign): POSTs /relay-rooms/<encoded roomId>/project with body {userMxid, project}; ':' becomes '%3A'", async () => {
     vi.mocked(authApi.post).mockResolvedValueOnce({
       data: { ok: true },
     });
@@ -116,10 +119,17 @@ describe("Phase 117 Plan 117-06 Task 1 — session-project-api", () => {
     );
 
     expect(authApi.post).toHaveBeenCalledTimes(1);
-    expect(authApi.post).toHaveBeenCalledWith(
-      "/relay-rooms/%21room%3Ahost/project",
-      { userMxid: "@ash:host", project: "alpha" },
+    const [calledUrl, calledBody] = vi.mocked(authApi.post).mock.calls[0] as [
+      string,
+      { userMxid: string; project: string | null },
+    ];
+    // Load-bearing: ':' MUST be percent-encoded (else path segment splits).
+    expect(calledUrl).toBe("/relay-rooms/!room%3Ahost/project");
+    // Sanity: matches encodeURIComponent verbatim.
+    expect(calledUrl).toBe(
+      `/relay-rooms/${encodeURIComponent("!room:host")}/project`,
     );
+    expect(calledBody).toEqual({ userMxid: "@ash:host", project: "alpha" });
     expect(result).toEqual({ ok: true });
   });
 
