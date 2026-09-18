@@ -2129,6 +2129,96 @@ async function sftpWriteBinaryAtomic(
   }
 }
 
+/**
+ * Public binary tmp+rename helper — Phase 116 Plan 116-03 Task 1.
+ *
+ * The generic, path-arbitrary counterpart to writeMarkdownFileAtomic for
+ * binary payloads. Two branches, byte-shape-identical to
+ * writeMarkdownFileAtomic:
+ *
+ *   LOCAL (conn === null)  — resolves $HOME / $HOME/fleet in the same way
+ *     writeMarkdownFileAtomic does (IDENTITIES_HOST_DIR parent for
+ *     $HOME/fleet, os.homedir() fallback for $HOME/ and $HOME) and writes
+ *     bytes via fs.writeFile(tmp) → fs.rename(tmp, target). Best-effort tmp
+ *     cleanup on error.
+ *   REMOTE (conn is SSHClientType) — delegates to the existing private
+ *     sftpWriteBinaryAtomic above (ext_openssh_rename atomic overwrite).
+ *
+ * Callers pass a "$HOME/fleet/..." path convention (matching the REMOTE-
+ * side SFTP $HOME expansion) and the LOCAL branch's substitution logic
+ * routes it to the correct bind-mounted directory. This mirrors
+ * writeMarkdownFileAtomic's LOCAL branch at L1968-L2005 exactly, only
+ * substituting `bytes` (Buffer, no UTF-8 encoding) for `contents` (string).
+ *
+ * WHY NOT REUSE writeAvatarSiblingFile: writeAvatarSiblingFile carries three
+ * avatar-specific guards (IDENTITY_KEY_RE, AVATAR_EXT_VALUES,
+ * IDMEDIT_MAX_AVATAR_BYTES) plus a hard-coded target-path derivation that
+ * doesn't apply to arbitrary $HOME/fleet-scoped writes (like the image-gen
+ * PNG drops). This wrapper is the generic-shape counterpart.
+ *
+ * WHY NOT COLLAPSE INTO writeMarkdownFileAtomic: writeMarkdownFileAtomic's
+ * signature accepts `contents: string` and its logger operation tag is
+ * `identity_markdown_write`. Binary payloads deserve their own tag
+ * (`image_gen_binary_write` here) for grep-ability during on-call debugging
+ * and to avoid a string-vs-buffer overload leaking into a helper whose
+ * markdown call sites all pass strings.
+ */
+export async function writeBinaryFileAtomic(
+  conn: SSHClientType | null,
+  targetPath: string,
+  bytes: Buffer,
+): Promise<void> {
+  const byteLen = bytes.byteLength;
+
+  // LOCAL branch — mirrors writeMarkdownFileAtomic L1968-L2005 exactly.
+  if (conn === null) {
+    const fleetRoot = process.env.IDENTITIES_HOST_DIR
+      ? path.dirname(process.env.IDENTITIES_HOST_DIR)
+      : path.join(os.homedir(), "fleet");
+    let localPath: string;
+    if (targetPath.startsWith("$HOME/fleet/")) {
+      localPath = path.join(fleetRoot, targetPath.slice("$HOME/fleet/".length));
+    } else if (targetPath === "$HOME/fleet") {
+      localPath = fleetRoot;
+    } else if (targetPath.startsWith("$HOME/")) {
+      localPath = path.join(os.homedir(), targetPath.slice("$HOME/".length));
+    } else if (targetPath === "$HOME") {
+      localPath = os.homedir();
+    } else {
+      localPath = targetPath;
+    }
+    const localTmpPath = localPath + ".tmp";
+    try {
+      await fs.writeFile(localTmpPath, bytes, { mode: 0o644 });
+      await fs.rename(localTmpPath, localPath);
+      sshLogger.info("identity-artifact-reader: image_gen_binary_write (local)", {
+        operation: "image_gen_binary_write",
+        targetPath: localPath,
+        bytes: byteLen,
+        branch: "local",
+      });
+    } catch (err) {
+      sshLogger.error(
+        "identity-artifact-reader: image_gen_binary_write (local) failed",
+        err instanceof Error ? err : new Error(String(err)),
+        {
+          operation: "image_gen_binary_write_error",
+          targetPath: localPath,
+          bytes: byteLen,
+          branch: "local",
+        },
+      );
+      // Best-effort cleanup of the .tmp file — fire-and-forget.
+      fs.unlink(localTmpPath).catch(() => {});
+      throw err;
+    }
+    return;
+  }
+
+  // REMOTE branch — delegate to the existing private helper.
+  return sftpWriteBinaryAtomic(conn, targetPath, bytes);
+}
+
 /** Write the avatar sibling file (<key>/<key>.<ext>) atomically.
  *
  * Phase 66 Plan 66-01 Track 1: the identity-birth orchestrator's Step 2.5
