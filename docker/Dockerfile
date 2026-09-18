@@ -64,12 +64,18 @@ ENV DATA_DIR=/app/data \
     PORT=8080 \
     NODE_ENV=production
 
-RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget ffmpeg && \
+RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget ffmpeg systemd && \
     update-ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx /var/log/skynet/console-forward && \
     chown -R node:node /app /tmp/nginx /var/log/skynet && \
     chmod 755 /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx /var/log/skynet /var/log/skynet/console-forward
+# `systemd` package provides the `systemctl` client binary — needed for the
+# distributor's local-branch fireRestartHookLocally to talk to the host user's
+# systemd session (via the /run/user/1000 bind-mount + XDG_RUNTIME_DIR from
+# docker/docker-compose.host-systemd.override.yml). We do NOT run systemd
+# itself as PID 1 inside the container — the entrypoint stays the app.
+# systemctl is just a DBus client.
 
 COPY docker/nginx.conf /app/nginx/nginx.conf.template
 COPY docker/nginx-https.conf /app/nginx/nginx-https.conf.template
