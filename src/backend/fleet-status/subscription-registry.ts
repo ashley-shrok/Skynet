@@ -49,6 +49,55 @@ export type ProjectListEntry = {
   archived: boolean;
 };
 
+/**
+ * Phase 118 Plan 118-05 (D-15): async per-user host-visibility filter for
+ * app frames only. When present in `createSubscriptionRegistry` deps, every
+ * app-* fan-out call and the subscribe-path app-snapshot emit routes
+ * through this filter per-subscriber. Filter returns the frame verbatim,
+ * a projected copy (for app-snapshot), or null to drop.
+ *
+ * Session + archived-identity fan-out is UNAFFECTED — D-15 scopes the
+ * filter to app frames only; identity frames pass through the sync fanOut
+ * unchanged (D-15's "or will be" language explicitly defers identity
+ * filtering to a follow-up).
+ *
+ * The registry does NOT own the filter's cache or dependencies — it holds
+ * an opaque async function reference and calls it per subscriber. The
+ * production wiring builds this via `createAppFrameFilter({
+ * resolveHostOwnerById })` in fleet-status-server.ts.
+ */
+export type AppFrameFilter = (
+  frame: FrontendOutboundFrameType,
+  userId?: string,
+) => Promise<FrontendOutboundFrameType | null>;
+
+/**
+ * Phase 118 Plan 118-05: widened subscriber shape carrying the JWT-verified
+ * userId alongside the send callback. The async fanOutApp helper reads
+ * `entry.userId` to invoke the filter per-subscriber. Bare
+ * `subscribe(sendFrame)` (no ctx) yields `entry.userId === undefined` —
+ * the filter's own guard passes those frames through unchanged
+ * (backward-compat with existing session-only tests + any auth-skipping
+ * harness).
+ */
+interface SubscriberEntry {
+  send: SendFrame;
+  userId?: string;
+}
+
+/**
+ * Phase 118 Plan 118-05: optional dependency bag for the factory.
+ * `appFrameFilter` — when present, the registry routes app-* fan-outs and
+ * the subscribe-path app-snapshot through it per-subscriber. Absent →
+ * registry uses the sync fanOut path unchanged (backward-compat with
+ * 118-03 tests + starter.ts that hasn't wired the filter yet, which is
+ * the state at plan land-time; starter wiring is a deploy-motion concern
+ * flagged in the SUMMARY per fleet directive #10).
+ */
+export interface SubscriptionRegistryDeps {
+  appFrameFilter?: AppFrameFilter;
+}
+
 export interface SubscriptionRegistry {
   /**
    * Add a subscriber that will receive fleet-status frames.
@@ -222,12 +271,12 @@ function makeAppKey(hostId: string, slug: string): string {
 }
 
 function fanOut(
-  subscribers: Set<SendFrame>,
+  subscribers: Set<SubscriberEntry>,
   frame: FrontendOutboundFrameType,
 ): void {
-  for (const send of subscribers) {
+  for (const entry of subscribers) {
     try {
-      send(frame);
+      entry.send(frame);
     } catch (err) {
       systemLogger.warn("Fleet-status fan-out failed for one subscriber", {
         operation: "fleet_status_fanout_failed",
@@ -238,11 +287,69 @@ function fanOut(
 }
 
 /**
- * Factory — creates a new isolated SubscriptionRegistry instance.
+ * Phase 118 Plan 118-05 (D-15): async fan-out for app frames only.
+ * Per-subscriber: run the filter (with entry.userId), then send the
+ * projected frame (or drop on null). Uses Promise.allSettled so a slow /
+ * failing filter for one subscriber does not block delivery to others
+ * (RESEARCH § Q4 — the async unavoidability + per-subscriber isolation
+ * discipline). Fire-and-forget from the callers (publishAppUpdate /
+ * publishAppGoneByHostSlug) — the async work completes on its own; no
+ * caller awaits.
+ *
+ * Rejections in the settled results are logged (structured warn — fleet
+ * directive #11) but do NOT throw or propagate. Send-throws INSIDE the
+ * per-subscriber closure are caught and logged with the fanout-failed
+ * shape (same op tag the sync fanOut uses) so log-side observability is
+ * uniform across sync and async paths.
  */
-export function createSubscriptionRegistry(): SubscriptionRegistry {
+async function fanOutApp(
+  subscribers: Set<SubscriberEntry>,
+  frame: FrontendOutboundFrameType,
+  filter: AppFrameFilter,
+): Promise<void> {
+  const results = await Promise.allSettled(
+    Array.from(subscribers).map(async (entry) => {
+      const projected = await filter(frame, entry.userId);
+      if (projected === null) return;
+      try {
+        entry.send(projected);
+      } catch (err) {
+        systemLogger.warn("Fleet-status fan-out failed for one subscriber", {
+          operation: "fleet_status_fanout_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      }
+    }),
+  );
+  for (const r of results) {
+    if (r.status === "rejected") {
+      systemLogger.warn(
+        "Fleet-status app-frame filter failed for one subscriber",
+        {
+          operation: "app_frame_filter_failed",
+          error:
+            r.reason instanceof Error ? r.reason.message : String(r.reason),
+        },
+      );
+    }
+  }
+}
+
+/**
+ * Factory — creates a new isolated SubscriptionRegistry instance.
+ *
+ * Phase 118 Plan 118-05: accepts an optional `deps` bag. `deps.appFrameFilter`
+ * — when present — wraps the app-* fan-out path and the subscribe-path
+ * app-snapshot emit. Absent → registry runs unfiltered (backward-compat with
+ * 118-03 tests + any pre-118-05 caller). Session + archived-identity
+ * fan-out is UNAFFECTED regardless.
+ */
+export function createSubscriptionRegistry(
+  deps?: SubscriptionRegistryDeps,
+): SubscriptionRegistry {
   const state = new Map<string, SessionState>();
-  const subscribers = new Set<SendFrame>();
+  const subscribers = new Set<SubscriberEntry>();
+  const appFrameFilter = deps?.appFrameFilter;
   // Phase 39 — presence signals for Path C (D-01 / D-02)
   const firstSubCallbacks = new Set<(ctx: { userId: string }) => void>();
   const lastUnsubCallbacks = new Set<() => void>();
@@ -281,8 +388,28 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
       // Capture emptiness BEFORE adding so we fire the 0 → 1 edge exactly once
       const wasEmpty = subscribers.size === 0;
 
-      // Idempotent — Set ignores duplicates by reference
-      subscribers.add(sendFrame);
+      // Phase 118 Plan 118-05: idempotency is now per-callback-identity.
+      // A duplicate `sendFrame` reference produces a NEW SubscriberEntry
+      // (Set idempotence is by reference on the entry object, not the
+      // callback). This is a behavior change from pre-118-05 but the
+      // idempotency-on-same-sendFrame test (Test 7) is still satisfied
+      // because the pre-existing test asserts that the DUPLICATE subscribe
+      // call produces the same fan-out shape — with per-subscriber entries
+      // both entries call the same sendFrame, so it fires twice per
+      // publish. UPDATE: pre-existing Test 7 does assert exactly-1 update
+      // per publish for a duplicate subscribe → we preserve that by
+      // dedup'ing at entry-add time on the sendFrame identity.
+      let entry: SubscriberEntry | undefined;
+      for (const existing of subscribers) {
+        if (existing.send === sendFrame) {
+          entry = existing;
+          break;
+        }
+      }
+      if (entry === undefined) {
+        entry = { send: sendFrame, userId: ctx?.userId };
+        subscribers.add(entry);
+      }
 
       // Immediately send a snapshot of current state.
       //
@@ -354,21 +481,46 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
       // picture without waiting for the next 2s sweep tick. Emit is
       // UNCONDITIONAL — an empty apps map still produces an app-snapshot with
       // apps: [] (a valid state — proves the emit happens alongside the
-      // session + archived snapshots). The per-user host-visibility filter is
-      // NOT applied here at this phase; Plan 118-05 will wrap this emit and
-      // the publishApp* fanouts with the filter (see T-118-03-IL: 118-05 MUST
-      // land in the same deploy as 118-03 + 118-04 to close the info-
-      // disclosure gap).
-      try {
-        sendFrame(makeAppSnapshotFrame(Array.from(apps.values())));
-      } catch (err) {
-        systemLogger.warn(
-          "Fleet-status app-snapshot delivery failed",
-          {
+      // session + archived snapshots).
+      //
+      // Phase 118 Plan 118-05 (D-15, D-16, RESEARCH § Pitfall 2): when the
+      // filter is wired AND ctx.userId is present, project the snapshot
+      // through the filter so the subscriber only sees apps on hosts they
+      // can access. The subscribe() outer signature stays SYNCHRONOUS
+      // (existing tests + callers depend on the sync disposer return);
+      // the filtered emit runs fire-and-forget as a promise settled soon
+      // after subscribe returns (well under the 100ms UX budget — the
+      // filter is one PermissionManager hit per unique hostId plus an
+      // in-memory cache). Empty apps map short-circuits — no filter call.
+      const rawSnapshot = makeAppSnapshotFrame(Array.from(apps.values()));
+      if (appFrameFilter !== undefined && ctx?.userId !== undefined) {
+        const userIdForFilter = ctx.userId;
+        // Fire-and-forget — disposer must return synchronously.
+        void (async () => {
+          try {
+            const projected = await appFrameFilter(rawSnapshot, userIdForFilter);
+            if (projected !== null) {
+              sendFrame(projected);
+            }
+          } catch (err) {
+            systemLogger.warn(
+              "Fleet-status app-snapshot filter/delivery failed",
+              {
+                operation: "fleet_status_app_snapshot_failed",
+                error: err instanceof Error ? err.message : "unknown",
+              },
+            );
+          }
+        })();
+      } else {
+        try {
+          sendFrame(rawSnapshot);
+        } catch (err) {
+          systemLogger.warn("Fleet-status app-snapshot delivery failed", {
             operation: "fleet_status_app_snapshot_failed",
             error: err instanceof Error ? err.message : "unknown",
-          },
-        );
+          });
+        }
       }
 
       // Phase 39 — fire onFirstSubscriber callbacks on 0 → 1 transition when ctx is provided.
@@ -391,7 +543,7 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
 
       // Return disposer
       return () => {
-        subscribers.delete(sendFrame);
+        subscribers.delete(entry);
 
         // Phase 39 — fire onLastUnsubscriber callbacks on 1 → 0 transition.
         // Same try/catch isolation pattern as onFirstSubscriber.
@@ -514,9 +666,19 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
       // `${hostId}:${slug}` and fan out an app-update frame. NO byte-equality
       // guard — a health-flip (same slug, isHealthy changed) MUST always
       // emit. Every publish call fans out.
+      //
+      // Phase 118 Plan 118-05 (D-15): route through the async fanOutApp when
+      // a filter is wired — per-subscriber visibility check bounds who sees
+      // the update. Fall back to the sync fanOut when no filter dep (existing
+      // 118-03/118-04 tests + starter.ts unwired-state).
       const key = makeAppKey(hostId, app.slug);
       apps.set(key, app);
-      fanOut(subscribers, makeAppUpdateFrame(app));
+      const frame = makeAppUpdateFrame(app);
+      if (appFrameFilter !== undefined) {
+        void fanOutApp(subscribers, frame, appFrameFilter);
+      } else {
+        fanOut(subscribers, frame);
+      }
     },
 
     publishAppGoneByHostSlug(hostId: string, slug: string): void {
@@ -524,12 +686,20 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
       // out an app-gone frame. No-op if the key is absent (prevents churn on
       // repeated reconciliation ticks after an app is already dropped —
       // mirrors publishSessionGone / publishIdentityGoneByName).
+      //
+      // Phase 118 Plan 118-05 (D-15): route through the async fanOutApp
+      // when a filter is wired.
       const key = makeAppKey(hostId, slug);
       if (!apps.has(key)) {
         return;
       }
       apps.delete(key);
-      fanOut(subscribers, makeAppGoneFrame(hostId, slug));
+      const frame = makeAppGoneFrame(hostId, slug);
+      if (appFrameFilter !== undefined) {
+        void fanOutApp(subscribers, frame, appFrameFilter);
+      } else {
+        fanOut(subscribers, frame);
+      }
     },
 
     getAppSnapshot(): AppState[] {

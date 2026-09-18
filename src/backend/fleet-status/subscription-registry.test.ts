@@ -994,6 +994,9 @@ describe("subscription-registry", () => {
       await tick();
       framesU1.length = 0;
       framesU2.length = 0;
+      // Clear filter calls made during the subscribe-path app-snapshot emit
+      // (those are correct: subscribe DOES filter the app-snapshot per D-15).
+      filterMock.mockClear();
 
       // Session frame — must reach BOTH subscribers without going through filter.
       const state = makeState("host-42", "tina", "session-1");
