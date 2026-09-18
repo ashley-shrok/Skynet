@@ -169,6 +169,29 @@ TAIL_BYTES = 262144  # 256 KB — same window as `tail -c 262144`.
 # ~5s Promise.race wrapper on the Skynet side.
 TMUX_TIMEOUT_SEC = 1.5
 
+# ---------------------------------------------------------------------------
+# Phase 118 — app enumeration constants (source C: ~/fleet/apps/*).
+# ---------------------------------------------------------------------------
+
+# App slug regex — mirrors the kebab-case pattern in substrate/skills/app-
+# development/create-app.sh:32. Applied BEFORE any subprocess call as a
+# defense-in-depth guard against slug-injection into `systemctl --user` argv
+# (T-118-01-SL). Combined with subprocess.run's argv form (never shell=True),
+# argv-level injection is not possible; the regex is the belt to the argv-form
+# suspenders.
+APP_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+
+# Maximum slug length. Mirrors the [:40] clamps used in _log calls elsewhere;
+# rejects abusively-long folder names before they reach the subprocess layer
+# or a systemd unit name.
+APP_SLUG_MAX_LEN = 40
+
+# Per-subprocess timeout for systemctl --user calls. Mirrors TMUX_TIMEOUT_SEC.
+# With RESEARCH § Q6's one-shot `systemctl show` consolidation, this is 1
+# subprocess per app × 1.5s worst-case × Ashley's ~10-app ceiling = comfortably
+# inside the 8s exec budget (T-118-01-DoS).
+APP_SUBPROCESS_TIMEOUT_SEC = 1.5
+
 
 # ---------------------------------------------------------------------------
 # Small logging helper — stderr only. Every op is grep-able.
@@ -601,6 +624,73 @@ def _resolve_pid_to_tmux_session(pid):
         return None
     name = result.stdout.strip()
     return name if name else None
+
+
+# ---------------------------------------------------------------------------
+# Phase 118 — systemd --user one-shot query helper.
+# ---------------------------------------------------------------------------
+
+
+def _systemd_show(slug):
+    """One-shot `systemctl --user show app-<slug>.service` → dict or None.
+
+    Consolidates the three per-app systemd probes (unit-exists, is-active,
+    Environment) into a single `systemctl show` call per RESEARCH § Q6's
+    one-shot recommendation. Returns a dict with keys `load_state`,
+    `active_state`, and `environment` (raw first-occurrence Environment= line
+    value, or empty string when absent).
+
+    Transport failures (TimeoutExpired, OSError, non-zero exit) return None
+    and log `systemd_show_failed` on stderr. A non-existent unit yields a
+    zero-exit response with LoadState=not-found — that's NOT a transport
+    error, so we return the dict and the caller reads `load_state` to decide
+    D-01 check (b).
+
+    Argv-form subprocess.run — NEVER shell=True (T-118-01-SL).
+    """
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "show", f"app-{slug}.service"],
+            capture_output=True,
+            text=True,
+            timeout=APP_SUBPROCESS_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired:
+        _log("systemd_show_failed", slug=slug[:APP_SLUG_MAX_LEN], reason="timeout")
+        return None
+    except OSError as e:
+        _log("systemd_show_failed", slug=slug[:APP_SLUG_MAX_LEN],
+             reason="os_error", errno=e.errno)
+        return None
+    if result.returncode != 0:
+        # `systemctl show` on a non-existent unit still returns 0 (the fields
+        # simply say LoadState=not-found). A non-zero exit here is a real
+        # transport-tier failure — log and bail.
+        _log("systemd_show_failed", slug=slug[:APP_SLUG_MAX_LEN],
+             reason="nonzero_exit", rc=result.returncode)
+        return None
+
+    load_state = ""
+    active_state = ""
+    environment = ""
+    for line in result.stdout.split("\n"):
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key == "LoadState" and not load_state:
+            load_state = value
+        elif key == "ActiveState" and not active_state:
+            active_state = value
+        elif key == "Environment" and not environment:
+            # `Environment` may appear multiple times; per RESEARCH § Q6 we
+            # take the first occurrence for shape 2. PORT extraction below
+            # handles absent-env by yielding null.
+            environment = value
+    return {
+        "load_state": load_state,
+        "active_state": active_state,
+        "environment": environment,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1113,6 +1203,147 @@ def _enumerate_pids(home):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Phase 118 — source C: ~/fleet/apps/* enumeration + line builder.
+# ---------------------------------------------------------------------------
+
+
+def _build_app_line(slug, folder_path):
+    """Assemble a SweepAppLine dict, or return None if D-01 excludes it.
+
+    D-01 checks (all three must pass for inclusion):
+      (a) folder contains a readable app.json that parses as JSON
+      (b) a corresponding systemd --user unit exists (LoadState=loaded)
+      (c) the unit is currently active per ActiveState=active
+
+    D-02 carve-out: if (a) + (b) pass but (c) fails, still emit with
+    is_healthy=false + health_message. Silent removal of a definitely-was-
+    an-app is worse than surfacing the diagnostic.
+
+    Returns a dict with the D-05 emit shape (line_kind, schema_version, slug,
+    title, description, port, has_icon, created_at_ms, is_healthy,
+    health_message) or None when D-01 (a) or (b) fails.
+    """
+    # (a) app.json parses. MEMBERSHIP gate per RESEARCH § Q8 — a bad card
+    # means the app is NOT in the picture; return None, do NOT emit with
+    # null title.
+    app_json_path = os.path.join(folder_path, "app.json")
+    try:
+        with open(app_json_path, "r", encoding="utf-8") as fh:
+            metadata = json.loads(fh.read())
+    except (OSError, json.JSONDecodeError):
+        _log("app_json_missing_or_malformed", slug=slug[:APP_SLUG_MAX_LEN])
+        return None
+
+    title = metadata.get("title") if isinstance(metadata, dict) else None
+    description = (
+        metadata.get("description") if isinstance(metadata, dict) else None
+    )
+    if not isinstance(title, str) or not isinstance(description, str):
+        _log("app_json_bad_shape", slug=slug[:APP_SLUG_MAX_LEN])
+        return None
+
+    # (b) + (c) via a single systemctl show call.
+    info = _systemd_show(slug)
+    if info is None:
+        # Transport failure already logged inside _systemd_show. Treat as
+        # D-01 (b) failure so the app drops out of the picture this tick;
+        # the next successful sweep will pick it up again.
+        return None
+    if info["load_state"] != "loaded":
+        # D-01 check (b) fails — no registered user unit for this slug.
+        # Silent (not a transport error, not a bad card; just "no unit").
+        return None
+
+    # (c) unit active — D-02 carve-out fallthrough when inactive.
+    is_healthy = info["active_state"] == "active"
+    if is_healthy:
+        health_message = None
+    else:
+        # D-03: backend authors the ready-to-render string. Literal phrasing
+        # matches Ashley's steer during the /open grill 2026-09-18.
+        health_message = "not running — ask an agent to check on it"
+
+    # Port from unit env (D-07). Extract via regex against the Environment=
+    # payload; None if PORT=<digits> is absent (D-05 allows nullable port).
+    m = re.search(r"\bPORT=(\d+)\b", info["environment"])
+    port = int(m.group(1)) if m else None
+
+    # D-06: has_icon is a boolean, not a URL. Shape 4 owns the serving path.
+    has_icon = os.path.exists(os.path.join(folder_path, "icon.webp"))
+
+    # D-08: createdAt is folder mtime, not a stored field.
+    try:
+        folder_mtime_ms = int(os.stat(folder_path).st_mtime * 1000)
+    except OSError:
+        # Improbable — the scandir just succeeded. Fall back to 0 rather
+        # than raising so the per-app try/except in the enumerator doesn't
+        # trip on a stat race.
+        folder_mtime_ms = 0
+
+    # D-05 emit shape — exactly these keys, in this order. Byte-name parity
+    # with the TS SweepAppLine interface (snake_case on the wire; the wire-
+    # protocol frontend-facing shape does camelCase remapping).
+    return {
+        "line_kind": "app",
+        "schema_version": SCHEMA_VERSION,
+        "slug": slug,
+        "title": title,
+        "description": description,
+        "port": port,
+        "has_icon": has_icon,
+        "created_at_ms": folder_mtime_ms,
+        "is_healthy": is_healthy,
+        "health_message": health_message,
+    }
+
+
+def _enumerate_apps(home):
+    """Return list of SweepAppLine dicts for ~/fleet/apps/*/.
+
+    Fail-open per D-18: an absent ~/fleet/apps/ dir yields []; a broken
+    per-app entry is skipped (with a stderr log) but does not affect other
+    apps or the identity/pid enumeration.
+
+    Slug validation via APP_SLUG_RE + APP_SLUG_MAX_LEN happens BEFORE any
+    subprocess call (T-118-01-SL defense-in-depth). Symlinks are rejected
+    at scandir time (follow_symlinks=False) to prevent path-traversal
+    outside ~/fleet/apps/ (T-118-01-PT).
+    """
+    root = os.path.join(home, "fleet", "apps")
+    out = []
+    try:
+        with os.scandir(root) as it:
+            for entry in it:
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+                slug = entry.name
+                if (
+                    not APP_SLUG_RE.match(slug)
+                    or len(slug) > APP_SLUG_MAX_LEN
+                ):
+                    _log("app_slug_skipped", slug=slug[:APP_SLUG_MAX_LEN])
+                    continue
+                try:
+                    line = _build_app_line(slug, entry.path)
+                except Exception:
+                    # Belt-and-braces per RESEARCH § Q8: any unexpected raise
+                    # inside _build_app_line is contained here so other apps
+                    # (and identities/pids) still emit this tick.
+                    _log("app_build_failed", slug=slug[:APP_SLUG_MAX_LEN],
+                         err=traceback.format_exc(limit=1).strip())
+                    continue
+                if line is not None:
+                    out.append(line)
+    except FileNotFoundError:
+        # ~/fleet/apps/ absent is a valid empty state (fresh box, no apps
+        # provisioned yet) — D-19 fail-open, not an error worth logging.
+        return out
+    except OSError as e:
+        _log("apps_scandir_failed", errno=e.errno)
+    return out
+
+
 def _emit(record):
     """Write one JSON line to stdout — compact, terminated with \\n."""
     sys.stdout.write(json.dumps(record, separators=(",", ":")))
@@ -1128,6 +1359,11 @@ def main():
     # ---- Enumerate identities from folder + PIDs from sessions dir. ----
     identity_records = _enumerate_identities(home)
     pid_records = _enumerate_pids(home)
+
+    # ---- Phase 118: enumerate ~/fleet/apps/*/ (source C). Sequential per
+    #      RESEARCH § Q6 — Ashley's ~10-app ceiling makes threading complexity
+    #      unnecessary at 1.5s/call and <10ms typical systemctl latency. ----
+    app_records = _enumerate_apps(home)
 
     # ---- Resolve PID → identity via /proc/<pid>/environ + tmux. ----
     resolved_pids = []  # list of (pid, identity_or_None)
@@ -1198,6 +1434,12 @@ def main():
         line = _build_pid_line(
             pid, identity, home, identity_jsonl_paths, jsonl_tail_cache,
         )
+        _emit(line)
+
+    # ---- Phase 118: emit app lines LAST so the newest source is easy to
+    #      find on future reads. Additive per D-14; each line has already
+    #      been through the D-01/D-02 filter inside _build_app_line. ----
+    for line in app_records:
         _emit(line)
 
     sys.stdout.flush()
