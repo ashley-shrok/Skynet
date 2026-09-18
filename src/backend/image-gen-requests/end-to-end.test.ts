@@ -533,6 +533,67 @@ describe("image-gen end-to-end: SCAN_INTEGRATION", () => {
     orch.stop();
   });
 
+  it("scan tick with unknown top-level key → failure.json {reason:'malformed'} names the offending key, adapter NEVER called (FIX 10)", async () => {
+    // The parser rejects unrecognized top-level keys per D-06 (fail-explicit,
+    // don't silently drop caller-specified params). Verify the rejection
+    // travels end-to-end from scan-orchestrator → parseImageGenRequestBatch
+    // → PendingImageGen with malformedReason → worker's malformed-shortcut
+    // → failure.json drop with the descriptive message that names the key.
+    const uuid = "abcd1234-5678-9abc-def0-123456789abc";
+    const requestBody = JSON.stringify({
+      prompt: "cat",
+      requested_at: new Date().toISOString(),
+      surprise: "field", // <-- unknown key
+    });
+    const scanStdout = `${uuid}.json\t${requestBody}\n`;
+
+    const channelExec = vi.fn(async (cmd: string) => {
+      if (cmd === IMAGE_GEN_SCAN_CMD) return scanStdout;
+      return "";
+    });
+    const channel: SshChannel = { exec: channelExec };
+    const hosts: ImageGenScanHostRecord[] = [
+      { id: "42", name: "test-host", _connDetails: {} },
+    ];
+
+    const deps = startPipeline();
+
+    const setIntervalMock = vi.fn(
+      (_fn: () => Promise<void> | void, _ms: number) => 1 as unknown as ReturnType<typeof setInterval>,
+    );
+    const clearIntervalMock = vi.fn();
+    const orch = createImageGenScanOrchestrator({
+      listSubstrateHosts: async () => hosts,
+      acquireChannel: async () => channel,
+      releaseChannel: vi.fn(),
+      enqueue,
+      setInterval: setIntervalMock,
+      clearInterval: clearIntervalMock,
+      now: () => Date.now(),
+      scanIntervalMs: 10000,
+    });
+
+    await orch.start();
+    await drainQueue();
+
+    // No OpenAI call.
+    expect(fetchMock).not.toHaveBeenCalled();
+    // Only the scan exec fired (no companion fetch).
+    expect(channelExec).toHaveBeenCalledTimes(1);
+    // failure.json dropped with reason=malformed + descriptive message that
+    // names the offending key.
+    expect(deps.writeBinaryFileAtomic).not.toHaveBeenCalled();
+    expect(deps.writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const call = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1]).toBe(`$HOME/fleet/image-gen-requests/${uuid}.failure.json`);
+    const parsed = JSON.parse(call[2] as string);
+    expect(parsed.reason).toBe("malformed");
+    expect(parsed.message).toContain("unrecognized field");
+    expect(parsed.message).toContain("surprise");
+
+    orch.stop();
+  });
+
   it("scan tick with foreign-uuid ref → failure.json {reason:'malformed'} lands, adapter NEVER called", async () => {
     // Caller-A drops a request that names caller-B's companion file. The
     // parser accepts the shape (any <uuid>.ref.<ext> passes) but the
