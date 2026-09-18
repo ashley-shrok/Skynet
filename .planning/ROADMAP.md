@@ -2602,3 +2602,16 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 115-07-PLAN.md — extend Phase 94 test harness with 8 new test cases + real-tmux-session teardown test (D-22 revalidation of the untested-in-practice retire flow)
+
+### Phase 116: Image gen skill: file-drop broker for OpenAI image generation, distributed to every managed host
+
+**Goal:** Ship a broker that lets any agent inside a managed-host Claude Code harness generate images from a prompt via a one-line `image-gen "prompt"` invocation — the skill drops a request file into `~/fleet/image-gen-requests/`, the Skynet backend claims it atomically on a 10s always-on scan tick, calls OpenAI's gpt-image-1 through a rate-limited (SKYNET_IMAGE_GEN_RPM, default 30) 5-worker pool with a 5-minute queue TTL, and drops success PNGs + a metadata JSON (or a categorized failure JSON) back to the same folder. The OpenAI credential never leaves the backend env; the file-drop pattern is a direct clone of Phase 99's spawn-request broker. Skill body carries a top-plus-inline PHI directive per D-17/D-18 as the v1 compliance control (Bedrock-provider swap deferred). All 28 CONTEXT decisions (D-01..D-28) plus the RESEARCH.md correction (dedicated always-on scan-orchestrator, not piggyback on ssh-poll-orchestrator.ts) implemented.
+**Requirements**: TBD
+**Depends on:** Phase 115
+**Plans:** 4 plans
+
+Plans:
+- [ ] 116-01-PLAN.md — Wave 1 backend leaves: types.ts + parse-request-body.ts (D-06 unknown-field explicit-reject) + token-bucket.ts (D-21 hand-rolled RPM × 5s capacity) + adapter.ts (D-25/D-26 raw fetch to gpt-image-1 with AbortController + D-27 status-code → reason mapping) + tests
+- [ ] 116-02-PLAN.md — Wave 1 caller side: substrate/skills/image-gen/SKILL.md (D-17 PHI directive top + D-18 inline echo + D-27 failure table) + substrate/scripts/image-gen bash helper (D-13 flag shape + D-14 stdout/stderr split + D-16 5-min timeout + Pitfall 3 ref-before-json write order) + two distributor catalog rows
+- [ ] 116-03-PLAN.md — Wave 2 backend wire-up: export writeBinaryFileAtomic from identity-artifact-reader.ts + queue.ts (D-20 5-worker pool + FIFO waiter list) + worker.ts (Pitfall 5 TTL-at-dequeue + adapter call + response file drops) + scan-orchestrator.ts (always-on tick per RESEARCH.md Q2 correction + companion .ref.* fetch per D-07) + starter.ts boot block (token bucket singleton + queue.startPool + orchestrator wire) + tests
+- [ ] 116-04-PLAN.md — Wave 2 integration validation: hermetic bash test driver for the helper + vitest end-to-end wire test (mocked SSH + mocked fetch across all D-27 failure paths) + end-of-phase human-verify checkpoint
