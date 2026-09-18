@@ -190,11 +190,11 @@ Discussion was already conducted during `/open` (via `/build`) — see `.plannin
 
 Ideas that came up during `/open` grill but explicitly belong in a later phase or version:
 
-- **Bounty ↔ project linking** — a `related:` field on either the bounty or the project pointing at the other. Direction not decided; Ashley signaled her bounty mental-model rework is coming. Wait for that. No hooks in v1.
+- **Bounty ↔ project linking** — a `related:` field on either the bounty or the project pointing at the other. Direction not decided; the user signaled her bounty mental-model rework is coming. Wait for that. No hooks in v1.
 - **Manual drag-to-reorder of projects** — user explicitly excluded from v1 (grill exchange). Renames are the current knob if they want to nudge order.
 - **Per-project `colorHue:` or `avatar:` chrome** — header shape doesn't have room for them (grill exchange). Icon is standardized across all projects.
 - **Multi-project membership** (a conversation belonging to more than one project simultaneously) — v1 is single-valued. If we ever want multi later, the frontmatter shape changes.
-- **Terminals in projects** — explicitly excluded from v1. If terminals ever need projects (unlikely — Ashley's grill answer), separate phase.
+- **Terminals in projects** — explicitly excluded from v1. If terminals ever need projects (unlikely — the user's grill answer), separate phase.
 - **Delete-project distinct from archive** — v1 has only archive. If a hard-delete is ever needed, separate phase.
 - **Lazy-loaded archived-projects section in the sidebar** — mirrors the Phase 115 archived-identities section but for projects. v1 omits it; archived projects are invisible.
 - **Count badges on project headers** ("15 conversations") — nice-to-have UI, not v1.

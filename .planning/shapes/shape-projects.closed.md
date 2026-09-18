@@ -99,7 +99,7 @@ Small surface for v1. Explicitly deferred: manual reorder via drag, drag-to-crea
 - Cross-project search or per-project preferences.
 
 **Deferred.**
-- Bounty ↔ project linking via a `related:`-style field on either side. Direction not decided. Not implemented in this version; may be added later once the bounty mental-model rework Ashley has in mind lands.
+- Bounty ↔ project linking via a `related:`-style field on either side. Direction not decided. Not implemented in this version; may be added later once the bounty mental-model rework the user has in mind lands.
 
 **Tempting but no.**
 - Making the projects zone visually distinguished from the flat middle beyond just having headers (color band, indentation, dividers). Keep it minimal — same look as archive/RDP.
@@ -119,7 +119,7 @@ Small surface for v1. Explicitly deferred: manual reorder via drag, drag-to-crea
 - The id-skill amendment is a fleet-substrate change that ships via the distributor — the substrate source at `substrate/skills/id/SKILL.md` in the Skynet repo is the canonical copy, and the distributor pushes it to every host on its next sweep. Do not hand-edit installed copies on any peer box.
 - Peer identities need to know when the id-skill amendment lands (relay DM, one turn after successful deploy) — projects becomes a live substrate concept they can start using immediately after the sweep. This is the stakeholder notification at the end of the `/build` pipeline.
 
-**Immediate next step for this vehicle.** Run `/gsd:phase` to slot a new phase into `ROADMAP.md`, then `/gsd:discuss-phase` (which seeds from this shape file rather than re-eliciting), then `/gsd:plan-phase`, then `/gsd:execute-phase`. Deploy motion is orchestrator-only after Ashley's ship greenlight. `/close projects` closes this shape at the end of the pipeline against the built result.
+**Immediate next step for this vehicle.** Run `/gsd:phase` to slot a new phase into `ROADMAP.md`, then `/gsd:discuss-phase` (which seeds from this shape file rather than re-eliciting), then `/gsd:plan-phase`, then `/gsd:execute-phase`. Deploy motion is orchestrator-only after the user's ship greenlight. `/close projects` closes this shape at the end of the pipeline against the built result.
 
 ---
 
@@ -136,7 +136,7 @@ Small surface for v1. Explicitly deferred: manual reorder via drag, drag-to-crea
 - **Shape — membership via `project: <slug>` in conversation's frontmatter (identity), slug stable and kebab-case** — present · PROJECT_SLUG_RE = /^[a-z0-9-]{1,64}$/; writeSessionProjectField does a full yaml round-trip preserving every other key; relay-room path uses m.tag (endorsed drift, see notes).
 - **Shape — sidebar vertical order: pinned zone → per-project headers → flat middle → RDP** — present · Panel renders pinnedUnassigned, then displayedProjectSections, then flat middle, then RDP, then archived — matches the shape's order verbatim.
 - **Shape — project header row: FolderOpen icon + `Project:` prefix + display name + new-conversation SquarePen button; click to collapse/expand, persisted** — present · PrettyProjectSectionHeader mirrors the archive header shape; useCollapsedProjectSlugs persists to localStorage under `pv-collapsed-project-slugs`.
-- **Shape — right-click / long-press context menu with edit + archive** — partial · Menu appears with both items; Archive is fully wired; Edit is a v1 no-op placeholder (endorsed-as-drift by Ashley).
+- **Shape — right-click / long-press context menu with edit + archive** — partial · Menu appears with both items; Archive is fully wired; Edit is a v1 no-op placeholder (endorsed-as-drift by the user).
 - **Shape — alphabetical ordering: projects by displayName, conversations within a project by displayName; no manual reorder** — present · Store selector sorts sections and intra-section rows via localeCompare with sensitivity: base; no manual reorder affordance.
 - **Shape — pinning stays as sentinel; scope becomes contextual (top zone outside a project, top of section inside)** — present · Store emits pinnedUnassigned separately from projectSections rows; pinned-in-project floats to top of its section.
 - **Shape — drag-and-drop for project assignment / reassignment / clear, coral overlay reused** — present · Three gestures wired: section-drop assigns, flat-middle-drop clears, cross-section-drop rewrites; coral palette rgba(255,184,150,0.22) + border 0.60 reused verbatim; type-gated on application/x-skynet-row.
@@ -145,7 +145,7 @@ Small surface for v1. Explicitly deferred: manual reorder via drag, drag-to-crea
 - **Shape — archive with cascade via the existing identity-archive mechanism + verbatim warning + drag-out escape hatch** — present · handleArchiveProject uses window.confirm with the exact D-29 wording; Promise.allSettled batch of archiveIdentity + setRelayRoomProject(null); archiveProject folder-move at end.
 - **Shape — id-skill amendment reads project.md + enumerates directory silently on `/id` load** — present · substrate/skills/id/SKILL.md step 4 reads project.md into context and enumerates directory contents on-demand; graceful no-op on missing / archived / no field.
 - **Philosophy — projects as third axis (role / identity / project), all three compose** — present · id-skill loads role file, identity file, then project file — three axes composed in the load sequence.
-- **Philosophy — membership belongs to the conversation itself, no parallel index** — drifted · Identity membership is on the identity file; relay-room membership is on the room's Matrix m.tag account_data (per-user, per-room) — no parallel index/lookup table, but two carriers rather than one. Endorsed-as-drift by Ashley (agreed at plan-phase, documented in CONTEXT D-05).
+- **Philosophy — membership belongs to the conversation itself, no parallel index** — drifted · Identity membership is on the identity file; relay-room membership is on the room's Matrix m.tag account_data (per-user, per-room) — no parallel index/lookup table, but two carriers rather than one. Endorsed-as-drift by the user (agreed at plan-phase, documented in CONTEXT D-05).
 - **Philosophy — stable slugs, human-friendly display names, rename is one-file** — present · Slug lives in every frontmatter/tag as the stable ID; displayName lives only in project.md's frontmatter; renaming is a one-file edit to project.md.
 - **Philosophy — reuse established patterns (slug-dir + sentinel-file, coral overlay, archive header shape, identity-archive cascade)** — present · Every pattern named in the shape is reused verbatim.
 - **Philosophy — small v1 surface; explicitly deferred items stay deferred** — present · No manual reorder, no color/avatar chrome, no delete distinct from archive, no bounty coupling, no multi-project membership, no cross-project search, no count badges.

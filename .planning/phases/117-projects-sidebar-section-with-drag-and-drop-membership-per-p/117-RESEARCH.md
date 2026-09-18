@@ -456,7 +456,7 @@ This is a **greenfield feature**, not a rename/refactor — no existing runtime 
 
 **Why it happens:** Store snapshot version bumps on every project write, invalidating the memo.
 
-**How to avoid:** The existing `computeSnapshot` cache pattern (`conversation-store.ts:1028`) already handles this — a re-derivation is O(N conversations) which is fast for realistic N (~50 rows in Ashley's typical fleet, per Phase 41 shape). Do NOT try to micro-optimize by adding project-scoped selectors; the snapshot rebuild is cheap. **Warning sign:** any plan step that adds per-project `useSyncExternalStore` subscriptions.
+**How to avoid:** The existing `computeSnapshot` cache pattern (`conversation-store.ts:1028`) already handles this — a re-derivation is O(N conversations) which is fast for realistic N (~50 rows in the user's typical fleet, per Phase 41 shape). Do NOT try to micro-optimize by adding project-scoped selectors; the snapshot rebuild is cheap. **Warning sign:** any plan step that adds per-project `useSyncExternalStore` subscriptions.
 
 ### Pitfall 5: Frontmatter write clobbers other fields
 
@@ -751,7 +751,7 @@ Not applicable — this is a green-field feature specific to the Skynet fleet-su
 5. **How is the project-list-changed event triggered — polling or on-write?**
    - **What we know:** Phase 115's `identity-archived` comes from ssh-poll-orchestrator's per-host sweep enumerating `~/fleet/identities-archive/`.
    - **What's unclear:** Do we grow the sweep to also enumerate `~/fleet/projects/` and `~/fleet/projects/archive/` per host? OR do project write endpoints directly call `registry.publishProjectListChanged()` in-process (skipping the sweep)?
-   - **Recommendation:** **Both.** In-process publish on any write endpoint success gives ~immediate UI feedback. Sweep-side enumeration handles the reconciliation case (host restart, backend restart, out-of-band edit on disk) and the snapshot-on-subscribe path. Projects should be a per-host sweep concept OR a single-authoritative-host concept — planner decides based on the multi-host model (this codebase has Ashley as a single-user with multiple hosts; projects are per-host, not fleet-wide).
+   - **Recommendation:** **Both.** In-process publish on any write endpoint success gives ~immediate UI feedback. Sweep-side enumeration handles the reconciliation case (host restart, backend restart, out-of-band edit on disk) and the snapshot-on-subscribe path. Projects should be a per-host sweep concept OR a single-authoritative-host concept — planner decides based on the multi-host model (this codebase has the user as a single-user with multiple hosts; projects are per-host, not fleet-wide).
 
 ## Environment Availability
 
@@ -840,7 +840,7 @@ No framework install needed. All test infrastructure exists.
 | Info disclosure via error message | Info Disclosure | Fixed-shape error responses; underlying `err.message` logged server-side only. Mirror `identity-archive.ts:143-147`. |
 | DoS via oversized project.md body | DoS | `IDMEDIT_MAX_MARKDOWN_BYTES = 2_000_000` byte-cap on any markdown write (already enforced by `writeIdentityFile` at :2880). Reuse verbatim. |
 | Malicious `project:` value on session frontmatter poisoning archive tree | Tampering | Slug regex gate on WRITE path; on READ path (id-skill amendment) gracefully no-op if directory doesn't exist (D-33) — so a poisoned `project: ../..` slug can't traverse into an arbitrary directory read. |
-| Race on duplicate-slug rejection | Concurrency | Since Ashley is single-user, race is theoretical. Rely on `mkdir` returning EEXIST as the atomic guard; fail with 409 on that error code. |
+| Race on duplicate-slug rejection | Concurrency | Since the user is single-user, race is theoretical. Rely on `mkdir` returning EEXIST as the atomic guard; fail with 409 on that error code. |
 | Cascade archive orphaning identities | Data integrity | Frontend fires N `archiveIdentity` calls; backend endpoint is idempotent per (host, identity); partial-failure logs but doesn't rollback (matches Phase 115 semantics). |
 
 ## Project Constraints (from CLAUDE.md and role rules)
@@ -899,7 +899,7 @@ Fire-and-forget N POSTs is fine for small N (typical project ~2-10 members). For
 
 The fleet-status sweep runs every ~2s per host (verified via ssh-poll-orchestrator). Enumerating `~/fleet/projects/` and `~/fleet/projects/archive/` each tick adds two `find` commands per host per poll. For 5 hosts × 2s cadence = 5 additional SSH round-trips per second. Should be trivial cost but worth measuring at deploy time.
 
-An alternative — publish only on writes + snapshot-on-subscribe (skip sweep enumeration) — is simpler but doesn't reconcile if projects are mutated out-of-band. Planner picks based on the multi-writer risk (Ashley alone = low risk).
+An alternative — publish only on writes + snapshot-on-subscribe (skip sweep enumeration) — is simpler but doesn't reconcile if projects are mutated out-of-band. Planner picks based on the multi-writer risk (the user alone = low risk).
 
 ## Sources
 
