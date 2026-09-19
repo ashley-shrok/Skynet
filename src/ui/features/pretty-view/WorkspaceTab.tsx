@@ -1192,6 +1192,7 @@ function WorkspaceListView({
         <span
           style={{
             ...sortableStyle("mtime"),
+            paddingLeft: 12,
           }}
           onClick={() => handleSortClick("mtime")}
         >
@@ -1524,6 +1525,7 @@ function WorkspaceListView({
                   style={{
                     fontSize: 12,
                     color: "var(--color-pv-fg-muted)",
+                    paddingLeft: 12,
                   }}
                 >
                   {formatMtime(entry.mtimeMs)}
