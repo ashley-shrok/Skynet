@@ -60,7 +60,11 @@ import { createPortal } from "react-dom";
 // header — mirrors the Archived section's `Archive` icon at the same
 // `size-3 text-[#5c6070]/85 shrink-0` typography, so the two sections read as
 // a family in the sidebar chrome.
-import { AppWindow, Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessagesSquare, Monitor, MoreVertical, Search, SquarePen, X } from "lucide-react";
+// UAT 2026-09-19: `Pin` glyph added for the reinstated Pinned section header
+// (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
+// Apps section landing above the flat middle re-introduced ambiguity between
+// Apps and pinned rows that the earlier design didn't have).
+import { AppWindow, Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessagesSquare, Monitor, MoreVertical, Pin, Search, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -2474,7 +2478,7 @@ export function PrettyConversationsPanel({
           <button
             type="button"
             onClick={() => setAppsExpanded((v) => !v)}
-            className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full text-left"
+            className="flex items-center gap-2 px-4 pt-1 pb-1.5 w-full text-left"
             data-testid="pretty-conversations-apps-header"
             aria-expanded={appsExpanded}
             aria-controls="pv-apps-section-content"
@@ -2498,7 +2502,7 @@ export function PrettyConversationsPanel({
           {appsExpanded && (
             <div id="pv-apps-section-content">
               {appTiles.length === 0 ? (
-                <div className="pv-apps-empty px-4 py-2 text-[13px] italic text-[#5c6070]/85">
+                <div className="pv-apps-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85">
                   Ask an agent to make an app for you.
                 </div>
               ) : (
@@ -2550,15 +2554,43 @@ export function PrettyConversationsPanel({
           </div>
         ) : (
           <>
-            {/* Phase 42 UAT amendment 2026-08-17 (user verbatim): active-set
-                top zone retired — active-set rows now flow through to pinned
-                (if pinned) or middle (by recency). Pinned tier still renders
-                inside `.pv-panel-group[data-pinned-group="true"]` with per-row
+            {/* Phase 42 UAT amendment 2026-08-17: active-set top zone retired
+                — active-set rows now flow through to pinned (if pinned) or
+                middle (by recency). Pinned tier still renders inside
+                `.pv-panel-group[data-pinned-group="true"]` with per-row
                 inActiveSet={activeSet.has(row.id)} wiring preserved to gate the
-                `.active-set` CSS deactivate-action hover-reveal. The "Pinned"
-                divider chip previously rendered above this group is also
-                retired (user verbatim: "the pinned header should go away
-                entirely"). */}
+                `.active-set` CSS deactivate-action hover-reveal.
+
+                UAT 2026-09-19: the "Pinned" header — retired 2026-08-17 —
+                is REINSTATED. Phase 119's Apps section landed above the flat
+                middle and created ambiguity that didn't exist under the
+                original 2026-08-17 layout (pinned rows sitting right after
+                the search box read unambiguously as pinned). With Apps in
+                place, pinned rows visually appear to belong to the Apps
+                section unless a header explicitly disambiguates. Header
+                chrome mirrors the Apps + Archived sections' typography
+                verbatim (Pin icon at size-3 + uppercase label + rule-line
+                gradient), MINUS the ChevronDown — Pinned is not
+                collapsible. Rendered only when `displayedPinned.length > 0`
+                so an empty Pinned label never appears. */}
+            {displayedPinned.length > 0 && (
+              <div
+                className="flex items-center gap-2 px-4 pt-1 pb-1.5"
+                data-testid="pretty-conversations-pinned-header"
+              >
+                <Pin
+                  className="size-3 text-[#5c6070]/85 shrink-0"
+                  aria-hidden="true"
+                />
+                <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                  Pinned
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+                />
+              </div>
+            )}
             <div className="pv-panel-group" data-pinned-group="true">
               {displayedPinned.map((row) => (
                 <PrettyConversationRowLive
@@ -2599,27 +2631,44 @@ export function PrettyConversationsPanel({
                 onNewConversationClick={handleNewConversationInProject}
                 onDropRow={handleProjectDrop}
                 onContextMenu={handleSectionContextMenu}
-                rows={section.rows.map((row) => (
-                  <PrettyConversationRowLive
-                    key={row.id}
-                    row={row}
-                    selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
-                    pinned={isRowPinned(row)}
-                    variant={variant}
-                    onSelect={() => handleRowSelect(row)}
-                    onTogglePin={() => handleTogglePin(row)}
-                    onDeactivate={() => handleRowDeactivate(row)}
-                    onKill={() => handleRowKill(row)}
-                    onArchive={
-                      canonicalArchiveIdForRow(row) !== null
-                        ? () => handleArchive(row)
-                        : undefined
-                    }
-                    inActiveSet={activeSet.has(row.id)}
-                    sessionKey={sessionWorkingKey(row)}
-                    subtitleMode="identityTitle"
-                  />
-                ))}
+                rows={
+                  section.rows.length === 0 ? (
+                    // UAT 2026-09-19: empty-state message when a project has
+                    // zero conversations — mirrors the Apps section's D-04
+                    // empty-state pattern (centered italic muted line) so
+                    // the two sections read consistently. The drop lane on
+                    // PrettyProjectSectionHeader is already active on the
+                    // whole section, so drag-and-drop works over this text.
+                    <div
+                      className="pv-project-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85"
+                      data-testid="pretty-conversations-project-empty"
+                    >
+                      Create a new conversation, or drag one here.
+                    </div>
+                  ) : (
+                    section.rows.map((row) => (
+                      <PrettyConversationRowLive
+                        key={row.id}
+                        row={row}
+                        selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
+                        pinned={isRowPinned(row)}
+                        variant={variant}
+                        onSelect={() => handleRowSelect(row)}
+                        onTogglePin={() => handleTogglePin(row)}
+                        onDeactivate={() => handleRowDeactivate(row)}
+                        onKill={() => handleRowKill(row)}
+                        onArchive={
+                          canonicalArchiveIdForRow(row) !== null
+                            ? () => handleArchive(row)
+                            : undefined
+                        }
+                        inActiveSet={activeSet.has(row.id)}
+                        sessionKey={sessionWorkingKey(row)}
+                        subtitleMode="identityTitle"
+                      />
+                    ))
+                  )
+                }
               />
             ))}
             {/* Phase 41 Plan 01 (user 2026-08-14): FLAT middle zone.
