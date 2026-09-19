@@ -143,6 +143,7 @@ interface StubSftp {
   unlink: Mock;
   rmdir: Mock;
   rename: Mock;
+  ext_openssh_rename: Mock;
   createWriteStream: Mock;
 }
 
@@ -241,6 +242,11 @@ function resetStubClient() {
       queueMicrotask(() => cb(null));
     }),
     rename: vi.fn(
+      (_from: string, _to: string, cb: (err: Error | null) => void) => {
+        queueMicrotask(() => cb(null));
+      },
+    ),
+    ext_openssh_rename: vi.fn(
       (_from: string, _to: string, cb: (err: Error | null) => void) => {
         queueMicrotask(() => cb(null));
       },
@@ -552,7 +558,7 @@ describe("POST /workspace/list", () => {
 /* --------------------------------------------------------------------- */
 
 describe("PUT /workspace/write-file", () => {
-  it("Test 9: valid body → 200; createWriteStream called with path ending '.partial', then rename called", async () => {
+  it("Test 9: valid body → 200; createWriteStream called with path ending '.partial', then ext_openssh_rename called", async () => {
     let capturedTempPath = "";
     let capturedRenameSrc = "";
 
@@ -560,7 +566,7 @@ describe("PUT /workspace/write-file", () => {
       capturedTempPath = p;
       return makeDefaultWriteStream();
     });
-    stubSftp.rename.mockImplementation(
+    stubSftp.ext_openssh_rename.mockImplementation(
       (from: string, _to: string, cb: (err: Error | null) => void) => {
         capturedRenameSrc = from;
         queueMicrotask(() => cb(null));

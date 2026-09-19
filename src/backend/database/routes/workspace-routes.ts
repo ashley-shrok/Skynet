@@ -108,6 +108,12 @@ type SftpLike = {
   unlink(p: string, cb: (err: Error | null) => void): void;
   rmdir(p: string, cb: (err: Error | null) => void): void;
   rename(from: string, to: string, cb: (err: Error | null) => void): void;
+  // OpenSSH posix-rename@openssh.com extension — atomic rename that
+  // OVERWRITES the destination if it exists. Standard SFTP rename fails
+  // with SSH_FX_FAILURE when the target already exists, which broke
+  // sftpWriteBuffer's tmp+rename flow for saves over an existing file
+  // (Wave 4 UAT round 2).
+  ext_openssh_rename(from: string, to: string, cb: (err: Error | null) => void): void;
   createWriteStream(
     p: string,
     opts?: { flags?: string },
@@ -232,7 +238,13 @@ function sftpWriteBuffer(
     const stream = sftp.createWriteStream(tempPath, { flags: "wx" });
     stream.on("error", (err) => reject(err));
     stream.on("close", () => {
-      sftp.rename(tempPath, absolutePath, (err) => {
+      // ext_openssh_rename (posix-rename@openssh.com) instead of plain
+      // rename — standard SFTP RENAME per RFC does not overwrite an
+      // existing destination; the posix-rename extension does, atomically.
+      // All fleet hosts run OpenSSH so the extension is universally
+      // available. Without this, saving over an existing file (the
+      // common case) fails with SSH_FX_FAILURE (code 4, "Failure").
+      sftp.ext_openssh_rename(tempPath, absolutePath, (err) => {
         if (err) return reject(err);
         resolve();
       });
