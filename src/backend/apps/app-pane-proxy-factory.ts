@@ -138,6 +138,49 @@ function stripToAllowlist(proxyReq: http.ClientRequest): void {
 }
 
 /* ------------------------------------------------------------------------ */
+/*  pathRewrite (HIGH-2 code-review fix, 2026-09-19)                         */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Build the pathRewrite function passed to `createProxyMiddleware`.
+ * Exported for unit-test coverage — the router mounts this factory under
+ * `/apps`, so `req.url` arriving at the proxy middleware is already
+ * mount-stripped (`/<hostId>/<slug>/pane/<rest>`); the rewrite therefore
+ * matches on the mount-relative shape.
+ *
+ * The regex is per-(hostId, slug) because that's the tuple the caller
+ * bakes into the middleware cache-entry (buildCacheKey above); any URL
+ * that reaches this middleware necessarily carries that exact (hostId,
+ * slug) tuple in the first two segments (upstream routing dispatch has
+ * already validated it). Guarding against mismatches here is
+ * defence-in-depth: on a mismatch we return the input path unchanged
+ * rather than accidentally stripping the wrong prefix.
+ *
+ * Rewrite semantics:
+ *   `/<hostId>/<slug>/pane`         → `/`
+ *   `/<hostId>/<slug>/pane/`        → `/`
+ *   `/<hostId>/<slug>/pane/api/x`   → `/api/x`
+ *   anything else                    → passthrough (input unchanged)
+ */
+export function buildPaneMountPathRewrite(
+  hostId: number,
+  slug: string,
+): (path: string) => string {
+  // Anchor to mount-relative shape. Escape the slug's `-` inside a
+  // character class defensively (slugs are `[a-z0-9-]{1,64}` per
+  // APP_SLUG_RE) — we build the regex from the literal segments so no
+  // metacharacter injection is possible; escaping is belt-and-braces.
+  const pattern = new RegExp(
+    `^/${hostId}/${slug.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}/pane(/.*)?$`,
+  );
+  return (path: string) => {
+    const m = pattern.exec(path);
+    if (!m) return path;
+    return m[1] ?? "/";
+  };
+}
+
+/* ------------------------------------------------------------------------ */
 /*  Public API                                                              */
 /* ------------------------------------------------------------------------ */
 
@@ -154,8 +197,15 @@ function stripToAllowlist(proxyReq: http.ClientRequest): void {
  *    clean loopback Host, not Skynet's own primary domain).
  *  - ws: true (WebSocket upgrade tunneling).
  *  - selfHandleResponse: true (REQUIRED for responseInterceptor to fire).
- *  - pathRewrite: strips `^/apps/<hostId>/<slug>/pane` — the app sees
- *    itself at root (per D-11: "apps don't know they're in-pane").
+ *  - pathRewrite: strips the mount-relative `^/<hostId>/<slug>/pane`
+ *    prefix — the app sees itself at root (per D-11: "apps don't know
+ *    they're in-pane"). NOTE (HIGH-2 code-review fix, 2026-09-19): the
+ *    regex is MOUNT-RELATIVE (no leading `/apps`) because the router is
+ *    mounted via `app.use("/apps", appPaneRouter)`, and Express strips
+ *    the `/apps` prefix from `req.url` before it reaches the proxy
+ *    middleware. `http-proxy-middleware` v4 rewrites against `req.url`,
+ *    not `req.originalUrl`. The prior anchored `^/apps/...` regex never
+ *    matched at runtime.
  *  - on.proxyReq: strip → emitHeaderAudit(target, 'req', proxyReq).
  *  - on.proxyReqWs: strip → RSV1 fix (setHeader → '') → emitHeaderAudit.
  *  - on.proxyRes: responseInterceptor wrapper that gates on Content-Type
@@ -178,9 +228,11 @@ export function getOrCreateAppPaneProxyForTarget(
     changeOrigin: true,
     ws: true,
     selfHandleResponse: true, // REQUIRED for responseInterceptor to fire
-    pathRewrite: {
-      [`^/apps/${hostId}/${slug}/pane`]: "",
-    },
+    // HIGH-2 code-review fix (2026-09-19): mount-relative pathRewrite via
+    // a function rather than a regex-object literal. The router mounts
+    // at `/apps`, so `req.url` here is already stripped of `/apps` by
+    // Express. See `buildPaneMountPathRewrite` above.
+    pathRewrite: buildPaneMountPathRewrite(hostId, slug),
     on: {
       // Outbound HTTP request — strip first, then audit. Same shape as
       // serve-url/proxy-factory.ts:204-207.

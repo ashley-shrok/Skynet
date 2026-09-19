@@ -278,15 +278,24 @@ describe("middleware options", () => {
     expect(opts.target).toBe("http://127.0.0.1:12345");
   });
 
-  it("configures pathRewrite that strips ^/apps/<hostId>/<slug>/pane to empty string", async () => {
+  it("configures pathRewrite as a function that strips the mount-relative /<hostId>/<slug>/pane prefix (HIGH-2)", async () => {
     const { getOrCreateAppPaneProxyForTarget } = await import(
       "../app-pane-proxy-factory.js"
     );
     getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
     const opts = lastOptions() as Record<string, unknown>;
-    expect(opts.pathRewrite).toEqual({
-      "^/apps/5/todo/pane": "",
-    });
+    // HIGH-2 code-review fix (2026-09-19): pathRewrite is now a function.
+    // The router mounts at `/apps`, so Express strips `/apps` from `req.url`
+    // before the proxy sees it — the rewrite works on `/5/todo/pane/...`,
+    // NOT `/apps/5/todo/pane/...`. Prior form was `{ "^/apps/5/todo/pane":
+    // "" }`, which never matched at runtime.
+    expect(typeof opts.pathRewrite).toBe("function");
+    const rewrite = opts.pathRewrite as (path: string) => string;
+    expect(rewrite("/5/todo/pane/api/list")).toBe("/api/list");
+    expect(rewrite("/5/todo/pane/")).toBe("/");
+    expect(rewrite("/5/todo/pane")).toBe("/");
+    // Non-matching paths pass through unchanged (defence-in-depth).
+    expect(rewrite("/other/path")).toBe("/other/path");
   });
 
   it("wraps proxyRes with responseInterceptor (invoked once with the async callback)", async () => {
@@ -490,5 +499,96 @@ describe("error hook", () => {
     opts.on.error(err, req, res);
     // No interstitial write attempted.
     expect(mocks.writeInterstitial).not.toHaveBeenCalled();
+  });
+});
+
+/* ------------------------------------------------------------------------ */
+/*  buildPaneMountPathRewrite — HIGH-2 dedicated coverage                    */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * HIGH-2 code-review fix (2026-09-19). The router mounts under `/apps`,
+ * so Express strips `/apps` from `req.url` before the proxy middleware
+ * sees it. The rewrite therefore operates on `/<hostId>/<slug>/pane/...`,
+ * not `/apps/<hostId>/<slug>/pane/...`. This suite exercises the exported
+ * `buildPaneMountPathRewrite` factory directly with the exact URL shapes
+ * Express would deliver post-mount — a regression against the pre-fix
+ * regex (`^/apps/...`) fails these cases because none of them start with
+ * `/apps`.
+ */
+describe("buildPaneMountPathRewrite (HIGH-2 unit coverage)", () => {
+  it("rewrites `/5/todo/pane/api/list` → `/api/list`", async () => {
+    const { buildPaneMountPathRewrite } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    const rewrite = buildPaneMountPathRewrite(5, "todo");
+    expect(rewrite("/5/todo/pane/api/list")).toBe("/api/list");
+  });
+
+  it("rewrites trailing-slash-only `/5/todo/pane/` → `/`", async () => {
+    const { buildPaneMountPathRewrite } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    const rewrite = buildPaneMountPathRewrite(5, "todo");
+    expect(rewrite("/5/todo/pane/")).toBe("/");
+  });
+
+  it("rewrites no-trailing-slash `/5/todo/pane` → `/`", async () => {
+    const { buildPaneMountPathRewrite } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    const rewrite = buildPaneMountPathRewrite(5, "todo");
+    expect(rewrite("/5/todo/pane")).toBe("/");
+  });
+
+  it("preserves query strings inside the tail (they're part of the path arg to pathRewrite)", async () => {
+    const { buildPaneMountPathRewrite } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    const rewrite = buildPaneMountPathRewrite(5, "todo");
+    // http-proxy-middleware passes path+search to pathRewrite; the whole
+    // tail after `/pane` (including `?foo=bar`) belongs to the app.
+    expect(rewrite("/5/todo/pane/api/x?foo=bar&baz=qux")).toBe(
+      "/api/x?foo=bar&baz=qux",
+    );
+  });
+
+  it("passes through paths that don't match this middleware's (hostId, slug) tuple", async () => {
+    const { buildPaneMountPathRewrite } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    const rewrite = buildPaneMountPathRewrite(5, "todo");
+    // Different hostId — passthrough (upstream routing dispatch shouldn't
+    // send us this; defence-in-depth guarantees we don't accidentally
+    // strip the wrong prefix).
+    expect(rewrite("/6/todo/pane/api/list")).toBe("/6/todo/pane/api/list");
+    // Different slug — passthrough.
+    expect(rewrite("/5/timer/pane/api/list")).toBe("/5/timer/pane/api/list");
+    // No `/pane` segment — passthrough.
+    expect(rewrite("/5/todo/other/x")).toBe("/5/todo/other/x");
+    // Missing leading slash — passthrough.
+    expect(rewrite("5/todo/pane")).toBe("5/todo/pane");
+  });
+
+  it("does NOT match the pre-fix `/apps/...` shape (regression guard)", async () => {
+    const { buildPaneMountPathRewrite } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    const rewrite = buildPaneMountPathRewrite(5, "todo");
+    // If someone reverts to `/apps/...` this passes through unchanged
+    // rather than stripping. In production this shape does not occur
+    // (Express mount-strips `/apps` first) — asserted here so the guard
+    // is explicit.
+    expect(rewrite("/apps/5/todo/pane/api/list")).toBe(
+      "/apps/5/todo/pane/api/list",
+    );
+  });
+
+  it("handles slugs containing hyphens (APP_SLUG_RE-legal characters)", async () => {
+    const { buildPaneMountPathRewrite } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    const rewrite = buildPaneMountPathRewrite(5, "my-cool-app");
+    expect(rewrite("/5/my-cool-app/pane/api/list")).toBe("/api/list");
   });
 });
