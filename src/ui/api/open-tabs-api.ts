@@ -12,6 +12,10 @@ export interface OpenTabRecord {
   tabOrder: number;
   backendSessionId: string | null;
   targetTmuxSession: string | null;
+  // Phase 120 D-16 — app-leaf slug half of the (hostId, slug) tuple. Null
+  // for every non-app tab type (matches the backend column shape from
+  // Plan 03 — user_open_tabs.app_slug is a nullable TEXT column).
+  appSlug: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -24,6 +28,8 @@ export interface OpenTabSyncPayload {
   tabOrder: number;
   backendSessionId?: string | null;
   targetTmuxSession?: string | null;
+  // Phase 120 D-16 — see OpenTabRecord.appSlug JSDoc.
+  appSlug?: string | null;
 }
 
 export interface OpenTabUpsertPayload {
@@ -34,6 +40,8 @@ export interface OpenTabUpsertPayload {
   tabOrder: number;
   backendSessionId?: string | null;
   targetTmuxSession?: string | null;
+  // Phase 120 D-16 — see OpenTabRecord.appSlug JSDoc.
+  appSlug?: string | null;
 }
 
 export interface ActiveSessionInfo {

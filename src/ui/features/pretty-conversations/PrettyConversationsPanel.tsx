@@ -414,6 +414,7 @@ export function PrettyConversationsPanel({
   openTabIds = [],
   isAdmin = false,
   onCreateRelayRoom,
+  onOpenApp,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
   // rows' pin mechanism (mobile=swipe / desktop=hover-reveal). AppShell
@@ -518,6 +519,16 @@ export function PrettyConversationsPanel({
    * called after the modal has already closed.
    */
   onCreateRelayRoom?: (result: CreateRelayRoomResponse) => void;
+  /**
+   * Phase 120 D-06 — Fired when the user left-clicks an AppTile in the Apps
+   * section. AppShell wires this to
+   * `openTab(null, "app", ..., { app: { hostId, slug }, label: title })`,
+   * creating a new app-type pane leaf. Optional so tests + non-integrated
+   * mount sites can render the panel without wiring the callback (Phase 119
+   * shipped AppTile.tsx with a deliberate no-op click; Plan 07 activates it
+   * end-to-end through this prop hole).
+   */
+  onOpenApp?: (hostId: number, slug: string, title: string) => void;
 }) {
   const visibleInSplitTree = visibleInSplitTreeTabIds ?? EMPTY_VISIBLE_SET;
   const { t } = useTranslation();
@@ -2492,7 +2503,11 @@ export function PrettyConversationsPanel({
                 </div>
               ) : (
                 appTiles.map((app) => (
-                  <AppTile key={`${app.hostId}:${app.slug}`} app={app} />
+                  <AppTile
+                    key={`${app.hostId}:${app.slug}`}
+                    app={app}
+                    onOpenApp={onOpenApp}
+                  />
                 ))
               )}
             </div>

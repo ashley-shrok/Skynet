@@ -1205,6 +1205,11 @@ export function AppShell({
         // later must NOT trigger a URL rewrite (see D-15/D-16 landmine).
         sessionKind: t.sessionKind,
         relayRoomId: t.relayRoomId,
+        // Phase 120 D-16 — app tabs surface via t.type === "app" + t.app.
+        // specForTab's app branch emits `app:<hostId>:<slug>` (see
+        // tab-url.ts:313-320). tab.app is undefined for non-app tabs;
+        // specForTab returns null for those and the loop continues.
+        app: t.app,
       });
       if (!spec) continue;
       if (t.id === activeTabId) activeIndex = tabSpecs.length;
@@ -1237,6 +1242,11 @@ export function AppShell({
         // top-level URL-sync loop above).
         sessionKind: t.sessionKind,
         relayRoomId: t.relayRoomId,
+        // Phase 120 D-16 — app leaf inside a split tree; parallel to the
+        // top-level URL-sync loop above. Emits `app:<hostId>:<slug>` so
+        // the workspace-share flow + Chrome-tab-restore round-trip apps
+        // in a split.
+        app: t.app,
       });
     });
     writeWorkspaceToUrl(
@@ -1464,6 +1474,12 @@ export function AppShell({
     "rdp",
     "vnc",
     "telnet",
+    // Phase 120 D-16 — app tabs persist so reload restores the leaf. The
+    // (hostId, slug) tuple flows through addOpenTab's appSlug + hostId
+    // fields (Plan 03 added the app_slug column); restoredTabs.push below
+    // reconstructs Tab.app when saved.tabType === "app" && saved.appSlug
+    // is populated.
+    "app",
   ];
 
   // On load: always read saved tabs from DB so background sessions are preserved across refreshes.
@@ -1548,6 +1564,22 @@ export function AppShell({
                   targetTmuxSession: saved.targetTmuxSession ?? null,
                   terminalRef:
                     saved.tabType === "terminal" ? createRef() : undefined,
+                  // Phase 120 D-16 — reconstruct Tab.app when the saved row
+                  // is an app tab AND both halves of the (hostId, slug)
+                  // tuple are populated. Mid-rollout legacy rows (Plan 03
+                  // shipped but Plan 07 didn't) restore without the tuple —
+                  // isAppTab narrows to false and renderAppTab returns null
+                  // (empty leaf, non-fatal degradation per T-120-40).
+                  ...(saved.tabType === "app" &&
+                  saved.hostId != null &&
+                  saved.appSlug != null
+                    ? {
+                        app: {
+                          hostId: saved.hostId,
+                          slug: saved.appSlug,
+                        },
+                      }
+                    : {}),
                 });
               }
 
@@ -1655,6 +1687,34 @@ export function AppShell({
             // shape at AppShell.tsx:2169-2176. This branch MUST come before
             // any spec.host access — TabSpec is a discriminated union
             // (Task 1); the relay variant has host?: never.
+            // Phase 120 D-16 — app-tab URL restore. TabSpec's app variant
+            // carries hostId (string) + slug; construct Tab.app with
+            // Number(spec.hostId) at the wire boundary. Idempotency:
+            // reuse an already-restored app tab if one with the same
+            // (hostId, slug) tuple exists. D-15 multi-instance is NOT
+            // violated: idempotency runs per spec in pending.tabs, so
+            // two distinct app tabs in the URL (same or different tuple)
+            // each get their own openedIds entry via openTab below.
+            if (spec.protocol === "app") {
+              const restoreHostId = Number(spec.hostId);
+              const match = restoredTabs.find(
+                (t) =>
+                  t.type === "app" &&
+                  t.app?.hostId === restoreHostId &&
+                  t.app?.slug === spec.slug,
+              );
+              if (match) {
+                openedIds.push(match.id);
+              } else {
+                const newId = openTab(null, "app", undefined, {
+                  app: { hostId: restoreHostId, slug: spec.slug },
+                  label: spec.slug,
+                  allowCreateTmux: false,
+                });
+                if (newId) openedIds.push(newId);
+              }
+              continue; // skip host-required logic below
+            }
             if (spec.protocol === "relay") {
               // Idempotency: reuse an already-restored relay-room tab if one
               // with the same roomId exists.
@@ -1794,6 +1854,16 @@ export function AppShell({
                 openedIdx += 1;
                 continue;
               }
+              // Phase 120 D-16 — app branch MUST come before any spec.host
+              // access. Symmetric with the relay branch above; the app
+              // variant carries host?: never so runtime host is undefined.
+              if (spec.protocol === "app") {
+                const key = `app:${spec.hostId}:${spec.slug}`;
+                const id = openedIds[openedIdx];
+                if (id) specToTabId.set(key, id);
+                openedIdx += 1;
+                continue;
+              }
               const wantType: TabType =
                 spec.protocol === "tmux"
                   ? "terminal"
@@ -1924,6 +1994,12 @@ export function AppShell({
       sessionKind?: "harness" | "relay-room";
       relayRoomId?: string;
       relayRoomTitle?: string | null;
+      // Phase 120 D-02 — app tuple. Present only when type === "app";
+      // carries the (hostId, slug) identifying the app leaf. AppShell's
+      // AppTile onOpenApp callback + onDropAppTileInTree callback both
+      // pass this through so the created Tab carries `Tab.app` and
+      // persistence + URL-fragment round-trips see the tuple.
+      app?: { hostId: number; slug: string };
     },
   ): string {
     // Patch #35: append a monotonic counter suffix so multiple openTab
@@ -1959,6 +2035,9 @@ export function AppShell({
     const sessionKind = options?.sessionKind;
     const relayRoomId = options?.relayRoomId;
     const relayRoomTitle = options?.relayRoomTitle ?? null;
+    // Phase 120 D-02 — app tuple; only present when the caller is spawning
+    // an app-type tab. Present when type === "app"; absent otherwise.
+    const appTuple = options?.app;
 
     // Fallback label when host is null and no custom label supplied — use
     // the room title (if any) so the tab title reads meaningfully; else the
@@ -1987,6 +2066,12 @@ export function AppShell({
             ...(sessionKind === "relay-room"
               ? { relayRoomTitle }
               : {}),
+            // Phase 120 D-02 — app-tab tuple. Only spread when the caller
+            // provided the app option (i.e. type === "app"). D-15 multi-
+            // instance: no dedupe here — a second openTab call with the
+            // same (hostId, slug) tuple appends a fresh Tab, resulting in
+            // two independent leaves that each connect independently.
+            ...(appTuple !== undefined ? { app: appTuple } : {}),
           },
         ];
       }
@@ -2021,6 +2106,8 @@ export function AppShell({
           ...(sessionKind !== undefined ? { sessionKind } : {}),
           ...(relayRoomId !== undefined ? { relayRoomId } : {}),
           ...(sessionKind === "relay-room" ? { relayRoomTitle } : {}),
+          // Phase 120 D-02 — see the customLabel branch above.
+          ...(appTuple !== undefined ? { app: appTuple } : {}),
         },
       ];
     });
@@ -2036,10 +2123,23 @@ export function AppShell({
         // dashboard). Docs for relay-room persistence semantics deferred
         // to a follow-up quick if/when open-tab restore for relay-room
         // becomes desirable.
-        hostId: host ? parseInt(host.id) : null,
+        //
+        // Phase 120 D-16: app tabs carry hostId via the app tuple (not via
+        // the resolved `host` object — AppTile passes null for the host arg
+        // to openTab and provides { app: { hostId, slug } } via options).
+        // Fall through to the tuple's hostId when host is absent so the
+        // persisted row identifies the home box for reload restore.
+        hostId: host
+          ? parseInt(host.id)
+          : appTuple
+            ? appTuple.hostId
+            : null,
         label: finalLabel,
         tabOrder: 0,
         targetTmuxSession,
+        // Phase 120 D-16 — app-slug tuple half. Null for every non-app tab
+        // type (matches the nullable column added in Plan 03).
+        appSlug: appTuple?.slug ?? null,
       }).catch(() => {});
     }
     return tabId;
@@ -2643,6 +2743,50 @@ export function AppShell({
     [resolveRowPayloadTabId, openSessionInTree],
   );
 
+  // Phase 120 D-06 — left-click on an AppTile: open the app in a new pane
+  // leaf via openTab with type: "app" and the (hostId, slug) tuple. D-15
+  // multi-instance is preserved: no dedupe here — every click emits a
+  // fresh openTab call. Label is the app's static title (D-19 — tab bar
+  // shows the metadata title, not the app's live document.title).
+  const onOpenApp = useCallback(
+    (hostId: number, slug: string, title: string) => {
+      openTab(null, "app", undefined, {
+        app: { hostId, slug },
+        label: title,
+        allowCreateTmux: false,
+      });
+    },
+    [openTab],
+  );
+
+  // Phase 120 D-07 — edge-drop on the split view carrying an AppTile
+  // payload. Mirror of onDropRowInTree: openTab creates a fresh app leaf,
+  // openSessionInTree inserts it at the requested edge. No dedupe (D-15
+  // multi-instance): a drop always creates a new leaf, even if the same
+  // app is already open elsewhere. No dragId echo — AppTile is a copy
+  // gesture (effectAllowed="copy"), not a move; there is no source tab to
+  // hard-close.
+  const onDropAppTileInTree = useCallback(
+    (
+      payload: { hostId: number; slug: string; title: string },
+      path: SplitPath,
+      edge: DropEdge,
+    ) => {
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop] onDropAppTileInTree hostId=${payload.hostId} slug=${payload.slug} path=${JSON.stringify(path)} edge=${edge}`,
+      );
+      const newTabId = openTab(null, "app", undefined, {
+        app: { hostId: payload.hostId, slug: payload.slug },
+        label: payload.title,
+        allowCreateTmux: false,
+      });
+      openSessionInTree(newTabId, path, edge);
+      selectConversationDeferred(newTabId);
+    },
+    [openTab, openSessionInTree],
+  );
+
   // Center-zone row drop handler (2026-09-18). Row-source counterpart to
   // onCenterDropBadge — resolves the payload through resolveRowPayloadTabId
   // BEFORE hitting the tree. Without this, a fleet-only-detached row
@@ -2840,6 +2984,7 @@ export function AppShell({
           sidebarToggleOverlaps={isMobile && !isTouchDevice && sidebarOpen}
           visibleInSplitTreeTabIds={visibleInSplitTreeTabIds}
           isAdmin={isAdmin}
+          onOpenApp={onOpenApp}
           // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE + PV58-DOCLOSETAB-TREE-
           // RECONCILE: badge drop on the conv-list panel closes the tab.
           // closeTab already reconciles splitTree via removeLeaf inside
@@ -3667,6 +3812,11 @@ export function AppShell({
                         edge,
                       )
                     }
+                    // Phase 120 D-07 — app-tile edge-drop wiring.
+                    // SplitView's drop dispatch parses the JSON payload and
+                    // hands the typed object here; AppShell calls openTab +
+                    // openSessionInTree to place the fresh app leaf.
+                    onDropAppTileInTree={onDropAppTileInTree}
                     // Phase 64 Plan 02 center-drop wiring: SplitView
                     // center-zone drop dispatches to replaceInTree (from
                     // conv-list source MIME) or swapInTree (from open badge
