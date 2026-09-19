@@ -553,7 +553,13 @@ function WorkspaceFileViewer({
       );
     }
   } else if (file.type === "markdown") {
-    // Lazy-loaded MarkdownEditor — D-11 reuse, D-10 no modal wrapper
+    // Lazy-loaded MarkdownEditor — D-11 reuse, D-10 no modal wrapper.
+    // The MDXEditor internal DOM has no built-in scroll, and the tab body
+    // is height-constrained by the enclosing IdentityModal, so a tall
+    // markdown file's content otherwise clips off the bottom (and takes the
+    // save button below it out of reach). Wrap the editor in a
+    // flex:1 / minHeight:0 / overflow:auto scroll container so tall files
+    // scroll inside the tab while the save-button row below stays fixed.
     body = (
       <div
         style={{
@@ -578,28 +584,30 @@ function WorkspaceFileViewer({
             Loading…
           </div>
         ) : (
-          <Suspense
-            fallback={
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--color-pv-fg-muted)",
-                  fontSize: 13,
-                }}
-              >
-                Loading editor…
-              </div>
-            }
-          >
-            <MarkdownEditor
-              filename={file.name}
-              content={mdContent}
-              onChange={setMdContent}
-            />
-          </Suspense>
+          <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+            <Suspense
+              fallback={
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 24,
+                    color: "var(--color-pv-fg-muted)",
+                    fontSize: 13,
+                  }}
+                >
+                  Loading editor…
+                </div>
+              }
+            >
+              <MarkdownEditor
+                filename={file.name}
+                content={mdContent}
+                onChange={setMdContent}
+              />
+            </Suspense>
+          </div>
         )}
         {fetchState.status === "ready" && (
           <div
