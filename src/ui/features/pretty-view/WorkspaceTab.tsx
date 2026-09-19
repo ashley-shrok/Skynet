@@ -743,28 +743,6 @@ function WorkspaceListView({
     // refreshKey in deps means the refresh button re-runs the effect (D-05)
   }, [identity.identityKey, hostId, currentPath, refreshKey]);
 
-  // Determine host reachability from listState (D-18)
-  const hostName = identity.displayName ?? `host ${hostId}`;
-  let chipColor = "hsla(220, 10%, 60%, 0.7)";
-  let chipStatus = "Connecting…";
-  if (listState.status === "ready") {
-    chipColor = "hsla(142, 70%, 55%, 0.85)";
-    chipStatus = "Online";
-  } else if (listState.status === "error") {
-    const errClass = listState.errorClass;
-    if (
-      errClass === "host_unreachable" ||
-      errClass === "ssh_timeout" ||
-      errClass === "unknown_host"
-    ) {
-      chipColor = "hsla(6, 80%, 55%, 0.85)";
-      chipStatus = "Offline";
-    } else {
-      chipColor = "hsla(6, 80%, 55%, 0.85)";
-      chipStatus = "Error";
-    }
-  }
-
   // Sort column toggling (D-14)
   function handleSortClick(col: "name" | "size" | "mtime") {
     if (sortKey === col) {
@@ -1031,37 +1009,6 @@ function WorkspaceListView({
         if (openMenuFor) setOpenMenuFor(null);
       }}
     >
-      {/* Host chip (D-18) */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "8px 14px 4px",
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            display: "inline-block",
-            width: 7,
-            height: 7,
-            borderRadius: "50%",
-            background: chipColor,
-            flexShrink: 0,
-          }}
-        />
-        <span
-          style={{
-            fontSize: 11,
-            color: "var(--color-pv-fg-muted)",
-            fontWeight: 500,
-          }}
-        >
-          {hostName} · {chipStatus}
-        </span>
-      </div>
-
       {/* Toolbar: breadcrumb + action buttons */}
       <div
         style={{
