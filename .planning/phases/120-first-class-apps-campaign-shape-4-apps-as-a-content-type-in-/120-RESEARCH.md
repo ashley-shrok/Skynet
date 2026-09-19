@@ -655,22 +655,25 @@ export function AppPane({ hostId, slug, tabId, isVisible }: AppPaneProps): React
 | A5 | `getAppSnapshot()` from the fleet-status registry (used by Phase 119's HIGH-1 fix in `apps.ts:305-307`) is the correct source for port lookup at pane-mount time. | Pattern 1 example | If the sweep hasn't populated the registry yet (fresh boot), the pane's first request 404s. Same failure mode as the Phase 119 redirect route already handles. |
 | A6 | Skynet's Docker container reverse-proxy path (Caddy) will forward `/apps/*` to Skynet's Express app rather than intercepting it. | D-08 mount | If Caddy has a `/apps/*` rule that intercepts, the pane request never reaches Express. Grep `docker/Caddyfile*` at plan time to confirm. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Local-loopback reachability from inside Skynet's container.**
    - What we know: Phase 118's sweep script uses `isLocalHostId` to short-circuit SSH for local ops. Phase 119's icon endpoint uses the same predicate. Both those operations run OS-level probes (file reads, systemctl calls) — they don't need TCP reachability of the local port.
    - What's unclear: When Skynet's Express app runs INSIDE a Docker container and the "local" app runs on the HOST's 127.0.0.1:PORT, direct HTTP GET to `http://127.0.0.1:PORT` from inside the container FAILS (loopback is container-local). This is the classic Docker gotcha.
    - Recommendation: **Verify at plan time.** Options: (a) SSH tunnel is used unconditionally (simpler, one code path); (b) `pane-target-resolver.ts` uses `host.docker.internal` for local; (c) uses the box's tailscale IP. Recommendation: option (a) — always tunnel — is safest; the container-mutation serialization rule + tunnel-cache singleton already handle the load. If someone wants to optimize, that's a follow-up.
+   - **RESOLVED:** `pane-target-resolver` uses SSH tunnel unconditionally. Local-loopback bypass is NOT implemented; the local Skynet host reaches its own apps via SSH tunnel just like any other host. One code path, safer. Plan 02's `pane-target-resolver.ts` never branches on `isLocalHostId` — it always resolves through the tunnel cache.
 
 2. **Which specific comment wording lands in the starter template.**
    - What we know: D-14 says intent is "the check is off because the proxy enforces it" — verbatim wording is Claude's discretion.
    - What's unclear: Whether the comment references the specific file path (`src/backend/apps/app-proxy-csrf-check.ts`) or a doc URL or nothing.
    - Recommendation: reference the file path (Skynet-side implementation detail is stable). Include a one-liner about the fresh-tab affordance still working (relies on tailnet perimeter). See Code Examples § "D-14 comment update" for a working draft.
+   - **RESOLVED:** Claude's discretion at execute time per D-14 explicit clause; Plan 08 Task 1 carries a working draft.
 
 3. **Whether `<base>` in `<head>` interacts with SvelteKit's `%sveltekit.head%` template variable.**
    - What we know: `app-starter/src/app.html` uses `%sveltekit.head%` to inject SvelteKit's own head content. Injecting a `<base>` before this variable places it FIRST — which is correct per HTML spec (base must precede other resolutions).
    - What's unclear: SvelteKit may itself emit a `<base>` for its own router hydration under some configs. Two `<base>` tags → browser uses the first; check that ours wins.
    - Recommendation: at plan time, add a smoke test that renders the starter template's index HTML through the injector and asserts the `<base>` is present + not-preceded-by-another `<base>`.
+   - **RESOLVED:** The `responseInterceptor` injects `<base>` as the FIRST child of `<head>` before any SvelteKit-emitted content; SvelteKit's `%sveltekit.head%` template variable emits AFTER our injection point, so our `<base>` wins. Plan 01 Task 1 test 5 explicitly asserts this ordering.
 
 ## Environment Availability
 
