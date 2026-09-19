@@ -1,7 +1,9 @@
+import { spawn } from "child_process";
 import dotenv from "dotenv";
 import { promises as fs } from "fs";
 import { readFileSync } from "fs";
 import { monitorEventLoopDelay } from "node:perf_hooks";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { AutoSSLSetup } from "./utils/auto-ssl-setup.js";
@@ -14,9 +16,83 @@ import {
   setGlobalLogLevel,
 } from "./utils/logger.js";
 import { flushBackendLogs } from "./utils/console-forward-transport.js";
+import { isLocalHostId } from "./claude-session/identity-artifact-reader.js";
 import type { SshChannel } from "./fleet-status/ssh-poll-orchestrator.js";
 import { enqueue as enqueueSpawnRequest, setProcessBirth as setSpawnRequestProcessBirth } from "./spawn-requests/queue.js";
 import { processBirth as processSpawnRequestBirth, buildProductionDeps as buildSpawnRequestWorkerDeps } from "./spawn-requests/worker.js";
+
+/**
+ * Local-host channel adapter — child_process.spawn behind the SshChannel
+ * interface. Used by acquireSshChannel when isLocalHostId(hostId) matches:
+ * bypasses SSH entirely and runs the command inside this process's own
+ * container, with HOME rewritten to HOME_HOST_DIR so `~` in the SSH-shaped
+ * commands (e.g. `~/.local/bin/fleet-status-sweep`, `test -x ~/.claude/...`)
+ * resolves to the bind-mounted host home rather than the container's /root.
+ *
+ * Semantics match execCommand (src/backend/ssh/tmux-helper.ts): resolves with
+ * trimmed stdout on success (including non-zero exit if stdout is non-empty —
+ * the SSH probes rely on `... && echo yes || echo no` patterns that always
+ * emit stdout); resolves with null on spawn error or non-zero exit with empty
+ * stdout. Callers already treat null as "SSH hiccup"; we reuse that path
+ * unchanged for local errors.
+ *
+ * Motivation: the fleet-status poll orchestrator is otherwise SSH-only, which
+ * makes the self-poll (hostId 6 → Skynet) traverse an SSH loopback for what
+ * should be a direct fs read. That loopback is the exact "half-broken TCP"
+ * failure mode the LEGACY_POLL_TIMEOUT_MS docblock names, and observed in the
+ * wild on 2026-09-19 (900+ skipped polls / ~30min jam until manual restart).
+ * Every other host-touching subsystem in the codebase branches on
+ * isLocalHostId already — this brings the poll orchestrator in line.
+ */
+function acquireLocalChannel(): SshChannel {
+  const localHome = process.env.HOME_HOST_DIR || os.homedir();
+  return {
+    exec: (command: string, stdinBody?: Buffer): Promise<string | null> => {
+      return new Promise<string | null>((resolve) => {
+        let child;
+        try {
+          child = spawn("bash", ["-c", command], {
+            env: { ...process.env, HOME: localHome },
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+        } catch {
+          resolve(null);
+          return;
+        }
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (chunk: Buffer) => {
+          stdout += chunk.toString("utf-8");
+        });
+        child.stderr.on("data", (chunk: Buffer) => {
+          stderr += chunk.toString("utf-8");
+        });
+        child.on("error", () => resolve(null));
+        child.on("close", (code: number | null) => {
+          if (code !== 0 && stdout === "") {
+            systemLogger.warn(
+              "Fleet-status: local-channel exec non-zero + empty stdout",
+              {
+                operation: "fleet_status_local_channel_exec_nonzero",
+                command: command.slice(0, 80),
+                code,
+                stderrLen: stderr.length,
+              },
+            );
+            resolve(null);
+            return;
+          }
+          resolve(stdout.trim());
+        });
+        if (stdinBody !== undefined) {
+          child.stdin.end(stdinBody);
+        } else {
+          child.stdin.end();
+        }
+      });
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Phase 39 Plan 04 (D-05 / GATE2-05): Module-scope helper for fire-and-forget
@@ -671,6 +747,18 @@ if (process.env.VITEST !== "true") {
         name: string;
         _connDetails?: Record<string, unknown>;
       }) {
+        // Local-host fast path — bypass SSH entirely. See acquireLocalChannel
+        // docblock. Returns a fresh child_process-backed adapter each call
+        // (no persistent connection to cache, and spawning bash is cheap).
+        // Stop-hook install (maybeInstallStopHook) is intentionally skipped
+        // here — it writes into ~/.claude/ via the channel and would end up
+        // creating root-owned files under the host's home via the bind-mount
+        // (container runs as uid 0). Local hosts' stop-hook lifecycle is
+        // out of scope for this fix; if it's needed later, wire it through
+        // the substrate distributor's local-fleet-install pipeline instead.
+        if (isLocalHostId(Number(host.id))) {
+          return acquireLocalChannel();
+        }
         try {
           // Return existing live client if available
           const existing = hostClients.get(host.id);
