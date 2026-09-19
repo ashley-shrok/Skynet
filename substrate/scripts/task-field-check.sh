@@ -24,7 +24,7 @@
 
 set -u
 
-# Unsupervised claude session (Ashley's ad-hoc runs, or any launch not routed
+# Unsupervised claude session (user's ad-hoc runs, or any launch not routed
 # through agent-supervisor): silently no-op — we have no identity to check.
 [ -z "${FLEET_IDENTITY:-}" ] && exit 0
 
