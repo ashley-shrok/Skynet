@@ -353,7 +353,6 @@ function assertResolvedUnderRoot(resolved: string, workspaceRoot: string): void 
 function classifyErrorToStatus(err: unknown): number {
   const name = err instanceof Error ? err.name : "unknown";
   const msg = err instanceof Error ? err.message : "";
-  const code = (err as { code?: number }).code;
   if (name === "AbortError") return 504;
   if (msg === "invalid_body") return 400;
   if (msg === "invalid_identity_key") return 400;
@@ -367,8 +366,11 @@ function classifyErrorToStatus(err: unknown): number {
   if (msg === "too_large") return 413;
   if (msg === "already_exists") return 409;
   if (msg === "not_empty") return 409;
-  // SSH2 ENOTEMPTY → code 4 (SSH_FX_FAILURE) or message pattern
-  if (code === 4 || /ENOTEMPTY|Directory not empty/i.test(msg)) return 409;
+  // SSH2 ENOTEMPTY — recognise by descriptive message text only. SSH_FX_FAILURE
+  // (code 4) is a generic-failure bucket used for many unrelated errors (write
+  // failures, quota, transient SFTP issues), so a bare `code === 4` match
+  // mis-attributed everything under it to "not empty". Trust the msg regex.
+  if (/ENOTEMPTY|Directory not empty/i.test(msg)) return 409;
   // EEXIST → already_exists
   if (/EEXIST|already exists/i.test(msg)) return 409;
   if (msg.includes("ENOENT") || msg.includes("No such file")) return 404;
@@ -379,7 +381,6 @@ function classifyErrorToStatus(err: unknown): number {
 function classifyErrorToClass(err: unknown): string {
   const name = err instanceof Error ? err.name : "unknown";
   const msg = err instanceof Error ? err.message : "";
-  const code = (err as { code?: number }).code;
   if (name === "AbortError") return "ssh_timeout";
   if (
     msg === "invalid_body" ||
@@ -397,8 +398,9 @@ function classifyErrorToClass(err: unknown): string {
   ) {
     return msg;
   }
-  // SSH2 ENOTEMPTY → not_empty
-  if (code === 4 || /ENOTEMPTY|Directory not empty/i.test(msg)) return "not_empty";
+  // SSH2 ENOTEMPTY — see classifyErrorToStatus above for why we do NOT
+  // trust a bare `code === 4` here.
+  if (/ENOTEMPTY|Directory not empty/i.test(msg)) return "not_empty";
   // EEXIST → already_exists
   if (/EEXIST|already exists/i.test(msg)) return "already_exists";
   if (msg.includes("ENOENT") || msg.includes("No such file")) return "not_found";
@@ -700,6 +702,8 @@ workspaceRoutes.put(
       sshLogger.warn("workspace /write-file error", {
         operation: "workspace_write_file",
         errorName: err instanceof Error ? err.name : "unknown",
+        errorMessage: err instanceof Error ? err.message : "",
+        errorCode: (err as { code?: number }).code,
         userId,
       });
     } finally {
