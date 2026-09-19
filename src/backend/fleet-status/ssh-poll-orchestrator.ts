@@ -1462,6 +1462,22 @@ export function createSshPollOrchestrator(
    */
   const LEGACY_POLL_TIMEOUT_MS = 30000;
 
+  /**
+   * Presence-probe wall-time cap. The `test -x ~/.local/bin/fleet-status-sweep`
+   * probe at the top of pollOneHost is a single trivial exec — normally sub-100ms
+   * — but like every other un-timed `channel.exec` it will wedge forever if the
+   * SSH stream never emits `close` (same half-broken-loopback failure mode the
+   * LEGACY_POLL_TIMEOUT_MS docblock names). If it wedges, `pollOneHost` never
+   * returns and the outer `inFlight` guard at pollAllHosts stays raised for that
+   * host forever — every subsequent tick logs `poll_skipped_inflight`. Observed
+   * in the wild on hostId 6 (Skynet self-poll over loopback SSH), 2026-09-19:
+   * container startup → batch 8s timeout → forces sweepScriptPresent=null →
+   * next tick's re-probe wedged → 900+ skips over ~30min until manual restart.
+   * On timeout we treat as `sweepScriptPresent=false` and fall through to legacy
+   * (which has its own 30s bound).
+   */
+  const PROBE_TIMEOUT_MS = 5000;
+
 // ---------------------------------------------------------------------------
 // Phase 99 — spawn-request scan helpers (D-01, D-02, D-03, D-17)
 //
@@ -1499,18 +1515,49 @@ export function createSshPollOrchestrator(
     }
 
     // Presence probe on first tick per SSH-channel lifetime OR after a
-    // sweep-exec null return (transient recovery — see below).
+    // sweep-exec null return (transient recovery — see below). Wall-time
+    // bounded — see PROBE_TIMEOUT_MS docblock for the wedge failure mode.
+    // On timeout: leave `sweepScriptPresent` as null so the next tick re-probes
+    // (the wedge may be transient), and this tick falls through to legacy
+    // because the batch dispatch guard requires `sweepScriptPresent` to be
+    // truthy. Legacy has its own 30s bound.
     if (hostState.sweepScriptPresent === null) {
-      const probeRaw = await channel.exec(
-        "test -x ~/.local/bin/fleet-status-sweep 2>/dev/null && echo yes || echo no",
-      );
-      hostState.sweepScriptPresent =
-        probeRaw !== null && probeRaw.trim() === "yes";
-      systemLogger.info("Fleet-status: sweep-script presence probed", {
-        operation: "fleet_status_sweep_probe",
-        fleetHostId: host.id,
-        present: hostState.sweepScriptPresent,
-      });
+      let probeRaw: string | null = null;
+      let probeTimedOut = false;
+      try {
+        probeRaw = await Promise.race([
+          channel.exec(
+            "test -x ~/.local/bin/fleet-status-sweep 2>/dev/null && echo yes || echo no",
+          ),
+          new Promise<string | null>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `sweep-script presence probe timeout after ${PROBE_TIMEOUT_MS}ms`,
+                  ),
+                ),
+              PROBE_TIMEOUT_MS,
+            ),
+          ),
+        ]);
+      } catch (err) {
+        probeTimedOut = true;
+        systemLogger.warn("Fleet-status: sweep-script presence probe timeout", {
+          operation: "fleet_status_sweep_probe_timeout",
+          fleetHostId: host.id,
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      }
+      if (!probeTimedOut) {
+        hostState.sweepScriptPresent =
+          probeRaw !== null && probeRaw.trim() === "yes";
+        systemLogger.info("Fleet-status: sweep-script presence probed", {
+          operation: "fleet_status_sweep_probe",
+          fleetHostId: host.id,
+          present: hostState.sweepScriptPresent,
+        });
+      }
     }
 
     // Dispatch: batch first, legacy fallback on failure.
