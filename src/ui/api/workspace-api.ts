@@ -334,8 +334,12 @@ export async function uploadWorkspaceFile(
 
   try {
     await authApi.post("/workspace/upload", form, {
-      // Omit Content-Type header — axios auto-sets multipart/form-data with
-      // the correct boundary when given a FormData body.
+      // authApi defaults to application/json. Without an explicit
+      // multipart/form-data header, axios v1's formDataToJSON transform
+      // fires and drops the File field entirely, and multer returns
+      // invalid_body with req.file undefined (regression documented at
+      // identities-api.ts:519 — same failure mode, same fix).
+      headers: { "Content-Type": "multipart/form-data" },
       onUploadProgress: onProgress
         ? (e) => onProgress(e.loaded, e.total ?? file.size)
         : undefined,
