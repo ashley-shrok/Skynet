@@ -161,13 +161,13 @@ export function IdentityBadge({
   // falls back to hue 35 (warm amber, matches PrettyView's neutral
   // --pv-id-hue fallback). Font stack Inter for name/title.
   const hue = identity.colorHue ?? 35;
-  const rootClassName = `pv-identity-breathe absolute top-4 right-5 z-[101] flex flex-row items-center gap-3 select-none font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif] transition-transform hover:scale-[1.015] active:scale-[0.995] hover:shadow-[0_8px_24px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,220,170,0.22),_0_0_56px_hsla(${hue},65%,55%,0.42)]`;
+  const rootClassName = `pv-identity-breathe absolute top-4 right-5 z-[101] flex flex-row items-center gap-[11px] select-none font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif] transition-transform hover:scale-[1.015] active:scale-[0.995] hover:shadow-[0_8px_24px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,220,170,0.22),_0_0_56px_hsla(${hue},65%,55%,0.42)]`;
   const rootStyle: React.CSSProperties = {
-    // Pill shape: border-radius 36 + padding 8 16 8 8 makes a capsule
-    // where the 56px avatar circle sits concentric to the left curve.
-    borderRadius: 36,
+    // Pill shape: border-radius 32 + padding 7 16 7 7 makes a capsule
+    // where the 50px avatar circle sits concentric to the left curve.
+    borderRadius: 32,
     overflow: "hidden", // Phase 67: clip coordinator watermark bleed at pill edge
-    padding: "8px 18px 8px 8px",
+    padding: "7px 16px 7px 7px",
     background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.72), hsla(${hue}, 40%, 15%, 0.82))`,
     backdropFilter: "blur(24px) saturate(1.4)",
     WebkitBackdropFilter: "blur(24px) saturate(1.4)",
@@ -229,10 +229,10 @@ export function IdentityBadge({
           title="Has local work not yet pushed to any remote"
           style={{
             position: "absolute",
-            left: "calc(8px + 56px - 14px)",
-            top: "calc(8px + 56px - 14px)",
-            width: 18,
-            height: 18,
+            left: "calc(7px + 50px - 13px)",
+            top: "calc(7px + 50px - 13px)",
+            width: 16,
+            height: 16,
             borderRadius: 999,
             display: "inline-flex",
             alignItems: "center",
@@ -264,8 +264,8 @@ export function IdentityBadge({
         style={{
           position: "relative",
           zIndex: 1,
-          width: 56,
-          height: 56,
+          width: 50,
+          height: 50,
           borderRadius: "50%",
           boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(${hue}, 65%, 55%, 0.4)`,
         }}
@@ -277,14 +277,14 @@ export function IdentityBadge({
       >
         <span
           className="font-semibold truncate leading-tight"
-          style={{ fontSize: 15, color: "#f0ebe0" }}
+          style={{ fontSize: 13.5, color: "#f0ebe0" }}
         >
           {identity.displayName}
         </span>
         {identity.title && (
           <span
             className="truncate leading-tight"
-            style={{ fontSize: 12, color: "#a89a80" }}
+            style={{ fontSize: 10.8, color: "#a89a80" }}
           >
             {identity.title}
           </span>
