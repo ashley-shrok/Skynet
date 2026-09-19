@@ -149,3 +149,66 @@ Skynet's edge already reverse-proxies loopback ports on any managed box to publi
 **Related pointers:**
 - Campaign artifact: `.planning/campaigns/first-class-apps/campaign-first-class-apps.md`
 - Prior shape close-outs: `shape-app-runtime-and-skill.closed.md`, `shape-sweep-and-registry-api.closed.md`, `shape-sidebar-apps-surface.closed.md`
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-18
+**Vehicle used:** GSD phase (Phase 120, 8 plans across 6 waves)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is — fifth content type in the pane, opened via left-click or drag** — present · the pane's family of content kinds gains a fifth member for apps; a leaf can now hold an app identified by which box it lives on and which app on that box.
+- **Shape: apps join the pane's existing family of content types** — present · the identity of an app leaf is the two-part tuple named in the shape; the existing dispatch grows a new arm for the app kind.
+- **Shape: two gestures put an app in the pane (left-click replace-focused; drag creates a leaf in a split)** — present · left-click fires an open-app handler that replaces the focused leaf; drag emits a payload the split machinery already understands, and drop creates a new leaf next to the drop target — same behaviour every other draggable source has.
+- **Shape: in-pane view is a live web view served under Skynet's own origin via a new reverse-proxy path** — present · a new proxy path served from Skynet's own primary origin forwards HTTP and WebSocket bytes between the browser and the app.
+- **Shape: trust boundary at the proxy; state-changing requests refused when Origin doesn't name Skynet** — present · safe methods pass through; state-changing methods are refused unless their Origin matches Skynet's primary domain. The app's own framework check stays disabled by design.
+- **Shape: proxy applies the same host-visibility filter that gates every other cross-box view** — present · the same access answer used by the sidebar tile is applied again at the proxy so the URL can't be shared with someone who lacks access.
+- **Shape: reload persistence comes for free via the existing pane-layout mechanism** — present · the tuple identifying an app leaf is saved with the layout via a new small storage column and the URL-fragment variant; on reload the pane asks the proxy for that app the same way a fresh click would.
+- **Shape: multi-instance allowed by default; no dedupe** — present · both the click path and the drop path unconditionally create a new leaf every time.
+- **Shape: unhealthy is display-only, no in-pane specialization** — partial · tile side is honoured (clicks/drags on unhealthy tiles are not blocked); however, when a click on an unhealthy app lands and the tunnel refuses, the pane renders the inherited Phase 103 error interstitial inside the leaf — endorsed as drift below.
+- **Shape: pane is transparent to the app; no signal that it is embedded** — present · no header, no query parameter, no postMessage carries context about being in-pane; referrer suppressed.
+- **Shape: leaf title bar shows the app's static metadata title, not its live page title** — present · leaf title carries the same static title as the sidebar tile.
+- **Shape: small in-place unification of the content-type dispatch (branching → local lookup table)** — present · both the icon-choice dispatch and the render-dispatch have been unified into small local lookup tables.
+- **Philosophy: apps join the existing family; nothing about them is special** — present · gestures, layout, persistence, rendering all plug into existing mechanisms.
+- **Philosophy: pane is a transparent viewport; app is a black box** — present · the pane never peeks inside the app's state.
+- **Philosophy: unhealthy and gone are display concerns, not behaviour concerns** — partial · held on the tile side; the pane-side inherits Phase 103's tunnel-error interstitial from reused proxy machinery — endorsed as drift below.
+- **Philosophy: trust boundary at the proxy** — present · same-origin refusal enforced once at the proxy layer; app's own check stays disabled; starter template comment now points at the proxy as the enforcement site.
+- **Philosophy: small refactor coupled with the addition it enables** — present · dispatch unification lands in the same phase as the fifth-kind addition.
+- **Philosophy: instance-agnostic** — present · nothing in the delivered path per-instance-tailors.
+- **Prior context: shape 3's `.serve.` context-menu action + redirect route unchanged** — cannot-verify · not directly re-inspected; scope says fresh-tab path stays as it was.
+- **Failure mode: pane shows the app but not authenticated** — present · session cookie carries via same-origin proxy path; no login prompt or origin-mismatch by construction.
+- **Failure mode: WebSocket upgrades don't flow through the proxy** — present · upgrade path wired at the http.Server level; same access + trust chain runs before handoff.
+- **Failure mode: proxy trusts anything upstream** — present · host-visibility filter runs before any tunnel work.
+- **Failure mode: proxy accepts state-changing requests from off-origin pages** — present · same-origin refusal enforced on HTTP and upgrade paths; missing Origin on state-changing method refuses too.
+- **Failure mode: starter template disabled-check comment stays pointing at nothing** — present · comment now names the proxy layer as the enforcement site.
+- **Failure mode: pane specializes on app state (friendly in-pane placeholders)** — drifted · Phase 103's tunnel-error interstitial renders inside the leaf on connection failure — endorsed as drift below.
+- **Failure mode: dispatch refactor skipped** — present · both dispatch axes unified into lookup tables; no residual branching.
+- **Failure mode: split-drop treats app-tiles specially** — present · split machinery grows one more symmetric parsing branch alongside existing draggable sources.
+- **Failure mode: reload silently reshapes layout** — present · app leaves ride existing tuple-save-and-restore machinery.
+- **Failure mode: multi-instance forbidden** — present · no dedupe on either the click or the drop path.
+- **Failure mode: pane signals to the app that it's in-pane** — present · no header, no query parameter, no postMessage.
+- **Failure mode: leaf title mirrors the app's live page title** — present · leaf title bound to static metadata title.
+- **Failure mode: `.serve.` context-menu action changes** — cannot-verify · prior fresh-tab path not re-inspected; scope says it stays as it was.
+- **Scope: in items delivered end-to-end** — present · every listed in-scope item is present in the material.
+- **Scope: out items respected** — present · prior shape 3 surfaces, fresh-tab path, per-port pattern, framework config beyond comment, app-side changes, in-pane state signals, additional in-pane actions — none touched.
+- **Scope: tempting-but-no items avoided** — partial · signalling to the app, blocking unhealthy tiles, deduping multi-instance, teaching the proxy to lie about Origin, splitting the refactor pre-shape — all avoided. The "friendly in-pane loading/failure state" line is crossed by the tunnel-failure interstitial — endorsed as drift below.
+
+### Additions (in the result, not in the shape)
+
+- On tunnel failure to reach the app's home box, the pane renders the inherited Phase 103 error interstitial inside the leaf instead of showing the browser's own failed-connection treatment. — endorsed-as-drift · The interstitial comes from the reused Phase 103 `serve-url/` machinery, which CONTEXT.md D-09 explicitly instructed to reuse verbatim. Same surface a user hits from shape 3's fresh-tab "Open in new tab" affordance when a box is unreachable; consistent Skynet-wide error UX. Walking it back would require forking proxy-factory.ts to bypass the interstitial — a bigger philosophy violation than the interstitial itself.
+- The proxy sets anti-clickjacking response headers (`X-Frame-Options: SAMEORIGIN` + `Content-Security-Policy: frame-ancestors 'self'`) on every response served under the pane path, so the app can only be framed by Skynet itself. — endorsed-as-drift · Defensive hardening consistent with the shape's trust story; iteration-1 revision explicitly requested this after the plan-checker flagged the gap.
+- HTML responses from the app are rewritten on the way through the proxy to prepend a base-URL element so absolute-path references inside the app resolve against the pane's mount prefix. — endorsed-as-drift · Makes the shape's promise of "the app sees itself at root" actually work from the browser's side; identified in RESEARCH.md as the D-11 resolution.
+- The refusal response for "host does not exist" is deliberately made byte-identical to "user has no access", so a probe cannot distinguish the two states. — endorsed-as-drift · Standard info-leak-safe 403 hardening inherited from Phase 119's identity-avatar pattern.
+- At module load, the proxy layer fails loudly if the primary-domain environment value is unset, rather than defaulting to a hardcoded value. — endorsed-as-drift · Inherited discipline from `serve-url/subdomain-dispatch.ts`.
+
+### Follow-ups
+
+- Docker nginx.conf + nginx-https.conf need a dedicated `/apps/` location block with `proxy_set_header Upgrade` + `Connection` headers so WS upgrades survive the nginx hop at deploy time. Flagged by Plan 05 executor; MUST be fixed before campaign deploy. — deferred · Deploy-adjacent config change, filed as a pre-deploy fix task.
+- Pre-existing `open-tabs.ts` write handlers lack `DatabaseSaveTrigger.forceSave()` after `db.insert/update` calls, per the role-file's 2026-08-19 in-memory-SQLite discipline. Silent data-loss risk applies to the new `appSlug` field this phase added. — bounty · Fleet-wide surface, not shape-4 scope. Follow-up bounty for whichever identity picks it up.
+
+### Notes
+
+The delivered result matches the shape closely on almost every facet: the fifth content kind is a real peer alongside the existing four, both gestures reuse existing machinery, the tuple flows through persistence and URL restore, multi-instance is untouched, the trust boundary sits at the proxy with the same-origin refusal enforced consistently on HTTP and upgrade paths, the host-visibility filter is applied a second time at the proxy, the leaf title stays static, no signal leaks to the app about being embedded, and the dispatch is refactored into small lookup tables in the same phase. The one drift worth calling out — the tunnel-failure interstitial rendered inside the leaf — is inherited from the reused Phase 103 proxy machinery, matches Skynet-wide error UX, and was accepted as drift because walking it back would have required forking machinery the shape explicitly said to reuse. Pattern worth carrying forward: when a shape says "reuse existing X verbatim" and X carries UI baggage that the shape's philosophy would otherwise exclude, the reuse decision inherently endorses that baggage — write it into the shape file explicitly at /open time so it doesn't surface as drift at /close.
