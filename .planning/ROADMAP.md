@@ -2663,10 +2663,17 @@ Plans:
 
 ### Phase 120: First-class apps campaign shape 4: apps as a content type in the pane — leaf-content-type + reverse proxy + CSRF boundary check
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Deliver the closing shape of the first-class-apps campaign — apps become the fifth content type the main pane can hold, opened via left-click or drag from sidebar tiles, served under Skynet's own primary origin via a new reverse-proxy path with the CSRF check enforced at the proxy boundary, reload persistence + multi-instance falling out from the existing pane machinery.
+**Requirements**: D-01 through D-23 (see 120-CONTEXT.md § Decisions)
 **Depends on:** Phase 119
-**Plans:** 0 plans
+**Plans:** 8 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 120 to break down)
+- [ ] 120-01-PLAN.md — Backend leaves: `app-proxy-csrf-check` pure helper + `base-tag-injector` HTML transform + unit tests (wave 1)
+- [ ] 120-02-PLAN.md — Backend leaves: `app-pane-proxy-factory` sibling factory + `pane-target-resolver` + unit tests (wave 1)
+- [ ] 120-03-PLAN.md — SQL schema extension: `app_slug` column on `user_open_tabs` + POST/PUT/GET open-tabs handlers (wave 1)
+- [ ] 120-04-PLAN.md — Frontend type surface: `TabType` six-arm union + `Tab.app` + `isAppTab` + `TabSpec` seventh variant (wave 1)
+- [ ] 120-05-PLAN.md — Backend integration: `app-pane-router` composition + mount in `database.ts` + D-21 backend integration tests (wave 2)
+- [ ] 120-06-PLAN.md — Frontend AppPane component + `tabUtils` dispatch-table refactor + D-21 client-dispatch snapshot tests (wave 3)
+- [ ] 120-07-PLAN.md — Frontend integration: `AppTile` handlers + `SplitView` drop dispatch + `AppShell` openTab/restore/drop-callback + D-21 client-sidebar-wiring tests (wave 4)
+- [ ] 120-08-PLAN.md — Substrate: starter template comment update + D-23 UAT procedure documentation (wave 5)
