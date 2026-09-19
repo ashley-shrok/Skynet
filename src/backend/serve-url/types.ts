@@ -84,6 +84,13 @@ export type ErrorClass =
  *   sec-websocket-protocol (sec-websocket-extensions deliberately EXCLUDED
  *   per R&D GOTCHA 1 — permessage-deflate is stripped at proxy forward)
  * - HTTP body: content-type, content-length
+ * - Byte-range request: range, if-range — required for media seeking. A
+ *   `<video>`/`<audio>` scrubber sends `Range: bytes=X-Y` and needs the
+ *   upstream to reply `206 Partial Content` with `Accept-Ranges: bytes`;
+ *   stripping the request header made every upstream fall back to 200
+ *   full-body and Chrome/Safari refused to seek. `if-range` (ETag or
+ *   HTTP-date echoing a prior upstream response) is a re-seek companion
+ *   and carries no browser-identity info.
  *
  * Explicitly EXCLUDED from allowlist (denied by default):
  * - cookie / cookie2 (Phase 78 D-04 cookie-egress invariant, D-05 test-enforced)
@@ -91,7 +98,7 @@ export type ErrorClass =
  * - x-skynet-* (any Skynet-internal header)
  * - user-agent, referer, origin (upstream never sees browser identity)
  * - x-forwarded-* (Caddy stripped these already at the edge)
- * - accept, accept-*, if-*, cache-control, pragma, dnt, etc. (denied by omission)
+ * - accept, accept-*, cache-control, pragma, dnt, etc. (denied by omission)
  *
  * Lowercase because `proxyReq.getHeaderNames()` returns lowercase names in
  * Node; the allowlist check in Plan 03b's proxy-factory does a case-sensitive
@@ -111,4 +118,6 @@ export const HEADER_ALLOWLIST = [
   "sec-websocket-protocol",
   "content-type",
   "content-length",
+  "range",
+  "if-range",
 ] as const;
