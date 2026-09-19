@@ -13,7 +13,7 @@ The point of it existing at all: without it, the only way to see or change what 
 
 Opened via the agent's badge in the chat surround. The modal that appears has section tabs along the bottom edge; the workspace joins them as one more tab. Selecting it fills the modal body with the file view: a breadcrumb along the top, a column-labeled list of files and folders below, a toolbar with the usual actions (upload, new folder, new file). Clicking a folder descends into it. Clicking a text or markdown file swaps the whole tab body from list-mode to viewer-mode, with a back affordance to return to browsing — no second modal ever appears on top of this one. Clicking an image swaps in the same way, showing the image large. Right-click (or the hover-visible overflow) gives the per-row action menu.
 
-The workspace lives on whichever host the agent lives on. The user does not have to think about that — the modal reads the workspace off the host transparently — but the modal header carries a small chip that names the host and its online state, so failure has a place to surface.
+The workspace lives on whichever host the agent lives on. The user does not have to think about that — the modal reads the workspace off the host transparently. Errors surface as banners at the top of the tab body when a specific operation fails; the tab header does NOT carry a persistent host chip (was in the pre-implementation shape, removed post-UAT — the enclosing modal already identifies the agent, so the chip was redundant chrome).
 
 Every mutation the user makes reaches the filesystem directly. No signal is sent to the agent that the user did something. The next time the agent looks at its own working folder, it discovers the change.
 
@@ -55,10 +55,10 @@ A prototype was built during shaping and iterated with the user to lock the dire
 - Upload via toolbar button and via drag-and-drop into the folder area.
 - Create new folder, create new empty file.
 - Rename, delete (both with a confirmation), download.
-- Open text files and markdown files inline (tab-body swap), edit and save through the existing editors.
+- Open text files and markdown files inline (tab-body swap), edit and save through the existing editors. Files with no extension (dotfiles like `.gitignore`, capitalised sentinels like `LICENSE`/`Makefile`/`Dockerfile`) open in the text editor too — treating them as binary would leave everyday config files unreachable.
+- Confirm before discarding unsaved edits — hitting Back from an edited file (or navigating away) prompts once ("Discard unsaved changes?") rather than silently dropping the edit.
 - Open image files inline (view-only, larger view of the image).
 - Manual refresh button in the toolbar.
-- Small header chip surfacing the host name and its reachability, so cross-host failure has a visible home.
 
 **Deliberately out (not built unless a real need surfaces later):**
 - Search (name-based or content-based).
