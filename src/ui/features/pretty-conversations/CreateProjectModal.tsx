@@ -302,7 +302,7 @@ export function CreateProjectModal({
              * effect above ensures selectedHost is populated in that case
              * so submission still works without a visible picker. When the
              * user has zero or ≥2 hosts, both the search box and the
-             * listbox render — the multi-host user (target: Ashley) needs
+             * listbox render — the multi-host user needs
              * to see WHERE the project lands so a mis-pick like
              * "test-project on thenasty when I meant t1000" can't happen
              * silently.
