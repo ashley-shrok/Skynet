@@ -159,7 +159,8 @@ export type TabType =
   | "terminal"
   | "rdp"
   | "vnc"
-  | "telnet";
+  | "telnet"
+  | "app"; // Phase 120 D-01 — app content type
 
 export type TunnelStatusValue =
   | "CONNECTED"
@@ -228,7 +229,33 @@ export type Tab = {
   sessionKind?: "harness" | "relay-room";
   relayRoomId?: string;
   relayRoomTitle?: string | null;
+
+  // ─── Phase 120 D-02 — app-leaf tuple ─────────────────────────────────────
+  //
+  // The (hostId, slug) tuple identifying WHICH app the leaf holds. Two-part
+  // because the same short slug can name different apps on different boxes.
+  //
+  // REQUIRED whenever `type === "app"`; MUST be absent otherwise. The field
+  // is declared OPTIONAL at the type level (mirroring the Phase-90
+  // `sessionKind` discipline above) so that pre-Phase-120 persisted tab
+  // records — which have no `app` key at all — continue to parse and
+  // rehydrate without a schema-migration pass. Consumers narrow via the
+  // `isAppTab` predicate (exported below) which surfaces the required-when-
+  // app-type invariant at the type level so downstream code can access
+  // `tab.app.hostId` and `tab.app.slug` without further optional-chaining.
+  app?: { hostId: number; slug: string };
 };
+
+// Phase 120 D-02 — narrowing predicate. Returns true when the tab is an app
+// leaf AND carries the required (hostId, slug) tuple; lets downstream
+// consumers (Plan 06's renderAppTab, Plan 07's openTab / AppShell handlers)
+// access `tab.app.hostId` and `tab.app.slug` without further optional
+// checks. Pure boolean — no I/O, no throw, no side effects.
+export function isAppTab(
+  tab: Tab,
+): tab is Tab & { app: { hostId: number; slug: string } } {
+  return tab.type === "app" && tab.app !== undefined;
+}
 
 export type DashboardCardId =
   | "stats_bar"
