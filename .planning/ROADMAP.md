@@ -2637,10 +2637,14 @@ Plans:
 
 ### Phase 118: Workspace file browser
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Ship a consumer-user file-manager tab inside IdentityModal that browses the identity's ~/fleet/identities/<key>/workspace/ folder on whichever host the agent lives on, with full CRUD (read, edit, create, delete, rename, upload, download), inline viewer for md/text/image, snapshot-with-manual-refresh semantics, and blind stance (no notification to the agent when the user acts). Reuses the SSH/SFTP + auth + RBAC plumbing from pretty-view-fetch-host-file.ts; adds no new permission layer; opens no new modal on top of IdentityModal.
+**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-10, D-11, D-12, D-13, D-14, D-15, D-16, D-17, D-18, D-19, D-20, D-21, D-22, D-23, D-24 (locked in 118-CONTEXT.md via /open shape session)
 **Depends on:** Phase 117
-**Plans:** 0 plans
+**Plans:** 5 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 118 to break down)
+- [ ] 118-01-PLAN.md — Backend workspace-routes.ts (9 SFTP-backed endpoints under /workspace) + vitest + database.ts mount + matching nginx blocks in BOTH configs
+- [ ] 118-02-PLAN.md — Frontend workspace-api.ts (9 client helpers, error-class preserving) + workspace-error-copy.ts (consumer-user register for every backend error class)
+- [ ] 118-03-PLAN.md — WorkspaceTab.tsx component (list-mode + viewer-mode inline swap, sortable columns, breadcrumb, drag-drop, host chip, MarkdownEditor/GlobalFileTab inline mounts — no modal stacking)
+- [ ] 118-04-PLAN.md — IdentityModal integration (Folder import + NAV_SECTIONS entry + WorkspaceTab TabsContent block — three surgical edits, all-users tab, not admin-gated)
+- [ ] 118-05-PLAN.md — End-to-end UAT checkpoint: 34 checks covering every D-01..D-24 against a running Skynet instance, including blind-stance verification via tmux session file tail and non-admin permission gate
