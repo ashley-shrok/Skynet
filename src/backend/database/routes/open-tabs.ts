@@ -93,6 +93,7 @@ router.post("/", authenticateJWT, async (req: Request, res: Response) => {
     tabOrder,
     backendSessionId,
     targetTmuxSession,
+    appSlug,
   } = req.body as {
     id: string;
     tabType: string;
@@ -101,6 +102,7 @@ router.post("/", authenticateJWT, async (req: Request, res: Response) => {
     tabOrder: number;
     backendSessionId?: string | null;
     targetTmuxSession?: string | null;
+    appSlug?: string | null;
   };
 
   if (!id || !tabType || !label) {
@@ -126,6 +128,8 @@ router.post("/", authenticateJWT, async (req: Request, res: Response) => {
         targetTmuxSession !== undefined
           ? targetTmuxSession
           : existing[0].targetTmuxSession;
+      const appSlugValue =
+        appSlug !== undefined ? appSlug : existing[0].appSlug;
       db.update(userOpenTabs)
         .set({
           tabType,
@@ -134,6 +138,7 @@ router.post("/", authenticateJWT, async (req: Request, res: Response) => {
           tabOrder,
           backendSessionId: sessionId ?? null,
           targetTmuxSession: tmuxName ?? null,
+          appSlug: appSlugValue ?? null,
           updatedAt: now,
         })
         .where(and(eq(userOpenTabs.id, id), eq(userOpenTabs.userId, userId)))
@@ -149,6 +154,7 @@ router.post("/", authenticateJWT, async (req: Request, res: Response) => {
           tabOrder,
           backendSessionId: backendSessionId ?? null,
           targetTmuxSession: targetTmuxSession ?? null,
+          appSlug: appSlug ?? null,
           updatedAt: now,
         })
         .run();
@@ -195,6 +201,7 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
       tabOrder: number;
       backendSessionId?: string | null;
       targetTmuxSession?: string | null;
+      appSlug?: string | null;
     }>;
   };
 
@@ -217,6 +224,7 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
             tabOrder: t.tabOrder,
             backendSessionId: t.backendSessionId ?? null,
             targetTmuxSession: t.targetTmuxSession ?? null,
+            appSlug: t.appSlug ?? null,
             updatedAt: now,
           })),
         )
