@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-19T07:15:51.945Z"
+last_updated: "2026-09-19T07:28:06.953Z"
 last_activity: 2026-09-19
 progress:
   total_phases: 119
   completed_phases: 100
   total_plans: 515
-  completed_plans: 505
+  completed_plans: 506
   percent: 84
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 118 (workspace-file-browser) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 
 Last activity (prior): 2026-09-10 -- Phase 103 execution started
 Last activity (prior): 2026-09-10 — Completed Phase 98 more-versatile-stt-tts-support (Amazon Polly + Amazon Transcribe swap for Chatterbox). All 5 waves shipped: Wave 1 (98-01 ffmpeg+SDK install, 98-02 kernels, 98-03 frontend catalog, 98-09 deploy doc), Wave 2 (98-04 AWS adapters, 98-05 migration one-shot + inline Dirent type fix), Wave 3 (98-06 voice.ts rewrite, 98-07 validator flip + inline roles-create followon fix), Wave 4 (98-08 tg-bridge rewire to Skynet /voice/transcribe), Wave 5 (98-10 Chatterbox kill, media-endpoints.ts deleted). Unbiased code review clean (1 HIGH + 3 MED + 2 LOW applied; 3 LOW deferred). Both backend + frontend tsc exit 0 across the full delta. Every plan has SUMMARY.md committed. All Chatterbox integration paths removed cleanly (no dual-provider seam). Ambient IMDS creds via Iris's `SkynetPollyTranscribeAccess` inline policy on `termix-ssm-role`. Voice-migration one-shot wipes existing identity voice values on boot (users re-pick from 7-voice Polly generative catalog). tg-bridge routes through Skynet `/voice/transcribe` (provider-agnostic). Held at push boundary per greenlight-at-push rule; ship in flight.
@@ -395,6 +395,7 @@ Progress: [██████████] 100%
 | Phase 116 P04 | 6 | 3 tasks | 2 files |
 | Phase 118-workspace-file-browser P02 | 5m | 2 tasks | 2 files |
 | Phase 118-workspace-file-browser P01 | 656 | 3 tasks | 5 files |
+| Phase 118-workspace-file-browser P03 | 548 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -1002,7 +1003,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-19T07:15:51.880Z
+Last session: 2026-09-19T07:28:06.386Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Phase 118 context gathered via /open shape file
 Last session: 2026-09-08T03:58:11.814Z
