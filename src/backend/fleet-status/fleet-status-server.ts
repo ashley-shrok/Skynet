@@ -217,6 +217,33 @@ async function handleFrontendConnection(
   let subscribeHandled = false;
   let disposer: (() => void) | undefined;
 
+  // Heartbeat — 30s ws.ping() with pong-timeout terminate. Mirrors
+  // terminal.ts:234-257 and claude-session-server.ts:5594-5615. Keeps
+  // NAT entries warm on cellular paths (idle-drop is ~30-90s) and lets
+  // the server detect zombie connections whose TCP silently died.
+  let wsAlive = true;
+  ws.on("pong", () => {
+    wsAlive = true;
+  });
+  const wsPingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      if (!wsAlive) {
+        systemLogger.warn(
+          "Fleet-status frontend WS pong timeout — terminating zombie connection",
+          {
+            operation: "fleet_status_pong_timeout",
+            userId,
+            sessionId,
+          },
+        );
+        ws.terminate();
+        return;
+      }
+      wsAlive = false;
+      ws.ping();
+    }
+  }, 30000);
+
   ws.on("message", (raw) => {
     let parsed: unknown;
     try {
@@ -264,6 +291,7 @@ async function handleFrontendConnection(
   });
 
   ws.on("close", (code, reason) => {
+    clearInterval(wsPingInterval);
     if (disposer) disposer();
     systemLogger.info("Fleet-status frontend disconnected", {
       operation: "fleet_status_disconnect",
@@ -299,6 +327,34 @@ async function handleWatcherConnection(
   // Wait for the first 'hello' frame to identify the watcher's hostId
   let hostId: string | undefined;
   let helloReceived = false;
+
+  // Heartbeat — 30s ws.ping() with pong-timeout terminate. Mirrors the
+  // frontend handler above and terminal.ts:234-257. Cellular-NAT idle
+  // drop doesn't apply here (watcher runs over Tailscale) but zombie
+  // detection does — a crashed/partitioned watcher box otherwise leaks
+  // a dead subscriber on the server side until the OS notices.
+  let wsAlive = true;
+  ws.on("pong", () => {
+    wsAlive = true;
+  });
+  const wsPingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      if (!wsAlive) {
+        systemLogger.warn(
+          "Fleet-status watcher WS pong timeout — terminating zombie connection",
+          {
+            operation: "fleet_status_pong_timeout",
+            fleetHostId: hostId,
+            remoteIp,
+          },
+        );
+        ws.terminate();
+        return;
+      }
+      wsAlive = false;
+      ws.ping();
+    }
+  }, 30000);
 
   ws.on("message", async (raw) => {
     let parsed: unknown;
@@ -390,6 +446,7 @@ async function handleWatcherConnection(
   });
 
   ws.on("close", (code, reason) => {
+    clearInterval(wsPingInterval);
     systemLogger.info("Fleet-status watcher disconnected", {
       operation: "fleet_status_disconnect",
       fleetHostId: hostId,
