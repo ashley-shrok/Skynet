@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-09-19T04:38:32.273Z"
+last_updated: "2026-09-19T04:44:46.443Z"
 last_activity: 2026-09-19
 progress:
   total_phases: 121
-  completed_phases: 102
+  completed_phases: 103
   total_plans: 529
-  completed_plans: 521
-  percent: 84
+  completed_plans: 522
+  percent: 85
 ---
 
 # Project State
@@ -396,6 +396,7 @@ Progress: [██████████] 100%
 | Phase 120 P05 | 30 | 3 tasks | 3 files |
 | Phase 120 P06 | 7m 46s | 3 tasks | 4 files |
 | Phase 120 P07 | 17m 17s | 3 tasks | 7 files |
+| Phase 120 P08 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -643,6 +644,8 @@ Recent decisions affecting current work:
 - [Phase ?]: TAB_ICONS and RENDERERS exported (Task 3(f) planner discretion) so the exhaustiveness test can assert Object.keys(...).length === 6 directly — safer than an indirect assertion via calling each dispatch function on all six kinds
 - [Phase ?]: Renderer body copies are VERBATIM from pre-refactor switch cases — byte-equivalence proven by 9 pre-existing tests (Phase 93 Slice 4 regression suite) + 6 new snapshot tests + broader 318-test related sweep all passing unchanged
 - [Phase ?]: Phase 120 shape-4 Plan 07: AppTile onClick + drag wired end-to-end; onDropAppTileInTree threads through SplitView; PERSISTENT_TAB_TYPES gains 'app'.
+- [Phase ?]: Phase 120 Plan 08: D-14 starter template comment lands; csrf.checkOrigin: false line preserved; D-23 UAT deferred to campaign close
+- [Phase ?]: No src/backend/distributor/catalog.ts edit needed for svelte.config.js content-only change (byte-compare picks up new content at push time; row count unchanged at 52)
 
 ### Pending Todos
 
@@ -1013,7 +1016,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-19T04:38:11.984Z
+Last session: 2026-09-19T04:44:42.147Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed 120-06-PLAN.md (Tasks 1-3: AppPane + dispatch refactor + D-21 tests)

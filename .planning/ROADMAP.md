@@ -2666,7 +2666,7 @@ Plans:
 **Goal:** Deliver the closing shape of the first-class-apps campaign — apps become the fifth content type the main pane can hold, opened via left-click or drag from sidebar tiles, served under Skynet's own primary origin via a new reverse-proxy path with the CSRF check enforced at the proxy boundary, reload persistence + multi-instance falling out from the existing pane machinery.
 **Requirements**: D-01 through D-23 (see 120-CONTEXT.md § Decisions)
 **Depends on:** Phase 119
-**Plans:** 7/8 plans executed
+**Plans:** 8/8 plans complete
 
 Plans:
 - [x] 120-01-PLAN.md — Backend leaves: `app-proxy-csrf-check` pure helper + `base-tag-injector` HTML transform + unit tests (wave 1)
@@ -2676,4 +2676,4 @@ Plans:
 - [x] 120-05-PLAN.md — Backend integration: `app-pane-router` composition + mount in `database.ts` + D-21 backend integration tests (wave 3)
 - [x] 120-06-PLAN.md — Frontend AppPane component + `tabUtils` dispatch-table refactor + D-21 client-dispatch snapshot tests (wave 4)
 - [x] 120-07-PLAN.md — Frontend integration: `AppTile` handlers + `SplitView` drop dispatch + `AppShell` openTab/restore/drop-callback + D-21 client-sidebar-wiring tests (wave 5)
-- [ ] 120-08-PLAN.md — Substrate: starter template comment update + D-23 UAT procedure documentation (wave 6)
+- [x] 120-08-PLAN.md — Substrate: starter template comment update + D-23 UAT procedure documentation (wave 6)
