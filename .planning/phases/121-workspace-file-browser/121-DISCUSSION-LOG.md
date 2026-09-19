@@ -7,7 +7,7 @@
 **Phase:** 121-workspace-file-browser
 **Areas discussed:** entry point, change semantics (blind vs announced), destructive-action rails, refresh model (snapshot vs live), hidden-file handling, feature scope, multimodal handling (file open), permissions, audience/register, failure-mode framing, vehicle
 
-**Provenance note:** This phase's decisions were extracted via a `/build` → `/open` session with the user (Ashley) rather than through the standard discuss-phase interactive flow. The `/open` grill produced `.planning/shape-workspace-file-browser.md` (Ashley's-conceptual-model style), which drove 121-CONTEXT.md. A tasting prototype at `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` was iterated with the user across two revisions before the shape was locked. The alternatives-and-selections below are reconstructed from that session for audit continuity.
+**Provenance note:** This phase's decisions were extracted via a `/build` → `/open` session with the user (the user) rather than through the standard discuss-phase interactive flow. The `/open` grill produced `.planning/shape-workspace-file-browser.md` (the user's-conceptual-model style), which drove 121-CONTEXT.md. A tasting prototype at `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` was iterated with the user across two revisions before the shape was locked. The alternatives-and-selections below are reconstructed from that session for audit continuity.
 
 ---
 

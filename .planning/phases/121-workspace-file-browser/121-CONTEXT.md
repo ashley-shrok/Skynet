@@ -3,7 +3,7 @@
 **Gathered:** 2026-09-19
 **Status:** Ready for planning
 
-> **Provenance:** Decisions in this file were extracted during a `/build` → `/open` shaping session with the user. The full shape file (Ashley's-conceptual-model style, no code symbols) lives at `.planning/shape-workspace-file-browser.md` and is the load-bearing artifact for `/close workspace-file-browser` at the end of the build arc. A tasting prototype at `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` was iterated with the user and reflects the settled visual + interaction target — walk through it before drafting the plan.
+> **Provenance:** Decisions in this file were extracted during a `/build` → `/open` shaping session with the user. The full shape file (the user's-conceptual-model style, no code symbols) lives at `.planning/shape-workspace-file-browser.md` and is the load-bearing artifact for `/close workspace-file-browser` at the end of the build arc. A tasting prototype at `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` was iterated with the user and reflects the settled visual + interaction target — walk through it before drafting the plan.
 
 <domain>
 ## Phase Boundary
@@ -93,8 +93,8 @@ Multi-tenant: this ships on every Skynet deployment (t1000, T800, and any future
 
 ### Shape agreement (load-bearing)
 
-- `.planning/shape-workspace-file-browser.md` — The `/build` → `/open` shape file that governs the whole arc. Written in Ashley's-conceptual-model style. `/close workspace-file-browser` at the end verifies conformance against THIS file, not against 121-CONTEXT.md. Every decision in 121-CONTEXT.md traces back to a section in the shape file.
-- `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` — Tasting prototype iterated with Ashley. Reflects the settled visual + interaction target down to the modal chrome, tab bar, list style, sortable columns, drag-drop upload zone, and inline-swap file view. Walk through before drafting the plan; it is the reference implementation for HOW this should look and feel. Served locally at `http://localhost:8901/modal.html` (or via `https://Skynet-8901.serve.term.gigaashley.click/modal.html` while the server is up).
+- `.planning/shape-workspace-file-browser.md` — The `/build` → `/open` shape file that governs the whole arc. Written in the user's-conceptual-model style. `/close workspace-file-browser` at the end verifies conformance against THIS file, not against 121-CONTEXT.md. Every decision in 121-CONTEXT.md traces back to a section in the shape file.
+- `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` — Tasting prototype iterated with the user. Reflects the settled visual + interaction target down to the modal chrome, tab bar, list style, sortable columns, drag-drop upload zone, and inline-swap file view. Walk through before drafting the plan; it is the reference implementation for HOW this should look and feel. Served locally at `http://localhost:8901/modal.html` (or via `https://Skynet-8901.serve.term.gigaexample.click/modal.html` while the server is up).
 
 ### Existing modal + tab pattern (D-01, D-10)
 
@@ -164,7 +164,7 @@ Multi-tenant: this ships on every Skynet deployment (t1000, T800, and any future
 <specifics>
 ## Specific Ideas
 
-- **Prototype is the visual + interaction reference.** The implementer walks through `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` (served at `https://Skynet-8901.serve.term.gigaashley.click/modal.html` while the server on t1000 is up, or the folder can be served with `python3 -m http.server 8901` from any peer) and treats it as the design target. Notably: the modal header layout (avatar + name + role + host-chip + close), the bottom tab bar (icon + label, hue-tinted selected pill), the toolbar (breadcrumb + Upload/New folder/New file), the list (sortable columns with arrows, hover-visible ⋯, right-click context menu), the drag-drop overlay (dashed hue-outlined + centered "Drop to upload" card), the inline-swap file viewer.
+- **Prototype is the visual + interaction reference.** The implementer walks through `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` (served at `https://Skynet-8901.serve.term.gigaexample.click/modal.html` while the server on t1000 is up, or the folder can be served with `python3 -m http.server 8901` from any peer) and treats it as the design target. Notably: the modal header layout (avatar + name + role + host-chip + close), the bottom tab bar (icon + label, hue-tinted selected pill), the toolbar (breadcrumb + Upload/New folder/New file), the list (sortable columns with arrows, hover-visible ⋯, right-click context menu), the drag-drop overlay (dashed hue-outlined + centered "Drop to upload" card), the inline-swap file viewer.
 - **The visual chrome was sampled from real code**, not invented. Palette from `src/ui/index.css:100-176`. Modal chrome pattern from `GlobalFilesModal.tsx:190-277`. Tab bar pattern from `IdentityModal.tsx:1620-1653`. Prototype fidelity here means production impl can't drift without a reason.
 
 </specifics>

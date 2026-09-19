@@ -193,10 +193,10 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
     });
     // The bottom nav bar renders as plain buttons (not role="tab"). Radix
     // Tabs still creates one TabsContent per NAV_SECTIONS entry — count those
-    // (role="tabpanel"). Post-Phase-90-06: exactly 3 (Identity file / Wakeups /
-    // Telegram).
+    // (role="tabpanel"). Post-Phase-121: exactly 4 for admins
+    // (Identity file / Wakeups / Telegram / Workspace).
     const tabpanels = document.querySelectorAll('[role="tabpanel"]');
-    expect(tabpanels.length).toBe(3);
+    expect(tabpanels.length).toBe(4);
   });
 
   it("A2: hides the Telegram tab for a non-admin viewer", async () => {
@@ -209,7 +209,9 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     await waitFor(() => {
-      expect(document.querySelectorAll('[role="tabpanel"]').length).toBe(2);
+      // Post-Phase-121: 3 for non-admins (Identity file / Wakeups / Workspace);
+      // Telegram is admin-only.
+      expect(document.querySelectorAll('[role="tabpanel"]').length).toBe(3);
     });
     const navLabels = Array.from(
       document.querySelectorAll("button"),
