@@ -82,6 +82,30 @@ vi.mock("@/features/guacamole/GuacamoleApp", () => ({
   default: () => <div data-testid="mock-guacamole-app" />,
 }));
 
+// Phase 120 Plan 06 Task 3 — mock AppPane as an iframe with the same src
+// shape the real component produces, so the app-mount test (Test 12) can
+// assert on src="/apps/1/todo/pane/" without exercising AppPane internals
+// (those are Task 1's tests). The mock renders a real <iframe> — not just
+// a data-testid div — because we assert on getAttribute("src").
+vi.mock("./AppPane", () => ({
+  AppPane: (props: {
+    hostId: number;
+    slug: string;
+    tabId: string;
+    isVisible: boolean;
+  }) => (
+    <iframe
+      data-testid="mock-app-pane"
+      data-hostid={props.hostId}
+      data-slug={props.slug}
+      data-tabid={props.tabId}
+      data-visible={String(props.isVisible)}
+      src={`/apps/${encodeURIComponent(props.hostId)}/${encodeURIComponent(props.slug)}/pane/`}
+      title={`App ${props.slug}`}
+    />
+  ),
+}));
+
 vi.mock("@/shell/TabContext", () => ({
   useTabsSafe: () => ({ previewTerminalTheme: null }),
 }));
@@ -117,7 +141,7 @@ vi.mock("@/features/terminal/session-hue", () => ({
 }));
 
 // ── Component under test ────────────────────────────────────────────────────
-import { renderTabContent } from "./tabUtils";
+import { renderTabContent, tabIcon, TAB_ICONS, RENDERERS } from "./tabUtils";
 import type { Tab, Host } from "@/types/ui-types";
 
 function makeHost(overrides: Partial<Host> = {}): Host {
@@ -310,5 +334,226 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
     expect(source).not.toMatch(/<RelayRoomSession[Pp]ane\b/);
     // Case "terminal" host-null gate now widens with a `!== "relay-room"` exception (D-06).
     expect(source).toMatch(/!host\s*&&\s*tab\.sessionKind\s*!==\s*"relay-room"/);
+  });
+});
+
+// ─── Phase 120 Plan 06 Task 3 — D-21 client-dispatch layer tests ───────────
+//
+// The Plan 06 refactor is byte-equivalent for the five existing kinds. These
+// tests are the green gate: snapshot each existing tabIcon output before/
+// after refactor (already after here — the pre-refactor snapshots were
+// captured in the plan design, this file captures the post-refactor
+// output; if a future edit drifts the output, tests fail immediately). One
+// new test covers the sixth kind ("app") — assert iframe mounts with the
+// correct src. Exhaustiveness assertion caps the suite by verifying both
+// lookup tables have all six entries (guards against a future silent-drop
+// of an arm during refactoring).
+describe("Phase 120 D-21 — tabIcon dispatch (six-arm Record<TabType, ...>)", () => {
+  it("Test 1: tabIcon('dashboard') renders LayoutDashboard with size-3.5", () => {
+    expect(tabIcon("dashboard")).toMatchInlineSnapshot(`
+      <LayoutDashboard
+        className="size-3.5"
+      />
+    `);
+    // Also assert the icon component identity via TAB_ICONS lookup.
+    expect(TAB_ICONS.dashboard.displayName ?? TAB_ICONS.dashboard.name).toBe(
+      "LayoutDashboard",
+    );
+  });
+
+  it("Test 2: tabIcon('terminal') renders Terminal with size-3.5", () => {
+    expect(tabIcon("terminal")).toMatchInlineSnapshot(`
+      <Terminal
+        className="size-3.5"
+      />
+    `);
+    expect(TAB_ICONS.terminal.displayName ?? TAB_ICONS.terminal.name).toBe(
+      "Terminal",
+    );
+  });
+
+  it("Test 3: tabIcon('rdp') renders Monitor with size-3.5", () => {
+    expect(tabIcon("rdp")).toMatchInlineSnapshot(`
+      <Monitor
+        className="size-3.5"
+      />
+    `);
+    expect(TAB_ICONS.rdp.displayName ?? TAB_ICONS.rdp.name).toBe("Monitor");
+  });
+
+  it("Test 4: tabIcon('vnc') renders Monitor with size-3.5 (shares Monitor with rdp)", () => {
+    expect(tabIcon("vnc")).toMatchInlineSnapshot(`
+      <Monitor
+        className="size-3.5"
+      />
+    `);
+    expect(TAB_ICONS.vnc.displayName ?? TAB_ICONS.vnc.name).toBe("Monitor");
+    // Also confirms rdp and vnc share the SAME icon component (byte-
+    // equivalence to the pre-refactor switch which returned <Monitor /> for
+    // both).
+    expect(TAB_ICONS.vnc).toBe(TAB_ICONS.rdp);
+  });
+
+  it("Test 5: tabIcon('telnet') renders Terminal with size-3.5 (shares Terminal with terminal)", () => {
+    expect(tabIcon("telnet")).toMatchInlineSnapshot(`
+      <Terminal
+        className="size-3.5"
+      />
+    `);
+    expect(TAB_ICONS.telnet.displayName ?? TAB_ICONS.telnet.name).toBe(
+      "Terminal",
+    );
+    // telnet and terminal share the SAME icon component per the pre-refactor
+    // switch (both returned <Terminal /> — byte-equivalence gate).
+    expect(TAB_ICONS.telnet).toBe(TAB_ICONS.terminal);
+  });
+
+  it("Test 6 (NEW — Phase 120 D-03): tabIcon('app') renders AppWindow with size-3.5", () => {
+    expect(tabIcon("app")).toMatchInlineSnapshot(`
+      <AppWindow
+        className="size-3.5"
+      />
+    `);
+    expect(TAB_ICONS.app.displayName ?? TAB_ICONS.app.name).toBe(
+      "AppWindow",
+    );
+  });
+});
+
+describe("Phase 120 D-21 — renderTabContent dispatch (six-arm Record<TabType, Renderer>)", () => {
+  function makeGuacHost(overrides: Partial<Host> = {}): Host {
+    return {
+      id: "1",
+      name: "hostA",
+      username: "user",
+      ip: "10.0.0.1",
+      port: 22,
+      folder: "",
+      online: true,
+      cpu: null,
+      ram: null,
+      lastAccess: "",
+      authType: "password",
+      enableTerminal: true,
+      enableTunnel: false,
+      serverTunnels: [],
+      enableFileManager: false,
+      enableDocker: false,
+      quickActions: [],
+      enableSsh: true,
+      enableRdp: true,
+      enableVnc: true,
+      enableTelnet: true,
+      sshPort: 22,
+      rdpPort: 3389,
+      vncPort: 5900,
+      telnetPort: 23,
+      ...overrides,
+    } as Host;
+  }
+
+  function makeTab120(overrides: Partial<Tab> = {}): Tab {
+    return {
+      id: "tab-1",
+      instanceId: "inst-1",
+      type: "terminal",
+      label: "session",
+      host: makeGuacHost(),
+      openedAt: 1,
+      ...overrides,
+    };
+  }
+
+  it("Test 7: dashboard renders PrettyLandingCard (mock rendered)", () => {
+    const tab = makeTab120({ type: "dashboard", host: undefined });
+    render(<>{renderTabContent(tab)}</>);
+    expect(screen.getByTestId("mock-pretty-landing-card")).not.toBeNull();
+  });
+
+  it("Test 8: terminal renders through TerminalOrIdentitySessionPane (mocked terminal content)", async () => {
+    const tab = makeTab120({ type: "terminal", targetTmuxSession: "other" });
+    render(<>{renderTabContent(tab)}</>);
+    // Non-identity terminal falls to the TerminalTabContent leg → mock-terminal-tab-content.
+    expect(
+      await screen.findByTestId("mock-terminal-tab-content"),
+    ).not.toBeNull();
+  });
+
+  it("Test 9: rdp renders GuacamoleApp with protocol='rdp' (via renderGuacamoleTab)", async () => {
+    const tab = makeTab120({ type: "rdp" });
+    render(<>{renderTabContent(tab)}</>);
+    expect(await screen.findByTestId("mock-guacamole-app")).not.toBeNull();
+  });
+
+  it("Test 10: vnc renders GuacamoleApp (byte-equivalent to rdp — three explicit rows, same helper)", async () => {
+    const tab = makeTab120({ type: "vnc" });
+    render(<>{renderTabContent(tab)}</>);
+    expect(await screen.findByTestId("mock-guacamole-app")).not.toBeNull();
+  });
+
+  it("Test 11: telnet renders GuacamoleApp (byte-equivalent to rdp/vnc — three explicit rows, same helper)", async () => {
+    const tab = makeTab120({ type: "telnet" });
+    render(<>{renderTabContent(tab)}</>);
+    expect(await screen.findByTestId("mock-guacamole-app")).not.toBeNull();
+  });
+
+  it("Test 12 (NEW — Phase 120 D-05): app mounts AppPane with src=/apps/1/todo/pane/", () => {
+    const tab: Tab = {
+      id: "t1",
+      instanceId: "inst-app",
+      type: "app",
+      label: "Todo",
+      openedAt: 1,
+      app: { hostId: 1, slug: "todo" },
+    };
+    render(<>{renderTabContent(tab, undefined, undefined, undefined, true)}</>);
+    const iframe = screen.getByTestId("mock-app-pane") as HTMLIFrameElement;
+    expect(iframe).not.toBeNull();
+    expect(iframe.getAttribute("src")).toBe("/apps/1/todo/pane/");
+    // Assert props flow through the dispatch layer:
+    expect(iframe.getAttribute("data-hostid")).toBe("1");
+    expect(iframe.getAttribute("data-slug")).toBe("todo");
+    expect(iframe.getAttribute("data-tabid")).toBe("t1");
+    expect(iframe.getAttribute("data-visible")).toBe("true");
+  });
+
+  it("Test 13 (defensive — Phase 120 D-05): app tab with app: undefined returns null (isAppTab predicate fires)", () => {
+    // Construct an "app"-typed Tab without the required app tuple. Upstream
+    // type-narrowing prevents this at compile time, but the defensive isAppTab
+    // guard inside renderAppTab returns null rather than crashing on
+    // tab.app!.hostId.
+    const tab = {
+      id: "t2",
+      instanceId: "inst-broken",
+      type: "app" as const,
+      label: "Broken",
+      openedAt: 1,
+      // app: undefined  — deliberately omitted
+    } as Tab;
+    const { container } = render(
+      <>{renderTabContent(tab, undefined, undefined, undefined, true)}</>,
+    );
+    // No AppPane mounted; the fragment renders nothing (container has no iframe).
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(screen.queryByTestId("mock-app-pane")).toBeNull();
+  });
+
+  it("Test 14 (exhaustiveness — Phase 120 D-03/D-04): TAB_ICONS and RENDERERS each have all six TabType arms", () => {
+    // Compile-time exhaustiveness is enforced by Record<TabType, ...>, but
+    // this runtime assertion guards against a future silent-drop of an arm
+    // during refactoring (e.g. someone deletes a row and TypeScript lets it
+    // slide because the removed key satisfies the union — it doesn't, but
+    // this test makes the intent explicit anyway).
+    const expectedArms: Array<
+      "dashboard" | "terminal" | "rdp" | "vnc" | "telnet" | "app"
+    > = ["dashboard", "terminal", "rdp", "vnc", "telnet", "app"];
+    const iconKeys = Object.keys(TAB_ICONS).sort();
+    const rendererKeys = Object.keys(RENDERERS).sort();
+    const expected = [...expectedArms].sort();
+    expect(iconKeys).toEqual(expected);
+    expect(rendererKeys).toEqual(expected);
+    // Belt-and-suspenders: cardinality assertion.
+    expect(Object.keys(TAB_ICONS).length).toBe(6);
+    expect(Object.keys(RENDERERS).length).toBe(6);
   });
 });
