@@ -166,6 +166,7 @@ import {
   useIdentities,
   buildIdentityHostsFromFleet,
   deriveDiskPinnedIds,
+  refreshIdentities,
 } from "@/state/identities-store";
 import { startTrappedWorkPoller } from "@/state/trapped-work-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
@@ -244,6 +245,24 @@ const EMPTY_VISIBLE_SET: ReadonlySet<string> = new Set();
 function sessionWorkingKey(row: ConversationRowShape): string | null {
   if (!row.host) return null;
   return `${row.host.id}:${row.targetTmuxSession ?? ""}`;
+}
+
+// Phase 117 M-I follow-up (2026-09-19): flatten a HostFolder into a list of
+// Hosts via DFS. Used to filter the tree to a single host when the new-agent
+// dialog opens in project context (destination host is implied). Mirrors
+// the collectAllHosts helper inlined in CreateRoleDialog / NewSessionDialog /
+// CreateProjectModal — kept local to avoid a shared-util migration for one
+// call site.
+function collectHostsFromFolder(folder: HostFolder): Host[] {
+  const out: Host[] = [];
+  const walk = (children: (Host | HostFolder)[]): void => {
+    for (const child of children) {
+      if ("children" in child) walk(child.children);
+      else out.push(child);
+    }
+  };
+  walk(folder.children ?? []);
+  return out;
 }
 
 // (Phase 115 Plan 115-02: the Phase 107 `canonicalHideIdForRow` +
@@ -777,6 +796,13 @@ export function PrettyConversationsPanel({
   // pattern as newConversationPreSelectedProject but for the identity path.
   const [newSessionPendingProjectSlug, setNewSessionPendingProjectSlug] =
     useState<string | null>(null);
+  // Phase 117 M-I follow-up (2026-09-19): also stash the project's hostId
+  // so the NewSessionDialog mount can pass a filtered single-host hostTree
+  // — the picker auto-hides in project context because the destination
+  // host is implied (projects live on a specific host; agents-in-project
+  // must be born on the same host to appear under the section).
+  const [newSessionPendingProjectHostId, setNewSessionPendingProjectHostId] =
+    useState<number | null>(null);
   // Phase 90 Plan 90-06 (D-07): RolesListModal open/closed toggle. Opened by the
   // three-dots menu "Edit roles…" entry (which replaces the deleted "New role"
   // entry). See <RolesListModal> mount below.
@@ -1930,10 +1956,25 @@ export function PrettyConversationsPanel({
   // call so the newborn identity's frontmatter carries `project:` from the
   // first sweep tick. Was: opened NewConversationModal (relay-room path) —
   // that flow rejected by the user 2026-09-18 in favor of "new agent mode".
-  const handleNewConversationInProject = useCallback((slug: string) => {
-    setNewSessionPendingProjectSlug(slug);
-    setNewSessionDialogOpen(true);
-  }, []);
+  //
+  // Phase 117 M-I follow-up (2026-09-19): also stash the project's hostId
+  // so the dialog renders with a single-host tree (picker auto-hides).
+  const handleNewConversationInProject = useCallback(
+    (slug: string) => {
+      setNewSessionPendingProjectSlug(slug);
+      // Resolve the project's home host (projects live per-host; the newborn
+      // agent must be born on the SAME host to appear under the section).
+      const proj = projectsList.find((p) => p.slug === slug);
+      const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
+      setNewSessionPendingProjectHostId(
+        Number.isFinite(projHostIdNum) && projHostIdNum > 0
+          ? projHostIdNum
+          : null,
+      );
+      setNewSessionDialogOpen(true);
+    },
+    [projectsList],
+  );
 
   // Phase 117 Plan 117-09 Task 2 (D-28, D-29, D-30 + Fix 3) — archive
   // project cascade. Sequence per Fix 3 revision:
@@ -2639,17 +2680,44 @@ export function PrettyConversationsPanel({
             // Phase 22 SRIC-05: clear chainPrefill on close so a subsequent
             // manual open (via pencil) does NOT inherit stale chain state.
             setChainPrefill(null);
-            // Phase 117 M-F: clear pending project slug so a subsequent
-            // header-pencil open does NOT inherit a stale project context.
+            // Phase 117 M-F/M-I: clear pending project slug + hostId so a
+            // subsequent header-pencil open does NOT inherit stale project
+            // context.
             setNewSessionPendingProjectSlug(null);
+            setNewSessionPendingProjectHostId(null);
           }}
-          hostTree={hostTree ?? null}
+          // Phase 117 M-I follow-up: when opened via the per-project
+          // SquarePen, pass a synthetic single-host tree so NewSessionDialog's
+          // existing Phase-84 auto-hide-when-single-host logic kicks in — the
+          // destination host is implied (project lives on one host; agent
+          // must be born there to appear under the section). When opened
+          // via the header pencil (pendingProjectHostId===null), pass the
+          // full hostTree unchanged.
+          hostTree={(() => {
+            const fullTree = hostTree ?? null;
+            if (newSessionPendingProjectHostId === null) return fullTree;
+            if (!fullTree) return fullTree;
+            const projectHost = collectHostsFromFolder(fullTree).find(
+              (h) => parseInt(h.id, 10) === newSessionPendingProjectHostId,
+            );
+            if (!projectHost) return fullTree; // fall back to full tree if not found
+            return { name: fullTree.name, children: [projectHost] };
+          })()}
           onCreate={(opts) => {
             onCreateSession!(opts);
             // Phase 117 M-F: if this dialog was opened via the per-project
             // SquarePen, apply the pending project slug to the newborn (or
             // clone-attached) identity via setSessionProject. identityMode:
             // false is a plain tmux session — no identity to tag; skip.
+            //
+            // Phase 117 M-H (2026-09-19): chain refreshIdentities AFTER the
+            // write so the store observes the fresh `project:` field. The
+            // birth flow's built-in refresh runs BEFORE onCreate fires, so
+            // without this re-fetch the store carries project=null and the
+            // sidebar derivation never buckets the newborn under its
+            // section (visible symptom: agent opens as a tab but does NOT
+            // appear under the project section until the next full page
+            // reload).
             const slug = newSessionPendingProjectSlug;
             if (slug !== null) {
               const identityKey =
@@ -2661,15 +2729,18 @@ export function PrettyConversationsPanel({
               if (identityKey !== null) {
                 const hostIdNum = parseInt(opts.host.id, 10);
                 if (Number.isFinite(hostIdNum) && hostIdNum > 0) {
-                  setSessionProject(hostIdNum, identityKey, slug).catch(
-                    (err: unknown) => {
-                      const msg = err instanceof Error ? err.message : String(err);
+                  setSessionProject(hostIdNum, identityKey, slug)
+                    .then(() =>
+                      refreshIdentities({ [identityKey]: hostIdNum }),
+                    )
+                    .catch((err: unknown) => {
+                      const msg =
+                        err instanceof Error ? err.message : String(err);
                       // eslint-disable-next-line no-console
                       console.error(
                         `[project-new-session] setSessionProject failed hostId=${hostIdNum} key=${identityKey} slug=${slug}: ${msg}`,
                       );
-                    },
-                  );
+                    });
                 }
               }
             }
@@ -2677,6 +2748,7 @@ export function PrettyConversationsPanel({
             // Also clear on successful submit path (matches close semantics).
             setChainPrefill(null);
             setNewSessionPendingProjectSlug(null);
+            setNewSessionPendingProjectHostId(null);
           }}
           // Phase 22 SRIC-05: chain pre-fill props. Null when chainPrefill
           // has not been set (fresh manual pencil open); populated when

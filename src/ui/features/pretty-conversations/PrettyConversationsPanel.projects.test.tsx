@@ -39,6 +39,8 @@ vi.mock("@/features/terminal/session-hue", () => ({
     name ? name.toLowerCase() : null,
 }));
 
+const refreshIdentitiesSpy = vi.fn(async () => true);
+
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({
     byKey: new Map(),
@@ -49,6 +51,8 @@ vi.mock("@/state/identities-store", () => ({
   }),
   deriveDiskPinnedIds: () => [],
   buildIdentityHostsFromFleet: () => ({}),
+  refreshIdentities: (extra?: Record<string, number>) =>
+    refreshIdentitiesSpy(extra),
 }));
 
 vi.mock("@/state/trapped-work-store", () => ({
@@ -294,8 +298,14 @@ vi.mock("@/sidebar/NewSessionDialog", () => ({
     open: boolean;
     onCreate: (opts: unknown) => void;
     onClose: () => void;
+    // M-I: expose the incoming hostTree to tests so they can assert the
+    // panel-side filter (single-host tree in project context).
+    hostTree: { name: string; children: unknown[] } | null;
   }) => {
     if (!props.open) return null;
+    // Count top-level hosts (folders skipped for simplicity — the panel
+    // passes a flat single-host list in project context, not a nested tree).
+    const treeChildCount = props.hostTree?.children?.length ?? 0;
     const host = {
       id: "1",
       name: "hostA",
@@ -325,7 +335,10 @@ vi.mock("@/sidebar/NewSessionDialog", () => ({
       autostartTimeout: 60,
     };
     return (
-      <div data-testid="pv-mock-new-session-dialog">
+      <div
+        data-testid="pv-mock-new-session-dialog"
+        data-hosttree-child-count={String(treeChildCount)}
+      >
         <button
           data-testid="pv-mock-nsd-fire-birth"
           onClick={() =>
@@ -1401,6 +1414,94 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
 
     // Plain tmux session has no identity to tag; the write must be skipped.
     expect(setSessionProjectSpy).not.toHaveBeenCalled();
+  });
+
+  // ─── M-H: refreshIdentities chains after setSessionProject ────────────────
+  it("Test 9e (M-H): birth path chains refreshIdentities({key: hostId}) after setSessionProject resolves", async () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    fireEvent.click(container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement);
+    fireEvent.click(container.querySelector('[data-testid="pv-mock-nsd-fire-birth"]') as HTMLElement);
+
+    // Flush the setSessionProject().then(refreshIdentities) microtask chain.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(refreshIdentitiesSpy).toHaveBeenCalledTimes(1);
+    // Extra-map names the newborn identity + its host so the backend fanout
+    // is guaranteed to include the target host in the identityHosts wire
+    // parameter (birth flow's own precedent — NewSessionDialog:832).
+    expect(refreshIdentitiesSpy).toHaveBeenCalledWith({ wren: 1 });
+  });
+
+  it("Test 9f (M-H): plain path does NOT trigger refreshIdentities (no identity to refresh)", async () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    fireEvent.click(container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement);
+    fireEvent.click(container.querySelector('[data-testid="pv-mock-nsd-fire-plain"]') as HTMLElement);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // No project write happened (Test 9d), so no refresh either.
+    expect(refreshIdentitiesSpy).not.toHaveBeenCalled();
+  });
+
+  // ─── M-I: host tree filtered to project's host in project context ─────────
+  it("Test 9g (M-I): opening dialog via SquarePen passes a SINGLE-host tree (picker auto-hides)", () => {
+    // Simulate a multi-host fleet (2 hosts) so the picker would normally show.
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    const multiHostTree: HostFolder = {
+      name: "root",
+      children: [makeHost("1", "hostA"), makeHost("2", "hostB")],
+    };
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={multiHostTree}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    fireEvent.click(container.querySelector('[data-testid="pv-project-section-new-conv-alpha"]') as HTMLElement);
+
+    // Panel-side filter: tree passed to NewSessionDialog carries only 1 child
+    // (the project's home host), regardless of the full fleet size.
+    const nsdMock = container.querySelector('[data-testid="pv-mock-new-session-dialog"]');
+    expect(nsdMock).not.toBeNull();
+    expect(nsdMock!.getAttribute("data-hosttree-child-count")).toBe("1");
   });
 });
 
