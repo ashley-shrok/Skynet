@@ -756,7 +756,10 @@ function WorkspaceListView({
     }
   }
 
-  // Drag-drop handlers (D-16, dragCounter pattern)
+  // Drag-drop handlers (D-16, dragCounter pattern).
+  // All four call stopPropagation so PrettyView's outer composer drop-target
+  // does not also fire — otherwise the file lands as a composer attachment
+  // alongside our workspace upload.
   function onDragEnter(e: React.DragEvent) {
     if (
       !e.dataTransfer ||
@@ -765,11 +768,13 @@ function WorkspaceListView({
       return;
     }
     e.preventDefault();
+    e.stopPropagation();
     dragCounter.current++;
     if (dragCounter.current === 1) setDragActive(true);
   }
 
-  function onDragLeave() {
+  function onDragLeave(e: React.DragEvent) {
+    e.stopPropagation();
     dragCounter.current--;
     if (dragCounter.current <= 0) {
       dragCounter.current = 0;
@@ -785,11 +790,13 @@ function WorkspaceListView({
       return;
     }
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
   }
 
   async function onDrop(e: React.DragEvent) {
     e.preventDefault();
+    e.stopPropagation();
     dragCounter.current = 0;
     setDragActive(false);
     const files = Array.from(e.dataTransfer?.files ?? []);
