@@ -687,7 +687,12 @@ describe("app-pane-router", () => {
         expect(mocks.renderInterstitial).toHaveBeenCalled();
         const args = mocks.renderInterstitial.mock.calls[0];
         expect(args[0]).toBe("port_not_listening");
-        expect(args[3]).toBe(PRIMARY_ORIGIN);
+        // HIGH-1 fix (2026-09-19): PRIMARY_DOMAIN is now the normalized
+        // hostname (stripped of scheme) — asserting on the hostname here
+        // instead of the URL. Router forwards PRIMARY_DOMAIN → the
+        // interstitial callsite. Env is `https://skynet.test`, hostname
+        // is `skynet.test`.
+        expect(args[3]).toBe("skynet.test");
         // Structured warn emitted with safe fields only.
         const warnCall = mocks.sshLogger.warn.mock.calls.find(
           (c: unknown[]) => String(c[0]).includes("tunnel-error"),

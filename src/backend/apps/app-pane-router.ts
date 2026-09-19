@@ -434,8 +434,10 @@ export async function handleAppPaneUpgrade(
     // GET) so we call it via a small adapter that forces the method to
     // POST for check purposes — but the helper's current shape treats
     // GET as always-pass. Directly enforce origin here to be safe.
-    // Cast to Request-shape for the helper: only .method and
-    // .headers.origin are read.
+    // HIGH-1 fix (2026-09-19): parse Origin as a URL and compare its
+    // hostname against PRIMARY_DOMAIN (which the module normalizes to a
+    // bare hostname). Prior form compared the full URL string against a
+    // bare-hostname env value and refused every real browser upgrade.
     const originHeader = req.headers.origin;
     if (typeof originHeader !== "string" || originHeader.length === 0) {
       rejectUpgrade(
@@ -445,7 +447,18 @@ export async function handleAppPaneUpgrade(
       );
       return;
     }
-    if (originHeader !== PRIMARY_DOMAIN) {
+    let originHostname: string;
+    try {
+      originHostname = new URL(originHeader).hostname;
+    } catch {
+      rejectUpgrade(
+        socket,
+        "HTTP/1.1 403 Forbidden",
+        "X-Skynet-Reason: cross-origin",
+      );
+      return;
+    }
+    if (originHostname.length === 0 || originHostname !== PRIMARY_DOMAIN) {
       rejectUpgrade(
         socket,
         "HTTP/1.1 403 Forbidden",
