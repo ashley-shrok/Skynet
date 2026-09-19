@@ -285,7 +285,6 @@ describe("app-pane-router", () => {
         host: { id: 5, name: "t1000", userId: "u1" },
       },
       tunnelPort: 12345,
-      usedTunnel: true,
     });
     // Default proxy middleware returns a mock 200 JSON so we can assert
     // handoff occurred; the .upgrade method is attached for the WS test.

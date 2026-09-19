@@ -6,7 +6,14 @@
  * Question 1 RESOLVED, the resolver uses the SSH tunnel unconditionally
  * — no local-loopback branch. This test file GREP-ENFORCES the single-
  * code-path invariant via structural assertions (both "local-looking"
- * and "remote" hostIds return usedTunnel: true).
+ * and "remote" hostIds reach `tunnelCache.getOrCreate`).
+ *
+ * NOTE (LOW-13 cleanup, 2026-09-19): the resolver's return shape lost
+ * its `usedTunnel: boolean` field — the field was always `true`, no
+ * consumer read it, retained "for future revisit" but speculative.
+ * The single-code-path invariant is now enforced by structural equality
+ * of the return object + call-count on `tunnelCache.getOrCreate` (both
+ * hostId flavours reach it exactly once).
  *
  * Pattern reference: 120-PATTERNS.md § pane-target-resolver,
  * 120-RESEARCH.md § Open Questions Q1 RESOLVED.
@@ -63,7 +70,7 @@ beforeEach(() => {
 /* ------------------------------------------------------------------------ */
 
 describe("resolvePaneTarget — unconditional-tunnel (Q1 RESOLVED)", () => {
-  it("resolves through tunnelCache.getOrCreate for a 'local-looking' hostId (usedTunnel: true)", async () => {
+  it("resolves through tunnelCache.getOrCreate for a 'local-looking' hostId", async () => {
     const { resolvePaneTarget } = await import("../pane-target-resolver.js");
     const host = makeHost("t1000"); // "local" — the current Skynet host
     const result = await resolvePaneTarget(1, host, 3001);
@@ -71,11 +78,10 @@ describe("resolvePaneTarget — unconditional-tunnel (Q1 RESOLVED)", () => {
     expect(result).toEqual({
       target: { hostname: "t1000", port: 3001, host },
       tunnelPort: 12345,
-      usedTunnel: true,
     });
   });
 
-  it("resolves through tunnelCache.getOrCreate for a 'remote' hostId (usedTunnel: true)", async () => {
+  it("resolves through tunnelCache.getOrCreate for a 'remote' hostId", async () => {
     const { resolvePaneTarget } = await import("../pane-target-resolver.js");
     const host = makeHost("remote-box");
     const result = await resolvePaneTarget(42, host, 3001);
@@ -83,21 +89,22 @@ describe("resolvePaneTarget — unconditional-tunnel (Q1 RESOLVED)", () => {
     expect(result).toEqual({
       target: { hostname: "remote-box", port: 3001, host },
       tunnelPort: 12345,
-      usedTunnel: true,
     });
   });
 
-  it("produces structurally-identical shape (usedTunnel: true) for BOTH local-looking and remote hostIds — no branching", async () => {
+  it("produces structurally-identical shape for BOTH local-looking and remote hostIds — no branching", async () => {
     const { resolvePaneTarget } = await import("../pane-target-resolver.js");
     const localHost = makeHost("t1000");
     const remoteHost = makeHost("remote-box");
     const localResult = await resolvePaneTarget(1, localHost, 3001);
     const remoteResult = await resolvePaneTarget(42, remoteHost, 3001);
-    // Both must have the same usedTunnel value (true).
-    expect(localResult.usedTunnel).toBe(true);
-    expect(remoteResult.usedTunnel).toBe(true);
     // Both invoked the tunnel cache exactly once (total of 2 across both
     // calls) — the second call is NOT skipped by any local-branch bypass.
+    // Return-shape structural equality is the LOW-13-era replacement for
+    // the removed `usedTunnel: true` assertion (see file-header note).
+    expect(Object.keys(localResult).sort()).toEqual(
+      Object.keys(remoteResult).sort(),
+    );
     expect(mocks.getOrCreate).toHaveBeenCalledTimes(2);
   });
 

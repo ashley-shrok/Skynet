@@ -19,11 +19,14 @@
  * callers (they use it for logging + audit tags) but the resolver itself
  * does not branch on it.
  *
- * The `usedTunnel` field on the return interface is retained for
- * observability clarity (downstream logging can carry it forward) and
- * to preserve interface stability if a future phase revisits Q1 — a
- * revisit would add branches back here and toggle the field, without
- * requiring a breaking interface change at the consumer boundary.
+ * NOTE (LOW-13 cleanup, 2026-09-19): the return interface previously
+ * carried a `usedTunnel: boolean` field, always `true`, retained "for
+ * interface stability if a future phase revisits Q1". No consumer read
+ * it — grep-confirmed zero read sites outside tests that asserted the
+ * literal. Dropped. If a future phase revisits Q1 and needs a branch
+ * toggle, add the field back at that time — the interface change is
+ * cheap and localized (one caller, `app-pane-router.ts`, would need to
+ * begin destructuring it).
  *
  * ---
  *
@@ -40,13 +43,13 @@ import { tunnelCache } from "../serve-url/tunnel-cache.js";
 import type { ServeTarget } from "../serve-url/types.js";
 
 /**
- * The resolver's return shape. The `usedTunnel` field is retained on the
- * interface so future revisions can toggle it without a breaking change.
+ * The resolver's return shape. See LOW-13 cleanup note above for why
+ * `usedTunnel` was dropped — no consumer read it, and the "Q1 revisit"
+ * interface-stability argument was speculative.
  */
 export interface ResolvedTarget {
   target: ServeTarget;
   tunnelPort: number;
-  usedTunnel: boolean;
 }
 
 /**
@@ -59,8 +62,7 @@ export interface ResolvedTarget {
  * @param host   Fully-resolved DB host row for the target box.
  * @param port   Positive integer TCP port on the target box where the
  *               app process listens.
- * @returns      { target, tunnelPort, usedTunnel } — usedTunnel is
- *               always the boolean literal for the tunnel path.
+ * @returns      { target, tunnelPort }
  */
 export async function resolvePaneTarget(
   hostId: number,
@@ -74,5 +76,5 @@ export async function resolvePaneTarget(
 
   const target: ServeTarget = { hostname: host.name, port, host };
   const instance = await tunnelCache.getOrCreate(target);
-  return { target, tunnelPort: instance.tunnelPort, usedTunnel: true };
+  return { target, tunnelPort: instance.tunnelPort };
 }
