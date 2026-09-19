@@ -21,21 +21,51 @@
 // screen readers announce it via role="alert" (aria-live=assertive on
 // role="alert" is a built-in browser behavior).
 
-import { useCallback, useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Search, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { DialogHeader, DialogTitle, DialogClose } from "@/components/dialog";
 import { Button } from "@/components/button";
 import { cn } from "@/lib/utils";
 import { createProject } from "@/api/project-list-api";
+import type { Host, HostFolder } from "@/types/ui-types";
 
 export interface CreateProjectModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Fires on successful backend create with the echoed slug + user's raw displayName. */
   onCreated: (result: { slug: string; displayName: string }) => void;
-  /** The host to create the project on. Panel picks a default from hostTree. */
-  hostId: number;
+  /**
+   * Host tree threaded from the panel. Same shape as CreateRoleDialog +
+   * NewSessionDialog take; enables the Phase-84 "hide picker when the user has
+   * exactly one host" affordance. When null (should not happen in production —
+   * the panel always has a tree by open time), the picker renders an empty
+   * listbox and submit stays disabled.
+   */
+  hostTree: HostFolder | null;
+}
+
+// ─── Local host-tree flatten helper ─────────────────────────────────────────
+// Inlined verbatim from CreateRoleDialog.tsx:90-107 / NewSessionDialog.tsx:180-190.
+// Small enough that a shared util isn't worth the import cost; three copies is
+// under the abstraction threshold. If this ever grows, promote to
+// SidebarTree.collectAllHosts (see F1 in CreateRoleDialog for the deferred
+// refactor rationale).
+
+function isFolder(item: Host | HostFolder): item is HostFolder {
+  return "children" in item;
+}
+
+function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
+  const out: Host[] = [];
+  for (const child of children) {
+    if (isFolder(child)) {
+      out.push(...collectAllHosts(child.children));
+    } else {
+      out.push(child);
+    }
+  }
+  return out;
 }
 
 /**
@@ -70,11 +100,33 @@ export function CreateProjectModal({
   open,
   onOpenChange,
   onCreated,
-  hostId,
+  hostTree,
 }: CreateProjectModalProps) {
   const [displayName, setDisplayName] = useState<string>("");
   const [inFlight, setInFlight] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedHost, setSelectedHost] = useState<Host | null>(null);
+  const [search, setSearch] = useState<string>("");
+
+  // Flat host list. Mirrors CreateRoleDialog.tsx:219-225 — flatten via DFS,
+  // filter out RDP-only hosts (project directories live over SSH, an RDP-only
+  // host has no writable ~/fleet/projects/ target).
+  const flatHosts = useMemo(
+    () =>
+      collectAllHosts(hostTree?.children ?? []).filter(
+        (h) => h.enableRdp !== true,
+      ),
+    [hostTree],
+  );
+
+  const filteredHosts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return flatHosts;
+    return flatHosts.filter((h) => {
+      const hay = `${h.name} ${h.username ?? ""} ${h.ip ?? ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [flatHosts, search]);
 
   // Reset all local state whenever the modal closes so a re-open sees a
   // clean slate. Mirrors NewConversationModal.tsx:165-170 M1 fix.
@@ -83,25 +135,43 @@ export function CreateProjectModal({
       setDisplayName("");
       setInFlight(false);
       setError(null);
+      setSelectedHost(null);
+      setSearch("");
     }
   }, [open]);
 
-  const canSubmit = displayName.trim().length > 0 && !inFlight;
+  // Auto-select the single available host when only one exists (Phase 84
+  // pattern, mirrors CreateRoleDialog.tsx:278-282). Also handles the case
+  // where a host comes online mid-authoring (hostTree ref changes) — a
+  // no-op if selectedHost was already user-picked.
+  useEffect(() => {
+    if (open && flatHosts.length === 1 && selectedHost === null) {
+      setSelectedHost(flatHosts[0]);
+    }
+  }, [open, flatHosts, selectedHost]);
+
+  const canSubmit =
+    displayName.trim().length > 0 && !inFlight && selectedHost !== null;
 
   const onSubmit = useCallback(async () => {
     const raw = displayName.trim();
-    if (raw === "") return;
+    if (raw === "" || selectedHost === null) return;
+    const hostIdNum = parseInt(String(selectedHost.id), 10);
+    if (!Number.isFinite(hostIdNum) || hostIdNum <= 0) {
+      setError("Selected host has an invalid id — pick a different host.");
+      return;
+    }
     setError(null);
     setInFlight(true);
     try {
-      const result = await createProject(hostId, raw);
+      const result = await createProject(hostIdNum, raw);
       onCreated({ slug: result.slug, displayName: raw });
       onOpenChange(false);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error({
         operation: "create_project_modal_submit_error",
-        hostId,
+        hostId: hostIdNum,
         rawDisplayName: raw,
         errMessage: err instanceof Error ? err.message : "unknown",
         status: statusOf(err),
@@ -110,7 +180,7 @@ export function CreateProjectModal({
     } finally {
       setInFlight(false);
     }
-  }, [displayName, hostId, onCreated, onOpenChange]);
+  }, [displayName, selectedHost, onCreated, onOpenChange]);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={true}>
@@ -132,7 +202,12 @@ export function CreateProjectModal({
           className={cn(
             "absolute inset-4 z-[120] outline-none",
             "flex flex-col overflow-hidden rounded-[24px]",
-            "md:max-w-[420px] md:max-h-[320px] md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2",
+            // Single-host users see the compact 320px shell (unchanged from
+            // pre-picker). Multi-host users get a taller shell to accommodate
+            // the search input + up to ~5 rows of listbox before scroll.
+            flatHosts.length === 1
+              ? "md:max-w-[420px] md:max-h-[320px] md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2"
+              : "md:max-w-[420px] md:max-h-[560px] md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2",
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
             "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           )}
@@ -220,6 +295,93 @@ export function CreateProjectModal({
                 )}
               />
             </div>
+            {/*
+             * Host picker — hidden when the user has exactly one pickable
+             * host (Phase 84 D-CONTEXT item 8 pattern, mirrors
+             * CreateRoleDialog.tsx:729-797). The auto-select-if-single
+             * effect above ensures selectedHost is populated in that case
+             * so submission still works without a visible picker. When the
+             * user has zero or ≥2 hosts, both the search box and the
+             * listbox render — the multi-host user (target: Ashley) needs
+             * to see WHERE the project lands so a mis-pick like
+             * "test-project on thenasty when I meant t1000" can't happen
+             * silently.
+             */}
+            {flatHosts.length !== 1 && (
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="create-project-host-search"
+                  className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]"
+                >
+                  Host
+                </label>
+
+                {/* Host search input — same shape as CreateRoleDialog picker */}
+                <div className="flex items-center gap-2 px-2.5 h-7 bg-black/20 border border-white/10 rounded-sm">
+                  <Search className="size-3 text-[color:var(--color-pv-fg-dim)] shrink-0" />
+                  <input
+                    id="create-project-host-search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search hosts"
+                    aria-label="Search hosts"
+                    disabled={inFlight}
+                    className="flex-1 text-xs bg-transparent outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[#e8e4d8] min-w-0 disabled:opacity-50"
+                  />
+                </div>
+
+                {/* Host listbox */}
+                <div
+                  className="flex flex-col max-h-56 overflow-y-auto border border-white/10 rounded-sm"
+                  role="listbox"
+                  aria-label="Hosts"
+                  data-testid="create-project-host-listbox"
+                >
+                  {filteredHosts.length === 0 ? (
+                    <div className="px-3 py-4 text-xs text-[color:var(--color-pv-fg-dim)] text-center">
+                      No hosts match your search.
+                    </div>
+                  ) : (
+                    filteredHosts.map((h) => {
+                      const selected = selectedHost?.id === h.id;
+                      return (
+                        <button
+                          key={h.id}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          disabled={inFlight}
+                          onClick={() => !inFlight && setSelectedHost(h)}
+                          data-testid={`create-project-host-option-${h.id}`}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-white/5 last:border-b-0 disabled:opacity-50",
+                            selected
+                              ? "bg-[hsla(220,55%,45%,0.35)] text-[#f0ebe0]"
+                              : "hover:bg-white/5 text-[#e8e4d8]",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "size-1.5 rounded-full shrink-0",
+                              h.online
+                                ? "bg-green-500"
+                                : "bg-[color:var(--color-pv-fg-dim)]",
+                            )}
+                          />
+                          <span className="flex-1 truncate">{h.name}</span>
+                          {h.username && (
+                            <span className="text-[10px] text-[color:var(--color-pv-fg-dim)] shrink-0">
+                              {h.username}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
             {error !== null && (
               <div
                 role="alert"

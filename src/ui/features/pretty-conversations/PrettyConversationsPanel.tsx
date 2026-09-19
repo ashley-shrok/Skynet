@@ -1726,31 +1726,14 @@ export function PrettyConversationsPanel({
     | null
   >(null);
 
-  // Phase 117 Plan 117-09 Task 1 — CreateProjectModal needs a hostId.
-  // The panel doesn't own a "currently-selected host" concept the way the
-  // per-conversation modals do (RoleModal / RunbookEditorModal thread hostId
-  // from the pane). For the create-project button, we pick the FIRST host in
-  // the hostTree (typically the local host at id=1). Falls back to 1 (the
-  // canonical LOCAL_HOST_IDS default) when hostTree is missing.
-  const defaultCreateProjectHostId = useMemo<number>(() => {
-    if (!hostTree || !Array.isArray(hostTree.children)) return 1;
-    // Walk the tree, take the first Host (not HostFolder) leaf we find.
-    const walk = (children: (Host | HostFolder)[]): Host | null => {
-      for (const child of children) {
-        if ("children" in child) {
-          const found = walk(child.children);
-          if (found) return found;
-        } else {
-          return child;
-        }
-      }
-      return null;
-    };
-    const firstHost = walk(hostTree.children);
-    if (!firstHost) return 1;
-    const n = parseInt(firstHost.id, 10);
-    return Number.isFinite(n) && n > 0 ? n : 1;
-  }, [hostTree]);
+  // Phase 117 M-G follow-up (2026-09-18): CreateProjectModal now takes the
+  // full hostTree and owns its own host picker (Phase-84 pattern — hidden
+  // when the user has exactly one pickable host, visible listbox otherwise).
+  // The previous defaultCreateProjectHostId derivation (silently picked the
+  // first host in the tree) was retired because on multi-host fleets it
+  // routinely picked the wrong host (thenasty, hostId=3) when the user
+  // meant the local host — the user creates a project without noticing
+  // where it landed. The picker moves the choice into the UI.
 
   // Row-id → project-slug lookup (derived from projectSections). Used by
   // handleFlatMiddleDrop to answer "was this row assigned to a project?".
@@ -2058,9 +2041,11 @@ export function PrettyConversationsPanel({
       //
       // Phase 117 M7 fix (2026-09-18): pre-fix, if projectsList did not
       // contain the slug (which "should never happen"), the code fell
-      // back to defaultCreateProjectHostId — a DIFFERENT host than the
-      // one the project actually lives on. That fallback would silently
-      // fail or, worse, archive a same-slug project on the wrong host.
+      // back to the panel-inferred "first host in hostTree" hostId — a
+      // DIFFERENT host than the one the project actually lives on. That
+      // fallback would silently fail or, worse, archive a same-slug
+      // project on the wrong host. (That inferred-hostId derivation was
+      // retired in M-G when CreateProjectModal grew its own host picker.)
       // Correct behavior: if we cannot resolve the project's host, log a
       // warning and RETURN early. Better to skip the folder-move than to
       // archive on the wrong host. The identity-side ops (Section 4-5
@@ -2917,7 +2902,7 @@ export function PrettyConversationsPanel({
           // click that 117-09's Task 2 hooked into NewConversationModal
           // instead), it's cleared alongside the modal close.
         }}
-        hostId={defaultCreateProjectHostId}
+        hostTree={hostTree ?? null}
       />
       {/* 117-08 legacy placeholder marker — kept for tests written against
           117-08's state contract that observe the marker rather than the

@@ -37,6 +37,44 @@ vi.mock("@/api/project-list-api", () => ({
 }));
 
 import { CreateProjectModal } from "./CreateProjectModal";
+import type { Host, HostFolder } from "@/types/ui-types";
+
+// Minimal Host factory — mirrors PrettyConversationsPanel.projects.test.tsx:391
+// (kept local rather than shared to preserve test-file independence).
+function makeHost(id: string, name: string, overrides: Partial<Host> = {}): Host {
+  return {
+    id,
+    name,
+    username: "user",
+    ip: "10.0.0.1",
+    port: 22,
+    folder: "",
+    online: true,
+    cpu: null,
+    ram: null,
+    lastAccess: "",
+    authType: "password",
+    enableTerminal: true,
+    enableTunnel: false,
+    serverTunnels: [],
+    enableFileManager: false,
+    enableDocker: false,
+    quickActions: [],
+    enableSsh: true,
+    enableRdp: false,
+    enableVnc: false,
+    enableTelnet: false,
+    sshPort: 22,
+    rdpPort: 3389,
+    vncPort: 5900,
+    telnetPort: 23,
+    ...overrides,
+  } as Host;
+}
+
+function makeHostTree(hosts: Host[]): HostFolder {
+  return { name: "root", children: hosts };
+}
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
@@ -45,22 +83,40 @@ function renderModal(
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
     onCreated?: (result: { slug: string; displayName: string }) => void;
+    /** Convenience: single host id — builds a 1-host tree so auto-select fires. */
     hostId?: number;
+    /** Convenience: multiple hosts — pass {id, name} pairs. */
+    hosts?: Array<{ id: string; name: string; overrides?: Partial<Host> }>;
+    /** Escape hatch: pass a fully-formed HostFolder directly. */
+    hostTree?: HostFolder | null;
   } = {},
 ) {
   const onOpenChange = overrides.onOpenChange ?? vi.fn();
   const onCreated = overrides.onCreated ?? vi.fn();
-  const hostId = overrides.hostId ?? 1;
   const open = overrides.open ?? true;
+
+  // Prop resolution priority: explicit hostTree > hosts[] > hostId > default 1.
+  let hostTree: HostFolder | null;
+  if (overrides.hostTree !== undefined) {
+    hostTree = overrides.hostTree;
+  } else if (overrides.hosts) {
+    hostTree = makeHostTree(
+      overrides.hosts.map((h) => makeHost(h.id, h.name, h.overrides ?? {})),
+    );
+  } else {
+    const hostId = overrides.hostId ?? 1;
+    hostTree = makeHostTree([makeHost(String(hostId), `host-${hostId}`)]);
+  }
+
   const result = render(
     <CreateProjectModal
       open={open}
       onOpenChange={onOpenChange}
       onCreated={onCreated}
-      hostId={hostId}
+      hostTree={hostTree}
     />,
   );
-  return { onOpenChange, onCreated, hostId, ...result };
+  return { onOpenChange, onCreated, hostTree, ...result };
 }
 
 function typeName(value: string) {
@@ -227,5 +283,111 @@ describe("CreateProjectModal", () => {
     typeName("   ");
     const submit = screen.getByRole("button", { name: /create project/i });
     expect(submit).toBeDisabled();
+  });
+
+  // ─── M-G host-picker behavior ──────────────────────────────────────────────
+
+  it("Test 11 (single host: picker hidden): listbox NOT rendered when the user has exactly one pickable host", () => {
+    renderModal({ open: true, hostId: 1 });
+    expect(
+      screen.queryByTestId("create-project-host-listbox"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Test 12 (multi host: picker visible): listbox IS rendered when the user has ≥2 hosts", () => {
+    renderModal({
+      open: true,
+      hosts: [
+        { id: "3", name: "thenasty" },
+        { id: "6", name: "Skynet" },
+      ],
+    });
+    expect(
+      screen.getByTestId("create-project-host-listbox"),
+    ).toBeInTheDocument();
+    // Both hosts appear as options.
+    expect(screen.getByTestId("create-project-host-option-3")).toBeInTheDocument();
+    expect(screen.getByTestId("create-project-host-option-6")).toBeInTheDocument();
+  });
+
+  it("Test 13 (multi host: submit disabled until picked): Create disabled with name entered but no host selected", () => {
+    renderModal({
+      open: true,
+      hosts: [
+        { id: "3", name: "thenasty" },
+        { id: "6", name: "Skynet" },
+      ],
+    });
+    typeName("Trip Planning");
+    const submit = screen.getByRole("button", { name: /create project/i });
+    expect(submit).toBeDisabled();
+    // Picking a host enables submission.
+    fireEvent.click(screen.getByTestId("create-project-host-option-6"));
+    expect(submit).not.toBeDisabled();
+  });
+
+  it("Test 14 (multi host: submit uses picked host): createProject called with the SELECTED host id, not the first one", async () => {
+    createProjectSpy.mockResolvedValueOnce({
+      ok: true as const,
+      slug: "trip-planning",
+    });
+    renderModal({
+      open: true,
+      hosts: [
+        { id: "3", name: "thenasty" },
+        { id: "6", name: "Skynet" },
+      ],
+    });
+    typeName("Trip Planning");
+    // Pick the SECOND host (id=6), not the first (id=3).
+    fireEvent.click(screen.getByTestId("create-project-host-option-6"));
+    fireEvent.click(screen.getByRole("button", { name: /create project/i }));
+
+    await waitFor(() => {
+      expect(createProjectSpy).toHaveBeenCalledTimes(1);
+    });
+    // Guard against the pre-M-G regression: the panel defaulted to the first
+    // host in the tree, so this test would have failed with hostId=3 pre-fix.
+    expect(createProjectSpy).toHaveBeenCalledWith(6, "Trip Planning");
+  });
+
+  it("Test 15 (multi host: search filters listbox): typing narrows the visible options", () => {
+    renderModal({
+      open: true,
+      hosts: [
+        { id: "3", name: "thenasty" },
+        { id: "6", name: "Skynet" },
+        { id: "7", name: "workstation" },
+      ],
+    });
+    const searchInput = screen.getByLabelText(/search hosts/i);
+    fireEvent.change(searchInput, { target: { value: "skynet" } });
+
+    // Only the Skynet option survives the filter.
+    expect(screen.getByTestId("create-project-host-option-6")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("create-project-host-option-3"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("create-project-host-option-7"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Test 16 (RDP-only host filtered): a host with enableRdp=true is excluded from the picker", () => {
+    renderModal({
+      open: true,
+      hosts: [
+        { id: "3", name: "thenasty" },
+        { id: "5", name: "thenasty-RDP", overrides: { enableRdp: true } },
+        { id: "6", name: "Skynet" },
+      ],
+    });
+    // The two SSH hosts render as options.
+    expect(screen.getByTestId("create-project-host-option-3")).toBeInTheDocument();
+    expect(screen.getByTestId("create-project-host-option-6")).toBeInTheDocument();
+    // The RDP-only host does NOT — project directories are SSH-written.
+    expect(
+      screen.queryByTestId("create-project-host-option-5"),
+    ).not.toBeInTheDocument();
   });
 });
