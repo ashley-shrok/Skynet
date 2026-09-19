@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
 } from "react";
@@ -23,13 +24,26 @@ import {
 // responsibility. This component knows nothing about the panel.
 //
 // Interaction shape:
-//   - LEFT-CLICK (D-13): deliberate NO-OP in v1. cursor: default in the CSS
-//     (pretty-conversations.css `.pv-app-tile`) plus zero onClick handler
-//     wiring. Shape 4 will own primary-click for "open in current view /
-//     drag into split leaf"; deferring means shape 4 doesn't have to migrate
-//     an affordance from another mapping later. suppressNextClickRef is
-//     RETAINED as a forward-compat pin for shape 4 (Pitfall 4 mitigation)
-//     even though nothing in this file consumes its value.
+//   - LEFT-CLICK (D-06, Phase 120): opens the app in a pane leaf via the
+//     onOpenApp prop. AppShell wires this to
+//     `openTab(null, "app", ..., { app: { hostId, slug }, label: title })`.
+//     The suppressNextClickRef gate suppresses the synthesized click that
+//     follows a long-press so long-press doesn't double-fire menu AND
+//     onOpenApp (Pitfall 4). Unhealthy tiles remain clickable — health does
+//     NOT gate the click (D-18); the proxy attempts a connection and Phase
+//     103's interstitial renders inside the iframe if the tunnel refuses.
+//     Phase 119's Phase-119-Plan-03 D-13 shipped this as a deliberate no-op
+//     with `cursor: default`; Phase 120 flips both (pretty-conversations.css
+//     `.pv-app-tile` now sets `cursor: pointer`).
+//   - DRAG (D-07, Phase 120): dragStart emits an
+//     `application/x-skynet-app-tile` JSON payload carrying
+//     `{ hostId, slug, title }` (hostId cast to number at the wire boundary
+//     — see AppTileProps.onOpenApp for the number-vs-string rationale).
+//     effectAllowed = "copy" (drag CREATES a new leaf; does NOT MOVE the
+//     tile). Does NOT set `text/plain` — Phase 64 closure at
+//     SplitView.tsx:596-608 (bare text/plain drags are a stray-drop hazard).
+//     SplitView's `hasSkynetDragPayload` gate + onDrop dispatch pick up the
+//     new MIME and route to `onDropAppTileInTree` on AppShell.
 //   - RIGHT-CLICK (D-12, desktop): fires onContextMenu → opens
 //     PrettyConversationContextMenu with one item: "Open in new tab".
 //   - LONG-PRESS (D-12, mobile / coarse-pointer): 500ms touchstart timer;
@@ -83,12 +97,23 @@ import {
 
 export interface AppTileProps {
   app: AppState;
+  // Phase 120 D-06 — left-click callback. When present, a plain click on the
+  // tile (that is NOT the synthesized click following a long-press) invokes
+  // `onOpenApp(Number(app.hostId), app.slug, app.title)`. AppShell wires this
+  // to `openTab(null, "app", ..., { app: { hostId, slug }, label: title })`.
+  // Optional so unit tests + preview surfaces can render the tile without
+  // requiring the parent to wire the callback. `hostId` is cast to number at
+  // the wire boundary because `AppState.hostId` is string per
+  // fleet-status-types.ts:136, but Tab.app.hostId (Phase 120 Plan 04) is a
+  // number — this component unifies the two representations at the tile
+  // → openTab boundary.
+  onOpenApp?: (hostId: number, slug: string, title: string) => void;
 }
 
 const LONG_PRESS_MS = 500;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 
-export function AppTile({ app }: AppTileProps): React.ReactElement {
+export function AppTile({ app, onOpenApp }: AppTileProps): React.ReactElement {
   // State: image-load failure (Pitfall 3 avoidance — state flip beats CSS
   // :where(img[error]) which has patchy browser support), and context-menu
   // open coords.
@@ -98,17 +123,11 @@ export function AppTile({ app }: AppTileProps): React.ReactElement {
   // ─── Long-press refs (mirrors PrettyConversationRow.tsx:442-451) ────────
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
-  // Pitfall 4 (RESEARCH.md) — retained for shape 4 forward-compat even
-  // though D-13 makes left-click a no-op in v1. When shape 4 wires a real
-  // left-click behavior, this ref lets the long-press timer suppress the
-  // synthesized click that follows so long-press doesn't double-fire menu
-  // AND left-click. Nothing in v1 reads this ref, but removing it now would
-  // force shape 4 to re-add + re-verify a solved pattern.
+  // Pitfall 4 (Phase 119 RESEARCH.md) — set to true by the long-press timer
+  // body so the synthesized click that follows a long-press touch does NOT
+  // re-fire onOpenApp (Phase 120 D-06 wired this ref up; Phase 119 kept it
+  // as forward-compat scaffold). Consumed by `onTileClick` below.
   const suppressNextClickRef = useRef<boolean>(false);
-  // Suppress the "unused" lint by touching the ref once in an inert
-  // effect-free path. This costs zero runtime and preserves the forward-
-  // compat intent above.
-  void suppressNextClickRef;
 
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimerRef.current !== null) {
@@ -126,6 +145,53 @@ export function AppTile({ app }: AppTileProps): React.ReactElement {
   }, [clearLongPressTimer]);
 
   const closeSelf = useCallback(() => setCtxMenu(null), []);
+
+  // Phase 120 D-06 — plain left-click opens the app in a pane leaf via the
+  // onOpenApp prop. Long-press suppression preserved via suppressNextClickRef
+  // (Pitfall 4): the long-press timer body sets the ref to true; a
+  // subsequent synthesized click reads-and-resets the ref and returns
+  // without firing onOpenApp. D-15 multi-instance: no dedupe here — the
+  // click callback fires every time, and AppShell's openTab creates a fresh
+  // leaf each call.
+  const onTileClick = useCallback(
+    (_e: ReactMouseEvent<HTMLDivElement>) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
+      // hostId is a string on the wire (fleet-status-types.ts:136); cast to
+      // number to match Tab.app.hostId's numeric shape (ui-types.ts).
+      onOpenApp?.(Number(app.hostId), app.slug, app.title);
+    },
+    [app.hostId, app.slug, app.title, onOpenApp],
+  );
+
+  // Phase 120 D-07 — drag source. Emits application/x-skynet-app-tile with
+  // a JSON payload {hostId, slug, title}; SplitView's hasSkynetDragPayload
+  // gate (SplitView.tsx:187-192) is extended to accept this third MIME and
+  // its onDrop dispatch has a new branch that routes the parsed payload
+  // through AppShell's onDropAppTileInTree callback.
+  //
+  // effectAllowed = "copy" because dragging a tile CREATES a new leaf; the
+  // sidebar tile itself remains — this is a create-new gesture, not a move.
+  //
+  // MUST NOT setData("text/plain", ...) — Phase 64 closure at
+  // SplitView.tsx:596-608 (bare text/plain drags used to be a session-tabId
+  // fallback that stray browser drags could exploit; removed to fail-closed).
+  const onTileDragStart = useCallback(
+    (e: ReactDragEvent<HTMLDivElement>) => {
+      e.dataTransfer.setData(
+        "application/x-skynet-app-tile",
+        JSON.stringify({
+          hostId: Number(app.hostId),
+          slug: app.slug,
+          title: app.title,
+        }),
+      );
+      e.dataTransfer.effectAllowed = "copy";
+    },
+    [app.hostId, app.slug, app.title],
+  );
 
   const onRowContextMenu = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
@@ -216,6 +282,9 @@ export function AppTile({ app }: AppTileProps): React.ReactElement {
       className="pv-app-tile"
       role="button"
       aria-label={`App tile: ${app.title}`}
+      draggable={true}
+      onDragStart={onTileDragStart}
+      onClick={onTileClick}
       onContextMenu={onRowContextMenu}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}

@@ -1368,9 +1368,10 @@
    first-class residents of the sidebar bubble family. Two disciplined
    deviations:
 
-     - .pv-app-tile OVERRIDES `cursor: default` (D-13 — left-click is a
-       deliberate no-op in v1; shape 4 owns primary-click affordance).
-       .pv-row's default `cursor: pointer` (line 345) does not apply.
+     - .pv-app-tile INHERITS `cursor: pointer` from .pv-row's default (line
+       345). Phase 119 shipped an override to `cursor: default` while shape
+       4's primary-click affordance was reserved (D-13); Phase 120 D-06
+       reverted the override — left-click now opens the app in a pane.
      - .pv-app-icon-slot changes ONLY border-radius (10px rounded-square,
        iOS-app-icon target per D-10 Claude discretion) vs .pv-avatar's 999px
        round disc. All other tokens (40x40, gradient, border, shadow stack,
@@ -1388,8 +1389,9 @@
    ui/index.css:196 — the app-wide teal accent, NOT the sidebar row's
    blue-grey 216 the shape requires. NO per-app override (D-09 still holds
    at the per-tile-instance level: every tile gets the same 216). NO
-   selected-state override on the app tile (D-13 — no primary-click
-   affordance to reflect).
+   selected-state override on the app tile (Phase 120 does not track which
+   app is "current" — every left-click creates or replaces a leaf; multi-
+   instance is the default via D-15).
 
    Letter typography for the iconless fallback lives on the PARENT
    .pv-app-icon-slot (mirrors Pitfall 3 from RESEARCH.md — .pv-avatar-initial
@@ -1418,10 +1420,11 @@
   gap: 12px;
   padding: 10px 12px;
   color: #fbf5e8;
-  /* D-13 override: .pv-row's `cursor: pointer` (line 345) is replaced with
-     `cursor: default` here so users understand the tile is not primary-
-     clickable in v1. Right-click / long-press context menu still fires. */
-  cursor: default;
+  /* D-06 (Phase 120): revert Phase 119's cursor: default override. Left-click
+     now opens the app in a pane per D-06 — cursor communicates the interactive
+     affordance. Right-click / long-press context menu still fires; drag source
+     wired via draggable={true} on the tile element. */
+  cursor: pointer;
   -webkit-touch-callout: none;
   user-select: none;
   -webkit-user-select: none;
