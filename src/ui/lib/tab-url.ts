@@ -49,18 +49,42 @@ const STORAGE_KEY = "skynet_pending_tab";
 // `if (spec.protocol === "relay") continue;` early-out). See D-15/D-16 and
 // 97-RESEARCH.md § Finding 7 for the rationale (opaque Matrix room ID as URL
 // identifier; URL shape mirrors the harness case's protocol-prefix pattern).
+//
+// Phase 120 D-16: adds a third variant `{ protocol: "app"; hostId: string;
+// slug: string }` carrying the (hostId, slug) tuple that identifies an app
+// leaf, so app tabs survive URL-fragment persistence (workspace-share and
+// Chrome-tab-restore flows). The `?: never` discipline is preserved
+// symmetrically — every variant carries `?: never` markers for every field
+// it does NOT own, so consumers reading `spec.hostId`, `spec.slug`,
+// `spec.host`, `spec.session`, or `spec.roomId` narrow correctly against
+// whichever discriminant is present.
 export type TabSpec =
   | {
       protocol: "tmux" | "terminal" | "rdp" | "vnc" | "telnet";
       host: string;
       session?: string;
       roomId?: never;
+      hostId?: never;
+      slug?: never;
     }
   | {
       protocol: "relay";
       roomId: string;
       host?: never;
       session?: never;
+      hostId?: never;
+      slug?: never;
+    }
+  | {
+      // Phase 120 D-16 — app-leaf tuple carried through the URL fragment.
+      // hostId is stringified at the URL-boundary (the wire is textual);
+      // slug matches APP_SLUG_RE = /^[a-z0-9-]{1,64}$/ on the backend.
+      protocol: "app";
+      hostId: string;
+      slug: string;
+      host?: never;
+      session?: never;
+      roomId?: never;
     };
 
 // Full workspace state carried in the URL: an ordered list of tab specs,
@@ -94,6 +118,7 @@ const PROTOCOLS: TabSpec["protocol"][] = [
   "vnc",
   "telnet",
   "relay",
+  "app", // Phase 120 D-16 — app-leaf URL-fragment variant
 ];
 
 export function parseTabParam(raw: string | null): TabSpec | null {
@@ -157,6 +182,31 @@ export function parseTabParam(raw: string | null): TabSpec | null {
     if (!host || !session) return null;
     return { protocol, host, session };
   }
+  // Phase 120 D-16: app variant — two-argument grammar `app:<hostId>:<slug>`.
+  // Mirrors the tmux two-arg shape but with a distinct payload semantic. Same
+  // decodeURIComponent try/catch fail-safe (malformed % escapes drop the tab
+  // rather than crash tab restoration). Slugs match APP_SLUG_RE on the
+  // backend ([a-z0-9-]{1,64}) — no encoding is strictly required, but we
+  // decode symmetrically with the other variants for defence-in-depth.
+  if (protocol === "app") {
+    const idx2 = rest.indexOf(":");
+    if (idx2 === -1) return null;
+    let hostId: string;
+    let slug: string;
+    try {
+      hostId = decodeURIComponent(rest.slice(0, idx2));
+      slug = decodeURIComponent(rest.slice(idx2 + 1));
+    } catch {
+      // eslint-disable-next-line no-console
+      console.info({
+        operation: "parse_tab_param_app_malformed_uri",
+        restLen: rest.length,
+      });
+      return null;
+    }
+    if (!hostId || !slug) return null;
+    return { protocol: "app", hostId, slug };
+  }
   // Phase 97 code-review Fix 5 (extended via quick-260910-gqi): generic-host
   // mirror of the relay guard above. Covers terminal / rdp / vnc / telnet
   // (every non-tmux, non-relay member of PROTOCOLS). Includes `protocol` in
@@ -185,6 +235,15 @@ export function encodeTabSpec(spec: TabSpec): string {
   // discriminated union carries `host?: never` on the relay variant).
   if (spec.protocol === "relay") {
     return `relay:${encodeURIComponent(spec.roomId)}`;
+  }
+  // Phase 120 D-16: app variant emits `app:<hostId>:<encoded slug>`. Branch
+  // BEFORE the host-carrying fall-through — without this, `spec.host` is
+  // `undefined` (the never-marker) and the fall-through would emit
+  // `app:undefined`, breaking the URL round-trip. hostId is a positive-
+  // integer string (no encode needed); slug is `[a-z0-9-]{1,64}` per
+  // APP_SLUG_RE (encoding is a no-op, included as defence-in-depth).
+  if (spec.protocol === "app") {
+    return `app:${spec.hostId}:${encodeURIComponent(spec.slug)}`;
   }
   const parts = [spec.protocol, encodeURIComponent(spec.host)];
   if (spec.protocol === "tmux" && spec.session) {
@@ -235,12 +294,29 @@ export function specForTab(input: {
   targetTmuxSession?: string | null;
   sessionKind?: "harness" | "relay-room";
   relayRoomId?: string;
+  // Phase 120 D-16 — app-leaf tuple, mirrors `Tab.app` from ui-types.ts.
+  // Present ONLY when input.type === "app". Plan 07's AppShell callsite
+  // invokes `specForTab({ type: "app", app: tab.app })`.
+  app?: { hostId: number; slug: string };
 }): TabSpec | null {
   // Phase 97 Plan 05: relay-room tabs surface via sessionKind + relayRoomId.
   // MUST come before the host-required check — relay tabs have no host.
   if (input.sessionKind === "relay-room") {
     if (!input.relayRoomId) return null;
     return { protocol: "relay", roomId: input.relayRoomId };
+  }
+  // Phase 120 D-16: app tabs surface via input.type === "app" + the app
+  // tuple. MUST come before the host-required check — app tabs have no
+  // `host` object (the host is identified by hostId on the app tuple).
+  // Cast `Tab.app.hostId` (number) to string at the type-boundary to
+  // match TabSpec.app.hostId's textual wire shape.
+  if (input.type === "app") {
+    if (!input.app) return null;
+    return {
+      protocol: "app",
+      hostId: String(input.app.hostId),
+      slug: input.app.slug,
+    };
   }
   if (!input.host?.name) return null;
   const host = input.host.name;
