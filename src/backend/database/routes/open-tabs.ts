@@ -1,6 +1,6 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
-import { db } from "../db/index.js";
+import { db, DatabaseSaveTrigger } from "../db/index.js";
 import { userOpenTabs } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
@@ -159,6 +159,28 @@ router.post("/", authenticateJWT, async (req: Request, res: Response) => {
         })
         .run();
     }
+    // Skynet's DB is in-memory-decrypted SQLite; raw db.insert/update writes
+    // reach RAM only. The 5-min isDirty poller is gated on _dirty=true which
+    // only triggerSave/forceSave set — direct writes never mark dirty.
+    // Without an explicit save call, an unclean shutdown (SIGKILL, OOM, host
+    // reboot) silently loses the row. Force the save here so the write is
+    // durable before we ACK. Silent-warn on failure — an in-memory-only tab
+    // is worse UX than a slow response, but a 500 is worse still.
+    // Pattern reference: host-autostart-routes.ts:173-181 / user-preferences.ts:406-418.
+    try {
+      await DatabaseSaveTrigger.forceSave("open_tabs_upsert");
+    } catch (saveErr) {
+      databaseLogger.warn(
+        "Force-save after open tab upsert failed",
+        {
+          operation: "open_tabs_upsert_save_failed",
+          userId,
+          id,
+          error:
+            saveErr instanceof Error ? saveErr.message : "Unknown error",
+        },
+      );
+    }
     return res.json({ success: true });
   } catch (e) {
     databaseLogger.error("Failed to upsert open tab", e, {
@@ -230,6 +252,22 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
         )
         .run();
     }
+    // In-memory SQLite: force save so the bulk-replace is durable. See
+    // POST handler above for rationale + pattern reference. Silent-warn
+    // on failure.
+    try {
+      await DatabaseSaveTrigger.forceSave("open_tabs_sync");
+    } catch (saveErr) {
+      databaseLogger.warn(
+        "Force-save after open tabs sync failed",
+        {
+          operation: "open_tabs_sync_save_failed",
+          userId,
+          error:
+            saveErr instanceof Error ? saveErr.message : "Unknown error",
+        },
+      );
+    }
     return res.json({ success: true });
   } catch (e) {
     databaseLogger.error("Failed to sync open tabs", e, {
@@ -279,6 +317,23 @@ router.patch("/:id", authenticateJWT, async (req: Request, res: Response) => {
     if (result.changes === 0) {
       return res.status(404).json({ error: "Tab not found" });
     }
+    // In-memory SQLite: force save so the update is durable. See
+    // POST handler above for rationale + pattern reference. Silent-warn
+    // on failure.
+    try {
+      await DatabaseSaveTrigger.forceSave("open_tabs_patch");
+    } catch (saveErr) {
+      databaseLogger.warn(
+        "Force-save after open tab patch failed",
+        {
+          operation: "open_tabs_patch_save_failed",
+          userId,
+          id,
+          error:
+            saveErr instanceof Error ? saveErr.message : "Unknown error",
+        },
+      );
+    }
     return res.json({ success: true });
   } catch (e) {
     databaseLogger.error("Failed to update open tab", e, {
@@ -315,6 +370,23 @@ router.delete("/:id", authenticateJWT, async (req: Request, res: Response) => {
     db.delete(userOpenTabs)
       .where(and(eq(userOpenTabs.id, id), eq(userOpenTabs.userId, userId)))
       .run();
+    // In-memory SQLite: force save so the delete is durable. See
+    // POST handler above for rationale + pattern reference. Silent-warn
+    // on failure.
+    try {
+      await DatabaseSaveTrigger.forceSave("open_tabs_delete");
+    } catch (saveErr) {
+      databaseLogger.warn(
+        "Force-save after open tab delete failed",
+        {
+          operation: "open_tabs_delete_save_failed",
+          userId,
+          id,
+          error:
+            saveErr instanceof Error ? saveErr.message : "Unknown error",
+        },
+      );
+    }
     return res.json({ success: true });
   } catch (e) {
     databaseLogger.error("Failed to delete open tab", e, {
