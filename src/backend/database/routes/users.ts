@@ -12,10 +12,7 @@ import { authLogger } from "../../utils/logger.js";
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { DataCrypto } from "../../utils/data-crypto.js";
-import {
-  parseUserAgent,
-  generateDeviceFingerprint,
-} from "../../utils/user-agent-parser.js";
+import { parseUserAgent } from "../../utils/user-agent-parser.js";
 import { loginRateLimiter } from "../../utils/login-rate-limiter.js";
 import { getRequestOriginWithForceHTTPS } from "../../utils/request-origin.js";
 import { deleteUserAndRelatedData } from "./delete-user-data.js";
@@ -88,13 +85,6 @@ function deriveDisplayname(username: string): string {
 
 function isNonEmptyString(val: unknown): val is string {
   return typeof val === "string" && val.trim().length > 0;
-}
-
-function isNativeAppRequest(req: Request): boolean {
-  return (
-    (req.get("User-Agent") || "").startsWith("Skynet-Mobile/") ||
-    req.get("X-Electron-App") === "true"
-  );
 }
 
 const authenticateJWT = authManager.createAuthMiddleware();
@@ -1133,9 +1123,6 @@ router.get("/oidc/callback", async (req, res) => {
   const storedFrontendOriginRow = db.$client
     .prepare("SELECT value FROM settings WHERE key = ?")
     .get(`oidc_frontend_origin_${state}`);
-  const storedRememberMeRow = db.$client
-    .prepare("SELECT value FROM settings WHERE key = ?")
-    .get(`oidc_remember_me_${state}`);
 
   if (!storedBackendCallbackRow || !storedFrontendOriginRow) {
     return res
@@ -1148,8 +1135,6 @@ router.get("/oidc/callback", async (req, res) => {
   ).value as string;
   const frontendOrigin = (storedFrontendOriginRow as Record<string, unknown>)
     .value as string;
-  const storedRememberMe =
-    (storedRememberMeRow as Record<string, unknown> | null)?.value === "true";
 
   try {
     const storedNonce = db.$client
@@ -1503,10 +1488,7 @@ router.get("/oidc/callback", async (req, res) => {
       }
 
       try {
-        const sessionDurationMs =
-          deviceInfo.type === "desktop" || deviceInfo.type === "mobile"
-            ? 30 * 24 * 60 * 60 * 1000
-            : 24 * 60 * 60 * 1000;
+        const sessionDurationMs = 20 * 60 * 60 * 1000;
         await authManager.registerOIDCUser(id, sessionDurationMs);
       } catch (encryptionError) {
         // Phase 85 (D-07): OIDC user creation bypasses the mandatoriness gate because
@@ -1589,7 +1571,7 @@ router.get("/oidc/callback", async (req, res) => {
     }
 
     try {
-      await authManager.authenticateOIDCUser(userRecord.id, deviceInfo.type);
+      await authManager.authenticateOIDCUser(userRecord.id);
     } catch (setupError) {
       authLogger.error("Failed to setup OIDC user encryption", setupError, {
         operation: "oidc_user_encryption_setup_failed",
@@ -1609,7 +1591,6 @@ router.get("/oidc/callback", async (req, res) => {
     const token = await authManager.generateJWTToken(userRecord.id, {
       deviceType: deviceInfo.type,
       deviceInfo: deviceInfo.deviceInfo,
-      rememberMe: storedRememberMe,
     });
 
     authLogger.success("OIDC login successful", {
@@ -1625,12 +1606,7 @@ router.get("/oidc/callback", async (req, res) => {
       frontendOrigin.startsWith("http://127.0.0.1:") ||
       frontendOrigin.startsWith("skynet-mobile:");
 
-    const maxAge =
-      deviceInfo.type === "desktop" || deviceInfo.type === "mobile"
-        ? 30 * 24 * 60 * 60 * 1000
-        : storedRememberMe
-          ? 30 * 24 * 60 * 60 * 1000
-          : 24 * 60 * 60 * 1000;
+    const maxAge = 20 * 60 * 60 * 1000;
 
     res.clearCookie("jwt", authManager.getClearCookieOptions(req));
 
@@ -1686,7 +1662,7 @@ router.get("/oidc/callback", async (req, res) => {
  *         description: Login failed.
  */
 router.post("/login", async (req, res) => {
-  const { username, password, rememberMe } = req.body;
+  const { username, password } = req.body;
   const clientIp = req.ip || req.socket.remoteAddress || "unknown";
   authLogger.info("User login request received", {
     operation: "user_login_request",
@@ -1802,15 +1778,11 @@ router.post("/login", async (req, res) => {
 
     let dataUnlocked = false;
     if (userRecord.isOidc) {
-      dataUnlocked = await authManager.authenticateOIDCUser(
-        userRecord.id,
-        deviceInfo.type,
-      );
+      dataUnlocked = await authManager.authenticateOIDCUser(userRecord.id);
     } else {
       dataUnlocked = await authManager.authenticateUser(
         userRecord.id,
         password,
-        deviceInfo.type,
       );
     }
 
@@ -1832,35 +1804,18 @@ router.post("/login", async (req, res) => {
     }
 
     if (userRecord.totpEnabled) {
-      const deviceFingerprint = generateDeviceFingerprint(deviceInfo);
-
-      const isTrusted = await authManager.isTrustedDevice(
-        userRecord.id,
-        deviceFingerprint,
-      );
-
-      if (isTrusted) {
-        authLogger.info("TOTP bypassed for trusted device", {
-          operation: "totp_bypass",
-          userId: userRecord.id,
-          deviceFingerprint,
-        });
-      } else {
-        const tempToken = await authManager.generateJWTToken(userRecord.id, {
-          pendingTOTP: true,
-          expiresIn: "10m",
-        });
-        return res.json({
-          success: true,
-          requires_totp: true,
-          temp_token: tempToken,
-          rememberMe: !!rememberMe,
-        });
-      }
+      const tempToken = await authManager.generateJWTToken(userRecord.id, {
+        pendingTOTP: true,
+        expiresIn: "10m",
+      });
+      return res.json({
+        success: true,
+        requires_totp: true,
+        temp_token: tempToken,
+      });
     }
 
     const token = await authManager.generateJWTToken(userRecord.id, {
-      rememberMe: !!rememberMe,
       deviceType: deviceInfo.type,
       deviceInfo: deviceInfo.deviceInfo,
     });
@@ -1879,16 +1834,13 @@ router.post("/login", async (req, res) => {
       success: true,
       is_admin: !!userRecord.isAdmin,
       username: userRecord.username,
-      ...(isNativeAppRequest(req) ? { token } : {}),
     };
 
     const timeoutRow = db.$client
       .prepare("SELECT value FROM settings WHERE key = 'session_timeout_hours'")
       .get() as { value: string } | undefined;
-    const timeoutHours = timeoutRow ? parseInt(timeoutRow.value, 10) || 24 : 24;
-    const maxAge = rememberMe
-      ? 30 * 24 * 60 * 60 * 1000
-      : timeoutHours * 60 * 60 * 1000;
+    const timeoutHours = timeoutRow ? parseInt(timeoutRow.value, 10) || 20 : 20;
+    const maxAge = timeoutHours * 60 * 60 * 1000;
 
     return res
       .cookie("jwt", token, authManager.getSecureCookieOptions(req, maxAge))
@@ -2683,7 +2635,6 @@ registerUserAdminRoutes(router, authenticateJWT);
 registerUserTotpRoutes(router, {
   authenticateJWT,
   authManager,
-  isNativeAppRequest,
 });
 
 /**

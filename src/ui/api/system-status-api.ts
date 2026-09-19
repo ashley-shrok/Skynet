@@ -54,13 +54,11 @@ export async function disableTOTP(
 export async function verifyTOTPLogin(
   temp_token: string,
   totp_code: string,
-  rememberMe: boolean = false,
 ): Promise<AuthResponse> {
   try {
     const response = await authApi.post("/users/totp/verify-login", {
       temp_token,
       totp_code,
-      rememberMe,
     });
 
     const isInIframe =

@@ -1,5 +1,5 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
-import type { Request, RequestHandler, Router } from "express";
+import type { RequestHandler, Router } from "express";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import QRCode from "qrcode";
@@ -9,24 +9,18 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { LazyFieldEncryption } from "../../utils/lazy-field-encryption.js";
 import { authLogger } from "../../utils/logger.js";
 import { loginRateLimiter } from "../../utils/login-rate-limiter.js";
-import {
-  generateDeviceFingerprint,
-  parseUserAgent,
-} from "../../utils/user-agent-parser.js";
+import { parseUserAgent } from "../../utils/user-agent-parser.js";
 import { db } from "../db/index.js";
 import { sessions, trustedDevices, users } from "../db/schema.js";
-
-type NativeAppRequestChecker = (req: Request) => boolean;
 
 interface UserTotpRoutesDeps {
   authenticateJWT: RequestHandler;
   authManager: AuthManager;
-  isNativeAppRequest: NativeAppRequestChecker;
 }
 
 export function registerUserTotpRoutes(
   router: Router,
-  { authenticateJWT, authManager, isNativeAppRequest }: UserTotpRoutesDeps,
+  { authenticateJWT, authManager }: UserTotpRoutesDeps,
 ): void {
   /**
    * @openapi
@@ -397,7 +391,7 @@ export function registerUserTotpRoutes(
    *         description: TOTP verification failed.
    */
   router.post("/totp/verify-login", async (req, res) => {
-    const { temp_token, totp_code, rememberMe } = req.body;
+    const { temp_token, totp_code } = req.body;
 
     if (!temp_token || !totp_code) {
       return res
@@ -524,23 +518,7 @@ export function registerUserTotpRoutes(
 
       const deviceInfo = parseUserAgent(req);
 
-      if (rememberMe) {
-        const deviceFingerprint = generateDeviceFingerprint(deviceInfo);
-        await authManager.addTrustedDevice(
-          userRecord.id,
-          deviceFingerprint,
-          deviceInfo.type,
-          deviceInfo.deviceInfo,
-        );
-        authLogger.info("Device automatically trusted via Remember Me", {
-          operation: "totp_auto_trust",
-          userId: userRecord.id,
-          deviceType: deviceInfo.type,
-        });
-      }
-
       const token = await authManager.generateJWTToken(userRecord.id, {
-        rememberMe: !!rememberMe,
         deviceType: deviceInfo.type,
         deviceInfo: deviceInfo.deviceInfo,
       });
@@ -559,7 +537,6 @@ export function registerUserTotpRoutes(
         userId: userRecord.id,
         is_oidc: !!userRecord.isOidc,
         totp_enabled: !!userRecord.totpEnabled,
-        ...(isNativeAppRequest(req) ? { token } : {}),
       };
 
       const timeoutRow = db.$client
@@ -568,11 +545,9 @@ export function registerUserTotpRoutes(
         )
         .get() as { value: string } | undefined;
       const timeoutHours = timeoutRow
-        ? parseInt(timeoutRow.value, 10) || 24
-        : 24;
-      const maxAge = rememberMe
-        ? 30 * 24 * 60 * 60 * 1000
-        : timeoutHours * 60 * 60 * 1000;
+        ? parseInt(timeoutRow.value, 10) || 20
+        : 20;
+      const maxAge = timeoutHours * 60 * 60 * 1000;
 
       return res
         .cookie("jwt", token, authManager.getSecureCookieOptions(req, maxAge))

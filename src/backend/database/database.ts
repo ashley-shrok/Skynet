@@ -786,10 +786,7 @@ app.post("/database/export", authenticateJWT, async (req, res) => {
 
     if (!DataCrypto.getUserDataKey(userId)) {
       if (isOidcUser) {
-        const oidcUnlocked = await authManager.authenticateOIDCUser(
-          userId,
-          deviceInfo.type,
-        );
+        const oidcUnlocked = await authManager.authenticateOIDCUser(userId);
         if (!oidcUnlocked) {
           return res.status(403).json({
             error: "Failed to unlock user data with SSO credentials",
@@ -1354,10 +1351,7 @@ app.post(
 
       if (!DataCrypto.getUserDataKey(userId)) {
         if (isOidcUser) {
-          const oidcUnlocked = await authManager.authenticateOIDCUser(
-            userId,
-            deviceInfo.type,
-          );
+          const oidcUnlocked = await authManager.authenticateOIDCUser(userId);
           if (!oidcUnlocked) {
             return res.status(403).json({
               error: "Failed to unlock user data with SSO credentials",

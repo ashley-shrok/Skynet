@@ -11,24 +11,6 @@ function reqWith(headers: Record<string, string>): Request {
 }
 
 describe("detectPlatform", () => {
-  it("detects desktop from the x-electron-app header", () => {
-    expect(detectPlatform(reqWith({ "x-electron-app": "true" }))).toBe(
-      "desktop",
-    );
-  });
-
-  it("detects desktop from a Skynet-Desktop user agent", () => {
-    expect(
-      detectPlatform(reqWith({ "user-agent": "Skynet-Desktop/1.0 (Windows)" })),
-    ).toBe("desktop");
-  });
-
-  it("detects mobile from a Skynet-Mobile user agent", () => {
-    expect(
-      detectPlatform(reqWith({ "user-agent": "Skynet-Mobile/Android 1.0" })),
-    ).toBe("mobile");
-  });
-
   it("detects mobile phones/tablets", () => {
     expect(
       detectPlatform(reqWith({ "user-agent": "Mozilla/5.0 (iPhone; ...)" })),
@@ -78,19 +60,12 @@ describe("parseUserAgent", () => {
     expect(info.browser).toBe("Edge");
   });
 
-  it("parses a Skynet desktop user agent", () => {
+  it("parses an iOS mobile browser", () => {
     const info = parseUserAgent(
-      reqWith({ "user-agent": "Skynet-Desktop/2.3.1 (macOS; arm64)" }),
-    );
-    expect(info.type).toBe("desktop");
-    expect(info.browser).toBe("Skynet Desktop");
-    expect(info.version).toBe("2.3.1");
-    expect(info.os).toBe("macOS");
-  });
-
-  it("parses an iOS mobile user agent", () => {
-    const info = parseUserAgent(
-      reqWith({ "user-agent": "Skynet-Mobile/iOS1.5 (OS 17_2)" }),
+      reqWith({
+        "user-agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15",
+      }),
     );
     expect(info.type).toBe("mobile");
     expect(info.os).toContain("iOS");
@@ -136,10 +111,10 @@ describe("generateDeviceFingerprint", () => {
 
   it("produces a 64-char hex sha256 digest", () => {
     const fp = generateDeviceFingerprint({
-      type: "desktop",
-      browser: "Skynet Desktop",
-      version: "2.3.1",
-      os: "macOS",
+      type: "mobile",
+      browser: "Mobile Browser",
+      version: "Unknown",
+      os: "iOS 17.2",
       deviceInfo: "",
     });
     expect(fp).toMatch(/^[0-9a-f]{64}$/);

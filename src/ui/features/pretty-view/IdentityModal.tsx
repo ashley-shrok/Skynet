@@ -87,8 +87,8 @@ import { TelegramTab, type TelegramState } from "./TelegramTab";
 import WorkspaceTab from "./WorkspaceTab";
 // Phase 79 Plan 07 (blocker W-3) — resolve the authenticated user's userId
 // on modal open so we can pass it as humanUserId to TelegramTab. Mirrors the
-// AppShell.tsx:412 / FullScreenAppWrapper.tsx:43 / LoginPage.tsx pattern for
-// the same source of truth.
+// AppShell.tsx:412 / FullScreenAppWrapper.tsx:43 / Auth.tsx pattern for the
+// same source of truth.
 import { getUserInfo } from "@/main-axios";
 
 // Phase 90 Plan 90-06 (D-09): identity modal is now identity-scope only.

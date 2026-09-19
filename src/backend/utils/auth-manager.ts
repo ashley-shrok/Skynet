@@ -103,14 +103,8 @@ class AuthManager {
     await this.userCrypto.setupOIDCUserEncryption(userId, sessionDurationMs);
   }
 
-  async authenticateOIDCUser(
-    userId: string,
-    deviceType?: DeviceType,
-  ): Promise<boolean> {
-    const sessionDurationMs =
-      deviceType === "desktop" || deviceType === "mobile"
-        ? 30 * 24 * 60 * 60 * 1000
-        : 24 * 60 * 60 * 1000;
+  async authenticateOIDCUser(userId: string): Promise<boolean> {
+    const sessionDurationMs = 20 * 60 * 60 * 1000;
 
     const authenticated = await this.userCrypto.authenticateOIDCUser(
       userId,
@@ -124,15 +118,8 @@ class AuthManager {
     return authenticated;
   }
 
-  async authenticateUser(
-    userId: string,
-    password: string,
-    deviceType?: DeviceType,
-  ): Promise<boolean> {
-    const sessionDurationMs =
-      deviceType === "desktop" || deviceType === "mobile"
-        ? 30 * 24 * 60 * 60 * 1000
-        : 24 * 60 * 60 * 1000;
+  async authenticateUser(userId: string, password: string): Promise<boolean> {
+    const sessionDurationMs = 20 * 60 * 60 * 1000;
 
     const authenticated = await this.userCrypto.authenticateUser(
       userId,
@@ -327,7 +314,7 @@ class AuthManager {
     const timeoutRow = db.$client
       .prepare("SELECT value FROM settings WHERE key = 'session_timeout_hours'")
       .get() as { value: string } | undefined;
-    const defaultExpiry = `${timeoutRow ? parseInt(timeoutRow.value, 10) || 24 : 24}h`;
+    const defaultExpiry = `${timeoutRow ? parseInt(timeoutRow.value, 10) || 20 : 20}h`;
 
     let expiresIn = options.expiresIn;
     if (!expiresIn && !options.pendingTOTP) {

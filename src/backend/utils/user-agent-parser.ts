@@ -1,7 +1,7 @@
 import type { Request } from "express";
 import crypto from "crypto";
 
-export type DeviceType = "web" | "desktop" | "mobile";
+export type DeviceType = "web" | "mobile";
 
 export interface DeviceInfo {
   type: DeviceType;
@@ -13,15 +13,6 @@ export interface DeviceInfo {
 
 export function detectPlatform(req: Request): DeviceType {
   const userAgent = req.headers["user-agent"] || "";
-  const electronHeader = req.headers["x-electron-app"];
-
-  if (electronHeader === "true" || userAgent.includes("Skynet-Desktop")) {
-    return "desktop";
-  }
-
-  if (userAgent.includes("Skynet-Mobile")) {
-    return "mobile";
-  }
 
   const isDesktopOS =
     userAgent.includes("Windows") ||
@@ -45,10 +36,6 @@ export function parseUserAgent(req: Request): DeviceInfo {
   const userAgent = req.headers["user-agent"] || "Unknown";
   const platform = detectPlatform(req);
 
-  if (platform === "desktop") {
-    return parseElectronUserAgent(userAgent);
-  }
-
   if (platform === "mobile") {
     return parseMobileUserAgent(userAgent);
   }
@@ -56,91 +43,33 @@ export function parseUserAgent(req: Request): DeviceInfo {
   return parseWebUserAgent(userAgent);
 }
 
-function parseElectronUserAgent(userAgent: string): DeviceInfo {
-  let os = "Unknown OS";
-  let version = "Unknown";
-
-  const skynetMatch = userAgent.match(/Skynet-Desktop\/([\d.]+)\s*\(([^;)]+)/);
-  if (skynetMatch) {
-    version = skynetMatch[1];
-    os = skynetMatch[2].trim();
-  } else {
-    if (userAgent.includes("Windows")) {
-      os = parseWindowsVersion(userAgent);
-    } else if (userAgent.includes("Mac OS X")) {
-      os = parseMacVersion(userAgent);
-    } else if (userAgent.includes("macOS")) {
-      os = "macOS";
-    } else if (userAgent.includes("Linux")) {
-      os = "Linux";
-    }
-
-    const electronMatch = userAgent.match(/Electron\/([\d.]+)/);
-    if (electronMatch) {
-      version = electronMatch[1];
-    }
-  }
-
-  return {
-    type: "desktop",
-    browser: "Skynet Desktop",
-    version,
-    os,
-    deviceInfo: `Skynet Desktop on ${os}`,
-  };
-}
-
 function parseMobileUserAgent(userAgent: string): DeviceInfo {
   let os = "Unknown OS";
-  let version = "Unknown";
+  const version = "Unknown";
 
-  const skynetPlatformMatch = userAgent.match(/Skynet-Mobile\/(Android|iOS)/i);
-  if (skynetPlatformMatch) {
-    const platform = skynetPlatformMatch[1];
-    if (platform.toLowerCase() === "android") {
-      const androidMatch = userAgent.match(/Android ([\d.]+)/);
-      os = androidMatch ? `Android ${androidMatch[1]}` : "Android";
-    } else if (platform.toLowerCase() === "ios") {
-      const iosMatch = userAgent.match(/OS ([\d_]+)/);
-      if (iosMatch) {
-        const iosVersion = iosMatch[1].replace(/_/g, ".");
-        os = `iOS ${iosVersion}`;
-      } else {
-        os = "iOS";
-      }
+  if (userAgent.includes("Android")) {
+    const androidMatch = userAgent.match(/Android ([\d.]+)/);
+    os = androidMatch ? `Android ${androidMatch[1]}` : "Android";
+  } else if (
+    userAgent.includes("iOS") ||
+    userAgent.includes("iPhone") ||
+    userAgent.includes("iPad")
+  ) {
+    const iosMatch = userAgent.match(/OS ([\d_]+)/);
+    if (iosMatch) {
+      const iosVersion = iosMatch[1].replace(/_/g, ".");
+      os = `iOS ${iosVersion}`;
+    } else {
+      os = "iOS";
     }
-  } else {
-    if (userAgent.includes("Android")) {
-      const androidMatch = userAgent.match(/Android ([\d.]+)/);
-      os = androidMatch ? `Android ${androidMatch[1]}` : "Android";
-    } else if (
-      userAgent.includes("iOS") ||
-      userAgent.includes("iPhone") ||
-      userAgent.includes("iPad")
-    ) {
-      const iosMatch = userAgent.match(/OS ([\d_]+)/);
-      if (iosMatch) {
-        const iosVersion = iosMatch[1].replace(/_/g, ".");
-        os = `iOS ${iosVersion}`;
-      } else {
-        os = "iOS";
-      }
-    }
-  }
-
-  const versionMatch = userAgent.match(
-    /Skynet-Mobile\/(?:Android|iOS|)([\d.]+)/i,
-  );
-  if (versionMatch) {
-    version = versionMatch[1];
   }
 
   return {
     type: "mobile",
-    browser: "Skynet Mobile",
+    browser: "Mobile Browser",
     version,
     os,
-    deviceInfo: `Skynet Mobile on ${os}`,
+    deviceInfo: `Mobile Browser on ${os}`,
   };
 }
 
@@ -256,7 +185,7 @@ function parseMacVersion(userAgent: string): string {
  */
 export function generateDeviceFingerprint(deviceInfo: DeviceInfo): string {
   const fingerprintString =
-    deviceInfo.type === "desktop" || deviceInfo.type === "mobile"
+    deviceInfo.type === "mobile"
       ? `${deviceInfo.type}|${deviceInfo.browser}|${deviceInfo.os}`
       : `${deviceInfo.type}|${deviceInfo.browser} ${
           deviceInfo.version.split(".")[0]

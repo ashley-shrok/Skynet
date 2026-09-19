@@ -102,7 +102,6 @@ export interface AuthResponse {
   data_unlocked?: boolean;
   requires_totp?: boolean;
   temp_token?: string;
-  rememberMe?: boolean;
   token?: string;
 }
 
@@ -417,11 +416,6 @@ export function createApiInstance(
     }
 
     if (isElectron()) {
-      if (config.headers.set) {
-        config.headers.set("X-Electron-App", "true");
-      } else {
-        config.headers["X-Electron-App"] = "true";
-      }
       const jwt = localStorage.getItem("jwt");
       if (jwt) {
         if (config.headers.set) {
@@ -429,29 +423,6 @@ export function createApiInstance(
         } else {
           config.headers["Authorization"] = `Bearer ${jwt}`;
         }
-      }
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      (window as ElectronWindow).ReactNativeWebView
-    ) {
-      let platform = "Unknown";
-      if (typeof navigator !== "undefined" && navigator.userAgent) {
-        if (navigator.userAgent.includes("Android")) {
-          platform = "Android";
-        } else if (
-          navigator.userAgent.includes("iPhone") ||
-          navigator.userAgent.includes("iPad") ||
-          navigator.userAgent.includes("iOS")
-        ) {
-          platform = "iOS";
-        }
-      }
-      if (config.headers.set) {
-        config.headers.set("User-Agent", `Skynet-Mobile/${platform}`);
-      } else {
-        config.headers["User-Agent"] = `Skynet-Mobile/${platform}`;
       }
     }
 
@@ -1667,13 +1638,11 @@ export async function registerUser(
 export async function loginUser(
   username: string,
   password: string,
-  rememberMe: boolean = false,
 ): Promise<AuthResponse> {
   try {
     const response = await authApi.post("/users/login", {
       username,
       password,
-      rememberMe,
     });
 
     const isInIframe =
@@ -1709,7 +1678,6 @@ export async function loginUser(
       username: response.data.username,
       requires_totp: response.data.requires_totp,
       temp_token: response.data.temp_token,
-      rememberMe: response.data.rememberMe,
       is_oidc: response.data.is_oidc,
       totp_enabled: response.data.totp_enabled,
       data_unlocked: response.data.data_unlocked,

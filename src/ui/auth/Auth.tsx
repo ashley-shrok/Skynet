@@ -34,8 +34,6 @@ import {
   getCurrentToken,
 } from "@/main-axios";
 import { ElectronServerConfig as ServerConfigComponent } from "@/auth/ElectronServerConfig";
-import { ElectronLoginForm } from "@/auth/ElectronLoginForm";
-import { Checkbox } from "@/components/checkbox";
 import i18n from "@/i18n/i18n";
 import {
   removeSilentSigninFromSearch,
@@ -146,7 +144,6 @@ interface ExtendedWindow extends Window {
 }
 
 const isInMobileWebView = () =>
-  /Skynet-Mobile\/(Android|iOS)/.test(navigator.userAgent) ||
   !!(window as ExtendedWindow).ReactNativeWebView;
 
 const isInElectronWebView = () => {
@@ -244,17 +241,6 @@ export function Auth({ onLogin }: AuthProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(() => {
-    // Patch #253: default true when never previously set (user 2026-08-01
-    // ask). Only an explicit stored "false" (user unchecked it before) keeps
-    // it off; null (fresh user / never toggled) and "true" both come up
-    // checked. Localstorage-throw fallback also defaults true.
-    try {
-      return localStorage.getItem("rememberMe") !== "false";
-    } catch {
-      return true;
-    }
-  });
 
   const [totpCode, setTotpCode] = useState("");
   const [totpTempToken, setTotpTempToken] = useState("");
@@ -291,14 +277,6 @@ export function Auth({ onLogin }: AuthProps) {
   );
   const [currentServerUrl, setCurrentServerUrl] = useState("");
   const [webviewAuthSuccess, setWebviewAuthSuccess] = useState(false);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("rememberMe", rememberMe.toString());
-    } catch {
-      // Ignore storage failures; auth state still works for the current session.
-    }
-  }, [rememberMe]);
 
   // 260910-pf4: already-authed + valid return= → redirect immediately before form renders.
   // Fires BEFORE the registration/OIDC/setup useEffects so expensive fetches are skipped.
@@ -459,36 +437,6 @@ export function Auth({ onLogin }: AuthProps) {
     }
   }, [onLogin, t]);
 
-  const handleElectronAuthSuccess = useCallback(
-    async (token: string | null) => {
-      try {
-        if (!token) {
-          // No token in postMessage — fall back to waiting for the HttpOnly cookie
-          const cookieReady = await window.electronAPI?.waitForSessionCookie?.(
-            "jwt",
-            currentServerUrl,
-            null,
-            5000,
-          );
-          if (cookieReady && !cookieReady.success)
-            throw new Error(cookieReady.error || "Auth cookie not ready");
-        }
-        const meRes = await getUserInfo();
-        if (!meRes) throw new Error("Failed to get user info");
-        storeAuth(meRes.username || "");
-        onLogin(
-          meRes.username || "",
-          meRes.userId || undefined,
-          !!meRes.is_admin,
-        );
-        toast.success(t("messages.loginSuccess"));
-      } catch {
-        toast.error(t("errors.failedUserInfo"));
-      }
-    },
-    [onLogin, currentServerUrl, t],
-  );
-
   function resetAll() {
     setUsername("");
     setPassword("");
@@ -517,7 +465,7 @@ export function Auth({ onLogin }: AuthProps) {
     }
     setLoading(true);
     try {
-      const res = await loginUser(username.trim(), password, rememberMe);
+      const res = await loginUser(username.trim(), password);
       if (res.requires_totp) {
         setTotpTempToken(res.temp_token);
         setView("totp");
@@ -588,7 +536,7 @@ export function Auth({ onLogin }: AuthProps) {
     setLoading(true);
     try {
       await registerUser(username.trim(), password);
-      const res = await loginUser(username.trim(), password, rememberMe);
+      const res = await loginUser(username.trim(), password);
       if (res.requires_totp) {
         setTotpTempToken(res.temp_token);
         setView("totp");
@@ -627,7 +575,7 @@ export function Auth({ onLogin }: AuthProps) {
     }
     setLoading(true);
     try {
-      const res = await verifyTOTPLogin(totpTempToken, totpCode, rememberMe);
+      const res = await verifyTOTPLogin(totpTempToken, totpCode);
       if (!res?.success) throw new Error(t("errors.loginFailed"));
       if (isInMobileWebView()) {
         // Native-app requests get the JWT in the login response body.
@@ -779,10 +727,7 @@ export function Auth({ onLogin }: AuthProps) {
         ).electronAPI;
         if (electronAPI?.oidcSystemBrowserAuth) {
           const callbackPort = 17832 + Math.floor(Math.random() * 100);
-          const authResponse = await getOIDCAuthorizeUrl(
-            rememberMe,
-            callbackPort,
-          );
+          const authResponse = await getOIDCAuthorizeUrl(false, callbackPort);
           const { auth_url: authUrl } = authResponse;
           if (!authUrl) throw new Error(t("errors.invalidAuthUrl"));
           const result = await electronAPI.oidcSystemBrowserAuth(
@@ -797,7 +742,7 @@ export function Auth({ onLogin }: AuthProps) {
           throw new Error(result.error || "Authentication failed");
         }
       }
-      const authResponse = await getOIDCAuthorizeUrl(rememberMe);
+      const authResponse = await getOIDCAuthorizeUrl(false);
       const { auth_url: authUrl } = authResponse;
       if (!authUrl || authUrl === "undefined")
         throw new Error(t("errors.invalidAuthUrl"));
@@ -814,7 +759,7 @@ export function Auth({ onLogin }: AuthProps) {
       );
       setOidcLoading(false);
     }
-  }, [rememberMe, t]);
+  }, [t]);
 
   useEffect(() => {
     if (!oidcConfigLoaded || silentSigninHandledRef.current) return;
@@ -860,18 +805,6 @@ export function Auth({ onLogin }: AuthProps) {
               }}
               onCancel={() => setShowServerConfig(false)}
               isFirstTime={!currentServerUrl}
-            />
-          </div>
-        </div>
-      );
-    if (!webviewAuthSuccess && showServerConfig === false && currentServerUrl)
-      return (
-        <div className="w-full h-screen flex items-center justify-center p-4 bg-[color:var(--color-pv-base)]">
-          <div className="w-full max-w-4xl h-[90vh]">
-            <ElectronLoginForm
-              serverUrl={currentServerUrl}
-              onAuthSuccess={handleElectronAuthSuccess}
-              onChangeServer={() => setShowServerConfig(true)}
             />
           </div>
         </div>
@@ -1197,30 +1130,15 @@ export function Auth({ onLogin }: AuthProps) {
                         {t("auth.externalNotSupportedInElectron")}
                       </p>
                     ) : (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="rememberOIDC"
-                            checked={rememberMe}
-                            onCheckedChange={(v) => setRememberMe(v === true)}
-                          />
-                          <label
-                            htmlFor="rememberOIDC"
-                            className="text-xs text-[color:var(--color-pv-fg-muted)] cursor-pointer"
-                          >
-                            {t("auth.rememberMe")}
-                          </label>
-                        </div>
-                        <Button
-                          onClick={handleOIDCLogin}
-                          disabled={oidcLoading}
-                          className="w-full font-bold"
-                        >
-                          {oidcLoading
-                            ? t("common.loading")
-                            : t("auth.loginWithExternal")}
-                        </Button>
-                      </>
+                      <Button
+                        onClick={handleOIDCLogin}
+                        disabled={oidcLoading}
+                        className="w-full font-bold"
+                      >
+                        {oidcLoading
+                          ? t("common.loading")
+                          : t("auth.loginWithExternal")}
+                      </Button>
                     )}
                   </div>
                 )}
@@ -1253,20 +1171,6 @@ export function Auth({ onLogin }: AuthProps) {
                         disabled={loading}
                       />
                     </Field>
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="rememberMe"
-                        checked={rememberMe}
-                        onCheckedChange={(v) => setRememberMe(v === true)}
-                        disabled={loading}
-                      />
-                      <label
-                        htmlFor="rememberMe"
-                        className="text-xs text-[color:var(--color-pv-fg-muted)] cursor-pointer"
-                      >
-                        {t("auth.rememberMe")}
-                      </label>
-                    </div>
                     <Button
                       type="submit"
                       className="w-full font-bold h-10"

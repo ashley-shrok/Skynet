@@ -147,10 +147,6 @@ vi.mock("@/auth/ElectronServerConfig", () => ({
   ElectronServerConfig: () => null,
 }));
 
-vi.mock("@/auth/ElectronLoginForm", () => ({
-  ElectronLoginForm: () => null,
-}));
-
 vi.mock("@/components/button", () => ({
   Button: ({ children, ...props }: React.PropsWithChildren<React.ButtonHTMLAttributes<HTMLButtonElement>>) =>
     <button {...props}>{children}</button>,
