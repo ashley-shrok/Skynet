@@ -140,6 +140,11 @@ function makeExpressRes(writableEnded = false): Response {
   return {
     writableEnded,
     setHeader: vi.fn(),
+    // MEDIUM-2 fix (2026-09-19): responseInterceptor callback strips
+    // upstream Set-Cookie via `res.removeHeader("Set-Cookie")` to prevent
+    // cookie bleed onto Skynet's primary origin. Add mock so it's callable
+    // and spy-able.
+    removeHeader: vi.fn(),
     status: vi.fn().mockReturnThis(),
     send: vi.fn(),
     end: vi.fn(),
@@ -700,5 +705,73 @@ describe("buildPaneMountPathRewrite (HIGH-2 unit coverage)", () => {
     );
     const rewrite = buildPaneMountPathRewrite(5, "my-cool-app");
     expect(rewrite("/5/my-cool-app/pane/api/list")).toBe("/api/list");
+  });
+});
+
+/* ------------------------------------------------------------------------ */
+/*  MEDIUM-2 — upstream Set-Cookie stripped in responseInterceptor           */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * MEDIUM-2 code-review fix (2026-09-19). copyHeaders forwards `Set-Cookie`
+ * from the upstream (only stripping the `Domain=` attribute). Because pane
+ * responses are served from Skynet's primary origin, any app-set cookie
+ * lands on that origin and is sent back on every subsequent request to
+ * Skynet's own surfaces — cookie collision / shadow / leak risk. Fix
+ * removes `Set-Cookie` in the responseInterceptor callback.
+ *
+ * Test: exercise the callback with an arbitrary upstream response and
+ * assert `res.removeHeader("Set-Cookie")` was called. Coverage is
+ * unconditional (the strip runs regardless of Content-Type or body shape).
+ */
+describe("MEDIUM-2 — upstream Set-Cookie strip", () => {
+  it("removes Set-Cookie from the response inside the responseInterceptor callback", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
+      buffer: Buffer,
+      proxyRes: http.IncomingMessage,
+      req: Request,
+      res: Response,
+    ) => Promise<Buffer>;
+    const res = makeExpressRes();
+    await cb(
+      Buffer.from("<html></html>", "utf8"),
+      makeProxyRes("text/html"),
+      makeExpressReq(),
+      res,
+    );
+    const removeHeader = (res as unknown as {
+      removeHeader: import("vitest").Mock;
+    }).removeHeader;
+    expect(removeHeader).toHaveBeenCalledWith("Set-Cookie");
+  });
+
+  it("strips Set-Cookie for non-HTML responses too (unconditional)", async () => {
+    // The strip is unconditional — an app-set cookie on a JSON/JS/image
+    // response has the same origin-leak risk as one on an HTML doc.
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
+      buffer: Buffer,
+      proxyRes: http.IncomingMessage,
+      req: Request,
+      res: Response,
+    ) => Promise<Buffer>;
+    const res = makeExpressRes();
+    await cb(
+      Buffer.from(`{"ok":true}`, "utf8"),
+      makeProxyRes("application/json"),
+      makeExpressReq(),
+      res,
+    );
+    const removeHeader = (res as unknown as {
+      removeHeader: import("vitest").Mock;
+    }).removeHeader;
+    expect(removeHeader).toHaveBeenCalledWith("Set-Cookie");
   });
 });

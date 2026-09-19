@@ -267,6 +267,16 @@ export function getOrCreateAppPaneProxyForTarget(
       // OVERWRITTEN if the upstream emits its own version. Fix: re-set
       // those two headers INSIDE this callback (post-copyHeaders) so
       // ours win. Our headers take precedence over upstream.
+      //
+      // MEDIUM-2 code-review fix (2026-09-19): copyHeaders forwards
+      // upstream `Set-Cookie` (minus the `Domain=` attribute). Pane
+      // responses are served from Skynet's OWN primary origin, so an
+      // app-set cookie would land on that origin and be sent back on
+      // every subsequent request to Skynet's surfaces — cookie collision
+      // / shadow / leak risk. Fix: strip `Set-Cookie` from the response.
+      // Apps don't need cookies on the outer Skynet origin — Skynet's
+      // session already carries auth; if an app needs session state it
+      // can use in-memory or its own auth surface.
       proxyRes: responseInterceptor(async (buffer, proxyRes, _req, res) => {
         try {
           res.setHeader("X-Frame-Options", "SAMEORIGIN");
@@ -274,6 +284,11 @@ export function getOrCreateAppPaneProxyForTarget(
         } catch {
           // Response may already be past the header-writable window
           // (rare — proxyRes fires while headers are still open). Non-fatal.
+        }
+        try {
+          res.removeHeader("Set-Cookie");
+        } catch {
+          /* non-fatal (see try/catch note above) */
         }
         const contentType = String(proxyRes.headers["content-type"] ?? "");
         if (!contentType.startsWith("text/html")) {
