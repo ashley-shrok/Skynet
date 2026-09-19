@@ -27,7 +27,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // override render helpers below (renderInheritedBadge / renderRevertButton).
 // Mirrors the pattern used by src/ui/components/section-card.tsx.
 import type React from "react";
-import { AlarmClock, Pencil, Send, User, X } from "lucide-react";
+import { AlarmClock, Folder, Pencil, Send, User, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -81,6 +81,10 @@ import { WakeupsTab } from "./WakeupsTab";
 // per CONTEXT § Locked decisions #2). TelegramState is threaded from a
 // useState slot in this component and reset on modal open/identity switch.
 import { TelegramTab, type TelegramState } from "./TelegramTab";
+// Phase 118 Plan 118-04 (D-01, D-02, D-03): Workspace tab — inline file browser
+// mounted via NAV_SECTIONS entry + TabsContent block. No new modal or badge
+// menu; reuses the existing badge → IdentityModal → tab bar path (D-03).
+import WorkspaceTab from "./WorkspaceTab";
 // Phase 79 Plan 07 (blocker W-3) — resolve the authenticated user's userId
 // on modal open so we can pass it as humanUserId to TelegramTab. Mirrors the
 // AppShell.tsx:412 / FullScreenAppWrapper.tsx:43 / LoginPage.tsx pattern for
@@ -308,6 +312,10 @@ export function IdentityModal({
   const NAV_SECTIONS = [
     { value: "identity", label: "Identity file", Icon: User },
     { value: "identity-wakeups", label: "Wakeups", Icon: AlarmClock },
+    // Phase 118 (D-01, D-02): Workspace tab — available to ALL users (not admin-gated per D-22, D-02).
+    // Renders WorkspaceTab (Plan 118-03) inline in the tab body per D-10 (no modal stacking).
+    // Placed BEFORE the isAdmin spread so every user sees it regardless of admin status.
+    { value: "workspace", label: "Workspace", Icon: Folder },
     // Phase 79 Plan 07 — Telegram bridge tab (CONTEXT § 2 fixed real-estate).
     // UI-hide only: the backend telegram routes remain user-auth by design
     // (src/backend/telegram/routes.ts header), so this is presentation, not
@@ -1607,6 +1615,19 @@ export function IdentityModal({
               />
             </TabsContent>
           )}
+
+          {/* Phase 118 (D-01, D-09, D-10): Workspace tab body — inline-swap mode
+              (list ↔ viewer) handled INSIDE WorkspaceTab; no Dialog wrapper, no
+              nested modal (D-10). WorkspaceTab owns its own padding + scroll —
+              this className drops the parent's overflow-y-auto/px/py in favor of
+              overflow-hidden flex flex-col so the child's internal scrollers own
+              the height. */}
+          <TabsContent
+            value="workspace"
+            className="flex-1 min-h-0 overflow-hidden flex flex-col"
+          >
+            <WorkspaceTab identity={identity} hostId={hostId} hue={hue} />
+          </TabsContent>
 
           {/* Patch #191: bottom icon-bar section switcher (Telegram-shape). */}
           <div
