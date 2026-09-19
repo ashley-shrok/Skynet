@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-09-19T04:03:01.694Z"
+last_updated: "2026-09-19T04:15:16.631Z"
 last_activity: 2026-09-19
 progress:
   total_phases: 121
   completed_phases: 102
   total_plans: 529
-  completed_plans: 519
+  completed_plans: 520
   percent: 84
 ---
 
@@ -394,6 +394,7 @@ Progress: [██████████] 100%
 | Phase 116 P03 | 14min | 3 tasks | 6 files |
 | Phase 116 P04 | 6 | 3 tasks | 2 files |
 | Phase 120 P05 | 30 | 3 tasks | 3 files |
+| Phase 120 P06 | 7m 46s | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -637,6 +638,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 120 Plan 05: WS upgrade dispatcher lives in app-pane-router.ts (single-file HTTP+WS chain)
 - [Phase ?]: Phase 120 Plan 05: Express 5 named-wildcard /pane{/*splat} required — bare * rejected by path-to-regexp v6+
 - [Phase ?]: Phase 120 Plan 05: nginx WS gap flagged — @express_spa_fallback lacks Upgrade/Connection header directives for /apps/*/pane/ws
+- [Phase ?]: AppPane isVisible prop kept in signature but unused in body — mirrors GuacamoleApp integration where the parent Pane one layer up manages visibility via CSS display:none / hidden style so the iframe stays mounted and preserves state across leaf swaps
+- [Phase ?]: TAB_ICONS and RENDERERS exported (Task 3(f) planner discretion) so the exhaustiveness test can assert Object.keys(...).length === 6 directly — safer than an indirect assertion via calling each dispatch function on all six kinds
+- [Phase ?]: Renderer body copies are VERBATIM from pre-refactor switch cases — byte-equivalence proven by 9 pre-existing tests (Phase 93 Slice 4 regression suite) + 6 new snapshot tests + broader 318-test related sweep all passing unchanged
 
 ### Pending Todos
 
@@ -1007,10 +1011,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-19T04:03:01.635Z
+Last session: 2026-09-19T04:15:16.571Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
-Stopped at: Completed 120-05-PLAN.md
+Stopped at: Completed 120-06-PLAN.md (Tasks 1-3: AppPane + dispatch refactor + D-21 tests)
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
 Last session: 2026-09-06T12:17:07.176Z
