@@ -118,7 +118,7 @@ import type { TabSpec } from "@/lib/tab-url";
 // array state and their localStorage effects). URL is the single source of
 // truth for the split arrangement.
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
-import { insertAtEdge, removeLeaf, findLeaf, getNodeAt, collectTabIds, replaceLeaf, swapLeaves } from "@/lib/split-tree";
+import { insertAtEdge, removeLeaf, findLeaf, findLargestLeafPath, getNodeAt, collectTabIds, replaceLeaf, swapLeaves } from "@/lib/split-tree";
 import { computeNearestEdge, overlayGeometryForZone } from "@/shell/SplitView";
 import {
   postDragAccept,
@@ -2858,6 +2858,16 @@ export function AppShell({
               allowCreateTmux: opts.identityMode === false,
             });
             selectConversationDeferred(newTabId);
+            // When a split view is already up, slot the new agent into the
+            // currently-largest pane instead of hiding the whole arrangement
+            // behind the fullscreen active-tab render. Empty tree (no split)
+            // falls through to the pre-existing fullscreen behaviour.
+            if (splitTree !== null) {
+              const targetPath = findLargestLeafPath(splitTree);
+              if (targetPath !== null) {
+                openSessionInTree(newTabId, targetPath, "right");
+              }
+            }
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);
           }}

@@ -16,6 +16,7 @@ import {
   type DropZone,
   type SplitPath,
   findLeaf,
+  findLargestLeafPath,
   getNodeAt,
   insertAtEdge,
   removeLeaf,
@@ -713,6 +714,55 @@ describe("split-tree — Phase 64: center-drop tree ops (replaceLeaf + swapLeave
       }
     },
   );
+});
+
+describe("split-tree — findLargestLeafPath", () => {
+  it("null tree → null", () => {
+    expect(findLargestLeafPath(null)).toBeNull();
+  });
+
+  it("single-leaf root → [] (root is the largest leaf)", () => {
+    expect(findLargestLeafPath(leaf("a"))).toEqual([]);
+  });
+
+  it("balanced 2-cell split → first leaf ([0]) wins the depth-1 tie", () => {
+    const tree = split("vertical", leaf("a"), leaf("b"));
+    expect(findLargestLeafPath(tree)).toEqual([0]);
+  });
+
+  it("unbalanced tree → picks the shallowest leaf regardless of side", () => {
+    // Right side has a nested split; left side is a plain leaf at depth 1.
+    // Left leaf at depth 1 must beat the two depth-2 leaves on the right.
+    const tree = split(
+      "vertical",
+      leaf("shallow"),
+      split("horizontal", leaf("deep-top"), leaf("deep-bottom")),
+    );
+    const path = findLargestLeafPath(tree);
+    expect(path).toEqual([0]);
+    const node = getNodeAt(tree, path!);
+    expect(node?.kind).toBe("session");
+    if (node?.kind === "session") expect(node.tabId).toBe("shallow");
+  });
+
+  it("mirror-image unbalanced tree → shallowest wins when on the right", () => {
+    const tree = split(
+      "vertical",
+      split("horizontal", leaf("deep-top"), leaf("deep-bottom")),
+      leaf("shallow"),
+    );
+    expect(findLargestLeafPath(tree)).toEqual([1]);
+  });
+
+  it("deep balanced tree → returns first leaf at the shallowest depth", () => {
+    // All four leaves are at depth 2 — tie broken by first-in-DFS-order.
+    const tree = split(
+      "vertical",
+      split("horizontal", leaf("a"), leaf("b")),
+      split("horizontal", leaf("c"), leaf("d")),
+    );
+    expect(findLargestLeafPath(tree)).toEqual([0, 0]);
+  });
 });
 
 // Reference so TS doesn't drop the type imports (Test 1 asserts shape).

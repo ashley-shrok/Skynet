@@ -467,6 +467,36 @@ export function replaceLeaf(
   });
 }
 
+// ─── findLargestLeafPath ───────────────────────────────────────────────────
+
+/** Return the path to the leaf occupying the largest rendered area, or null
+ *  if the tree is empty. Because splits are locked to constant-ratio 50/50
+ *  (see module-level LOCKED DECISION), a leaf's area equals `1 / 2^depth` —
+ *  so the leaf with minimum depth is the largest, regardless of the mix of
+ *  horizontal/vertical splits along its path. Ties (multiple leaves at the
+ *  same minimum depth) resolve to the FIRST encountered in left-to-right DFS
+ *  order — deterministic but the specific pick is arbitrary by design; the
+ *  consumer treats the tiebreaker as a don't-care. */
+export function findLargestLeafPath(root: SplitNode | null): SplitPath | null {
+  if (root === null) return null;
+  if (root.kind === "session") return [];
+  let bestPath: SplitPath = [];
+  let bestDepth = Infinity;
+  const walk = (node: SplitNode, path: SplitPath, depth: number): void => {
+    if (node.kind === "session") {
+      if (depth < bestDepth) {
+        bestDepth = depth;
+        bestPath = path;
+      }
+      return;
+    }
+    walk(node.children[0], [...path, 0], depth + 1);
+    walk(node.children[1], [...path, 1], depth + 1);
+  };
+  walk(root, [], 0);
+  return bestPath;
+}
+
 // ─── swapLeaves (Phase 64 Plan 01) ─────────────────────────────────────────
 
 /** Phase 64 Plan 01: pure immutable tree op backing "drop an already-open
