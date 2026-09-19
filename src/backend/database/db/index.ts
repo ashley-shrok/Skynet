@@ -1069,6 +1069,8 @@ const migrateSchema = async () => {
   addColumnIfNotExists("compose_drafts", "queue_slots", "TEXT NOT NULL DEFAULT '[]'");
 
   addColumnIfNotExists("user_open_tabs", "target_tmux_session", "TEXT");
+  // Phase 120 — app-tab tuple's slug half. Idempotent per addColumnIfNotExists's SELECT-probe-then-ALTER shape.
+  addColumnIfNotExists("user_open_tabs", "app_slug", "TEXT");
 
   addColumnIfNotExists("users", "is_admin", "INTEGER NOT NULL DEFAULT 0");
 

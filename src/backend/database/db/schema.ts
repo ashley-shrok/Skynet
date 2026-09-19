@@ -828,6 +828,8 @@ export const userOpenTabs = sqliteTable("user_open_tabs", {
   tabOrder: integer("tab_order").notNull().default(0),
   backendSessionId: text("backend_session_id"),
   targetTmuxSession: text("target_tmux_session"),
+  // Phase 120 D-02 + D-16 — app-leaf slug half of the (hostId, slug) tuple. Null for non-app tabs.
+  appSlug: text("app_slug"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
