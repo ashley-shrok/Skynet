@@ -381,6 +381,22 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
+  // task-field-check: UserPromptSubmit hook that nudges the agent when its
+  // identity file's `task:` frontmatter is still "Untitled conversation".
+  // Reads $FLEET_IDENTITY (exported by agent-supervisor.sh into every
+  // claude launch env) to locate the identity file; silent no-op if the
+  // env var is absent (unsupervised claude sessions) or the field is
+  // already filled. Wired via the run-bootstrap.ts settings.json patch —
+  // hook execution is driven by ~/.claude/settings.json .hooks.UserPromptSubmit,
+  // not by any restart. No restart hook — new bytes picked up on next fire.
+  {
+    slug: "task-field-check",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/task-field-check.sh",
+    installPath: "~/.local/bin/task-field-check",
+    restartHook: null,
+  },
+
   // --- user-onboarding/ (1 row) ---
   // The .service unit file must land in ~/.config/systemd/user/ on every
   // managed host. runBootstrapForHost runs `systemctl --user daemon-reload`

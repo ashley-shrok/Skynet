@@ -215,8 +215,8 @@ describe("runBootstrapForHost", () => {
     expect(result.hadError).toBe(false);
   });
 
-  it("(e2) settings command references all 5 fleet-required keys in both merge and check", async () => {
-    // Regression guard: the settings.json patch must enforce ALL 5 keys, not
+  it("(e2) settings command references all 6 fleet-required keys in both merge and check", async () => {
+    // Regression guard: the settings.json patch must enforce ALL 6 keys, not
     // regress to a subset. Both the MERGE (what gets written) and the CHECK
     // (the idempotency short-circuit predicate) must name each key.
     const { channel, exec } = makeChannel({
@@ -235,14 +235,18 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toBeDefined();
     if (!settingsCmd) return;
 
-    // All 5 keys must appear in the MERGE side (what gets written to disk).
+    // All 6 keys must appear in the MERGE side (what gets written to disk).
     expect(settingsCmd).toContain(`"AskUserQuestion"`);
     expect(settingsCmd).toContain(`.askUserQuestionTimeout = "never"`);
     expect(settingsCmd).toContain(`.DISABLE_AUTOUPDATER = "1"`);
     expect(settingsCmd).toContain(`.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"`);
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt = true`);
+    // task-field-check UserPromptSubmit hook — the merge must add an entry
+    // whose command references task-field-check when absent.
+    expect(settingsCmd).toContain(`.UserPromptSubmit`);
+    expect(settingsCmd).toContain(`$HOME/.local/bin/task-field-check`);
 
-    // All 5 keys must also appear in the CHECK side (idempotency predicate).
+    // All 6 keys must also appear in the CHECK side (idempotency predicate).
     // Without this, a partial-state settings.json would keep getting rewritten
     // every sweep, OR a missing key would go undetected.
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt == true`);
@@ -250,6 +254,10 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.permissions.deny // []) | contains(["AskUserQuestion"])`);
     expect(settingsCmd).toContain(`.env.DISABLE_AUTOUPDATER == "1"`);
     expect(settingsCmd).toContain(`.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1"`);
+    // task-field-check idempotency predicate — the CHECK side must recognize
+    // an already-present entry so we don't rewrite the file every sweep.
+    expect(settingsCmd).toContain(`.hooks.UserPromptSubmit // []`);
+    expect(settingsCmd).toContain(`test("task-field-check")`);
 
     // Absent-file path must use the same MERGE template applied to {}
     // (single source of truth for what "correct" means).

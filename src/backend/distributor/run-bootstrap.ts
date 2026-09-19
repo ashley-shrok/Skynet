@@ -14,16 +14,20 @@
  *      restart hook.
  *
  *   2. settings.json patch:
- *      Ensure ~/.claude/settings.json has the 5 fleet-required keys set:
+ *      Ensure ~/.claude/settings.json has the 6 fleet-required keys set:
  *        - permissions.deny includes "AskUserQuestion" (pretty-view hangs
  *          indefinitely on deferred-journaled MCQ tool_use)
  *        - askUserQuestionTimeout: "never" (belt-and-braces same)
  *        - env.DISABLE_AUTOUPDATER: "1" (prevents silent mid-session CLI upgrade)
  *        - env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" (fleet-wide feature enable)
  *        - skipDangerousModePermissionPrompt: true
+ *        - hooks.UserPromptSubmit contains a "task-field-check" entry (nudges
+ *          agents whose identity file's `task:` field is still "Untitled
+ *          conversation" — see substrate/scripts/task-field-check.sh)
  *      Merges the flags in without clobbering any other keys (OAuth token,
- *      hooks, statusLine, theme, etc.). Creates the file if absent. Idempotent
- *      — a jq predicate short-circuits when all 5 are already correct.
+ *      other hooks, statusLine, theme, etc.). Creates the file if absent.
+ *      Idempotent — a jq predicate short-circuits when all 6 are already
+ *      correct.
  *
  *   3. gsd-context-monitor cleanup (fleet-wide retirement):
  *      Strip any `.hooks.PostToolUse[]` entry whose command references
@@ -283,20 +287,26 @@ export async function runBootstrapForHost(
   }
 
   // -------------------------------------------------------------------------
-  // Step 2: Patch ~/.claude/settings.json — ensure the 5 fleet-required keys
+  // Step 2: Patch ~/.claude/settings.json — ensure the 6 fleet-required keys
   //         are set. Idempotent: skip if all correct. Preserves all other keys.
-  //         The 5 keys (rationale in file docblock):
+  //         The 6 keys (rationale in file docblock):
   //           - permissions.deny includes "AskUserQuestion"
   //           - askUserQuestionTimeout: "never"
   //           - env.DISABLE_AUTOUPDATER: "1"
   //           - env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"
   //           - skipDangerousModePermissionPrompt: true
+  //           - hooks.UserPromptSubmit contains an entry that runs
+  //             $HOME/.local/bin/task-field-check (nudges the agent when its
+  //             identity file's `task:` frontmatter is still "Untitled
+  //             conversation"). Match on the string "task-field-check" in the
+  //             command so future path re-organizations don't invalidate the
+  //             idempotency check.
   // -------------------------------------------------------------------------
   try {
     // Single SSH exec that handles three cases:
-    //   (a) File exists + all 5 already correct → no-op, echoes __SETTINGS_OK__
-    //   (b) File exists + any of 5 missing/wrong → jq-merge, echoes __SETTINGS_OK__
-    //   (c) File absent → create with all 5 (jq applied to {}), echoes __SETTINGS_OK__
+    //   (a) File exists + all 6 already correct → no-op, echoes __SETTINGS_OK__
+    //   (b) File exists + any of 6 missing/wrong → jq-merge, echoes __SETTINGS_OK__
+    //   (c) File absent → create with all 6 (jq applied to {}), echoes __SETTINGS_OK__
     // Uses a .new temp file + mv for atomic write (no partial-write state).
     // Same MERGE template drives both (b) and (c) paths so the truth of "what
     // the fleet enforces" lives in exactly one jq expression.
@@ -305,12 +315,14 @@ export async function runBootstrapForHost(
       `MERGE='.permissions = ((.permissions // {}) | .deny = (((.deny // []) + ["AskUserQuestion"]) | unique))`,
       `  | .askUserQuestionTimeout = "never"`,
       `  | .env = ((.env // {}) | .DISABLE_AUTOUPDATER = "1" | .CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1")`,
-      `  | .skipDangerousModePermissionPrompt = true'`,
+      `  | .skipDangerousModePermissionPrompt = true`,
+      `  | .hooks = ((.hooks // {}) | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end))'`,
       `CHECK='(.skipDangerousModePermissionPrompt == true)`,
       `  and (.askUserQuestionTimeout == "never")`,
       `  and ((.permissions.deny // []) | contains(["AskUserQuestion"]))`,
       `  and (.env.DISABLE_AUTOUPDATER == "1")`,
-      `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")'`,
+      `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")`,
+      `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))'`,
       `if [ -f "$SETTINGS" ]; then`,
       `  jq -e "$CHECK" "$SETTINGS" > /dev/null 2>&1 || {`,
       `    jq "$MERGE" "$SETTINGS" > "$SETTINGS.new" && mv "$SETTINGS.new" "$SETTINGS"`,

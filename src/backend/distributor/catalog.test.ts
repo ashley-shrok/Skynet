@@ -52,7 +52,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // time, not from /app/fleet-substrate/) AND first system-root-installed row
     // (writes to /etc/claude-code/CLAUDE.md as root:root 0644, gated on
     // hosts.username === "root" per Plan 05 D-13).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(26);
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(27);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -146,13 +146,14 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
 
     // 13 skill-side files: 4 under id/ + 2 under agent-relay/ + 6 single-file skills + image-gen (Phase 116)
     expect(skillRows.length).toBe(13);
-    // 11 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
+    // 12 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + install-usage-reporter +
     // claude-usage-collector + fleet-status-sweep (Phase 92 batch sweep) +
     // pv-context-pct-sweep (Phase 95 PrettyView context-pct batch sweep) +
     // ambient-monitor (mega-monitor phase, single on-wake launcher) +
-    // image-gen (Phase 116 file-drop broker helper)
-    expect(scriptRows.length).toBe(11);
+    // image-gen (Phase 116 file-drop broker helper) +
+    // task-field-check (UserPromptSubmit hook for id skill task: field nag)
+    expect(scriptRows.length).toBe(12);
     // 1 user-onboarding file: agent-supervisor.service
     expect(userOnboardingRows.length).toBe(1);
 
@@ -244,17 +245,18 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     },
   );
 
-  it("Test T-07: sourceKind discriminant — 25 bundled + 1 runtime row (Phase 114 D-22 + Phase 116 additions)", () => {
+  it("Test T-07: sourceKind discriminant — 26 bundled + 1 runtime row (Phase 114 D-22 + Phase 116 additions + task-field-check)", () => {
     // Regression guard for Phase 114 D-12 + D-14: the catalog is a
     // discriminated union on sourceKind. Phase 116 added 2 bundled rows
-    // (image-gen-skill + image-gen-helper) so 25 bundled + 1 runtime (twinkie).
+    // (image-gen-skill + image-gen-helper); task-field-check adds a 26th
+    // bundled row (UserPromptSubmit hook). Runtime row (twinkie) unchanged at 1.
     const bundled = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "bundled",
     );
     const runtime = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "runtime",
     );
-    expect(bundled.length).toBe(25);
+    expect(bundled.length).toBe(26);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/
