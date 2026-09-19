@@ -315,7 +315,7 @@ export function IdentityModal({
     // Phase 118 (D-01, D-02): Workspace tab — available to ALL users (not admin-gated per D-22, D-02).
     // Renders WorkspaceTab (Plan 118-03) inline in the tab body per D-10 (no modal stacking).
     // Placed BEFORE the isAdmin spread so every user sees it regardless of admin status.
-    { value: "workspace", label: "Workspace", Icon: Folder },
+    { value: "workspace", label: "Files", Icon: Folder },
     // Phase 79 Plan 07 — Telegram bridge tab (CONTEXT § 2 fixed real-estate).
     // UI-hide only: the backend telegram routes remain user-auth by design
     // (src/backend/telegram/routes.ts header), so this is presentation, not
