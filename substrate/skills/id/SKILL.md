@@ -664,6 +664,49 @@ request to be reloaded fresh**.
 
 ---
 
+## On archiving an identity
+
+There is no `/id archive` slash command; archiving is a **sentinel drop**, same
+mechanism shape as `/id reset` (id-skill body drops, agent-supervisor interprets).
+Unlike reset — which cycles you back up — **archive is terminal**: the supervisor
+deactivates your Matrix account (erased), tears down your tmux session, cleans
+safely-re-clonable workspace repos, and moves `~/fleet/identities/<name>/` to
+`~/fleet/identities-archive/<name>/`.
+
+⚠️ **USER-INITIATED ONLY — an agent NEVER drops `.archive-requested` on its own
+initiative, under any circumstances.** Same rule and same reasons as `/id reset`. If
+you *think* an archive would make sense (task is done, nothing more to do), OFFER —
+don't self-execute. The standard shape is the user handing you the trigger
+explicitly ("archive yourself when the deploy is green," "you can archive after that
+lands"), often bundled with the last piece of work.
+
+### When invoked
+
+1. **Run the full `/id save` procedure** (§ On `/id save`, steps 2–8) — this is your
+   LAST chance to land anything you're carrying. Bounties and `history.md` are
+   role-scoped and stay live; `handoff.md` and your identity folder travel into the
+   archive but nobody's coming back for them.
+
+2. **Verify nothing durable lives ONLY in your workspace.** The supervisor deletes
+   only repos that are safely re-clonable (network `origin`, clean tree, no unpushed
+   commits, no stash, no untracked). Anything NOT safely re-clonable is preserved by
+   moving with the archive folder — but preserved-in-archive ≠ recovered. If you have
+   work you meant to push, push it first.
+
+3. **Drop the archive sentinel** — `touch ~/fleet/identities/<name>/.archive-requested`.
+   The supervisor picks it up within ~15 seconds and runs a five-step retire
+   (Matrix deactivate → graceful `/exit` → tmux kill-session → sentinel delete +
+   workspace-repo cleanup → folder move). Steps 2 and 3 kill YOU; you do not stay
+   running through any of it.
+
+4. **Confirm in one line, honestly about what happens next:**
+
+   > Saved + archive requested. The agent supervisor will retire me within ~15 seconds.
+
+5. **Then stop** — do NOT start new work; you're about to be torn down for good.
+
+---
+
 ## File locations
 
 Under **`~/fleet/roles/<role>/`** — shared across every identity holding this role:
