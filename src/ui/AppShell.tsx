@@ -1534,7 +1534,17 @@ export function AppShell({
                 const host = saved.hostId
                   ? allHosts.find((h) => h.id === String(saved.hostId))
                   : undefined;
-                const hostlessTypes: TabType[] = ["dashboard"];
+                // MEDIUM-6 code-review fix (2026-09-19): `"app"` joins
+                // `"dashboard"` as a hostless type on the restore path. Per
+                // shape 4 "gone-at-reload is a display concern, not a
+                // behaviour concern": if the app's home host has been
+                // removed from `allHosts` between save and reload, the
+                // leaf should STILL restore — the proxy attempt will fail
+                // and Phase 103's interstitial renders the failure surface
+                // inside the leaf. Pre-fix, missing-host app tabs were
+                // silently `continue`d, dropping the tab and breaking
+                // split-geometry preservation across reloads.
+                const hostlessTypes: TabType[] = ["dashboard", "app"];
                 if (!host && !hostlessTypes.includes(saved.tabType as TabType))
                   continue;
 
