@@ -1,19 +1,31 @@
 #!/usr/bin/env python3
-"""role-file-watch.py — fourth ambient monitor: watch for edits to an identity's role AND identity files.
+"""role-file-watch.py — fourth ambient monitor: watch for edits to an identity's role file, identity file, AND runbooks.
 
 The sibling of the relay receiver, the wake-up scheduler, and the context-watch.
 The receiver wakes on a MESSAGE, the scheduler on the CLOCK, the context-watch on
-CONTEXT PRESSURE — this fourth monitor wakes on a ROLE-FILE OR IDENTITY-FILE CHANGE,
-so mid-session edits to either file become visible to a running identity without
+CONTEXT PRESSURE — this fourth monitor wakes on a ROLE-FILE, IDENTITY-FILE, OR
+RUNBOOK CHANGE, so mid-session edits become visible to a running identity without
 needing a full recycle.
 
 Why this exists: closes the mid-session gap where an agent's in-context copy of its
-role file or its own identity file has diverged from disk. For the role file, that's
-a peer identity of the same role editing it in another session. For the identity
-file, that's almost always user editing it directly (cosmetic frontmatter changes,
-an identity-scope `remember`) — peer sessions of the SAME identity are essentially
-impossible. Every fresh /id load STILL reads both files from scratch; this is purely
-additive.
+role file, its own identity file, or a role-scope runbook has diverged from disk.
+For the role file, that's a peer identity of the same role editing it in another
+session. For the identity file, that's almost always user editing it directly
+(cosmetic frontmatter changes, an identity-scope `remember`) — peer sessions of the
+SAME identity are essentially impossible. For runbooks, the driver was the
+2026-09-19 canonical-deploy-command update: vision edited the skynet-ship runbook to
+include a load-bearing `-f` flag, and a peer identity deployed with the OLD command
+minutes later because the runbook edit fired no ambient event and stale memory of
+the command outweighed re-reading the updated runbook. Every fresh /id load STILL
+reads role + identity + enumerates runbooks; this is purely additive.
+
+Runbook coverage extends to the sentinel file only — `~/fleet/roles/<role>/runbooks/<slug>/runbook.md`
+per the id skill's runbook convention. Companion files in the same subfolder
+(checklists, prompt archives, scripts) are IGNORED — their churn is not a signal
+that the canonical procedure changed. Three runbook events fire:
+  - `📝 [runbook: <role>/<slug>] <diff>`   — edit (same shape as role/identity)
+  - `📝 [runbook: <role>/<slug>] added — Read <path>` — new runbook appeared
+  - `📝 [runbook: <role>/<slug>] deleted`  — runbook.md OR its parent slug folder removed
 
 The watch is diff-first and dumb on purpose: it fires the unified diff of what
 changed (inline when small, spilled to a file pointer when large), and lets the AGENT
@@ -31,6 +43,7 @@ Env:    ROLE_WATCH_POLL_SEC (default 2) — fallback polling loop granularity (o
 
 import datetime
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -76,7 +89,6 @@ def _parse_role_from_frontmatter(identity_file_path):
 
     start, end = fence_indices[0] + 1, fence_indices[1]
     for line in lines[start:end]:
-        import re
         m = re.match(r"^role:\s*(\S+)", line)
         if m:
             return m.group(1), None
@@ -244,6 +256,181 @@ def _diff_and_emit_all(targets, baseline_dir, spill_dir):
     return False
 
 
+# ---------------------------------------------------------------------------
+# Runbook helpers (added 2026-09-19 alongside runbook coverage).
+# ---------------------------------------------------------------------------
+
+# Slug regex — kebab-case per the id skill's slug rule (shared with bounties +
+# apps). Applied when reading subfolder names off disk to reject anything that
+# would traverse or otherwise not correspond to a legitimate runbook slug (a
+# subfolder named "..", spaces, or garbage). Defence in depth on top of "the
+# folder exists and contains a runbook.md" — we simply skip anything the regex
+# rejects, matching the sweep script's slug-injection defence.
+_RUNBOOK_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+_RUNBOOK_SLUG_MAX_LEN = 64  # generous vs 40-char app cap; runbook names skew descriptive
+
+
+def _enumerate_runbook_slugs(runbooks_dir):
+    """Return sorted list of slugs whose `<slug>/runbook.md` exists on disk.
+
+    Slugs failing `_RUNBOOK_SLUG_RE` or exceeding `_RUNBOOK_SLUG_MAX_LEN` are
+    skipped silently — a peer identity might have half-created a folder or
+    dropped something oddly-named. The watch is deliberately conservative:
+    ambiguous state means don't-watch, not surface-an-error.
+    """
+    if not os.path.isdir(runbooks_dir):
+        return []
+    slugs = []
+    try:
+        entries = sorted(os.listdir(runbooks_dir))
+    except OSError:
+        return []
+    for entry in entries:
+        if not _RUNBOOK_SLUG_RE.match(entry):
+            continue
+        if len(entry) > _RUNBOOK_SLUG_MAX_LEN:
+            continue
+        rb_path = os.path.join(runbooks_dir, entry, "runbook.md")
+        if not os.path.isfile(rb_path):
+            continue
+        slugs.append(entry)
+    return slugs
+
+
+def _runbook_paths(runbooks_dir, baseline_dir, slug):
+    """Return the (runbook.md path, per-slug baseline path) tuple for a slug."""
+    rb_path = os.path.join(runbooks_dir, slug, "runbook.md")
+    base_path = os.path.join(baseline_dir, "last-snapshot.runbook.%s" % slug)
+    return rb_path, base_path
+
+
+def _existing_baseline_slugs(baseline_dir):
+    """Return the set of slugs for which a runbook baseline currently exists.
+
+    Used at startup to detect runbooks that were deleted while we were down —
+    baseline files with no matching on-disk runbook.
+    """
+    prefix = "last-snapshot.runbook."
+    slugs = set()
+    try:
+        for name in os.listdir(baseline_dir):
+            if name.startswith(prefix):
+                slugs.add(name[len(prefix):])
+    except OSError:
+        pass
+    return slugs
+
+
+def _emit_runbook_added(role, slug, rb_path):
+    """New-runbook event — points at the file rather than emitting a diff.
+
+    Runbooks are documents meant to be read in full; a diff-from-empty would
+    be either large + spilled (equivalent to the pointer) or small and still
+    not useful as a `+`-prefixed diff. Match the recv.sh long-message idiom
+    of PATH-before-preview so the agent has an obvious next step.
+    """
+    print(
+        "📝 [runbook: %s/%s] added — Read %s" % (role, slug, rb_path),
+        flush=True,
+    )
+
+
+def _emit_runbook_deleted(role, slug):
+    """Runbook-deleted event — no diff possible, one honest line."""
+    print("📝 [runbook: %s/%s] deleted" % (role, slug), flush=True)
+
+
+def _slug_from_event(w_path, f_name, runbooks_dir):
+    """Given an inotify event's `%w` (watched dir) and `%f` (filename), return
+    the runbook slug involved, or None if the event is not on a runbook.md /
+    slug-subfolder we care about.
+
+    Two shapes we want to match:
+      1. `%w = runbooks_dir/<slug>`, `%f = runbook.md`  → returns <slug>
+         (the sentinel file itself changed / was created / deleted)
+      2. `%w = runbooks_dir`, `%f = <slug>` with ISDIR event
+         → returns <slug> (the whole slug subfolder was created or removed)
+    Everything else — companion files inside a slug folder, nested subdirs,
+    events on unrelated paths — returns None.
+    """
+    # Normalize trailing slash on runbooks_dir for comparison (inotifywait
+    # sometimes emits with trailing slash on the %w for -r-watched dirs).
+    rb_root = runbooks_dir.rstrip("/")
+    w_norm = w_path.rstrip("/")
+
+    # Shape 1: event on <runbooks>/<slug>/runbook.md
+    if f_name == "runbook.md":
+        parent = os.path.dirname(w_norm)
+        if parent == rb_root:
+            slug = os.path.basename(w_norm)
+            if _RUNBOOK_SLUG_RE.match(slug) and len(slug) <= _RUNBOOK_SLUG_MAX_LEN:
+                return slug
+    # Shape 2: event on <runbooks>/<slug> directly (create/delete of the folder)
+    if w_norm == rb_root and f_name:
+        if _RUNBOOK_SLUG_RE.match(f_name) and len(f_name) <= _RUNBOOK_SLUG_MAX_LEN:
+            return f_name
+    return None
+
+
+def _handle_runbook_event(
+    role, slug, events, tracked_slugs, runbooks_dir, baseline_dir, spill_dir,
+):
+    """Route a runbook event to add / edit / delete emission.
+
+    `tracked_slugs` is a mutable set — the set of runbook slugs whose baseline
+    exists in the state directory. This function mutates it in place:
+      - Add: slug goes from untracked → tracked; write baseline, emit "added".
+      - Edit: slug already tracked; diff baseline vs current, emit if changed.
+      - Delete: slug goes from tracked → untracked; remove baseline, emit "deleted".
+
+    Events we care about (uppercased set, matching inotifywait --format %e output):
+      - CLOSE_WRITE / MODIFY / MOVED_TO on a runbook.md → edit or add depending
+        on whether the slug was already tracked.
+      - CREATE on a runbook.md (or MOVED_TO landing runbook.md into the folder)
+        → same handling; the CLOSE_WRITE case covers the write-then-close path.
+      - DELETE / MOVED_FROM on a runbook.md or on the slug subfolder → delete.
+    """
+    rb_path, base_path = _runbook_paths(runbooks_dir, baseline_dir, slug)
+
+    is_delete = bool(events & {"DELETE", "MOVED_FROM"})
+    is_write = bool(events & {"CLOSE_WRITE", "CREATE", "MOVED_TO", "MODIFY"})
+
+    if is_delete:
+        # Confirm on disk — inotifywait can fire DELETE on transient files that
+        # were briefly present (editor swap files). If runbook.md is still
+        # readable, treat as no-op.
+        if os.path.isfile(rb_path):
+            return
+        if slug in tracked_slugs:
+            try:
+                os.remove(base_path)
+            except OSError:
+                pass
+            tracked_slugs.discard(slug)
+            _emit_runbook_deleted(role, slug)
+        return
+
+    if is_write:
+        current = _read_bytes(rb_path)
+        if current is None:
+            # File vanished between event fire and our read — likely an editor
+            # swap-file interaction. Skip silently; a real delete will fire
+            # its own event.
+            return
+        baseline = _read_bytes(base_path) if slug in tracked_slugs else None
+        if baseline is None:
+            # New runbook (either we've never seen it, or the baseline was
+            # cleaned up). Snapshot + emit added.
+            _atomic_write_baseline(baseline_dir, base_path, current)
+            tracked_slugs.add(slug)
+            _emit_runbook_added(role, slug, rb_path)
+            return
+        if current != baseline:
+            diff_stdout = _run_diff(base_path, rb_path)
+            _emit_event("runbook", "%s/%s" % (role, slug), diff_stdout, spill_dir)
+            _atomic_write_baseline(baseline_dir, base_path, current)
+
+
 def _make_signal_handler(role_file_path):
     """Return a SIGTERM/SIGINT handler that cleans up the inotifywait subprocess."""
     def _handler(signum, frame):
@@ -295,10 +482,18 @@ def main():
         ("identity-file", name, identity_file_path, identity_baseline_path),
     ]
 
+    # --- Runbooks tree — role-scope; empty or nonexistent is fine ---
+    runbooks_dir = os.path.expanduser("~/fleet/roles/%s/runbooks" % role)
+    runbooks_watched = os.path.isdir(runbooks_dir)
+
     # --- State dirs ---
     spill_dir = os.path.join(baseline_dir, "spilled")
     state_dir = os.path.join(baseline_dir, ".state")
     os.makedirs(state_dir, exist_ok=True)
+    # `baseline_dir` may not exist yet on very first run (before role/identity
+    # cold-start writes any baseline). Ensure it exists so runbook baselines
+    # can be written even if the role/identity ones haven't landed yet.
+    os.makedirs(baseline_dir, exist_ok=True)
 
     # --- One-time migration: legacy single-baseline `last-snapshot` → `last-snapshot.role`.
     # Older versions of this script wrote a single `last-snapshot` file at
@@ -378,6 +573,55 @@ def main():
             if gone:
                 sys.exit(1)
 
+    # --- Runbook cold-start / resume pass ---
+    # Enumerate on-disk runbooks. For each: if no baseline → snapshot silently
+    # (cold start); if baseline + file changed → emit edit diff (resume); if
+    # baseline exists but file gone → emit "deleted" (resume-delete). Runs BEFORE
+    # the inotifywait watch loop starts so events landing during the watch's
+    # arming don't compete with cold-start baseline writes.
+    tracked_runbook_slugs = _existing_baseline_slugs(baseline_dir)
+    on_disk_slugs = set(_enumerate_runbook_slugs(runbooks_dir))
+
+    # (a) On-disk runbooks — diff or cold-snapshot.
+    for slug in sorted(on_disk_slugs):
+        rb_path, base_path = _runbook_paths(runbooks_dir, baseline_dir, slug)
+        if slug not in tracked_runbook_slugs:
+            current = _read_bytes(rb_path)
+            if current is None:
+                # Runbook file vanished between listdir and read — race with a
+                # peer identity's delete. Skip silently; the delete-side pass
+                # below cleans up any dangling baseline.
+                continue
+            _atomic_write_baseline(baseline_dir, base_path, current)
+            tracked_runbook_slugs.add(slug)
+            # Silent cold-start — no emit (shape invariant).
+        else:
+            # Baseline exists → treat as resume. Diff if changed.
+            current = _read_bytes(rb_path)
+            if current is None:
+                continue  # will be handled by (b) below
+            baseline = _read_bytes(base_path)
+            if baseline is None:
+                _atomic_write_baseline(baseline_dir, base_path, current)
+                continue
+            if current != baseline:
+                diff_stdout = _run_diff(base_path, rb_path)
+                _emit_event(
+                    "runbook", "%s/%s" % (role, slug), diff_stdout, spill_dir,
+                )
+                _atomic_write_baseline(baseline_dir, base_path, current)
+
+    # (b) Baselines for slugs no longer on disk — the runbook was deleted while
+    # we were down. Emit deletion + remove the baseline.
+    for slug in sorted(tracked_runbook_slugs - on_disk_slugs):
+        _, base_path = _runbook_paths(runbooks_dir, baseline_dir, slug)
+        try:
+            os.remove(base_path)
+        except OSError:
+            pass
+        tracked_runbook_slugs.discard(slug)
+        _emit_runbook_deleted(role, slug)
+
     # --- Watch loop ---
     use_inotify = shutil.which("inotifywait") is not None
     if not use_inotify:
@@ -391,11 +635,29 @@ def main():
     global _inotify_proc
 
     if use_inotify:
-        # inotifywait-based watch loop. Both target files are passed to a single
-        # inotifywait invocation; on any event, we diff BOTH baselines (the target
-        # whose file didn't change is a no-op). This avoids parsing inotifywait's
-        # per-event filename output.
-        watched_paths = [t[2] for t in targets]  # role_file_path, identity_file_path
+        # inotifywait-based watch loop with `--format` output so we can route
+        # events by path. Three watched surfaces:
+        #   1. role.md + identity.md — passed as explicit file arguments. Events
+        #      on these are dispatched to _diff_and_emit_all(targets, …); we
+        #      re-diff both fixed targets on any of their events (matches the
+        #      pre-runbook behavior — cheap, no per-file bookkeeping needed).
+        #   2. runbooks/ (if it exists) — passed with `-r` so newly-created
+        #      slug subfolders get their inotify watches added automatically.
+        #      Per-event routing via _slug_from_event isolates runbook.md
+        #      events + slug-subfolder create/delete from companion churn.
+        #
+        # Event set — union of what fixed targets and the runbook tree need:
+        #   close_write: normal file save
+        #   move_self:   fixed-target inode replaced (mv new old) → respawn
+        #   moved_to:    fixed-target replaced OR new file landed in runbooks/
+        #   delete:      runbook.md removed OR slug subfolder removed
+        #   create:      slug subfolder created OR runbook.md created
+        #   moved_from:  runbook.md renamed out OR slug subfolder renamed out
+        role_id_paths = [t[2] for t in targets]
+        watched_args = list(role_id_paths)
+        if runbooks_watched:
+            watched_args.append(runbooks_dir)
+        inotify_events = "close_write,move_self,moved_to,delete,create,moved_from"
         while True:
             # Orphan check
             if harness_pid is not None:
@@ -408,8 +670,10 @@ def main():
                 _inotify_proc = subprocess.Popen(
                     [
                         "inotifywait", "-m",
-                        "-e", "close_write,move_self,moved_to",
-                    ] + watched_paths,
+                    ] + (["-r"] if runbooks_watched else []) + [
+                        "-e", inotify_events,
+                        "--format", "%w|%f|%e",
+                    ] + watched_args,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                     text=True,
@@ -427,35 +691,58 @@ def main():
                                     pass
                             sys.exit(0)
 
-                    event_line = event_line.strip()
+                    event_line = event_line.rstrip("\n").rstrip("\r")
                     if not event_line:
                         continue
 
-                    # move_self: a watched file's inode was replaced (e.g. mv new old).
-                    # Kill + respawn inotifywait to re-arm on the new inode(s).
-                    if "MOVE_SELF" in event_line.upper():
+                    # Parse `%w|%f|%e`. inotifywait guarantees these three
+                    # fields separated by `|`; on rare malformed lines (e.g.
+                    # rotated stderr leaking in), skip silently.
+                    parts = event_line.split("|", 2)
+                    if len(parts) != 3:
+                        continue
+                    w_path, f_name, e_str = parts
+                    events = set(e_str.split(","))
+
+                    # (A) Route fixed-target events (role.md / identity.md).
+                    # inotifywait emits `%w = <full file path>`, `%f = ""` when
+                    # the watched target is a file argument (not a directory).
+                    if not f_name and w_path in role_id_paths:
+                        if "MOVE_SELF" in events:
+                            if _diff_and_emit_all(targets, baseline_dir, spill_dir):
+                                sys.exit(1)
+                            # Respawn to re-arm on new inode.
+                            try:
+                                _inotify_proc.terminate()
+                            except Exception:
+                                pass
+                            _inotify_proc = None
+                            break
+                        if "DELETE_SELF" in events:
+                            print(
+                                "⚠️ [role-file-watch] a watched file was deleted: %s"
+                                % event_line,
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                            sys.exit(1)
                         if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                             sys.exit(1)
-                        # Break inner loop to respawn inotifywait on new inode.
-                        try:
-                            _inotify_proc.terminate()
-                        except Exception:
-                            pass
-                        _inotify_proc = None
-                        break
+                        continue
 
-                    # DELETE (rare)
-                    if "DELETE_SELF" in event_line.upper():
-                        print(
-                            "⚠️ [role-file-watch] a watched file was deleted: %s"
-                            % event_line,
-                            file=sys.stderr,
-                            flush=True,
-                        )
-                        sys.exit(1)
+                    # (B) Route runbook-tree events. Only fires when we're
+                    # actually watching runbooks_dir (guarded by runbooks_watched).
+                    if runbooks_watched:
+                        slug = _slug_from_event(w_path, f_name, runbooks_dir)
+                        if slug is not None:
+                            _handle_runbook_event(
+                                role, slug, events, tracked_runbook_slugs,
+                                runbooks_dir, baseline_dir, spill_dir,
+                            )
+                            continue
 
-                    if _diff_and_emit_all(targets, baseline_dir, spill_dir):
-                        sys.exit(1)
+                    # Anything else is companion churn or events on an
+                    # unrelated path — ignore.
 
             except Exception:
                 traceback.print_exc(file=sys.stderr)
