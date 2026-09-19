@@ -25,6 +25,12 @@ import {
   appPaneRouter,
   handleAppPaneUpgrade,
 } from "../apps/app-pane-router.js";
+// @types/node types http.Server's `upgrade` callback socket as `Duplex`,
+// but the runtime object is a `net.Socket` and downstream (proxy-middleware,
+// ws) is typed against `Socket`. Import the type here purely to cast at the
+// call site below — mirrors the sibling pattern in
+// src/backend/apps/tests/app-pane-router.integration.test.ts:200.
+import type { Socket as NetSocket } from "node:net";
 import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
@@ -2379,7 +2385,7 @@ httpServer.on("upgrade", (req, socket, head) => {
   // internally (via APP_SLUG_RE-shaped regex) and returns without touching
   // the socket on non-matching URLs, so this binding does NOT blindly hijack
   // every upgrade event — only /apps/*/pane requests are dispatched.
-  void handleAppPaneUpgrade(req, socket, head);
+  void handleAppPaneUpgrade(req, socket as NetSocket, head);
 });
 
 httpServer.on("error", (err: NodeJS.ErrnoException) => {
