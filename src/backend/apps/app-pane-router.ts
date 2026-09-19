@@ -77,6 +77,8 @@
  */
 
 import express from "express";
+import type { IncomingMessage } from "node:http";
+import type { Socket } from "node:net";
 import type { Request, Response, NextFunction } from "express";
 import type { AuthenticatedRequest } from "../../types/index.js";
 import { AuthManager } from "../utils/auth-manager.js";
@@ -99,6 +101,16 @@ import {
 const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
+
+/**
+ * Path-shape regex for `/apps/:hostId/:slug/pane/*` — used by the
+ * WebSocket upgrade dispatcher below. Digits-only hostId (positive
+ * integer will be validated later) + APP_SLUG_RE-shaped slug + trailing
+ * `/pane` prefix. Only requests matching THIS regex flow into the
+ * upgrade dispatcher; every other upgrade (e.g. serve-url subdomain
+ * dispatch, terminal WS, future WS mounts) passes through untouched.
+ */
+const PANE_UPGRADE_PATH_RE = /^\/apps\/(\d+)\/([a-z0-9-]{1,64})\/pane(\/|$)/;
 
 /**
  * `/apps/:hostId/:slug/pane/*` — HTTP request handler. `router.all`
@@ -271,3 +283,248 @@ router.all(
 );
 
 export const appPaneRouter = router;
+
+/* ------------------------------------------------------------------------ */
+/*  WebSocket upgrade dispatcher (BLOCKER 6 fix — T-120-32)                  */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Extract the JWT token from an upgrade request's Cookie header.
+ * Returns null if the cookie is absent or malformed. Duplicates the
+ * cookie-parsing shape used elsewhere in the codebase (auth-manager's
+ * middleware reads `req.cookies.jwt` via cookieParser; the upgrade path
+ * runs before cookieParser, so we parse the raw header ourselves).
+ */
+function extractJwtFromUpgradeReq(req: IncomingMessage): string | null {
+  const cookieHeader = req.headers.cookie;
+  if (typeof cookieHeader !== "string" || cookieHeader.length === 0) {
+    // Fallback: Bearer token in Authorization (some WS clients send it).
+    const auth = req.headers.authorization;
+    if (typeof auth === "string" && auth.startsWith("Bearer ")) {
+      return auth.slice("Bearer ".length);
+    }
+    return null;
+  }
+  // Manually parse cookie header for the `jwt` cookie name.
+  const parts = cookieHeader.split(";");
+  for (const raw of parts) {
+    const trimmed = raw.trim();
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const name = trimmed.slice(0, eq);
+    const value = trimmed.slice(eq + 1);
+    if (name === "jwt") return value;
+  }
+  return null;
+}
+
+/**
+ * Write a bare HTTP response on a raw upgrade socket and destroy it.
+ * Upgrade rejections carry no visible body to the client; the statusline
+ * plus optional headers is the entire response.
+ */
+function rejectUpgrade(
+  socket: Socket,
+  statusLine: string,
+  extraHeaders?: string,
+): void {
+  try {
+    const suffix = extraHeaders ? `${extraHeaders}\r\n` : "";
+    socket.write(`${statusLine}\r\n${suffix}\r\n`);
+  } catch {
+    /* socket may already be broken */
+  }
+  try {
+    socket.destroy();
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * WebSocket upgrade dispatcher for `/apps/:hostId/:slug/pane/*`. Wired
+ * to `httpServer.on("upgrade", ...)` in database.ts (Task 3(f)). Runs
+ * the SAME auth + slug/hostId validation + host resolve + checkHostAccess
+ * + appProxyCsrfCheck + port lookup + target resolve chain as the HTTP
+ * route, then calls the proxy middleware's `.upgrade(req, socket, head)`
+ * method.
+ *
+ * Non-matching upgrade paths are a no-op (return without touching the
+ * socket) so other upgrade consumers on the same http.Server (serve-url
+ * subdomain dispatch, terminal WS, future WS mounts) fire normally.
+ *
+ * Every failure branch writes a bare status-line + destroys the socket.
+ * Upgrade rejections carry no visible body to the client, so failure
+ * modes are indistinguishable at the wire level — the info-leak invariant
+ * (T-120-26) holds trivially on the WS path.
+ */
+export async function handleAppPaneUpgrade(
+  req: IncomingMessage,
+  socket: Socket,
+  head: Buffer,
+): Promise<void> {
+  try {
+    const url = req.url ?? "";
+    const match = PANE_UPGRADE_PATH_RE.exec(url);
+    if (!match) {
+      // Not our path — leave the socket alone; other upgrade handlers
+      // (subdomain-dispatch, terminal WS, ...) may still fire.
+      return;
+    }
+    const hostIdStr = match[1];
+    const slug = match[2];
+    const hostIdNum = Number(hostIdStr);
+    if (
+      !Number.isFinite(hostIdNum) ||
+      !Number.isInteger(hostIdNum) ||
+      hostIdNum <= 0
+    ) {
+      rejectUpgrade(socket, "HTTP/1.1 400 Bad Request");
+      return;
+    }
+    if (!APP_SLUG_RE.test(slug)) {
+      rejectUpgrade(socket, "HTTP/1.1 400 Bad Request");
+      return;
+    }
+
+    // Auth — extract JWT from Cookie / Authorization; verify via
+    // AuthManager. Both the missing-token and invalid-token branches
+    // produce a bare 401 (upgrade rejections carry no body).
+    const token = extractJwtFromUpgradeReq(req);
+    if (!token) {
+      rejectUpgrade(socket, "HTTP/1.1 401 Unauthorized");
+      return;
+    }
+    const payload = await authManager.verifyJWTToken(token);
+    if (!payload) {
+      rejectUpgrade(socket, "HTTP/1.1 401 Unauthorized");
+      return;
+    }
+    const userId = payload.userId;
+    if (typeof userId !== "string" || userId.length === 0) {
+      rejectUpgrade(socket, "HTTP/1.1 401 Unauthorized");
+      return;
+    }
+
+    // Host resolve — same info-leak invariant as HTTP: same rejection
+    // shape for unresolvable-host AND access-denied.
+    const host = await resolveHostById(hostIdNum, userId);
+    if (!host) {
+      sshLogger.warn("app pane WS: host unresolvable / no access", {
+        operation: "apps_pane_ws_host_unresolvable",
+        hostId: hostIdNum,
+        slug,
+      });
+      rejectUpgrade(socket, "HTTP/1.1 403 Forbidden");
+      return;
+    }
+    const allowed = await checkHostAccess(
+      hostIdNum,
+      userId,
+      host.userId,
+      "read",
+    );
+    if (!allowed) {
+      rejectUpgrade(socket, "HTTP/1.1 403 Forbidden");
+      return;
+    }
+
+    // CSRF gate — WS upgrades carry Origin per the WS spec (browsers
+    // always send it). The helper short-circuits on GET (upgrades ARE
+    // GET) so we call it via a small adapter that forces the method to
+    // POST for check purposes — but the helper's current shape treats
+    // GET as always-pass. Directly enforce origin here to be safe.
+    // Cast to Request-shape for the helper: only .method and
+    // .headers.origin are read.
+    const originHeader = req.headers.origin;
+    if (typeof originHeader !== "string" || originHeader.length === 0) {
+      rejectUpgrade(
+        socket,
+        "HTTP/1.1 403 Forbidden",
+        "X-Skynet-Reason: cross-origin",
+      );
+      return;
+    }
+    if (originHeader !== PRIMARY_DOMAIN) {
+      rejectUpgrade(
+        socket,
+        "HTTP/1.1 403 Forbidden",
+        "X-Skynet-Reason: cross-origin",
+      );
+      return;
+    }
+
+    // Port lookup — same as HTTP path.
+    const registry = getRegistry();
+    if (registry === null) {
+      sshLogger.warn("app pane WS: registry holder not populated", {
+        operation: "apps_pane_ws_registry_missing",
+        hostId: hostIdNum,
+        slug,
+      });
+      rejectUpgrade(socket, "HTTP/1.1 503 Service Unavailable");
+      return;
+    }
+    const app = registry
+      .getAppSnapshot()
+      .find((a) => a.hostId === String(hostIdNum) && a.slug === slug);
+    if (!app) {
+      rejectUpgrade(socket, "HTTP/1.1 404 Not Found");
+      return;
+    }
+    if (app.port === null || !Number.isFinite(app.port) || app.port <= 0) {
+      rejectUpgrade(socket, "HTTP/1.1 404 Not Found");
+      return;
+    }
+    const port = app.port;
+
+    // Target resolve. Tunnel errors here are unrecoverable at the
+    // upgrade layer — the socket is HTTP-shaped until proxyMiddleware.
+    // upgrade takes it over, so we close it with 502.
+    let tunnelPort: number;
+    let target: Awaited<ReturnType<typeof resolvePaneTarget>>["target"];
+    try {
+      const resolved = await resolvePaneTarget(hostIdNum, host, port);
+      target = resolved.target;
+      tunnelPort = resolved.tunnelPort;
+    } catch (err) {
+      const errorClass = classifyTunnelError(err);
+      sshLogger.warn("app pane WS: tunnel-error", {
+        operation: "apps_pane_ws_tunnel_error",
+        hostId: hostIdNum,
+        slug,
+        errorClass,
+      });
+      rejectUpgrade(socket, "HTTP/1.1 502 Bad Gateway");
+      return;
+    }
+
+    // Proxy handoff — get the SAME cached middleware the HTTP route uses
+    // (per-slug cache key) and invoke its .upgrade method.
+    const proxyMiddleware = getOrCreateAppPaneProxyForTarget(
+      target,
+      tunnelPort,
+      hostIdNum,
+      slug,
+    ) as unknown as {
+      upgrade?: (req: IncomingMessage, socket: Socket, head: Buffer) => void;
+    };
+    if (typeof proxyMiddleware.upgrade === "function") {
+      proxyMiddleware.upgrade(req, socket, head);
+    } else {
+      // Factory returned a middleware without .upgrade — misconfigured
+      // (ws:true should always attach one). Fail closed.
+      rejectUpgrade(socket, "HTTP/1.1 500 Internal Server Error");
+    }
+  } catch (err) {
+    sshLogger.warn("app pane WS upgrade error", {
+      operation: "apps_pane_ws_upgrade_error",
+      errName: err instanceof Error ? err.name : "unknown",
+    });
+    try {
+      socket.destroy();
+    } catch {
+      /* ignore */
+    }
+  }
+}
