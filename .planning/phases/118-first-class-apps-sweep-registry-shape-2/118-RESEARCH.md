@@ -22,7 +22,7 @@ no new distributor row, no DB schema.
 
 **One material surprise for the planner:** CONTEXT D-15 says "reuse
 `checkHostAccess` ... same shape identity frames are (or will be) filtered."
-Ashley's paren "(or will be)" is doing all the work — identity frames are
+the user's paren "(or will be)" is doing all the work — identity frames are
 **not** filtered today. There is exactly one call site for `checkHostAccess`
 across the whole `src/backend/fleet-status/` tree, and it's inside a docblock
 comment, not a real invocation. Every subscriber currently sees every host's
@@ -439,7 +439,7 @@ managed box BEFORE the container-side Skynet gets its new TS parser deploy.
 The box starts emitting `line_kind: "app"` lines that the old TS parser
 doesn't recognize.
 
-**Why it happens:** Ashley's container-mutation-serialization rule means
+**Why it happens:** the user's container-mutation-serialization rule means
 Skynet redeploys can lag distributor sweeps by minutes.
 
 **How to avoid:** No action needed — the lenient parser already handles this
@@ -962,7 +962,7 @@ under `src/backend/fleet-status/`. Every subscriber to `/fleet-status/ws`
 today receives every host's frames.
 
 The CONTEXT D-15 phrasing "same shape identity frames are (or will be)
-filtered" is telling — Ashley left the door open because it's a known gap.
+filtered" is telling — the user left the door open because it's a known gap.
 Phase 118 is where the first filter lands. Do not look for an existing
 identity filter to copy — there isn't one.
 
@@ -1028,7 +1028,7 @@ with `\n`. `sys.stdout.flush()` at end of main.
 **Timeout budget:** The orchestrator wraps the sweep exec in `Promise.race`
 against `SWEEP_EXEC_TIMEOUT_MS = 8000` (`ssh-poll-orchestrator.ts:1400`).
 Not the CONTEXT's assumed 5s — it's 8s. Still plenty of headroom for
-per-app work at Ashley's ~0-10 apps. The internal `TMUX_TIMEOUT_SEC = 1.5`
+per-app work at the user's ~0-10 apps. The internal `TMUX_TIMEOUT_SEC = 1.5`
 (L164) is the precedent for per-subprocess timeouts.
 
 **Enumeration API:** `os.scandir()` in `_enumerate_identities` (L1019) —
@@ -1084,7 +1084,7 @@ consolidation:** one subprocess per app instead of three. Parse:
 - `Environment=HOST=... PORT=<n> ...` → extract PORT
 
 Reduces to one subprocess call per app. Only downside: slightly more output
-to parse. Given the small scale (Ashley's ~10 apps ceiling per box), either
+to parse. Given the small scale (the user's ~10 apps ceiling per box), either
 approach is fine — one-shot is more elegant.
 
 ## Q7 — Test seams
@@ -1253,7 +1253,7 @@ systemd — the mocking happens at the JSONL boundary in
 `channel.setResponse(SWEEP_CMD, ...)`. Only the Python .test.sh cases hit
 real systemd, and those are the D-23 agent-UAT category — not CI.
 
-**"container-mutation serialization" (Ashley 2026-09-12):** Applies to the
+**"container-mutation serialization" (the user 2026-09-12):** Applies to the
 deploy motion only. Planning + executor phases are unaffected. Executor
 does not push, build, or deploy. Include one plan step noting the
 distributor push flow: "commit + push triggers the standard build; the
@@ -1345,7 +1345,7 @@ without special config.
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | Ashley's fleet has 0-10 apps per box ceiling for the foreseeable future | Q6 timeout analysis | Higher app count could push the sweep past its 8s budget. Mitigation: the per-app subprocess count is 1 (with the one-shot `systemctl show` consolidation), so ~100 apps × 10ms = 1s of systemctl work. Safe well beyond ~10. |
+| A1 | the user's fleet has 0-10 apps per box ceiling for the foreseeable future | Q6 timeout analysis | Higher app count could push the sweep past its 8s budget. Mitigation: the per-app subprocess count is 1 (with the one-shot `systemctl show` consolidation), so ~100 apps × 10ms = 1s of systemctl work. Safe well beyond ~10. |
 | A2 | `systemctl --user show` reliably returns `Environment=` on a running unit | Q6 recommendation | If some units don't have `Environment=` in `show` output (very rare — units WITHOUT `Environment=` directives), port comes back None. D-05 spec allows `port: number \| null`; the frontend/shape 3 handles missing port. |
 | A3 | The filter can go through Promise.allSettled fan-out without measurable UI latency | Q4 async filter | If checkHostAccess is slow (SQLite hit + user session lookup), fan-out could visibly delay frames. Mitigation: LRU cache in `filterAppFrame` (30s TTL keyed on user+host); PermissionManager likely has its own cache too. Verify at execute time. |
 | A4 | Test cases 1-6 in Q7 can run on t1000 with real systemd --user | Q7 test seams | If CI ever tries to run these, they'll fail. Mitigation: gate the shell tests on a systemd-availability check (documented in CONTEXT D-23 as "agent-UAT, not CI"). |

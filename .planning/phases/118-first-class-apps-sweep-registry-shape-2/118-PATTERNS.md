@@ -134,7 +134,7 @@
 - `_build_app_line` returns `None` when D-01 checks (a) or (b) fail; returns a dict with `is_healthy=false` + `health_message` when (c) fails (D-02 carve-out); returns a fully-populated dict when all three pass.
 - **Wire-name discipline (RESEARCH § Q1):** emit `snake_case` names — `line_kind`, `schema_version`, `slug`, `title`, `description`, `port`, `has_icon`, `created_at_ms`, `is_healthy`, `health_message`. Byte-identical to the TS `SweepAppLine` interface.
 - **Per-app try/except discipline (RESEARCH § Pitfall 5):** unlike `_build_identity_line` (which fail-opens membership + nulls cosmetics), `_build_app_line` FAIL-CLOSES membership — a malformed `app.json` means the app is NOT emitted, not "emitted with null title". The per-app `try/except Exception` wrapper in `_enumerate_apps` guarantees other apps still emit.
-- **healthMessage phrasing (CONTEXT D-03):** literal string `"not running — ask an agent to check on it"` (Ashley's steer; conversational register).
+- **healthMessage phrasing (CONTEXT D-03):** literal string `"not running — ask an agent to check on it"` (the user's steer; conversational register).
 
 ---
 

@@ -139,11 +139,11 @@ Two minor micro-adjustments worth noting (both within the plan's stated Claude-d
 - No substrate distributor sweep — `catalog.ts` push motion runs at campaign-close alongside the container deploy.
 
 **Fleet directives honoured** (per `~/fleet/roles/box-maintainer/box-maintainer.md § Standing directives`):
-- Container-mutation serialization (Ashley 2026-09-12) — N/A at this executor scope; will apply at campaign-close deploy.
-- Test discipline scoped-during-dev (Ashley 2026-09-07) — Task 1 is comment-only + `node --check` gate; no test churn.
-- Deploy-boundary-at-push (Ashley 2026-08-29) — held.
-- No worktrees (Ashley 2026-07-31) — this plan ran in `~/skynet-vision` on the shared branch.
-- No message streaming ever (Ashley 2026-08-29) — N/A (no chat surfaces touched).
+- Container-mutation serialization (the user 2026-09-12) — N/A at this executor scope; will apply at campaign-close deploy.
+- Test discipline scoped-during-dev (the user 2026-09-07) — Task 1 is comment-only + `node --check` gate; no test churn.
+- Deploy-boundary-at-push (the user 2026-08-29) — held.
+- No worktrees (the user 2026-07-31) — this plan ran in `~/skynet-vision` on the shared branch.
+- No message streaming ever (the user 2026-08-29) — N/A (no chat surfaces touched).
 
 ## Substrate distributor sweep note
 
@@ -365,7 +365,7 @@ And in the Skynet UI:
 4. Merge / rebase onto the deploy target (per fleet's normal deploy discipline).
 5. `docker build` the container image.
 6. Verify the built image bundles the updated `substrate/skills/app-development/templates/app-starter/svelte.config.js` (26 lines / 1179 bytes — see § Substrate distributor sweep note above).★
-7. `docker compose up --force-recreate` (per Ashley 2026-09-12 container-mutation serialization).
+7. `docker compose up --force-recreate` (per the user 2026-09-12 container-mutation serialization).
 8. Wait for the next distributor sweep to push the updated `svelte.config.js` to all managed hosts (see § Substrate distributor sweep note above).★
 9. Run the **D-23 UAT procedure** on t1000 with the reviewer's browser session (all 10 steps).★
 10. On UAT-pass, close the campaign artifact.

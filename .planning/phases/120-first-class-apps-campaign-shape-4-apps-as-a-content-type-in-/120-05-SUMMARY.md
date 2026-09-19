@@ -429,7 +429,7 @@ Downstream consumers:
   layer, so `<iframe>` embedding of the pane in a third-party site
   is blocked at the browser level.
 - **Plan 08 (D-23 UAT):** the full stack is exercisable end-to-end.
-  Ashley's UAT recipe from CONTEXT.md § D-23 can now run.
+  the user's UAT recipe from CONTEXT.md § D-23 can now run.
 
 WS-path deploy invariant (see § Caddyfile / Assumption A6):
 - nginx.conf + nginx-https.conf need a dedicated `/apps/` location

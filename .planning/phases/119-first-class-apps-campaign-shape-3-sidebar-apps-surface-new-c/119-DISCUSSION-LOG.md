@@ -20,7 +20,7 @@
 | C | Block v1 on shape 4 | |
 
 **User's choice:** A (implicit via the framing "how identities get their icons because i imagine it's going to be almost the same process").
-**Notes:** Ashley pointed me at the existing identity-avatar route as the template — `GET /identities/:identityKey/avatar?hostId=<n>` at `identities.ts:849-`. New endpoint: `GET /apps/:hostId/:slug/icon`. Same auth gate, same hostId-in-URL discipline, same SSH-file-read shape. Captured as D-06 + D-07.
+**Notes:** the user pointed me at the existing identity-avatar route as the template — `GET /identities/:identityKey/avatar?hostId=<n>` at `identities.ts:849-`. New endpoint: `GET /apps/:hostId/:slug/icon`. Same auth gate, same hostId-in-URL discipline, same SSH-file-read shape. Captured as D-06 + D-07.
 
 ---
 
@@ -33,7 +33,7 @@
 | C | Same one-line tile, dimmed to ~55% opacity, healthMessage in tooltip on hover, no glyph | |
 
 **User's choice:** A.
-**Notes:** Choice made via a second tasting HTML prototype at `.planning/campaigns/first-class-apps/tasting-tile-details.html` (served on `Skynet-8899.serve.term.gigaashley.click`). All three unhealthy variants were rendered against the same "Recipe box" mock app with a healthy tile above and below for contrast. Ashley picked A after viewing. Captured as D-11.
+**Notes:** Choice made via a second tasting HTML prototype at `.planning/campaigns/first-class-apps/tasting-tile-details.html` (served on `Skynet-8899.serve.term.example.com`). All three unhealthy variants were rendered against the same "Recipe box" mock app with a healthy tile above and below for contrast. the user picked A after viewing. Captured as D-11.
 
 ---
 
@@ -46,7 +46,7 @@
 | C | Nothing — leave the icon slot empty (title-only tile for iconless apps) | |
 
 **User's choice:** A (via the same tasting round-2 prototype, Q1 pick).
-**Notes:** During discussion Ashley reframed the earlier "monogram fallback with hashed hue" language from the shape file as incompatible with the "no per-app colour for v1" rule locked during /open. Her framing verbatim: *"i don't know what you mean by monogram like to me there's a default color that identity list items in the conversation list take on when they don't have a color associated with them from the cosmetics that come over and these apps would just be that color because that's just the default that kind of exists within the sidebar to begin with"*. Interpreted as: the fallback square uses the sidebar's default `--pv-hue: 216`, and the first-letter (pattern already used by identity rows at `PrettyConversationRow.tsx:1214`) renders on top. Shape file was amended to reflect this reconciliation. Captured as D-08 + D-09.
+**Notes:** During discussion the user reframed the earlier "monogram fallback with hashed hue" language from the shape file as incompatible with the "no per-app colour for v1" rule locked during /open. Her framing verbatim: *"i don't know what you mean by monogram like to me there's a default color that identity list items in the conversation list take on when they don't have a color associated with them from the cosmetics that come over and these apps would just be that color because that's just the default that kind of exists within the sidebar to begin with"*. Interpreted as: the fallback square uses the sidebar's default `--pv-hue: 216`, and the first-letter (pattern already used by identity rows at `PrettyConversationRow.tsx:1214`) renders on top. Shape file was amended to reflect this reconciliation. Captured as D-08 + D-09.
 
 ---
 
@@ -58,7 +58,7 @@
 | B | Left-click does the same as "Open in new tab" (right-click behaviour) | |
 | C | Small toast explaining shape 4 will bring click-to-open later | |
 
-**User's choice:** A (Ashley punted the decision — verbatim: *"if the future shape is going to be handling the left click then you can choose what to do for that one"*).
+**User's choice:** A (the user punted the decision — verbatim: *"if the future shape is going to be handling the left click then you can choose what to do for that one"*).
 **Notes:** Chose A as the least-work-for-shape-4 answer — reserves the primary click action so shape 4 doesn't have to migrate the affordance from another mapping later. Captured as D-13.
 
 ---

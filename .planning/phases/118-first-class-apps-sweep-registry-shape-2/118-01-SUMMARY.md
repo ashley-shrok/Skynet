@@ -199,7 +199,7 @@ $ systemctl --user list-units --no-legend | grep 'scratch-t116'  # empty
 
 ## Executor Discretion Choices
 
-1. **One-shot `_systemd_show` over three thin helpers.** Per RESEARCH § Q6, the one-shot form is 1 subprocess per app vs 3, dropping worst-case DoS surface (T-118-01-DoS) from ~4.5s per app to ~1.5s. At Ashley's ~10-app ceiling that's the difference between "comfortably under 8s exec budget" and "one wedged systemd can blow the budget." One-shot chosen.
+1. **One-shot `_systemd_show` over three thin helpers.** Per RESEARCH § Q6, the one-shot form is 1 subprocess per app vs 3, dropping worst-case DoS surface (T-118-01-DoS) from ~4.5s per app to ~1.5s. At the user's ~10-app ceiling that's the difference between "comfortably under 8s exec budget" and "one wedged systemd can blow the budget." One-shot chosen.
 2. **Test unit slug prefix `sweep-t116-`.** Prevents accidental teardown of a real app if the driver ever runs against a live box that happens to have apps with generic slugs (`good`, `stopped`, `no-icon` — real people's naming instincts collide with the analog test cases here). Every test unit is unambiguously mine.
 3. **`ensure_ascii=False` on the JSON assertion helper.** The D-03 literal contains a real em-dash. `json.dumps` defaults to ASCII escaping which turns it into `—`. Callers passing the raw UTF-8 form in `<expected_json>` would spuriously mismatch. `ensure_ascii=False` makes both sides use the raw byte form; JSON parsers treat both as equivalent so this is a lossless comparison choice.
 

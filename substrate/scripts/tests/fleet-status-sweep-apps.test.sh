@@ -60,7 +60,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 # ---- CI gate: systemd --user session availability (D-23) ----
-# On boxes with a live user session (t1000, aithercloud, ashley's laptop) the
+# On boxes with a live user session (t1000, aithercloud, the user's laptop) the
 # probe returns "running"/"degraded" and this driver runs the full suite.
 # On CI containers without a user session the probe fails (either exit 1 or
 # NOTOK) and we SKIP with exit 0 so the pre-deploy gate doesn't fail.

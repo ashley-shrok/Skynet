@@ -8,7 +8,7 @@
 
 Agents build custom apps for their users. Today that's a one-off served URL — an agent runs its own server on some port and hands the user a link. This campaign makes apps a first-class Skynet concept: an app lives on disk under a canonical location on the agent's own box, gets auto-discovered by Skynet, and shows up in the user's sidebar as an always-available tile. A user sees every app her agents have made for her, across every box in her fleet, in one place — clickable to open in the current view, draggable into a split-view leaf, or openable in a separate authenticated browser tab.
 
-The pattern is deliberately instance-agnostic: the Skynet running at term.gigaashley.click and Stacy's Skynet on T800 both use it identically without per-instance tailoring.
+The pattern is deliberately instance-agnostic: the Skynet running at term.example.com and Stacy's Skynet on T800 both use it identically without per-instance tailoring.
 
 ## Success criteria
 

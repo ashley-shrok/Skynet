@@ -99,7 +99,7 @@ Identity folders under `~/fleet/identities/` and their `~/fleet/identities-archi
 - The read-only API endpoint that returns the fleet-wide app list — shape 2.
 - The sidebar apps section rendering — shape 3.
 - Apps as a leaf content type in the main pane — shape 4.
-- The image-generation skill that would eventually produce app icons — Ashley handling separately, out of this campaign entirely.
+- The image-generation skill that would eventually produce app icons — the user handling separately, out of this campaign entirely.
 
 **Tempting but no:**
 
@@ -112,7 +112,7 @@ Identity folders under `~/fleet/identities/` and their `~/fleet/identities-archi
 
 ## Vehicle notes
 
-**Inline in this session.** Ashley explicitly wants to walk through the development one step at a time rather than delegate to a phase executor, because this work is skill-writing and fleet-substrate rather than straight app-code — an odd-one-out for the fleet's usual pattern. Approximately 1M tokens of context runway available on Opus 4.7.
+**Inline in this session.** the user explicitly wants to walk through the development one step at a time rather than delegate to a phase executor, because this work is skill-writing and fleet-substrate rather than straight app-code — an odd-one-out for the fleet's usual pattern. Approximately 1M tokens of context runway available on Opus 4.7.
 
 **No plan mode, no /gsd:quick, no GSD phase.** All three delegate too much: plan mode adds a gate between us that we don't need, /gsd:quick and GSD phase dispatch to executors that would work autonomously. Inline is the shape of "we do this together."
 
@@ -153,7 +153,7 @@ Identity folders under `~/fleet/identities/` and their `~/fleet/identities-archi
 - **Scope edges (in): five bundled helper scripts** — present.
 - **Scope edges (in): starter template as working small app** — present.
 - **Scope edges (in): substrate distributor catalog entry** — present · 26 rows registered (one per file, matching the byte-compare mechanism).
-- **Scope edges (in): end-to-end verification on this box** — present · The full create → serve → POST persist → backup → archive → restore (same port, data preserved) → hard-delete flow was walked twice on this box during the session; the second walk verified the post-fix behavior. Ashley witnessed both.
+- **Scope edges (in): end-to-end verification on this box** — present · The full create → serve → POST persist → backup → archive → restore (same port, data preserved) → hard-delete flow was walked twice on this box during the session; the second walk verified the post-fix behavior. the user witnessed both.
 - **Scope edges (out): sweep, sidebar, main-pane leaf, image-gen deferred** — present · None crept in.
 - **Scope edges (tempting but no): no UI style prescribed beyond Tailwind + desktop-and-phone** — present.
 - **Scope edges (tempting but no): no extra metadata fields** — present · Exactly title + description; reflex trigger against adding fields.
@@ -182,7 +182,7 @@ Identity folders under `~/fleet/identities/` and their `~/fleet/identities-archi
 ### Follow-ups
 
 - Pre-generated initial migration not shipped in the starter template (starter description said "first migration generated") — FIXED post-review (initial migration now ships in `templates/app-starter/drizzle/`; create-app.sh no longer runs the generate step).
-- End-to-end verification "cannot-verify" from disk alone (folders empty) — RESOLVED (Ashley was in the session and witnessed the full E2E walk on this box, twice: once for the original commit and once for the post-fix commit).
+- End-to-end verification "cannot-verify" from disk alone (folders empty) — RESOLVED (the user was in the session and witnessed the full E2E walk on this box, twice: once for the original commit and once for the post-fix commit).
 - CSRF-check-disabled as a security-posture decision worth naming explicitly — endorsed as sanctioned drift; the trade is documented inline in the framework config file's comment and is in the spirit of the shape's auth story.
 
 ### Notes

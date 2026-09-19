@@ -151,7 +151,7 @@ All four `{ok:false}` early-return paths in `pollOneHostBatch` sit ABOVE both ne
 
 ### Health-message string phrasing (D-03)
 
-The A4 test uses `"not running — ask an agent to check on it"` — matching Ashley's steer during the /open grill (2026-09-18 CONTEXT § "unhealthy, ask an agent to check on it" — conversational, action-oriented register). This is a TEST FIXTURE choice; the actual string is authored by the Python sweep script (Plan 118-01 territory). The A4 test asserts the orchestrator adapter propagates whatever `health_message` the sweep emits, verbatim.
+The A4 test uses `"not running — ask an agent to check on it"` — matching the user's steer during the /open grill (2026-09-18 CONTEXT § "unhealthy, ask an agent to check on it" — conversational, action-oriented register). This is a TEST FIXTURE choice; the actual string is authored by the Python sweep script (Plan 118-01 territory). The A4 test asserts the orchestrator adapter propagates whatever `health_message` the sweep emits, verbatim.
 
 ## Executor Discretion Choices
 
@@ -161,7 +161,7 @@ The A4 test uses `"not running — ask an agent to check on it"` — matching As
 
 3. **Reconciliation block placed AFTER identity reconciliation (sibling, not interleaved).** The plan said "immediately after L1792". I chose to keep the identity reconciliation block byte-for-byte unchanged and add the app reconciliation as a fully self-contained sibling. This preserves the identity block's git-blame lineage and makes the app-vs-identity parallel structure grep-obvious (two adjacent blocks with the same shape).
 
-4. **Health-message TEST string is verbatim from Ashley's steer.** I did not invent a new phrase — used exactly `"not running — ask an agent to check on it"` from the CONTEXT § D-03 note. The Python sweep script (Plan 118-01 territory) is the actual authority for the string content; the orchestrator adapter just propagates it.
+4. **Health-message TEST string is verbatim from the user's steer.** I did not invent a new phrase — used exactly `"not running — ask an agent to check on it"` from the CONTEXT § D-03 note. The Python sweep script (Plan 118-01 territory) is the actual authority for the string content; the orchestrator adapter just propagates it.
 
 5. **Did NOT introduce structured log lines** at reconciliation entry / per-app-gone / per-app-update / health-transition points, despite fleet directive #10 calling out that discipline. Reasoning: the identity reconciliation block (67b4a7ef, the template I mirror per D-11) also does not log at these points. Adding logs only to the app branch would introduce a diagnosis-parity asymmetry — a future bug report could be diagnosed from logs for apps but not for identities. Any future observability push should add log lines symmetrically to BOTH branches at once as a dedicated cross-cutting change. Flagged here for follow-up.
 

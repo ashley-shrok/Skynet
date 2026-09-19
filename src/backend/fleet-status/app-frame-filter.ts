@@ -31,7 +31,7 @@
  * TTL cache (default 30s, RESEARCH § A3) bounds PermissionManager hits — a
  * subscriber with N hosts and a 2s sweep cadence sees N cache-miss checks in
  * the first tick, then cache hits until TTL expiry. Permission-change
- * propagation latency ≤ TTL (Ashley grants access rarely; 30s staleness is
+ * propagation latency ≤ TTL (the user grants access rarely; 30s staleness is
  * acceptable per D-15 threat register T-118-05-CE).
  */
 import { checkHostAccess as defaultCheckHostAccess } from "../ssh/host-resolver.js";

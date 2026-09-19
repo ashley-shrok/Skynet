@@ -729,13 +729,13 @@ Skipped — `workflow.nyquist_validation` is explicitly `false` in `.planning/co
 
 ## Project Constraints (from ~/fleet/roles/box-maintainer/box-maintainer.md and CONTEXT.md)
 
-- **No worktrees** (Ashley 2026-07-31) — no `git worktree`. Standard clone + branch.
-- **No message streaming** (Ashley 2026-08-29) — no skeleton tiles, no "connecting…" spinners, no incremental loading UX inside the pane. Iframe renders whatever the proxy hands it, when it hands it.
-- **Container-mutation serialization** (Ashley 2026-09-12) — applies to the deploy motion at campaign close only. Not planning/executor.
-- **Executor-scoped tests only** (Ashley 2026-09-07) — executor's green gate is `npx vitest related --run <touched files>` OR targeted paths under `src/ui/shell/`, `src/ui/features/pretty-conversations/`, `src/backend/apps/`. Full suite + Playwright smoke are the orchestrator's pre-deploy gate.
-- **Deploy-boundary-at-push** (Ashley 2026-08-29) — commits stack locally on branch `feat/tab-title-from-tmux`. No `git push` / `docker build` / `docker compose up --force-recreate` until campaign-close greenlight.
+- **No worktrees** (the user 2026-07-31) — no `git worktree`. Standard clone + branch.
+- **No message streaming** (the user 2026-08-29) — no skeleton tiles, no "connecting…" spinners, no incremental loading UX inside the pane. Iframe renders whatever the proxy hands it, when it hands it.
+- **Container-mutation serialization** (the user 2026-09-12) — applies to the deploy motion at campaign close only. Not planning/executor.
+- **Executor-scoped tests only** (the user 2026-09-07) — executor's green gate is `npx vitest related --run <touched files>` OR targeted paths under `src/ui/shell/`, `src/ui/features/pretty-conversations/`, `src/backend/apps/`. Full suite + Playwright smoke are the orchestrator's pre-deploy gate.
+- **Deploy-boundary-at-push** (the user 2026-08-29) — commits stack locally on branch `feat/tab-title-from-tmux`. No `git push` / `docker build` / `docker compose up --force-recreate` until campaign-close greenlight.
 - **DatabaseSaveTrigger discipline** (learned 2026-08-19) — not applicable (Phase 120's routes are stateless proxy; no DB writes beyond the tabs-persistence schema extension which flows through Drizzle's existing write path).
-- **Ashley's Recommended Execution Path preference** — after design/proposal, name the vehicle (this phase is already inside `/gsd-plan-phase`, so this constraint is satisfied by the parent orchestrator).
+- **the user's Recommended Execution Path preference** — after design/proposal, name the vehicle (this phase is already inside `/gsd-plan-phase`, so this constraint is satisfied by the parent orchestrator).
 
 ## Sources
 

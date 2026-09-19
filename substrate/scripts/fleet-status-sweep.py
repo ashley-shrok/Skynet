@@ -189,7 +189,7 @@ APP_SLUG_MAX_LEN = 40
 
 # Per-subprocess timeout for systemctl --user calls. Mirrors TMUX_TIMEOUT_SEC.
 # With RESEARCH § Q6's one-shot `systemctl show` consolidation, this is 1
-# subprocess per app × 1.5s worst-case × Ashley's ~10-app ceiling = comfortably
+# subprocess per app × 1.5s worst-case × the user's ~10-app ceiling = comfortably
 # inside the 8s exec budget (T-118-01-DoS).
 APP_SUBPROCESS_TIMEOUT_SEC = 1.5
 
@@ -197,7 +197,7 @@ APP_SUBPROCESS_TIMEOUT_SEC = 1.5
 # the source-C app enumeration in _enumerate_apps. Prior shape iterated
 # os.scandir(~/fleet/apps) with no upper bound; a malicious folder-creator or
 # a bug spawning 100+ directories could each incur a ~1.5s systemctl call and
-# dwarf the 8s exec ceiling. Ashley's design ceiling is ~10 apps per box
+# dwarf the 8s exec ceiling. the user's design ceiling is ~10 apps per box
 # (D-15 discussion, RESEARCH § Q6); 50 leaves 5× headroom.
 APP_ENUM_CAP = 50
 # Cumulative wall-clock budget for _enumerate_apps. If the app loop passes
@@ -1275,7 +1275,7 @@ def _build_app_line(slug, folder_path):
         health_message = None
     else:
         # D-03: backend authors the ready-to-render string. Literal phrasing
-        # matches Ashley's steer during the /open grill 2026-09-18.
+        # matches the user's steer during the /open grill 2026-09-18.
         health_message = "not running — ask an agent to check on it"
 
     # Port from unit env (D-07). Extract via regex against the Environment=
@@ -1416,7 +1416,7 @@ def main():
     pid_records = _enumerate_pids(home)
 
     # ---- Phase 118: enumerate ~/fleet/apps/*/ (source C). Sequential per
-    #      RESEARCH § Q6 — Ashley's ~10-app ceiling makes threading complexity
+    #      RESEARCH § Q6 — the user's ~10-app ceiling makes threading complexity
     #      unnecessary at 1.5s/call and <10ms typical systemctl latency. ----
     app_records = _enumerate_apps(home)
 

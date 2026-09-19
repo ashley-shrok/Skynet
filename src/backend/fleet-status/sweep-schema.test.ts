@@ -636,8 +636,8 @@ describe("Phase 118 Plan 118-02: SweepAppLine dispatch", () => {
     // Regression guard for the additive extension: adding the `app` case
     // must NOT break the identity or pid dispatch. All three buckets
     // populate from a single blob.
-    const id = makeIdentityLine({ identity: "ashley" });
-    const pid = makePidLine({ pid: 999, identity: "ashley" });
+    const id = makeIdentityLine({ identity: "the user" });
+    const pid = makePidLine({ pid: 999, identity: "the user" });
     const app = makeAppLine({ slug: "vision" });
     const blob = [id, pid, app].map((x) => JSON.stringify(x)).join("\n");
 
@@ -647,7 +647,7 @@ describe("Phase 118 Plan 118-02: SweepAppLine dispatch", () => {
     expect(result.pidLines).toHaveLength(1);
     expect(result.appLines).toHaveLength(1);
     expect(result.appLines[0].slug).toBe("vision");
-    expect(result.identityLines[0].identity).toBe("ashley");
+    expect(result.identityLines[0].identity).toBe("the user");
     expect(result.pidLines[0].pid).toBe(999);
     expect(result.unknownLines).toBe(0);
     expect(result.schemaMismatch).toBe(false);

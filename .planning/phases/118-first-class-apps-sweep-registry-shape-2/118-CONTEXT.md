@@ -20,7 +20,7 @@ Extend the existing per-box fleet-status sweep to also enumerate `~/fleet/apps/*
 
 ### Inclusion filter — "not usable" means "not in the picture"
 
-- **D-01: Three functional checks decide inclusion.** For each folder under `~/fleet/apps/` on a reachable box, the app enters the picture if and only if: (a) the folder contains a readable `app.json` that parses as JSON, (b) a corresponding systemd `--user` unit exists (named per shape 1's convention `app-<slug>.service`), and (c) that unit is currently active per `systemctl --user is-active`. Any miss on (a), (b), or (c) means the app does not appear. **Rationale (shape 2 grill, Ashley 2026-09-18):** "you can't actually use the app."
+- **D-01: Three functional checks decide inclusion.** For each folder under `~/fleet/apps/` on a reachable box, the app enters the picture if and only if: (a) the folder contains a readable `app.json` that parses as JSON, (b) a corresponding systemd `--user` unit exists (named per shape 1's convention `app-<slug>.service`), and (c) that unit is currently active per `systemctl --user is-active`. Any miss on (a), (b), or (c) means the app does not appear. **Rationale (shape 2 grill, the user 2026-09-18):** "you can't actually use the app."
 
 - **D-02: The one carve-out — unit exists but currently stopped emits as unhealthy.** If (a) and (b) pass but (c) fails, the app STILL appears in the picture with `isHealthy: false` and a short human-readable `healthMessage` string. Rationale: this is the "definitely-was-an-app, definitely-broken-right-now" state — silent disappearance would confuse the user, and the systemctl status check is already free. **All other misses (no folder, no card, no unit) are truly "not really an app present" and correctly emit nothing.**
 
@@ -30,7 +30,7 @@ Extend the existing per-box fleet-status sweep to also enumerate `~/fleet/apps/*
 
 ### Per-app emitted fields
 
-- **D-05: Emit exactly seven fields per app.** For each app that passes D-01 (or D-02's carve-out): `hostId` (which box), `slug` (folder name), `title` + `description` (from `app.json`), `port` (from the systemd unit's `PORT` env), `hasIcon` (boolean: is there an `icon.webp` file in the folder?), `createdAt` (folder mtime as ISO), `isHealthy` (boolean), and — only when `isHealthy: false` — `healthMessage` (string). No other fields. **Deliberately not included: owning-agent / provenance** (shape 2 grill, Ashley: "no benefit to knowing which agent created or owns an app").
+- **D-05: Emit exactly seven fields per app.** For each app that passes D-01 (or D-02's carve-out): `hostId` (which box), `slug` (folder name), `title` + `description` (from `app.json`), `port` (from the systemd unit's `PORT` env), `hasIcon` (boolean: is there an `icon.webp` file in the folder?), `createdAt` (folder mtime as ISO), `isHealthy` (boolean), and — only when `isHealthy: false` — `healthMessage` (string). No other fields. **Deliberately not included: owning-agent / provenance** (shape 2 grill, the user: "no benefit to knowing which agent created or owns an app").
 
 - **D-06: Icon is BOOLEAN, not URL.** Shape 2 does not construct URLs. The wire says whether an icon file exists; the client (shape 3) constructs the fetch URL once the serving path lands. Rationale: shape 4 owns the proxy design for the app itself, and icons may travel the same road; shape 2 declaring a URL now would lock in a guess. **Falls back naturally: if the boolean lies (icon deleted between sweeps), the client's fetch 404s and shape 3 renders a generic glyph.**
 
@@ -66,7 +66,7 @@ Extend the existing per-box fleet-status sweep to also enumerate `~/fleet/apps/*
 
 - **D-18: Sweep script parse-failure discipline — fail-open per-app, never fail-whole-sweep.** If the `app.json` for one app is malformed JSON, or the systemd check for one app times out, or the folder is a broken symlink — that ONE app is skipped from this tick's output and a warning is logged. The sweep script MUST NOT propagate the failure to affect other apps or identities on the same box. Matches the existing sweep script's discipline for per-identity parse failures.
 
-- **D-19: Sweep script stays within the existing exec timeout.** The orchestrator wraps the sweep exec in `Promise.race(~5s)`. Adding app enumeration must NOT push the script past that budget on realistic app counts (Ashley's fleet has ~0 apps today, ~10 conceivable). Each app requires a small handful of cheap system calls (stat, cat one file, one systemctl call); budget is comfortable but the planner MUST NOT introduce network calls or heavy work into the per-app path.
+- **D-19: Sweep script stays within the existing exec timeout.** The orchestrator wraps the sweep exec in `Promise.race(~5s)`. Adding app enumeration must NOT push the script past that budget on realistic app counts (the user's fleet has ~0 apps today, ~10 conceivable). Each app requires a small handful of cheap system calls (stat, cat one file, one systemctl call); budget is comfortable but the planner MUST NOT introduce network calls or heavy work into the per-app path.
 
 - **D-20: Extend `sweep-schema.ts` to type the new line.** Add a `SweepAppLine` schema alongside `SweepIdentityLine` in `substrate/scripts/sweep-schema.ts`. The TypeScript-side parser (also in `sweep-schema.ts` per Phase 92 conventions) grows a discriminator on the line kind and dispatches app lines into a new handler in the orchestrator. Keep the parser lenient — same "never throws, reports schema mismatch via a flag" discipline the existing schema uses.
 
@@ -86,7 +86,7 @@ Extend the existing per-box fleet-status sweep to also enumerate `~/fleet/apps/*
 
 - The exact TypeScript name of the sibling map on the subscription registry (`appMap`? `appsByHostSlug`? `appRegistry`?) — pick whatever is coherent with existing naming.
 - Whether the per-app data holder is called `AppState` or `AppInfo` — pick whatever mirrors the existing `SessionState` convention.
-- The exact healthMessage string phrasing for the "unit stopped" case — user-facing register, "ask an agent to check on it" is Ashley's steer.
+- The exact healthMessage string phrasing for the "unit stopped" case — user-facing register, "ask an agent to check on it" is the user's steer.
 - Whether the reconciliation code lives inline in `ssh-poll-orchestrator.ts` (next to the existing identity reconciliation) or a small sibling module. Recommendation: inline next to the identity code, since it's structurally the same pattern applied to a parallel data set.
 - Exact route/subscription-frame naming — `app-snapshot` vs `app-add` vs `app-init`, `app-update` vs `app-changed`, `app-gone` vs `app-removed`. Pick verbs consistent with the existing session frame types in `wire-protocol.ts`.
 - Whether the Python sweep script's per-app enumeration uses a single `find`/`stat` batch or one iteration per app — either is fine within the D-19 timing budget.
@@ -153,7 +153,7 @@ Extend the existing per-box fleet-status sweep to also enumerate `~/fleet/apps/*
 - `substrate/skills/app-development/create-app.sh` / `archive-app.sh` — the disk-side flows shape 1 authored. Shape 2 does not touch these; it observes their output.
 
 ### Fleet-wide standing rules
-- `~/fleet/roles/box-maintainer/box-maintainer.md` § "Standing directives" — especially the container-mutation serialization rule (Ashley 2026-09-12), the executor-scope test discipline (Ashley 2026-09-07), and the deploy-boundary-at-push rule (Ashley 2026-08-29). Planner and executor must honor these.
+- `~/fleet/roles/box-maintainer/box-maintainer.md` § "Standing directives" — especially the container-mutation serialization rule (the user 2026-09-12), the executor-scope test discipline (the user 2026-09-07), and the deploy-boundary-at-push rule (the user 2026-08-29). Planner and executor must honor these.
 - `~/fleet/roles/box-maintainer/box-maintainer.md` § "Load-bearing invariants" — the DatabaseSaveTrigger discipline (learned 2026-08-19). **Not applicable to this phase** because the app registry is in-memory only (D-10), but flagged so the executor doesn't accidentally introduce a DB write somewhere.
 
 </canonical_refs>
@@ -185,7 +185,7 @@ Extend the existing per-box fleet-status sweep to also enumerate `~/fleet/apps/*
 - **Sweep-script → orchestrator boundary.** Adding a new JSONL line-type requires BOTH the Python emit AND the TS parse to land in one deploy. Since both are in the same repo and both ship via the standard build + distributor sweep, this is atomic per deploy. Do NOT split into separate deploys — a partial deploy where Python emits app lines that TS doesn't parse would just get logged-and-skipped by the lenient parser, but the reverse (TS expects app lines that Python doesn't emit) would work fine (empty is a valid state).
 - **Subscription-registry snapshot semantics.** The existing snapshot-on-subscribe pattern for sessions is per-map; Phase 118's app map adds a parallel snapshot emit. Verify the WS frame envelope can carry both snapshots (session + app) on subscribe without ordering issues.
 - **The `fleet-status-sweep.py` script is one of the substrate-distributor's rows** (catalog.ts row #8 as of Phase 118's start). Editing the script + normal deploy → next distributor sweep pushes the new bytes to every managed box → next per-box sweep on Skynet exec's the new script. No manual distribution step.
-- **Container-mutation serialization** (Ashley 2026-09-12): only ONE identity mutates this box's Skynet container state at a time. Applies to Phase 118's deploy motion, not its planning or executor phases.
+- **Container-mutation serialization** (the user 2026-09-12): only ONE identity mutates this box's Skynet container state at a time. Applies to Phase 118's deploy motion, not its planning or executor phases.
 
 ### Test Considerations
 
@@ -200,12 +200,12 @@ Extend the existing per-box fleet-status sweep to also enumerate `~/fleet/apps/*
 <specifics>
 ## Specific Ideas
 
-- **The healthMessage register** — Ashley's steer during the /open grill was "unhealthy, ask an agent to check on it." Match that tone. Not "SERVICE FAILED" or "err_start_failure"; conversational and action-oriented.
+- **The healthMessage register** — the user's steer during the /open grill was "unhealthy, ask an agent to check on it." Match that tone. Not "SERVICE FAILED" or "err_start_failure"; conversational and action-oriented.
 - **Icon file convention `icon.webp`** — from shape 1. Not "icon.png", not "logo.webp", not "app-icon.svg". Locked by shape 1's on-disk contract; shape 2 observes the specific filename.
 - **App folder convention `~/fleet/apps/<slug>/`** — from shape 1. The sweep script enumerates this specific path. Slugs are the folder names (kebab-case, per shape 1).
 - **Systemd unit naming convention `app-<slug>.service`** — from shape 1's `app-SLUG.service.template`. The sweep script's systemctl calls use this specific pattern to find each app's unit.
 - **The reconciliation pattern's exact commit** — `67b4a7ef` on trunk. Reading the DIFF of that commit is the fastest way to understand the pattern.
-- **Ashley's inclusion-filter framing (2026-09-18)** — "you can't actually use the app" = not in the picture, EXCEPT the stopped-unit case where "ask an agent to check on it" is the sensible message. This IS the design principle for D-01 + D-02.
+- **the user's inclusion-filter framing (2026-09-18)** — "you can't actually use the app" = not in the picture, EXCEPT the stopped-unit case where "ask an agent to check on it" is the sensible message. This IS the design principle for D-01 + D-02.
 
 </specifics>
 
@@ -214,12 +214,12 @@ Extend the existing per-box fleet-status sweep to also enumerate `~/fleet/apps/*
 
 - **Eager-refresh signal for just-created apps** — the natural 2s sweep cadence means create-to-visible latency is up to 2s. If shape 3's UAT reveals this feels laggy, a small nudge (agent touches a sentinel file, or the create-app script pings the Skynet backend) is a follow-up. Not part of shape 2. The `~/fleet/.create-lock` file shape 1 already uses could be a natural place to hang such a signal.
 - **A plain HTTP snapshot endpoint alongside the WS subscription** — for curl-driven clients, non-WS surfaces, or a future SSR path. YAGNI until asked. Deferred.
-- **Additional health tiers** — application-level healthchecks, crash-loop counters, response-time probes, port collision detection, "was healthy recently" grace windows. All out for shape 2. When Ashley asks for one, the wire schema widens; nothing else has to move.
+- **Additional health tiers** — application-level healthchecks, crash-loop counters, response-time probes, port collision detection, "was healthy recently" grace windows. All out for shape 2. When the user asks for one, the wire schema widens; nothing else has to move.
 - **Server-authored per-user app state** — favorites, hidden tiles, custom labels, sort preferences. Shape 3 owns any client-side state; shape 2 owns none.
 - **Skynet-authored app metadata beyond what disk exposes** — timestamps of last click, aggregate usage stats, per-app tags. Not in shape 2's model.
 - **Push / register API on the app side** — an app announcing itself to Skynet on startup. Not the pattern. Disk is the truth; the sweep observes. Shape 2 doesn't open this door.
 - **Backend-constructed icon URLs** — deferred to whichever shape lands the serving side (shape 4 for the proxy). Shape 2 gives a boolean.
-- **Owning-agent / provenance display** — explicitly ruled out during the /open grill (Ashley: "no benefit"). Not deferred — closed.
+- **Owning-agent / provenance display** — explicitly ruled out during the /open grill (the user: "no benefit"). Not deferred — closed.
 - **Orphan systemd unit cleanup when an app folder is deleted** — belongs to shape 1's disk-side flow (specifically `archive-app.sh` / a hypothetical `delete-app.sh`). Shape 2 only observes; it does not touch systemd for cleanup.
 - **Cross-shape ordering optimization** — shape 3 and shape 4 could conceivably discover something that requires a small shape 2 tweak; if that happens, the campaign artifact absorbs it as a lingerer.
 

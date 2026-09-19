@@ -242,7 +242,7 @@ export interface SweepPidLine {
  *                      D-02 carve-out — an app with unit-exists + inactive
  *                      still emits with is_healthy=false).
  *   • health_message  ↔ D-03 human-readable diagnostic; present only when
- *                      is_healthy=false. Ashley's steer:
+ *                      is_healthy=false. the user's steer:
  *                      "not running — ask an agent to check on it" (Plan 118-01
  *                      landed the literal Python-side string).
  *

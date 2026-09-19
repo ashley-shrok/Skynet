@@ -44,7 +44,7 @@ The final shape of the first-class-apps campaign. The three prior shapes deliver
 
 **Small refactor coupled with the addition it enables.** The dispatch unification isn't its own shape because its whole reason to exist is making the fifth-kind addition clean. Landing them separately would mean two phases, one of which reads "prepares for a phase that hasn't happened yet." Bundling them keeps the review narrative honest.
 
-**Instance-agnostic.** The pattern this shape lands works on any Skynet instance identically. Apps don't know or care which Skynet is fronting them. The proxy path is a Skynet-side concept; from the app's perspective the request just arrives. Stacy's Skynet on T800 and Ashley's Skynet on t1000 use this pattern without per-instance tailoring.
+**Instance-agnostic.** The pattern this shape lands works on any Skynet instance identically. Apps don't know or care which Skynet is fronting them. The proxy path is a Skynet-side concept; from the app's perspective the request just arrives. Stacy's Skynet on T800 and the user's Skynet on t1000 use this pattern without per-instance tailoring.
 
 ## Prior context
 

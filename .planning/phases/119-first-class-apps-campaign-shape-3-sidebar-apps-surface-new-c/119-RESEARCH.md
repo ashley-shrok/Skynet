@@ -629,9 +629,9 @@ Nothing to migrate. Every pattern this phase uses is current-in-repo and battle-
    - What's unclear: Whether it throws with a specific error code or a specific message pattern.
    - **RESOLVED:** Executor reads the `sftpReadFile` signature at implementation time and picks the cleanest shape — either an `ls` pre-check like the identity reader, or a try/catch on the read with a specific ENOENT match.
 
-2. **Which lucide-react glyph does Ashley visually prefer for the "Apps" header?**
+2. **Which lucide-react glyph does the user visually prefer for the "Apps" header?**
    - What we know: CONTEXT.md D-02 lists 5 acceptable options; CONTEXT.md `Claude's Discretion` says "AppWindow reads most literally."
-   - What's unclear: Whether Ashley's tasting-round preference has been captured elsewhere.
+   - What's unclear: Whether the user's tasting-round preference has been captured elsewhere.
    - **RESOLVED:** Ship with `AppWindow` in Phase 119; swap during agent UAT if it looks wrong.
 
 3. **Does the fleet-status client's snapshot ordering guarantee that app-snapshot arrives before any app-update on a fresh subscription?**
@@ -672,7 +672,7 @@ Skip — Phase 119 is a pure code-and-config phase with no new external tool dep
 | Frame injection via WS → hostile server pushes app-frame with malicious slug/hostId | Tampering | Client trusts backend (single-tenant model). The frontend does NOT re-check host access (D-15 backend authority); the icon URL constructed from frame data is bound-checked by the backend on fetch. Malicious slug in frame data at worst causes a 400 on icon fetch. |
 | Reflected content via `healthMessage` string | Injection (XSS) | React auto-escapes text nodes; `healthMessage` rendered inside `{app.healthMessage}` not `dangerouslySetInnerHTML`. Zero XSS surface. |
 | Session-cookie leak via cross-origin `window.open("http://malicious/", "_blank")` | Info Disclosure | The URL is constructed from validated frame data (`hostId + slug`), not user input; no way for a user to inject an arbitrary URL. `noopener,noreferrer` in `window.open` options is a defence-in-depth win — recommend adding: `window.open(url, "_blank", "noopener,noreferrer")`. |
-| Icon-fetch DoS via rapid navigation | DoS | Backend has no rate limiter on `/apps/:hostId/:slug/icon`. Identity-avatar route has the same shape and hasn't been abused. If Ashley has hundreds of apps, consider a lightweight per-user rate limit as a follow-up. |
+| Icon-fetch DoS via rapid navigation | DoS | Backend has no rate limiter on `/apps/:hostId/:slug/icon`. Identity-avatar route has the same shape and hasn't been abused. If the user has hundreds of apps, consider a lightweight per-user rate limit as a follow-up. |
 
 ## Sources
 

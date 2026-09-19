@@ -629,7 +629,7 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
   });
 
   it("HIGH-1-T12: 302 uses the host record's `name` (case preserved per D-13)", async () => {
-    // Ashley's t1000 stores display case as "Skynet". D-13 preserves it
+    // the user's t1000 stores display case as "Skynet". D-13 preserves it
     // on the returned host row; the LOWER() lookup happens in
     // resolveHostByName, not in resolveHostById. The redirect route just
     // consumes host.name verbatim.

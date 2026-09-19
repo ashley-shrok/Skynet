@@ -112,7 +112,7 @@ The archived-section content in the sidebar lazy-renders — rows are not mounte
 
 Single GSD phase. Same vehicle the two previous campaign shapes used, same rhythm — discuss-phase seeded from this shape file, plan-phase, execute-phase in waves, verifier pass, followed by the campaign's usual unbiased general-purpose code review and `/close` conformance check.
 
-Deploy stays held for campaign close (per Ashley's greenlight covering the whole campaign) — commits land locally on the current working branch and stack on top of the two previous shapes' held commits, pushed to origin and deployed together once the campaign completes.
+Deploy stays held for campaign close (per the user's greenlight covering the whole campaign) — commits land locally on the current working branch and stack on top of the two previous shapes' held commits, pushed to origin and deployed together once the campaign completes.
 
 Related pointers:
 

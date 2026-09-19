@@ -10,23 +10,23 @@ This discuss-phase was seeded directly from a completed /open shape file rather 
 
 The /open conversation earlier in the same session covered all the substantive design decisions through the three-beat pitch → discuss → grill flow:
 
-1. **Pitch** — I offered the shape I saw from the campaign artifact declaration + prior shape context. Ashley accepted my read and asked me to slow down and drive step-by-step.
+1. **Pitch** — I offered the shape I saw from the campaign artifact declaration + prior shape context. the user accepted my read and asked me to slow down and drive step-by-step.
 2. **Discuss** — Walked through five conceptual layers in /explain style, one at a time, each with a check-in before proceeding:
    - What "content type" means today (pane, leaves, layout, kinds, tuple identifier)
    - What changes when apps join that family (fifth kind; (host, slug) tuple; leaf identical to chats/terminals from the pane's perspective; dispatch refactor rationale)
    - How the pane actually shows a live running app (two bridges — direct `.serve.` for fresh-tab, path-based same-origin for in-pane; why embedding-across-origins is a minefield; WebSocket + HTTP flowing through)
-   - The Origin/CSRF question (what CSRF is; how the proxy creates the Origin mismatch; three options — rewrite Origin, check at proxy, accept residual — Ashley picked B, check at proxy)
+   - The Origin/CSRF question (what CSRF is; how the proxy creates the Origin mismatch; three options — rewrite Origin, check at proxy, accept residual — the user picked B, check at proxy)
    - The two gestures that put an app in the pane (left-click matches existing leaf-replace behavior; drag matches existing split-drop machinery)
-3. **Design calls settled through discussion** — each with brief pitch + Ashley's greenlight:
+3. **Design calls settled through discussion** — each with brief pitch + the user's greenlight:
    - Unhealthy tiles: no click/drag special-casing; unhealthy is display-only, no in-pane placeholder
    - Multi-instance: allowed by default; no deduplication
    - Gone-at-reload: proxy failure shows through naturally, no Skynet-side placeholder
    - Dispatch-table refactor: bundled inside this phase, not a separate pre-shape
 4. **Grill** — Two sharp questions to surface unstated opinions:
-   - Does the app know it's being rendered in-pane vs. standalone? → No, transparent (Ashley's leaning; I confirmed with case-analysis)
+   - Does the app know it's being rendered in-pane vs. standalone? → No, transparent (the user's leaning; I confirmed with case-analysis)
    - What does the leaf title bar show? → Static metadata title (preserves black-box philosophy)
 
-All above landed in `.planning/campaigns/first-class-apps/shape-app-pane-content-type.md`, greenlit by Ashley with a thumbs-up before /build proceeded.
+All above landed in `.planning/campaigns/first-class-apps/shape-app-pane-content-type.md`, greenlit by the user with a thumbs-up before /build proceeded.
 
 ## Areas selected for discuss-phase
 
@@ -105,7 +105,7 @@ Given the shape file's thoroughness, no interactive AskUserQuestion round was ru
 - Shape file's `## Philosophy`, `## What would make it wrong`, and `## Scope edges` are the LOCKED ruleset. Read the shape file first — it's the source of truth for every "why" behind every D-decision.
 - D-11 is the ONE genuinely open design question. The three options are ranked in CONTEXT.md; researcher should investigate `http-proxy-middleware` response transforms + SvelteKit `paths.base` / `paths.relative` runtime behavior before recommending.
 - The `proxy-factory.ts` JSDoc top-of-file documents two production-hardening R&D gotchas (WebSocket RSV1 fix, per-target cache). Executor MUST NOT circumvent them.
-- Deploy hold for the whole first-class-apps campaign: Phase 120's commits stack on Phase 119's held commits. No push, no build, no deploy until campaign close (all four shapes + agent-UAT + Ashley's greenlight).
+- Deploy hold for the whole first-class-apps campaign: Phase 120's commits stack on Phase 119's held commits. No push, no build, no deploy until campaign close (all four shapes + agent-UAT + the user's greenlight).
 
 ---
 

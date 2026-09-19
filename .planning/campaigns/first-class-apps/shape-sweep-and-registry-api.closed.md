@@ -49,7 +49,7 @@ Everything is discoverable from disk + systemd; nothing is Skynet-authored.
 
 Shape 1 delivered the disk side of the picture: a canonical skill that provisions an app under the canonical location on the maintainer's own box, writes the metadata card, provisions the systemd unit that runs it. Everything shape 2 observes was put there by shape 1.
 
-The look-around itself has existed for many phases. Its most recent evolution (from another maintainer's work that landed on the trunk just before shape 2 opened) is the reconciliation-on-success pattern for identities — Ashley's exact framing was quoted in the fix that added it: "if the cache is keeping identities that don't come back from the sweep then that would be the bug." Shape 2 adopts that same pattern for apps, unchanged in spirit.
+The look-around itself has existed for many phases. Its most recent evolution (from another maintainer's work that landed on the trunk just before shape 2 opened) is the reconciliation-on-success pattern for identities — the user's exact framing was quoted in the fix that added it: "if the cache is keeping identities that don't come back from the sweep then that would be the bug." Shape 2 adopts that same pattern for apps, unchanged in spirit.
 
 The host-visibility filter is a single existing function used consistently across the codebase to answer "can this user see this box." Every other feature that displays per-box things routes through it; shape 2 does the same.
 
