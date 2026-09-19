@@ -87,6 +87,9 @@ function getFileViewType(
   if (MD_RE.test(name)) return "markdown";
   if (TEXT_RE.test(name)) return "text";
   if (IMAGE_RE.test(name)) return "image";
+  // Extensionless files (.gitignore, LICENSE, Makefile, Dockerfile, …)
+  // default to text — no extension can't be inferred as binary either.
+  if (name.lastIndexOf(".") <= 0) return "text";
   return "binary";
 }
 
