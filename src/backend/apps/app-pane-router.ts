@@ -349,9 +349,13 @@ function rejectUpgrade(
  * route, then calls the proxy middleware's `.upgrade(req, socket, head)`
  * method.
  *
- * Non-matching upgrade paths are a no-op (return without touching the
- * socket) so other upgrade consumers on the same http.Server (serve-url
- * subdomain dispatch, terminal WS, future WS mounts) fire normally.
+ * Non-matching upgrade paths are explicitly destroyed (HIGH-3 code-review
+ * fix, 2026-09-19) so we restore Node's default auto-destroy behaviour on
+ * upgrade sockets we don't own. On the primary httpServer this dispatcher
+ * is the ONLY upgrade listener, so leaving non-matching sockets dangling
+ * would surface as a slow-DoS leak. If a future phase adds another upgrade
+ * consumer that legitimately handles other paths on the same server, gate
+ * this destroy behind a "no other handler owns this" check.
  *
  * Every failure branch writes a bare status-line + destroys the socket.
  * Upgrade rejections carry no visible body to the client, so failure
@@ -367,8 +371,23 @@ export async function handleAppPaneUpgrade(
     const url = req.url ?? "";
     const match = PANE_UPGRADE_PATH_RE.exec(url);
     if (!match) {
-      // Not our path — leave the socket alone; other upgrade handlers
-      // (subdomain-dispatch, terminal WS, ...) may still fire.
+      // HIGH-3 code-review fix (2026-09-19): destroy non-matching upgrade
+      // sockets. Node's http.Server auto-destroys upgrade sockets when NO
+      // listener is attached, but once ANY listener is attached the socket
+      // becomes the listener's responsibility. On the primary httpServer,
+      // this dispatcher is the ONLY registered upgrade listener (grep-
+      // verified in database.ts), so a non-matching URL would leave the
+      // socket dangling — every non-`/apps/*/pane/*` upgrade would leak
+      // forever, giving any client an unbounded slow-DoS surface on the
+      // primary HTTP port. If a future phase adds another upgrade consumer
+      // that legitimately handles other paths, gate this destroy behind
+      // a "no other handler owns this" check — but for now, we're the
+      // only listener and this restores Node's default auto-destroy.
+      try {
+        socket.destroy();
+      } catch {
+        /* socket may already be broken */
+      }
       return;
     }
     const hostIdStr = match[1];

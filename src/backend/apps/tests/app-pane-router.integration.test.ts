@@ -519,6 +519,77 @@ describe("app-pane-router", () => {
         await close();
       }
     }, 10_000);
+
+    // HIGH-3 code-review fix (2026-09-19). Non-matching upgrade paths must
+    // be explicitly destroyed by the dispatcher. Pre-fix, the handler
+    // returned WITHOUT touching the socket on non-pane paths — because
+    // Node's http.Server only auto-destroys upgrade sockets when NO
+    // listener is attached, and we're the only listener, this leaked every
+    // non-matching upgrade socket forever (slow-DoS surface).
+    //
+    // Test: fire a WS upgrade at a NON-matching path (e.g. `/foo`) and
+    // assert the socket closes within a bounded window. Pre-fix the socket
+    // would remain open indefinitely; the test fails via timeout.
+    it("destroys the socket on non-matching upgrade paths (HIGH-3 leak fix)", async () => {
+      const upgradeSpy = vi.fn();
+      const proxyMw = Object.assign(
+        (_req: Request, res: Response, _next: NextFunction) => {
+          res.status(200).end();
+        },
+        { upgrade: upgradeSpy },
+      );
+      mocks.getOrCreateAppPaneProxyForTarget.mockReturnValue(proxyMw);
+
+      const { port, close } = await makeServer(true);
+      let clientSock: net.Socket | null = null;
+      try {
+        clientSock = net.connect(port, "127.0.0.1");
+        await new Promise<void>((resolve, reject) => {
+          clientSock!.once("connect", () => {
+            // Non-matching upgrade path — NOT under /apps/*/pane/*.
+            const req = [
+              "GET /foo HTTP/1.1",
+              `Host: 127.0.0.1:${port}`,
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+              "Sec-WebSocket-Version: 13",
+              "",
+              "",
+            ].join("\r\n");
+            clientSock!.write(req);
+            resolve();
+          });
+          clientSock!.once("error", reject);
+        });
+
+        // Wait for the server side to close the socket. Pre-fix this
+        // resolves via the 2000ms timeout branch (leak). Post-fix the
+        // server destroys the socket immediately and the client sees a
+        // "close" event within a few milliseconds.
+        const closedFast = await new Promise<boolean>((resolve) => {
+          const t = setTimeout(() => resolve(false), 2000);
+          clientSock!.once("close", () => {
+            clearTimeout(t);
+            resolve(true);
+          });
+          clientSock!.once("end", () => {
+            clearTimeout(t);
+            resolve(true);
+          });
+        });
+        expect(closedFast).toBe(true);
+        // Proxy upgrade must NOT have been invoked for a non-matching path.
+        expect(upgradeSpy).not.toHaveBeenCalled();
+      } finally {
+        try {
+          clientSock?.destroy();
+        } catch {
+          /* ignore */
+        }
+        await close();
+      }
+    }, 5_000);
   });
 
   /* -------------------- Access control (case e) -------------------- */
