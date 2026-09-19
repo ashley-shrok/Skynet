@@ -285,3 +285,165 @@ describe("tab-url — relay: protocol grammar widening (Phase 97 Plan 05)", () =
     expect(parseTabParam("telnet:%ZZ")).toBeNull();
   });
 });
+
+/* ------------------------------------------------------------------------ */
+/*  Phase 120 D-16 — app: protocol grammar + MEDIUM-7 hostId/slug validation  */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Phase 120 D-16 introduces `app:<hostId>:<slug>` as the URL-fragment
+ * grammar for app tabs. MEDIUM-7 (code-review fix, 2026-09-19) hardens
+ * the parser:
+ *
+ *   - `hostId` must match `^[1-9][0-9]{0,9}$` (positive integer, ≤ 10
+ *     digits — well within JS safe-integer bounds so downstream
+ *     `Number(spec.hostId)` at the AppShell callsite never yields NaN).
+ *   - `slug` must match `^[a-z0-9-]{1,64}$` (mirrors APP_SLUG_RE at the
+ *     backend). Rejects uppercase, dots, empty, and >64 chars.
+ *   - Both failures return null → dropped tab (matching the other
+ *     TabSpec variants' fail-safe contract).
+ *
+ * Pre-fix, `parseTabParam("app:foo:bar")` returned a valid spec, and
+ * AppShell's `Number("foo")` yielded NaN which flowed into
+ * `/apps/NaN/bar/pane/` — the backend regex rejects this with 400 (no
+ * exploit), but the leaf renders an interstitial for a URL that should
+ * never have been constructed. A `?tab=app:${'9'.repeat(10000)}:foo`
+ * URL also parsed successfully — no size cap.
+ */
+describe("tab-url — app: protocol grammar (Phase 120 D-16 + MEDIUM-7)", () => {
+  it("Test app-1: parseTabParam('app:5:todo') returns {protocol:'app', hostId:'5', slug:'todo'}", () => {
+    expect(parseTabParam("app:5:todo")).toEqual({
+      protocol: "app",
+      hostId: "5",
+      slug: "todo",
+    });
+  });
+
+  it("Test app-2: parseTabParam('app:5:my-cool-app') accepts hyphenated slug", () => {
+    expect(parseTabParam("app:5:my-cool-app")).toEqual({
+      protocol: "app",
+      hostId: "5",
+      slug: "my-cool-app",
+    });
+  });
+
+  it("Test app-3: encodeTabSpec({protocol:'app', hostId:'5', slug:'todo'}) → 'app:5:todo'", () => {
+    expect(
+      encodeTabSpec({ protocol: "app", hostId: "5", slug: "todo" }),
+    ).toBe("app:5:todo");
+  });
+
+  it("Test app-4: specForTab({type:'app', app:{hostId:5, slug:'todo'}}) → app spec", () => {
+    expect(
+      specForTab({ type: "app", app: { hostId: 5, slug: "todo" } }),
+    ).toEqual({
+      protocol: "app",
+      hostId: "5",
+      slug: "todo",
+    });
+  });
+
+  // ─── MEDIUM-7: hostId validation ────────────────────────────────────────
+
+  it("Test app-5 (MEDIUM-7): parseTabParam('app:foo:bar') returns null — hostId non-numeric", () => {
+    // Pre-fix: returned {protocol:'app', hostId:'foo', slug:'bar'} which
+    // AppShell's `Number('foo')` mapped to NaN. Post-fix: dropped tab.
+    expect(parseTabParam("app:foo:bar")).toBeNull();
+  });
+
+  it("Test app-6 (MEDIUM-7): parseTabParam('app:0:todo') returns null — hostId is not positive", () => {
+    // Hostids are 1-indexed per the DB schema; 0 is not a valid host.
+    expect(parseTabParam("app:0:todo")).toBeNull();
+  });
+
+  it("Test app-7 (MEDIUM-7): parseTabParam('app:-1:todo') returns null — hostId negative sign", () => {
+    // Negative-sign chars aren't legal (regex is `[1-9][0-9]{0,9}`).
+    expect(parseTabParam("app:-1:todo")).toBeNull();
+  });
+
+  it("Test app-8 (MEDIUM-7): parseTabParam('app:1.5:todo') returns null — hostId with decimal", () => {
+    expect(parseTabParam("app:1.5:todo")).toBeNull();
+  });
+
+  it("Test app-9 (MEDIUM-7): parseTabParam('app:99999999999:todo') returns null — hostId over 10-digit cap", () => {
+    // 11-digit hostId — outside the fleet-realistic size cap. Also drops
+    // any URL that would push toward Number.MAX_SAFE_INTEGER.
+    expect(parseTabParam("app:99999999999:todo")).toBeNull();
+  });
+
+  it("Test app-10 (MEDIUM-7): parseTabParam(`app:${'9'.repeat(10_000)}:foo`) returns null — DoS cap", () => {
+    // Pre-fix: no length cap — a 10_000-digit hostId parsed successfully.
+    const longHostId = "9".repeat(10_000);
+    expect(parseTabParam(`app:${longHostId}:foo`)).toBeNull();
+  });
+
+  // ─── MEDIUM-7: slug validation ──────────────────────────────────────────
+
+  it("Test app-11 (MEDIUM-7): parseTabParam('app:5:UPPERCASE') returns null — slug case", () => {
+    // APP_SLUG_RE is lowercase-only (`[a-z0-9-]`). Backend rejects at
+    // the router level; frontend now matches fail-safe.
+    expect(parseTabParam("app:5:UPPERCASE")).toBeNull();
+  });
+
+  it("Test app-12 (MEDIUM-7): parseTabParam('app:5:has.dot') returns null — slug contains dot", () => {
+    expect(parseTabParam("app:5:has.dot")).toBeNull();
+  });
+
+  it("Test app-13 (MEDIUM-7): parseTabParam('app:5:has_underscore') returns null — slug contains underscore", () => {
+    expect(parseTabParam("app:5:has_underscore")).toBeNull();
+  });
+
+  it("Test app-14 (MEDIUM-7): parseTabParam(`app:5:${'a'.repeat(65)}`) returns null — slug over 64 chars", () => {
+    expect(parseTabParam(`app:5:${"a".repeat(65)}`)).toBeNull();
+  });
+
+  it("Test app-15 (MEDIUM-7): parseTabParam(`app:5:${'a'.repeat(64)}`) accepts slug at exact 64-char boundary", () => {
+    // Boundary test: 64 chars is the inclusive upper bound.
+    const at64 = "a".repeat(64);
+    expect(parseTabParam(`app:5:${at64}`)).toEqual({
+      protocol: "app",
+      hostId: "5",
+      slug: at64,
+    });
+  });
+
+  // ─── MEDIUM-7: interaction with existing decodeURIComponent try/catch ───
+
+  it("Test app-16 (MEDIUM-7): parseTabParam('app:5:%ZZ') returns null — decode fail returns null (existing behaviour preserved)", () => {
+    // Existing malformed-URI branch predates MEDIUM-7 and still fires.
+    expect(parseTabParam("app:5:%ZZ")).toBeNull();
+  });
+
+  it("Test app-17 (MEDIUM-7): parseTabParam('app::todo') returns null — empty hostId", () => {
+    // Existing empty-arg branch already returned null; this test locks
+    // the shape so the new validators don't accidentally regress the
+    // shorter fail-safe path.
+    expect(parseTabParam("app::todo")).toBeNull();
+  });
+
+  it("Test app-18 (MEDIUM-7): parseTabParam('app:5:') returns null — empty slug", () => {
+    expect(parseTabParam("app:5:")).toBeNull();
+  });
+
+  it("Test app-19 (MEDIUM-7): parseTabParam('app:5') returns null — missing slug separator", () => {
+    // No second colon; the parser bails at `idx2 === -1`.
+    expect(parseTabParam("app:5")).toBeNull();
+  });
+
+  // ─── Consume-workspace round-trip (integration with the outer flow) ─────
+
+  it("Test app-20 (MEDIUM-7): consumePendingWorkspace drops malformed-hostId app tab, keeps valid tabs", () => {
+    // A workspace URL carrying TWO tabs, one malformed and one valid.
+    // The malformed tab is dropped fail-safe; the valid one restores.
+    window.history.replaceState(
+      null,
+      "",
+      "#tab=app%3Afoo%3Abar&tab=app%3A5%3Atodo",
+    );
+    const back = consumePendingWorkspace();
+    expect(back).not.toBeNull();
+    expect(back!.tabs).toEqual([
+      { protocol: "app", hostId: "5", slug: "todo" },
+    ]);
+  });
+});

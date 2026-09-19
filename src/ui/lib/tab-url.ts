@@ -188,6 +188,21 @@ export function parseTabParam(raw: string | null): TabSpec | null {
   // rather than crash tab restoration). Slugs match APP_SLUG_RE on the
   // backend ([a-z0-9-]{1,64}) — no encoding is strictly required, but we
   // decode symmetrically with the other variants for defence-in-depth.
+  //
+  // MEDIUM-7 code-review fix (2026-09-19): validate hostId + slug shape
+  // BEFORE handing the tuple upstream to AppShell's restore path, which
+  // does `Number(spec.hostId)` unconditionally. Pre-fix, a URL fragment
+  // carrying `?tab=app:foo:bar` produced a Tab.app with `hostId: NaN`,
+  // yielding a broken `/apps/NaN/bar/pane/` URL at the proxy layer (the
+  // backend catches this via `Number.isFinite`, but the leaf renders an
+  // interstitial for a request that should never have been constructed).
+  // A URL with `?tab=app:${'9'.repeat(10_000)}:foo` also parsed
+  // successfully — no cap. Fix: match `hostId` against a positive-integer
+  // regex (up to 10 digits — matches the JS safe-integer boundary for
+  // real fleet-scale hostIds) and `slug` against the same APP_SLUG_RE
+  // shape the backend enforces (`/^[a-z0-9-]{1,64}$/`). Failure returns
+  // null → dropped tab (matching the fail-safe contract of the other
+  // TabSpec variants).
   if (protocol === "app") {
     const idx2 = rest.indexOf(":");
     if (idx2 === -1) return null;
@@ -205,6 +220,14 @@ export function parseTabParam(raw: string | null): TabSpec | null {
       return null;
     }
     if (!hostId || !slug) return null;
+    // MEDIUM-7: positive-integer regex on hostId (fleet-realistic 10-digit
+    // upper bound stays well within Number.MAX_SAFE_INTEGER, so downstream
+    // `Number(spec.hostId)` is guaranteed safe post-validation).
+    if (!/^[1-9][0-9]{0,9}$/.test(hostId)) return null;
+    // MEDIUM-7: APP_SLUG_RE-shape on slug (mirrors the backend at
+    // `src/backend/claude-session/identity-artifact-reader.ts`). Reject
+    // anything outside `[a-z0-9-]{1,64}`.
+    if (!/^[a-z0-9-]{1,64}$/.test(slug)) return null;
     return { protocol: "app", hostId, slug };
   }
   // Phase 97 code-review Fix 5 (extended via quick-260910-gqi): generic-host
