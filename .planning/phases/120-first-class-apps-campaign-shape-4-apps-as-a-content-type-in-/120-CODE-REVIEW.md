@@ -336,3 +336,74 @@ across the impacted test files.
 
 - Findings 4 (upstream CSP-mid-response non-header path — covered inline via MEDIUM-1 fix that re-sets our headers regardless of upstream)
 - Findings 6-8, 11-16 — deferred; not in the "3 HIGH + 4 MEDIUM" scope this pass was chartered for. Follow-up bounty pass should sweep the remaining MEDIUM + LOW.
+
+---
+
+## Follow-up fix pass (2026-09-19)
+
+**Executor:** general-purpose subagent (follow-up pass).
+**Scope:** two pre-deploy-blocker items (nginx WS upgrade forwarding on `/apps/`,
+DatabaseSaveTrigger.forceSave gap in open-tabs.ts writes) + three LOW-severity
+cleanups from the original review's LOW-13 / LOW-14 / LOW-15 findings.
+
+Each fix landed as its own atomic conventional-commit under
+`feat/tab-title-from-tmux` (all commits held locally per the campaign deploy
+hold — no push). Scoped vitest was run on touched files after every code fix
+that had test coverage (Fix 1 is nginx-only, no automated coverage; Fix 4 rides
+on Fix 3's test coverage). The pass ended with all scoped test files passing.
+
+| Fix    | Commit      | Description                                                                                       |
+|--------|-------------|---------------------------------------------------------------------------------------------------|
+| Task 16 | `4ca42e9b` | Add `/apps/` nginx location for WS upgrade forwarding (nginx.conf + nginx-https.conf parity)      |
+| Task 15 | `eddfc56f` | Call `DatabaseSaveTrigger.forceSave` after POST/PUT/PATCH/DELETE in open-tabs.ts (+ 7 tests)      |
+| LOW-13  | `cda42cc3` | Drop unused `usedTunnel` field from `ResolvedTarget` (interface + return + test assertions)      |
+| LOW-14  | `f9297939` | Rename `hostId` → `_hostId` in `resolvePaneTarget`, drop the `void hostId;` linter-suppression   |
+| LOW-15  | `803d8135` | Replace `console.info` / `console.warn` in Phase 120 drop-dispatch sites with `systemLogger`     |
+
+### Files changed
+
+- `docker/nginx.conf` + `docker/nginx-https.conf` — new `location ^~ /apps/` block
+  mirroring Phase 91's `/relay-room/websocket/` WS-forwarding shape (Task 16).
+- `src/backend/database/routes/open-tabs.ts` — import `DatabaseSaveTrigger`; add
+  try/catch-warn-wrapped `forceSave("open_tabs_upsert|sync|patch|delete")` after
+  each of the four write handlers (Task 15).
+- `src/backend/database/routes/open-tabs.test.ts` (new) — seven tests covering
+  every write-handler forceSave call-site + the PATCH 404 no-save branch.
+- `src/backend/apps/pane-target-resolver.ts` — drop `usedTunnel: boolean` from
+  `ResolvedTarget` (LOW-13); rename `hostId` → `_hostId` (LOW-14).
+- `src/backend/apps/tests/pane-target-resolver.test.ts` — replace `usedTunnel: true`
+  assertions with return-shape structural equality; keep the single-code-path
+  invariant via call-count on `tunnelCache.getOrCreate` (LOW-13).
+- `src/backend/apps/tests/app-pane-router.integration.test.ts` — remove
+  `usedTunnel: true` from the mocked resolver return value (LOW-13).
+- `src/ui/shell/SplitView.tsx` + `src/ui/AppShell.tsx` — import `systemLogger`
+  from `@/lib/frontend-logger`; replace the three Phase 120 drop-dispatch
+  `console.info` / `console.warn` sites with structured `systemLogger.info` /
+  `systemLogger.warn` calls carrying hostId / slug / edge / errorMessage as
+  explicit context fields per the role-file 2026-08-11 directive (LOW-15).
+
+### Notes / small deviations
+
+- **Task 16** used `^~ /apps/` (prefix priority) rather than a bare `location /apps/`
+  so the block wins over both regex catch-alls and `location /` static-serve.
+  Positioned in the file BEFORE `@express_spa_fallback` for readability; nginx
+  location matching is priority-based, not file-order, so position is decorative
+  but keeps related blocks together. nginx `-t` verification was skipped —
+  nginx binary not installed on the dev box (per task spec).
+- **Task 15** covers ALL four write handlers in open-tabs.ts (POST/PUT/PATCH/DELETE),
+  not just POST/PUT — PATCH and DELETE are pre-existing paths that had the same
+  invariant gap. The PATCH 404 short-circuits BEFORE forceSave (a zero-changes
+  update leaves RAM state unchanged; no save needed) — the test suite locks this
+  behaviour with SAVE-PATCH-2.
+- **LOW-14 rename to `_hostId`** was chosen over "drop the parameter entirely"
+  because the parameter is retained for signature symmetry — callers pass hostId
+  in for logging + audit tags, and removing it would force every caller into a
+  positional-arg reshuffle. The underscore-prefix is the standard TS/ESLint
+  convention for intentionally-unused parameters.
+- **LOW-15 scope** deliberately excludes AppTile.tsx (the reviewer's site 3) —
+  grep-confirmed AppTile.tsx has no `console.*` calls in the current tree; the
+  earlier fix pass or an intermediate edit already cleaned it. Also excludes
+  every other pre-existing `console.*` call in SplitView.tsx and AppShell.tsx
+  (dozens of them, matching the surrounding pattern the reviewer explicitly
+  accepted as "matches surrounding pattern"). The fix targets ONLY the three
+  Phase 120-added sites the reviewer identified.
