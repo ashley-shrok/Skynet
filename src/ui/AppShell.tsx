@@ -114,6 +114,12 @@ import {
   writeWorkspaceToUrl,
 } from "@/lib/tab-url";
 import type { TabSpec } from "@/lib/tab-url";
+// Phase 120 LOW-15 cleanup (2026-09-19): route the app-tile drop dispatch
+// log through the fleet's structured frontend logger instead of raw
+// console.info. Every other console.* call in this file is pre-existing
+// (Phase 56 / 64 / 97 drop-lane dispatch) and stays as-is — this cleanup
+// is scoped to the Phase 120 additions per the review's LOW-15 finding.
+import { systemLogger } from "@/lib/frontend-logger";
 // Phase 56 Plan 02 — split-tree state (retires the prior mode-enum + slot-
 // array state and their localStorage effects). URL is the single source of
 // truth for the split arrangement.
@@ -2782,10 +2788,16 @@ export function AppShell({
       path: SplitPath,
       edge: DropEdge,
     ) => {
-      // eslint-disable-next-line no-console
-      console.info(
-        `[pv-split-drop] onDropAppTileInTree hostId=${payload.hostId} slug=${payload.slug} path=${JSON.stringify(path)} edge=${edge}`,
-      );
+      // LOW-15 fix (2026-09-19): structured logger over raw console.info.
+      // hostId + slug + edge extracted per the role-file 2026-08-11
+      // "actionable in isolation" directive; path stringified inline.
+      systemLogger.info("pv-split-drop onDropAppTileInTree", {
+        operation: "pv_split_drop_on_drop_app_tile_in_tree",
+        hostId: payload.hostId,
+        slug: payload.slug,
+        edge,
+        path: JSON.stringify(path),
+      });
       const newTabId = openTab(null, "app", undefined, {
         app: { hostId: payload.hostId, slug: payload.slug },
         label: payload.title,

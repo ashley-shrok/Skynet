@@ -26,6 +26,13 @@ import { useTranslation } from "react-i18next";
 import type { Tab } from "@/types/ui-types";
 import type { SplitNode, SplitPath, DropEdge, DropZone } from "@/lib/split-tree";
 import { computeEdgeZone } from "@/lib/split-tree";
+// Phase 120 LOW-15 cleanup (2026-09-19): route the app-tile drop-dispatch
+// logs through the fleet's structured frontend logger instead of raw
+// console.info / console.warn. Every other console.* call in this file is
+// pre-existing (Phase 56 / 64 / 97 drop-lane dispatch) and stays as-is —
+// this cleanup is scoped to the Phase 120 additions per the review's
+// LOW-15 finding.
+import { systemLogger } from "@/lib/frontend-logger";
 
 /**
  * Phase 57 Plan 02 — overlay geometry helper. Given the current pane's
@@ -677,17 +684,21 @@ const Pane = memo(function Pane({
             slug: string;
             title: string;
           };
-          // eslint-disable-next-line no-console
-          console.info(
-            `[pv-split-drop] pane dispatch=app-tile hostId=${parsed?.hostId ?? "?"} slug=${parsed?.slug ?? "?"}`,
-          );
+          // LOW-15 fix (2026-09-19): structured logger over raw console.info.
+          // hostId + slug are extracted explicitly per the role-file 2026-08-11
+          // "actionable in isolation" directive.
+          systemLogger.info("pv-split-drop pane dispatch=app-tile", {
+            operation: "pv_split_drop_app_tile",
+            hostId: typeof parsed?.hostId === "number" ? parsed.hostId : undefined,
+            slug: typeof parsed?.slug === "string" ? parsed.slug : undefined,
+          });
           onDropAppTileInTree(parsed, path, edge);
           return;
         } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[pv-split-drop] pane app-tile parse failed: ${(err as Error).message}`,
-          );
+          systemLogger.warn("pv-split-drop pane app-tile parse failed", {
+            operation: "pv_split_drop_app_tile_parse_failed",
+            errorMessage: (err as Error).message,
+          });
         }
       }
       // Cross-window-aware badge edge-drop (2026-09-17). When onDropBadgeInTree
