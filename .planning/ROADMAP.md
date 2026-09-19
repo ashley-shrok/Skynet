@@ -2537,7 +2537,6 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-
 - [ ] 113-01-PLAN.md — backend `POST /skills-editor/skill` + `composeSkillMdSeed` helper + `DELETE /file` `SKILL.md` guard + backend test extensions (D-06, D-07, D-08, D-10 backend, D-20, D-21, D-22, D-26, D-27)
 - [ ] 113-02-PLAN.md — `createSkill` + `SkillAlreadyExistsError` in `skills-api.ts` + `SkillFileTab` `SKILL.md` delete-affordance guard (D-10 frontend, D-24)
 - [ ] 113-03-PLAN.md — `SkillsEditorModal` restructure: `handleNewSkill` + `+ New skill` header button + retire `+ Add file` header button + `+ New file` action-tab pinned right + tab-strip hoist + empty-file-list copy repoint + single-host picker conditional (D-01, D-02, D-03, D-04, D-05, D-12, D-13, D-14, D-15, D-16, D-17, D-18, D-25)
@@ -2636,44 +2635,12 @@ Plans:
 - [x] 117-09-PLAN.md — Frontend UI: CreateProjectModal (raw displayName to backend, 409 dup surfaces inline, no live slug preview per D-26); archive-project cascade with verbatim D-29 confirmation + Promise.allSettled parallel archiveIdentity + archiveProject folder-move; new-conversation-inside-project pre-select via NewConversationModal `preSelectedProject` prop (D-27); context-menu wiring (Edit + Archive per D-14); one blocking human-verify checkpoint exercising the full lifecycle end-to-end
 - [x] 117-10-PLAN.md — Substrate: substrate/skills/id/SKILL.md body edit inserting the project-awareness clause into § 2 (Loading an existing identity) between the identity-file-specialization step and the runbooks-enumeration step per D-32/D-33; no distributor/catalog.ts change; ships last so 117-09's human-verify closes the sidebar UAT gate before the substrate change lands
 
-### Phase 118: First-class apps — sweep + registry (shape 2)
+### Phase 118: Workspace file browser
 
 **Goal:** [To be planned]
 **Requirements**: TBD
-**Depends on:** Phase 115
-**Plans:** 5/5 plans complete
-Plans:
-
-- [x] TBD (run /gsd-plan-phase 118 to break down) (completed 2026-09-18)
-
-### Phase 119: first-class apps campaign shape 3: sidebar apps surface — new collapsible section above pinned, empty-visible discoverable, tile per app consumed from live app-frame channel, open-in-new-tab context menu
-
-**Goal:** Skynet's sidebar renders a new always-visible collapsible "Apps" section (below search, above Pinned) that consumes Phase 118's live app-frame subscription channel and paints one tile per app: healthy tiles show icon (served by a new mirror-of-identity-avatar backend endpoint) or first-letter fallback, unhealthy tiles grow a two-line body with the backend-authored healthMessage in muted red, right-click / long-press opens a context menu with "Open in new tab" that opens the app URL with noopener/noreferrer. All D-01..D-20 locks from CONTEXT.md honoured; left-click no-op and per-app theming deferred to shape 4.
-**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-10, D-11, D-12, D-13, D-14, D-15, D-16, D-17, D-18, D-19, D-20
-**Depends on:** Phase 118
-**Plans:** 6/6 plans complete
+**Depends on:** Phase 117
+**Plans:** 0 plans
 
 Plans:
-- [x] 119-01-PLAN.md — Frontend WS type mirror + client dispatch extension (fleet-status-types.ts + fleet-status-client.ts)
-- [x] 119-02-PLAN.md — app-tiles-store slice + useAppTiles hook + AppShell wiring
-- [x] 119-03-PLAN.md — AppTile component + .pv-app-* CSS selectors + component tests
-- [x] 119-04-PLAN.md — Integrate Apps section into PrettyConversationsPanel.tsx above the search-vs-three-zone ternary
-- [x] 119-05-PLAN.md — Backend GET /apps/:hostId/:slug/icon route + APP_SLUG_RE + readAppIconFile helper + database.ts mount + route tests
-- [x] 119-06-PLAN.md — Integration tests A15-A20 for the Apps section in PrettyConversationsPanel.test.tsx (D-18 three-layer closure)
-
-### Phase 120: First-class apps campaign shape 4: apps as a content type in the pane — leaf-content-type + reverse proxy + CSRF boundary check
-
-**Goal:** Deliver the closing shape of the first-class-apps campaign — apps become the fifth content type the main pane can hold, opened via left-click or drag from sidebar tiles, served under Skynet's own primary origin via a new reverse-proxy path with the CSRF check enforced at the proxy boundary, reload persistence + multi-instance falling out from the existing pane machinery.
-**Requirements**: D-01 through D-23 (see 120-CONTEXT.md § Decisions)
-**Depends on:** Phase 119
-**Plans:** 8/8 plans complete
-
-Plans:
-- [x] 120-01-PLAN.md — Backend leaves: `app-proxy-csrf-check` pure helper + `base-tag-injector` HTML transform + unit tests (wave 1)
-- [x] 120-02-PLAN.md — Backend leaves: `app-pane-proxy-factory` sibling factory + `pane-target-resolver` + unit tests (wave 2, depends on 120-01)
-- [x] 120-03-PLAN.md — SQL schema extension: `app_slug` column on `user_open_tabs` + POST/PUT/GET open-tabs handlers (wave 1)
-- [x] 120-04-PLAN.md — Frontend type surface: `TabType` six-arm union + `Tab.app` + `isAppTab` + `TabSpec` seventh variant (wave 1)
-- [x] 120-05-PLAN.md — Backend integration: `app-pane-router` composition + mount in `database.ts` + D-21 backend integration tests (wave 3)
-- [x] 120-06-PLAN.md — Frontend AppPane component + `tabUtils` dispatch-table refactor + D-21 client-dispatch snapshot tests (wave 4)
-- [x] 120-07-PLAN.md — Frontend integration: `AppTile` handlers + `SplitView` drop dispatch + `AppShell` openTab/restore/drop-callback + D-21 client-sidebar-wiring tests (wave 5)
-- [x] 120-08-PLAN.md — Substrate: starter template comment update + D-23 UAT procedure documentation (wave 6)
+- [ ] TBD (run /gsd-plan-phase 118 to break down)
