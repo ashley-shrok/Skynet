@@ -15,9 +15,12 @@
  * NOT loopback on the host; direct `127.0.0.1:port` from inside the
  * container cannot reach an app bound to the host's loopback).
  *
- * The `hostId` parameter is retained in the signature for symmetry with
+ * The `_hostId` parameter is retained in the signature for symmetry with
  * callers (they use it for logging + audit tags) but the resolver itself
- * does not branch on it.
+ * does not branch on it. Leading-underscore names the "intentionally
+ * unused" convention that linters and TS strict-noUnusedParameters both
+ * accept without needing a `void _hostId;` suppression statement
+ * (LOW-14 cleanup, 2026-09-19).
  *
  * NOTE (LOW-13 cleanup, 2026-09-19): the return interface previously
  * carried a `usedTunnel: boolean` field, always `true`, retained "for
@@ -56,24 +59,22 @@ export interface ResolvedTarget {
  * Resolve a pane target by building the ServeTarget and opening (or
  * reusing) the SSH tunnel through the shared tunnel cache.
  *
- * @param hostId Positive integer identifying the app's home box. Passed
- *               for signature symmetry with callers (they carry it in
- *               logs) — the resolver itself does not branch on it.
- * @param host   Fully-resolved DB host row for the target box.
- * @param port   Positive integer TCP port on the target box where the
- *               app process listens.
- * @returns      { target, tunnelPort }
+ * @param _hostId Positive integer identifying the app's home box.
+ *                Retained on the signature for caller-side logging
+ *                symmetry — the resolver itself does not branch on it.
+ *                Underscore prefix marks it as intentionally-unused per
+ *                TS/ESLint convention (LOW-14 cleanup, 2026-09-19 —
+ *                replaces the prior `void hostId;` suppression).
+ * @param host    Fully-resolved DB host row for the target box.
+ * @param port    Positive integer TCP port on the target box where the
+ *                app process listens.
+ * @returns       { target, tunnelPort }
  */
 export async function resolvePaneTarget(
-  hostId: number,
+  _hostId: number,
   host: Host,
   port: number,
 ): Promise<ResolvedTarget> {
-  // hostId is retained on the signature for caller-side logging symmetry.
-  // Explicit reference here keeps linters + strict-noUnusedParameters
-  // happy while making the "unused by design" fact locally visible.
-  void hostId;
-
   const target: ServeTarget = { hostname: host.name, port, host };
   const instance = await tunnelCache.getOrCreate(target);
   return { target, tunnelPort: instance.tunnelPort };
