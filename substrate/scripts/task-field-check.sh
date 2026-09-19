@@ -28,6 +28,21 @@ set -u
 # through agent-supervisor): silently no-op — we have no identity to check.
 [ -z "${FLEET_IDENTITY:-}" ] && exit 0
 
+# Skip /id invocations. UserPromptSubmit fires on every user turn including
+# the /id <name> identity-load that's always the first message of a supervised
+# session; that message carries no hint about the work, so nagging on it is
+# pure noise (and the agent has nothing to base a task description on yet).
+# Every OTHER slash command — /build, /gsd:*, /loop, etc. — routinely carries
+# substantive hint content in its args, so we only exclude /id itself.
+# Empirically verified 2026-09-19: UserPromptSubmit delivers the raw prompt
+# string in the JSON payload's .prompt field (e.g. "/id banana", NOT wrapped
+# in <command-name> tags at this stage of the pipeline).
+INPUT="$(cat)"
+PROMPT="$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)"
+case "$PROMPT" in
+  /id|/id\ *) exit 0 ;;
+esac
+
 FILE="$HOME/fleet/identities/$FLEET_IDENTITY/$FLEET_IDENTITY.md"
 [ -f "$FILE" ] || exit 0
 
