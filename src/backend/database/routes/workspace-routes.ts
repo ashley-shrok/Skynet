@@ -1092,7 +1092,7 @@ workspaceRoutes.post(
       (typeof hostId !== "number" && typeof hostId !== "string") ||
       !req.file
     ) {
-      // Ashley 2026-09-19 UAT: drag-drop upload surfaced invalid_body with no
+      // Wave 4 UAT: drag-drop upload surfaced invalid_body with no
       // way to see which field the multer parse dropped. Log the shape so a
       // re-occurrence tells us the actual missing field.
       sshLogger.warn("workspace /upload invalid_body", {
