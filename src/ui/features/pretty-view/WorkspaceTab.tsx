@@ -233,6 +233,11 @@ function WorkspaceFileViewer({
     status: "loading",
   });
   const [mdContent, setMdContent] = useState<string>("");
+  // Unsaved-edit tracking so back-nav can confirm before discarding.
+  // mdOriginalRef holds the last fetched/saved content for markdown-mode
+  // dirty comparison. textDirty is fed by GlobalFileTab.onDraftChange.
+  const mdOriginalRef = useRef<string>("");
+  const [textDirty, setTextDirty] = useState(false);
 
   // Helper to decode base64 to UTF-8 string
   function decodeBase64(b64: string): string {
@@ -265,6 +270,8 @@ function WorkspaceFileViewer({
           setFetchState({ status: "ready", data });
           const decoded = decodeBase64(data.contentBase64);
           setMdContent(decoded);
+          mdOriginalRef.current = decoded;
+          setTextDirty(false);
           setTabState({ status: "ready", data: { content: decoded, mtime: 0 } });
         }
       })
@@ -293,6 +300,10 @@ function WorkspaceFileViewer({
           file.relativePath,
           newContent
         );
+        // Success: content on disk now matches draft — clear dirty flags so
+        // back-nav doesn't prompt for changes already persisted.
+        mdOriginalRef.current = newContent;
+        setTextDirty(false);
       } catch (err) {
         const errorClass =
           err instanceof Error ? err.message : "generic";
@@ -302,6 +313,18 @@ function WorkspaceFileViewer({
     },
     [identity.identityKey, hostId, file.relativePath]
   );
+
+  // Back-nav guard: confirm before discarding unsaved edits.
+  const guardedBack = useCallback(() => {
+    const mdDirty = file.type === "markdown" && mdContent !== mdOriginalRef.current;
+    if (
+      (mdDirty || textDirty) &&
+      !window.confirm("Discard unsaved changes?")
+    ) {
+      return;
+    }
+    onBack();
+  }, [file.type, mdContent, textDirty, onBack]);
 
   // Save adapter for GlobalFileTab (accepts mtime argument which we ignore — V1)
   const globalFileSave = useCallback(
@@ -343,7 +366,7 @@ function WorkspaceFileViewer({
     >
       <button
         type="button"
-        onClick={onBack}
+        onClick={guardedBack}
         style={{
           display: "flex",
           alignItems: "center",
@@ -639,6 +662,7 @@ function WorkspaceFileViewer({
         <GlobalFileTab
           state={tabState}
           onSave={globalFileSave}
+          onDraftChange={setTextDirty}
           filename={file.name}
         />
         {saveError && (
