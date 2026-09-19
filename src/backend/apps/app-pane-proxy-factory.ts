@@ -39,11 +39,11 @@
  *     `on.proxyReqWs` hooks (D-04). Duplicated (not shared via export)
  *     because the tiny loop is safer to inline than to expose internal
  *     API of the serve-url module.
- *   - `proxyReq.setHeader("sec-websocket-extensions", "")` on the
- *     `on.proxyReqWs` hook AFTER strip (R&D GOTCHA 1 — forcing the
- *     empty-string form over the missing-header form is the wire-verified
- *     working shape). WebSocket compression is disabled through the
- *     pane proxy; the same trade the shared factory accepts.
+ *   - The RSV1 permessage-deflate fix on the `on.proxyReqWs` hook
+ *     AFTER strip (R&D GOTCHA 1 — forcing the empty-string form over
+ *     the missing-header form is the wire-verified working shape).
+ *     WebSocket compression is disabled through the pane proxy; the
+ *     same trade the shared factory accepts.
  *   - `classifyTunnelError` + `renderInterstitial` + `writeInterstitial`
  *     on `on.error` (D-17 reuse of Phase 103's error surface).
  *   - `writableEnded` guard before writing the interstitial (mirror of
@@ -60,7 +60,7 @@
  *     `serve-url/proxy-factory.ts` (Pitfall 2 — its cache key structure
  *     doesn't disambiguate slugs).
  *   - MUST NOT re-implement the RSV1 fix (reuse the exact
- *     `setHeader("sec-websocket-extensions", "")` line verbatim).
+ *     header-set line verbatim from the shared factory).
  *   - MUST NOT alter `serve-url/proxy-factory.ts` or `serve-url/types.ts`
  *     — those are READ-ONLY reuse.
  *   - MUST NOT set a `sandbox` option on the middleware — sandbox is an
@@ -189,11 +189,11 @@ export function getOrCreateAppPaneProxyForTarget(
         emitHeaderAudit(target, "req", proxyReq);
       },
 
-      // Outbound WebSocket upgrade — strip → RSV1 fix (force-set
-      // sec-websocket-extensions to '') → audit. See R&D GOTCHA 1 in
-      // serve-url/proxy-factory.ts:21-40 — the empty-string form is the
-      // wire-verified working shape; some upstreams treat missing vs
-      // empty differently.
+      // Outbound WebSocket upgrade — strip → RSV1 fix (force the
+      // extensions header to empty string) → audit. See R&D GOTCHA 1
+      // in serve-url/proxy-factory.ts:21-40 — the empty-string form
+      // is the wire-verified working shape; some upstreams treat
+      // missing vs empty differently.
       proxyReqWs: (proxyReq) => {
         stripToAllowlist(proxyReq);
         proxyReq.setHeader("sec-websocket-extensions", "");
