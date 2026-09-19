@@ -192,6 +192,20 @@ export function notifyMenuClosed(closeFn: () => void): void {
 // props, PC_SWIPE_* tokens, swipedOpen state, transform emission,
 // reveal-strip JSX) was fully removed. The mobile row exposes the same
 // context menu desktop right-click uses via a 500ms long-press touch hold.
+
+// Set the native `title` attribute on hover iff the element's text is truncated
+// (scrollWidth > clientWidth). Wired to `.pv-label` and `.pv-ai-title` spans so
+// long task strings surface a tooltip with the full text, without showing a
+// redundant tooltip when the text already fits.
+function setTitleIfOverflowing(e: React.MouseEvent<HTMLElement>): void {
+  const el = e.currentTarget;
+  if (el.scrollWidth > el.clientWidth) {
+    el.title = el.textContent ?? "";
+  } else {
+    el.removeAttribute("title");
+  }
+}
+
 export function PrettyConversationRow({
   row,
   selected,
@@ -1318,8 +1332,8 @@ export function PrettyConversationRow({
         <div className="pv-body">
           {identity?.task ? (
             <>
-              <span className="pv-label">{identity.task}</span>
-              <span className="pv-ai-title">
+              <span className="pv-label" onMouseEnter={setTitleIfOverflowing}>{identity.task}</span>
+              <span className="pv-ai-title" onMouseEnter={setTitleIfOverflowing}>
                 <strong>
                   {roleDisplayName(identity.role ?? "", identity.roleDefaults?.displayName)}
                 </strong>
@@ -1327,7 +1341,7 @@ export function PrettyConversationRow({
             </>
           ) : (
             <>
-              <span className="pv-label">
+              <span className="pv-label" onMouseEnter={setTitleIfOverflowing}>
                 {identity ? identity.displayName : row.label}
                 {(identity?.title || row.host?.name) && (
                   <span className="pv-hostname-suffix">
@@ -1337,7 +1351,7 @@ export function PrettyConversationRow({
                 )}
               </span>
               {aiTitle !== null ? (
-                <span className="pv-ai-title">{aiTitle}</span>
+                <span className="pv-ai-title" onMouseEnter={setTitleIfOverflowing}>{aiTitle}</span>
               ) : (
                 <span className="pv-ai-title pv-ai-title--placeholder">…</span>
               )}
