@@ -381,13 +381,23 @@
   border-color: hsla(var(--pv-hue), 65%, 55%, 0.42);
 }
 
+/* Bare desktop hover + selection (user 2026-09-19): hue-tint fills only,
+   no left stripe, no glow ring, no lift. `:hover` MUST come before
+   `.selected` in source — equal specificity (0,3,0), so later-wins-on-tie
+   means putting `.selected` last keeps selected+hovered reading as selected
+   (the 28% fill), not the lighter 14% hover fill. */
+.pv-row.pv-row--desktop:hover {
+  transform: none;
+  background: hsla(var(--pv-hue), 40%, 40%, 0.14);
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .pv-row.pv-row--desktop.selected {
-  transform: translateY(-1px);
-  border-color: hsla(var(--pv-hue), 70%, 60%, 0.55);
-  box-shadow:
-    0 0 0 3px hsla(var(--pv-hue), 78%, 65%, 0.80),
-    0 14px 32px rgba(0, 0, 0, 0.6),
-    0 0 72px hsla(var(--pv-hue), 70%, 55%, 0.45);
+  transform: none;
+  background: hsla(var(--pv-hue), 55%, 45%, 0.28);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -771,10 +781,22 @@
   font-size: 0.78em;       /* was 12.5px (12.5/16) */
 }
 
-.pv-row--desktop {
-  min-height: 62px;
-  padding: 10px 12px;
-  gap: 12px;
+/* Bare desktop rows (user 2026-09-19 tasting) — strip the glass base for
+   desktop only. Mobile keeps the `.pv-row` glass treatment untouched.
+   Two-class selector `.pv-row.pv-row--desktop` (0,2,0) reliably overrides
+   `.pv-row` (0,1,0). Bare selection lives in `.pv-row.pv-row--desktop
+   .selected` above; bare hover directly below. Bare subtitle-hide + smaller
+   avatar + pin repositioning follow below. */
+.pv-row.pv-row--desktop {
+  min-height: 30px;
+  padding: 3px 8px;
+  gap: 10px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: 6px;
   /* quick-260812-uxk: prevent text-selection during mouse-drag swipe —
      cleaner than preventDefault on every mousedown, and desktop rows have
      no legitimate text-select interaction (label + host line are single-tap
@@ -784,17 +806,80 @@
 }
 
 .pv-row--desktop .pv-avatar {
-  width: 40px;
-  height: 40px;
-  font-size: 15px;
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+  box-shadow: none;
+  border: 1px solid hsla(var(--pv-hue), 55%, 55%, 0.35);
+}
+
+/* Desktop-scoped trapped-work indicator (Phase 104 Plan 02) — scaled down
+   to sit on the 22px avatar without overwhelming it. Mobile keeps the
+   28px/18px sizing from its own @media block below. */
+.pv-row.pv-row--desktop .pv-avatar .pv-trapped-work-indicator {
+  width: 10px;
+  height: 10px;
+  bottom: -1px;
+  right: -3px;
+}
+.pv-row.pv-row--desktop .pv-avatar .pv-trapped-work-indicator .pv-trapped-work-icon {
+  width: 7px;
+  height: 7px;
 }
 
 .pv-row--desktop .pv-body .pv-label {
-  font-size: 13.5px;
+  font-size: 12.5px;
+  line-height: 1.15;
+}
+
+/* Bare desktop rows are one-line (user 2026-09-19). Hide the subtitle
+   `.pv-ai-title` (both real and placeholder variants) on desktop — the JSX
+   still emits the span so existing querySelector-based tests continue to
+   find it, we just don't paint it. Mobile keeps the subtitle. */
+.pv-row--desktop .pv-body .pv-ai-title {
+  display: none;
 }
 
 .pv-row--desktop .pv-body .pv-host {
   font-size: 12.5px;
+}
+
+/* Bare RDP rows on desktop — strip the .pv-row.rdp glass (which came after
+   the base .pv-row and painted its own dark neutral gradient). Two-class
+   `.pv-row.pv-row--desktop.rdp` (0,3,0) beats `.pv-row.rdp` (0,2,0).
+   Neutral fills for hover/selected since RDP rows have no identity hue. */
+.pv-row.pv-row--desktop.rdp {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.pv-row.pv-row--desktop.rdp:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: transparent;
+  box-shadow: none;
+}
+.pv-row.pv-row--desktop.rdp.selected {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* Bare-scale pin indicator (user 2026-09-19 tasting: "top-left overlap").
+   Base `.pv-pin-indicator` at line ~932 stays 20x20 top:8/left:8 for mobile;
+   desktop shrinks to 14x14 tucked into the avatar's top-left corner with
+   a 2px peek-off so the pin reads as a corner flag on the 22px avatar. */
+.pv-row.pv-row--desktop .pv-pin-indicator {
+  top: -2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+}
+.pv-row.pv-row--desktop .pv-pin-indicator svg {
+  width: 8px;
+  height: 8px;
+  stroke-width: 2.5;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
