@@ -18,12 +18,15 @@
  * export level; here we assert it at the wiring level by mounting both
  * routers as the real database.ts will and hitting the ghost URLs.
  *
- * XSS defense (T-78-01-GET1): the GET handler forces
- * `Content-Type: text/plain; charset=utf-8` on ALL responses (200 + errors),
- * sets `X-Content-Type-Options: nosniff`, and sets `Cache-Control: no-store`.
- * Test 26 hits a `.html` file and asserts the response is text/plain (NOT
- * text/html) with the raw HTML bytes in the body — browser will render as
- * text, not execute. Test 34 confirms all three headers on 200 + error paths.
+ * XSS defense (T-78-01-GET1, reshaped): the GET handler dispatches
+ * content-type per file extension into three lanes — inline media
+ * (video/audio/image/pdf), attachment (html/js/svg/xhtml — forces download
+ * rather than in-tab render), and as-is text (source code, configs). Test
+ * 26 hits a `.html` file and asserts `Content-Disposition: attachment` so
+ * the browser downloads rather than executes. Test 34 confirms
+ * `X-Content-Type-Options: nosniff` and `Cache-Control: no-store` on error
+ * responses. Test 25 confirms sniff-fallback for unknown-extension text
+ * files.
  *
  * Info-leak invariant (T-40-05): NEVER include `err.message`, `absolutePath`,
  * or `filename` in ANY response body (JSON or raw send). Tests 16 + 33
@@ -45,6 +48,7 @@ import {
 import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import { Readable } from "node:stream";
 
 /* --------------------------------------------------------------------- */
 /*  Auth mock — allow/deny via mockUserId                                */
@@ -150,6 +154,7 @@ interface StubSftp {
   realpath: Mock;
   stat: Mock;
   readFile: Mock;
+  createReadStream: Mock;
 }
 
 interface StubClient {
@@ -158,6 +163,21 @@ interface StubClient {
 
 let stubSftp: StubSftp;
 let stubClient: StubClient;
+
+/**
+ * Test-only helper: run the current `stubSftp.readFile` mock and return
+ * the buffer it delivers. Both readFile and the default createReadStream
+ * draw from this so per-test `readFile.mockImplementation(...)` overrides
+ * transparently drive stream content too — no per-test duplication.
+ */
+function readStubFileBytes(): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    stubSftp.readFile("_", (err: Error | null, data: Buffer) => {
+      if (err) return reject(err);
+      resolve(data);
+    });
+  });
+}
 
 function resetStubClient() {
   stubSftp = {
@@ -180,6 +200,28 @@ function resetStubClient() {
     readFile: vi.fn((_p: string, cb: (err: Error | null, data: Buffer) => void) => {
       queueMicrotask(() => cb(null, Buffer.from("hello", "utf8")));
     }),
+    // Default: build a Readable over the same bytes that readFile would
+    // deliver, sliced by {start,end}. Tests that override readFile
+    // implicitly override stream content too.
+    createReadStream: vi.fn(
+      (_p: string, options?: { start?: number; end?: number }) => {
+        const readable = new Readable({ read() {} });
+        readStubFileBytes()
+          .then((buf) => {
+            const start = options?.start ?? 0;
+            const end = options?.end ?? buf.length - 1;
+            const slice = buf.subarray(start, end + 1);
+            queueMicrotask(() => {
+              if (slice.length > 0) readable.push(slice);
+              readable.push(null);
+            });
+          })
+          .catch((err) => {
+            queueMicrotask(() => readable.destroy(err));
+          });
+        return readable;
+      },
+    ),
   };
   stubClient = {
     sftp: vi.fn((cb: (err: Error | null, sftp: StubSftp) => void) => {
@@ -708,7 +750,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     expect(res.rawBody).toContain("permission_denied");
   });
 
-  it("Test 25: 200 success on known text file → raw bytes + text/plain headers", async () => {
+  it("Test 25: 200 success on unknown-extension text file → sniff-fallback to text/plain inline", async () => {
     stubSftp.readFile.mockImplementation(
       (_p: string, cb: (err: Error | null, data: Buffer) => void) => {
         queueMicrotask(() => cb(null, Buffer.from("hello\n", "utf8")));
@@ -725,6 +767,8 @@ describe("GET /file/:host/* — verbatim URL path", () => {
         queueMicrotask(() => cb(null, { size: 6, isFile: () => true }));
       },
     );
+    // `hostname` has no extension → sniff-fallback fires. Bytes are printable
+    // ASCII → sniffTextBytes returns true → dispatched as text/plain inline.
     const res = await httpRequest(server, {
       method: "GET",
       path: "/file/thenasty/etc/hostname",
@@ -734,11 +778,45 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     expect(String(res.headers["content-type"]).toLowerCase()).toBe(
       "text/plain; charset=utf-8",
     );
+    expect(res.headers["content-disposition"]).toBeUndefined();
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
     expect(res.headers["cache-control"]).toBe("no-store");
+    expect(res.headers["accept-ranges"]).toBe("bytes");
   });
 
-  it("Test 26 (XSS defense): .html file → 200 with body AS-IS but content-type FORCED text/plain", async () => {
+  it("Test 25b: known extension .mp4 → video/mp4 inline (no disposition)", async () => {
+    stubSftp.readFile.mockImplementation(
+      (_p: string, cb: (err: Error | null, data: Buffer) => void) => {
+        // Fake MP4 magic bytes; content doesn't matter, the dispatch is by
+        // extension so the sniff path never fires.
+        queueMicrotask(() =>
+          cb(null, Buffer.from([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70])),
+        );
+      },
+    );
+    stubSftp.stat.mockImplementation(
+      (
+        _p: string,
+        cb: (
+          err: Error | null,
+          stats?: { size: number; isFile: () => boolean },
+        ) => void,
+      ) => {
+        queueMicrotask(() => cb(null, { size: 8, isFile: () => true }));
+      },
+    );
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/file/thenasty/home/ubuntu/clip.mp4",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("video/mp4");
+    expect(res.headers["content-disposition"]).toBeUndefined();
+    expect(res.headers["accept-ranges"]).toBe("bytes");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("Test 26 (XSS defense): .html file → attachment disposition, real content-type on the wire", async () => {
     stubSftp.readFile.mockImplementation(
       (_p: string, cb: (err: Error | null, data: Buffer) => void) => {
         queueMicrotask(() =>
@@ -762,11 +840,136 @@ describe("GET /file/:host/* — verbatim URL path", () => {
       path: "/file/thenasty/home/ubuntu/evil.html",
     });
     expect(res.status).toBe(200);
+    // Body bytes go through as-is — the defense is at the disposition
+    // layer, not by rewriting bytes.
     expect(res.rawBody).toBe("<script>alert(1)</script>");
     expect(String(res.headers["content-type"]).toLowerCase()).toBe(
-      "text/plain; charset=utf-8",
+      "text/html; charset=utf-8",
+    );
+    // Attachment disposition — browser downloads rather than renders/executes.
+    expect(String(res.headers["content-disposition"])).toContain("attachment");
+    expect(String(res.headers["content-disposition"])).toContain(
+      'filename="evil.html"',
     );
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("Test 26b: .svg file → attachment disposition (executable-image guard)", async () => {
+    stubSftp.readFile.mockImplementation(
+      (_p: string, cb: (err: Error | null, data: Buffer) => void) => {
+        queueMicrotask(() =>
+          cb(null, Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>", "utf8")),
+        );
+      },
+    );
+    stubSftp.stat.mockImplementation(
+      (
+        _p: string,
+        cb: (
+          err: Error | null,
+          stats?: { size: number; isFile: () => boolean },
+        ) => void,
+      ) => {
+        queueMicrotask(() => cb(null, { size: 40, isFile: () => true }));
+      },
+    );
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/file/thenasty/home/ubuntu/icon.svg",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/svg+xml");
+    expect(String(res.headers["content-disposition"])).toContain("attachment");
+  });
+
+  it("Test 26c: unknown extension + binary content → octet-stream attachment", async () => {
+    // ZIP magic bytes: 50 4B 03 04. Includes a null byte at offset 4+ to
+    // trip the sniffer's hard-binary-marker rule.
+    stubSftp.readFile.mockImplementation(
+      (_p: string, cb: (err: Error | null, data: Buffer) => void) => {
+        queueMicrotask(() =>
+          cb(
+            null,
+            Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0xfe, 0x01]),
+          ),
+        );
+      },
+    );
+    stubSftp.stat.mockImplementation(
+      (
+        _p: string,
+        cb: (
+          err: Error | null,
+          stats?: { size: number; isFile: () => boolean },
+        ) => void,
+      ) => {
+        queueMicrotask(() => cb(null, { size: 8, isFile: () => true }));
+      },
+    );
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/file/thenasty/home/ubuntu/mystery.dat",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/octet-stream");
+    expect(String(res.headers["content-disposition"])).toContain("attachment");
+    expect(String(res.headers["content-disposition"])).toContain(
+      'filename="mystery.dat"',
+    );
+  });
+
+  it("Test 26d (Range request): mp4 with Range: bytes=2-5 → 206 Partial Content", async () => {
+    stubSftp.readFile.mockImplementation(
+      (_p: string, cb: (err: Error | null, data: Buffer) => void) => {
+        queueMicrotask(() =>
+          cb(null, Buffer.from([0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7])),
+        );
+      },
+    );
+    stubSftp.stat.mockImplementation(
+      (
+        _p: string,
+        cb: (
+          err: Error | null,
+          stats?: { size: number; isFile: () => boolean },
+        ) => void,
+      ) => {
+        queueMicrotask(() => cb(null, { size: 8, isFile: () => true }));
+      },
+    );
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/file/thenasty/home/ubuntu/clip.mp4",
+      headers: { Range: "bytes=2-5" },
+    });
+    expect(res.status).toBe(206);
+    expect(res.headers["content-range"]).toBe("bytes 2-5/8");
+    expect(res.headers["content-length"]).toBe("4");
+    expect(res.headers["accept-ranges"]).toBe("bytes");
+    expect(res.headers["content-type"]).toBe("video/mp4");
+    // Body should be 4 bytes: 0xa2, 0xa3, 0xa4, 0xa5.
+    expect(Buffer.from(res.rawBody, "binary")).toHaveLength(4);
+  });
+
+  it("Test 26e (Range request unsatisfiable): start beyond size → 416", async () => {
+    stubSftp.stat.mockImplementation(
+      (
+        _p: string,
+        cb: (
+          err: Error | null,
+          stats?: { size: number; isFile: () => boolean },
+        ) => void,
+      ) => {
+        queueMicrotask(() => cb(null, { size: 8, isFile: () => true }));
+      },
+    );
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/file/thenasty/home/ubuntu/clip.mp4",
+      headers: { Range: "bytes=100-200" },
+    });
+    expect(res.status).toBe(416);
+    expect(res.headers["content-range"]).toBe("bytes */8");
   });
 
   it("Test 27: SFTP EACCES → 403 permission_denied", async () => {
@@ -797,7 +1000,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     expect(res.rawBody).toContain("not_found");
   });
 
-  it("Test 29: oversized file → 413 too_large", async () => {
+  it("Test 29: oversized file (> 10 GiB cap) → 413 too_large", async () => {
     stubSftp.stat.mockImplementation(
       (
         _p: string,
@@ -806,8 +1009,9 @@ describe("GET /file/:host/* — verbatim URL path", () => {
           stats?: { size: number; isFile: () => boolean },
         ) => void,
       ) => {
+        // 11 GiB — comfortably above MAX_BYTES_GET (10 GiB).
         queueMicrotask(() =>
-          cb(null, { size: 3_000_000, isFile: () => true }),
+          cb(null, { size: 11 * 1024 ** 3, isFile: () => true }),
         );
       },
     );
@@ -817,6 +1021,37 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     });
     expect(res.status).toBe(413);
     expect(res.rawBody).toContain("too_large");
+  });
+
+  it("Test 29b: 3 MB file (well within 10 GiB cap) → 200 success", async () => {
+    // A file that would have hit the OLD 2 MB cap; verify the raised
+    // ceiling by asserting a successful stream on a "big" file.
+    const bigBuf = Buffer.alloc(3_000_000, 0x41); // 3 MB of 'A'
+    stubSftp.readFile.mockImplementation(
+      (_p: string, cb: (err: Error | null, data: Buffer) => void) => {
+        queueMicrotask(() => cb(null, bigBuf));
+      },
+    );
+    stubSftp.stat.mockImplementation(
+      (
+        _p: string,
+        cb: (
+          err: Error | null,
+          stats?: { size: number; isFile: () => boolean },
+        ) => void,
+      ) => {
+        queueMicrotask(() =>
+          cb(null, { size: bigBuf.length, isFile: () => true }),
+        );
+      },
+    );
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/file/thenasty/var/log/big.log",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-length"]).toBe(String(bigBuf.length));
+    expect(res.rawBody.length).toBe(bigBuf.length);
   });
 
   it("Test 30: not-a-file (directory) → 400 not_a_file", async () => {
