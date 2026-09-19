@@ -180,14 +180,16 @@ function EmptyDropTarget({
 
 // quick-260829-mbp: Type-gate helper — returns true iff the DataTransfer
 // carries at least one skynet-owned MIME (application/x-skynet-badge for
-// IdentityBadge drags, application/x-skynet-row for conv-list-row drags).
+// IdentityBadge drags, application/x-skynet-row for conv-list-row drags,
+// application/x-skynet-app-tile for AppTile drags — Phase 120 D-07).
 // Pure function; used in all three Pane native drag listeners (onDragOver,
 // onDragLeave, onDrop) to reject browser text-selection drags, which carry
 // only text/plain=<selected-text> and were falsely passing the old gate.
 function hasSkynetDragPayload(dt: DataTransfer | null | undefined): boolean {
   return (
     (dt?.types.includes("application/x-skynet-badge") ?? false) ||
-    (dt?.types.includes("application/x-skynet-row") ?? false)
+    (dt?.types.includes("application/x-skynet-row") ?? false) ||
+    (dt?.types.includes("application/x-skynet-app-tile") ?? false)
   );
 }
 
@@ -204,6 +206,7 @@ const Pane = memo(function Pane({
   onPaneClick,
   onOpenSessionInTree,
   onDropRowInTree,
+  onDropAppTileInTree,
   onReplaceInTree,
   onCenterDropRow,
   onSwapInTree,
@@ -229,6 +232,18 @@ const Pane = memo(function Pane({
   // tests keep working with a bare tabId string.
   onDropRowInTree?: (
     payload: unknown,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
+  // Phase 120 D-07 — app-tile drop dispatch. When present, drops carrying
+  // the application/x-skynet-app-tile JSON payload (AppTile drags) route
+  // through this callback instead of falling through to onOpenSessionInTree.
+  // Payload shape: { hostId: number; slug: string; title: string }.
+  // AppShell wires this to onDropAppTileInTree which calls
+  // `openTab(null, "app", ..., { app: { hostId, slug }, label: title })` then
+  // `insertLeafAtEdge(newTabId, path, edge)` — mirror of onDropRowInTree.
+  onDropAppTileInTree?: (
+    payload: { hostId: number; slug: string; title: string },
     path: SplitPath,
     edge: DropEdge,
   ) => void;
@@ -593,6 +608,19 @@ const Pane = memo(function Pane({
             // Fall through to text/plain / unknown-mime branches.
           }
         }
+        // Phase 120 D-07 — app-tile center-drops deliberately fall through
+        // to the unknown-mime no-op below. The center-drop dispatch signature
+        // (`payload, targetTabId`) doesn't map cleanly onto an app-tile fresh
+        // open: unlike badge (swap) or row (replace-in-place), an app-tile
+        // drop is ALWAYS a fresh open — center-drop for app-tile would need
+        // to `openTab(...) + replaceLeaf(newTabId, targetTabId)`, which is
+        // not currently wired. Users who want to open an app in a specific
+        // slot can drop on an edge instead (edge-drop path is fully wired
+        // via onDropAppTileInTree at :634+ above). Not a UX regression —
+        // center-drop for a fresh-open source has no natural semantic
+        // (there's no source leaf to swap-with). See CONTEXT.md § D-15 for
+        // the multi-instance discipline this preserves.
+        //
         // Phase 64 /close finding (Addition 2): text/plain-only fallback
         // path REMOVED. The shape strictly names two rich-payload sources
         // (row via application/x-skynet-row, badge via
@@ -629,6 +657,36 @@ const Pane = memo(function Pane({
           // eslint-disable-next-line no-console
           console.warn(
             `[pv-split-drop] pane rich-payload parse failed — falling back to text/plain: ${(err as Error).message}`,
+          );
+        }
+      }
+      // Phase 120 D-07 — app-tile edge-drop dispatch. Mirrors the row branch
+      // above (parse + dispatch + early-return). AppShell wires
+      // onDropAppTileInTree to openTab(null, "app", ..., { app, label }) +
+      // insertLeafAtEdge — an app-tile drag CREATES a new leaf (matches the
+      // effectAllowed="copy" contract on the drag source). The Phase 64
+      // closure at :596-608 stays in force: the app-tile drag source does
+      // NOT emit a bare-text payload, so the fallback branch further below
+      // is unreachable for this source.
+      const appTileJson =
+        e.dataTransfer?.getData("application/x-skynet-app-tile") ?? "";
+      if (appTileJson && onDropAppTileInTree) {
+        try {
+          const parsed = JSON.parse(appTileJson) as {
+            hostId: number;
+            slug: string;
+            title: string;
+          };
+          // eslint-disable-next-line no-console
+          console.info(
+            `[pv-split-drop] pane dispatch=app-tile hostId=${parsed?.hostId ?? "?"} slug=${parsed?.slug ?? "?"}`,
+          );
+          onDropAppTileInTree(parsed, path, edge);
+          return;
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[pv-split-drop] pane app-tile parse failed: ${(err as Error).message}`,
           );
         }
       }
@@ -693,6 +751,7 @@ const Pane = memo(function Pane({
   }, [
     path.join("."),
     onDropRowInTree,
+    onDropAppTileInTree,
     onOpenSessionInTree,
     onReplaceInTree,
     onCenterDropRow,
@@ -828,6 +887,7 @@ function PaneTree({
   onPaneClick,
   onOpenSessionInTree,
   onDropRowInTree,
+  onDropAppTileInTree,
   onReplaceInTree,
   onCenterDropRow,
   onSwapInTree,
@@ -848,6 +908,12 @@ function PaneTree({
   ) => void;
   onDropRowInTree?: (
     payload: unknown,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
+  // Phase 120 D-07 — see Pane props above for the full JSDoc.
+  onDropAppTileInTree?: (
+    payload: { hostId: number; slug: string; title: string },
     path: SplitPath,
     edge: DropEdge,
   ) => void;
@@ -880,6 +946,7 @@ function PaneTree({
         onPaneClick={onPaneClick}
         onOpenSessionInTree={onOpenSessionInTree}
         onDropRowInTree={onDropRowInTree}
+        onDropAppTileInTree={onDropAppTileInTree}
         onReplaceInTree={onReplaceInTree}
         onCenterDropRow={onCenterDropRow}
         onSwapInTree={onSwapInTree}
@@ -909,6 +976,7 @@ function PaneTree({
           onPaneClick={onPaneClick}
           onOpenSessionInTree={onOpenSessionInTree}
           onDropRowInTree={onDropRowInTree}
+          onDropAppTileInTree={onDropAppTileInTree}
           onReplaceInTree={onReplaceInTree}
           onCenterDropRow={onCenterDropRow}
           onSwapInTree={onSwapInTree}
@@ -931,6 +999,7 @@ function PaneTree({
           onPaneClick={onPaneClick}
           onOpenSessionInTree={onOpenSessionInTree}
           onDropRowInTree={onDropRowInTree}
+          onDropAppTileInTree={onDropAppTileInTree}
           onReplaceInTree={onReplaceInTree}
           onCenterDropRow={onCenterDropRow}
           onSwapInTree={onSwapInTree}
@@ -955,6 +1024,7 @@ export const SplitView = memo(function SplitView({
   onPaneClick,
   onOpenSessionInTree,
   onDropRowInTree,
+  onDropAppTileInTree,
   onReplaceInTree,
   onCenterDropRow,
   onSwapInTree,
@@ -975,6 +1045,14 @@ export const SplitView = memo(function SplitView({
   ) => void;
   onDropRowInTree?: (
     payload: unknown,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
+  // Phase 120 D-07 — app-tile drop dispatch. See Pane props above for the
+  // full JSDoc. AppShell wires this to `onDropAppTileInTree` which calls
+  // openTab(null, "app", ..., { app, label }) + insertLeafAtEdge.
+  onDropAppTileInTree?: (
+    payload: { hostId: number; slug: string; title: string },
     path: SplitPath,
     edge: DropEdge,
   ) => void;
@@ -1024,6 +1102,7 @@ export const SplitView = memo(function SplitView({
         onPaneClick={onPaneClick}
         onOpenSessionInTree={onOpenSessionInTree}
         onDropRowInTree={onDropRowInTree}
+        onDropAppTileInTree={onDropAppTileInTree}
         onReplaceInTree={onReplaceInTree}
         onCenterDropRow={onCenterDropRow}
         onSwapInTree={onSwapInTree}
