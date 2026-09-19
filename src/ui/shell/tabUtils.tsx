@@ -1,6 +1,8 @@
 /* eslint-disable react-refresh/only-export-components */
 import { lazy, Suspense } from "react";
+import type { ReactNode } from "react";
 import {
+  AppWindow,
   LayoutDashboard,
   Monitor,
   Terminal,
@@ -35,10 +37,12 @@ import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
 // mount site here doesn't materially move the cold-start chunk cost.
 import { PrettyView } from "@/features/pretty-view/PrettyView";
 import type { Tab, TabType, Host } from "@/types/ui-types";
+import { isAppTab } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 import { useTabsSafe } from "@/shell/TabContext";
 import { useIdentities } from "@/state/identities-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
+import { AppPane } from "./AppPane";
 
 function hostToSSHHost(h: Host): SSHHost {
   return {
@@ -94,19 +98,30 @@ function EmptyState({
   );
 }
 
+// ─── Phase 120 D-03 — tab icon dispatch (Record<TabType, ...>) ───────────────
+//
+// Refactored from a five-arm switch to a compile-time-exhaustive lookup so
+// the sixth arm for the new "app" TabType is a one-line addition. TypeScript's
+// `Record<TabType, ...>` gives us compile-time exhaustiveness: if TabType
+// grows again, tsc surfaces the missing entry. Byte-equivalent output for
+// the existing five arms (snapshot-tested in tabUtils.test.tsx).
+//
+// Icon-glyph choice for the `app` arm: `AppWindow` from lucide-react —
+// already imported by Phase 119's PrettyConversationsPanel for the sidebar
+// Apps-section header, so the icon story is coherent from sidebar tile
+// header → leaf tab-bar glyph.
+export const TAB_ICONS: Record<TabType, React.ElementType> = {
+  dashboard: LayoutDashboard,
+  terminal: Terminal,
+  rdp: Monitor,
+  vnc: Monitor,
+  telnet: Terminal,
+  app: AppWindow,
+};
+
 export function tabIcon(type: TabType) {
-  switch (type) {
-    case "dashboard":
-      return <LayoutDashboard className="size-3.5" />;
-    case "terminal":
-      return <Terminal className="size-3.5" />;
-    case "rdp":
-      return <Monitor className="size-3.5" />;
-    case "vnc":
-      return <Monitor className="size-3.5" />;
-    case "telnet":
-      return <Terminal className="size-3.5" />;
-  }
+  const Icon = TAB_ICONS[type];
+  return <Icon className="size-3.5" />;
 }
 
 function TerminalTabContent({
@@ -315,6 +330,144 @@ function TerminalOrIdentitySessionPane({
   );
 }
 
+// ─── Phase 120 D-04 — renderer dispatch (Record<TabType, Renderer>) ─────────
+//
+// Refactored from a switch-with-fall-through to a lookup table so the sixth
+// arm for the new "app" TabType is a one-line addition and the three Guacamole
+// protocols (`rdp`, `vnc`, `telnet`) become three explicit rows all pointing
+// at the same `renderGuacamoleTab` helper (replacing the old fall-through
+// pattern per D-04 cleanup — the fall-through was a subtle readability
+// hazard). Byte-equivalent output for the existing five arms
+// (snapshot-tested in tabUtils.test.tsx).
+//
+// The Renderer body copies are VERBATIM from the pre-refactor switch case
+// bodies: same JSX shapes, same prop wiring, same inline logic. Only the
+// dispatch shape (switch → lookup) changes.
+
+// Closure of dependencies the current dispatch consumes. Matches the
+// existing renderTabContent parameter list.
+type RendererDeps = {
+  onOpenSingletonTab?: (type: TabType) => void;
+  onOpenTab?: (
+    host: Host,
+    type: TabType,
+    restore?: { instanceId: string; restoredSessionId: string | null },
+    options?: {
+      targetTmuxSession?: string | null;
+      label?: string;
+      allowCreateTmux?: boolean;
+    },
+  ) => void;
+  onCloseTab?: (id: string) => void;
+  isVisible: boolean;
+  shouldAttach: boolean;
+  onTmuxSessionChange?: (tabId: string, sessionName: string | null) => void;
+  onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void;
+};
+
+type Renderer = (tab: Tab, deps: RendererDeps) => ReactNode;
+
+// Phase 11 landing-surface swap (PURGE-01): renders the pretty-view
+// empty-landing card in place of the old Skynet landing render tree.
+// The "dashboard" TabType is preserved as a load-bearing fallback
+// identifier in effectiveSelectedTabId + doCloseTab; the retired
+// component tree under src/ui/dashboard/ becomes unreachable from
+// any UI path and is slated for Phase 12+ deletion.
+const renderDashboard: Renderer = () => <PrettyLandingCard />;
+
+// Phase 93 Slice 4 (D-06): host-null gate widens for relay-room tabs.
+// Previous Phase 91 UAT-fix early-return that mounted the standalone
+// relay-room pane inline HERE (before the host-null check) has retired —
+// TerminalOrIdentitySessionPane's relay branch (Slice 4 rewire above)
+// now handles the host-optional case with a direct PrettyView-with-relay-
+// source mount. Non-relay terminal tabs still require a host (unchanged
+// behavior); relay-room tabs pass through with host=null to
+// TerminalOrIdentitySessionPane which mounts the shared chat surface.
+//
+// Phase 41 Plan 02: dispatch through TerminalOrIdentitySessionPane which
+// uses useIdentities().byKey to route identity panes → IdentitySessionPane
+// and non-identity terminal panes → TerminalTabContent (byte-unchanged).
+const renderTerminalTab: Renderer = (tab, deps) => {
+  const { host, label } = tab;
+  if (!host && tab.sessionKind !== "relay-room") {
+    return (
+      <EmptyState
+        icon={TerminalSquare}
+        messageKey="terminal.noHostSelected"
+      />
+    );
+  }
+  return (
+    <TerminalOrIdentitySessionPane
+      tab={tab}
+      host={host}
+      label={label}
+      isVisible={deps.isVisible}
+      attach={deps.shouldAttach}
+      onCloseTab={deps.onCloseTab}
+      onTmuxSessionChange={
+        deps.onTmuxSessionChange
+          ? (name) => deps.onTmuxSessionChange!(tab.id, name)
+          : undefined
+      }
+      onTmuxSessionMissing={deps.onTmuxSessionMissing}
+    />
+  );
+};
+
+// Three explicit rows in RENDERERS below (rdp, vnc, telnet) all point at
+// this same helper — replacing the fall-through pattern per D-04. Byte-
+// equivalent to the pre-refactor rdp|vnc|telnet switch case.
+const renderGuacamoleTab: Renderer = (tab, deps) => {
+  const { host } = tab;
+  if (!host)
+    return (
+      <EmptyState icon={Monitor} messageKey="guacamole.noHostSelected" />
+    );
+  return (
+    <Suspense fallback={<EmptyState icon={Monitor} messageKey="guacamole.noHostSelected" />}>
+      <GuacamoleApp
+        hostId={host.id}
+        tabId={tab.id}
+        protocol={tab.type as "rdp" | "vnc" | "telnet"}
+        isVisible={deps.isVisible}
+        onClose={() => deps.onCloseTab?.(tab.id)}
+      />
+    </Suspense>
+  );
+};
+
+// Phase 120 D-05 — app-leaf renderer. Uses isAppTab narrowing to access
+// tab.app.hostId + tab.app.slug without further optional-chaining. The null
+// return is defensive: upstream type-narrowing (Plan 04 extended Tab.app to
+// be required-when-type-is-"app") should prevent the null branch from ever
+// firing at runtime — but the guard costs nothing and keeps this dispatch
+// safe if a caller ever mints an app-typed Tab without the tuple field.
+const renderAppTab: Renderer = (tab, deps) => {
+  if (!isAppTab(tab)) return null;
+  return (
+    <AppPane
+      hostId={tab.app.hostId}
+      slug={tab.app.slug}
+      tabId={tab.id}
+      isVisible={deps.isVisible}
+    />
+  );
+};
+
+// Record<TabType, Renderer> — compile-time exhaustive. Three explicit rows
+// for rdp/vnc/telnet all pointing at the same helper (D-04 cleanup replaces
+// the switch-fall-through). The `app` entry is appended (matches the
+// TabType order from Plan 04 extending the union at the tail).
+export const RENDERERS: Record<TabType, Renderer> = {
+  dashboard: renderDashboard,
+  terminal: renderTerminalTab,
+  rdp: renderGuacamoleTab,
+  vnc: renderGuacamoleTab,
+  telnet: renderGuacamoleTab,
+  app: renderAppTab,
+};
+
 export function renderTabContent(
   tab: Tab,
   onOpenSingletonTab?: (type: TabType) => void,
@@ -334,72 +487,13 @@ export function renderTabContent(
   onTmuxSessionChange?: (tabId: string, sessionName: string | null) => void,
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void,
 ) {
-  const { host, label } = tab;
-
-  switch (tab.type) {
-    case "dashboard":
-      // Phase 11 landing-surface swap (PURGE-01): renders the pretty-view
-      // empty-landing card in place of the old Skynet landing render tree.
-      // The "dashboard" TabType is preserved as a load-bearing fallback
-      // identifier in effectiveSelectedTabId + doCloseTab; the retired
-      // component tree under src/ui/dashboard/ becomes unreachable from
-      // any UI path and is slated for Phase 12+ deletion.
-      return <PrettyLandingCard />;
-
-    case "terminal":
-      // Phase 93 Slice 4 (D-06): host-null gate widens for relay-room tabs.
-      // Previous Phase 91 UAT-fix early-return that mounted the standalone
-      // relay-room pane inline HERE (before the host-null check) has retired —
-      // TerminalOrIdentitySessionPane's relay branch (Slice 4 rewire above)
-      // now handles the host-optional case with a direct PrettyView-with-relay-
-      // source mount. Non-relay terminal tabs still require a host (unchanged
-      // behavior); relay-room tabs pass through with host=null to
-      // TerminalOrIdentitySessionPane which mounts the shared chat surface.
-      if (!host && tab.sessionKind !== "relay-room") {
-        return (
-          <EmptyState
-            icon={TerminalSquare}
-            messageKey="terminal.noHostSelected"
-          />
-        );
-      }
-      // Phase 41 Plan 02: dispatch through TerminalOrIdentitySessionPane which
-      // uses useIdentities().byKey to route identity panes → IdentitySessionPane
-      // and non-identity terminal panes → TerminalTabContent (byte-unchanged).
-      return (
-        <TerminalOrIdentitySessionPane
-          tab={tab}
-          host={host}
-          label={label}
-          isVisible={isVisible}
-          attach={shouldAttach}
-          onCloseTab={onCloseTab}
-          onTmuxSessionChange={
-            onTmuxSessionChange
-              ? (name) => onTmuxSessionChange(tab.id, name)
-              : undefined
-          }
-          onTmuxSessionMissing={onTmuxSessionMissing}
-        />
-      );
-
-    case "rdp":
-    case "vnc":
-    case "telnet":
-      if (!host)
-        return (
-          <EmptyState icon={Monitor} messageKey="guacamole.noHostSelected" />
-        );
-      return (
-        <Suspense fallback={<EmptyState icon={Monitor} messageKey="guacamole.noHostSelected" />}>
-          <GuacamoleApp
-            hostId={host.id}
-            tabId={tab.id}
-            protocol={tab.type as "rdp" | "vnc" | "telnet"}
-            isVisible={isVisible}
-            onClose={() => onCloseTab?.(tab.id)}
-          />
-        </Suspense>
-      );
-  }
+  return RENDERERS[tab.type](tab, {
+    onOpenSingletonTab,
+    onOpenTab,
+    onCloseTab,
+    isVisible,
+    shouldAttach,
+    onTmuxSessionChange,
+    onTmuxSessionMissing,
+  });
 }
