@@ -1,4 +1,4 @@
-# Phase 118: Workspace file browser - Context
+# Phase 121: Workspace file browser - Context
 
 **Gathered:** 2026-09-19
 **Status:** Ready for planning
@@ -93,7 +93,7 @@ Multi-tenant: this ships on every Skynet deployment (t1000, T800, and any future
 
 ### Shape agreement (load-bearing)
 
-- `.planning/shape-workspace-file-browser.md` — The `/build` → `/open` shape file that governs the whole arc. Written in Ashley's-conceptual-model style. `/close workspace-file-browser` at the end verifies conformance against THIS file, not against 118-CONTEXT.md. Every decision in 118-CONTEXT.md traces back to a section in the shape file.
+- `.planning/shape-workspace-file-browser.md` — The `/build` → `/open` shape file that governs the whole arc. Written in Ashley's-conceptual-model style. `/close workspace-file-browser` at the end verifies conformance against THIS file, not against 121-CONTEXT.md. Every decision in 121-CONTEXT.md traces back to a section in the shape file.
 - `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` — Tasting prototype iterated with Ashley. Reflects the settled visual + interaction target down to the modal chrome, tab bar, list style, sortable columns, drag-drop upload zone, and inline-swap file view. Walk through before drafting the plan; it is the reference implementation for HOW this should look and feel. Served locally at `http://localhost:8901/modal.html` (or via `https://Skynet-8901.serve.term.gigaashley.click/modal.html` while the server is up).
 
 ### Existing modal + tab pattern (D-01, D-10)
@@ -196,5 +196,5 @@ Multi-tenant: this ships on every Skynet deployment (t1000, T800, and any future
 
 ---
 
-*Phase: 118-workspace-file-browser*
+*Phase: 121-workspace-file-browser*
 *Context gathered: 2026-09-19*

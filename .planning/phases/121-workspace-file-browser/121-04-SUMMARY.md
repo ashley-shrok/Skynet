@@ -1,10 +1,10 @@
 ---
-phase: 118-workspace-file-browser
+phase: 121-workspace-file-browser
 plan: "04"
 subsystem: pretty-view / IdentityModal
-tags: [workspace, file-browser, identity-modal, tab-integration, phase-118]
+tags: [workspace, file-browser, identity-modal, tab-integration, phase-121]
 dependency_graph:
-  requires: ["118-03"]
+  requires: ["121-03"]
   provides: ["IdentityModal with Workspace tab wired via NAV_SECTIONS + TabsContent"]
   affects: ["src/ui/features/pretty-view/IdentityModal.tsx"]
 tech_stack:
@@ -25,7 +25,7 @@ metrics:
   files_modified: 1
 ---
 
-# Phase 118 Plan 04: IdentityModal Integration Summary
+# Phase 121 Plan 04: IdentityModal Integration Summary
 
 **One-liner:** Folder import + NAV_SECTIONS workspace entry (before isAdmin spread) + WorkspaceTab import + TabsContent block wired inline inside IdentityModal via 4 surgical edits.
 
@@ -74,7 +74,7 @@ All existing IdentityModal behavior preserved byte-identically outside the four 
 
 ## Commit
 
-- `5751d37`: `feat(118-04): integrate WorkspaceTab into IdentityModal via NAV_SECTIONS + TabsContent`
+- `5751d37`: `feat(121-04): integrate WorkspaceTab into IdentityModal via NAV_SECTIONS + TabsContent`
 
 ## Deviations from Plan
 
@@ -86,7 +86,7 @@ No new network endpoints, auth paths, file access patterns, or schema changes in
 
 ## Known Stubs
 
-None. WorkspaceTab (Plan 118-03) is a fully implemented component. The `<WorkspaceTab identity={identity} hostId={hostId} hue={hue} />` mount wires live data — no placeholder values.
+None. WorkspaceTab (Plan 121-03) is a fully implemented component. The `<WorkspaceTab identity={identity} hostId={hostId} hue={hue} />` mount wires live data — no placeholder values.
 
 ## Self-Check: PASSED
 

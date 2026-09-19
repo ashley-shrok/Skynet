@@ -1,13 +1,13 @@
-# Phase 118: Workspace file browser - Discussion Log
+# Phase 121: Workspace file browser - Discussion Log
 
 > **Audit trail only.** Do not use as input to planning, research, or execution agents.
-> Decisions are captured in `118-CONTEXT.md` — this log preserves the alternatives considered.
+> Decisions are captured in `121-CONTEXT.md` — this log preserves the alternatives considered.
 
 **Date:** 2026-09-19
-**Phase:** 118-workspace-file-browser
+**Phase:** 121-workspace-file-browser
 **Areas discussed:** entry point, change semantics (blind vs announced), destructive-action rails, refresh model (snapshot vs live), hidden-file handling, feature scope, multimodal handling (file open), permissions, audience/register, failure-mode framing, vehicle
 
-**Provenance note:** This phase's decisions were extracted via a `/build` → `/open` session with the user (Ashley) rather than through the standard discuss-phase interactive flow. The `/open` grill produced `.planning/shape-workspace-file-browser.md` (Ashley's-conceptual-model style), which drove 118-CONTEXT.md. A tasting prototype at `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` was iterated with the user across two revisions before the shape was locked. The alternatives-and-selections below are reconstructed from that session for audit continuity.
+**Provenance note:** This phase's decisions were extracted via a `/build` → `/open` session with the user (Ashley) rather than through the standard discuss-phase interactive flow. The `/open` grill produced `.planning/shape-workspace-file-browser.md` (Ashley's-conceptual-model style), which drove 121-CONTEXT.md. A tasting prototype at `~/fleet/roles/box-maintainer/bounties/workspace-file-browser/prototype/modal.html` was iterated with the user across two revisions before the shape was locked. The alternatives-and-selections below are reconstructed from that session for audit continuity.
 
 ---
 
@@ -173,7 +173,7 @@
 
 ## Deferred Ideas
 
-Captured in 118-CONTEXT.md § Deferred Ideas. Notably: search, multi-select, syntax highlighting, image thumbnails inline, cross-folder copy/paste, git-aware view, zip download, file counts, live subscription, hidden-file filtering.
+Captured in 121-CONTEXT.md § Deferred Ideas. Notably: search, multi-select, syntax highlighting, image thumbnails inline, cross-folder copy/paste, git-aware view, zip download, file counts, live subscription, hidden-file filtering.
 
 ## Explicitly forbidden (violates the stance)
 

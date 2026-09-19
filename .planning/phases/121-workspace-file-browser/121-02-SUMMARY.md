@@ -1,5 +1,5 @@
 ---
-phase: 118-workspace-file-browser
+phase: 121-workspace-file-browser
 plan: "02"
 subsystem: workspace-file-browser
 tags: [api, error-copy, typed-surface, pure-functions]
@@ -9,7 +9,7 @@ dependency_graph:
     - src/ui/api/workspace-api.ts
     - src/ui/features/pretty-view/workspace-error-copy.ts
   affects:
-    - src/ui/features/pretty-view/WorkspaceTab.tsx (Plan 118-03 will import from both files)
+    - src/ui/features/pretty-view/WorkspaceTab.tsx (Plan 121-03 will import from both files)
 tech_stack:
   added: []
   patterns:
@@ -31,9 +31,9 @@ metrics:
   files_created: 2
 ---
 
-# Phase 118 Plan 02: workspace-api.ts + workspace-error-copy.ts Summary
+# Phase 121 Plan 02: workspace-api.ts + workspace-error-copy.ts Summary
 
-Pure typed client surface over the /workspace backend (Plan 118-01) — 9 fetch helpers and 16-class consumer-user error copy map, both TSC-clean, no React coupling.
+Pure typed client surface over the /workspace backend (Plan 121-01) — 9 fetch helpers and 16-class consumer-user error copy map, both TSC-clean, no React coupling.
 
 ## What Was Built
 

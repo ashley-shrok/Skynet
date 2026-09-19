@@ -1,4 +1,4 @@
-# Phase 118: Workspace File Browser - Pattern Map
+# Phase 121: Workspace File Browser - Pattern Map
 
 **Mapped:** 2026-09-19
 **Files analyzed:** 8 new/modified files
@@ -604,7 +604,7 @@ interface StubSftp {
 
 **Block to add in BOTH files** (insert after the `/runbooks-editor` block in each file):
 ```nginx
-# Phase 118: /workspace CRUD router — 8 endpoints (list, read-file, write-file,
+# Phase 121: /workspace CRUD router — 8 endpoints (list, read-file, write-file,
 # delete, rename, mkdir, create-file, upload, download). method-agnostic regex
 # covers GET (download) + POST (list, read, rename, mkdir, create-file, upload)
 # + PUT (write-file) + DELETE (delete). Backing router is
@@ -628,7 +628,7 @@ location ~ ^/workspace(/.*)?$ {
 
 **Route mount in `database.ts`** (following the pattern at L1992-1994):
 ```typescript
-// Phase 118: /workspace CRUD router — 8 endpoints (list/read-file/write-file/
+// Phase 121: /workspace CRUD router — 8 endpoints (list/read-file/write-file/
 // delete/rename/mkdir/create-file/upload/download). Matching nginx location
 // blocks land in BOTH docker/nginx.conf AND docker/nginx-https.conf per
 // CLAUDE.md nginx caveat (missing in HTTPS conf → /workspace returns

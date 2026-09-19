@@ -1,5 +1,5 @@
 ---
-phase: 118-workspace-file-browser
+phase: 121-workspace-file-browser
 plan: "01"
 subsystem: backend/workspace-routes
 tags: [sftp, crud, workspace, security, nginx]
@@ -41,7 +41,7 @@ metrics:
   files_changed: 5
 ---
 
-# Phase 118 Plan 01: workspace-routes.ts Backend Summary
+# Phase 121 Plan 01: workspace-routes.ts Backend Summary
 
 **One-liner:** SFTP-backed workspace CRUD Express router with 9 endpoints, per-endpoint 9-step auth chain, dedicated multer memoryStorage upload, post-realpath symlink defense, T-40-05 classified error responses, and matching nginx location blocks in both HTTP and HTTPS configs.
 
@@ -67,11 +67,11 @@ metrics:
 | D-16 upload multer | Dedicated `multer({ storage: multer.memoryStorage() })` — NOT the .skynet-export.sqlite-filtered global instance |
 | D-21 RBAC gate | `permissionManager.canAccessHost(userId, Number(hostId), "read"\|"write")` on every endpoint |
 | D-22 no admin gate | canAccessHost only — no isAdmin check |
-| T-118-01 path traversal | validateRelativePath() static check (pre-SSH) + assertResolvedUnderRoot() post-realpath check |
-| T-118-02 identityKey injection | `IDENTITY_KEY_RE.test(identityKey)` before any path construction |
-| T-118-03 cross-user access | `resolveHostById(hostId, userId)` scopes host to userId |
-| T-118-04 symlink escape | `FORBIDDEN_PATH_RE.test(resolved)` after sftp.realpath on every SFTP path |
-| T-118-05 upload DoS | multer `limits: { fileSize: 50 * 1024 * 1024 }` + nginx `client_max_body_size 50m` |
+| T-121-01 path traversal | validateRelativePath() static check (pre-SSH) + assertResolvedUnderRoot() post-realpath check |
+| T-121-02 identityKey injection | `IDENTITY_KEY_RE.test(identityKey)` before any path construction |
+| T-121-03 cross-user access | `resolveHostById(hostId, userId)` scopes host to userId |
+| T-121-04 symlink escape | `FORBIDDEN_PATH_RE.test(resolved)` after sftp.realpath on every SFTP path |
+| T-121-05 upload DoS | multer `limits: { fileSize: 50 * 1024 * 1024 }` + nginx `client_max_body_size 50m` |
 | T-118-06 read DoS | MAX_READ_BYTES=2MB cap for /read-file; MAX_DOWNLOAD_BYTES=500MB for /download |
 | T-118-07 info-leak | Every catch: `res.status(classifyErrorToStatus(err)).json({ error: classifyErrorToClass(err) })` — NEVER err.message |
 | T-118-08 agent notification | No code path notifies agent; D-04 enforced by absence (grep gate) |

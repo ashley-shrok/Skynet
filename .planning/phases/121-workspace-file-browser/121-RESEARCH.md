@@ -1,4 +1,4 @@
-# Phase 118: Workspace File Browser - Research
+# Phase 121: Workspace File Browser - Research
 
 **Researched:** 2026-09-19
 **Domain:** Cross-host SFTP file management embedded in IdentityModal; Express REST routes + SFTP via ssh2; React tab body with inline viewer/editor swap
@@ -68,7 +68,7 @@
 
 ## Summary
 
-Phase 118 adds a full file-management tab to `IdentityModal` reaching the workspace folder (`~/fleet/identities/<name>/workspace/`) on the identity's host via SFTP. The plumbing architecture is well-established: the existing `pretty-view-fetch-host-file.ts` file already has SFTP, host resolution (`resolveHostById`), auth (`PermissionManager.canAccessHost`), and the connection pool (`withConnection`). The workspace CRUD routes are a direct extension of those patterns — a new Express router (`workspace-routes.ts`) registered under `/workspace` in `database.ts` and a matching nginx `location` block in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`.
+Phase 121 adds a full file-management tab to `IdentityModal` reaching the workspace folder (`~/fleet/identities/<name>/workspace/`) on the identity's host via SFTP. The plumbing architecture is well-established: the existing `pretty-view-fetch-host-file.ts` file already has SFTP, host resolution (`resolveHostById`), auth (`PermissionManager.canAccessHost`), and the connection pool (`withConnection`). The workspace CRUD routes are a direct extension of those patterns — a new Express router (`workspace-routes.ts`) registered under `/workspace` in `database.ts` and a matching nginx `location` block in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`.
 
 On the frontend, `IdentityModal` already threads `identity.identityKey`, `identity.hostId`, and the numeric `hostId` prop into every WS request. The new workspace tab receives those same values and passes `{ identityKey, hostId }` to every REST call. The tab body has two modes — list-mode and viewer-mode — driven by local React state; switching modes does NOT open a new modal (D-10). The existing `MarkdownEditor` and `GlobalFileTab` components mount directly in viewer-mode as controlled components without any modal chrome.
 

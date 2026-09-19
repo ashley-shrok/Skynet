@@ -1,11 +1,11 @@
 ---
-phase: 118-workspace-file-browser
+phase: 121-workspace-file-browser
 plan: "03"
 subsystem: pretty-view / workspace-file-browser
 tags: [react, workspace, file-browser, pretty-view, wave-2]
 dependency_graph:
-  requires: ["118-01", "118-02"]
-  provides: ["WorkspaceTab.tsx — importable by IdentityModal (Plan 118-04)"]
+  requires: ["121-01", "121-02"]
+  provides: ["WorkspaceTab.tsx — importable by IdentityModal (Plan 121-04)"]
   affects: ["src/ui/features/pretty-view/WorkspaceTab.tsx"]
 tech_stack:
   added: []
@@ -23,7 +23,7 @@ key_files:
   modified: []
 decisions:
   - "Tasks 1 + 2 implemented in a single pass (same file — writing placeholder then replacing was not beneficial for a single-file plan)"
-  - "V1: last-write-wins for text/md save (mtime=0 sentinel passed to GlobalFileTab) — backend read-file response does not include mtimeMs and adding it would be a Plan 118-01 amendment (see mtime section below)"
+  - "V1: last-write-wins for text/md save (mtime=0 sentinel passed to GlobalFileTab) — backend read-file response does not include mtimeMs and adding it would be a Plan 121-01 amendment (see mtime section below)"
   - "Row overflow menu implemented as inline absolute-positioned dropdown (not context-menu or window.alert) — cleaner UX per Claude's Discretion"
   - "Host chip reachability derived from initial /workspace/list call result (no separate probe) — matches Open Question 3 recommendation in RESEARCH.md"
 metrics:
@@ -33,7 +33,7 @@ metrics:
   files_changed: 1
 ---
 
-# Phase 118 Plan 03: WorkspaceTab.tsx Summary
+# Phase 121 Plan 03: WorkspaceTab.tsx Summary
 
 **One-liner:** WorkspaceTab React component — list-mode with breadcrumb/sort/toolbar/drag-drop and inline viewer-mode for md/text/image/binary, consuming workspace-api.ts and workspace-error-copy.ts from Wave 1.
 
@@ -108,11 +108,11 @@ Module-private helpers:
 
 **Disposition: deferred (last-write-wins for V1)**
 
-`GlobalFileTab.onSave` accepts `(content: string, expectedMtime: number)`. The `globalFileSave` adapter passes `_mtime` through but the backend's `/workspace/write-file` endpoint (Plan 118-01) uses atomic tmp+rename without a separate optimistic-concurrency lock — it just overwrites. The `/workspace/read-file` response (`ReadFileResponse`) does NOT include `mtimeMs`.
+`GlobalFileTab.onSave` accepts `(content: string, expectedMtime: number)`. The `globalFileSave` adapter passes `_mtime` through but the backend's `/workspace/write-file` endpoint (Plan 121-01) uses atomic tmp+rename without a separate optimistic-concurrency lock — it just overwrites. The `/workspace/read-file` response (`ReadFileResponse`) does NOT include `mtimeMs`.
 
 V1 behavior: `mtime = 0` sentinel is passed to `GlobalFileTab`'s state. GlobalFileTab's dirty-guard compares content — if the content changed, Save is enabled; if unchanged, Save is disabled. Concurrent writes from another session will be silently overwritten on the next save (last-write-wins).
 
-**Future fix if needed (Plan 118-04+ or a revision):** Add `mtimeMs` to `ReadFileResponse` in both the backend `/read-file` handler and `workspace-api.ts`, then thread the mtime from `readWorkspaceFile` response through `tabState.data.mtime` — WorkspaceFileViewer already wires `tabState` to GlobalFileTab.
+**Future fix if needed (Plan 121-04+ or a revision):** Add `mtimeMs` to `ReadFileResponse` in both the backend `/read-file` handler and `workspace-api.ts`, then thread the mtime from `readWorkspaceFile` response through `tabState.data.mtime` — WorkspaceFileViewer already wires `tabState` to GlobalFileTab.
 
 ## Deviations from Plan
 
@@ -154,6 +154,6 @@ None — the component is fully wired. All code paths reach real API helpers. Th
 
 ### Commit Exists
 
-- `34c8974`: EXISTS (feat(118-03): WorkspaceTab.tsx — list-mode + viewer-mode + drag-drop + host chip)
+- `34c8974`: EXISTS (feat(121-03): WorkspaceTab.tsx — list-mode + viewer-mode + drag-drop + host chip)
 
 ## Self-Check: PASSED
