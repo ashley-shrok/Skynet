@@ -1092,6 +1092,17 @@ workspaceRoutes.post(
       (typeof hostId !== "number" && typeof hostId !== "string") ||
       !req.file
     ) {
+      // Ashley 2026-09-19 UAT: drag-drop upload surfaced invalid_body with no
+      // way to see which field the multer parse dropped. Log the shape so a
+      // re-occurrence tells us the actual missing field.
+      sshLogger.warn("workspace /upload invalid_body", {
+        operation: "workspace_upload",
+        hasFile: !!req.file,
+        identityKeyType: typeof identityKey,
+        relativePathType: typeof relativePath,
+        hostIdType: typeof hostId,
+        contentType: req.headers["content-type"],
+      });
       res.status(400).json({ error: "invalid_body" });
       return;
     }
@@ -1152,6 +1163,8 @@ workspaceRoutes.post(
       sshLogger.warn("workspace /upload error", {
         operation: "workspace_upload",
         errorName: err instanceof Error ? err.name : "unknown",
+        errorMessage: err instanceof Error ? err.message : "",
+        errorCode: (err as { code?: number }).code,
         userId,
       });
     } finally {
