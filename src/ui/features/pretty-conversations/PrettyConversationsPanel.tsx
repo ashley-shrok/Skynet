@@ -56,7 +56,7 @@ import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
 // input mounted at the top of the pv-panel-scroll region.
-import { Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, Monitor, MoreVertical, Search, SquarePen, X } from "lucide-react";
+import { Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessagesSquare, Monitor, MoreVertical, Search, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -2521,6 +2521,33 @@ export function PrettyConversationsPanel({
                       zIndex: 30,
                     }}
                   />
+                )}
+                {/* Phase 117 M-J follow-up (2026-09-19): flat-middle section
+                    header. Mirrors the shape of PrettyProjectSectionHeader's
+                    top row (icon + label + gradient rule) so every zone
+                    besides pinned-unassigned has an unambiguous visual
+                    top boundary. No collapse chevron / no per-section
+                    new-conv button — those are project-section affordances,
+                    not applicable here. Skipped when displayedMiddle is
+                    empty (the wrapper still renders for the drop-out-of-
+                    project affordance, but there's nothing to label). */}
+                {displayedMiddle.length > 0 && (
+                  <div
+                    className="flex items-center gap-2 px-4 pt-3 pb-1.5"
+                    data-testid="pv-flat-middle-section-header"
+                  >
+                    <MessagesSquare
+                      className="size-3 text-[#5c6070]/85 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                      Other
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+                    />
+                  </div>
                 )}
                 {displayedMiddle.map((row) => (
                   <PrettyConversationRowLive

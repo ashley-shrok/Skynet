@@ -1544,3 +1544,61 @@ describe("PrettyConversationsPanel: project sections preserve selector order", (
     expect(mmm!.compareDocumentPosition(zzz!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M-J: flat-middle section header — every zone besides pinned-unassigned has
+// a visual header so the boundary between (project section last-row) and
+// (flat middle first-row) is unambiguous. Renders only when displayedMiddle
+// has rows (empty middle keeps the drop-out-of-project wrapper but no label).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: flat-middle section header (M-J)", () => {
+  it("Test 12 (M-J): renders 'Other' header above flat middle when middle is non-empty", () => {
+    const middleRow = makeRow({ id: "middle-1", label: "flat-1" });
+    setSnapshot({
+      middle: [middleRow],
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const header = container.querySelector('[data-testid="pv-flat-middle-section-header"]');
+    expect(header).not.toBeNull();
+    expect(header!.textContent).toMatch(/other/i);
+  });
+
+  it("Test 12b (M-J): header omitted when flat middle has no rows (drop-only wrapper case)", () => {
+    // Wrapper still renders for the drop-out-of-project affordance, but no
+    // rows means no label needed.
+    setSnapshot({
+      middle: [],
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    // Wrapper exists (drop target), header does NOT.
+    expect(
+      container.querySelector('[data-testid="pv-panel-flat-middle"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="pv-flat-middle-section-header"]'),
+    ).toBeNull();
+  });
+});
