@@ -1,14 +1,18 @@
 /**
- * Phase 120 Plan 01 Task 2 — Unit tests for injectBaseTag.
+ * Phase 120 Plan 01 Task 2 (extended 2026-09-19) — Unit tests for injectBaseTag.
  *
  * Verifies the pure Buffer transform that Wave 2's app-pane
- * responseInterceptor invokes on text/html responses to inject
- * `<base href="/apps/:hostId/:slug/pane/">` so absolute-path references
- * in the app resolve under the pane's mount prefix.
+ * responseInterceptor invokes on text/html responses to inject the pane's
+ * head prefix: `<base href="/apps/:hostId/:slug/pane/">` for absolute-path
+ * resolution + `<style>` for the default light-mode background (added
+ * 2026-09-19 — see the module docblock for the "agents assume browser
+ * default = white" rationale).
  *
  * Load-bearing invariants exercised:
+ *  - `<base>` comes FIRST, then `<style>`, both immediately after `<head>`.
  *  - Case-insensitive first-match `<head[^>]*>` replacement.
- *  - Prepend fallback when no `<head>` is present.
+ *  - Prepend fallback when no `<head>` is present (both tags land in the
+ *    implicit head).
  *  - Only the FIRST `<head>` is replaced (regex is non-global).
  *  - slug is encodeURIComponent-encoded; hostId is NOT encoded.
  *  - UTF-8 round-trip preserves multibyte content.
@@ -18,17 +22,19 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { injectBaseTag } from "../base-tag-injector.js";
+import { injectBaseTag, PANE_DEFAULT_STYLE_TAG } from "../base-tag-injector.js";
 
 describe("injectBaseTag", () => {
-  it("injects <base> immediately after <head> in a well-formed document", async () => {
+  it("injects <base> then <style> immediately after <head> in a well-formed document", async () => {
     const input = Buffer.from(
       `<html><head><title>X</title></head><body>Y</body></html>`,
       "utf8",
     );
     const output = await injectBaseTag(input, 5, "todo");
     const html = output.toString("utf8");
-    expect(html).toContain(`<head><base href="/apps/5/todo/pane/"><title>X</title>`);
+    expect(html).toContain(
+      `<head><base href="/apps/5/todo/pane/">${PANE_DEFAULT_STYLE_TAG}<title>X</title>`,
+    );
   });
 
   it("matches <HEAD> uppercase and injects after it (case-insensitive regex)", async () => {
@@ -38,7 +44,9 @@ describe("injectBaseTag", () => {
     );
     const output = await injectBaseTag(input, 5, "todo");
     const html = output.toString("utf8");
-    expect(html).toContain(`<HEAD><base href="/apps/5/todo/pane/">`);
+    expect(html).toContain(
+      `<HEAD><base href="/apps/5/todo/pane/">${PANE_DEFAULT_STYLE_TAG}`,
+    );
   });
 
   it("matches <head lang=\"en\"> attributed head and injects after the full open tag", async () => {
@@ -48,15 +56,27 @@ describe("injectBaseTag", () => {
     );
     const output = await injectBaseTag(input, 5, "todo");
     const html = output.toString("utf8");
-    expect(html).toContain(`<head lang="en"><base href="/apps/5/todo/pane/">`);
+    expect(html).toContain(
+      `<head lang="en"><base href="/apps/5/todo/pane/">${PANE_DEFAULT_STYLE_TAG}`,
+    );
   });
 
-  it("prepends <base> when no <head> tag is present (fallback path)", async () => {
+  it("prepends both tags when no <head> is present (fallback path)", async () => {
     const input = Buffer.from(`<html><body>X</body></html>`, "utf8");
     const output = await injectBaseTag(input, 5, "todo");
     const html = output.toString("utf8");
-    expect(html.startsWith(`<base href="/apps/5/todo/pane/">`)).toBe(true);
-    expect(html).toBe(`<base href="/apps/5/todo/pane/"><html><body>X</body></html>`);
+    const prefix = `<base href="/apps/5/todo/pane/">${PANE_DEFAULT_STYLE_TAG}`;
+    expect(html.startsWith(prefix)).toBe(true);
+    expect(html).toBe(`${prefix}<html><body>X</body></html>`);
+  });
+
+  it("style tag carries the light-mode defaults with no !important (cascade-friendly)", async () => {
+    // Author-supplied later declarations must be able to override — the
+    // whole point of the "default, not override" contract.
+    expect(PANE_DEFAULT_STYLE_TAG).toContain("background:#fff");
+    expect(PANE_DEFAULT_STYLE_TAG).toContain("color:#000");
+    expect(PANE_DEFAULT_STYLE_TAG).toContain("color-scheme:light");
+    expect(PANE_DEFAULT_STYLE_TAG).not.toContain("!important");
   });
 
   it("replaces ONLY the first <head> tag when the document is malformed with two", async () => {
@@ -73,9 +93,12 @@ describe("injectBaseTag", () => {
     expect(firstHeadIdx).toBeGreaterThanOrEqual(0);
     expect(baseIdx).toBeGreaterThan(firstHeadIdx);
     expect(baseIdx).toBeLessThan(secondHeadIdx);
-    // Only one base tag total.
-    const matches = html.match(/<base href=/g) ?? [];
-    expect(matches.length).toBe(1);
+    // Only one base tag total AND only one style tag total — the second
+    // head must not receive either injected element.
+    const baseMatches = html.match(/<base href=/g) ?? [];
+    expect(baseMatches.length).toBe(1);
+    const styleMatches = html.match(/color-scheme:light/g) ?? [];
+    expect(styleMatches.length).toBe(1);
   });
 
   it("URL-encodes a slug with a space character", async () => {

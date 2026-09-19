@@ -1,11 +1,24 @@
 /**
- * Phase 120 Plan 01 Task 2 — injectBaseTag.
+ * Phase 120 Plan 01 Task 2 (extended 2026-09-19) — injectBaseTag.
  *
  * Pure Buffer transform: given a text/html response body from the upstream
- * app, prepend a `<base href="/apps/:hostId/:slug/pane/">` element inside
- * (or before) the document's `<head>` so absolute-path references in the
- * app's HTML/JS (`<script src="/app.js">`, `fetch("/api/foo")`, …) resolve
- * against the pane's mount prefix instead of Skynet's own root.
+ * app, prepend TWO elements inside (or before) the document's `<head>`:
+ *
+ *   1. `<base href="/apps/:hostId/:slug/pane/">` — so absolute-path
+ *      references in the app's HTML/JS (`<script src="/app.js">`,
+ *      `fetch("/api/foo")`, …) resolve against the pane's mount prefix
+ *      instead of Skynet's own root.
+ *
+ *   2. `<style>html,body{background:#fff;color:#000}:root{color-scheme:light}</style>`
+ *      — a low-specificity default so an app that doesn't declare its own
+ *      background (matching what agents assume: "browser default is white")
+ *      renders consistently whether it's opened top-level (chrome address
+ *      bar, browser-default white) or in the split-view iframe (which would
+ *      otherwise show Skynet's dark theme through the transparent iframe
+ *      background). Cascade preserves author overrides: any app-level
+ *      `body { background: X }` declared later in the head OR in a linked
+ *      stylesheet wins at equal specificity. Same rule for `color-scheme`
+ *      — apps opting into dark mode via `:root { color-scheme: dark }` win.
  *
  * Used by Wave 2's app-pane-proxy-factory inside its
  * `responseInterceptor(async (buffer, proxyRes, req, res) => …)` hook.
@@ -39,17 +52,33 @@
  */
 
 /**
- * Injects a `<base>` element referencing the pane's mount prefix into an
- * HTML buffer.
+ * Constant `<style>` block injected alongside the `<base>` tag. Defined at
+ * module scope (not per-call) so callers/tests can reference the exact
+ * bytes without repeating the string literal. Kept minimal and rule-only
+ * so the low-specificity cascade contract (any app-supplied later rule
+ * wins) stays legible.
+ */
+export const PANE_DEFAULT_STYLE_TAG =
+  `<style>html,body{background:#fff;color:#000}:root{color-scheme:light}</style>`;
+
+/**
+ * Injects Skynet's pane-scope head prefix (`<base>` + default `<style>`)
+ * into an HTML buffer.
  *
  * Semantics:
- *   - If the input matches `<head[^>]*>` (case-insensitive), the `<base>`
- *     tag is inserted immediately after the FIRST matching open tag
- *     (regex is non-global — only the first match is replaced, so a
- *     malformed document with two `<head>` tags gets exactly one `<base>`).
- *   - If no `<head>` open tag is found, the `<base>` tag is PREPENDED to
- *     the entire input as a fallback (still resolves absolute paths
- *     correctly per the HTML spec's tolerant parser).
+ *   - If the input matches `<head[^>]*>` (case-insensitive), the two tags
+ *     are inserted immediately after the FIRST matching open tag (regex
+ *     is non-global — only the first match is replaced, so a malformed
+ *     document with two `<head>` tags gets exactly one prefix).
+ *   - If no `<head>` open tag is found, the prefix is PREPENDED to the
+ *     entire input as a fallback (still resolves absolute paths correctly
+ *     per the HTML spec's tolerant parser; the style still lands in the
+ *     implicit head).
+ *   - Order inside the prefix is `<base>` first, then `<style>`. Base
+ *     comes first because it's the more-conventional early-head position
+ *     (any subsequent link/script in the app's own head resolves against
+ *     it). The style block is standalone with no href references, so the
+ *     order does not affect either tag's own behavior.
  *
  * URL encoding:
  *   - `hostId` is a positive integer — cast to a string via template
@@ -74,8 +103,9 @@ export async function injectBaseTag(
 ): Promise<Buffer> {
   const html = buffer.toString("utf8");
   const baseTag = `<base href="/apps/${hostId}/${encodeURIComponent(slug)}/pane/">`;
+  const prefix = `${baseTag}${PANE_DEFAULT_STYLE_TAG}`;
   const injected = html.match(/<head[^>]*>/i)
-    ? html.replace(/<head[^>]*>/i, (m) => `${m}${baseTag}`)
-    : `${baseTag}${html}`;
+    ? html.replace(/<head[^>]*>/i, (m) => `${m}${prefix}`)
+    : `${prefix}${html}`;
   return Buffer.from(injected, "utf8");
 }
