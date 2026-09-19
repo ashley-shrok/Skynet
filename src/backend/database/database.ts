@@ -18,6 +18,13 @@ import rbacRoutes from "./routes/rbac.js";
 import openTabsRoutes from "./routes/open-tabs.js";
 import identitiesRoutes from "./routes/identities.js";
 import appsRoutes from "./routes/apps.js";
+// Phase 120 Plan 05 (D-08): the /apps/:hostId/:slug/pane/* reverse-proxy
+// route. Named export (not default) to disambiguate from Phase 119's
+// default-exported apps router at the mount site below.
+import {
+  appPaneRouter,
+  handleAppPaneUpgrade,
+} from "../apps/app-pane-router.js";
 import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
@@ -2019,6 +2026,14 @@ app.use("/identities", identitiesRoutes);
 // /identities/:identityKey/avatar (identities.ts:849). See
 // src/backend/database/routes/apps.ts for the route body.
 app.use("/apps", appsRoutes);
+// Phase 120 D-08 — pane proxy under the same /apps prefix; distinct suffix
+// /:hostId/:slug/pane/* means routers coexist cleanly. Two app.use("/apps", ...)
+// calls in sequence work fine in Express — each router matches its own
+// sub-paths; Express does NOT deduplicate mounts. WebSocket upgrades on
+// this same path shape are handled at the http.Server level below via
+// httpServer.on("upgrade", ...) because router.all catches HTTP methods
+// only, not upgrade events (BLOCKER 6 fix, T-120-32).
+app.use("/apps", appPaneRouter);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
 app.use("/identity-send-log", identitySendLogRoutes);
@@ -2349,6 +2364,23 @@ app.get(
 );
 
 const httpServer = http.createServer(app);
+
+// Phase 120 D-08 (T-120-32, BLOCKER 6) — WebSocket upgrade dispatcher
+// for /apps/:hostId/:slug/pane/*. router.all catches HTTP methods only;
+// upgrade events fire on the http.Server BEFORE any Express dispatch.
+// The dispatcher path-shape-tests the URL and returns without touching
+// the socket if it does NOT match the pane path — other upgrade
+// consumers on this server (serve-url subdomain dispatch, terminal WS,
+// future mounts) fire normally. On matching paths it repeats the SAME
+// auth + validation + access + CSRF + port + target chain as the HTTP
+// route before calling proxyMiddleware.upgrade(req, socket, head).
+httpServer.on("upgrade", (req, socket, head) => {
+  // Path-shape guard: handleAppPaneUpgrade matches /apps/:hostId/:slug/pane/*
+  // internally (via APP_SLUG_RE-shaped regex) and returns without touching
+  // the socket on non-matching URLs, so this binding does NOT blindly hijack
+  // every upgrade event — only /apps/*/pane requests are dispatched.
+  void handleAppPaneUpgrade(req, socket, head);
+});
 
 httpServer.on("error", (err: NodeJS.ErrnoException) => {
   if (err.code === "EADDRINUSE") {
