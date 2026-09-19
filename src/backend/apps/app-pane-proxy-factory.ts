@@ -257,7 +257,24 @@ export function getOrCreateAppPaneProxyForTarget(
       // upgrades — which bypass this hook anyway) pass through unchanged.
       // The .startsWith("text/html") check matches "text/html" and
       // "text/html; charset=utf-8" alike.
-      proxyRes: responseInterceptor(async (buffer, proxyRes, _req, _res) => {
+      //
+      // MEDIUM-1 code-review fix (2026-09-19): http-proxy-middleware's
+      // `responseInterceptor` invokes the library's `copyHeaders(proxyRes,
+      // res)` BEFORE this callback fires. `copyHeaders` iterates upstream
+      // response headers and calls `res.setHeader(key, value)` for each —
+      // so anti-clickjacking headers the router set before proxy handoff
+      // (X-Frame-Options / CSP frame-ancestors 'self', T-120-30) get
+      // OVERWRITTEN if the upstream emits its own version. Fix: re-set
+      // those two headers INSIDE this callback (post-copyHeaders) so
+      // ours win. Our headers take precedence over upstream.
+      proxyRes: responseInterceptor(async (buffer, proxyRes, _req, res) => {
+        try {
+          res.setHeader("X-Frame-Options", "SAMEORIGIN");
+          res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
+        } catch {
+          // Response may already be past the header-writable window
+          // (rare — proxyRes fires while headers are still open). Non-fatal.
+        }
         const contentType = String(proxyRes.headers["content-type"] ?? "");
         if (!contentType.startsWith("text/html")) {
           return buffer;

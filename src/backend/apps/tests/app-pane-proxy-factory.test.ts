@@ -450,6 +450,116 @@ describe("proxyRes content-type gating (responseInterceptor callback)", () => {
 });
 
 /* ------------------------------------------------------------------------ */
+/*  MEDIUM-1 — anti-clickjacking headers survive upstream overwrite          */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * MEDIUM-1 code-review fix (2026-09-19). http-proxy-middleware's
+ * `responseInterceptor` calls `copyHeaders(proxyRes, res)` BEFORE the
+ * callback fires; that function iterates upstream response headers and
+ * calls `res.setHeader(key, upstreamValue)` for each, overwriting anything
+ * the router set before proxy handoff (e.g. X-Frame-Options / CSP
+ * frame-ancestors 'self'). The router at `app-pane-router.ts:222-223` sets
+ * these headers assuming they survive; before the fix, an upstream that
+ * emits its own CSP (Svelte's starter can) would strip our
+ * frame-ancestors guard.
+ *
+ * Fix: re-set the two anti-clickjacking headers INSIDE the interceptor
+ * callback (after copyHeaders). These tests exercise the callback
+ * directly and assert `res.setHeader` was called with our authoritative
+ * values regardless of upstream Content-Type.
+ */
+describe("MEDIUM-1 — anti-clickjacking headers re-set after copyHeaders", () => {
+  it("re-sets X-Frame-Options=SAMEORIGIN inside the responseInterceptor callback", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
+      buffer: Buffer,
+      proxyRes: http.IncomingMessage,
+      req: Request,
+      res: Response,
+    ) => Promise<Buffer>;
+    const res = makeExpressRes();
+    await cb(
+      Buffer.from("<html></html>", "utf8"),
+      makeProxyRes("text/html"),
+      makeExpressReq(),
+      res,
+    );
+    const setHeader = (res as unknown as { setHeader: import("vitest").Mock })
+      .setHeader;
+    const xfoCalls = setHeader.mock.calls.filter(
+      (c: unknown[]) => c[0] === "X-Frame-Options",
+    );
+    expect(xfoCalls).toHaveLength(1);
+    expect(xfoCalls[0][1]).toBe("SAMEORIGIN");
+  });
+
+  it("re-sets CSP frame-ancestors 'self' inside the responseInterceptor callback", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
+      buffer: Buffer,
+      proxyRes: http.IncomingMessage,
+      req: Request,
+      res: Response,
+    ) => Promise<Buffer>;
+    const res = makeExpressRes();
+    await cb(
+      Buffer.from("<html></html>", "utf8"),
+      makeProxyRes("text/html"),
+      makeExpressReq(),
+      res,
+    );
+    const setHeader = (res as unknown as { setHeader: import("vitest").Mock })
+      .setHeader;
+    const cspCalls = setHeader.mock.calls.filter(
+      (c: unknown[]) => c[0] === "Content-Security-Policy",
+    );
+    expect(cspCalls).toHaveLength(1);
+    expect(cspCalls[0][1]).toBe("frame-ancestors 'self'");
+  });
+
+  it("re-sets anti-clickjacking headers even for non-HTML responses (pass-through)", async () => {
+    // The headers apply to the whole response — not just text/html.
+    // Non-HTML upstream still gets our headers so an app-served JSON doc
+    // can't be reused as a frame-embed source.
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
+      buffer: Buffer,
+      proxyRes: http.IncomingMessage,
+      req: Request,
+      res: Response,
+    ) => Promise<Buffer>;
+    const res = makeExpressRes();
+    await cb(
+      Buffer.from(`{"ok":true}`, "utf8"),
+      makeProxyRes("application/json"),
+      makeExpressReq(),
+      res,
+    );
+    const setHeader = (res as unknown as { setHeader: import("vitest").Mock })
+      .setHeader;
+    expect(
+      setHeader.mock.calls.some((c: unknown[]) => c[0] === "X-Frame-Options"),
+    ).toBe(true);
+    expect(
+      setHeader.mock.calls.some(
+        (c: unknown[]) => c[0] === "Content-Security-Policy",
+      ),
+    ).toBe(true);
+  });
+});
+
+
+/* ------------------------------------------------------------------------ */
 /*  error hook — interstitial + writableEnded guard                          */
 /* ------------------------------------------------------------------------ */
 
