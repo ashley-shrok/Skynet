@@ -226,62 +226,75 @@ export function isLocalHostId(hostId: number | undefined): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Local identities root (patch #89 pattern, byte-identical)
+// Local fleet-subpath roots — HOME_HOST_DIR-derived defaults with
+// per-subpath escape hatches (Phase 117 M-K, 2026-09-19)
 // ---------------------------------------------------------------------------
+//
+// PRIMARY control: HOME_HOST_DIR. Container invocations get it from the
+// Dockerfile ENV (=/host-home); native-run invocations leave it unset and
+// fall back to `os.homedir()`. Every fleet subpath (identities, roles,
+// projects) auto-derives as `<HOME_HOST_DIR>/fleet/<type>` — one env var
+// covers all four positions.
+//
+// Prior state: three sibling env vars (PROJECTS_HOST_DIR,
+// IDENTITIES_HOST_DIR, ROLES_HOST_DIR) — one per subpath, all with
+// identical shape. That antipattern was how PROJECTS_HOST_DIR got
+// silently omitted from skynet.env when Phase 117 added projects. Result:
+// projects wrote to `/root/fleet/projects/` inside the container's
+// ephemeral layer, wiped by every `docker compose up --force-recreate`.
+//
+// The specific `<TYPE>_HOST_DIR` vars are RETAINED as an escape hatch:
+// the LOCAL-branch unit tests set them to per-test scratch dirs to
+// isolate one subpath's filesystem without affecting siblings. Production
+// deployments should NOT set them — HOME_HOST_DIR (or the Dockerfile
+// default) is the operator-facing knob.
+
+/**
+ * Returns the local home root directory (`~` from the container's / native
+ * process's perspective). Consumed by every `getLocal*Root` helper below.
+ * Kept private — the specific-subpath getters are what callers use.
+ */
+function getLocalHomeRoot(): string {
+  return process.env.HOME_HOST_DIR || os.homedir();
+}
 
 /**
  * Returns the local identities root directory.
- * Prefer IDENTITIES_HOST_DIR (bind-mount) over os.homedir() fallback (dev path).
+ * Precedence: IDENTITIES_HOST_DIR (test escape hatch) → HOME_HOST_DIR-derived
+ * default (`<home>/fleet/identities`).
  */
 export function getLocalIdentitiesRoot(): string {
   return (
     process.env.IDENTITIES_HOST_DIR ||
-    path.join(os.homedir(), "fleet", "identities")
+    path.join(getLocalHomeRoot(), "fleet", "identities")
   );
 }
 
-// ---------------------------------------------------------------------------
-// Local roles root — Phase 22 SRIC-01 (byte-shape mirror of getLocalIdentitiesRoot)
-// ---------------------------------------------------------------------------
-
 /**
  * Returns the local roles root directory.
- * Prefer ROLES_HOST_DIR env var (parallel to IDENTITIES_HOST_DIR bind-mount) over
- * os.homedir() fallback (dev path). Mirrors getLocalIdentitiesRoot semantics.
- *
- * Consumed by readIdentityBounties + readIdentityHistory LOCAL branch (Task 2)
- * plus future Wave-2 plans (22-06 role tab, 22-03 clone) that need the roles
- * root for LOCAL-branch reads.
+ * Precedence: ROLES_HOST_DIR (test escape hatch) → HOME_HOST_DIR-derived
+ * default (`<home>/fleet/roles`).
  */
 export function getLocalRolesRoot(): string {
   return (
     process.env.ROLES_HOST_DIR ||
-    path.join(os.homedir(), "fleet", "roles")
+    path.join(getLocalHomeRoot(), "fleet", "roles")
   );
 }
-
-// ---------------------------------------------------------------------------
-// Local projects root — Phase 117 Plan 117-01 (byte-shape mirror of getLocal*Root)
-// ---------------------------------------------------------------------------
 
 /**
  * Returns the local projects root directory.
  *
- * Prefer PROJECTS_HOST_DIR env var (parallel to IDENTITIES_HOST_DIR + ROLES_HOST_DIR
- * bind-mount) over os.homedir() fallback (dev path). Mirrors getLocalIdentitiesRoot /
- * getLocalRolesRoot semantics.
- *
- * Consumed by every project primitive added in Phase 117 Plan 117-01 (listProjects,
- * readProjectFile, createProject, archiveProject) plus the Wave 2 route layer that
- * imports it directly for LOCAL-branch path construction.
- *
- * D-01: projects live at `~/fleet/projects/<slug>/` — a new sibling to
+ * D-01: projects live at `~/fleet/projects/<slug>/` — a sibling to
  * ~/fleet/roles/ and ~/fleet/identities/ under the fleet substrate.
+ *
+ * Precedence: PROJECTS_HOST_DIR (test escape hatch) → HOME_HOST_DIR-derived
+ * default (`<home>/fleet/projects`).
  */
 export function getLocalProjectsRoot(): string {
   return (
     process.env.PROJECTS_HOST_DIR ||
-    path.join(os.homedir(), "fleet", "projects")
+    path.join(getLocalHomeRoot(), "fleet", "projects")
   );
 }
 
@@ -2548,9 +2561,10 @@ export async function writeMarkdownFileAtomic(
   // the fleet subtree must route through HOME_HOST_DIR explicitly (see
   // local-fleet-install.ts's getLocalHomeRoot pattern).
   if (conn === null) {
-    const fleetRoot = process.env.IDENTITIES_HOST_DIR
-      ? path.dirname(process.env.IDENTITIES_HOST_DIR)
-      : path.join(os.homedir(), "fleet");
+    // Phase 117 M-K (2026-09-19): derive fleet root from getLocalIdentitiesRoot's
+    // parent — that helper now HOME_HOST_DIR-based, so this stays correct
+    // whether the container / native / test-override path is in effect.
+    const fleetRoot = path.dirname(getLocalIdentitiesRoot());
     let localPath: string;
     if (targetPath.startsWith("$HOME/fleet/")) {
       localPath = path.join(fleetRoot, targetPath.slice("$HOME/fleet/".length));
@@ -2794,9 +2808,10 @@ export async function writeBinaryFileAtomic(
   // else is treated as an absolute path. Non-fleet `$HOME/` shapes not
   // supported (would need HOME_HOST_DIR routing — see local-fleet-install.ts).
   if (conn === null) {
-    const fleetRoot = process.env.IDENTITIES_HOST_DIR
-      ? path.dirname(process.env.IDENTITIES_HOST_DIR)
-      : path.join(os.homedir(), "fleet");
+    // Phase 117 M-K (2026-09-19): derive fleet root from getLocalIdentitiesRoot's
+    // parent — that helper now HOME_HOST_DIR-based, so this stays correct
+    // whether the container / native / test-override path is in effect.
+    const fleetRoot = path.dirname(getLocalIdentitiesRoot());
     let localPath: string;
     if (targetPath.startsWith("$HOME/fleet/")) {
       localPath = path.join(fleetRoot, targetPath.slice("$HOME/fleet/".length));

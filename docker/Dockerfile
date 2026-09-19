@@ -62,7 +62,16 @@ WORKDIR /app
 
 ENV DATA_DIR=/app/data \
     PORT=8080 \
-    NODE_ENV=production
+    NODE_ENV=production \
+    # Phase 117 M-K (2026-09-19): safe container default so every fleet
+    # subpath reader (getLocalIdentitiesRoot / getLocalRolesRoot /
+    # getLocalProjectsRoot) writes into the /host-home bind mount by
+    # default. Prevents the silent-ephemeral bug where projects (or any
+    # future fleet subpath) land in the container's writable layer and
+    # get destroyed on every `docker compose up --force-recreate`.
+    # Operator can still override via docker-compose env_file if they
+    # need a custom host-home path.
+    HOME_HOST_DIR=/host-home
 
 RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget ffmpeg systemd && \
     update-ca-certificates && \
