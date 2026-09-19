@@ -118,7 +118,7 @@ const PANE_UPGRADE_PATH_RE = /^\/apps\/(\d+)\/([a-z0-9-]{1,64})\/pane(\/|$)/;
  * `http.Server` level in `database.ts` (Task 3(f)).
  */
 router.all(
-  "/:hostId/:slug/pane/*",
+  "/:hostId/:slug/pane{/*splat}",
   authenticateJWT,
   async (req: Request, res: Response, next: NextFunction) => {
     const userId = (req as AuthenticatedRequest).userId;
