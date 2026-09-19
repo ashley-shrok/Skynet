@@ -230,17 +230,22 @@ export interface SweepPidLine {
  *   • slug            ↔ folder name (kebab-case, APP_SLUG_RE-validated on emit)
  *   • title           ↔ app.json `title` (D-05 required string)
  *   • description     ↔ app.json `description` (D-05 required string)
- *   • port            ↔ systemd unit `PORT=` env, extracted via
- *                      `systemctl --user show -p Environment app-<slug>.service`.
- *                      Nullable when the extract fails or the unit exposes no
- *                      PORT (D-05: port may be null).
+ *   • port            ↔ `Environment=PORT=<n>` parsed directly from the unit
+ *                      file text at `~/.config/systemd/user/app-<slug>.service`
+ *                      (2026-09-19 revision — the pre-fix path shelled out to
+ *                      `systemctl --user show`, which fails inside the Skynet
+ *                      container's self-poll where dbus/systemd is unreachable).
+ *                      Nullable when the unit exposes no PORT (D-05: port may
+ *                      be null).
  *   • has_icon        ↔ existence of `icon.webp` in the app folder (D-06:
  *                      BOOLEAN, not a URL — shape 4 owns the serving path).
  *   • created_at_ms   ↔ folder mtime × 1000 (D-08: presence-is-meaning; no
  *                      stored field on disk).
- *   • is_healthy      ↔ true iff the systemd unit is `active` (D-01 (c) +
- *                      D-02 carve-out — an app with unit-exists + inactive
- *                      still emits with is_healthy=false).
+ *   • is_healthy      ↔ true iff a TCP connect to `127.0.0.1:<port>` succeeds
+ *                      within APP_PORT_PROBE_TIMEOUT_SEC (2026-09-19 revision;
+ *                      pre-fix this was ActiveState=active from systemctl).
+ *                      D-01 (c) + D-02 carve-out: app with unit-exists but
+ *                      port-not-listening still emits with is_healthy=false.
  *   • health_message  ↔ D-03 human-readable diagnostic; present only when
  *                      is_healthy=false. the user's steer:
  *                      "not running — ask an agent to check on it" (Plan 118-01

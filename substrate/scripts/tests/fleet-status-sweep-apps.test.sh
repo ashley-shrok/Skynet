@@ -7,39 +7,47 @@
 # tree walk) and fleet-status-sweep-appearance.sh (which covers the Plan
 # 111-01 frontmatter/appearance branch). This driver targets the new
 # `line_kind: "app"` emission specifically: does the sweep enumerate
-# ~/fleet/apps/*/, cross-check each folder against systemd --user, and emit
-# the D-05 seven-field shape for apps that pass D-01 (and the D-02 carve-out
-# for unit-exists-but-inactive)?
+# ~/fleet/apps/*/, cross-check each folder against the systemd user unit
+# FILE on disk, and emit the D-05 shape for apps that pass D-01 (and the
+# D-02 carve-out for unit-exists-but-port-not-listening)?
+#
+# 2026-09-19 REWRITE — the sweep no longer shells out to `systemctl --user`
+# (see the module docblock above `_read_app_unit_file` in the sweep script
+# for the container-namespace context that motivated the change). Health is
+# now a TCP loopback probe on 127.0.0.1:<port> extracted from the unit file
+# body. This driver mirrors that: it drops all `systemctl --user` calls,
+# writes unit files directly into the fixture at
+# `$FIXTURE/.config/systemd/user/`, and spins up a Python `http.server` port
+# listener in the background for cases that need "active" state.
 #
 # Test cases (per RESEARCH § Q7 + PLAN.md Task 2):
-#   1. good app       — app.json + valid unit + active     → one line, healthy
-#   2. malformed json — bad app.json + valid unit + active → no line, stderr log
-#   3. no unit        — app.json + NO unit                 → no line (D-01 (b))
-#   4. stopped unit   — app.json + valid unit + inactive   → one line, unhealthy
-#   5. no icon        — app.json + valid unit, no icon     → has_icon: false
-#   6. with icon      — app.json + valid unit + icon.webp  → has_icon: true
-#   7. slug injection — bad folder name (uppercase, >40)   → no line, stderr log
+#   1. good app       — app.json + unit file + port listening → line, healthy
+#   2. malformed json — bad app.json + unit + listening        → no line, stderr log
+#   3. no unit        — app.json + NO unit file                → no line (D-01 (b))
+#   4. stopped unit   — app.json + unit file + no listener     → line, unhealthy
+#   5. no icon        — app.json + unit + listening, no icon   → has_icon: false
+#   6. with icon      — app.json + unit + listening + icon     → has_icon: true
+#   7. slug injection — bad folder name (uppercase, >40)       → no line, stderr log
 #   8. folder count cap — 51 valid apps → ≤50 lines + cap_hit warn (MEDIUM-4)
 #
 # Exits 0 on all-pass; exits 1 on any failure with a diagnostic naming the
-# failing test. Skips cleanly with exit 0 when `systemctl --user is-system-
-# running` is unavailable (CI without a user session — per CONTEXT D-23,
-# this driver is agent-UAT, not CI-runnable in environments without a
-# systemd user session).
+# failing test. No SKIP gate — the driver now needs only python3 (already a
+# hard sweep dependency) and free loopback ports.
 #
 # Usage: bash substrate/scripts/tests/fleet-status-sweep-apps.test.sh
 #   Run from the repo root.
 #
 # Hermetic environment contract:
 #   Each test builds a scratch tree at $FIXTURE and runs the sweep with
-#   HOME="$FIXTURE" so the real ~/fleet/apps/ is never enumerated. Test
-#   systemd units live under the REAL ~/.config/systemd/user/ (they must,
-#   because systemctl --user reads from there) but every test unit slug is
-#   prefixed `sweep-t116-` for collision-safety with real apps on this box.
-#   The scratch tree AND every registered test unit are removed on EXIT
-#   via a trap.
+#   HOME="$FIXTURE" so both `~/fleet/apps/` AND `~/.config/systemd/user/`
+#   resolve entirely under the fixture — the real host state is never read
+#   or written. Port listeners bind 127.0.0.1:<port> in the driver's own
+#   process namespace, are tracked in LISTENER_PIDS, and are killed on EXIT.
+#   HOME_HOST_DIR is unset in `run_sweep` so the sweep exercises its
+#   port-probe branch (not the container-namespace trust branch — see
+#   `_build_app_line` for that split).
 #
-# Requirements: bash, python3, systemctl --user session (see D-23 SKIP gate).
+# Requirements: bash, python3.
 
 set -u  # -e is NOT set — the script uses explicit assert helpers so a failing
         # assert does not silently skip subsequent tests.
@@ -59,29 +67,14 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-# ---- CI gate: systemd --user session availability (D-23) ----
-# On boxes with a live user session (t1000, aithercloud, the user's laptop) the
-# probe returns "running"/"degraded" and this driver runs the full suite.
-# On CI containers without a user session the probe fails (either exit 1 or
-# NOTOK) and we SKIP with exit 0 so the pre-deploy gate doesn't fail.
-if ! systemctl --user is-system-running >/dev/null 2>&1; then
-  # Second probe — `is-system-running` returns 1 when degraded but we still
-  # want the driver to run in that case. The real "no session" symptom is
-  # that `list-units` also fails.
-  if ! systemctl --user list-units >/dev/null 2>&1; then
-    printf 'SKIP: systemd --user session not available (agent-UAT only, per CONTEXT D-23)\n'
-    exit 0
-  fi
-fi
-
 # ---- scratch fixture ----
 FIXTURE=""
 FIXTURE=$(mktemp -d)
 
-# ---- registered test units tracking ----
-# Every unit slug we register via create_test_unit gets appended here so
-# cleanup() can stop + remove them regardless of test success/failure.
-REGISTERED_UNITS=()
+# ---- port-listener tracking ----
+# Every listener PID spawned by create_test_unit(active=true) gets appended
+# here so cleanup() can kill them regardless of test success/failure.
+LISTENER_PIDS=()
 
 cleanup() {
   cleanup_test_units
@@ -188,16 +181,18 @@ assert_stderr_contains() {
 # ---- unit lifecycle helpers ----
 #
 # create_test_unit <slug> <port> <active>
-#   Writes ~/.config/systemd/user/app-<slug>.service with a minimal
-#   /bin/sleep-based unit + Environment=PORT=<port>. daemon-reload. If
-#   active=true, `start` the unit. In either case register the slug in
-#   REGISTERED_UNITS so cleanup will tear it down.
+#   Writes $FIXTURE/.config/systemd/user/app-<slug>.service with a minimal
+#   [Service] section carrying Environment=PORT=<port>. If active=true, also
+#   spawns a Python `http.server` bound to 127.0.0.1:<port> and appends its
+#   PID to LISTENER_PIDS. No systemctl calls — the sweep reads the file
+#   directly and probes the port via TCP connect, so real systemd
+#   registration is unnecessary.
 create_test_unit() {
   local slug="$1" port="$2" active="$3"
-  local user_unit_dir="$HOME/.config/systemd/user"
-  local unit_path="$user_unit_dir/app-${slug}.service"
+  local unit_dir="$FIXTURE/.config/systemd/user"
+  local unit_path="$unit_dir/app-${slug}.service"
 
-  mkdir -p "$user_unit_dir"
+  mkdir -p "$unit_dir"
   cat > "$unit_path" <<UNIT
 [Unit]
 Description=Phase 118 test unit for slug=${slug}
@@ -208,62 +203,81 @@ Environment=PORT=${port}
 ExecStart=/bin/sleep 3600
 UNIT
 
-  systemctl --user daemon-reload
-
-  # Track registration regardless of active state so cleanup runs even if
-  # `start` fails partway.
-  REGISTERED_UNITS+=("$slug")
-
   if [ "$active" = "true" ]; then
-    if ! systemctl --user start "app-${slug}.service" >/dev/null 2>&1; then
-      fail "create_test_unit: failed to start app-${slug}.service"
+    # http.server binds a listening socket on the given port. `--bind
+    # 127.0.0.1` matches how apps declare their bind address; the sweep's
+    # probe uses 127.0.0.1 too. stdout/stderr are silenced so port-listener
+    # noise doesn't leak into $STDERR_FILE (which asserts against sweep
+    # output only). PID captured into LISTENER_PIDS for cleanup.
+    python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1 &
+    LISTENER_PIDS+=("$!")
+
+    # Small settle so the accept() socket is bound before the sweep probes.
+    # http.server binds synchronously so 50 ms is more than enough; timing
+    # test flakiness would show up as case1 is_healthy=false and be obvious.
+    local tries=0
+    while [ "$tries" -lt 10 ]; do
+      if python3 -c "
+import socket, sys
+try:
+    socket.create_connection(('127.0.0.1', $port), timeout=0.2).close()
+except OSError:
+    sys.exit(1)
+" 2>/dev/null; then
+        break
+      fi
+      tries=$((tries + 1))
+      sleep 0.05
+    done
+    if [ "$tries" -eq 10 ]; then
+      fail "create_test_unit: port-listener for app-${slug} did not come up on 127.0.0.1:${port}"
     fi
   fi
 }
 
 cleanup_test_units() {
-  local slug
-  local -i had_any=0
-  # If never entered a test, or systemctl went away, tolerate silently.
-  if ! command -v systemctl >/dev/null 2>&1; then
-    return
-  fi
+  local pid
   # Under `set -u`, iterating an empty array via "${arr[@]}" is unbound; the
   # `+` alt-value expansion is the portable safe idiom (works when either the
   # array is unset OR has zero elements). Same pattern used elsewhere in the
   # fleet-substrate shell drivers.
-  for slug in ${REGISTERED_UNITS[@]+"${REGISTERED_UNITS[@]}"}; do
-    [ -z "$slug" ] && continue
-    had_any=1
-    systemctl --user stop "app-${slug}.service" >/dev/null 2>&1 || true
-    rm -f "$HOME/.config/systemd/user/app-${slug}.service"
+  for pid in ${LISTENER_PIDS[@]+"${LISTENER_PIDS[@]}"}; do
+    [ -z "$pid" ] && continue
+    # kill first with SIGTERM; if the http.server is looping fast, escalate.
+    kill "$pid" >/dev/null 2>&1 || true
+    # brief wait then SIGKILL as insurance. http.server responds to SIGTERM
+    # in practice, so this is a belt.
+    sleep 0.02
+    kill -9 "$pid" >/dev/null 2>&1 || true
+    wait "$pid" >/dev/null 2>&1 || true
   done
-  # daemon-reload once at the end — cheaper than per-unit and idempotent.
-  if [ "$had_any" -eq 1 ]; then
-    systemctl --user daemon-reload >/dev/null 2>&1 || true
-  fi
-  REGISTERED_UNITS=()
+  LISTENER_PIDS=()
+  # Fixture-side unit files are wiped along with $FIXTURE in reset_test_state
+  # / cleanup, so no separate rm loop.
 }
 
 # ---- sweep runner ----
 #
 # run_sweep: HOME=$FIXTURE python3 $SWEEP; capture stdout to stdout, stderr
-# to $STDERR_FILE. IMPORTANT: HOME is the fixture (so ~/fleet/apps/ is the
-# scratch tree) but systemd --user reads from the REAL ~/.config/systemd/user/
-# regardless of HOME (it uses XDG_RUNTIME_DIR / UID). This asymmetry is what
-# makes the test setup honest — we exercise real systemctl output while
-# isolating the filesystem-side app enumeration.
+# to $STDERR_FILE. HOME is the fixture so BOTH ~/fleet/apps/ AND
+# ~/.config/systemd/user/ resolve entirely under the fixture — the sweep's
+# `_read_app_unit_file(slug, home)` reads unit files written by
+# `create_test_unit`, and `_probe_app_port` probes the listener we spawned.
+# HOME_HOST_DIR is explicitly unset so the sweep does NOT take the
+# container-namespace trust branch (see `_build_app_line` in the sweep).
 run_sweep() {
-  HOME="$FIXTURE" python3 "$SWEEP" 2>"$STDERR_FILE"
+  env -u HOME_HOST_DIR HOME="$FIXTURE" python3 "$SWEEP" 2>"$STDERR_FILE"
 }
 
 # ---- per-test setup ----
 #
 # reset_test_state: wipe fixture + stderr file. Called from run_test.
 reset_test_state() {
-  rm -rf "${FIXTURE:?}"/*
-  # Tear down any units registered by a prior test so cases are independent.
+  # Kill any listeners spawned by a prior test so ports are free for the
+  # next case. Must happen BEFORE the fixture wipe so `$FIXTURE/.config/...`
+  # still exists to reference (though nothing here reads it).
   cleanup_test_units
+  rm -rf "${FIXTURE:?}"/*
   if [ -n "$STDERR_FILE" ] && [ -f "$STDERR_FILE" ]; then
     rm -f "$STDERR_FILE"
   fi
@@ -422,13 +436,13 @@ test_case_07_slug_injection() {
 
 # Case 8: MEDIUM-4 folder-count cap — 51 valid apps must produce at most
 # APP_ENUM_CAP (50) app lines + a stderr warn tagged
-# fleet_status_apps_cap_hit. Apps use registered-but-inactive units so
-# each still emits (D-02 carve-out: emit unhealthy for stopped) — proves
-# the cap fires on emission count, not on any subset. daemon-reload runs
-# ONCE at the end (per-unit reloads would be O(n²) system-wide).
+# fleet_status_apps_cap_hit. Unit files exist for every app but no port
+# listener is spawned — the D-02 carve-out emits each as unhealthy, so all
+# 51 still count toward the cap even though none pass the port probe.
+# Proves the cap fires on emission count, not on any subset.
 test_case_08_folder_count_cap() {
-  local user_unit_dir="$HOME/.config/systemd/user"
-  mkdir -p "$user_unit_dir"
+  local unit_dir="$FIXTURE/.config/systemd/user"
+  mkdir -p "$unit_dir"
 
   local i slug port=9700
   for i in $(seq 1 51); do
@@ -439,8 +453,11 @@ import json, sys
 sys.stdout.write(json.dumps({'title': 'Cap $i', 'description': 'MEDIUM-4 test'}))
 " > "$FIXTURE/fleet/apps/$slug/app.json"
 
-    # Write the unit file directly; batch a single daemon-reload below.
-    cat > "$user_unit_dir/app-${slug}.service" <<UNIT
+    # Fixture-side unit file — sweep reads it directly. No systemctl
+    # registration needed. Port probe will fail (no listener) so each app
+    # emits with is_healthy=false via the D-02 carve-out — but they still
+    # emit and thus still count against APP_ENUM_CAP.
+    cat > "$unit_dir/app-${slug}.service" <<UNIT
 [Unit]
 Description=Phase 118 MEDIUM-4 test unit for slug=${slug}
 
@@ -449,13 +466,7 @@ Type=simple
 Environment=PORT=$((port + i))
 ExecStart=/bin/sleep 3600
 UNIT
-    # Register for cleanup regardless of start-state (units are INACTIVE
-    # in this test — D-02 carve-out still emits them, so each still
-    # counts against the cap).
-    REGISTERED_UNITS+=("$slug")
   done
-
-  systemctl --user daemon-reload
 
   local out
   out=$(run_sweep)

@@ -90,6 +90,7 @@ import glob
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -175,23 +176,27 @@ TMUX_TIMEOUT_SEC = 1.5
 # ---------------------------------------------------------------------------
 
 # App slug regex — mirrors the kebab-case pattern in substrate/skills/app-
-# development/create-app.sh:32. Applied BEFORE any subprocess call as a
-# defense-in-depth guard against slug-injection into `systemctl --user` argv
-# (T-118-01-SL). Combined with subprocess.run's argv form (never shell=True),
-# argv-level injection is not possible; the regex is the belt to the argv-form
-# suspenders.
+# development/create-app.sh:32. Applied when reading the on-disk unit filename
+# to reject anything that would traverse or otherwise not correspond to a
+# legitimate app-<slug>.service filename.
 APP_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
 # Maximum slug length. Mirrors the [:40] clamps used in _log calls elsewhere;
-# rejects abusively-long folder names before they reach the subprocess layer
+# rejects abusively-long folder names before they reach the filesystem layer
 # or a systemd unit name.
 APP_SLUG_MAX_LEN = 40
 
-# Per-subprocess timeout for systemctl --user calls. Mirrors TMUX_TIMEOUT_SEC.
-# With RESEARCH § Q6's one-shot `systemctl show` consolidation, this is 1
-# subprocess per app × 1.5s worst-case × the user's ~10-app ceiling = comfortably
-# inside the 8s exec budget (T-118-01-DoS).
-APP_SUBPROCESS_TIMEOUT_SEC = 1.5
+# TCP loopback probe timeout for app health. A listening socket on 127.0.0.1
+# = "app is up." 300 ms is enough for the local kernel accept path (no
+# handshake beyond SYN/SYN-ACK) and comfortably inside the 8s exec budget
+# even with APP_ENUM_CAP=50 apps × 300 ms serial = 15 s worst-case — but in
+# practice healthy apps accept synchronously, and unhealthy ones ECONNREFUSE
+# immediately, so total wall-time hovers under 1 s for realistic app counts.
+APP_PORT_PROBE_TIMEOUT_SEC = 0.3
+
+# `Environment=PORT=<n>` extractor for the user's systemd unit body. Anchored
+# to a whole-word PORT= so we don't collide with `HTTP_PORT=` or similar.
+APP_UNIT_ENV_PORT_RE = re.compile(r"^\s*Environment\s*=.*?\bPORT=(\d+)\b", re.MULTILINE)
 
 # Phase 118 code-review MEDIUM-4 (fix pass 2026-09-18): DoS-hardening caps on
 # the source-C app enumeration in _enumerate_apps. Prior shape iterated
@@ -641,70 +646,65 @@ def _resolve_pid_to_tmux_session(pid):
 
 
 # ---------------------------------------------------------------------------
-# Phase 118 — systemd --user one-shot query helper.
+# Phase 118 (revised 2026-09-19) — filesystem-only app inspection helpers.
+#
+# Prior shape (Phase 118 ship): a `systemctl --user show app-<slug>.service`
+# call gave existence (LoadState=loaded), health (ActiveState=active), and
+# port (Environment=PORT=<n>) in one round-trip. That broke on the Skynet
+# self-poll (hostId 6) once peer's isLocalHostId acquireLocalChannel fix
+# ran the sweep from inside the container: the container is uid 0 with no
+# /run/user/1000 mount and no dbus session, so every `systemctl --user`
+# call transport-failed → sweep dropped every t1000 app-line silently.
+#
+# Fix: the source of truth for existence + port is the unit file on disk
+# under ~/.config/systemd/user/app-<slug>.service — the same file systemd
+# itself reads. Health becomes a TCP loopback probe on 127.0.0.1:<port>.
+# Filesystem-only, matches the identities path (which also reads sentinels
+# rather than asking systemd), works uniformly across every host including
+# the container self-poll.
+#
+# The port-probe health signal is weaker than ActiveState=active (a wedged
+# app returning 500s still probes green), but the sidebar tile only needs
+# "is this reachable" — the full-app view surfaces detail. The old signal
+# was also imperfect (systemd-active with a hung request loop probes green
+# the same way).
 # ---------------------------------------------------------------------------
 
 
-def _systemd_show(slug):
-    """One-shot `systemctl --user show app-<slug>.service` → dict or None.
+def _read_app_unit_file(slug, home):
+    """Return unit-file text or None if the file doesn't exist / can't be read.
 
-    Consolidates the three per-app systemd probes (unit-exists, is-active,
-    Environment) into a single `systemctl show` call per RESEARCH § Q6's
-    one-shot recommendation. Returns a dict with keys `load_state`,
-    `active_state`, and `environment` (raw first-occurrence Environment= line
-    value, or empty string when absent).
-
-    Transport failures (TimeoutExpired, OSError, non-zero exit) return None
-    and log `systemd_show_failed` on stderr. A non-existent unit yields a
-    zero-exit response with LoadState=not-found — that's NOT a transport
-    error, so we return the dict and the caller reads `load_state` to decide
-    D-01 check (b).
-
-    Argv-form subprocess.run — NEVER shell=True (T-118-01-SL).
+    Existence of ~/.config/systemd/user/app-<slug>.service is the source of
+    truth for "this app is registered on this box" — same file `systemctl
+    --user daemon-reload` reads, no systemd round-trip required.
     """
+    path = os.path.join(home, ".config", "systemd", "user", f"app-{slug}.service")
     try:
-        result = subprocess.run(
-            ["systemctl", "--user", "show", f"app-{slug}.service"],
-            capture_output=True,
-            text=True,
-            timeout=APP_SUBPROCESS_TIMEOUT_SEC,
-        )
-    except subprocess.TimeoutExpired:
-        _log("systemd_show_failed", slug=slug[:APP_SLUG_MAX_LEN], reason="timeout")
-        return None
-    except OSError as e:
-        _log("systemd_show_failed", slug=slug[:APP_SLUG_MAX_LEN],
-             reason="os_error", errno=e.errno)
-        return None
-    if result.returncode != 0:
-        # `systemctl show` on a non-existent unit still returns 0 (the fields
-        # simply say LoadState=not-found). A non-zero exit here is a real
-        # transport-tier failure — log and bail.
-        _log("systemd_show_failed", slug=slug[:APP_SLUG_MAX_LEN],
-             reason="nonzero_exit", rc=result.returncode)
+        with open(path, "r", encoding="utf-8") as fh:
+            return fh.read()
+    except (FileNotFoundError, PermissionError, OSError):
         return None
 
-    load_state = ""
-    active_state = ""
-    environment = ""
-    for line in result.stdout.split("\n"):
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        if key == "LoadState" and not load_state:
-            load_state = value
-        elif key == "ActiveState" and not active_state:
-            active_state = value
-        elif key == "Environment" and not environment:
-            # `Environment` may appear multiple times; per RESEARCH § Q6 we
-            # take the first occurrence for shape 2. PORT extraction below
-            # handles absent-env by yielding null.
-            environment = value
-    return {
-        "load_state": load_state,
-        "active_state": active_state,
-        "environment": environment,
-    }
+
+def _probe_app_port(port):
+    """Return True if 127.0.0.1:<port> accepts a TCP connect within the timeout.
+
+    A listening socket on loopback = "the app is up." Not a full HTTP health
+    check — an app returning 500s or wedged mid-request would still pass, and
+    an app that binds only to a non-loopback interface would falsely fail.
+    For the sidebar tile that's a reasonable tradeoff; the frontend surfaces
+    a probe-fail as "not running" and the user can drill into the full-app
+    view for detail.
+    """
+    if not isinstance(port, int) or port <= 0 or port > 65535:
+        return False
+    try:
+        with socket.create_connection(
+            ("127.0.0.1", port), timeout=APP_PORT_PROBE_TIMEOUT_SEC
+        ):
+            return True
+    except (OSError, socket.timeout):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -1222,17 +1222,18 @@ def _enumerate_pids(home):
 # ---------------------------------------------------------------------------
 
 
-def _build_app_line(slug, folder_path):
+def _build_app_line(slug, folder_path, home):
     """Assemble a SweepAppLine dict, or return None if D-01 excludes it.
 
-    D-01 checks (all three must pass for inclusion):
+    D-01 checks (both must pass for inclusion):
       (a) folder contains a readable app.json that parses as JSON
-      (b) a corresponding systemd --user unit exists (LoadState=loaded)
-      (c) the unit is currently active per ActiveState=active
+      (b) a corresponding systemd --user unit FILE exists on disk at
+          ~/.config/systemd/user/app-<slug>.service
 
-    D-02 carve-out: if (a) + (b) pass but (c) fails, still emit with
-    is_healthy=false + health_message. Silent removal of a definitely-was-
-    an-app is worse than surfacing the diagnostic.
+    D-02 carve-out: if (a) + (b) pass but the port probe fails (or no PORT is
+    declared in the unit body), still emit with is_healthy=false +
+    health_message. Silent removal of a definitely-was-an-app is worse than
+    surfacing the diagnostic.
 
     Returns a dict with the D-05 emit shape (line_kind, schema_version, slug,
     title, description, port, has_icon, created_at_ms, is_healthy,
@@ -1257,31 +1258,55 @@ def _build_app_line(slug, folder_path):
         _log("app_json_bad_shape", slug=slug[:APP_SLUG_MAX_LEN])
         return None
 
-    # (b) + (c) via a single systemctl show call.
-    info = _systemd_show(slug)
-    if info is None:
-        # Transport failure already logged inside _systemd_show. Treat as
-        # D-01 (b) failure so the app drops out of the picture this tick;
-        # the next successful sweep will pick it up again.
-        return None
-    if info["load_state"] != "loaded":
-        # D-01 check (b) fails — no registered user unit for this slug.
-        # Silent (not a transport error, not a bad card; just "no unit").
+    # (b) unit file exists on disk. Reading the file directly replaces the
+    # pre-2026-09-19 `systemctl --user show LoadState` check — see the
+    # module docblock above _read_app_unit_file for why.
+    unit_text = _read_app_unit_file(slug, home)
+    if unit_text is None:
+        # D-01 check (b) fails — no unit file for this slug. Silent (not a
+        # transport error, not a bad card; just "no unit registered").
         return None
 
-    # (c) unit active — D-02 carve-out fallthrough when inactive.
-    is_healthy = info["active_state"] == "active"
-    if is_healthy:
+    # Port from Environment=PORT=<n> in the unit body (D-07). None if the
+    # unit doesn't declare a PORT — D-05 allows nullable port.
+    m = APP_UNIT_ENV_PORT_RE.search(unit_text)
+    port = int(m.group(1)) if m else None
+
+    # Health via loopback probe (D-02 carve-out). Two special cases:
+    #
+    #   1. No PORT declaration → can't probe. Emit as unhealthy with a
+    #      diagnostic so the frontend surfaces the misconfiguration.
+    #
+    #   2. Running inside the Skynet container's constrained namespace (the
+    #      isLocalHostId acquireLocalChannel path — see starter.ts). The
+    #      container's 127.0.0.1 is not the host's 127.0.0.1 (network
+    #      namespaces don't share loopback) so the probe would always fail
+    #      even for a healthy host-loopback-bound app. Same gotcha the
+    #      app-pane proxy tunnels through — see pane-target-resolver.ts D-10
+    #      resolution. In this path, trust the unit-file presence as the
+    #      health signal: the sweep runs against the same host that owns
+    #      the file, and the click-through path uses the SSH tunnel which
+    #      IS namespace-crossing. Signal: `HOME_HOST_DIR` env is set only
+    #      by the Skynet compose config, so this branch is not reachable
+    #      on peer hosts (where the sweep runs in the user's real shell).
+    if port is None:
+        is_healthy = False
+        health_message = (
+            "port not declared in systemd unit — ask an agent to fix "
+            "app-" + slug[:APP_SLUG_MAX_LEN] + ".service"
+        )
+    elif os.environ.get("HOME_HOST_DIR"):
+        is_healthy = True
         health_message = None
     else:
-        # D-03: backend authors the ready-to-render string. Literal phrasing
-        # matches the user's steer during the /open grill 2026-09-18.
-        health_message = "not running — ask an agent to check on it"
-
-    # Port from unit env (D-07). Extract via regex against the Environment=
-    # payload; None if PORT=<digits> is absent (D-05 allows nullable port).
-    m = re.search(r"\bPORT=(\d+)\b", info["environment"])
-    port = int(m.group(1)) if m else None
+        is_healthy = _probe_app_port(port)
+        if is_healthy:
+            health_message = None
+        else:
+            # D-03: backend authors the ready-to-render string. Literal
+            # phrasing matches the user's steer during the /open grill
+            # 2026-09-18.
+            health_message = "not running — ask an agent to check on it"
 
     # D-06: has_icon is a boolean, not a URL. Shape 4 owns the serving path.
     has_icon = os.path.exists(os.path.join(folder_path, "icon.webp"))
@@ -1380,7 +1405,7 @@ def _enumerate_apps(home):
                     _log("app_slug_skipped", slug=slug[:APP_SLUG_MAX_LEN])
                     continue
                 try:
-                    line = _build_app_line(slug, entry.path)
+                    line = _build_app_line(slug, entry.path, home)
                 except Exception:
                     # Belt-and-braces per RESEARCH § Q8: any unexpected raise
                     # inside _build_app_line is contained here so other apps
