@@ -83,6 +83,8 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   listProjects: vi.fn(),
   createProject: vi.fn(),
   archiveProject: vi.fn(),
+  readProjectFile: vi.fn(),
+  writeProjectFile: vi.fn(),
 }));
 
 // subscription-registry singleton accessor — Wave 2 route relies on this
@@ -114,6 +116,8 @@ import {
   listProjects,
   createProject,
   archiveProject,
+  readProjectFile,
+  writeProjectFile,
 } from "../../claude-session/identity-artifact-reader.js";
 // Phase 117 M8 fix (2026-09-18): import the mocked databaseLogger so
 // null-registry tests can assert the warning is logged.
@@ -228,6 +232,8 @@ beforeEach(() => {
   (listProjects as Mock).mockResolvedValue([]);
   (createProject as Mock).mockResolvedValue(undefined);
   (archiveProject as Mock).mockResolvedValue(undefined);
+  (readProjectFile as Mock).mockResolvedValue({ markdown: "" });
+  (writeProjectFile as Mock).mockResolvedValue({ markdown: "" });
 
   // Rebuild app per test.
   const app = express();
@@ -593,6 +599,198 @@ describe("POST /projects/:slug/archive", () => {
     expect(JSON.stringify(res.body)).not.toContain("sensitive info");
     // Failure → no wire event.
     expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// GET /projects/:slug/file
+// ===========================================================================
+
+describe("GET /projects/:slug/file", () => {
+  it("Test F1: happy LOCAL → 200 { markdown } from readProjectFile(null, slug); no SSH", async () => {
+    (readProjectFile as Mock).mockResolvedValue({
+      markdown: "---\ndisplayName: 'Alpha'\n---\nbody",
+    });
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/projects/alpha/file?hostId=5",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      markdown: "---\ndisplayName: 'Alpha'\n---\nbody",
+    });
+    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(readProjectFile).toHaveBeenCalledTimes(1);
+    expect(readProjectFile).toHaveBeenCalledWith(null, "alpha");
+  });
+
+  it("Test F2: happy REMOTE → 200 with SSH conn passed; conn.end() in finally", async () => {
+    (readProjectFile as Mock).mockResolvedValue({ markdown: "body" });
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/projects/alpha/file?hostId=7",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ markdown: "body" });
+    expect(connectOneShot).toHaveBeenCalledTimes(1);
+    expect(readProjectFile).toHaveBeenCalledWith(stubConn, "alpha");
+    expect(stubConn.end).toHaveBeenCalled();
+  });
+
+  it("Test F3: invalid slug — 'Alpha' → 400 before any I/O", async () => {
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/projects/Alpha/file?hostId=5",
+    });
+
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/slug/);
+    expect(readProjectFile).not.toHaveBeenCalled();
+  });
+
+  it("Test F4: missing hostId → 400 before any I/O", async () => {
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/projects/alpha/file",
+    });
+
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/hostId/);
+    expect(readProjectFile).not.toHaveBeenCalled();
+  });
+
+  it("Test F5: unknown host → 404 (cross-user probe defense T-117-04-01)", async () => {
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/projects/alpha/file?hostId=99",
+    });
+
+    expect(res.status).toBe(404);
+    expect((res.body as { error: string }).error).toMatch(/Host not found/);
+    expect(readProjectFile).not.toHaveBeenCalled();
+  });
+
+  it("Test F6: readProjectFile throws → 500 generic (no err.message leak)", async () => {
+    (readProjectFile as Mock).mockRejectedValue(
+      new Error("EACCES: /private/fs/path leaked — sensitive info to caller"),
+    );
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/projects/alpha/file?hostId=5",
+    });
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "failed to read project file" });
+    expect(JSON.stringify(res.body)).not.toContain("EACCES");
+    expect(JSON.stringify(res.body)).not.toContain("sensitive info");
+  });
+});
+
+// ===========================================================================
+// PUT /projects/:slug/file
+// ===========================================================================
+
+describe("PUT /projects/:slug/file", () => {
+  it("Test G1: happy LOCAL → 200 { markdown } from writeProjectFile(null, slug, contents)", async () => {
+    (writeProjectFile as Mock).mockResolvedValue({ markdown: "new body" });
+
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/alpha/file",
+      body: { hostId: 5, contents: "new body" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ markdown: "new body" });
+    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(writeProjectFile).toHaveBeenCalledTimes(1);
+    expect(writeProjectFile).toHaveBeenCalledWith(null, "alpha", "new body");
+  });
+
+  it("Test G2: happy REMOTE → 200 with SSH conn passed; conn.end() in finally", async () => {
+    (writeProjectFile as Mock).mockResolvedValue({ markdown: "body" });
+
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/alpha/file",
+      body: { hostId: 7, contents: "body" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ markdown: "body" });
+    expect(connectOneShot).toHaveBeenCalledTimes(1);
+    expect(writeProjectFile).toHaveBeenCalledWith(stubConn, "alpha", "body");
+    expect(stubConn.end).toHaveBeenCalled();
+  });
+
+  it("Test G3: invalid slug — 'Alpha' → 400 before any I/O", async () => {
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/Alpha/file",
+      body: { hostId: 5, contents: "body" },
+    });
+
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/slug/);
+    expect(writeProjectFile).not.toHaveBeenCalled();
+  });
+
+  it("Test G4: missing contents → 400 before any I/O", async () => {
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/alpha/file",
+      body: { hostId: 5 },
+    });
+
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/contents/);
+    expect(writeProjectFile).not.toHaveBeenCalled();
+  });
+
+  it("Test G5: non-string contents → 400 before any I/O", async () => {
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/alpha/file",
+      body: { hostId: 5, contents: 123 },
+    });
+
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/contents/);
+    expect(writeProjectFile).not.toHaveBeenCalled();
+  });
+
+  it("Test G6: unknown host → 404", async () => {
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/alpha/file",
+      body: { hostId: 99, contents: "body" },
+    });
+
+    expect(res.status).toBe(404);
+    expect((res.body as { error: string }).error).toMatch(/Host not found/);
+    expect(writeProjectFile).not.toHaveBeenCalled();
+  });
+
+  it("Test G7: writeProjectFile throws → 500 generic (no err.message leak)", async () => {
+    (writeProjectFile as Mock).mockRejectedValue(
+      new Error("ENOENT: /host/private/path leaked — sensitive info"),
+    );
+
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/alpha/file",
+      body: { hostId: 5, contents: "body" },
+    });
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "failed to write project file" });
+    expect(JSON.stringify(res.body)).not.toContain("ENOENT");
+    expect(JSON.stringify(res.body)).not.toContain("sensitive info");
   });
 });
 

@@ -731,6 +731,45 @@ export async function readProjectFile(
 }
 
 /**
+ * Overwrite the project.md file at $HOME/fleet/projects/<slug>/project.md.
+ *
+ * Byte-shape mirror of readProjectFile above — slug gate, LOCAL vs REMOTE
+ * branch, $HOME-literal remote path handed to writeMarkdownFileAtomic (which
+ * routes through getLocalIdentitiesRoot's parent locally and SFTP+SSH
+ * ext_openssh_rename atomic-overwrite remotely). Server-echoes the written
+ * body so callers get an authoritative post-write snapshot without a second
+ * read round-trip.
+ *
+ * Does NOT create the project directory — a missing dir surfaces as ENOENT
+ * from the underlying writeFile/SFTP, which is the intended failure mode
+ * (edit is only invocable from the context menu of an existing project
+ * section header).
+ */
+export async function writeProjectFile(
+  conn: SSHClientType | null,
+  slug: string,
+  contents: string,
+): Promise<{ markdown: string }> {
+  if (!PROJECT_SLUG_RE.test(slug)) {
+    throw new Error("invalid project slug");
+  }
+
+  if (conn === null) {
+    const root = getLocalProjectsRoot();
+    const filePath = path.join(root, slug, "project.md");
+    await writeMarkdownFileAtomic(null, filePath, contents);
+    return { markdown: contents };
+  }
+
+  await writeMarkdownFileAtomic(
+    conn,
+    `$HOME/fleet/projects/${slug}/project.md`,
+    contents,
+  );
+  return { markdown: contents };
+}
+
+/**
  * Create a new project directory at $HOME/fleet/projects/<slug>/ with a bare
  * project.md whose frontmatter carries `displayName: <value>` and empty body
  * (D-25).

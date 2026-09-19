@@ -55,6 +55,8 @@ import {
   listProjects,
   createProject,
   archiveProject,
+  readProjectFile,
+  writeProjectFile,
 } from "../../claude-session/identity-artifact-reader.js";
 import { getSubscriptionRegistry } from "../../fleet-status/subscription-registry.js";
 
@@ -440,6 +442,156 @@ router.post(
         `project archived: userId=${userId} hostId=${hostId} slug=${slug}`,
       );
       res.json({ ok: true });
+      return;
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// GET /projects/:slug/file  →  { markdown: string }
+// PUT /projects/:slug/file  body { hostId, contents }  →  { markdown: string }
+// ---------------------------------------------------------------------------
+//
+// Byte-shape mirror of the sibling routes above: authenticateJWT + parseHostId
+// + resolveHostById + LOCAL/REMOTE branch + generic-500. Underlying primitives
+// are readProjectFile / writeProjectFile in identity-artifact-reader.ts.
+//
+// Security:
+//   - PROJECT_SLUG_RE gate BEFORE any I/O (T-117-04-02 path-traversal defense —
+//     `.` / `/` outside the charset).
+//   - resolveHostById 404 on cross-user / unknown (T-117-04-01 EoP defense).
+//   - Fixed 500 shape (T-117-04-05 info-disclosure defense).
+//   - authenticateJWT on both routes (T-117-04-04 unauth flood).
+
+router.get(
+  "/:slug/file",
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    const slug = String(req.params.slug ?? "");
+    if (!slug || !PROJECT_SLUG_RE.test(slug)) {
+      res.status(400).json({ error: "slug must match [a-z0-9-]{1,64}" });
+      return;
+    }
+
+    const parsed = parseHostId(req.query.hostId);
+    if (!parsed.ok) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    const { hostId } = parsed;
+
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    if (!isLocalHostId(hostId)) {
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch {
+        res.status(504).json({ error: "Host unreachable" });
+        return;
+      }
+    }
+
+    try {
+      const { markdown } = await readProjectFile(conn, slug);
+      res.json({ markdown });
+      return;
+    } catch (err) {
+      databaseLogger.error(
+        `failed to read project file hostId=${hostId} slug=${slug}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      res.status(500).json({ error: "failed to read project file" });
+      return;
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  },
+);
+
+router.put(
+  "/:slug/file",
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    const slug = String(req.params.slug ?? "");
+    if (!slug || !PROJECT_SLUG_RE.test(slug)) {
+      res.status(400).json({ error: "slug must match [a-z0-9-]{1,64}" });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      hostId?: unknown;
+      contents?: unknown;
+    };
+
+    const parsedHost = parseHostId(body.hostId);
+    if (!parsedHost.ok) {
+      res.status(400).json({ error: parsedHost.error });
+      return;
+    }
+    const { hostId } = parsedHost;
+
+    if (typeof body.contents !== "string") {
+      res.status(400).json({ error: "contents is required" });
+      return;
+    }
+    const contents = body.contents;
+
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    if (!isLocalHostId(hostId)) {
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch {
+        res.status(504).json({ error: "Host unreachable" });
+        return;
+      }
+    }
+
+    try {
+      const { markdown } = await writeProjectFile(conn, slug, contents);
+      databaseLogger.info(
+        `project file written: userId=${userId} hostId=${hostId} slug=${slug} bytes=${contents.length}`,
+      );
+      res.json({ markdown });
+      return;
+    } catch (err) {
+      databaseLogger.error(
+        `failed to write project file hostId=${hostId} slug=${slug}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      res.status(500).json({ error: "failed to write project file" });
       return;
     } finally {
       if (conn) {

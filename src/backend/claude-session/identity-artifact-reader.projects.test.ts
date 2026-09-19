@@ -80,6 +80,7 @@ import {
   writeSessionProjectField,
   listProjects,
   readProjectFile,
+  writeProjectFile,
   createProject,
   archiveProject,
 } from "./identity-artifact-reader.js";
@@ -607,6 +608,72 @@ describe("readProjectFile", () => {
       /invalid project slug/,
     );
     expect(fsReadFileMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("writeProjectFile", () => {
+  it("Test W1: LOCAL happy — writeMarkdownFileAtomic (writeFile+rename) hits $HOME/fleet/projects/alpha/project.md; server-echoes markdown", async () => {
+    fsWriteFileMock.mockImplementation(() => Promise.resolve());
+    fsRenameMock.mockImplementation(() => Promise.resolve());
+
+    const contents = "---\ndisplayName: 'Alpha'\n---\nedited body";
+    const result = await writeProjectFile(null, "alpha", contents);
+
+    // Server-echo shape.
+    expect(result).toEqual({ markdown: contents });
+
+    // .tmp write then rename (writeMarkdownFileAtomic's atomic-write pattern).
+    expect(fsWriteFileMock).toHaveBeenCalledTimes(1);
+    const tmpPath = fsWriteFileMock.mock.calls[0][0] as string;
+    expect(tmpPath.endsWith("/alpha/project.md.tmp")).toBe(true);
+    const writtenBuf = fsWriteFileMock.mock.calls[0][1] as Buffer;
+    expect(writtenBuf.toString("utf-8")).toBe(contents);
+
+    expect(fsRenameMock).toHaveBeenCalledTimes(1);
+    const renameFrom = fsRenameMock.mock.calls[0][0] as string;
+    const renameTo = fsRenameMock.mock.calls[0][1] as string;
+    expect(renameFrom.endsWith("/alpha/project.md.tmp")).toBe(true);
+    expect(renameTo.endsWith("/alpha/project.md")).toBe(true);
+    expect(renameTo).not.toContain(".tmp");
+  });
+
+  it("Test W2: LOCAL ENOENT on missing project dir — writeFile rejects, writeProjectFile propagates the error (no silent recovery)", async () => {
+    const enoent = new Error("ENOENT: no such file or directory") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    fsWriteFileMock.mockImplementation(() => Promise.reject(enoent));
+
+    await expect(
+      writeProjectFile(null, "alpha", "body"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+
+    // Rename should NOT fire when the .tmp write itself failed.
+    expect(fsRenameMock).not.toHaveBeenCalled();
+  });
+
+  it("Test W3: invalid slug — 'Alpha' (uppercase) throws before any I/O", async () => {
+    await expect(writeProjectFile(null, "Alpha", "body")).rejects.toThrow(
+      /invalid project slug/,
+    );
+    expect(fsWriteFileMock).not.toHaveBeenCalled();
+    expect(fsRenameMock).not.toHaveBeenCalled();
+  });
+
+  it("Test W4: REMOTE happy — SFTP writeFile + ext_openssh_rename hit $HOME/fleet/projects/alpha/project.md; server-echoes markdown", async () => {
+    const { conn, sftp } = buildMockConn();
+    const contents = "---\ndisplayName: 'Alpha'\n---\nedited body";
+
+    const result = await writeProjectFile(conn, "alpha", contents);
+    expect(result).toEqual({ markdown: contents });
+
+    // SFTP tmp+rename fired against the resolved $HOME/fleet/projects/... path.
+    expect(sftp.writeFile).toHaveBeenCalledTimes(1);
+    const writeTarget = sftp.writeFile.mock.calls[0][0] as string;
+    expect(writeTarget.endsWith("/fleet/projects/alpha/project.md.tmp")).toBe(true);
+
+    expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
+    const renameArgs = sftp.ext_openssh_rename.mock.calls[0];
+    expect(renameArgs[0]).toBe("/home/tester/fleet/projects/alpha/project.md.tmp");
+    expect(renameArgs[1]).toBe("/home/tester/fleet/projects/alpha/project.md");
   });
 });
 

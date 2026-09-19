@@ -77,6 +77,50 @@ export async function archiveProject(
 }
 
 /**
+ * Read the project.md file for a given slug.
+ *
+ * GET /projects/:slug/file?hostId=<n>  →  { markdown: string }
+ *
+ * Returns an empty markdown string when the file is missing (mirrors the
+ * backend readProjectFile ENOENT contract) — the modal treats that as an
+ * unedited-yet project rather than an error.
+ */
+export async function getProjectFile(
+  hostId: number,
+  slug: string,
+): Promise<{ markdown: string }> {
+  try {
+    const url = `/projects/${encodeURIComponent(slug)}/file?hostId=${encodeURIComponent(String(hostId))}`;
+    const response = await authApi.get(url);
+    return response.data as { markdown: string };
+  } catch (error) {
+    handleApiError(error, "read project file");
+  }
+}
+
+/**
+ * Overwrite the project.md file for a given slug.
+ *
+ * PUT /projects/:slug/file  body { hostId, contents }  →  { markdown: string }
+ *
+ * Server-echoes the written body so the modal replaces its local state with
+ * an authoritative snapshot on save (no separate GET round-trip needed).
+ */
+export async function updateProjectFile(
+  hostId: number,
+  slug: string,
+  contents: string,
+): Promise<{ markdown: string }> {
+  try {
+    const url = `/projects/${encodeURIComponent(slug)}/file`;
+    const response = await authApi.put(url, { hostId, contents });
+    return response.data as { markdown: string };
+  } catch (error) {
+    handleApiError(error, "update project file");
+  }
+}
+
+/**
  * Phase 117 Plan 117-07 (Fix 1 / D-05 relay-room carrier): boot-time
  * enumerator that returns every joined relay-room whose account_data carries
  * a `u.project.<slug>` tag. AppShell aggregates the per-host results into a

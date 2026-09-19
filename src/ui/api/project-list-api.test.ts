@@ -36,6 +36,8 @@ import {
   listProjects,
   createProject,
   archiveProject,
+  getProjectFile,
+  updateProjectFile,
 } from "@/api/project-list-api";
 import { authApi } from "@/main-axios";
 
@@ -43,6 +45,7 @@ describe("Phase 117 Plan 117-06 Task 1 — project-list-api", () => {
   beforeEach(() => {
     vi.mocked(authApi.get).mockReset();
     vi.mocked(authApi.post).mockReset();
+    vi.mocked(authApi.put).mockReset();
   });
 
   afterEach(() => {
@@ -135,5 +138,56 @@ describe("Phase 117 Plan 117-06 Task 1 — project-list-api", () => {
     expect(authApi.post).toHaveBeenCalledWith("/projects/abc-123/archive", {
       hostId: 1,
     });
+  });
+
+  // ─── Phase 117 followup — getProjectFile / updateProjectFile ────────────────
+
+  it("Test 7 (getProjectFile happy): GET /projects/alpha/file?hostId=1 returns { markdown }", async () => {
+    vi.mocked(authApi.get).mockResolvedValueOnce({
+      data: { markdown: "---\ndisplayName: 'Alpha'\n---\nbody" },
+    });
+
+    const result = await getProjectFile(1, "alpha");
+
+    expect(authApi.get).toHaveBeenCalledTimes(1);
+    expect(authApi.get).toHaveBeenCalledWith("/projects/alpha/file?hostId=1");
+    expect(result).toEqual({
+      markdown: "---\ndisplayName: 'Alpha'\n---\nbody",
+    });
+  });
+
+  it("Test 8 (getProjectFile error): non-2xx surfaces through handleApiError with the 'read project file' operation label", async () => {
+    vi.mocked(authApi.get).mockRejectedValueOnce(
+      new Error("Request failed with status code 500"),
+    );
+
+    await expect(getProjectFile(1, "alpha")).rejects.toThrow(
+      /read project file/i,
+    );
+  });
+
+  it("Test 9 (updateProjectFile happy): PUT /projects/alpha/file with body {hostId, contents} returns { markdown } (server-echo)", async () => {
+    vi.mocked(authApi.put).mockResolvedValueOnce({
+      data: { markdown: "new body" },
+    });
+
+    const result = await updateProjectFile(1, "alpha", "new body");
+
+    expect(authApi.put).toHaveBeenCalledTimes(1);
+    expect(authApi.put).toHaveBeenCalledWith("/projects/alpha/file", {
+      hostId: 1,
+      contents: "new body",
+    });
+    expect(result).toEqual({ markdown: "new body" });
+  });
+
+  it("Test 10 (updateProjectFile error): non-2xx surfaces through handleApiError with the 'update project file' operation label", async () => {
+    vi.mocked(authApi.put).mockRejectedValueOnce(
+      new Error("Request failed with status code 500"),
+    );
+
+    await expect(updateProjectFile(1, "alpha", "body")).rejects.toThrow(
+      /update project file/i,
+    );
   });
 });

@@ -128,6 +128,10 @@ import { PrettyProjectSectionHeader } from "./PrettyProjectSectionHeader";
 // "Create project" button; on 200 fires onCreated with the backend-echoed
 // slug (D-25 backend-authoritative slugify per Pitfall 1).
 import { CreateProjectModal } from "./CreateProjectModal";
+// Phase 117 followup — ProjectFileModal, opened from the section-header
+// context menu's "Edit project file" item. Wired below in
+// handleEditProjectFile / mounted alongside the other project modals.
+import { ProjectFileModal } from "./ProjectFileModal";
 import {
   useSessionIsWorking,
   // Phase 47 Plan 04 — subscribes PrettyConversationRowLive to the working-
@@ -1752,6 +1756,15 @@ export function PrettyConversationsPanel({
     | null
   >(null);
 
+  // Phase 117 followup — ProjectFileModal open state. Populated when the user
+  // clicks "Edit project file" in the section context menu (handleEditProject
+  // File below); reset when the modal dismisses. hostId is resolved from
+  // projectsList at click time so the modal endpoints hit the correct host.
+  const [projectFileModal, setProjectFileModal] = useState<
+    | { slug: string; displayName: string; hostId: number }
+    | null
+  >(null);
+
   // Phase 117 M-G follow-up (2026-09-18): CreateProjectModal now takes the
   // full hostTree and owns its own host picker (Phase-84 pattern — hidden
   // when the user has exactly one pickable host, visible listbox otherwise).
@@ -2130,19 +2143,35 @@ export function PrettyConversationsPanel({
   );
 
   // Phase 117 Plan 117-09 Task 2 (D-14) — "Edit project file" menu item.
-  // v1 placeholder: log an intent + fall through to close the menu. The
-  // full file-editor integration (mirror the role-file editor at
-  // src/ui/features/pretty-view/RoleModal.tsx) is a follow-on refinement;
-  // in v1 the archive item is the load-bearing action and the edit path
-  // can be a UAT-driven amendment. Structured log discipline preserved.
-  const handleEditProjectFile = useCallback((slug: string) => {
-    // eslint-disable-next-line no-console
-    console.info({
-      operation: "edit_project_file_clicked",
-      slug,
-      note: "v1 no-op — file-editor wire is a follow-on refinement",
-    });
-  }, []);
+  // Followup wire (Phase 117 tail): resolve the project's host from
+  // projectsList (same lookup pattern as handleArchiveProject above — projects
+  // live under a specific host's ~/fleet/projects/ tree per D-01) and open
+  // the ProjectFileModal. If the slug isn't in projectsList (should never
+  // happen — the menu opens from a rendered section header), log a warning
+  // and no-op rather than silently opening against an ambiguous host.
+  const handleEditProjectFile = useCallback(
+    (slug: string) => {
+      const proj = projectsList.find((p) => p.slug === slug);
+      const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
+      if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
+        // eslint-disable-next-line no-console
+        console.warn({
+          operation: "edit_project_file_no_host",
+          slug,
+          reason: proj
+            ? "project host invalid"
+            : "project not found in projectsList",
+        });
+        return;
+      }
+      setProjectFileModal({
+        slug,
+        displayName: proj.displayName,
+        hostId: projHostIdNum,
+      });
+    },
+    [projectsList],
+  );
 
   // Phase 22 (SRIC-04): label for the `+ New role` launcher button.
   const newRoleLabel = t("nav.newRole", {
@@ -3013,6 +3042,22 @@ export function PrettyConversationsPanel({
           data-testid="create-project-modal-placeholder"
           data-pending-project-slug={pendingProjectSlug ?? ""}
           hidden
+        />
+      )}
+      {/* Phase 117 followup — ProjectFileModal wired to the section-header
+          context menu's "Edit project file" item. State carries {slug,
+          displayName, hostId} at open time (resolved from projectsList in
+          handleEditProjectFile). onOpenChange(false) clears the state so a
+          re-open shows the loading skeleton rather than stale content. */}
+      {projectFileModal !== null && (
+        <ProjectFileModal
+          open={true}
+          onOpenChange={(o) => {
+            if (!o) setProjectFileModal(null);
+          }}
+          slug={projectFileModal.slug}
+          displayName={projectFileModal.displayName}
+          hostId={projectFileModal.hostId}
         />
       )}
       {/* Phase 117 Plan 117-09 Task 2 (D-14) — per-section context menu.
