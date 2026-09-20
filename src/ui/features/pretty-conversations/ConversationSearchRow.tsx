@@ -6,7 +6,9 @@
  *   1. Title:    aiTitle || identityKey  (Wave-1 aiTitle is always null so
  *                identityKey is what shows today; when the aiTitle backend
  *                piggyback lands it will Just Work)
- *   2. Subtext:  identityKey · hostName
+ *   2. Subtext:  hostName  (identityKey was previously shown here too but
+ *                is redundant with the title above — dropped per UAT
+ *                feedback)
  *   3. Snippet:  plain text with the matched substring wrapped in a
  *                <span className="pv-search-hit"> — split cleanly via
  *                slice() around hitStart/hitLength, using React text
@@ -73,9 +75,7 @@ export function ConversationSearchRow({
           <span className="pv-search-archived-pill">archived</span>
         )}
       </div>
-      <div className="pv-search-row-subtext">
-        {result.identityKey} · {result.hostName}
-      </div>
+      <div className="pv-search-row-subtext">{result.hostName}</div>
       {snippetNode}
     </button>
   );

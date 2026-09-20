@@ -200,7 +200,7 @@ describe("ConversationSearchModal: D-11 row rendering + highlight", () => {
 
     const row = await screen.findByTestId("conversation-search-row-/a.jsonl");
     expect(row).toHaveTextContent("alice"); // title = identityKey (aiTitle null)
-    expect(row).toHaveTextContent(/alice · host-a/i); // subtext
+    expect(row).toHaveTextContent("host-a"); // subtext (hostName only — identityKey dropped as redundant per UAT feedback)
 
     // Snippet highlight span exists and wraps exactly "foo"
     const hitSpan = within(row).getByText("foo", { selector: "span.pv-search-hit" });
