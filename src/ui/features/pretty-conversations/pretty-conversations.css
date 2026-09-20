@@ -254,14 +254,17 @@
   gap: 8px;
 }
 
-/* Phase 41 Plan 02 (user 2026-08-14): always-in-DOM search input mounted
-   as the FIRST child inside .pv-panel-scroll. On cold-load the one-shot
-   effect in PrettyConversationsPanel.tsx sets scrollTop = this container's
-   offsetHeight so the input sits just above the visible area (revealed only
-   by scrolling up). Messaging-app default shape — flex row with a leading
-   search icon, transparent input, and a trailing × clear affordance that
-   appears only when there is text. Uses the same --color-pv-* palette tokens
-   the rest of the panel uses so the input blends into the scroll surface. */
+/* Phase 41 Plan 02 (user 2026-08-14): messaging-app default search-input
+   shape — flex row with a leading search icon, transparent input, and a
+   trailing × clear affordance that appears only when there is text. Uses
+   the same --color-pv-* palette tokens the rest of the panel uses so the
+   input blends into the surrounding surface.
+   Phase 122 Plan 04 (D-17 removal): the original consumer — the inline
+   filter-as-you-type input at the top of PrettyConversationsPanel's scroll
+   region — was retired together with the one-shot cold-load scroll-hide
+   effect. The CSS block is PRESERVED because Phase 91's ParticipantSearchInput
+   (used by NewConversationModal) reuses the same class names for a self-
+   contained participant search affordance (see ParticipantSearchInput.tsx). */
 .pv-search-container {
   display: flex;
   align-items: center;

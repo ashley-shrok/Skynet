@@ -2781,501 +2781,67 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 Archived section (D-06
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 41 Plan 02 — Search input + one-shot cold-load scroll-hide (Task 1)
+// Phase 122 Plan 04 (D-17 removal): the Phase 41 Plan 02 describes
+// ("search input mount + scroll-hide" and "filter predicate + flat match
+// render") — L2783-L3278 pre-removal — are RETIRED together with the
+// inline filter-as-you-type input the modal (Phase 122 Plan 03) replaced.
+// The compact describe below asserts (a) the OLD inline-filter selectors
+// are absent and (b) the NEW pv-header-search-button is present and opens
+// the modal — the positive proof that D-17 is done under D-18 ordering.
 // ─────────────────────────────────────────────────────────────────────────────
-// user 2026-08-14 locks (see 41-CONTEXT.md + 41-02-PLAN.md):
-//   - A `<input type="search">` is ALWAYS in the DOM at the top of the panel
-//     scroll region, regardless of snapshot state (empty / loading / populated).
-//   - On the app's first cold-load per browser session, the scroll region's
-//     scrollTop is set once so the search input sits just out of view above
-//     the visible area.
-//   - The scroll-hide fires EXACTLY ONCE per browser session — a StrictMode
-//     double-mount or any future panel remount does NOT re-clamp scroll.
-//   - The one-shot behavior is gated by a sessionStorage sentinel key
-//     "pv-conv-search-hidden-once".
-//   - The `only=1` new-window opener path clears the sentinel key so a fresh
-//     tab always gets the hide (Rule T-41-02-01 — sessionStorage-bleed guard).
-//   - NO auto-focus on mount (user lock #4 — tap-to-focus on mobile,
-//     uniform on desktop).
 
-describe("PrettyConversationsPanel (Phase 41 Plan 02): search input mount + scroll-hide", () => {
-  const SEARCH_HIDDEN_SENTINEL_KEY = "pv-conv-search-hidden-once";
-
-  beforeEach(() => {
-    sessionStorage.removeItem(SEARCH_HIDDEN_SENTINEL_KEY);
-  });
-
-  afterEach(() => {
-    sessionStorage.removeItem(SEARCH_HIDDEN_SENTINEL_KEY);
-  });
-
-  it("Test A: <input type='search'> mounts as a descendant of .pv-panel-scroll on every render (empty snapshot)", () => {
-    // Empty snapshot — no rows, still loading — the search input MUST still
-    // mount inside .pv-panel-scroll.
+describe("PrettyConversationsPanel (Phase 122 Plan 04): D-17 filter-as-you-type removal", () => {
+  it("R1: the old inline filter selectors are ABSENT from the panel DOM", () => {
+    // Empty snapshot — mirrors the smallest render surface the panel accepts.
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    const scrollEl = container.querySelector(".pv-panel-scroll") as HTMLElement | null;
-    expect(scrollEl).toBeTruthy();
-
-    const searchInput = scrollEl!.querySelector('input[type="search"]');
-    expect(searchInput).toBeTruthy();
-    // Test-id anchor for downstream assertions.
+    // The three retired testids MUST NOT resolve any node.
     expect(
-      scrollEl!.querySelector('[data-testid="pretty-conversations-search-input"]'),
-    ).toBeTruthy();
+      container.querySelector('[data-testid="pretty-conversations-search-container"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="pretty-conversations-search-input"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="pretty-conversations-search-clear"]'),
+    ).toBeNull();
+
+    // Neither an <input type="search"> nor an ARIA searchbox exists anywhere
+    // in the panel — the ParticipantSearchInput reuse lives inside a different
+    // modal (NewConversationModal) which is not mounted by default here.
+    expect(container.querySelector('input[type="search"]')).toBeNull();
   });
 
-  it("Test A2: <input type='search'> mounts on populated snapshot too (survives snapshot state changes)", () => {
-    const hostA = makeHost("h1", "hostA");
-    setSnapshot({
-      middle: [
-        makeConversationRow({ id: "m1", label: "session-1", host: hostA }),
-      ],
-    });
-    mockFleetSessionsLoaded = true;
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const scrollEl = container.querySelector(".pv-panel-scroll") as HTMLElement | null;
-    expect(scrollEl).toBeTruthy();
-    expect(scrollEl!.querySelector('input[type="search"]')).toBeTruthy();
-
-    // The search input is above the middle rows in DOM order (structural
-    // precondition for the scroll-hide behavior).
-    const inputEl = scrollEl!.querySelector('input[type="search"]') as HTMLElement;
-    const rowEl = scrollEl!.querySelector('[data-conversation-id="m1"]') as HTMLElement;
-    expect(inputEl).toBeTruthy();
-    expect(rowEl).toBeTruthy();
-    // Node.DOCUMENT_POSITION_FOLLOWING = 4 — input precedes row.
-    expect(inputEl.compareDocumentPosition(rowEl) & 4).toBe(4);
-  });
-
-  it("Test B: one-shot sentinel FIRST mount — sessionStorage[key]=null → scrollTop set + sentinel written", () => {
-    // Fresh browser session: sentinel absent. After render, effect runs.
-    expect(sessionStorage.getItem(SEARCH_HIDDEN_SENTINEL_KEY)).toBeNull();
-
-    // Spy on the .pv-panel-scroll's scrollTop setter so we can observe the
-    // one-shot assignment. Since JSDOM makes scrollTop a writable data
-    // property, we can just observe the post-render value.
+  it("R2: the new pv-header-search-button is present and opens the ConversationSearchModal", async () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        // Same gate as the pencil / more / global-files buttons — the search
+        // button lives inside the showPencilButton conditional per Plan 03.
+        onCreateSession={vi.fn()}
+      />,
     );
 
-    // After effect fires, sentinel MUST be written.
-    expect(sessionStorage.getItem(SEARCH_HIDDEN_SENTINEL_KEY)).toBe("1");
-  });
+    // The plan-03 button is present with its documented testid.
+    const searchBtn = screen.getByTestId("pv-header-search-button");
+    expect(searchBtn).toBeTruthy();
+    expect(searchBtn.getAttribute("aria-label")).toBe("Search conversations");
 
-  it("Test C: one-shot sentinel SUBSEQUENT mount — sessionStorage[key]='1' → scroll NOT touched, sentinel unchanged", () => {
-    // Pre-seed sentinel as if a prior mount already ran.
-    sessionStorage.setItem(SEARCH_HIDDEN_SENTINEL_KEY, "1");
-
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-
-    // Track any scrollTop assignments via a spy on Element.prototype.
-    const scrollTopSetter = vi.fn();
-    const scrollTopDescriptor = Object.getOwnPropertyDescriptor(
-      Element.prototype,
-      "scrollTop",
-    );
-    Object.defineProperty(Element.prototype, "scrollTop", {
-      configurable: true,
-      get() {
-        return 0;
-      },
-      set(_v: number) {
-        scrollTopSetter(_v);
-      },
+    // Clicking it mounts a role="dialog" (Radix DialogPrimitive.Content).
+    await act(async () => {
+      fireEvent.click(searchBtn);
     });
-
-    try {
-      render(
-        <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-      );
-
-      // The one-shot effect early-returns when sentinel === "1". No scrollTop
-      // assignment should fire.
-      expect(scrollTopSetter).not.toHaveBeenCalled();
-
-      // Sentinel remains "1" — the effect must not re-write it either.
-      expect(sessionStorage.getItem(SEARCH_HIDDEN_SENTINEL_KEY)).toBe("1");
-    } finally {
-      // Restore the descriptor so subsequent tests see JSDOM's default.
-      if (scrollTopDescriptor) {
-        Object.defineProperty(Element.prototype, "scrollTop", scrollTopDescriptor);
-      } else {
-        // Fallback: delete our override so JSDOM re-installs its default.
-        delete (Element.prototype as unknown as { scrollTop?: number }).scrollTop;
-      }
-    }
-  });
-
-  it("Test D: only=1 hash clears the pv-conv-search-hidden-once sentinel via conversation-store module init", async () => {
-    // This test exercises the sessionStorage-bleed guard that fires on
-    // conversation-store module load. The conversation-store.ts module owns
-    // the only=1 clear alongside its existing pv-conv-active-set clear; Phase
-    // 41 Plan 02 extends the guard to also clear
-    // "pv-conv-search-hidden-once".
-    //
-    // The top-of-file vi.mock("@/state/conversation-store", ...) shadows the
-    // real module for the panel tests. To exercise the REAL module's init
-    // guard, we go through the same on-disk path via a subprocess-safe grep
-    // (no runtime hoisting conflict) — the code path is asserted directly.
-    // Set the sentinel + hash, then re-import the real module through
-    // vi.importActual to bypass the mock. vi.importActual with an absolute
-    // path guarantees the real module loads regardless of alias registration.
-    sessionStorage.setItem(SEARCH_HIDDEN_SENTINEL_KEY, "1");
-    sessionStorage.setItem("pv-conv-active-set", JSON.stringify(["seed-1"]));
-
-    const originalHash = window.location.hash;
-    window.location.hash = "#tab=x&only=1";
-    try {
-      vi.resetModules();
-      // vi.importActual bypasses the vi.mock at the top of this file so the
-      // real store module's hydrateActiveSetFromStorage runs its guard.
-      await vi.importActual<typeof import("@/state/conversation-store")>(
-        "@/state/conversation-store",
-      );
-
-      // The only=1 guard MUST have cleared BOTH keys (Phase 41 Plan 02
-      // extended the guard from just pv-conv-active-set to also clear the
-      // new search-hide sentinel — same T-41-02-01 mitigation).
-      expect(sessionStorage.getItem(SEARCH_HIDDEN_SENTINEL_KEY)).toBeNull();
-      expect(sessionStorage.getItem("pv-conv-active-set")).toBeNull();
-    } finally {
-      window.location.hash = originalHash;
-    }
-  });
-
-  it("Test E: no auto-focus — the search input is NOT the active document element after mount", () => {
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const searchInput = container.querySelector(
-      '[data-testid="pretty-conversations-search-input"]',
-    ) as HTMLElement | null;
-    expect(searchInput).toBeTruthy();
-    // user lock #4: no auto-focus on either platform.
-    expect(document.activeElement).not.toBe(searchInput);
-  });
-
-  it("Test E2 (mobile parity): no auto-focus on mobile variant either — uniform tap-to-focus", () => {
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-    const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
-    );
-
-    const searchInput = container.querySelector(
-      '[data-testid="pretty-conversations-search-input"]',
-    ) as HTMLElement | null;
-    expect(searchInput).toBeTruthy();
-    expect(document.activeElement).not.toBe(searchInput);
+    await waitFor(() => {
+      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    });
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 41 Plan 02 — Filter predicate + flat match render branch (Task 2)
-// ─────────────────────────────────────────────────────────────────────────────
-// user 2026-08-14 locks (see 41-CONTEXT.md § Filter behavior):
-//   - Typing flattens the entire list to matches. Pinned zone, flat middle,
-//     and RDP section all collapse into ONE list of matches while a filter
-//     is active. Section boundaries and pin priority are NOT preserved.
-//   - Match target: visible row label text only (label + sublabel where both
-//     shown). No message-body content search.
-//   - Hidden rows do NOT appear in filter matches (user lock #3 — hiding
-//     is a user choice that the filter respects).
-//   - Clearing the filter restores the three-zone view.
-
-describe("PrettyConversationsPanel (Phase 41 Plan 02): filter predicate + flat match render", () => {
-  beforeEach(() => {
-    // Fresh cold-load sentinel each test so the search-hide effect is quiet.
-    sessionStorage.setItem("pv-conv-search-hidden-once", "1");
-  });
-
-  afterEach(() => {
-    sessionStorage.removeItem("pv-conv-search-hidden-once");
-  });
-
-  it("Test F: empty query → three-zone view renders (pinned divider RETIRED per Phase 42 UAT amendment 2026-08-17; RDP divider still present)", () => {
-    // Precondition: searchQuery starts as "" — three-zone view intact.
-    // Phase 42 UAT amendment 2026-08-17: the "Pinned" divider chip is
-    // retired unconditionally — absent both during filter and in the
-    // three-zone view. The RDP divider stays.
-    const hostA = makeHost("h1", "hostA");
-    const rdpHost = makeHost("h2", "WINDOWS-PC", { enableRdp: true });
-    setSnapshot({
-      pinned: [makeConversationRow({ id: "p1", label: "pinned-alpha", host: hostA })],
-      middle: [makeConversationRow({ id: "m1", label: "middle-beta", host: hostA })],
-      rdpGroup: {
-        hostId: "__rdp__",
-        hostName: "",
-        rows: [
-          makeConversationRow({
-            id: "r1",
-            label: "WINDOWS-PC",
-            host: rdpHost,
-            rdpHostRow: true,
-            targetTmuxSession: null,
-          }),
-        ],
-      },
-      pinnedIds: new Set(["p1"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // Pinned divider retired unconditionally; RDP divider still visible;
-    // all rows in their respective zones.
-    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeNull();
-    expect(container.querySelector('[data-testid="rdp-divider"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="p1"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="r1"]')).toBeTruthy();
-  });
-
-  it("Test G: non-empty query flattens all three zones — matching rows render, divider chips are ALL absent", () => {
-    // Rows spread across all three zones — 2 match the query "foo", 1 does not.
-    const hostA = makeHost("h1", "hostA");
-    const rdpHost = makeHost("h2", "foo-desktop", { enableRdp: true });
-    setSnapshot({
-      pinned: [
-        makeConversationRow({ id: "p-foo", label: "foo-1", host: hostA }),
-        makeConversationRow({ id: "p-bar", label: "bar-1", host: hostA }),
-      ],
-      middle: [makeConversationRow({ id: "m-foo", label: "foo-2", host: hostA })],
-      rdpGroup: {
-        hostId: "__rdp__",
-        hostName: "",
-        rows: [
-          makeConversationRow({
-            id: "r-desktop",
-            label: "foo-desktop",
-            host: rdpHost,
-            rdpHostRow: true,
-            targetTmuxSession: null,
-          }),
-        ],
-      },
-      pinnedIds: new Set(["p-foo", "p-bar"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // Type "foo" into the search input.
-    const searchInput = container.querySelector(
-      '[data-testid="pretty-conversations-search-input"]',
-    ) as HTMLInputElement;
-    expect(searchInput).toBeTruthy();
-    fireEvent.change(searchInput, { target: { value: "foo" } });
-
-    // ALL three divider chips MUST be absent during filter (user lock —
-    // section boundaries not preserved during search).
-    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeNull();
-    expect(container.querySelector('[data-testid="rdp-divider"]')).toBeNull();
-    expect(container.querySelector('[data-testid="host-divider"]')).toBeNull();
-
-    // Only "foo" matches render.
-    expect(container.querySelector('[data-conversation-id="p-foo"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="m-foo"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="r-desktop"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="p-bar"]')).toBeNull();
-  });
-
-  it("Test H: filter matches both primary label AND sublabel (identity title/hostname)", () => {
-    // Seed an identity that resolves for a row whose targetTmuxSession maps
-    // to "sess-alpha" (via sessionMatchKey — case-insensitive). The row's
-    // visible sublabel is `identity.title` when subtitleMode="identityTitle"
-    // (the pinned + middle render sites use identityTitle mode); or the
-    // hostname when there's no identity resolution.
-    //
-    // Row: primary label = "sess-alpha" (identity.displayName)
-    //      sublabel      = "boxA-beta" (identity.title)
-    const hostA = makeHost("h1", "hostA");
-    mockIdentitiesByKey = new Map([
-      [
-        "sess-alpha",
-        {
-          identityKey: "sess-alpha",
-          displayName: "sess-alpha",
-          title: "boxA-beta",
-        },
-      ],
-    ]);
-    setSnapshot({
-      middle: [
-        makeConversationRow({
-          id: "m1",
-          label: "sess-alpha", // fallback label (not shown when identity resolves)
-          host: hostA,
-          targetTmuxSession: "sess-alpha",
-        }),
-      ],
-    });
-
-    // First render — search for "alpha" (matches primary displayName).
-    const { container, rerender, unmount } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    const searchInput = container.querySelector(
-      '[data-testid="pretty-conversations-search-input"]',
-    ) as HTMLInputElement;
-    fireEvent.change(searchInput, { target: { value: "alpha" } });
-    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
-
-    // Same input, new query "beta" — matches sublabel (identity.title).
-    fireEvent.change(searchInput, { target: { value: "beta" } });
-    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
-    unmount();
-    // rerender kept to satisfy linter about unused var; not needed here.
-    void rerender;
-  });
-
-  // (Phase 115 Plan 115-02: prior Test I + Test I2 "hidden rows excluded
-  //  from filter matches" tests retired per D-21 alongside the source-code
-  //  deletion of hiddenIds + isRowHidden.)
-
-  it("Test J: clearing the query via the × button restores the three-zone render", () => {
-    const hostA = makeHost("h1", "hostA");
-    const rdpHost = makeHost("h2", "WINDOWS-PC", { enableRdp: true });
-    setSnapshot({
-      pinned: [makeConversationRow({ id: "p1", label: "pinned-alpha", host: hostA })],
-      middle: [makeConversationRow({ id: "m1", label: "middle-beta", host: hostA })],
-      rdpGroup: {
-        hostId: "__rdp__",
-        hostName: "",
-        rows: [
-          makeConversationRow({
-            id: "r1",
-            label: "WINDOWS-PC",
-            host: rdpHost,
-            rdpHostRow: true,
-            targetTmuxSession: null,
-          }),
-        ],
-      },
-      pinnedIds: new Set(["p1"]),
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const searchInput = container.querySelector(
-      '[data-testid="pretty-conversations-search-input"]',
-    ) as HTMLInputElement;
-
-    // Filter on → dividers gone.
-    fireEvent.change(searchInput, { target: { value: "alpha" } });
-    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeNull();
-    expect(container.querySelector('[data-testid="rdp-divider"]')).toBeNull();
-
-    // Click the × clear button — the input value goes back to "" and the
-    // three-zone view MUST restore.
-    const clearBtn = container.querySelector(
-      '[data-testid="pretty-conversations-search-clear"]',
-    ) as HTMLButtonElement;
-    expect(clearBtn).toBeTruthy();
-    fireEvent.click(clearBtn);
-
-    // RDP divider back; pinned divider stays retired unconditionally
-    // (Phase 42 UAT amendment 2026-08-17 — absent during filter AND in the
-    // three-zone view).
-    expect(container.querySelector('[data-testid="pinned-divider"]')).toBeNull();
-    expect(container.querySelector('[data-testid="rdp-divider"]')).toBeTruthy();
-    // All rows visible again.
-    expect(container.querySelector('[data-conversation-id="p1"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="r1"]')).toBeTruthy();
-  });
-
-  it("Test K: case-insensitive substring match against primary label", () => {
-    const hostA = makeHost("h1", "hostA");
-    setSnapshot({
-      middle: [
-        makeConversationRow({ id: "m1", label: "SessAlpha", host: hostA }),
-      ],
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    const searchInput = container.querySelector(
-      '[data-testid="pretty-conversations-search-input"]',
-    ) as HTMLInputElement;
-
-    // Lowercase query hits mixed-case label.
-    fireEvent.change(searchInput, { target: { value: "sess" } });
-    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
-
-    // Uppercase query hits mixed-case label.
-    fireEvent.change(searchInput, { target: { value: "ALPHA" } });
-    expect(container.querySelector('[data-conversation-id="m1"]')).toBeTruthy();
-
-    // Non-matching query drops the row.
-    fireEvent.change(searchInput, { target: { value: "zebra" } });
-    expect(container.querySelector('[data-conversation-id="m1"]')).toBeNull();
-  });
-
-  it("Test L: no message body content search — the filter never matches text outside label/sublabel", () => {
-    // Row's label is "sess-1". A separate out-of-scope "message content"
-    // string is not part of any row field the panel renders in its label.
-    // The filter MUST return zero matches for a query that only appears in
-    // hypothetical message content, never in label/sublabel.
-    const hostA = makeHost("h1", "hostA");
-    setSnapshot({
-      middle: [
-        makeConversationRow({ id: "m1", label: "sess-1", host: hostA }),
-      ],
-    });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    const searchInput = container.querySelector(
-      '[data-testid="pretty-conversations-search-input"]',
-    ) as HTMLInputElement;
-
-    // "banana" is not in the row's label / sublabel / host name — no match.
-    fireEvent.change(searchInput, { target: { value: "banana" } });
-    expect(container.querySelector('[data-conversation-id="m1"]')).toBeNull();
-  });
-
-  it("Test M (dedupe): rows appearing in both activeSet and pinned tiers render only ONCE during filter", () => {
-    // The panel can emit the same row in multiple tiers (activeSet and
-    // pinned can overlap per the store's tier-precedence contract). The
-    // filter branch's union+dedupe must render the row exactly once.
-    const hostA = makeHost("h1", "hostA");
-    const dupeRow = makeConversationRow({ id: "dupe-1", label: "match-me", host: hostA });
-    setSnapshot({
-      activeSet: [dupeRow],
-      pinned: [dupeRow],
-      pinnedIds: new Set(["dupe-1"]),
-    });
-    mockActiveSet = new Set<string>(["dupe-1"]);
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    const searchInput = container.querySelector(
-      '[data-testid="pretty-conversations-search-input"]',
-    ) as HTMLInputElement;
-    fireEvent.change(searchInput, { target: { value: "match" } });
-
-    const matches = container.querySelectorAll('[data-conversation-id="dupe-1"]');
-    expect(matches.length).toBe(1);
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PrettyConversationsPanel (quick-260818-q73): idle sweep
@@ -4531,12 +4097,14 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
     ]);
   });
 
-  // A19: RESEARCH.md Pitfall 2 — the Apps section is inserted OUTSIDE the
-  // search-vs-three-zone ternary at PrettyConversationsPanel.tsx:1833 (pre-
-  // 119-04-edit line number). Typing in the search input MUST NOT hide the
-  // section header — the D-05 always-present invariant would be violated if
-  // a search filter incidentally suppressed the section.
-  it("A19: typing in the search input does NOT hide the Apps section header (Pitfall 2 + D-05)", () => {
+  // A19: RESEARCH.md Pitfall 2 originally proved the Apps section survived the
+  // filter's ternary at PrettyConversationsPanel.tsx:1833 (pre-119-04-edit).
+  // Phase 122 Plan 04 (D-17 removal) retired that ternary — the Apps header
+  // now renders unconditionally alongside the three-zone view. The updated
+  // assertion is structural: the Apps header is present after render even
+  // with an empty snapshot, matching the D-05 always-present invariant that
+  // the ternary previously threatened.
+  it("A19: Apps section header renders unconditionally after D-17 ternary removal (Pitfall 2 + D-05)", () => {
     mockAppTiles = [];
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
 
@@ -4544,23 +4112,14 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // Pre-search: header is present.
     expect(
       screen.getByTestId("pretty-conversations-apps-header"),
     ).toBeTruthy();
-
-    // Type a query into the search input. The panel's search-container at
-    // PrettyConversationsPanel.tsx :1806-1814 renders `<input type="search">`
-    // with data-testid="pretty-conversations-search-input"; RTL exposes it via
-    // the "searchbox" role (WAI-ARIA implicit role for input[type=search]).
-    const searchInput = screen.getByRole("searchbox") as HTMLInputElement;
-    fireEvent.change(searchInput, { target: { value: "xyz" } });
-
-    // Post-search: header MUST still be present — the section renders OUTSIDE
-    // the search-vs-three-zone ternary at pre-119-04-edit line 1833.
-    expect(
-      screen.getByTestId("pretty-conversations-apps-header"),
-    ).toBeTruthy();
+    // Positive D-17 assertion: the retired search-vs-three-zone ternary means
+    // the OLD inline filter input is gone (no searchbox rendered in the panel).
+    // The new search primitive is the header button — asserted separately in
+    // the D-17 removal describe near the top of this file.
+    expect(screen.queryByRole("searchbox")).toBeNull();
   });
 
   // A20: D-01 placement — the Apps section header appears ABOVE the Pinned

@@ -64,7 +64,7 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AppWindow, Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessagesSquare, Monitor, MoreVertical, Pin, Search, SquarePen, X } from "lucide-react";
+import { AppWindow, Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessagesSquare, Monitor, MoreVertical, Pin, Search, SquarePen } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -234,12 +234,10 @@ import { useBrandingConfig } from "@/branding/branding-store";
 import { getBasePath } from "@/lib/base-path";
 import { roleDisplayName } from "@/lib/role-display-name";
 
-// Phase 41 Plan 02: sessionStorage sentinel key for the one-shot cold-load
-// search-input scroll-hide effect. Mirrors the pv-conv-active-set pattern at
-// conversation-store.ts (ACTIVE_SET_STORAGE_KEY): per-tab, dies on tab close,
-// silent try/catch on all reads/writes, cleared by the store's only=1 guard
-// so new-window opener flows start with a fresh cold-load hide.
-const SEARCH_HIDDEN_SENTINEL_KEY = "pv-conv-search-hidden-once";
+// Phase 122 Plan 04 (D-17 removal): the SEARCH_HIDDEN_SENTINEL_KEY constant
+// and its one-shot cold-load scroll-hide useEffect at ~L950 were retired
+// together with the inline filter-as-you-type input the Plan 03 modal
+// replaced. The store-side clear in conversation-store.ts is also retired.
 
 // quick-260818-q73 (shape: .planning/shapes/shape-auto-deactivate-idle-convs.md):
 // Per-tab idle-sweep tunables. `IDLE_DEACTIVATE_THRESHOLD_MS` = the wall-clock
@@ -921,48 +919,12 @@ export function PrettyConversationsPanel({
   const [appsExpanded, setAppsExpanded] = useState(false);
   const appTiles = useAppTiles();
 
-  // Phase 41 Plan 02: search filter state (Task 2 will consume this for the
-  // label-only flatten-and-filter render branch). Controlled input; the clear
-  // affordance × sets it back to "".
-  const [searchQuery, setSearchQuery] = useState("");
-
-  // Phase 41 Plan 02: refs for the one-shot cold-load scroll-hide effect
-  // below. `scrollContainerRef` is attached to the `.pv-panel-scroll` div;
-  // `searchContainerRef` is attached to the `<div className="pv-search-
-  // container">` wrapper so the effect can measure its offsetHeight and set
-  // scrollTop to hide the input just above the viewport. Both are
-  // pre-effect-attached refs — the effect reads .current in the useEffect
-  // body after mount, when both nodes have been rendered.
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const searchContainerRef = useRef<HTMLDivElement>(null);
-
-  // Phase 41 Plan 02: one-shot cold-load scroll-hide effect. Gated by a
-  // sessionStorage sentinel (SEARCH_HIDDEN_SENTINEL_KEY) so the hide fires
-  // exactly ONCE per browser session (StrictMode dev double-mount + any
-  // future panel remount both no-op on the second run). user lock —
-  // "we make the effort on first load of the list to hide it and then
-  // don't mess with it after that." Silent try/catch guards protect against
-  // sessionStorage-unavailable environments (SSR / private-mode Safari
-  // quota errors); if the read throws, we fall through and still perform
-  // the hide (best-effort). The `only=1` new-window opener path clears the
-  // sentinel at the store's module init (conversation-store.ts) so a
-  // fresh tab re-hides on first mount. Empty dep array — mount-only.
-  useEffect(() => {
-    try {
-      if (sessionStorage.getItem(SEARCH_HIDDEN_SENTINEL_KEY) === "1") return;
-    } catch {
-      /* sessionStorage unavailable — fall through and still set scroll */
-    }
-    const scrollEl = scrollContainerRef.current;
-    const searchEl = searchContainerRef.current;
-    if (!scrollEl || !searchEl) return;
-    scrollEl.scrollTop = searchEl.offsetHeight;
-    try {
-      sessionStorage.setItem(SEARCH_HIDDEN_SENTINEL_KEY, "1");
-    } catch {
-      /* best-effort persist */
-    }
-  }, []);
+  // Phase 122 Plan 04 (D-17 removal): the old label-only `searchQuery` state,
+  // `searchContainerRef` + `scrollContainerRef` refs, and the one-shot cold-
+  // load scroll-hide useEffect (all Phase 41 Plan 02) are retired together
+  // with the inline filter-as-you-type input the modal (Phase 122 Plan 03)
+  // replaced. Search is now driven by ConversationSearchModal mounted below,
+  // opened via the pv-header-search-button in the header-actions cluster.
 
   // Phase 23 (GEFM-01): open the header menu anchored below the trigger button.
   const openMenu = useCallback(() => {
@@ -1168,126 +1130,13 @@ export function PrettyConversationsPanel({
   }, [activeSetRows, pinned, middle, rdpGroup]);
   rowsByIdRef.current = rowsById;
 
-  // Phase 41 Plan 02 (user 2026-08-14): label-only filter predicate.
-  //
-  // Contract per 41-CONTEXT.md § Filter behavior:
-  //   - Extract the row's visible text: primary label (identity.displayName
-  //     when identity resolves for the row's targetTmuxSession, else
-  //     row.label) + sublabel (identity.title when identity resolves, else
-  //     the row's hostname). Reproduces PrettyConversationRow.tsx:983-1005
-  //     resolution so what the user sees IS what the filter searches.
-  //   - Normalizes both sides via .toLowerCase() and uses .includes() —
-  //     substring match, case-insensitive. No regex interpretation (T-41-02-05
-  //     mitigation), no HTML interpretation.
-  //   - Empty query is a defensive no-op that returns true.
-  //
-  // NOTE: matchesSearch is called from the searchMatches useMemo below when
-  // searchQuery.trim() !== "". Passing identitiesByHostKey through so the
-  // predicate stays pure.
-  //
-  // quick-260912-0t4: identity resolution uses the hostId-scoped byHostKey
-  // composite key so search hits pull the RIGHT displayName/title for the
-  // row's host (cross-host name collisions previously read the wrong row's
-  // metadata into the sublabel).
-  const matchesSearch = useCallback(
-    (row: ConversationRowShape, query: string): boolean => {
-      if (query === "") return true;
-      const q = query.toLowerCase();
-      // Reproduce PrettyConversationRow.tsx:1003-1024 label + sublabel
-      // resolution (the non-RDP render sites all pass subtitleMode="identity
-      // Title" — so identity resolution wins when available; RDP rows use
-      // subtitleMode="hostname" so hostname is the sublabel).
-      const matchKey = sessionMatchKey(row.targetTmuxSession);
-      const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
-      // quick-260912-0t4: byHostKey first, byKey fallback for compat.
-      let identity =
-        matchKey && Number.isFinite(hostIdNum)
-          ? identitiesByHostKey?.get(`${hostIdNum}::${matchKey}`)
-          : undefined;
-      if (!identity && matchKey) identity = identitiesByKey?.get(matchKey);
-      const isRdp = row.rdpHostRow === true;
-
-      let primary: string;
-      let sublabel: string;
-      if (!isRdp && identity) {
-        // Mirror PrettyConversationRow.tsx:1286-1294 task-primary swap:
-        // when identity.task is truthy the top line renders identity.task
-        // and the subtitle renders the role's display name. Otherwise the
-        // top line is identity.displayName and subtitle is identity.title.
-        if (identity.task) {
-          primary = String(identity.task);
-          sublabel = roleDisplayName(
-            identity.role ?? "",
-            identity.roleDefaults?.displayName,
-          );
-        } else {
-          primary = String(identity.displayName ?? row.label ?? "");
-          sublabel = String(identity.title ?? identity.displayName ?? "");
-        }
-      } else {
-        // RDP rows OR non-RDP rows without a resolved identity: fall through
-        // to the "hostname" mode — primary is row.label, sublabel is the
-        // host's name (matches the row's Server-icon + hostname sublabel).
-        primary = String(row.label ?? "");
-        sublabel = String(row.host?.name ?? "");
-      }
-
-      // Identity name always in the match haystack, regardless of what the
-      // row RENDERS as its label. The task-primary body swap (Phase 80)
-      // paints identity.task as the visible top line and role name as the
-      // sublabel — the identity's own name is only in the muted
-      // (displayName) suffix in that branch, and previously wasn't in the
-      // search haystack at all (user 2026-09-17: "i want to be able to
-      // search by name even if it doesn't show up").
-      const identityHaystack = identity
-        ? `${identity.identityKey} ${identity.displayName ?? ""}`.toLowerCase()
-        : (row.targetTmuxSession ?? "").toLowerCase();
-
-      return (
-        primary.toLowerCase().includes(q) ||
-        sublabel.toLowerCase().includes(q) ||
-        identityHaystack.includes(q)
-      );
-    },
-    [identitiesByHostKey, identitiesByKey],
-  );
-
-  // Phase 41 Plan 02: flat match list when the search query is non-empty.
-  // `null` signals "no filter active → render three-zone view". Non-null
-  // signals "filter active → render this flat list of matches with NO zone
-  // chrome (no divider chips)".
-  //
-  // user locks encoded here:
-  //   - Union of activeSetRows + pinned + middle + rdpGroup.rows. (Phase 115
-  //     Plan 115-02: prior user-lock-#3 exclusion of hidden rows retired
-  //     per D-21; 115-06 re-introduces the equivalent exclusion for archived
-  //     rows once the archived-tree data source is wired.)
-  //   - Deduplicate by row.id — activeSet + pinned can overlap in principle.
-  //   - Case-insensitive substring match against primary + sublabel via
-  //     matchesSearch (label-only; no message-body content search).
-  //   - Uses `searchQuery.trim()` to treat whitespace-only queries as empty
-  //     (defensive; no jitter on typing then deleting).
-  const trimmedSearchQuery = searchQuery.trim();
-  const searchMatches = useMemo<ConversationRowShape[] | null>(() => {
-    if (trimmedSearchQuery === "") return null;
-    const seen = new Set<string>();
-    const out: ConversationRowShape[] = [];
-    const pushIfMatches = (row: ConversationRowShape) => {
-      if (seen.has(row.id)) return;
-      seen.add(row.id);
-      // (Phase 115 Plan 115-02: prior hidden-row exclusion retired per D-21.
-      //  115-06 re-introduces the equivalent exclusion for archived rows once
-      //  the archived-tree data source is wired.)
-      if (matchesSearch(row, trimmedSearchQuery)) out.push(row);
-    };
-    for (const r of activeSetRows) pushIfMatches(r);
-    for (const r of pinned) pushIfMatches(r);
-    for (const r of middle) pushIfMatches(r);
-    if (rdpGroup !== null) {
-      for (const r of rdpGroup.rows) pushIfMatches(r);
-    }
-    return out;
-  }, [trimmedSearchQuery, activeSetRows, pinned, middle, rdpGroup, matchesSearch]);
+  // Phase 122 Plan 04 (D-17 removal): the Phase 41 Plan 02 `matchesSearch`
+  // label-only filter predicate + the `trimmedSearchQuery` / `searchMatches`
+  // useMemo were retired together with the inline filter-as-you-type input.
+  // Content-search across active + archived conversations is now performed by
+  // ConversationSearchModal (Phase 122 Plan 03) via POST /conversation-search.
+  // The three-zone view (pinned / middle / rdpGroup / activeSet) below now
+  // renders unconditionally — the `searchMatches !== null` branch is gone.
 
   // quick-260802-pq2: swipe-coordination state (currentlySwipedId +
   // handleSwipeOpenChange + forceClosedFor) removed alongside the row's
@@ -2429,48 +2278,12 @@ export function PrettyConversationsPanel({
 
       {/* Scroll region: safe-area padding lives on outer container (patch #131)
           so the panel bottom sits ABOVE the safe-area — settings row is not
-          covered when scroll is at rest. Phase 41 Plan 02: ref attached so the
-          one-shot cold-load scroll-hide effect can set scrollTop. */}
-      <div ref={scrollContainerRef} className="pv-panel-scroll min-h-0">
-        {/* Phase 41 Plan 02 (user 2026-08-14): always-in-DOM search input at
-            the very top of the scroll region. On the first cold-load per
-            browser session the one-shot effect above sets scrollTop to this
-            container's offsetHeight so the input sits just above the visible
-            area (revealed only by scrolling up). Scoped test-ids per
-            41-02-PLAN.md acceptance criteria. NO auto-focus (user lock #4 —
-            uniform tap/click-to-focus on both mobile + desktop). */}
-        <div
-          ref={searchContainerRef}
-          className="pv-search-container"
-          data-testid="pretty-conversations-search-container"
-        >
-          <Search
-            className="pv-search-icon"
-            aria-hidden="true"
-            width={16}
-            height={16}
-          />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search conversations"
-            className="pv-search-input"
-            data-testid="pretty-conversations-search-input"
-            aria-label="Search conversations"
-          />
-          {searchQuery.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery("")}
-              className="pv-search-clear"
-              data-testid="pretty-conversations-search-clear"
-              aria-label="Clear search"
-            >
-              <X width={14} height={14} aria-hidden="true" />
-            </button>
-          )}
-        </div>
+          covered when scroll is at rest. Phase 122 Plan 04 (D-17 removal):
+          the Phase 41 Plan 02 scrollContainerRef + inline search input +
+          one-shot cold-load scroll-hide have all been retired. Search is now
+          the pv-header-search-button in the header-actions cluster which
+          opens ConversationSearchModal (portal-mounted below). */}
+      <div className="pv-panel-scroll min-h-0">
         {/* Load-in-flight affordance. Renders at the top of the scroll region
             while the fleet enumeration is still in flight; disappears once
             useFleetSessionsLoaded() flips true. RDP and openTab rows tend to
@@ -2567,43 +2380,13 @@ export function PrettyConversationsPanel({
             </div>
           )}
         </div>
-        {/* Phase 41 Plan 02 (user 2026-08-14): render tree BRANCHES on
-            whether the search input has a non-empty trimmed query.
-              - searchMatches !== null → FLAT match list — no divider chips,
-                no zone chrome, pinned/middle/rdp all collapse into one
-                container. (Phase 115 Plan 115-02: prior user-lock-#3 hidden
-                exclusion retired per D-21; 115-06 will add an archived
-                exclusion.) Deactivate/pin actions preserved per row.
-              - searchMatches === null → three-zone view restores (activeSet
-                + pinned + middle + rdpGroup). */}
-        {searchMatches !== null ? (
-          <div className="pv-panel-group" data-search-flat-group="true">
-            {searchMatches.map((row) => (
-              <PrettyConversationRowLive
-                key={row.id}
-                row={row}
-                selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
-                pinned={isRowPinned(row)}
-                variant={variant}
-                onSelect={() => handleRowSelect(row)}
-                onTogglePin={
-                  row.rdpHostRow === true ? rdpNoopTogglePin : () => handleTogglePin(row)
-                }
-                onDeactivate={() => handleRowDeactivate(row)}
-                onKill={() => handleRowKill(row)}
-                onArchive={
-                  canonicalArchiveIdForRow(row) !== null
-                    ? () => handleArchive(row)
-                    : undefined
-                }
-                inActiveSet={activeSet.has(row.id)}
-                sessionKey={sessionWorkingKey(row)}
-                subtitleMode={row.rdpHostRow === true ? undefined : "identityTitle"}
-              />
-            ))}
-          </div>
-        ) : (
-          <>
+        {/* Phase 122 Plan 04 (D-17 removal): the Phase 41 Plan 02
+            `searchMatches !== null` ternary that swapped between a flat
+            match list and the three-zone view is retired. The three-zone
+            view (pinned / middle / rdpGroup / activeSet) now renders
+            unconditionally — content-search is handled by
+            ConversationSearchModal (Phase 122 Plan 03). */}
+        <>
             {/* Phase 42 UAT amendment 2026-08-17: active-set top zone retired
                 — active-set rows now flow through to pinned (if pinned) or
                 middle (by recency). Pinned tier still renders inside
@@ -2918,8 +2701,7 @@ export function PrettyConversationsPanel({
                 )}
               </div>
             )}
-          </>
-        )}
+        </>
       </div>
 
       {/* NewSessionDialog VERBATIM from ConversationsPanel.tsx lines
