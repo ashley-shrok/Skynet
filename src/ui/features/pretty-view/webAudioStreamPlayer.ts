@@ -30,7 +30,7 @@ const TTS_PLAYBACK_RATE = 1.25;
 // (empirically ~30-60s), while still firing their onended callbacks on
 // schedule. The 2026-09-17 first pass capped by COUNT (8 pending
 // sources ≈ 13s at ~2s per buffer). That reasoning collapses when
-// individual buffers are large: Ashley reproduced after a pause/resume
+// individual buffers are large: the operator reproduced after a pause/resume
 // let Chrome's fetch queue accumulate, and subsequent reader.read()
 // calls returned ~1MB chunks that decoded to 32-65s AudioBuffers. 8
 // such sources = 100+ seconds queued ahead — right back in the drop
