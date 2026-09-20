@@ -32,9 +32,16 @@
  *         soon" message; modal stays open (D-16 unarchiving out of scope).
  *
  * T-122-FE-03 mitigation: load-more button binds `disabled` to isFetching;
- * handler calls setFetching(true) before the network hop, and
- * appendResults() flips it back to false on resolve. Rapid clicks are
- * no-ops.
+ * handler calls beginLoadMore() before the network hop (flips isFetching
+ * true + bumps request-id), and appendResults() flips it back to false on
+ * resolve. Rapid clicks are no-ops.
+ *
+ * Request-id stale-response guard: startNewSearch and beginLoadMore each
+ * bump a monotonic id and return it. The handler snapshots the id before
+ * awaiting the fetch and passes it to appendResults/setError. Stale
+ * responses (from a superseded query or an unmounted modal) are silently
+ * dropped, preventing "typed foo, then bar, then foo's results overwrite
+ * bar's results" and React duplicate-key warnings from load-more races.
  */
 
 import { useEffect, useState } from "react";
@@ -48,9 +55,9 @@ import {
 import {
   useSearchState,
   startNewSearch,
+  beginLoadMore,
   clearSearch,
   appendResults,
-  setFetching,
   setError,
 } from "@/state/search-store";
 import { ConversationSearchRow } from "./ConversationSearchRow";
@@ -116,37 +123,39 @@ export function ConversationSearchModal({
       queryLength: trimmed.length,
     });
 
-    startNewSearch(trimmed);
+    const reqId = startNewSearch(trimmed);
     try {
       const response = await searchConversations(trimmed, 0, PAGE_SIZE);
-      appendResults(response.results, response.hasMore);
+      appendResults(response.results, response.hasMore, reqId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown_error";
       console.info({
         operation: "conversation_search_query_error",
         error: msg,
       });
-      setError(msg);
+      setError(msg, reqId);
     }
   }
 
   async function handleLoadMore(): Promise<void> {
     if (state.isFetching) return; // defense-in-depth against rapid clicks
-    setFetching(true);
+    const reqId = beginLoadMore();
+    const queryAtStart = state.query;
+    const offsetAtStart = state.results.length;
     try {
       const response = await searchConversations(
-        state.query,
-        state.results.length,
+        queryAtStart,
+        offsetAtStart,
         PAGE_SIZE,
       );
-      appendResults(response.results, response.hasMore);
+      appendResults(response.results, response.hasMore, reqId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown_error";
       console.info({
         operation: "conversation_search_load_more_error",
         error: msg,
       });
-      setError(msg);
+      setError(msg, reqId);
     }
   }
 

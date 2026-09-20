@@ -25,10 +25,11 @@ import {
   setSearchQuery,
   clearSearch,
   startNewSearch,
+  beginLoadMore,
   appendResults,
-  setFetching,
   setError,
   _resetForTests,
+  _currentRequestIdForTests,
 } from "./search-store";
 
 // ---------------------------------------------------------------------------
@@ -101,9 +102,16 @@ describe("search-store: clearSearch", () => {
 
     // Prime: search then error
     act(() => {
-      startNewSearch("foo");
-      appendResults([makeRow(), makeRow({ identityKey: "bob" })], true);
-      setError("something_went_wrong");
+      const reqId = startNewSearch("foo");
+      appendResults(
+        [
+          makeRow(),
+          makeRow({ identityKey: "bob", transcriptPath: "/foo/bob.jsonl" }),
+        ],
+        true,
+        reqId,
+      );
+      setError("something_went_wrong", reqId);
     });
     expect(result.current.hasEverOpened).toBe(true);
     expect(result.current.results.length).toBe(2);
@@ -132,8 +140,9 @@ describe("search-store: startNewSearch", () => {
 
     // Prime with some non-initial state so we can prove the reset is atomic
     act(() => {
-      appendResults([makeRow()], true);
-      setError("prior_error");
+      const primeId = startNewSearch("prime");
+      appendResults([makeRow()], true, primeId);
+      setError("prior_error", primeId);
     });
     expect(result.current.results.length).toBe(1);
     expect(result.current.error).toBe("prior_error");
@@ -186,23 +195,32 @@ describe("search-store: appendResults", () => {
   it("T-05: concatenates rows to existing results, updates hasMore, clears isFetching + error", () => {
     const { result } = renderHook(() => useSearchState());
 
+    let reqId = 0;
     act(() => {
-      startNewSearch("foo");
+      reqId = startNewSearch("foo");
     });
     expect(result.current.isFetching).toBe(true);
 
-    const first = [makeRow({ identityKey: "a" }), makeRow({ identityKey: "b" })];
-    const second = [makeRow({ identityKey: "c" })];
+    const first = [
+      makeRow({ identityKey: "a", transcriptPath: "/x/a.jsonl" }),
+      makeRow({ identityKey: "b", transcriptPath: "/x/b.jsonl" }),
+    ];
+    const second = [makeRow({ identityKey: "c", transcriptPath: "/x/c.jsonl" })];
 
     act(() => {
-      appendResults(first, true);
+      appendResults(first, true, reqId);
     });
     expect(result.current.results.map((r) => r.identityKey)).toEqual(["a", "b"]);
     expect(result.current.hasMore).toBe(true);
     expect(result.current.isFetching).toBe(false);
 
+    // Simulate load-more (bumps requestId)
+    let loadMoreId = 0;
     act(() => {
-      appendResults(second, false);
+      loadMoreId = beginLoadMore();
+    });
+    act(() => {
+      appendResults(second, false, loadMoreId);
     });
     expect(result.current.results.map((r) => r.identityKey)).toEqual([
       "a",
@@ -214,47 +232,62 @@ describe("search-store: appendResults", () => {
   });
 });
 
-describe("search-store: setFetching", () => {
-  it("T-06a: setFetching(true) sets isFetching + clears error", () => {
+describe("search-store: beginLoadMore", () => {
+  it("T-06a: beginLoadMore sets isFetching + clears error + bumps requestId", () => {
     const { result } = renderHook(() => useSearchState());
+    let firstId = 0;
     act(() => {
-      setError("prior_error");
+      firstId = startNewSearch("foo");
+      setError("prior_error", firstId);
     });
     expect(result.current.error).toBe("prior_error");
+    const beforeId = _currentRequestIdForTests();
 
+    let loadMoreId = 0;
     act(() => {
-      setFetching(true);
+      loadMoreId = beginLoadMore();
     });
     expect(result.current.isFetching).toBe(true);
     expect(result.current.error).toBeNull();
+    expect(loadMoreId).toBe(beforeId + 1);
+    expect(_currentRequestIdForTests()).toBe(loadMoreId);
   });
 
-  it("T-06b: setFetching(false) sets isFetching false WITHOUT touching error", () => {
+  it("T-06b: beginLoadMore leaves query + results untouched (only isFetching flips)", () => {
     const { result } = renderHook(() => useSearchState());
+    let reqId = 0;
     act(() => {
-      setError("prior_error");
+      reqId = startNewSearch("foo");
+      appendResults(
+        [makeRow({ transcriptPath: "/x/a.jsonl" })],
+        true,
+        reqId,
+      );
     });
-    expect(result.current.error).toBe("prior_error");
+    expect(result.current.query).toBe("foo");
+    expect(result.current.results.length).toBe(1);
+    expect(result.current.isFetching).toBe(false);
 
     act(() => {
-      setFetching(false);
+      beginLoadMore();
     });
-    expect(result.current.isFetching).toBe(false);
-    // error preserved — setFetching(false) is not an error-clearing signal
-    expect(result.current.error).toBe("prior_error");
+    expect(result.current.query).toBe("foo"); // preserved
+    expect(result.current.results.length).toBe(1); // preserved
+    expect(result.current.isFetching).toBe(true);
   });
 });
 
 describe("search-store: setError", () => {
-  it("T-07: sets error + flips isFetching false", () => {
+  it("T-07: sets error + flips isFetching false (when requestId matches)", () => {
     const { result } = renderHook(() => useSearchState());
+    let reqId = 0;
     act(() => {
-      setFetching(true);
+      reqId = startNewSearch("foo");
     });
     expect(result.current.isFetching).toBe(true);
 
     act(() => {
-      setError("query_too_long");
+      setError("query_too_long", reqId);
     });
     expect(result.current.error).toBe("query_too_long");
     expect(result.current.isFetching).toBe(false);
@@ -269,9 +302,153 @@ describe("search-store: useSearchState hook returns current snapshot", () => {
     });
     expect(result.current.query).toBe("hello");
 
+    let reqId = 0;
     act(() => {
-      appendResults([makeRow()], false);
+      reqId = startNewSearch("hello");
+      appendResults(
+        [makeRow({ transcriptPath: "/x/one.jsonl" })],
+        false,
+        reqId,
+      );
     });
     expect(result.current.results.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIGH-1 fix — dedup by transcriptPath on appendResults (load-more race
+// where a row from page 1 reappears on page 2 due to mtime shift)
+// ---------------------------------------------------------------------------
+
+describe("search-store: appendResults dedup by transcriptPath (HIGH-1)", () => {
+  it("T-09: appendResults drops rows whose transcriptPath is already in state.results", () => {
+    const { result } = renderHook(() => useSearchState());
+    let reqId = 0;
+    act(() => {
+      reqId = startNewSearch("foo");
+      appendResults(
+        [
+          makeRow({ identityKey: "a", transcriptPath: "/x/a.jsonl" }),
+          makeRow({ identityKey: "b", transcriptPath: "/x/b.jsonl" }),
+        ],
+        true,
+        reqId,
+      );
+    });
+    expect(result.current.results.map((r) => r.transcriptPath)).toEqual([
+      "/x/a.jsonl",
+      "/x/b.jsonl",
+    ]);
+
+    // Simulate a load-more where the server re-scanned and returned "b" again
+    // (because a new hit landed and shifted mtimes) plus a new "c" row.
+    let loadMoreId = 0;
+    act(() => {
+      loadMoreId = beginLoadMore();
+      appendResults(
+        [
+          makeRow({ identityKey: "b-dup", transcriptPath: "/x/b.jsonl" }),
+          makeRow({ identityKey: "c", transcriptPath: "/x/c.jsonl" }),
+        ],
+        false,
+        loadMoreId,
+      );
+    });
+    // Only "c" gets appended; the duplicate "/x/b.jsonl" is dropped so
+    // React doesn't hit a duplicate-key warning downstream.
+    expect(result.current.results.map((r) => r.transcriptPath)).toEqual([
+      "/x/a.jsonl",
+      "/x/b.jsonl",
+      "/x/c.jsonl",
+    ]);
+    // The original "b" row is preserved (its identityKey is still "b", not
+    // the "b-dup" from the load-more batch).
+    expect(result.current.results[1].identityKey).toBe("b");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIGH-2 fix — request-id stale-response guard (query "foo" in flight, user
+// changes to "bar", "foo" response lands on "bar" state)
+// ---------------------------------------------------------------------------
+
+describe("search-store: request-id stale-guard (HIGH-2)", () => {
+  it("T-10: appendResults with a stale requestId is silently dropped", () => {
+    const { result } = renderHook(() => useSearchState());
+
+    // Fire query 1
+    let fooId = 0;
+    act(() => {
+      fooId = startNewSearch("foo");
+    });
+
+    // User immediately fires query 2 before foo's response lands
+    let barId = 0;
+    act(() => {
+      barId = startNewSearch("bar");
+    });
+    expect(barId).toBeGreaterThan(fooId);
+    expect(result.current.query).toBe("bar");
+
+    // Now foo's response lands late — it MUST NOT overwrite bar's state
+    act(() => {
+      appendResults(
+        [makeRow({ identityKey: "foo-late", transcriptPath: "/x/foo.jsonl" })],
+        true,
+        fooId,
+      );
+    });
+    // Bar's state is preserved: query stays "bar", results stays empty (bar
+    // hasn't resolved yet), isFetching stays true.
+    expect(result.current.query).toBe("bar");
+    expect(result.current.results).toEqual([]);
+    expect(result.current.isFetching).toBe(true);
+  });
+
+  it("T-11: setError with a stale requestId is silently dropped", () => {
+    const { result } = renderHook(() => useSearchState());
+    let fooId = 0;
+    act(() => {
+      fooId = startNewSearch("foo");
+    });
+    let barId = 0;
+    act(() => {
+      barId = startNewSearch("bar");
+    });
+    expect(barId).toBeGreaterThan(fooId);
+
+    // Foo's error lands late; must not clobber bar's clean isFetching state
+    act(() => {
+      setError("foo_error_late", fooId);
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.isFetching).toBe(true);
+  });
+
+  it("T-12: appendResults with the CURRENT requestId is applied normally", () => {
+    const { result } = renderHook(() => useSearchState());
+    let reqId = 0;
+    act(() => {
+      reqId = startNewSearch("foo");
+    });
+    act(() => {
+      appendResults(
+        [makeRow({ transcriptPath: "/x/a.jsonl" })],
+        false,
+        reqId,
+      );
+    });
+    expect(result.current.results.length).toBe(1);
+    expect(result.current.isFetching).toBe(false);
+  });
+
+  it("T-13: _resetForTests resets the requestId counter to 0", () => {
+    act(() => {
+      startNewSearch("foo");
+      beginLoadMore();
+    });
+    expect(_currentRequestIdForTests()).toBeGreaterThan(0);
+    _resetForTests();
+    expect(_currentRequestIdForTests()).toBe(0);
   });
 });

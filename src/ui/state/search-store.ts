@@ -52,6 +52,14 @@ const INITIAL_STATE: SearchState = {
 let state: SearchState = { ...INITIAL_STATE };
 const listeners = new Set<() => void>();
 
+// Monotonic request generation counter. Every request-start (startNewSearch,
+// beginLoadMore) bumps this and returns the new id. Callers snapshot the id
+// before the fetch and pass it to appendResults/setError on resolve; the
+// finishers no-op if a newer request has since started. Prevents stale-
+// request writes from clobbering fresh state (query "foo" in flight, user
+// changes to "bar", "foo" response lands on "bar" state).
+let currentRequestId = 0;
+
 function subscribe(l: () => void): () => void {
   listeners.add(l);
   return () => {
@@ -114,10 +122,13 @@ export function clearSearch(): void {
 /**
  * Start a brand-new search (Enter pressed with a non-empty query).
  * Atomically sets query, wipes prior results/hasMore, flips isFetching
- * true, and clears any error. A SINGLE notify() fires so subscribers see
- * one coherent transition (not a flicker of intermediate states).
+ * true, and clears any error. Bumps the request-id counter and returns
+ * the new id — callers snapshot it before the fetch and pass it to
+ * appendResults/setError so a stale response can be discarded if the user
+ * fired a newer query in the meantime.
  */
-export function startNewSearch(q: string): void {
+export function startNewSearch(q: string): number {
+  currentRequestId += 1;
   state = {
     query: q,
     results: [],
@@ -127,20 +138,42 @@ export function startNewSearch(q: string): void {
     error: null,
   };
   notify();
+  return currentRequestId;
+}
+
+/**
+ * Begin a load-more request. Flips isFetching true (leaves results/query
+ * alone), bumps the request-id counter, returns the new id. Same
+ * stale-guard contract as startNewSearch. Replaces the pre-fix
+ * setFetching(true) call at the load-more site.
+ */
+export function beginLoadMore(): number {
+  currentRequestId += 1;
+  state = { ...state, isFetching: true, error: null };
+  notify();
+  return currentRequestId;
 }
 
 /**
  * Append a page of results (from either the initial fetch or a
- * load-more). Concatenates to existing results (D-12 load-more semantics),
- * updates hasMore, flips isFetching false, clears error.
+ * load-more). Guarded by requestId — a stale response (one whose id no
+ * longer matches currentRequestId) is silently dropped. Dedups by
+ * transcriptPath to prevent React duplicate-key warnings + repeat rows
+ * when mtimes shift between the initial fetch and a load-more (D-12
+ * correctness edge). Concatenates only rows whose transcriptPath is not
+ * already in state.results.
  */
 export function appendResults(
   rows: ConversationSearchResult[],
   hasMore: boolean,
+  requestId: number,
 ): void {
+  if (requestId !== currentRequestId) return;
+  const seen = new Set(state.results.map((r) => r.transcriptPath));
+  const deduped = rows.filter((r) => !seen.has(r.transcriptPath));
   state = {
     ...state,
-    results: [...state.results, ...rows],
+    results: [...state.results, ...deduped],
     hasMore,
     isFetching: false,
     error: null,
@@ -149,26 +182,13 @@ export function appendResults(
 }
 
 /**
- * Set the isFetching flag without touching results. Used before a
- * load-more request begins so the load-more button binds `disabled` to
- * this flag (T-122-FE-03 DoS mitigation — user can't rapid-click while a
- * request is in flight). Setting true clears prior error; setting false
- * leaves error alone.
+ * Record a backend error-class string (e.g. "query_too_long"). Guarded by
+ * requestId — a stale error from a superseded request is silently
+ * dropped. Flips isFetching false when applied. Consumers render this in
+ * the modal footer.
  */
-export function setFetching(v: boolean): void {
-  state = {
-    ...state,
-    isFetching: v,
-    ...(v ? { error: null } : {}),
-  };
-  notify();
-}
-
-/**
- * Record a backend error-class string (e.g. "query_too_long"). Flips
- * isFetching false. Consumers render this in the modal footer.
- */
-export function setError(msg: string): void {
+export function setError(msg: string, requestId: number): void {
+  if (requestId !== currentRequestId) return;
   state = { ...state, error: msg, isFetching: false };
   notify();
 }
@@ -185,6 +205,16 @@ export function setError(msg: string): void {
  * production consumers.
  */
 export function _resetForTests(): void {
+  currentRequestId = 0;
   state = { ...INITIAL_STATE };
   notify();
+}
+
+/**
+ * Test helper — read the current request-id counter for assertions.
+ * Production code should NEVER call this; the id is opaque outside of
+ * the fetch guard flow.
+ */
+export function _currentRequestIdForTests(): number {
+  return currentRequestId;
 }
