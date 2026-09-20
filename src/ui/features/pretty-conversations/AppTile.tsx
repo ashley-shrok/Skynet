@@ -108,12 +108,19 @@ export interface AppTileProps {
   // number — this component unifies the two representations at the tile
   // → openTab boundary.
   onOpenApp?: (hostId: number, slug: string, title: string) => void;
+  // Density variant — mirrors PrettyConversationRow's `variant` prop. Drives
+  // the `pv-app-tile--mobile` vs `pv-app-tile--desktop` class toggle so tiles
+  // pick up the same compact desktop / larger-mobile treatment as sibling
+  // conversation rows. Optional + defaults to "desktop" so unit tests and
+  // preview surfaces can render without wiring the panel's variant plumbing.
+  variant?: "mobile" | "desktop";
 }
 
 const LONG_PRESS_MS = 500;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 
-export function AppTile({ app, onOpenApp }: AppTileProps): React.ReactElement {
+export function AppTile({ app, onOpenApp, variant = "desktop" }: AppTileProps): React.ReactElement {
+  const variantClass = variant === "mobile" ? "pv-app-tile--mobile" : "pv-app-tile--desktop";
   // State: image-load failure (Pitfall 3 avoidance — state flip beats CSS
   // :where(img[error]) which has patchy browser support), and context-menu
   // open coords.
@@ -279,7 +286,7 @@ export function AppTile({ app, onOpenApp }: AppTileProps): React.ReactElement {
 
   return (
     <div
-      className="pv-app-tile"
+      className={`pv-app-tile ${variantClass}`}
       role="button"
       aria-label={`App tile: ${app.title}`}
       draggable={true}

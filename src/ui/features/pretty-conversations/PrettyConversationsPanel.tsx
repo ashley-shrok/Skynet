@@ -2511,6 +2511,7 @@ export function PrettyConversationsPanel({
                     key={`${app.hostId}:${app.slug}`}
                     app={app}
                     onOpenApp={onOpenApp}
+                    variant={variant}
                   />
                 ))
               )}
