@@ -2691,3 +2691,13 @@ Plans:
 - [x] 121-03-PLAN.md — WorkspaceTab.tsx component (list-mode + viewer-mode inline swap, sortable columns, breadcrumb, drag-drop, host chip, MarkdownEditor/GlobalFileTab inline mounts — no modal stacking)
 - [x] 121-04-PLAN.md — IdentityModal integration (Folder import + NAV_SECTIONS entry + WorkspaceTab TabsContent block — three surgical edits, all-users tab, not admin-gated)
 - [ ] 121-05-PLAN.md — End-to-end UAT checkpoint: 34 checks covering every D-01..D-24 against a running Skynet instance, including blind-stance verification via tmux session file tail and non-admin permission gate
+
+### Phase 122: Conversation search modal
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 121
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 122 to break down)
