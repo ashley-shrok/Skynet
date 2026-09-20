@@ -21,6 +21,14 @@ vi.mock("@/api/user-preferences-api", () => ({
 import {
   readFleetSessionsCache,
   writeFleetSessionsCache,
+  readPinnedIdsCache,
+  writePinnedIdsCache,
+  pinConversation,
+  unpinConversation,
+  hydratePinnedIdsFromServer,
+  updateFleetSessions,
+  __resetPinnedIdsForTest,
+  __resetFleetSessionsForTest,
   type FleetSession,
 } from "./conversation-store";
 
@@ -280,5 +288,94 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     expect(got).toHaveLength(1);
     expect(got[0].kind).toBe("harness");
     expect(got[0].hostName).toBe(SAMPLE_A.hostName);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pinned IDs cache — cold-boot paint hint for the sidebar's pinned rows.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PINNED_IDS_CACHE_KEY = "skynet:pinned-ids-cache:v1";
+
+describe("pinned-ids cache: read/write round-trip + write-on-mutation", () => {
+  beforeEach(() => {
+    localStorage.removeItem(PINNED_IDS_CACHE_KEY);
+    __resetPinnedIdsForTest();
+    __resetFleetSessionsForTest();
+  });
+
+  it("readPinnedIdsCache returns [] on missing cache", () => {
+    expect(readPinnedIdsCache()).toEqual([]);
+  });
+
+  it("readPinnedIdsCache returns [] on malformed JSON", () => {
+    localStorage.setItem(PINNED_IDS_CACHE_KEY, "{not valid json");
+    expect(readPinnedIdsCache()).toEqual([]);
+  });
+
+  it("readPinnedIdsCache returns [] on non-array payload", () => {
+    localStorage.setItem(PINNED_IDS_CACHE_KEY, JSON.stringify({ ids: [] }));
+    expect(readPinnedIdsCache()).toEqual([]);
+  });
+
+  it("readPinnedIdsCache filters non-string + empty entries", () => {
+    localStorage.setItem(
+      PINNED_IDS_CACHE_KEY,
+      JSON.stringify(["ok", 42, null, "", "also-ok"]),
+    );
+    expect(readPinnedIdsCache()).toEqual(["ok", "also-ok"]);
+  });
+
+  it("writePinnedIdsCache round-trips through readPinnedIdsCache", () => {
+    writePinnedIdsCache(["a", "b", "c"]);
+    expect(readPinnedIdsCache()).toEqual(["a", "b", "c"]);
+  });
+
+  it("writePinnedIdsCache accepts a Set (Iterable) too", () => {
+    writePinnedIdsCache(new Set(["x", "y"]));
+    expect(readPinnedIdsCache().sort()).toEqual(["x", "y"]);
+  });
+
+  it("hydratePinnedIdsFromServer writes the cache on real change", () => {
+    hydratePinnedIdsFromServer(["a", "b"]);
+    expect(readPinnedIdsCache().sort()).toEqual(["a", "b"]);
+  });
+
+  it("hydratePinnedIdsFromServer identity-equal skip does not overwrite cache", () => {
+    hydratePinnedIdsFromServer(["a", "b"]);
+    // Corrupt the cache; re-emit the same set — the identity-equal skip
+    // means no write, so the sentinel survives.
+    localStorage.setItem(PINNED_IDS_CACHE_KEY, "corrupted-sentinel");
+    hydratePinnedIdsFromServer(["a", "b"]);
+    expect(localStorage.getItem(PINNED_IDS_CACHE_KEY)).toBe(
+      "corrupted-sentinel",
+    );
+  });
+
+  it("pinConversation writes the cache with the new id", () => {
+    // Seed fleetSessions so buildIdentityHostsFromFleet inside
+    // pinConversation has a non-empty picture — the actual pin path
+    // doesn't require a matching row (Patch #149 relaxed that guard).
+    updateFleetSessions([]);
+    pinConversation("fleet::1::alice");
+    expect(readPinnedIdsCache()).toEqual(["fleet::1::alice"]);
+  });
+
+  it("unpinConversation writes the cache with the id removed", () => {
+    updateFleetSessions([]);
+    pinConversation("row-a");
+    pinConversation("row-b");
+    expect(readPinnedIdsCache().sort()).toEqual(["row-a", "row-b"]);
+    unpinConversation("row-a");
+    expect(readPinnedIdsCache()).toEqual(["row-b"]);
+  });
+
+  it("__resetPinnedIdsForTest clears the localStorage cache", () => {
+    updateFleetSessions([]);
+    pinConversation("row-x");
+    expect(readPinnedIdsCache()).toEqual(["row-x"]);
+    __resetPinnedIdsForTest();
+    expect(readPinnedIdsCache()).toEqual([]);
+    expect(localStorage.getItem(PINNED_IDS_CACHE_KEY)).toBeNull();
   });
 });

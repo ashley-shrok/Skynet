@@ -489,6 +489,10 @@ export type ProjectRow = {
 // file near the fleet-cache functions — see "Projects cache" block.
 const PROJECTS_CACHE_KEY = "skynet:projects-cache:v1";
 
+// Same hoisting rationale as PROJECTS_CACHE_KEY above — read/write function
+// bodies live near the fleet-cache functions ("Pinned IDs cache" block).
+const PINNED_IDS_CACHE_KEY = "skynet:pinned-ids-cache:v1";
+
 // Module-load seed for the projects slice from localStorage: paint project
 // sections + membership on cold refresh BEFORE the aggregated per-host
 // listProjects / listRelayRoomProjectTags fetches resolve. Empty / missing /
@@ -499,7 +503,12 @@ const _cachedProjects = readProjectsCache();
 let state: State = {
   hostTree: null,
   openTabs: [],
-  pinnedIds: new Set<string>(),
+  // Phase 92 Plan 04 — pinned IDs are server-authoritative on
+  // identity.pinned; localStorage cache is a cold-boot paint hint so pinned
+  // rows appear immediately on refresh instead of flickering blank until
+  // GET /identities resolves. hydratePinnedIdsFromServer overwrites the
+  // seed within ~200ms; the cache is refreshed on every real change.
+  pinnedIds: new Set<string>(readPinnedIdsCache()),
   selectedId: null,
   fleetSessions: [],
   fleetSessionsLoaded: false,
@@ -1982,6 +1991,52 @@ function persistProjectsSlice(): void {
   });
 }
 
+// ─── Pinned IDs cache ───────────────────────────────────────────────────────
+//
+// Cold-boot paint for the sidebar's pinned rows. The server holds
+// authoritative pin state on identity.pinned; the cache is a paint hint so
+// pinned rows appear immediately on refresh rather than flickering blank
+// until GET /identities lands. hydratePinnedIdsFromServer overwrites the
+// seed within ~200ms; the cache is refreshed on every real change (add,
+// remove, or server hydrate that differs).
+//
+// PINNED_IDS_CACHE_KEY is hoisted above the state-init block for TDZ
+// reasons (see the const near ProjectRow).
+
+export function readPinnedIdsCache(): string[] {
+  try {
+    const raw =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem(PINNED_IDS_CACHE_KEY)
+        : null;
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const valid: string[] = [];
+    for (const item of parsed) {
+      if (typeof item === "string" && item.length > 0) {
+        valid.push(item);
+      }
+    }
+    return valid;
+  } catch {
+    return [];
+  }
+}
+
+export function writePinnedIdsCache(ids: Iterable<string>): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(PINNED_IDS_CACHE_KEY, JSON.stringify(Array.from(ids)));
+  } catch {
+    // Silent — cache-write failure is non-fatal.
+  }
+}
+
+function persistPinnedIds(): void {
+  writePinnedIdsCache(state.pinnedIds);
+}
+
 // Plan 07-01 (TG-14): hostId → Host flat lookup. AppShell maintains a memo
 // keyed on stableHostTreeKey (the NOTE-05 thrash-guard from Phase 6) and
 // pushes the Map here whenever the memo re-derives.
@@ -2192,6 +2247,7 @@ export function pinConversation(id: string): void {
     .then(() => syncIdentityFlagAfterWrite(id, "pinned", true))
     .catch(() => refreshIdentities().catch(() => {}));
   state = { ...state, pinnedIds: nextPinnedIds };
+  persistPinnedIds();
   notify();
 }
 
@@ -2209,6 +2265,7 @@ export function unpinConversation(id: string): void {
     .then(() => syncIdentityFlagAfterWrite(id, "pinned", false))
     .catch(() => refreshIdentities().catch(() => {}));
   state = { ...state, pinnedIds: nextPinnedIds };
+  persistPinnedIds();
   notify();
 }
 
@@ -2245,6 +2302,7 @@ export function hydratePinnedIdsFromServer(ids: string[]): void {
     if (allSame) return;
   }
   state = { ...state, pinnedIds: nextPinnedIds };
+  persistPinnedIds();
   notify();
 }
 
@@ -2654,8 +2712,17 @@ export function __resetActiveSetForTest(): void {
 
 // Phase 15: reset the module-scoped pinnedIds set to empty. Used by
 // conversation-store.test.ts's beforeEach so a prior test's
-// pinConversation / unpinConversation writes don't leak forward.
+// pinConversation / unpinConversation writes don't leak forward. Also
+// clears the localStorage cache so cross-test bleed via seed-on-load
+// can't happen.
 export function __resetPinnedIdsForTest(): void {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem(PINNED_IDS_CACHE_KEY);
+    }
+  } catch {
+    // Silent.
+  }
   state = { ...state, pinnedIds: new Set<string>() };
   notify();
 }
