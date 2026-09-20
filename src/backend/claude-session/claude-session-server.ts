@@ -32,6 +32,10 @@ import {
 } from "./layer1-detect.js";
 import { __applySentinelCheckForTests } from "./sentinel-detect.js";
 import {
+  performDormantWakeGate,
+  MARKER_FALLBACK_MS,
+} from "./dormant-wake-gate.js";
+import {
   createPaneStateEmitter,
   type PaneStateEmitter,
 } from "./pane-state-emitter.js";
@@ -784,10 +788,10 @@ const DISCOVERY_REPOLL_INTERVAL_MS = 3000;
 // inline block so the setupHarnessTasksPoller helper (per BLOCKER fix from
 // plan-checker 2026-07-18) can reference them without re-allocating per call.
 const HARNESS_TASKS_INTERVAL_MS = 3000;
-// quick 260808-fgf — Nelly's .resume-complete marker freshness contract.
-// If marker never appears within 90s of wake_trigger_ts, fall back to
-// sentinel-gone-alone dismiss (mixed-fleet compat for pre-marker supervisor boxes).
-const MARKER_FALLBACK_MS = 90_000;
+// MARKER_FALLBACK_MS is now the canonical export from dormant-wake-gate.ts
+// (imported at top of file). Still referenced below for the dormant-poll's
+// own freshness gate + the deep-dormant timing chain — see
+// __applyDormantPollWithRediscoveryForTests.
 const UUID_RE =
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
@@ -3109,11 +3113,14 @@ export async function __applyInputMessageForTests(deps: {
   // entry (BEFORE the MAX_INPUT_BYTES cap so a rejected oversize send still
   // triggers the invisible wake — the send won't actually deliver, but the
   // sentinel drop is still the right thing to do because the user did action
-  // this pane). When dormant AND all four Phase-56 deps are wired, drop the
-  // sentinel + record wakeTriggerTs + poll marker until fresh or fallback.
-  // Then fall through to the normal send code (which will run the MAX_INPUT
-  // _BYTES cap + split-send delivery). See T-56-01-01/02/03/04/05 in the
-  // plan's threat model for trust-boundary rationale.
+  // this pane). When dormant AND all four Phase-56 deps are wired, delegate
+  // to performDormantWakeGate (shared helper — also used by /agent-reset).
+  // The gate drops the sentinel, polls .resume-complete until fresh or
+  // MARKER_FALLBACK_MS, then returns. Then fall through to the normal send
+  // code (which will run the MAX_INPUT_BYTES cap + split-send delivery).
+  // See T-56-01-01/02/03/04/05 in the plan's threat model for trust-boundary
+  // rationale (currentTmuxSession is connection-scoped from connectToPane
+  // discovery; client-supplied hostId/tmuxSession are IGNORED at the helper).
   const wasDormant = deps.dormantLastEmitted?.() === true;
   if (
     wasDormant &&
@@ -3121,118 +3128,17 @@ export async function __applyInputMessageForTests(deps: {
     deps.markerCommand &&
     deps.now
   ) {
-    const mqidForDormantLog = String(deps.messageQueueItemId ?? "");
-    sshLogger.info(
-      "[pv-input] send received while pane dormant, dropping sentinel",
-      {
-        operation: "pv_input_dormant_send_start",
-        hostId: currentHostId,
-        tmuxSession: currentTmuxSession,
-        mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
-      },
-    );
-    const triggerTs = deps.now();
-    sshLogger.info(`[diag-dormant-send] backend dormant-send-start mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} sessionId=${currentTmuxSession} triggerTs=${triggerTs}`);
-    // Write wakeTriggerTs so the existing dormant-poll marker-freshness gate
-    // at __applyDormantPollWithRediscoveryForTests L2604-2626 holds this
-    // pane's dormant:true frame in place while the wake completes. Mirrors
-    // the wake-handler write at L5828.
-    deps.setWakeTriggerTs(triggerTs);
-    try {
-      // Byte-identical to the exec previously in the deleted
-      // wake-message test seam (removed in Phase 56 Plan 03) — same
-      // single-quote wrap, same path, same connection. T-56-01-01:
-      // currentTmuxSession is connection-scoped (from connectToPane
-      // discovery); client-supplied hostId/tmuxSession are IGNORED.
-      await exec(
-        sshConn,
-        `rm -f ~/fleet/identities/'${currentTmuxSession}'/.dormant`,
-      );
-      sshLogger.info(`[diag-dormant-send] backend sentinel-dropped mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${deps.now() - triggerTs}`);
-    } catch (sentinelErr) {
-      sshLogger.warn("[pv-input] sentinel drop failed during dormant send", {
-        operation: "pv_input_dormant_sentinel_drop_failed",
-        hostId: currentHostId,
-        tmuxSession: currentTmuxSession,
-        mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
-        error:
-          sentinelErr instanceof Error
-            ? sentinelErr.message
-            : String(sentinelErr),
-      });
-      sshLogger.warn(`[diag-dormant-send] backend sentinel-drop-failed mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${deps.now() - triggerTs} error="${sentinelErr instanceof Error ? sentinelErr.message : String(sentinelErr)}"`);
-      // Fall through to normal send anyway — pane may still be usable, and
-      // any tmux-side failure will surface through the existing send_keys
-      // _error frame at L2216-2249.
-    }
-    sshLogger.info(
-      "[pv-input] sentinel dropped, waiting for .resume-complete marker (or MARKER_FALLBACK_MS)",
-      {
-        operation: "pv_input_dormant_wait_marker",
-        hostId: currentHostId,
-        tmuxSession: currentTmuxSession,
-        triggerTs,
-        mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
-      },
-    );
-    // Poll the .resume-complete marker in a bounded loop. Semantics MUST
-    // match the freshness check at L2604-2626 byte-for-byte: fresh means
-    // marker_ts > triggerTs; fallback means (now - triggerTs) >=
-    // MARKER_FALLBACK_MS. 500ms poll interval mirrors the shape of the 3s
-    // dormant-poll tick but is faster because we're actively blocking a
-    // send — 500ms keeps latency low without spamming SSH.
-    let markerFresh = false;
-    let fellBack = false;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const body = await deps.markerCommand(sshConn, currentTmuxSession);
-      if (body !== null) {
-        const markerTs = Date.parse(body.trim());
-        if (Number.isFinite(markerTs) && markerTs > triggerTs) {
-          markerFresh = true;
-          break;
-        }
-      }
-      if (deps.now() - triggerTs >= MARKER_FALLBACK_MS) {
-        markerFresh = true;
-        fellBack = true;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    const elapsedMs = deps.now() - triggerTs;
-    if (fellBack) {
-      sshLogger.info(
-        "[pv-input] .resume-complete marker did not appear; falling back after MARKER_FALLBACK_MS",
-        {
-          operation: "pv_input_dormant_marker_fallback",
-          hostId: currentHostId,
-          tmuxSession: currentTmuxSession,
-          elapsedMs,
-          fellBack: true,
-          mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
-        },
-      );
-      sshLogger.info(`[diag-dormant-send] backend marker-fallback mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${elapsedMs} branch=fallback`);
-    } else {
-      sshLogger.info(
-        "[pv-input] .resume-complete marker fresh; dispatching send-keys",
-        {
-          operation: "pv_input_dormant_marker_fresh",
-          hostId: currentHostId,
-          tmuxSession: currentTmuxSession,
-          elapsedMs,
-          mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
-        },
-      );
-      sshLogger.info(`[diag-dormant-send] backend marker-fresh mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${elapsedMs} branch=fresh`);
-    }
-    // markerFresh is always true here (break exits the loop only on the
-    // fresh OR fallback path). Suppress unused-var lint noise by referencing.
-    void markerFresh;
-    // Fall through to the existing normal-send code below (MAX_INPUT_BYTES
-    // cap + split-send + watchdog arm). This is the "then dispatches tmux
-    // send-keys normally" step of the plan.
+    await performDormantWakeGate({
+      sshConn,
+      tmuxSession: currentTmuxSession,
+      hostId: currentHostId,
+      exec,
+      markerCommand: deps.markerCommand,
+      setWakeTriggerTs: deps.setWakeTriggerTs,
+      now: deps.now,
+      logOpPrefix: "pv_input",
+      mqid: String(deps.messageQueueItemId ?? ""),
+    });
   }
   // Cap payload size before handing to tmux send-keys (mirrors MAX_RAW_KEYSTROKES_BYTES
   // at :4025 — same ARG_MAX rationale; 16KB is comfortably above any realistic composebox
