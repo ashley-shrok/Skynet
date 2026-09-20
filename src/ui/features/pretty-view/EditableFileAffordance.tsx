@@ -29,9 +29,10 @@ import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
  *     Apple HIG (UI-SPEC L215). Uses the same
  *     `[@media(hover:none)]:!opacity-[0.72]` idiom as the speak button
  *     at ChatMessage.tsx:496.
- *   - Desktop: opacity-0 at rest → 100% on parent .pv-bubble hover with
- *     a 120ms transition. Hover-on-affordance flips glyph color to
- *     identity-hue with a 6px identity-hue drop-shadow.
+ *   - Desktop: always visible at ~72% opacity (matches mobile — Ashley
+ *     2026-09-20: hover-reveal-only was too easy to miss). Hover-on-
+ *     affordance flips glyph color to identity-hue with a 6px identity-hue
+ *     drop-shadow and a 120ms opacity transition.
  */
 
 export function EditableFileAffordance({
@@ -54,12 +55,10 @@ export function EditableFileAffordance({
   const mobileClasses =
     "min-w-[44px] min-h-[44px] justify-center [@media(hover:none)]:!opacity-[0.72]";
 
-  // Desktop: hover-reveal on parent bubble. Requires the parent .pv-bubble
-  // class (see Plan 40-04 Task 1). Falls back to always-invisible if the
-  // parent lacks that class — degrades gracefully (safe fail).
+  // Desktop: always visible at ~72% opacity (matches mobile). Hover on the
+  // affordance itself flips glyph color to identity-hue + drop-shadow.
   const desktopClasses =
-    "opacity-0 [.pv-bubble:hover_&]:opacity-100 " +
-    "hover:text-[hsla(var(--pv-id-hue),80%,65%,1)]";
+    "opacity-[0.72] hover:text-[hsla(var(--pv-id-hue),80%,65%,1)]";
 
   const handleMouseEnter = (e: MouseEvent<HTMLButtonElement>) => {
     // UI-SPEC L124 hover glow — 6px identity-hue drop-shadow (mirrors

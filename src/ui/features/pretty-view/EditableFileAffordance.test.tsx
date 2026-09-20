@@ -11,7 +11,7 @@
  *   2. aria-label AND title === "Edit {filename}"
  *   3. onClick fires the passed handler (called once, no args)
  *   4. icon-only on mobile (useIsTouchDevice=true stub) with 44x44 touch target
- *   5. icon + label on desktop (useIsTouchDevice=false stub) w/ opacity-0 rest
+ *   5. icon-only on desktop (useIsTouchDevice=false stub) always visible at 72% opacity
  *   6. sibling-not-wrapper: rendered root is <button>, not span/div/a wrapper
  *   7. hover drop-shadow applied on mouseEnter, cleared on mouseLeave
  */
@@ -67,17 +67,17 @@ describe("EditableFileAffordance — Phase 40 Plan 40-03 Task 1", () => {
     expect(cls).toContain("min-h-[44px]");
   });
 
-  it("test 5: desktop (useIsTouchDevice=false) → icon-only + opacity-0 rest", () => {
+  it("test 5: desktop (useIsTouchDevice=false) → icon-only + always visible at 72% opacity", () => {
     (useIsTouchDevice as ReturnType<typeof vi.fn>).mockReturnValue(false);
     render(<EditableFileAffordance onOpen={vi.fn()} filename="test.md" />);
     const btn = screen.getByRole("button");
     // Icon-only per UI-SPEC L124 — no visible "Edit" text label.
     // aria-label/title still read "Edit {filename}" (see test 2) for a11y.
     expect(btn.textContent).not.toContain("Edit");
-    // Starts hidden via opacity-0 — hover on ancestor .pv-bubble reveals it.
-    // JSDOM can't test the ancestor-hover CSS variant; the initial class-list
-    // check is sufficient to lock the resting-invisible contract.
-    expect(btn.className).toContain("opacity-0");
+    // Ashley 2026-09-20: always visible on desktop (hover-reveal was too easy
+    // to miss). Matches mobile's 72% opacity for cross-viewport consistency.
+    expect(btn.className).toContain("opacity-[0.72]");
+    expect(btn.className).not.toContain("opacity-0");
   });
 
   it("test 6: sibling-not-wrapper anti-pattern lockdown — root is <button>", () => {
