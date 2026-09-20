@@ -102,11 +102,13 @@ import { snippetForHit } from "../../claude-session/session-search-snippet.js";
 const CONNECT_TIMEOUT_MS = 5_000;
 
 /**
- * Per-host budget (30s default). Overridable via
+ * Per-host budget (25s default). Overridable via
  * CONVERSATION_SEARCH_PER_HOST_TIMEOUT_MS env var for tests only. This
  * caps the entire runOneHost call (enumeration + discovery + grep) via
  * Promise.race — a stalled host contributes [] rather than blocking the
- * whole endpoint.
+ * whole endpoint. 25s leaves ~5s headroom under Caddy's default 30s
+ * proxy_read_timeout so the aggregated response can travel back to the
+ * client before the edge times out.
  */
 function getPerHostTimeoutMs(): number {
   const raw = process.env.CONVERSATION_SEARCH_PER_HOST_TIMEOUT_MS;
@@ -114,7 +116,43 @@ function getPerHostTimeoutMs(): number {
     const n = Number(raw);
     if (Number.isFinite(n) && n > 0) return n;
   }
-  return 30_000;
+  return 25_000;
+}
+
+/**
+ * Max concurrent identity-discovery calls per host. OpenSSH's default
+ * `MaxSessions` is 10; going above that queues (or in worst case rejects)
+ * excess channels on the shared `ssh2.Client` for the host. Six leaves
+ * safe headroom under the default while still parallelizing enough to
+ * clear ~150 identities in a few seconds. Applied to both the live and
+ * archived identity-key discovery Promise.all loops in resolveIdentityPaths.
+ */
+const DISCOVERY_CONCURRENCY = 6;
+
+/**
+ * Bounded-concurrency parallel map. Preserves input order. No dep on
+ * p-limit; keeps the endpoint zero-new-dep.
+ */
+async function concurrentMap<T, U>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<U>,
+): Promise<U[]> {
+  const results: U[] = new Array(items.length);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= items.length) return;
+      results[idx] = await fn(items[idx]);
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    worker,
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 /** Bound argv size. Query length cap per Security Domain V5. */
@@ -304,17 +342,29 @@ async function resolveIdentityPaths(
     listArchivedIdentityKeysOnHost(conn).catch(() => [] as string[]),
   ]);
 
-  const liveResolved = await Promise.all(
-    liveKeys.map(async (key): Promise<ResolvedIdentity | null> => {
+  // Concurrency-bounded map (DISCOVERY_CONCURRENCY=6) — an unbounded
+  // Promise.all here would open ~150 SSH exec channels on the shared
+  // ssh2.Client, exceeding OpenSSH's default MaxSessions=10 and queueing
+  // (or silently dropping) most calls. Observed effect: full-fan-out hits
+  // the per-host timeout, causing the endpoint to run right up to Caddy's
+  // 30s proxy_read_timeout — the browser sees a "hang" while a partial
+  // response is discarded at the edge. Fix: cap at 6 (safely under
+  // MaxSessions=10) so channels rotate through cleanly.
+  const liveResolved = await concurrentMap(
+    liveKeys,
+    DISCOVERY_CONCURRENCY,
+    async (key): Promise<ResolvedIdentity | null> => {
       const path = await discoverIdentitySessionFile(conn, key);
       return path === null ? null : { key, path, isArchived: false };
-    }),
+    },
   );
-  const archivedResolved = await Promise.all(
-    archivedKeys.map(async (key): Promise<ResolvedIdentity | null> => {
+  const archivedResolved = await concurrentMap(
+    archivedKeys,
+    DISCOVERY_CONCURRENCY,
+    async (key): Promise<ResolvedIdentity | null> => {
       const path = await discoverIdentitySessionFile(conn, key);
       return path === null ? null : { key, path, isArchived: true };
-    }),
+    },
   );
 
   return [...liveResolved, ...archivedResolved].filter(
