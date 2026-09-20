@@ -1618,7 +1618,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    Density variants — mirror the `.pv-row--mobile` / `.pv-row.pv-row--desktop`
    treatments so app tiles read as first-class residents of the sidebar row
-   family at every density. Ashley 2026-09-20: base `.pv-app-tile` (glass
+   family at every density. 2026-09-20: base `.pv-app-tile` (glass
    bubble) looked "giant" next to compact desktop rows; the desktop variant
    below strips the glass to match the bare row treatment. Icon-slot stays
    rounded-SQUARE (10px on mobile, 6px on desktop — iOS-app-icon target
@@ -1688,4 +1688,86 @@
 
 .pv-app-tile--desktop .pv-app-unhealthy-message {
   font-size: 11px;
+}
+
+/* ─── Phase 122 Plan 03: search modal — result-row rules ─────────────────
+   Colocated with the other pv- rules so future edits to pretty-conversations
+   styling stay in one place. The snippet highlight (.pv-search-hit) is the
+   security-relevant piece: the modal splits snippet text into <span> around
+   the hit indices from the backend (hitStart, hitLength) — NEVER via
+   dangerouslySetInnerHTML. See ConversationSearchRow.tsx and
+   src/backend/database/routes/conversation-search.ts (T-122-FE-01). */
+
+.pv-search-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(220, 225, 245, 0.08);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.pv-search-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(220, 225, 245, 0.16);
+}
+
+.pv-search-row-title {
+  color: #f0ebe0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pv-search-row-subtext {
+  color: #a89a80;
+  font-size: 11px;
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pv-search-row-snippet {
+  color: #d9d1c0;
+  font-size: 12px;
+  line-height: 1.35;
+  /* Snippet may span 2-3 lines; clip via -webkit-line-clamp to keep
+     result rows compact. Modern browsers only; falls back to no clamp on
+     old engines (still readable, just taller). */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pv-search-hit {
+  background: rgba(255, 215, 100, 0.35);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.pv-search-archived-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(180, 140, 90, 0.35);
+  color: #e8e4d8;
+  border-radius: 999px;
 }
