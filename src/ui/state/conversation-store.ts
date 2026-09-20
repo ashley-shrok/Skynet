@@ -483,6 +483,19 @@ export type ProjectRow = {
   archived: boolean;
 };
 
+// Hoisted above state init so readProjectsCache (called at module load
+// during the state seed below) sees an initialized const, not TDZ. Read/
+// write function bodies and canonical block-comment live further down the
+// file near the fleet-cache functions — see "Projects cache" block.
+const PROJECTS_CACHE_KEY = "skynet:projects-cache:v1";
+
+// Module-load seed for the projects slice from localStorage: paint project
+// sections + membership on cold refresh BEFORE the aggregated per-host
+// listProjects / listRelayRoomProjectTags fetches resolve. Empty / missing /
+// malformed cache falls back to empty maps + array; readProjectsCache is
+// silent by contract.
+const _cachedProjects = readProjectsCache();
+
 let state: State = {
   hostTree: null,
   openTabs: [],
@@ -499,11 +512,12 @@ let state: State = {
   // frames on connect re-populate the whole array (the setter is a REPLACE,
   // not an APPEND — the backend is the authority on the current archive set).
   archivedFleetRows: [],
-  // Phase 117 Plan 117-07 (D-37): empty projects on boot; hydrated by
-  // AppShell's boot-time listProjects fetch + wire event.
-  projects: [],
-  identityProjectAssignments: new Map<string, string>(),
-  roomProjectAssignments: new Map<string, string>(),
+  // Phase 117 Plan 117-07 (D-37): projects hydrate from AppShell's boot-time
+  // listProjects fetch + wire event. Seeded from localStorage on module load
+  // for cold-boot paint; fresh HTTP fetches overwrite via setProjects.
+  projects: _cachedProjects.projects,
+  identityProjectAssignments: _cachedProjects.identityProjectAssignments,
+  roomProjectAssignments: _cachedProjects.roomProjectAssignments,
 };
 
 // Plan 06-04 race defense (T-06-04-04): openTab's setTabs is batched — the
@@ -1841,6 +1855,133 @@ export function writeFleetSessionsCache(sessions: FleetSession[]): void {
   }
 }
 
+// ─── Projects cache ─────────────────────────────────────────────────────────
+//
+// Cold-boot paint for the sidebar's project sections + membership. Composite
+// key holds all three axes (project list + identity→project assignments +
+// room→project assignments) so the section headers, in-project identity
+// rows, and in-project relay rooms all paint together on refresh without
+// waiting for the aggregated per-host listProjects + listRelayRoomProjectTags
+// HTTP fetches. Bump the version suffix on any schema change to ProjectRow
+// or the assignment-map key/value contract.
+//
+// PROJECTS_CACHE_KEY is hoisted above the state-init block (see near
+// ProjectRow) — readProjectsCache runs at module load and would hit its TDZ
+// if the const stayed here.
+
+type CachedProjectsSlice = {
+  projects: ProjectRow[];
+  identityProjectAssignments: Map<string, string>;
+  roomProjectAssignments: Map<string, string>;
+};
+
+function isProjectRow(x: unknown): x is ProjectRow {
+  if (!x || typeof x !== "object") return false;
+  const r = x as Record<string, unknown>;
+  if (typeof r.slug !== "string") return false;
+  if (typeof r.displayName !== "string") return false;
+  if (typeof r.hostId !== "string") return false;
+  if (typeof r.hostname !== "string") return false;
+  if (typeof r.archived !== "boolean") return false;
+  return true;
+}
+
+function isStringPairArray(x: unknown): x is Array<[string, string]> {
+  if (!Array.isArray(x)) return false;
+  for (const entry of x) {
+    if (!Array.isArray(entry) || entry.length !== 2) return false;
+    if (typeof entry[0] !== "string" || typeof entry[1] !== "string") {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function readProjectsCache(): CachedProjectsSlice {
+  const empty: CachedProjectsSlice = {
+    projects: [],
+    identityProjectAssignments: new Map(),
+    roomProjectAssignments: new Map(),
+  };
+  try {
+    const raw =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem(PROJECTS_CACHE_KEY)
+        : null;
+    if (!raw) return empty;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return empty;
+    const p = parsed as Record<string, unknown>;
+    const projects: ProjectRow[] = [];
+    if (Array.isArray(p.projects)) {
+      for (const item of p.projects) {
+        if (isProjectRow(item)) {
+          projects.push({
+            slug: item.slug,
+            displayName: item.displayName,
+            hostId: item.hostId,
+            hostname: item.hostname,
+            archived: item.archived,
+          });
+        }
+      }
+    }
+    const identityProjectAssignments = new Map<string, string>();
+    if (isStringPairArray(p.identityProjectAssignments)) {
+      for (const [k, v] of p.identityProjectAssignments) {
+        identityProjectAssignments.set(k, v);
+      }
+    }
+    const roomProjectAssignments = new Map<string, string>();
+    if (isStringPairArray(p.roomProjectAssignments)) {
+      for (const [k, v] of p.roomProjectAssignments) {
+        roomProjectAssignments.set(k, v);
+      }
+    }
+    return { projects, identityProjectAssignments, roomProjectAssignments };
+  } catch {
+    return empty;
+  }
+}
+
+export function writeProjectsCache(slice: CachedProjectsSlice): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const payload = {
+      projects: slice.projects.map((p) => ({
+        slug: p.slug,
+        displayName: p.displayName,
+        hostId: p.hostId,
+        hostname: p.hostname,
+        archived: p.archived,
+      })),
+      identityProjectAssignments: Array.from(
+        slice.identityProjectAssignments.entries(),
+      ),
+      roomProjectAssignments: Array.from(
+        slice.roomProjectAssignments.entries(),
+      ),
+    };
+    localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // Silent — cache-write failure is non-fatal.
+  }
+}
+
+/**
+ * Read current state and persist all three project axes as one composite
+ * payload. Called after any of setProjects / setIdentityProjectAssignments /
+ * setRoomProjectAssignments mutates. Cheap enough to run on every real
+ * change — the sidebar projects surface is small.
+ */
+function persistProjectsSlice(): void {
+  writeProjectsCache({
+    projects: state.projects,
+    identityProjectAssignments: state.identityProjectAssignments,
+    roomProjectAssignments: state.roomProjectAssignments,
+  });
+}
+
 // Plan 07-01 (TG-14): hostId → Host flat lookup. AppShell maintains a memo
 // keyed on stableHostTreeKey (the NOTE-05 thrash-guard from Phase 6) and
 // pushes the Map here whenever the memo re-derives.
@@ -2259,6 +2400,7 @@ export function setProjects(rows: readonly ProjectRow[]): void {
     if (equal) return;
   }
   state = { ...state, projects: rows.slice() };
+  persistProjectsSlice();
   notify();
 }
 
@@ -2295,6 +2437,7 @@ export function setIdentityProjectAssignments(
     if (equal) return;
   }
   state = { ...state, identityProjectAssignments: new Map(map) };
+  persistProjectsSlice();
   notify();
 }
 
@@ -2319,11 +2462,20 @@ export function setRoomProjectAssignments(
     if (equal) return;
   }
   state = { ...state, roomProjectAssignments: new Map(map) };
+  persistProjectsSlice();
   notify();
 }
 
-// Test-only reset — same shape as __resetPinnedIdsForTest et al.
+// Test-only reset — same shape as __resetPinnedIdsForTest et al. Also clears
+// the localStorage cache so cross-test bleed via seed-on-load can't happen.
 export function __resetProjectsForTest(): void {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem(PROJECTS_CACHE_KEY);
+    }
+  } catch {
+    // Silent.
+  }
   state = {
     ...state,
     projects: [],

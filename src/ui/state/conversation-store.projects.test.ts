@@ -46,6 +46,8 @@ import {
   setProjects,
   setRoomProjectAssignments,
   setIdentityProjectAssignments,
+  readProjectsCache,
+  writeProjectsCache,
   __resetActiveSetForTest,
   __resetPinnedIdsForTest,
   __resetFleetSessionsForTest,
@@ -490,6 +492,159 @@ describe("conversation-store (117-07): empty state", () => {
     expect(snap.middle.map((r) => r.id)).toEqual(["t2"]);
     // Existing consumers still see the old fields unchanged.
     expect(snap.pinned.map((r) => r.id)).toEqual(["t1"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cache tests: cold-boot localStorage seed + write-on-setter contracts
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PROJECTS_CACHE_KEY = "skynet:projects-cache:v1";
+
+describe("conversation-store (projects cache): cold-boot seed + write-on-setter", () => {
+  it("setProjects writes canonical projects payload to localStorage", () => {
+    const row: ProjectRow = {
+      slug: "alpha",
+      displayName: "Alpha",
+      hostId: "1",
+      hostname: "t1000",
+      archived: false,
+    };
+    act(() => {
+      setProjects([row]);
+    });
+    const cached = readProjectsCache();
+    expect(cached.projects).toEqual([row]);
+    expect(cached.identityProjectAssignments.size).toBe(0);
+    expect(cached.roomProjectAssignments.size).toBe(0);
+  });
+
+  it("setIdentityProjectAssignments writes the map into the composite cache", () => {
+    const row: ProjectRow = {
+      slug: "alpha",
+      displayName: "Alpha",
+      hostId: "1",
+      hostname: "t1000",
+      archived: false,
+    };
+    act(() => {
+      setProjects([row]);
+    });
+    act(() => {
+      setIdentityProjectAssignments(new Map([["1::morpheus", "alpha"]]));
+    });
+    const cached = readProjectsCache();
+    expect(cached.projects).toEqual([row]);
+    expect(cached.identityProjectAssignments.get("1::morpheus")).toBe("alpha");
+  });
+
+  it("setRoomProjectAssignments writes the map into the composite cache", () => {
+    act(() => {
+      setRoomProjectAssignments(new Map([["!room:server", "alpha"]]));
+    });
+    const cached = readProjectsCache();
+    expect(cached.roomProjectAssignments.get("!room:server")).toBe("alpha");
+  });
+
+  it("identity-equal skip in setProjects does not overwrite cache", () => {
+    const row: ProjectRow = {
+      slug: "alpha",
+      displayName: "Alpha",
+      hostId: "1",
+      hostname: "t1000",
+      archived: false,
+    };
+    act(() => {
+      setProjects([row]);
+    });
+    // Corrupt the cache directly, then re-emit the same rows — the setter
+    // should skip (identity-equal) and NOT re-write, so the corrupt payload
+    // stays as evidence that write-on-noop is off.
+    localStorage.setItem(PROJECTS_CACHE_KEY, "corrupted-sentinel");
+    act(() => {
+      setProjects([row]);
+    });
+    expect(localStorage.getItem(PROJECTS_CACHE_KEY)).toBe("corrupted-sentinel");
+  });
+
+  it("readProjectsCache returns empty triple on missing / malformed cache", () => {
+    localStorage.removeItem(PROJECTS_CACHE_KEY);
+    let cached = readProjectsCache();
+    expect(cached.projects).toEqual([]);
+    expect(cached.identityProjectAssignments.size).toBe(0);
+    expect(cached.roomProjectAssignments.size).toBe(0);
+
+    localStorage.setItem(PROJECTS_CACHE_KEY, "{not valid json");
+    cached = readProjectsCache();
+    expect(cached.projects).toEqual([]);
+  });
+
+  it("readProjectsCache drops wrong-shape entries per axis", () => {
+    localStorage.setItem(
+      PROJECTS_CACHE_KEY,
+      JSON.stringify({
+        projects: [
+          { slug: "a" }, // missing required fields — dropped
+          {
+            slug: "b",
+            displayName: "Bravo",
+            hostId: "1",
+            hostname: "t1000",
+            archived: false,
+          },
+        ],
+        identityProjectAssignments: [["k", "v"], ["bad"]], // bad entry dropped by isStringPairArray → whole axis dropped
+        roomProjectAssignments: [["room", "slug"]],
+      }),
+    );
+    const cached = readProjectsCache();
+    expect(cached.projects).toHaveLength(1);
+    expect(cached.projects[0].slug).toBe("b");
+    // isStringPairArray is all-or-nothing on the array — one malformed entry
+    // means the whole axis returns empty.
+    expect(cached.identityProjectAssignments.size).toBe(0);
+    expect(cached.roomProjectAssignments.get("room")).toBe("slug");
+  });
+
+  it("writeProjectsCache round-trips through readProjectsCache", () => {
+    writeProjectsCache({
+      projects: [
+        {
+          slug: "a",
+          displayName: "Alpha",
+          hostId: "1",
+          hostname: "t1000",
+          archived: false,
+        },
+      ],
+      identityProjectAssignments: new Map([["1::morpheus", "a"]]),
+      roomProjectAssignments: new Map([["!r:s", "a"]]),
+    });
+    const cached = readProjectsCache();
+    expect(cached.projects[0].slug).toBe("a");
+    expect(cached.identityProjectAssignments.get("1::morpheus")).toBe("a");
+    expect(cached.roomProjectAssignments.get("!r:s")).toBe("a");
+  });
+
+  it("__resetProjectsForTest clears the localStorage cache", () => {
+    act(() => {
+      setProjects([
+        {
+          slug: "a",
+          displayName: "Alpha",
+          hostId: "1",
+          hostname: "t1000",
+          archived: false,
+        },
+      ]);
+    });
+    expect(readProjectsCache().projects).toHaveLength(1);
+
+    act(() => {
+      __resetProjectsForTest();
+    });
+    expect(readProjectsCache().projects).toEqual([]);
+    expect(localStorage.getItem(PROJECTS_CACHE_KEY)).toBeNull();
   });
 });
 
