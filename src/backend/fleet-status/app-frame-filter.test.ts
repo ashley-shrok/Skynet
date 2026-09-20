@@ -27,6 +27,7 @@ import {
   makeAppSnapshotFrame,
   makeAppUpdateFrame,
   makeGoneFrame,
+  makeIdentityArchivedFrame,
 } from "./wire-protocol.js";
 
 // ---------------------------------------------------------------------------
@@ -279,6 +280,49 @@ describe("app-frame-filter", () => {
 
   it("Test 13: gone frame for unknown host (resolver returns null) → dropped deny-by-default", async () => {
     const frame = makeGoneFrame("h-unknown", "tina", "session-123");
+    const resolver = vi.fn().mockResolvedValue(null);
+    const checkAccessMock = vi.fn(async () => true);
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).toBeNull();
+    expect(checkAccessMock).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // identity-archived-frame filtering (surface migration — publishIdentityArchived)
+  // -------------------------------------------------------------------------
+
+  it("Test 14: identity-archived frame for a host the user cannot access → dropped", async () => {
+    const frame = makeIdentityArchivedFrame("wren", "h1", "thenasty");
+    const resolver = vi
+      .fn()
+      .mockResolvedValue({ hostIdNum: 1, hostUserId: "OTHER_USER" });
+    const checkAccessMock = vi.fn(async () => false);
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).toBeNull();
+    expect(checkAccessMock).toHaveBeenCalledWith(1, "U", "OTHER_USER", "read");
+  });
+
+  it("Test 15: identity-archived frame for an accessible host → passes verbatim", async () => {
+    const frame = makeIdentityArchivedFrame("wren", "h1", "thenasty");
+    const resolver = vi
+      .fn()
+      .mockResolvedValue({ hostIdNum: 1, hostUserId: "U" });
+    const checkAccessMock = vi.fn(async () => true);
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).toEqual(frame);
+  });
+
+  it("Test 16: identity-archived frame for unknown host → dropped deny-by-default", async () => {
+    const frame = makeIdentityArchivedFrame("wren", "h-unknown", "thenasty");
     const resolver = vi.fn().mockResolvedValue(null);
     const checkAccessMock = vi.fn(async () => true);
 

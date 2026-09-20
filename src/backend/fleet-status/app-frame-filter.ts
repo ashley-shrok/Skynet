@@ -9,14 +9,14 @@
  * language) can wrap identity frames through the same shape.
  *
  * Contract:
- *   - `app-update` / `app-gone` / `gone`  → one checkHostAccess call per frame;
- *     return the frame or null.
+ *   - `app-update` / `app-gone` / `gone` / `identity-archived`  → one
+ *     checkHostAccess call per frame; return the frame or null.
  *   - `app-snapshot`             → checkHostAccess per unique hostId in the
  *     frame (Promise.all); return a projected COPY of the frame with only
  *     visible apps (empty apps: [] is still a valid frame — the emit happened).
  *   - unmigrated frame types     → verbatim pass-through (defense in depth for
  *     frame types not yet host-scoped-filtered: snapshot, update,
- *     identity-archived, project-list-changed, pong).
+ *     project-list-changed, pong).
  *
  * Backward-compat guard: `ctx.userId === undefined` → pass every frame
  * through unchanged. Matches the existing bare `subscribe(sendFrame)` shape
@@ -206,6 +206,10 @@ export async function filterAppFrame(
   }
 
   if (frame.type === "gone") {
+    return (await canUserSee(frame.hostId)) ? frame : null;
+  }
+
+  if (frame.type === "identity-archived") {
     return (await canUserSee(frame.hostId)) ? frame : null;
   }
 

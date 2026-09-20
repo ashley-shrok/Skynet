@@ -504,25 +504,31 @@ export function createSubscriptionRegistry(
         });
       }
 
-      // Phase 115 Plan 115-06 (D-06, D-18): re-emit every archived identity
-      // as an `identity-archived` frame so a reconnecting client re-hydrates
-      // its archived-rows store slice from the registry's cached map. Order
-      // is Map insertion order — the frontend's setArchivedFleetRows is a
-      // whole-array replacement (see conversation-store.ts) so order does
-      // not carry meaning here.
-      for (const entry of archivedIdentities.values()) {
-        try {
-          sendFrame(
-            makeIdentityArchivedFrame(entry.name, entry.hostId, entry.hostname),
-          );
-        } catch (err) {
-          systemLogger.warn(
-            "Fleet-status archived-identity snapshot delivery failed",
-            {
-              operation: "fleet_status_archived_snapshot_failed",
-              error: err instanceof Error ? err.message : "unknown",
-            },
-          );
+      // Re-emit every archived identity as an `identity-archived` frame so a
+      // reconnecting client re-hydrates its archived-rows store slice from
+      // the registry's cached map. Order is Map insertion order — the
+      // frontend's setArchivedFleetRows is a whole-array replacement (see
+      // conversation-store.ts) so order does not carry meaning here.
+      //
+      // Unfiltered path only: filtered subscribers get the same re-emit
+      // filtered per-frame inside the fire-and-forget block below (moved
+      // there so the queue-window covers both archived + app-snapshot re-
+      // emits AND any real-time publishes arriving during the window).
+      if (appFrameFilter === undefined || ctx?.userId === undefined) {
+        for (const entry of archivedIdentities.values()) {
+          try {
+            sendFrame(
+              makeIdentityArchivedFrame(entry.name, entry.hostId, entry.hostname),
+            );
+          } catch (err) {
+            systemLogger.warn(
+              "Fleet-status archived-identity snapshot delivery failed",
+              {
+                operation: "fleet_status_archived_snapshot_failed",
+                error: err instanceof Error ? err.message : "unknown",
+              },
+            );
+          }
         }
       }
 
@@ -580,6 +586,37 @@ export function createSubscriptionRegistry(
         // Fire-and-forget — disposer must return synchronously.
         void (async () => {
           try {
+            // Filter + re-emit each archived-identity row inside the queue-
+            // window so real-time publishIdentityArchived arriving during
+            // this block queue behind the snapshot rather than racing past it.
+            // Sequential to preserve Map insertion order (matches the sync
+            // path above). Per-frame try/catch so one send failure doesn't
+            // starve the rest.
+            for (const archived of archivedIdentities.values()) {
+              const archivedFrame = makeIdentityArchivedFrame(
+                archived.name,
+                archived.hostId,
+                archived.hostname,
+              );
+              try {
+                const projectedArchived = await appFrameFilter(
+                  archivedFrame,
+                  userIdForFilter,
+                );
+                if (projectedArchived !== null) {
+                  sendFrame(projectedArchived);
+                }
+              } catch (err) {
+                systemLogger.warn(
+                  "Fleet-status archived-identity snapshot delivery failed",
+                  {
+                    operation: "fleet_status_archived_snapshot_failed",
+                    error: err instanceof Error ? err.message : "unknown",
+                  },
+                );
+              }
+            }
+
             const projected = await appFrameFilter(rawSnapshot, userIdForFilter);
             if (projected !== null) {
               sendFrame(projected);
@@ -713,7 +750,12 @@ export function createSubscriptionRegistry(
         return;
       }
       archivedIdentities.set(key, { name, hostId, hostname });
-      fanOut(subscribers, makeIdentityArchivedFrame(name, hostId, hostname));
+      const frame = makeIdentityArchivedFrame(name, hostId, hostname);
+      if (appFrameFilter !== undefined) {
+        void fanOutApp(subscribers, frame, appFrameFilter);
+      } else {
+        fanOut(subscribers, frame);
+      }
     },
 
     publishProjectListChanged(projects: ProjectListEntry[]): void {

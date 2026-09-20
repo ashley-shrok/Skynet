@@ -980,7 +980,9 @@ describe("subscription-registry", () => {
       }
     });
 
-    it("Filter-6: session + archived-identity fan-out UNAFFECTED by widening (still sync + unfiltered)", async () => {
+    it("Filter-6: publishSessionState fan-out unaffected (still sync + unfiltered) — session-state migration pending", async () => {
+      // Regression guard for the not-yet-migrated session-state surface.
+      // Update when publishSessionState moves to filtered fanOutApp.
       const filterMock = vi.fn(
         async (frame: FrontendOutboundFrameType) => frame,
       );
@@ -993,28 +995,16 @@ describe("subscription-registry", () => {
       await tick();
       framesU1.length = 0;
       framesU2.length = 0;
-      // Clear filter calls made during the subscribe-path app-snapshot emit
-      // (those are correct: subscribe DOES filter the app-snapshot per D-15).
+      // Clear filter calls made during subscribe-path snapshot emits
+      // (those DO go through the filter for the migrated frame families).
       filterMock.mockClear();
 
-      // Session frame — must reach BOTH subscribers without going through filter.
       const state = makeState("host-42", "tina", "session-1");
       registry.publishSessionState("host-42", state);
 
-      // Archived identity frame — also must reach BOTH subscribers.
-      registry.publishIdentityArchived("wren", "42", "thenasty");
-
-      // Filter was NOT called for session/archived (only app frames go through it).
       expect(filterMock).not.toHaveBeenCalled();
-
       expect(framesU1.filter((f) => f.type === "update")).toHaveLength(1);
       expect(framesU2.filter((f) => f.type === "update")).toHaveLength(1);
-      expect(
-        framesU1.filter((f) => f.type === "identity-archived"),
-      ).toHaveLength(1);
-      expect(
-        framesU2.filter((f) => f.type === "identity-archived"),
-      ).toHaveLength(1);
     });
 
     it("Filter-7: filter throwing for one subscriber does NOT block delivery to others", async () => {
@@ -1042,6 +1032,62 @@ describe("subscription-registry", () => {
       expect(framesGood.filter((f) => f.type === "app-update")).toHaveLength(1);
       // Bad subscriber's filter threw → frame not delivered to them.
       expect(framesBad.filter((f) => f.type === "app-update")).toHaveLength(0);
+    });
+
+    it("Filter-10: publishIdentityArchived routes through filter — U1 sees frame, U2 does not", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          if (userId === "U2" && frame.type === "identity-archived") return null;
+          return frame;
+        },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      const framesU1: FrontendOutboundFrameType[] = [];
+      const framesU2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      registry.subscribe((f) => framesU2.push(f), { userId: "U2" });
+      await tick();
+      framesU1.length = 0;
+      framesU2.length = 0;
+
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+      await tick();
+
+      expect(framesU1.filter((f) => f.type === "identity-archived")).toHaveLength(1);
+      expect(framesU2.filter((f) => f.type === "identity-archived")).toHaveLength(0);
+    });
+
+    it("Filter-11: subscribe-time archived-identity re-emit is filtered per subscriber", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          // U2 can only see host "99"; drop everything else.
+          if (userId === "U2" && frame.type === "identity-archived" && frame.hostId !== "99") {
+            return null;
+          }
+          return frame;
+        },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      // Seed the archived-identities map BEFORE any subscribe. Two hosts, two rows.
+      registry.publishIdentityArchived("wren", "42", "thenasty");
+      registry.publishIdentityArchived("tabitha", "99", "workstation");
+      await tick();
+
+      const framesU1: FrontendOutboundFrameType[] = [];
+      const framesU2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      registry.subscribe((f) => framesU2.push(f), { userId: "U2" });
+      await tick();
+
+      const archivedU1 = framesU1.filter((f) => f.type === "identity-archived");
+      const archivedU2 = framesU2.filter((f) => f.type === "identity-archived");
+      expect(archivedU1).toHaveLength(2); // U1 sees both
+      expect(archivedU2).toHaveLength(1); // U2 only sees host 99
+      if (archivedU2[0].type === "identity-archived") {
+        expect(archivedU2[0].hostId).toBe("99");
+      }
     });
 
     it("Filter-9: publishSessionGone routes through filter — U1 sees gone, U2 does not", async () => {
