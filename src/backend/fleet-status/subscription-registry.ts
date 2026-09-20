@@ -766,10 +766,16 @@ export function createSubscriptionRegistry(
         return;
       }
       state.delete(key);
-      fanOut(
-        subscribers,
-        makeGoneFrame(hostId, existing.tmuxSession, existing.sessionId),
+      const frame = makeGoneFrame(
+        hostId,
+        existing.tmuxSession,
+        existing.sessionId,
       );
+      if (appFrameFilter !== undefined) {
+        void fanOutApp(subscribers, frame, appFrameFilter);
+      } else {
+        fanOut(subscribers, frame);
+      }
     },
 
     publishAppUpdate(hostId: string, app: AppState): void {

@@ -9,15 +9,14 @@
  * language) can wrap identity frames through the same shape.
  *
  * Contract:
- *   - `app-update` / `app-gone`  → one checkHostAccess call per frame; return
- *     the frame or null.
+ *   - `app-update` / `app-gone` / `gone`  → one checkHostAccess call per frame;
+ *     return the frame or null.
  *   - `app-snapshot`             → checkHostAccess per unique hostId in the
  *     frame (Promise.all); return a projected COPY of the frame with only
  *     visible apps (empty apps: [] is still a valid frame — the emit happened).
- *   - non-app frames             → verbatim pass-through (defense in depth —
- *     the fanOut path guarantees this filter is only called with app frames,
- *     but if some future refactor routes a session or archived frame through
- *     it accidentally the frame is NOT corrupted or dropped).
+ *   - unmigrated frame types     → verbatim pass-through (defense in depth for
+ *     frame types not yet host-scoped-filtered: snapshot, update,
+ *     identity-archived, project-list-changed, pong).
  *
  * Backward-compat guard: `ctx.userId === undefined` → pass every frame
  * through unchanged. Matches the existing bare `subscribe(sendFrame)` shape
@@ -154,18 +153,6 @@ export async function filterAppFrame(
   }
   const userId = ctx.userId;
 
-  // Frames not in the app-* trio pass through verbatim (defense in depth).
-  // The subscription-registry's fanOutApp only calls the filter with app
-  // frames, but if a future refactor routes a session or archived frame
-  // through this function accidentally, do not corrupt or drop it.
-  if (
-    frame.type !== "app-update" &&
-    frame.type !== "app-gone" &&
-    frame.type !== "app-snapshot"
-  ) {
-    return frame;
-  }
-
   // Internal per-hostId visibility check. Cache-first; on miss, resolve the
   // host record, call checkHostAccess("read"), and cache the boolean.
   async function canUserSee(hostIdStr: string): Promise<boolean> {
@@ -218,25 +205,35 @@ export async function filterAppFrame(
     return (await canUserSee(frame.hostId)) ? frame : null;
   }
 
-  // frame.type === "app-snapshot" — collect unique hostIds, check in
-  // parallel, filter the apps array. Return a NEW frame (do not mutate the
-  // input). Empty result is still a valid app-snapshot with apps: [] —
-  // proves the emit happened; frontend renders empty state gracefully.
-  const apps = frame.apps;
-  if (apps.length === 0) {
-    return frame;
+  if (frame.type === "gone") {
+    return (await canUserSee(frame.hostId)) ? frame : null;
   }
 
-  const uniqueHostIds = Array.from(new Set(apps.map((a) => a.hostId)));
-  const visibility = await Promise.all(
-    uniqueHostIds.map(async (hid) => [hid, await canUserSee(hid)] as const),
-  );
-  const visible = new Set(
-    visibility.filter(([, ok]) => ok).map(([hid]) => hid),
-  );
+  if (frame.type === "app-snapshot") {
+    // Collect unique hostIds, check in parallel, filter the apps array.
+    // Return a NEW frame (do not mutate the input). Empty result is still a
+    // valid app-snapshot with apps: [] — proves the emit happened; frontend
+    // renders empty state gracefully.
+    const apps = frame.apps;
+    if (apps.length === 0) {
+      return frame;
+    }
 
-  const projectedApps: AppState[] = apps.filter((a) => visible.has(a.hostId));
-  return makeAppSnapshotFrame(projectedApps);
+    const uniqueHostIds = Array.from(new Set(apps.map((a) => a.hostId)));
+    const visibility = await Promise.all(
+      uniqueHostIds.map(async (hid) => [hid, await canUserSee(hid)] as const),
+    );
+    const visible = new Set(
+      visibility.filter(([, ok]) => ok).map(([hid]) => hid),
+    );
+
+    const projectedApps: AppState[] = apps.filter((a) => visible.has(a.hostId));
+    return makeAppSnapshotFrame(projectedApps);
+  }
+
+  // Unmigrated frame types pass through verbatim (defense in depth). See file
+  // header Contract.
+  return frame;
 }
 
 // ---------------------------------------------------------------------------

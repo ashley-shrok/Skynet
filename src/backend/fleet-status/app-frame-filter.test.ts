@@ -26,6 +26,7 @@ import {
   makeAppGoneFrame,
   makeAppSnapshotFrame,
   makeAppUpdateFrame,
+  makeGoneFrame,
 } from "./wire-protocol.js";
 
 // ---------------------------------------------------------------------------
@@ -243,6 +244,49 @@ describe("app-frame-filter", () => {
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // gone-frame filtering (surface migration — publishIdentityGoneByName + publishSessionGone)
+  // -------------------------------------------------------------------------
+
+  it("Test 11: gone frame for a host the user cannot access → dropped", async () => {
+    const frame = makeGoneFrame("h1", "tina", "session-123");
+    const resolver = vi
+      .fn()
+      .mockResolvedValue({ hostIdNum: 1, hostUserId: "OTHER_USER" });
+    const checkAccessMock = vi.fn(async () => false);
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).toBeNull();
+    expect(checkAccessMock).toHaveBeenCalledWith(1, "U", "OTHER_USER", "read");
+  });
+
+  it("Test 12: gone frame for an accessible host → passes verbatim", async () => {
+    const frame = makeGoneFrame("h1", "tina", "session-123");
+    const resolver = vi
+      .fn()
+      .mockResolvedValue({ hostIdNum: 1, hostUserId: "U" });
+    const checkAccessMock = vi.fn(async () => true);
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).toEqual(frame);
+  });
+
+  it("Test 13: gone frame for unknown host (resolver returns null) → dropped deny-by-default", async () => {
+    const frame = makeGoneFrame("h-unknown", "tina", "session-123");
+    const resolver = vi.fn().mockResolvedValue(null);
+    const checkAccessMock = vi.fn(async () => true);
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).toBeNull();
+    expect(checkAccessMock).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------

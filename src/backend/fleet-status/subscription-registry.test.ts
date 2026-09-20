@@ -1043,6 +1043,38 @@ describe("subscription-registry", () => {
       // Bad subscriber's filter threw → frame not delivered to them.
       expect(framesBad.filter((f) => f.type === "app-update")).toHaveLength(0);
     });
+
+    it("Filter-8: publishIdentityGoneByName routes through filter — U1 sees gone, U2 does not", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          if (userId === "U2" && frame.type === "gone") return null;
+          return frame;
+        },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      // Seed the state map with (host-42, tina) so publishIdentityGoneByName
+      // has an entry to delete + fan out. tmuxSession === identityName is the
+      // source-B key convention publishIdentityGoneByName looks up.
+      registry.publishSessionState(
+        "host-42",
+        makeState("host-42", "tina", "session-1"),
+      );
+
+      const framesU1: FrontendOutboundFrameType[] = [];
+      const framesU2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      registry.subscribe((f) => framesU2.push(f), { userId: "U2" });
+      await tick();
+      framesU1.length = 0;
+      framesU2.length = 0;
+
+      registry.publishIdentityGoneByName("host-42", "tina");
+      await tick();
+
+      expect(framesU1.filter((f) => f.type === "gone")).toHaveLength(1);
+      expect(framesU2.filter((f) => f.type === "gone")).toHaveLength(0);
+    });
   });
 
   // ─── Phase 118 code-review HIGH-4 (fix pass 2026-09-18) — snapshot-first ordering ─
