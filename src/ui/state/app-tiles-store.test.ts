@@ -29,10 +29,14 @@ import {
   publishAppGone,
   useAppTiles,
   subscribeAppTilesStore,
+  readAppTilesCache,
   __resetForTest,
+  __seedFromCacheForTest,
 } from "./app-tiles-store.js";
 
 import type { AppState } from "../api/fleet-status-types.js";
+
+const APP_TILES_CACHE_KEY = "skynet:app-tiles-cache:v1";
 
 beforeEach(() => {
   __resetForTest();
@@ -353,6 +357,190 @@ describe("app-tiles-store: Test J — subscribe disposer removes the listener", 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test K — __resetForTest clears state and notifies
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test L — localStorage cache: cold-boot seed paints tiles before WS frame
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("app-tiles-store: Test L — cold-boot cache seed (D-17 reversed)", () => {
+  it("__seedFromCacheForTest populates the map from localStorage", () => {
+    // Seed localStorage directly to simulate a pre-existing cache from a
+    // prior tab session, then re-run the module-load seed.
+    const seedApps: AppState[] = [
+      {
+        hostId: "1",
+        slug: "alpha",
+        title: "Alpha",
+        description: "A",
+        port: null,
+        hasIcon: false,
+        createdAtMs: 1_726_000_000_000,
+        isHealthy: true,
+        healthMessage: null,
+      },
+      {
+        hostId: "2",
+        slug: "bravo",
+        title: "Bravo",
+        description: "B",
+        port: 8080,
+        hasIcon: true,
+        createdAtMs: 1_726_000_000_001,
+        isHealthy: false,
+        healthMessage: "unit stopped",
+      },
+    ];
+    localStorage.setItem(APP_TILES_CACHE_KEY, JSON.stringify(seedApps));
+
+    const { result, rerender } = renderHook(() => useAppTiles());
+    act(() => {
+      __seedFromCacheForTest();
+    });
+    rerender();
+
+    expect(result.current).toHaveLength(2);
+    expect(result.current.map((a) => a.title)).toEqual(["Alpha", "Bravo"]);
+    expect(result.current[1].healthMessage).toBe("unit stopped");
+  });
+
+  it("malformed cache falls back to empty (silent by contract)", () => {
+    localStorage.setItem(APP_TILES_CACHE_KEY, "{not valid json");
+    const { result, rerender } = renderHook(() => useAppTiles());
+    act(() => {
+      __seedFromCacheForTest();
+    });
+    rerender();
+    expect(result.current).toEqual([]);
+  });
+
+  it("cache with wrong-shape entries drops them and keeps valid ones", () => {
+    localStorage.setItem(
+      APP_TILES_CACHE_KEY,
+      JSON.stringify([
+        { hostId: 1, slug: "alpha", title: "Alpha" }, // hostId is number, not string — invalid
+        {
+          hostId: "2",
+          slug: "bravo",
+          title: "Bravo",
+          description: "B",
+          port: null,
+          hasIcon: false,
+          createdAtMs: 1_726_000_000_000,
+          isHealthy: true,
+          healthMessage: null,
+        },
+      ]),
+    );
+    const { result, rerender } = renderHook(() => useAppTiles());
+    act(() => {
+      __seedFromCacheForTest();
+    });
+    rerender();
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].title).toBe("Bravo");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test M — cache is written on every notify() so next cold boot is fresh
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("app-tiles-store: Test M — cache write on notify (single-authority)", () => {
+  it("publishAppSnapshot writes canonical tiles to localStorage", () => {
+    act(() => {
+      publishAppSnapshot([
+        {
+          hostId: "1",
+          slug: "alpha",
+          title: "Alpha",
+          description: "A",
+          port: null,
+          hasIcon: false,
+          createdAtMs: 1_726_000_000_000,
+          isHealthy: true,
+          healthMessage: null,
+        },
+      ]);
+    });
+    const cached = readAppTilesCache();
+    expect(cached).toHaveLength(1);
+    expect(cached[0].slug).toBe("alpha");
+  });
+
+  it("publishAppUpdate then publishAppGone leaves cache in sync with state", () => {
+    act(() => {
+      publishAppSnapshot([
+        {
+          hostId: "1",
+          slug: "alpha",
+          title: "Alpha",
+          description: "A",
+          port: null,
+          hasIcon: false,
+          createdAtMs: 1_726_000_000_000,
+          isHealthy: true,
+          healthMessage: null,
+        },
+      ]);
+    });
+    act(() => {
+      publishAppUpdate({
+        hostId: "1",
+        slug: "bravo",
+        title: "Bravo",
+        description: "B",
+        port: null,
+        hasIcon: false,
+        createdAtMs: 1_726_000_000_001,
+        isHealthy: true,
+        healthMessage: null,
+      });
+    });
+    expect(readAppTilesCache()).toHaveLength(2);
+
+    act(() => {
+      publishAppGone("1", "alpha");
+    });
+    const cached = readAppTilesCache();
+    expect(cached).toHaveLength(1);
+    expect(cached[0].slug).toBe("bravo");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test N — __resetForTest clears localStorage cache too (test isolation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("app-tiles-store: Test N — __resetForTest clears localStorage cache", () => {
+  it("after __resetForTest, __seedFromCacheForTest yields empty", () => {
+    // Populate cache via a snapshot.
+    act(() => {
+      publishAppSnapshot([
+        {
+          hostId: "1",
+          slug: "alpha",
+          title: "Alpha",
+          description: "A",
+          port: null,
+          hasIcon: false,
+          createdAtMs: 1_726_000_000_000,
+          isHealthy: true,
+          healthMessage: null,
+        },
+      ]);
+    });
+    expect(readAppTilesCache()).toHaveLength(1);
+
+    act(() => {
+      __resetForTest();
+    });
+
+    // Cache is cleared — seed-from-cache yields nothing.
+    expect(readAppTilesCache()).toEqual([]);
+    const { result } = renderHook(() => useAppTiles());
+    expect(result.current).toEqual([]);
+  });
+});
 
 describe("app-tiles-store: Test K — __resetForTest clears state and notifies", () => {
   it("populated store → __resetForTest → useAppTiles returns [] and listener was notified", () => {

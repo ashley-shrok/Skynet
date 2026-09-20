@@ -24,27 +24,35 @@
 //   Different data axis, different lifecycle — mixing surfaces is where
 //   regressions hide.
 //
-// D-17 (no pre-first-frame state): store starts empty; `useAppTiles()`
-//   returns [] until the first `app-snapshot` frame arrives. NO "loading"
-//   state, NO "connecting..." affordance, NO skeleton rows. The sidebar
-//   Apps section is collapsed by default anyway — by the time the user
-//   expands it, the first frame has arrived (subscribe-on-mount + Phase 118
-//   D-16 snapshot-on-subscribe).
+// D-17 (localStorage seed for cold-boot paint — REVERSED from original
+//   in-memory-only design): the store seeds `state.map` from
+//   `APP_TILES_CACHE_KEY` at module load, so a page refresh paints tiles
+//   from the last-known snapshot BEFORE the fleet-status WS first frame
+//   arrives. First `app-snapshot` from the WS is still authoritative and
+//   replaces the seeded map wholesale — cache is a paint hint, not a
+//   source of truth. `notify()` writes the current tile list back to
+//   localStorage on every state change, so the cache is always as fresh
+//   as the last-received frame. Silent on read/write failure (mirrors
+//   identities-store appearance-cache pattern).
 //
 // Snapshot semantics (per 117-RESEARCH.md open question 3, RESOLVED):
 //   Treat `app-snapshot` as an authoritative full-list replacement, not a
 //   merge. If an `app-update` races ahead of `app-snapshot` on a fresh
-//   subscription, the snapshot overwrites — acceptable, matches D-17.
+//   subscription, the snapshot overwrites.
 //
 // Store shape mirrors src/ui/state/session-working-store.ts —
 //   module-scoped `state: { map }`, `snapshotVersion` counter, `Set<() => void>`
 //   of listeners, `notify()` bumps version + fans out, `subscribe(cb)` returns
-//   a disposer. In-memory only — no browser persistence layer of any kind
-//   (D-14 atomic model; restart of the tab = fresh subscribe from cold via
-//   Phase 118's snapshot-on-subscribe).
+//   a disposer. Persistence layer per D-17.
 
 import { useMemo, useSyncExternalStore } from "react";
 import type { AppState } from "../api/fleet-status-types.js";
+
+// Storage key for the app-tiles cold-boot cache read at module load and
+// written on every state-change notify(). Bump the version suffix on any
+// schema change to AppState (avoids reading a stale-shape cache into an
+// incompatible reader).
+const APP_TILES_CACHE_KEY = "skynet:app-tiles-cache:v1";
 
 // ─── Internal state ─────────────────────────────────────────────────────────
 
@@ -53,15 +61,28 @@ type State = {
   map: Map<string, AppState>;
 };
 
-let state: State = {
-  map: new Map<string, AppState>(),
-};
+// Module-load seed from localStorage: paint tiles on cold refresh BEFORE
+// the fleet-status WS first-frame arrives (D-17). Empty / missing /
+// malformed cache falls back to the empty initial state; readAppTilesCache
+// is silent by contract.
+let state: State = (() => {
+  const cached = readAppTilesCache();
+  const map = new Map<string, AppState>();
+  for (const app of cached) {
+    map.set(`${app.hostId}:${app.slug}`, app);
+  }
+  return { map };
+})();
 
 let snapshotVersion = 0;
 
 const listeners = new Set<() => void>();
 
 function notify(): void {
+  // Single-authority cache write: every state change that reaches listeners
+  // also updates the localStorage cache so the next cold paint has the
+  // freshest tile list to seed from. Silent on write failure by contract.
+  writeAppTilesCache(Array.from(state.map.values()));
   snapshotVersion += 1;
   for (const l of listeners) l();
 }
@@ -209,14 +230,109 @@ export function useAppTiles(): AppState[] {
 // Suppress "declared but never read" for snapshotVersion (bumped by notify()).
 void snapshotVersion;
 
+// ─── Cache read/write ───────────────────────────────────────────────────────
+
+function isCachedAppState(x: unknown): x is AppState {
+  if (!x || typeof x !== "object") return false;
+  const r = x as Record<string, unknown>;
+  if (typeof r.hostId !== "string") return false;
+  if (typeof r.slug !== "string") return false;
+  if (typeof r.title !== "string") return false;
+  if (typeof r.description !== "string") return false;
+  if (r.port !== null && typeof r.port !== "number") return false;
+  if (typeof r.hasIcon !== "boolean") return false;
+  if (typeof r.createdAtMs !== "number") return false;
+  if (typeof r.isHealthy !== "boolean") return false;
+  if (r.healthMessage !== null && typeof r.healthMessage !== "string")
+    return false;
+  return true;
+}
+
+export function readAppTilesCache(): AppState[] {
+  try {
+    const raw =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem(APP_TILES_CACHE_KEY)
+        : null;
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const valid: AppState[] = [];
+    for (const item of parsed) {
+      if (isCachedAppState(item)) {
+        // Defensive per-field pick — only canonical fields make it back into
+        // memory even if a future writer accidentally serialized more.
+        valid.push({
+          hostId: item.hostId,
+          slug: item.slug,
+          title: item.title,
+          description: item.description,
+          port: item.port,
+          hasIcon: item.hasIcon,
+          createdAtMs: item.createdAtMs,
+          isHealthy: item.isHealthy,
+          healthMessage: item.healthMessage,
+        });
+      }
+    }
+    return valid;
+  } catch {
+    return [];
+  }
+}
+
+export function writeAppTilesCache(list: AppState[]): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const canonical = list.map((a) => ({
+      hostId: a.hostId,
+      slug: a.slug,
+      title: a.title,
+      description: a.description,
+      port: a.port,
+      hasIcon: a.hasIcon,
+      createdAtMs: a.createdAtMs,
+      isHealthy: a.isHealthy,
+      healthMessage: a.healthMessage,
+    }));
+    localStorage.setItem(APP_TILES_CACHE_KEY, JSON.stringify(canonical));
+  } catch {
+    // Silent — cache write failure is non-fatal.
+  }
+}
+
 // ─── Test-only helpers ──────────────────────────────────────────────────────
 
 /**
  * Reset the store to an empty Map + bump version + notify. Used by
  * app-tiles-store.test.ts's `beforeEach` so each test starts from a
- * known-empty state. NOT a public API.
+ * known-empty state. Also clears the localStorage cache so cross-test
+ * bleed via seed-on-load can't happen. NOT a public API.
  */
 export function __resetForTest(): void {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem(APP_TILES_CACHE_KEY);
+    }
+  } catch {
+    // Silent.
+  }
   state = { map: new Map<string, AppState>() };
+  notify();
+}
+
+/**
+ * Re-run the module-load cache seed after tests have populated localStorage.
+ * Production callers rely on the IIFE at module init; tests can't easily
+ * control that timing (module loads once per file), so this helper exposes
+ * the same seed logic on demand.
+ */
+export function __seedFromCacheForTest(): void {
+  const cached = readAppTilesCache();
+  const map = new Map<string, AppState>();
+  for (const app of cached) {
+    map.set(`${app.hostId}:${app.slug}`, app);
+  }
+  state = { map };
   notify();
 }
