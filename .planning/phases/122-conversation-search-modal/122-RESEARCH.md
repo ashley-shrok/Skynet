@@ -160,7 +160,7 @@ Every load-bearing primitive already exists in the codebase:
 
 | Instead of | Could Use | Tradeoff |
 |------------|-----------|----------|
-| Shell-side `grep` per host | Node.js stream read + string.includes per file | Shell grep is what Ashley timed at ~600ms/157 identities on t1000. Node stream would require a REMOTE branch that ships the file (or its search hit) back. Prefer shell grep for parity with the timing evidence. |
+| Shell-side `grep` per host | Node.js stream read + string.includes per file | Shell grep was measured at ~600ms/157 identities on t1000. Node stream would require a REMOTE branch that ships the file (or its search hit) back. Prefer shell grep for parity with the timing evidence. |
 | Node `child_process.spawn("grep", ...)` for LOCAL branch | Node fs.readFile + string.includes | Grep is measured-fast and consistent with the REMOTE branch. Recommended: use the SAME shell-side grep script on both branches (LOCAL branch invokes `sh -c` locally, REMOTE branch invokes it over SSH — mirrors the discovery module's split at `discover-identity-session-file.ts:334`). |
 | New `POST /conversation-search` endpoint | Extend `/sessions/list` | Sessions/list has different semantics (per-session rows). A dedicated endpoint keeps the search body/response schema clean. |
 | Backend flags `isArchived` per result | Frontend joins `useArchivedFleetRows()` post-fetch | Backend flagging is simpler (single source of truth) and avoids client-side race on WS-driven archive updates during the fetch. Recommend backend flag. |
@@ -774,7 +774,7 @@ The wiring in `AppShell.tsx` mirrors the existing `onDetachedRowClick` at L3068 
 | Old Approach | Current Approach | When Changed | Impact |
 |--------------|------------------|--------------|--------|
 | Sidebar filter-as-you-type (label-only, in-memory) | Modal + backend content-search across fleet | This phase (122) | Weak filter replaced with real search; archive becomes browsable |
-| Ashley's browse-the-archive expectation | Search IS the archive-browse mechanism | Phase 115 (archive) + this phase (search access) | No archive-section UI is being built; visibility comes exclusively through search |
+| The user's browse-the-archive expectation | Search IS the archive-browse mechanism | Phase 115 (archive) + this phase (search access) | No archive-section UI is being built; visibility comes exclusively through search |
 
 **Deprecated/outdated:** Nothing — this phase adds a surface.
 
@@ -800,7 +800,7 @@ The wiring in `AppShell.tsx` mirrors the existing `onDetachedRowClick` at L3068 
 2. **Placement of the magnifying-glass button relative to existing header buttons.**
    - What we know: There are already 5 buttons in `.pv-header-actions` (New conversation, Create project, Edit roles, Edit global files, More menu — see L2309-L2370). All render behind a `showPencilButton` gate.
    - What's unclear: Whether the search button should sit inside the `showPencilButton` gate (right-side cluster) or as a always-visible left/right-of-title element. CONTEXT.md says "next to existing header buttons" — likely inside the same cluster, first position (leftmost) so it's discoverable.
-   - Recommendation: Planner picks first-in-`.pv-header-actions` cluster and gates it identically to the other buttons. Ashley can UAT-move it in an inline follow-up.
+   - Recommendation: Planner picks first-in-`.pv-header-actions` cluster and gates it identically to the other buttons. Placement can be adjusted during UAT via an inline follow-up.
 
 3. **`aiTitle` availability at result-row rendering time.**
    - What we know: The sidebar rows display an ai-title derived from a JSONL tail-scan (`scanTailForLatestAiTitle` — see `sessions.ts:485-524`). That title is a whole separate discovery, distinct from grep.

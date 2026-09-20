@@ -15,7 +15,7 @@
 
 ## Shape framing (biggest reframe)
 
-Original starting point was "a client archive section" — presumably a collapsed section at the bottom of the sidebar that expands on click to load archived rows. User (Ashley) reframed to "kill the archive section entirely; replace with a proper search modal that happens to include archived." Rationale: nobody browses the archive; when you go there you know what you're looking for. And the existing sidebar filter-as-you-type is weak anyway — one shape can solve both problems.
+Original starting point was "a client archive section" — presumably a collapsed section at the bottom of the sidebar that expands on click to load archived rows. The user reframed to "kill the archive section entirely; replace with a proper search modal that happens to include archived." Rationale: nobody browses the archive; when you go there you know what you're looking for. And the existing sidebar filter-as-you-type is weak anyway — one shape can solve both problems.
 
 **Selected:** search modal replaces both sidebar filter AND fills the archive-access role.
 

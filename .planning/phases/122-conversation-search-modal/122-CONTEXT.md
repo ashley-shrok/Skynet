@@ -117,7 +117,7 @@
 
 - **The alert content on archived-result click:** deliberately blunt — a plain browser `alert()` with wording like "coming soon" is fine. No soft misdirection or fancy dialog. The point is honest feedback that the interaction is a dead end today.
 - **Snippet highlighting:** the matched text should be visually highlighted within the snippet (bold, background color, or similar). Not just returning the text with no visual cue.
-- **Ashley tasted the grep speed during /open** — 5ms per file, ~600ms wall time for 157 identities on t1000. This gives the shape confidence that naive grep is fine at current scale; it's not a premature-optimization guess.
+- **The grep speed was tasted during /open** — 5ms per file, ~600ms wall time for 157 identities on t1000. This gives the shape confidence that naive grep is fine at current scale; it's not a premature-optimization guess.
 
 </specifics>
 

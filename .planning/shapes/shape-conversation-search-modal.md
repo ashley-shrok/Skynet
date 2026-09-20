@@ -37,7 +37,7 @@ The sidebar has a filter-as-you-type input at the top for finding conversations.
 
 ## Prior context
 
-- The sidebar's current filter-as-you-type input finds only what's already loaded (active conversations). Ashley considers it weak and wants better.
+- The sidebar's current filter-as-you-type input finds only what's already loaded (active conversations). The user considers it weak and wants better.
 - Archived conversations currently accumulate in an in-memory slice fed by wire messages, but there's no client UI that displays them. They exist but are hidden.
 - Archiving already exists as a server-side concept and is not going to change in this shape.
 - Unarchiving does not exist as a feature yet. Archived conversations are, by design, currently unopenable — the client machinery to view them is missing entirely.
