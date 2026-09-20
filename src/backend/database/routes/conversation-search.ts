@@ -89,7 +89,12 @@ import { sshLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
-import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
+import {
+  __matchesIdentityFirstTurnForTests,
+  buildDiscoveryScript,
+  discoverIdentitySessionFile,
+  parseDiscoveryStdout,
+} from "../../claude-session/discover-identity-session-file.js";
 import { listIdentityKeysOnHost } from "../../claude-session/identity-artifact-reader.js";
 import { listArchivedIdentityKeysOnHost } from "../../claude-session/list-archived-identity-keys.js";
 import { snippetForHit } from "../../claude-session/session-search-snippet.js";
@@ -342,34 +347,58 @@ async function resolveIdentityPaths(
     listArchivedIdentityKeysOnHost(conn).catch(() => [] as string[]),
   ]);
 
-  // Concurrency-bounded map (DISCOVERY_CONCURRENCY=6) — an unbounded
-  // Promise.all here would open ~150 SSH exec channels on the shared
-  // ssh2.Client, exceeding OpenSSH's default MaxSessions=10 and queueing
-  // (or silently dropping) most calls. Observed effect: full-fan-out hits
-  // the per-host timeout, causing the endpoint to run right up to Caddy's
-  // 30s proxy_read_timeout — the browser sees a "hang" while a partial
-  // response is discarded at the edge. Fix: cap at 6 (safely under
-  // MaxSessions=10) so channels rotate through cleanly.
-  const liveResolved = await concurrentMap(
-    liveKeys,
-    DISCOVERY_CONCURRENCY,
-    async (key): Promise<ResolvedIdentity | null> => {
-      const path = await discoverIdentitySessionFile(conn, key);
-      return path === null ? null : { key, path, isArchived: false };
-    },
-  );
-  const archivedResolved = await concurrentMap(
-    archivedKeys,
-    DISCOVERY_CONCURRENCY,
-    async (key): Promise<ResolvedIdentity | null> => {
-      const path = await discoverIdentitySessionFile(conn, key);
-      return path === null ? null : { key, path, isArchived: true };
-    },
-  );
+  // Bulk discovery — ONE SSH exec per host that returns records for ALL
+  // JSONLs on the host (mtime-desc sorted). We then match each record's
+  // first-user-line against every identity key in a single JS pass, so a
+  // host with 150 identities costs one SSH round-trip instead of 150.
+  //
+  // Pre-fix history: earlier revisions called discoverIdentitySessionFile
+  // once per identity via concurrent Promise.all (see review MED-1). Even
+  // at concurrency 6 that took ~25s per host on t1000 because each call
+  // opens its own SSH exec channel + re-runs the same enumeration script.
+  // The batched form drops that to ~1s per host (single channel, single
+  // enumeration pass, in-memory match).
+  //
+  // The identity name in buildDiscoveryScript is comment-only — it never
+  // enters a shell primitive and the byte-pattern match happens in JS
+  // via __matchesIdentityFirstTurnForTests. So passing an empty string
+  // as the "identity name" for the shell script is safe and yields the
+  // full corpus back for post-hoc matching.
+  const allKeys = [...liveKeys, ...archivedKeys];
+  if (allKeys.length === 0) return [];
+  const archivedKeySet = new Set<string>(archivedKeys);
 
-  return [...liveResolved, ...archivedResolved].filter(
-    (r): r is ResolvedIdentity => r !== null,
-  );
+  let stdout: string;
+  try {
+    const script = buildDiscoveryScript(shellSingleQuote(""));
+    stdout = await execCommand(
+      conn as Parameters<typeof execCommand>[0],
+      script,
+    );
+  } catch {
+    return [];
+  }
+  const records = parseDiscoveryStdout(stdout);
+  records.sort((a, b) => b.mtime - a.mtime); // defensive; shell already sorts
+
+  const resolved = new Map<string, ResolvedIdentity>();
+  for (const rec of records) {
+    if (resolved.size === allKeys.length) break;
+    if (rec.firstUserLine.length === 0) continue;
+    for (const key of allKeys) {
+      if (resolved.has(key)) continue;
+      if (__matchesIdentityFirstTurnForTests(rec.firstUserLine, key)) {
+        resolved.set(key, {
+          key,
+          path: rec.path,
+          isArchived: archivedKeySet.has(key),
+        });
+        // First-user-line names exactly one identity; break inner loop.
+        break;
+      }
+    }
+  }
+  return [...resolved.values()];
 }
 
 async function runOneHost(

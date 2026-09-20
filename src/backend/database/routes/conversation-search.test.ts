@@ -150,10 +150,47 @@ vi.mock("../../claude-session/list-archived-identity-keys.js", () => ({
     listArchivedIdentityKeysOnHostMock(conn),
 }));
 
-vi.mock("../../claude-session/discover-identity-session-file.js", () => ({
-  discoverIdentitySessionFile: (conn: unknown, identityKey: string) =>
-    discoverIdentitySessionFileMock(conn, identityKey),
-}));
+vi.mock(
+  "../../claude-session/discover-identity-session-file.js",
+  async () => {
+    // Use the REAL pure helpers so the route's bulk-discovery path (which
+    // composes buildDiscoveryScript + parseDiscoveryStdout +
+    // __matchesIdentityFirstTurnForTests + RECORD_SEPARATOR) works against
+    // the test fixtures. Only discoverIdentitySessionFile itself is mocked
+    // (retained for any legacy call site; the current endpoint no longer
+    // uses it after the bulk-discovery refactor).
+    const actual = await vi.importActual<
+      typeof import("../../claude-session/discover-identity-session-file.js")
+    >("../../claude-session/discover-identity-session-file.js");
+    return {
+      ...actual,
+      discoverIdentitySessionFile: (conn: unknown, identityKey: string) =>
+        discoverIdentitySessionFileMock(conn, identityKey),
+    };
+  },
+);
+
+// Helper to build the discovery-script stdout format that
+// parseDiscoveryStdout expects. Each record is
+// `MTIME\tPATH\n<first-user-line>\n---GSDR-32---\n`. Records are
+// concatenated. Callers pass mtime-desc rows for realism, though the
+// route resorts defensively.
+function makeDiscoveryStdout(
+  records: Array<{ mtime: number; path: string; firstUserLine: string }>,
+): string {
+  const SEP = "---GSDR-32---";
+  return records
+    .map((r) => `${r.mtime}\t${r.path}\n${r.firstUserLine}\n${SEP}`)
+    .join("\n") + (records.length > 0 ? "\n" : "");
+}
+
+// Helper to build a first-user-line that satisfies
+// __matchesIdentityFirstTurnForTests for a given identity name. Format
+// mirrors the shape Claude Code writes for a real /id invocation:
+// `{"type":"user",...<command-name>/id</command-name>...<command-args>alice ...}`
+function makeIdFirstUserLine(identityName: string): string {
+  return `{"type":"user","message":{"role":"user","content":"<command-name>/id</command-name>\\n<command-args>${identityName}</command-args>"}}`;
+}
 
 // snippetForHit is a pure function — do NOT mock. The route's tests are
 // integration-shaped: given real snippetForHit + mocked SSH stdout, we get
@@ -330,18 +367,22 @@ describe("POST /conversation-search — aggregation, sort, isArchived, row shape
       Promise.resolve(["bob"]),
     );
 
-    // Discovery: each identity resolves to a distinct absolute path
-    discoverIdentitySessionFileMock.mockImplementation((_conn: unknown, key: string) =>
-      Promise.resolve(`/home/ubuntu/.claude/projects/slug-${key}/x.jsonl`),
-    );
-
-    // execCommand: each host emits four hits (2 live/alice + 2 archived/bob) with
-    // distinct mtimes so we can assert sort order end-to-end.
-    let callIdx = 0;
-    execCommandMock.mockImplementation(async (_conn: unknown, _cmd: string) => {
-      callIdx += 1;
-      // callIdx=1 → host-a, callIdx=2 → host-b
-      if (callIdx === 1) {
+    // Bulk-discovery: each host's discovery script call returns records
+    // for both alice and bob (with first-user-lines that satisfy the
+    // identity-first-turn predicate). Grep call then returns the hits.
+    // Distinguish call type by the script contents.
+    const discoveryStdout = makeDiscoveryStdout([
+      { mtime: 1000, path: "/home/ubuntu/.claude/projects/slug-alice/x.jsonl", firstUserLine: makeIdFirstUserLine("alice") },
+      { mtime: 1000, path: "/home/ubuntu/.claude/projects/slug-bob/x.jsonl", firstUserLine: makeIdFirstUserLine("bob") },
+    ]);
+    let grepCallIdx = 0;
+    execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("find ~/.claude/projects")) {
+        return discoveryStdout;
+      }
+      // Grep call — one per host, in order host-a then host-b
+      grepCallIdx += 1;
+      if (grepCallIdx === 1) {
         return fakeGrepOutput([
           { mtime: 100, path: "/home/ubuntu/.claude/projects/slug-alice/x.jsonl", lineno: 5, rawLine: jsonlLine("apple pie is good") },
           { mtime: 300, path: "/home/ubuntu/.claude/projects/slug-bob/x.jsonl", lineno: 9, rawLine: jsonlLine("apple pie tastes great") },
@@ -439,17 +480,21 @@ describe("POST /conversation-search — offset/limit slicing", () => {
     ]);
     listIdentityKeysOnHostMock.mockResolvedValue(["a"]);
     listArchivedIdentityKeysOnHostMock.mockResolvedValue([]);
-    discoverIdentitySessionFileMock.mockResolvedValue("/x/a.jsonl");
 
-    // 4 hits with mtimes 4, 3, 2, 1 (already sorted desc after route sort)
-    execCommandMock.mockResolvedValue(
-      fakeGrepOutput([
+    // Bulk-discovery + grep response, routed by cmd contents
+    const discoveryStdout = makeDiscoveryStdout([
+      { mtime: 1000, path: "/x/a.jsonl", firstUserLine: makeIdFirstUserLine("a") },
+    ]);
+    execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
+      // 4 hits with mtimes 4, 3, 2, 1 (already sorted desc after route sort)
+      return fakeGrepOutput([
         { mtime: 4, path: "/x/a.jsonl", lineno: 1, rawLine: jsonlLine("row A apple") },
         { mtime: 3, path: "/x/a.jsonl", lineno: 2, rawLine: jsonlLine("row B apple") },
         { mtime: 2, path: "/x/a.jsonl", lineno: 3, rawLine: jsonlLine("row C apple") },
         { mtime: 1, path: "/x/a.jsonl", lineno: 4, rawLine: jsonlLine("row D apple") },
-      ]),
-    );
+      ]);
+    });
 
     const res = await httpPostJson(server, "/conversation-search", {
       query: "apple",
@@ -470,10 +515,15 @@ describe("POST /conversation-search — offset/limit slicing", () => {
       { id: 1, name: "host-a", enableSsh: true, terminalConfig: null },
     ]);
     listIdentityKeysOnHostMock.mockResolvedValue(["a"]);
-    discoverIdentitySessionFileMock.mockResolvedValue("/x/a.jsonl");
-    execCommandMock.mockResolvedValue(
-      fakeGrepOutput([{ mtime: 1, path: "/x/a.jsonl", lineno: 1, rawLine: jsonlLine("apple") }]),
-    );
+    const discoveryStdoutB = makeDiscoveryStdout([
+      { mtime: 1000, path: "/x/a.jsonl", firstUserLine: makeIdFirstUserLine("a") },
+    ]);
+    execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("find ~/.claude/projects")) return discoveryStdoutB;
+      return fakeGrepOutput([
+        { mtime: 1, path: "/x/a.jsonl", lineno: 1, rawLine: jsonlLine("apple") },
+      ]);
+    });
     const res = await httpPostJson(server, "/conversation-search", {
       query: "apple",
       offset: 100,
@@ -497,14 +547,31 @@ describe("POST /conversation-search — per-host error isolation", () => {
       { id: 2, name: "host-b", enableSsh: true, terminalConfig: null },
     ]);
     listIdentityKeysOnHostMock.mockResolvedValue(["a"]);
-    discoverIdentitySessionFileMock.mockResolvedValue("/x/a.jsonl");
 
-    let callIdx = 0;
-    execCommandMock.mockImplementation(async () => {
-      callIdx += 1;
-      if (callIdx === 1) {
+    // Track per-host state via the mocked conn's identity. Each host's
+    // execCommand chain is: 1 discovery, then 1 grep. host-a's first
+    // execCommand (the discovery) throws; host-b returns discovery + grep.
+    const discoveryStdout = makeDiscoveryStdout([
+      { mtime: 1000, path: "/x/a.jsonl", firstUserLine: makeIdFirstUserLine("a") },
+    ]);
+    const connsThatHaveThrown = new WeakSet<object>();
+    // First conn to be passed in is host-a's; second is host-b's.
+    // Track which conns we've seen and throw on the first one's discovery.
+    const seenConns = new Set<object>();
+    let firstConn: object | null = null;
+    execCommandMock.mockImplementation(async (conn: unknown, cmd: string) => {
+      const connObj = conn as object;
+      if (!seenConns.has(connObj)) {
+        seenConns.add(connObj);
+        if (firstConn === null) firstConn = connObj;
+      }
+      // Any call on firstConn (host-a) throws
+      if (connObj === firstConn && !connsThatHaveThrown.has(connObj)) {
+        connsThatHaveThrown.add(connObj);
         throw new Error("host-a exploded");
       }
+      // host-b (or any subsequent conn) returns proper responses
+      if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
       return fakeGrepOutput([
         { mtime: 5, path: "/x/a.jsonl", lineno: 1, rawLine: jsonlLine("apple survivor") },
       ]);
@@ -531,18 +598,25 @@ describe("POST /conversation-search — per-host timeout", () => {
       { id: 2, name: "host-fast", enableSsh: true, terminalConfig: null },
     ]);
     listIdentityKeysOnHostMock.mockImplementation(async (_conn: unknown) => ["a"]);
-    discoverIdentitySessionFileMock.mockResolvedValue("/x/a.jsonl");
 
-    // First execCommand call (host-slow) → never resolves.
-    // Second (host-fast) → returns immediately.
-    let callIdx = 0;
-    execCommandMock.mockImplementation(async () => {
-      callIdx += 1;
-      if (callIdx === 1) {
+    // Track per-host conns. host-slow: discovery hangs forever.
+    // host-fast: discovery + grep both return promptly.
+    const discoveryStdout = makeDiscoveryStdout([
+      { mtime: 1000, path: "/x/a.jsonl", firstUserLine: makeIdFirstUserLine("a") },
+    ]);
+    let firstConn: object | null = null;
+    execCommandMock.mockImplementation(async (conn: unknown, cmd: string) => {
+      const connObj = conn as object;
+      if (firstConn === null) firstConn = connObj;
+      if (connObj === firstConn) {
+        // host-slow: any call hangs forever, exercising the per-host
+        // Promise.race timeout branch
         return new Promise<string>(() => {
           /* hang forever */
         });
       }
+      // host-fast: normal responses
+      if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
       return fakeGrepOutput([
         { mtime: 5, path: "/x/a.jsonl", lineno: 1, rawLine: jsonlLine("apple fast") },
       ]);
