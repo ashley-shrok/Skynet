@@ -140,6 +140,16 @@ import { CreateProjectModal } from "./CreateProjectModal";
 // context menu's "Edit project file" item. Wired below in
 // handleEditProjectFile / mounted alongside the other project modals.
 import { ProjectFileModal } from "./ProjectFileModal";
+// Phase 122 Plan 03 Task 3 — ConversationSearchModal: opened via the
+// header magnifying-glass button below (first child of .pv-header-actions).
+// The modal owns its query + results store (module-scoped search-store) so
+// state persists across open/close cycles (D-05). Active-result click
+// bubbles up through onSearchResultOpenActive → AppShell's tab-open flow
+// (mirrors onDetachedRowClick shape at AppShell.tsx:3068). Plan 03 does
+// NOT remove the existing filter-as-you-type — that lands in Plan 04
+// (D-18 ordering: modal usable BEFORE filter removed).
+import { ConversationSearchModal } from "./ConversationSearchModal";
+import type { ConversationSearchResult } from "@/api/conversation-search-api";
 import {
   useSessionIsWorking,
   // Phase 47 Plan 04 — subscribes PrettyConversationRowLive to the working-
@@ -419,6 +429,7 @@ export function PrettyConversationsPanel({
   isAdmin = false,
   onCreateRelayRoom,
   onOpenApp,
+  onSearchResultOpenActive,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
   // rows' pin mechanism (mobile=swipe / desktop=hover-reveal). AppShell
@@ -533,6 +544,19 @@ export function PrettyConversationsPanel({
    * end-to-end through this prop hole).
    */
   onOpenApp?: (hostId: number, slug: string, title: string) => void;
+  /**
+   * Phase 122 Plan 03 Task 3 — Fired when the user clicks an ACTIVE
+   * (isArchived === false) result in the ConversationSearchModal. AppShell
+   * resolves the hostId to a Host and calls openTab(host, "terminal",
+   * undefined, { targetTmuxSession: result.tmuxSessionName, ... }) —
+   * verbatim mirror of the onDetachedRowClick handler at AppShell.tsx:3068.
+   * The modal itself calls onOpenChange(false) after invoking this callback
+   * (D-04 jump-and-close). Optional so tests + non-AppShell mounts can
+   * render the panel without wiring the callback (the modal button will
+   * still open the modal, but clicking a result becomes a silent no-op —
+   * fine for unit tests).
+   */
+  onSearchResultOpenActive?: (result: ConversationSearchResult) => void;
 }) {
   const visibleInSplitTree = visibleInSplitTreeTabIds ?? EMPTY_VISIBLE_SET;
   const { t } = useTranslation();
@@ -809,6 +833,13 @@ export function PrettyConversationsPanel({
   const menuRef = useRef<HTMLDivElement | null>(null);
   // Phase 23 (GEFM-05): GlobalFilesModal open/closed toggle (opened from menu item).
   const [globalFilesModalOpen, setGlobalFilesModalOpen] = useState(false);
+  // Phase 122 Plan 03 Task 3 — ConversationSearchModal open/closed toggle.
+  // Opened via the new magnifying-glass button in the header cluster
+  // (first child of .pv-header-actions below). Query + accumulated results
+  // live in the module-scoped search-store, NOT in this useState — this
+  // flag is only whether the modal is currently mounted-open (D-05
+  // persistence uses the store, this useState is the visibility gate).
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
   // Phase 44 SKILLED-01: SkillsEditorModal open/closed toggle (opened from menu item, sibling of GlobalFilesModal).
   const [skillsEditorModalOpen, setSkillsEditorModalOpen] = useState(false);
   // Phase 91 Plan 05 — NewConversationModal open/closed toggle (opened from
@@ -2305,9 +2336,27 @@ export function PrettyConversationsPanel({
             {/* quick-260914-liu: four header icon buttons share a single showPencilButton
                 guard (typeof onCreateSession === "function"). Left-to-right: New conversation,
                 Edit roles, Edit global files, kebab. All four disappear together when
-                onCreateSession is undefined. */}
+                onCreateSession is undefined.
+                Phase 122 Plan 03 Task 3: prepended magnifying-glass Search
+                button as the FIRST child of the cluster (leftmost — makes
+                it the most discoverable header action; matches RESEARCH.md
+                Open Question 2 recommendation). Gated by the same
+                showPencilButton conditional as its siblings. Opens
+                ConversationSearchModal (mounted at bottom of the panel's
+                returned JSX tree alongside the other portal-mounted
+                modals). */}
             {showPencilButton && (
               <>
+                <button
+                  type="button"
+                  className="pv-pencil"
+                  aria-label="Search conversations"
+                  title="Search conversations"
+                  data-testid="pv-header-search-button"
+                  onClick={() => setSearchModalOpen(true)}
+                >
+                  <Search size={18} />
+                </button>
                 <button
                   type="button"
                   className="pv-pencil"
@@ -3040,6 +3089,21 @@ export function PrettyConversationsPanel({
           onCreateRelayRoom?.(result); // AppShell-side handler opens the tab
         }}
         preSelectedProject={newConversationPreSelectedProject}
+      />
+      {/* Phase 122 Plan 03 Task 3 — ConversationSearchModal: portal-mounted
+          sibling of NewConversationModal + GlobalFilesModal. Opened via the
+          magnifying-glass button in .pv-header-actions above (first child of
+          the cluster, gated by showPencilButton). D-04 jump-and-close on
+          active-result click; D-15 blunt window.alert on archived-result
+          click; the modal itself closes on the active-click path (via
+          onOpenChange false), so the parent only routes the
+          onOpenActiveConversation callback through to AppShell. */}
+      <ConversationSearchModal
+        open={searchModalOpen}
+        onOpenChange={setSearchModalOpen}
+        onOpenActiveConversation={(result) => {
+          onSearchResultOpenActive?.(result);
+        }}
       />
       {/* Phase 90 Plan 90-06 (D-07): RolesListModal — portal-mounted sibling of
           GlobalFilesModal + SkillsEditorModal. Opened via the header menu's

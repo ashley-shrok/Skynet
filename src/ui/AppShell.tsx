@@ -64,6 +64,10 @@ import type { SSHHostWithStatus } from "@/main-axios";
 import { PrettyConversationsPanel } from "@/features/pretty-conversations/PrettyConversationsPanel";
 // Phase 91 Plan 05 — CreateRelayRoomResponse type for onCreateRelayRoom callback.
 import type { CreateRelayRoomResponse } from "@/features/pretty-conversations/participant-types";
+// Phase 122 Plan 03 Task 3 — ConversationSearchResult type for the new
+// onSearchResultOpenActive prop wired to PrettyConversationsPanel below
+// (mirrors the onDetachedRowClick handler shape at line ~3068).
+import type { ConversationSearchResult } from "@/api/conversation-search-api";
 import {
   updateHostTree,
   updateOpenTabs,
@@ -3073,6 +3077,33 @@ export function AppShell({
             const newTabId = openTab(host, "terminal", undefined, {
               targetTmuxSession: sessionName,
               label: sessionName,
+              allowCreateTmux: false,
+            });
+            selectConversationDeferred(newTabId);
+            if (isTouchDevice) navigateToView();
+            if (isMobile) setSidebarOpen(false);
+          }}
+          onSearchResultOpenActive={(result: ConversationSearchResult) => {
+            // Phase 122 Plan 03 Task 3 — verbatim mirror of the sibling
+            // onDetachedRowClick handler above. The only shape difference:
+            // the search-result carries hostId + tmuxSessionName as
+            // separate fields (not row.host + row.targetTmuxSession),
+            // because search-results don't ship a full ConversationRow
+            // shape. Resolve hostId → Host via hostsById (the same lookup
+            // used at line 2534 for onTabActivate). tmuxSessionName ==
+            // identityKey by fleet convention (see backend
+            // conversation-search.ts docblock and Task 1 forward-patch
+            // commit cf4ced1b).
+            const host = hostsById.get(result.hostId);
+            if (!host) return;
+            const sessionName = result.tmuxSessionName;
+            if (!sessionName) return;
+            const newTabId = openTab(host, "terminal", undefined, {
+              targetTmuxSession: sessionName,
+              // Use aiTitle when available (Wave-1 backend deferral: always
+              // null today, but the piggyback follow-up per 122-02-SUMMARY
+              // will populate it — this handler already handles both cases).
+              label: result.aiTitle || sessionName,
               allowCreateTmux: false,
             });
             selectConversationDeferred(newTabId);
