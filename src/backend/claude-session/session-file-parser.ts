@@ -147,7 +147,7 @@ export type ParsedLine =
 
 type ContentBlock = { type?: string; text?: string; [k: string]: unknown };
 
-function extractText(content: unknown): string {
+export function extractText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     const parts: string[] = [];
