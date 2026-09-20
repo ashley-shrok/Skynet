@@ -149,17 +149,6 @@ export default function SkillFileTab({
   // Save button per UI-SPEC L188. No Cancel button — modal-close is cancel.
   return (
     <div className="flex flex-col h-full gap-2">
-      <div className="flex-1 min-h-0">
-        <MarkdownEditor
-          filename={filename}
-          content={draft}
-          onChange={setDraft}
-          disabled={saving}
-        />
-      </div>
-      {saveError && (
-        <div className="text-sm text-red-400 px-1">{saveError}</div>
-      )}
       <div className="flex justify-end gap-2 shrink-0 items-center">
         {filename !== "SKILL.md" && (
           <button
@@ -180,6 +169,17 @@ export default function SkillFileTab({
           {saving ? "Saving…" : "Save"}
         </button>
       </div>
+      <div className="flex-1 min-h-0">
+        <MarkdownEditor
+          filename={filename}
+          content={draft}
+          onChange={setDraft}
+          disabled={saving}
+        />
+      </div>
+      {saveError && (
+        <div className="text-sm text-red-400 px-1">{saveError}</div>
+      )}
     </div>
   );
 }

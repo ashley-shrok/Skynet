@@ -32,6 +32,7 @@ export default function GlobalFileTab({
   onSave,
   onDraftChange,
   filename,
+  hideSaveButton = false,
 }: {
   state: TabState<GlobalFileTabData>;
   onSave: (content: string, expectedMtime: number) => Promise<void>;
@@ -50,6 +51,13 @@ export default function GlobalFileTab({
    * (GlobalFilesModal, EditableFileModal) always know the filename.
    */
   filename: string;
+  /**
+   * When true, GlobalFileTab does NOT render its own save button — the
+   * consumer owns save placement in its own header/chrome. WorkspaceFileViewer
+   * uses this to hoist save into the Files-tab header alongside Back and
+   * Download. onSave is still called by the consumer via handleSave.
+   */
+  hideSaveButton?: boolean;
 }): JSX.Element {
   const [draft, setDraft] = useState<string>("");
   const [saving, setSaving] = useState(false);
@@ -121,6 +129,18 @@ export default function GlobalFileTab({
   // No Cancel button — modal-close is cancel.
   return (
     <div className="flex flex-col h-full gap-2">
+      {!hideSaveButton && (
+        <div className="flex justify-end gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => { void handleSave(); }}
+            disabled={saving || draft === state.data.content}
+            className="px-4 py-2 rounded-md bg-[hsla(var(--pv-id-hue,220),80%,60%,0.2)] hover:bg-[hsla(var(--pv-id-hue,220),80%,60%,0.3)] text-[#e8e4d8] disabled:opacity-40 disabled:cursor-not-allowed text-sm cursor-pointer"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      )}
       <div className="flex-1 min-h-0">
         <MarkdownEditor
           filename={filename}
@@ -132,16 +152,6 @@ export default function GlobalFileTab({
       {saveError && (
         <div className="text-sm text-red-400 px-1">{saveError}</div>
       )}
-      <div className="flex justify-end gap-2 shrink-0">
-        <button
-          type="button"
-          onClick={() => { void handleSave(); }}
-          disabled={saving || draft === state.data.content}
-          className="px-4 py-2 rounded-md bg-[hsla(var(--pv-id-hue,220),80%,60%,0.2)] hover:bg-[hsla(var(--pv-id-hue,220),80%,60%,0.3)] text-[#e8e4d8] disabled:opacity-40 disabled:cursor-not-allowed text-sm cursor-pointer"
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-      </div>
     </div>
   );
 }

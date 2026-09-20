@@ -238,6 +238,7 @@ function WorkspaceFileViewer({
   // dirty comparison. textDirty is fed by GlobalFileTab.onDraftChange.
   const mdOriginalRef = useRef<string>("");
   const [textDirty, setTextDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Helper to decode base64 to UTF-8 string
   function decodeBase64(b64: string): string {
@@ -293,6 +294,7 @@ function WorkspaceFileViewer({
   const handleSave = useCallback(
     async (newContent: string) => {
       setSaveError(null);
+      setSaving(true);
       try {
         await writeWorkspaceFile(
           identity.identityKey,
@@ -309,6 +311,8 @@ function WorkspaceFileViewer({
           err instanceof Error ? err.message : "generic";
         const copy = resolveWorkspaceErrorCopy(errorClass);
         setSaveError(copy.heading + ": " + copy.body);
+      } finally {
+        setSaving(false);
       }
     },
     [identity.identityKey, hostId, file.relativePath]
@@ -425,6 +429,34 @@ function WorkspaceFileViewer({
         <Download size={13} />
         Download
       </a>
+      {(file.type === "markdown" || file.type === "text") && (
+        <button
+          type="button"
+          onClick={() => { void handleSave(file.type === "markdown" ? mdContent : (tabState.status === "ready" ? tabState.data.content : "")); }}
+          disabled={
+            saving ||
+            fetchState.status !== "ready" ||
+            (file.type === "markdown"
+              ? mdContent === mdOriginalRef.current
+              : !textDirty)
+          }
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            background: "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.2)",
+            border: "1px solid hsla(var(--pv-id-hue, 220), 80%, 70%, 0.28)",
+            color: "var(--color-pv-fg)",
+            cursor: "pointer",
+            fontSize: 12,
+            padding: "4px 12px",
+            borderRadius: 6,
+            fontWeight: 600,
+          }}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      )}
     </div>
   );
 
@@ -609,48 +641,16 @@ function WorkspaceFileViewer({
             </Suspense>
           </div>
         )}
-        {fetchState.status === "ready" && (
+        {saveError && (
           <div
             style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              padding: "8px 4px 4px",
+              padding: "4px 8px",
+              fontSize: 12,
+              color: "hsla(6, 80%, 55%, 0.9)",
               flexShrink: 0,
-              gap: 8,
             }}
           >
-            {saveError && (
-              <span
-                style={{
-                  flex: 1,
-                  fontSize: 12,
-                  color: "hsla(6, 80%, 55%, 0.9)",
-                  alignSelf: "center",
-                }}
-              >
-                {saveError}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                void handleSave(mdContent);
-              }}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 8,
-                background:
-                  "hsla(var(--pv-id-hue, 220), 80%, 60%, 0.2)",
-                border:
-                  "1px solid hsla(var(--pv-id-hue, 220), 80%, 70%, 0.28)",
-                color: "var(--color-pv-fg)",
-                cursor: "pointer",
-                fontSize: 13,
-                fontWeight: 600,
-              }}
-            >
-              Save
-            </button>
+            {saveError}
           </div>
         )}
       </div>
@@ -672,6 +672,7 @@ function WorkspaceFileViewer({
           onSave={globalFileSave}
           onDraftChange={setTextDirty}
           filename={file.name}
+          hideSaveButton
         />
         {saveError && (
           <div
