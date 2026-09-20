@@ -750,10 +750,12 @@ export function createSubscriptionRegistry(
       }
 
       state.delete(key);
-      fanOut(
-        subscribers,
-        makeGoneFrame(hostId, tmuxSession, sessionId),
-      );
+      const frame = makeGoneFrame(hostId, tmuxSession, sessionId);
+      if (appFrameFilter !== undefined) {
+        void fanOutApp(subscribers, frame, appFrameFilter);
+      } else {
+        fanOut(subscribers, frame);
+      }
     },
 
     publishIdentityGoneByName(hostId: string, identityName: string): void {

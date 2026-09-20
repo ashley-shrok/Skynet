@@ -1044,6 +1044,36 @@ describe("subscription-registry", () => {
       expect(framesBad.filter((f) => f.type === "app-update")).toHaveLength(0);
     });
 
+    it("Filter-9: publishSessionGone routes through filter — U1 sees gone, U2 does not", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          if (userId === "U2" && frame.type === "gone") return null;
+          return frame;
+        },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      // Seed the state map so publishSessionGone has an entry to delete + fan.
+      registry.publishSessionState(
+        "host-42",
+        makeState("host-42", "tmux-abc", "session-1"),
+      );
+
+      const framesU1: FrontendOutboundFrameType[] = [];
+      const framesU2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      registry.subscribe((f) => framesU2.push(f), { userId: "U2" });
+      await tick();
+      framesU1.length = 0;
+      framesU2.length = 0;
+
+      registry.publishSessionGone("host-42", "tmux-abc", "session-1");
+      await tick();
+
+      expect(framesU1.filter((f) => f.type === "gone")).toHaveLength(1);
+      expect(framesU2.filter((f) => f.type === "gone")).toHaveLength(0);
+    });
+
     it("Filter-8: publishIdentityGoneByName routes through filter — U1 sees gone, U2 does not", async () => {
       const filterMock = vi.fn(
         async (frame: FrontendOutboundFrameType, userId?: string) => {
