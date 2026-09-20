@@ -2694,10 +2694,13 @@ Plans:
 
 ### Phase 122: Conversation search modal
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Replace the sidebar's inline filter-as-you-type input with a proper search modal that content-searches conversations across the fleet (active + archived) by content-searching the latest transcript per identity on every host, aggregating recency-first, and rendering results with highlighted snippets.
+**Requirements**: D-01 through D-19 (per 122-CONTEXT.md — decisions are the requirements)
 **Depends on:** Phase 121
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 122 to break down)
+- [ ] 122-01-PLAN.md — Wave 0 empirical checkpoint: verify Assumption A1 (archived-identity JSONL survival) before writing any endpoint code; produces GO/NO-GO verdict for the archived corpus branch
+- [ ] 122-02-PLAN.md — Backend POST /conversation-search endpoint with cross-host fan-out (reusing sessions.ts:319 pattern), archive-tree enumerator, JSON-aware snippet extractor, and nginx location parity
+- [ ] 122-03-PLAN.md — Frontend: search-store (useSyncExternalStore for D-05 persistence), API client, ConversationSearchModal + Row components, header button wiring, AppShell click handler
+- [ ] 122-04-PLAN.md — Remove D-17 inline filter-as-you-type input and all supporting state / callbacks / memos / refs / sentinel constant / CSS (post-modal per D-18 ordering constraint) + human-verify UAT checkpoint
