@@ -3529,8 +3529,22 @@ export function AppShell({
                 // when NOT Files; but since Files IS present, PrettyView
                 // already preventDefaulted higher in the composed path and
                 // this handler's preventDefault is idempotent.
-                if (!e.dataTransfer.types.includes("text/plain")) return;
-                if (e.dataTransfer.types.includes("Files")) return;
+                //
+                // App-tile addendum (2026-09-20): AppTile deliberately does
+                // NOT setData("text/plain", ...) (AppTile.tsx:178-180 —
+                // hardened against stray browser drags), so it fails the
+                // text/plain gate. Accept its application/x-skynet-app-tile
+                // MIME here too — matches SplitView.tsx:195-201's
+                // hasSkynetDragPayload contract, and without it the very
+                // first drop from the sidebar Apps section on a fresh client
+                // (splitTree === null, no Pane mounted) silently no-ops.
+                const types = e.dataTransfer.types;
+                if (
+                  !types.includes("text/plain") &&
+                  !types.includes("application/x-skynet-app-tile")
+                )
+                  return;
+                if (types.includes("Files")) return;
                 e.preventDefault();
                 // inline-260902 (identity-badge-drop-preview): compute the
                 // zone the drop will actually route to and paint the overlay
@@ -3587,9 +3601,17 @@ export function AppShell({
               }}
               onDragLeave={(e) => {
                 // Phase 59 Gap 1 — type-gate FIRST (mirror SplitView.tsx:292).
-                // Scoped to text/plain drags only so unrelated dragleaves
-                // (browser file drags, native OS drags) never clear tint state.
-                if (!e.dataTransfer.types.includes("text/plain")) return;
+                // Scoped to Skynet-owned drag payloads (text/plain for
+                // row/badge, application/x-skynet-app-tile for AppTile
+                // — see the onDragOver gate above for the app-tile addendum
+                // rationale) so unrelated dragleaves (browser file drags,
+                // native OS drags) never clear tint state.
+                const types = e.dataTransfer.types;
+                if (
+                  !types.includes("text/plain") &&
+                  !types.includes("application/x-skynet-app-tile")
+                )
+                  return;
                 const rect = e.currentTarget.getBoundingClientRect();
                 // Bounding-rect stateless guard (mirror SplitView.tsx:301-305)
                 // — robust against dragleaves fired when the cursor crosses
@@ -3622,8 +3644,13 @@ export function AppShell({
                   );
                   prevEmptyPvZoneRef.current = null;
                 }
-                if (!e.dataTransfer.types.includes("text/plain")) return;
-                if (e.dataTransfer.types.includes("Files")) return;
+                const types = e.dataTransfer.types;
+                if (
+                  !types.includes("text/plain") &&
+                  !types.includes("application/x-skynet-app-tile")
+                )
+                  return;
+                if (types.includes("Files")) return;
                 e.preventDefault();
                 // Patch #514 belt-and-suspenders: outer handler ONLY runs
                 // when splitTree is null. When splitTree is non-null,
@@ -3648,7 +3675,94 @@ export function AppShell({
                 }
                 // Reaching here means splitTree was null at drop time.
                 //
-                // Behavior spec (from shape file):
+                // App-tile branch (2026-09-20) — must run BEFORE the row
+                // dispatch below, because AppTile drags carry ONLY
+                // application/x-skynet-app-tile (no text/plain, no
+                // application/x-skynet-row), so the row path would
+                // early-return with resolvedTabId=null and silently drop
+                // the payload on the floor. Behavior mirrors the row
+                // branch below: no active session → tree becomes
+                // leaf(new-app-tab); active session shown → split(active,
+                // new-app-tab) at nearest edge. Never a self-drop
+                // (app-tile has no source tab), so no wouldReplace
+                // equality guard.
+                const appTileJson = e.dataTransfer.getData(
+                  "application/x-skynet-app-tile",
+                );
+                if (appTileJson) {
+                  let parsed:
+                    | { hostId: number; slug: string; title: string }
+                    | null = null;
+                  try {
+                    const raw = JSON.parse(appTileJson) as {
+                      hostId?: unknown;
+                      slug?: unknown;
+                      title?: unknown;
+                    };
+                    if (
+                      typeof raw?.hostId === "number" &&
+                      typeof raw?.slug === "string" &&
+                      typeof raw?.title === "string"
+                    ) {
+                      parsed = {
+                        hostId: raw.hostId,
+                        slug: raw.slug,
+                        title: raw.title,
+                      };
+                    }
+                  } catch {
+                    /* fall through to row handling — row parse will also
+                       return null and this drop becomes a no-op */
+                  }
+                  if (parsed !== null) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const edge = computeNearestEdge(
+                      rect,
+                      e.clientX,
+                      e.clientY,
+                    );
+                    const activeTab = tabs.find((t) => t.id === activeTabId);
+                    const activeIsSession =
+                      activeTab != null &&
+                      (activeTab.sessionKind === "relay-room" ||
+                        (activeTab.type === "terminal" &&
+                          activeTab.targetTmuxSession != null &&
+                          identitiesByKey.has(
+                            activeTab.targetTmuxSession.toLowerCase(),
+                          )));
+                    const newTabId = openTab(null, "app", undefined, {
+                      app: { hostId: parsed.hostId, slug: parsed.slug },
+                      label: parsed.title,
+                      allowCreateTmux: false,
+                    });
+                    systemLogger.info("pv-split-drop outer app-tile dispatch", {
+                      operation: "pv_split_drop_outer_app_tile",
+                      hostId: parsed.hostId,
+                      slug: parsed.slug,
+                      edge,
+                      activeIsSession,
+                    });
+                    setSplitTree(() => {
+                      const droppedLeaf = {
+                        kind: "session" as const,
+                        tabId: newTabId,
+                      };
+                      if (!activeIsSession || activeTab == null) {
+                        return droppedLeaf;
+                      }
+                      const activeLeaf = {
+                        kind: "session" as const,
+                        tabId: activeTab.id,
+                      };
+                      return insertAtEdge(activeLeaf, [], droppedLeaf, edge);
+                    });
+                    selectConversationDeferred(newTabId);
+                    setFocusedTabId(newTabId);
+                    return;
+                  }
+                }
+                //
+                // Behavior spec (from shape file, row branch):
                 //  - empty PrettyView area (no active session shown) →
                 //    tree becomes leaf(payload).
                 //  - active session X shown in normal-view →
