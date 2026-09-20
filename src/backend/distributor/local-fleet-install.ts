@@ -97,6 +97,12 @@ import { systemLogger } from "../utils/logger.js";
 import { computeInstallMode } from "./sweep-logic.js";
 import type { CatalogEntry } from "./catalog.js";
 import type { BootstrapResult } from "./run-bootstrap.js";
+import {
+  SETTINGS_MERGE_JQ,
+  SETTINGS_CHECK_JQ,
+  GSD_MONITOR_DETECT_JQ,
+  GSD_MONITOR_STRIP_JQ,
+} from "./run-bootstrap.js";
 
 const execFile = promisify(execFileCb);
 
@@ -332,6 +338,313 @@ async function atomicWrite(
     };
   }
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Local ports of SSH-bootstrap steps 2 + 3 (settings.json patch +
+// gsd-context-monitor cleanup). Both never-throw. Both shell out to jq
+// (present in the container per docker/Dockerfile:76) with the SAME jq
+// expressions exported from run-bootstrap.ts — SETTINGS_MERGE_JQ /
+// SETTINGS_CHECK_JQ / GSD_MONITOR_DETECT_JQ / GSD_MONITOR_STRIP_JQ. Single
+// source of truth: change the jq body there, both surfaces pick it up.
+// The SSH path stores `$HOME/.local/bin/task-field-check` LITERALLY (bash
+// single-quotes don't expand). Local jq must ALSO not expand it — we pass
+// the expression via execFile's argv (no shell interpolation), so $HOME
+// stays a literal in the jq output.
+// ---------------------------------------------------------------------------
+
+/**
+ * Preserve ownership of a just-atomic-written file by mirroring the host
+ * user's uid/gid from `getLocalHomeRoot()` (the bind-mounted host home,
+ * whose owner IS the host user we want files to belong to). Otherwise the
+ * container's root process leaves settings.json owned root:root, silently
+ * poisoning future edits from the host user.
+ * Never throws — chown failure logs at warn and returns; the file still
+ * lives, just with the wrong owner (fs op still succeeded).
+ */
+async function chownToHostUser(
+  finalPath: string,
+  host: { id: string; name: string },
+  site: string,
+): Promise<void> {
+  try {
+    const homeStat = await fs.stat(getLocalHomeRoot());
+    await fs.chown(finalPath, homeStat.uid, homeStat.gid);
+  } catch (err) {
+    systemLogger.warn(
+      `local-fleet-bootstrap: chown after write failed for ${finalPath}`,
+      {
+        operation: "local_fleet_bootstrap_chown_failed",
+        site,
+        fleetHostId: host.id,
+        hostName: host.name,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
+  }
+}
+
+/**
+ * Run `jq <expr>` against stdin/file input. Returns stdout on success, null
+ * on failure. Never throws. When `jqArgs` includes `-e`, exit code 1 is
+ * treated as a boolean-false result rather than an error — same convention
+ * jq itself uses.
+ */
+async function runJq(
+  jqArgs: string[],
+  stdin: string,
+  treatExit1AsFalse = false,
+): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
+  return new Promise((resolve) => {
+    // Default encoding is utf8 → stdout/stderr are strings.
+    const child = execFileCb("jq", jqArgs, (err, stdout, stderr) => {
+      if (err) {
+        const code = (err as { code?: number } | undefined)?.code;
+        if (treatExit1AsFalse && code === 1) {
+          resolve({ ok: true, stdout: "false\n" });
+          return;
+        }
+        const stderrTrim = stderr.trim();
+        resolve({
+          ok: false,
+          error:
+            stderrTrim.length > 0
+              ? stderrTrim
+              : err instanceof Error
+                ? err.message
+                : String(err),
+        });
+        return;
+      }
+      resolve({ ok: true, stdout });
+    });
+    if (child.stdin) {
+      child.stdin.end(stdin);
+    }
+  });
+}
+
+/**
+ * Local port of SSH-bootstrap step 2 (~/.claude/settings.json six-key merge).
+ * Shells out to jq (single source of truth: SETTINGS_MERGE_JQ +
+ * SETTINGS_CHECK_JQ exported from run-bootstrap.ts). Never-throws. Returns
+ * true on success (already-correct OR patched), false on any failure.
+ */
+async function patchSettingsJsonLocally(host: {
+  id: string;
+  name: string;
+}): Promise<boolean> {
+  const settingsPath = path.join(getLocalHomeRoot(), ".claude", "settings.json");
+  let raw: string;
+  try {
+    raw = await fs.readFile(settingsPath, "utf-8");
+  } catch (err) {
+    const errno = (err as { code?: string } | undefined)?.code;
+    if (errno === "ENOENT") {
+      raw = "{}";
+    } else {
+      systemLogger.warn(
+        `local-fleet-bootstrap: settings.json read failed for ${host.name}`,
+        {
+          operation: "local_fleet_settings_patch_error",
+          site: "read",
+          fleetHostId: host.id,
+          hostName: host.name,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+      return false;
+    }
+  }
+  // CHECK — skip write if all six keys already correct.
+  const checkResult = await runJq(
+    ["-e", SETTINGS_CHECK_JQ],
+    raw,
+    /* treatExit1AsFalse */ true,
+  );
+  if (checkResult.ok === false) {
+    systemLogger.warn(
+      `local-fleet-bootstrap: jq CHECK failed for ${host.name}`,
+      {
+        operation: "local_fleet_settings_patch_error",
+        site: "jq_check",
+        fleetHostId: host.id,
+        hostName: host.name,
+        error: checkResult.error,
+      },
+    );
+    return false;
+  }
+  if (checkResult.stdout.trim() === "true") {
+    systemLogger.info(
+      `local-fleet-bootstrap: settings.json already has all six required keys for ${host.name}`,
+      {
+        operation: "local_fleet_settings_patch_noop",
+        fleetHostId: host.id,
+        hostName: host.name,
+      },
+    );
+    return true;
+  }
+  // MERGE — write patched contents atomically.
+  const mergeResult = await runJq([SETTINGS_MERGE_JQ], raw);
+  if (mergeResult.ok === false) {
+    systemLogger.warn(
+      `local-fleet-bootstrap: jq MERGE failed for ${host.name}`,
+      {
+        operation: "local_fleet_settings_patch_error",
+        site: "jq_merge",
+        fleetHostId: host.id,
+        hostName: host.name,
+        error: mergeResult.error,
+      },
+    );
+    return false;
+  }
+  const bytes = Buffer.from(mergeResult.stdout, "utf-8");
+  const w = await atomicWrite(settingsPath, bytes, 0o644);
+  if (w.ok === false) {
+    systemLogger.warn(
+      `local-fleet-bootstrap: settings.json atomic write failed for ${host.name}`,
+      {
+        operation: "local_fleet_settings_patch_error",
+        site: w.site,
+        fleetHostId: host.id,
+        hostName: host.name,
+        error: w.error,
+      },
+    );
+    return false;
+  }
+  await chownToHostUser(settingsPath, host, "settings_patch");
+  systemLogger.info(
+    `local-fleet-bootstrap: settings.json patched with six required keys for ${host.name}`,
+    {
+      operation: "local_fleet_settings_patch_ok",
+      fleetHostId: host.id,
+      hostName: host.name,
+    },
+  );
+  return true;
+}
+
+/**
+ * Local port of SSH-bootstrap step 3 (gsd-context-monitor cleanup). Shells
+ * out to jq (single source of truth: GSD_MONITOR_DETECT_JQ +
+ * GSD_MONITOR_STRIP_JQ exported from run-bootstrap.ts). Idempotent.
+ * Never-throws.
+ */
+async function cleanupGsdContextMonitorLocally(host: {
+  id: string;
+  name: string;
+}): Promise<boolean> {
+  const homeRoot = getLocalHomeRoot();
+  const settingsPath = path.join(homeRoot, ".claude", "settings.json");
+  const hookPath = path.join(homeRoot, ".claude", "hooks", "gsd-context-monitor.js");
+  let raw: string | null = null;
+  try {
+    raw = await fs.readFile(settingsPath, "utf-8");
+  } catch (err) {
+    const errno = (err as { code?: string } | undefined)?.code;
+    if (errno !== "ENOENT") {
+      systemLogger.warn(
+        `local-fleet-bootstrap: settings.json read failed during gsd-context-monitor cleanup for ${host.name}`,
+        {
+          operation: "local_fleet_gsd_monitor_cleanup_error",
+          site: "read",
+          fleetHostId: host.id,
+          hostName: host.name,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+      return false;
+    }
+    // ENOENT: no settings.json → nothing to strip. Fall through to unlink.
+  }
+  let settingsChanged = false;
+  if (raw !== null) {
+    const detect = await runJq(
+      ["-e", GSD_MONITOR_DETECT_JQ],
+      raw,
+      /* treatExit1AsFalse */ true,
+    );
+    if (detect.ok === false) {
+      systemLogger.warn(
+        `local-fleet-bootstrap: jq DETECT failed during gsd-context-monitor cleanup for ${host.name}`,
+        {
+          operation: "local_fleet_gsd_monitor_cleanup_error",
+          site: "jq_detect",
+          fleetHostId: host.id,
+          hostName: host.name,
+          error: detect.error,
+        },
+      );
+      return false;
+    }
+    if (detect.stdout.trim() === "true") {
+      const strip = await runJq([GSD_MONITOR_STRIP_JQ], raw);
+      if (strip.ok === false) {
+        systemLogger.warn(
+          `local-fleet-bootstrap: jq STRIP failed during gsd-context-monitor cleanup for ${host.name}`,
+          {
+            operation: "local_fleet_gsd_monitor_cleanup_error",
+            site: "jq_strip",
+            fleetHostId: host.id,
+            hostName: host.name,
+            error: strip.error,
+          },
+        );
+        return false;
+      }
+      const bytes = Buffer.from(strip.stdout, "utf-8");
+      const w = await atomicWrite(settingsPath, bytes, 0o644);
+      if (w.ok === false) {
+        systemLogger.warn(
+          `local-fleet-bootstrap: settings.json atomic write failed during gsd-context-monitor cleanup for ${host.name}`,
+          {
+            operation: "local_fleet_gsd_monitor_cleanup_error",
+            site: w.site,
+            fleetHostId: host.id,
+            hostName: host.name,
+            error: w.error,
+          },
+        );
+        return false;
+      }
+      await chownToHostUser(settingsPath, host, "gsd_monitor_cleanup");
+      settingsChanged = true;
+    }
+  }
+  // Unlink the hook file if present. ENOENT is not an error (idempotent).
+  try {
+    await fs.unlink(hookPath);
+  } catch (err) {
+    const errno = (err as { code?: string } | undefined)?.code;
+    if (errno !== "ENOENT") {
+      systemLogger.warn(
+        `local-fleet-bootstrap: unlink of gsd-context-monitor hook failed for ${host.name}`,
+        {
+          operation: "local_fleet_gsd_monitor_cleanup_error",
+          site: "unlink_hook",
+          fleetHostId: host.id,
+          hostName: host.name,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+      return false;
+    }
+  }
+  systemLogger.info(
+    `local-fleet-bootstrap: gsd-context-monitor cleanup complete for ${host.name}` +
+      (settingsChanged ? " (settings entry stripped)" : " (nothing to clean)"),
+    {
+      operation: "local_fleet_gsd_monitor_cleanup_ok",
+      fleetHostId: host.id,
+      hostName: host.name,
+      settingsChanged,
+    },
+  );
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -706,13 +1019,20 @@ async function writeContentDiffFile(
 }
 
 /**
- * Bootstrap the local host — steps 4 (~/.claude/skynet-parent) + 5
- * (~/.claude/skynet-hostname) always run. Steps 1-3 (systemd enable +
- * settings.json patch + gsd-context-monitor cleanup) require the ambient
- * systemd-user session to be reachable via `XDG_RUNTIME_DIR`; when absent
- * we skip-with-warn using `operation: local_fleet_bootstrap_skip` and DO NOT
- * mark hadError (documented environmental limitation, mirrors the SSH path's
- * "channel returned null" recovery).
+ * Bootstrap the local host — steps 2 (settings.json patch) + 3
+ * (gsd-context-monitor cleanup) + 4 (~/.claude/skynet-parent) + 5
+ * (~/.claude/skynet-hostname) always run. Step 1 (systemd enable) requires
+ * a working `systemctl --user` connection into the host session — until
+ * that's implemented locally it is skip-with-warn (`operation:
+ * local_fleet_bootstrap_skip`, `site: systemd_step_deferred`), DO NOT
+ * mark hadError (documented environmental limitation).
+ *
+ * The 2026-09-20 split: previously steps 1-3 were lumped into a single
+ * "systemd_steps_deferred" skip. Step 1 genuinely needs systemctl; steps 2
+ * and 3 are pure `fs` + `jq` work (jq is installed in the container per
+ * docker/Dockerfile:76) and had been collateral-skipped, meaning the
+ * task-field-check hook wire-up + gsd-context-monitor cleanup never
+ * reached the box the distributor runs on. Now they do.
  *
  * NEVER REJECTS. Same never-throw contract as installFleetSubstrateLocally.
  */
@@ -730,40 +1050,66 @@ export async function bootstrapFleetSubstrateLocally(
 
   const claudeDir = path.join(getLocalHomeRoot(), ".claude");
 
-  // Steps 1-3 — deliberately deferred as an environmental capability check.
-  // The container-runtime env usually has XDG_RUNTIME_DIR set (inherited from
-  // the host's launching shell); a bare test env or minimal dev container
-  // typically does not. Skip-with-warn matches the "channel returned null"
-  // recovery semantics on the SSH path.
-  if (!process.env.XDG_RUNTIME_DIR) {
+  // ---- Step 1: systemd enable + daemon-reload ----
+  // Genuinely needs systemctl --user against the host session bus. Deferred
+  // until load-bearing — the container image is built with the systemd-user
+  // unit already installed and enabled by other means, so this deferral
+  // does not cause a regression against the pre-2026-09-20 baseline (which
+  // never reached this step for the local host either).
+  systemLogger.warn(
+    `local-fleet-bootstrap: systemd step 1 not implemented on local branch for ${host.name}`,
+    {
+      operation: "local_fleet_bootstrap_skip",
+      site: "systemd_step_deferred",
+      fleetHostId: host.id,
+      hostName: host.name,
+    },
+  );
+  // alreadyEnabled / bootstrapRan / daemonReloadRan stay false, no hadError.
+
+  // ---- Step 2: settings.json six-key patch ----
+  // Pure fs + jq — no systemd dependency. Runs unconditionally on every
+  // sweep. Idempotent (skip-write if all six keys already correct).
+  // hadError:true parity with SSH path (run-bootstrap.ts) on failure.
+  try {
+    settingsPatchOk = await patchSettingsJsonLocally(host);
+    if (!settingsPatchOk) hadError = true;
+  } catch (err) {
+    // Belt-and-suspenders — patchSettingsJsonLocally is never-throw by
+    // contract but the outer try guards against future regression.
     systemLogger.warn(
-      `local-fleet-bootstrap: XDG_RUNTIME_DIR unset — skipping systemd steps for ${host.name}`,
+      `local-fleet-bootstrap: settings.json patch threw for ${host.name}`,
       {
-        operation: "local_fleet_bootstrap_skip",
-        site: "systemd_capability_check",
+        operation: "local_fleet_settings_patch_error",
+        site: "outer_catch",
         fleetHostId: host.id,
         hostName: host.name,
+        error: err instanceof Error ? err.message : String(err),
       },
     );
-    // Steps 1-3 leave their `*Ok` fields false and DO NOT set hadError.
-  } else {
-    // The systemd path (steps 1-3) requires child_process spawning of
-    // `systemctl --user` and `loginctl` binaries. To keep this quick fix
-    // minimal + testable, we log-and-defer the actual implementation until
-    // it's genuinely load-bearing on the local box. In practice, the
-    // container image is built with the systemd-user unit already installed
-    // and enabled by other means, so this deferral does not cause a
-    // regression against the pre-fix baseline (which never reached these
-    // steps for the local host anyway — SSH hung before them).
+    settingsPatchOk = false;
+    hadError = true;
+  }
+
+  // ---- Step 3: gsd-context-monitor cleanup ----
+  // Pure fs + jq — no systemd dependency. Idempotent (no-op on already-
+  // clean hosts, of which this box is one).
+  try {
+    gsdContextMonitorCleanupOk = await cleanupGsdContextMonitorLocally(host);
+    if (!gsdContextMonitorCleanupOk) hadError = true;
+  } catch (err) {
     systemLogger.warn(
-      `local-fleet-bootstrap: systemd steps 1-3 not implemented on local branch (XDG_RUNTIME_DIR=${process.env.XDG_RUNTIME_DIR}) for ${host.name}`,
+      `local-fleet-bootstrap: gsd-context-monitor cleanup threw for ${host.name}`,
       {
-        operation: "local_fleet_bootstrap_skip",
-        site: "systemd_steps_deferred",
+        operation: "local_fleet_gsd_monitor_cleanup_error",
+        site: "outer_catch",
         fleetHostId: host.id,
         hostName: host.name,
+        error: err instanceof Error ? err.message : String(err),
       },
     );
+    gsdContextMonitorCleanupOk = false;
+    hadError = true;
   }
 
   // ---- Step 4: skynet-parent ----

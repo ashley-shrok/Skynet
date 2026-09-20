@@ -630,6 +630,188 @@ describe("BR1 — bootstrap covers skynet-parent + skynet-hostname writes", () =
 });
 
 // ---------------------------------------------------------------------------
+// BR2 — bootstrap covers settings.json six-key patch + gsd-context-monitor
+// cleanup (2026-09-20 fix — previously lumped under systemd_steps_deferred).
+// Requires `jq` on the test runner (present in prod container per Dockerfile).
+// ---------------------------------------------------------------------------
+
+describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cleanup", () => {
+  it("settings.json absent → merge creates it with all six required keys, chown to home-root owner", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.hadError).toBe(false);
+    expect(result.settingsPatchOk).toBe(true);
+
+    const settingsPath = path.join(tmpRoot, ".claude/settings.json");
+    const parsed = JSON.parse(await fs.readFile(settingsPath, "utf-8"));
+
+    expect(parsed.skipDangerousModePermissionPrompt).toBe(true);
+    expect(parsed.askUserQuestionTimeout).toBe("never");
+    expect(parsed.permissions.deny).toContain("AskUserQuestion");
+    expect(parsed.env.DISABLE_AUTOUPDATER).toBe("1");
+    expect(parsed.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
+    // Hook stored as LITERAL $HOME (bash-single-quote parity with SSH path).
+    const upsCommands = parsed.hooks.UserPromptSubmit.flatMap(
+      (g: { hooks?: Array<{ command?: string }> }) =>
+        (g.hooks ?? []).map((h) => h.command),
+    );
+    expect(upsCommands).toContain("$HOME/.local/bin/task-field-check");
+  });
+
+  it("settings.json already has all six keys → noop, no rewrite (mtime unchanged)", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+
+    // First call — creates it.
+    await bootstrapFleetSubstrateLocally(host);
+    const settingsPath = path.join(tmpRoot, ".claude/settings.json");
+    const statFirst = await fs.stat(settingsPath);
+
+    // Second call — spy on writeFile; must NOT rewrite settings.json.
+    const writeFileSpy = vi.spyOn(fs, "writeFile");
+    const result = await bootstrapFleetSubstrateLocally(host);
+    expect(result.settingsPatchOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    for (const call of writeFileSpy.mock.calls) {
+      expect(String(call[0]).includes("settings.json")).toBe(false);
+    }
+    const statSecond = await fs.stat(settingsPath);
+    expect(statSecond.mtimeMs).toBe(statFirst.mtimeMs);
+    writeFileSpy.mockRestore();
+  });
+
+  it("settings.json has 5 keys but missing task-field-check hook → merge adds it while preserving other UserPromptSubmit entries", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const claudeDir = path.join(tmpRoot, ".claude");
+    await fs.mkdir(claudeDir, { recursive: true });
+    const seed = {
+      permissions: { deny: ["AskUserQuestion"] },
+      askUserQuestionTimeout: "never",
+      env: {
+        DISABLE_AUTOUPDATER: "1",
+        CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
+      },
+      skipDangerousModePermissionPrompt: true,
+      hooks: {
+        UserPromptSubmit: [
+          { hooks: [{ type: "command", command: "/some/other/hook.sh" }] },
+        ],
+      },
+    };
+    await fs.writeFile(
+      path.join(claudeDir, "settings.json"),
+      JSON.stringify(seed, null, 2),
+    );
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.hadError).toBe(false);
+    expect(result.settingsPatchOk).toBe(true);
+
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(claudeDir, "settings.json"), "utf-8"),
+    );
+    const upsCommands = parsed.hooks.UserPromptSubmit.flatMap(
+      (g: { hooks?: Array<{ command?: string }> }) =>
+        (g.hooks ?? []).map((h) => h.command),
+    );
+    // Original hook preserved AND task-field-check appended.
+    expect(upsCommands).toContain("/some/other/hook.sh");
+    expect(upsCommands).toContain("$HOME/.local/bin/task-field-check");
+  });
+
+  it("gsd-context-monitor cleanup: no matching hook + no hook file → clean noop, gsdContextMonitorCleanupOk:true", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+    expect(result.gsdContextMonitorCleanupOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    // Settings.json now exists (from step 2 merge) and has no PostToolUse.gsd-context-monitor entry.
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(tmpRoot, ".claude/settings.json"), "utf-8"),
+    );
+    const posts = (parsed.hooks?.PostToolUse ?? []) as Array<{
+      hooks?: Array<{ command?: string }>;
+    }>;
+    const anyGsd = posts.some((g) =>
+      (g.hooks ?? []).some((h) => (h.command ?? "").includes("gsd-context-monitor")),
+    );
+    expect(anyGsd).toBe(false);
+  });
+
+  it("gsd-context-monitor cleanup: matching hook present in settings + hook file present → strip settings entry AND unlink hook file", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const claudeDir = path.join(tmpRoot, ".claude");
+    const hooksDir = path.join(claudeDir, "hooks");
+    await fs.mkdir(hooksDir, { recursive: true });
+    await fs.writeFile(
+      path.join(hooksDir, "gsd-context-monitor.js"),
+      "// legacy hook body\n",
+    );
+    // Seed settings.json with all 6 keys AND a lingering gsd-context-monitor
+    // PostToolUse entry, so step 2 sees "already correct" and step 3 does the strip.
+    const seed = {
+      permissions: { deny: ["AskUserQuestion"] },
+      askUserQuestionTimeout: "never",
+      env: {
+        DISABLE_AUTOUPDATER: "1",
+        CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
+      },
+      skipDangerousModePermissionPrompt: true,
+      hooks: {
+        UserPromptSubmit: [
+          {
+            hooks: [
+              { type: "command", command: "$HOME/.local/bin/task-field-check" },
+            ],
+          },
+        ],
+        PostToolUse: [
+          {
+            matcher: "Bash",
+            hooks: [
+              {
+                type: "command",
+                command: "node /home/x/.claude/hooks/gsd-context-monitor.js",
+              },
+            ],
+          },
+        ],
+      },
+    };
+    await fs.writeFile(
+      path.join(claudeDir, "settings.json"),
+      JSON.stringify(seed, null, 2),
+    );
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.hadError).toBe(false);
+    expect(result.gsdContextMonitorCleanupOk).toBe(true);
+
+    // Hook file gone.
+    await expect(
+      fs.access(path.join(hooksDir, "gsd-context-monitor.js")),
+    ).rejects.toThrow();
+    // PostToolUse entry stripped from settings.
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(claudeDir, "settings.json"), "utf-8"),
+    );
+    const posts = (parsed.hooks?.PostToolUse ?? []) as Array<{
+      hooks?: Array<{ command?: string }>;
+    }>;
+    const anyGsd = posts.some((g) =>
+      (g.hooks ?? []).some((h) => (h.command ?? "").includes("gsd-context-monitor")),
+    );
+    expect(anyGsd).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // BE1 — bootstrap never-throw
 // ---------------------------------------------------------------------------
 
