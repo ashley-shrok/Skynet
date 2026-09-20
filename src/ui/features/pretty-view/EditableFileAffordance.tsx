@@ -29,7 +29,7 @@ import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
  *     Apple HIG (UI-SPEC L215). Uses the same
  *     `[@media(hover:none)]:!opacity-[0.72]` idiom as the speak button
  *     at ChatMessage.tsx:496.
- *   - Desktop: always visible at ~72% opacity (matches mobile — Ashley
+ *   - Desktop: always visible at ~72% opacity (matches mobile — the user
  *     2026-09-20: hover-reveal-only was too easy to miss). Hover-on-
  *     affordance flips glyph color to identity-hue with a 6px identity-hue
  *     drop-shadow and a 120ms opacity transition.

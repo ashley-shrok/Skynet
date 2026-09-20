@@ -74,7 +74,7 @@ describe("EditableFileAffordance — Phase 40 Plan 40-03 Task 1", () => {
     // Icon-only per UI-SPEC L124 — no visible "Edit" text label.
     // aria-label/title still read "Edit {filename}" (see test 2) for a11y.
     expect(btn.textContent).not.toContain("Edit");
-    // Ashley 2026-09-20: always visible on desktop (hover-reveal was too easy
+    // the user 2026-09-20: always visible on desktop (hover-reveal was too easy
     // to miss). Matches mobile's 72% opacity for cross-viewport consistency.
     expect(btn.className).toContain("opacity-[0.72]");
     expect(btn.className).not.toContain("opacity-0");
