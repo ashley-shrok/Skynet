@@ -62,7 +62,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // ~/.claude/skills/app-development/ on managed boxes.
     // task-field-check adds 1 helper script (UserPromptSubmit hook for
     // the id-skill task: field nag).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(53);
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(50);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -154,11 +154,13 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       e.bundledPath.startsWith("/app/fleet-substrate/user-onboarding/"),
     );
 
-    // 39 skill-side files: 4 under id/ + 2 under agent-relay/ + 6 single-file
-    // skills + 1 image-gen (Phase 116) + 26 under app-development/ (SKILL.md +
-    // 5 helpers + 20 template files including the 3-file pre-generated initial
-    // Drizzle migration, first-class-apps shape 1)
-    expect(skillRows.length).toBe(39);
+    // 36 skill-side files: 4 under id/ + 2 under agent-relay/ + 3 single-file
+    // skills (promote-to-coordinator, queue, role; backlog/bounty/next-bounty
+    // retired 2026-09-20) + 1 image-gen (Phase 116) + 26 under
+    // app-development/ (SKILL.md + 5 helpers + 20 template files including
+    // the 3-file pre-generated initial Drizzle migration, first-class-apps
+    // shape 1)
+    expect(skillRows.length).toBe(36);
     // 12 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + install-usage-reporter +
     // claude-usage-collector + fleet-status-sweep (Phase 92 batch sweep) +
@@ -182,11 +184,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     );
     expect(agentRelayRows.length).toBe(2);
 
-    // Six single-file skills each contribute one entry.
+    // Three single-file skills each contribute one entry
+    // (backlog, bounty, next-bounty retired 2026-09-20).
     const singleFileSkillSlugs = [
-      "backlog",
-      "bounty",
-      "next-bounty",
       "promote-to-coordinator",
       "queue",
       "role",
@@ -271,7 +271,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     const runtime = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "runtime",
     );
-    expect(bundled.length).toBe(52);
+    expect(bundled.length).toBe(49);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

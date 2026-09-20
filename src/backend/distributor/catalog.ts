@@ -47,8 +47,9 @@
  *   row (agent-supervisor.service):
  *     - 4 rows for id/          (SKILL.md + 3 companions)
  *     - 2 rows for agent-relay/ (SKILL.md + recv.sh)
- *     - 6 rows for the single-file skills (backlog, bounty, next-bounty,
- *       promote-to-coordinator, queue, role)
+ *     - 3 rows for the single-file skills (promote-to-coordinator, queue,
+ *       role) — backlog, bounty, and next-bounty retired 2026-09-20 with
+ *       the bounty-concept retirement
  *     - 1 row for image-gen skill (Phase 116 file-drop broker SKILL.md)
  *     - 26 rows for app-development/ (SKILL.md + 5 helper scripts +
  *       20 starter-template files including a pre-generated initial
@@ -64,7 +65,7 @@
  *     - 1 row for user-onboarding/agent-supervisor.service
  *     - 1 row for instance-policy-claude-md (Phase 114 twinkie — runtime-sourced,
  *       system-root-installed)
- *   Total = 52.
+ *   Total = 49 (was 52 before 2026-09-20 bounty-concept retirement).
  *
  * TWO NEW AXES (Phase 114 D-12 + RESEARCH.md § Pattern 1):
  *   Phase 114 introduces two orthogonal axes to CatalogEntry:
@@ -267,28 +268,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- single-file skills (7 rows, one SKILL.md each) ---
-  {
-    slug: "backlog-skill",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/backlog/SKILL.md",
-    installPath: "~/.claude/skills/backlog/SKILL.md",
-    restartHook: null,
-  },
-  {
-    slug: "bounty-skill",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/bounty/SKILL.md",
-    installPath: "~/.claude/skills/bounty/SKILL.md",
-    restartHook: null,
-  },
-  {
-    slug: "next-bounty-skill",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/next-bounty/SKILL.md",
-    installPath: "~/.claude/skills/next-bounty/SKILL.md",
-    restartHook: null,
-  },
+  // --- single-file skills (3 rows, one SKILL.md each) ---
   {
     slug: "promote-to-coordinator-skill",
     sourceKind: "bundled",
