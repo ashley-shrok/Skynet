@@ -73,7 +73,7 @@ ENV DATA_DIR=/app/data \
     # need a custom host-home path.
     HOME_HOST_DIR=/host-home
 
-RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget ffmpeg systemd && \
+RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget ffmpeg systemd jq && \
     update-ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx /var/log/skynet/console-forward && \
