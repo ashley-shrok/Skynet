@@ -91,23 +91,50 @@ export function snippetForHit(rawLine: string, query: string): SnippetResult {
   // Step 3: case-insensitive substring search inside the extracted text.
   const idx = rawText.toLowerCase().indexOf(query.toLowerCase());
   if (idx === -1) {
-    // Fallback preference:
-    //   1. If the extracted text has content, show it (grep matched JSON
-    //      syntax rather than the human text — still useful context).
-    //   2. Otherwise (empty extracted text — tool_use, tool_result, or a
-    //      metadata-only line matched), fall back to the raw line so the
-    //      user sees SOMETHING for every result row. Without this, rows
-    //      whose match sat in structural JSON render as blank snippets in
-    //      the UI, which reads as "empty search result" (UAT feedback).
-    const fallback =
-      rawText.length > 0
-        ? rawText.slice(0, FALLBACK_SNIPPET_LEN)
-        : rawLine.slice(0, FALLBACK_SNIPPET_LEN);
-    return {
-      snippet: fallback,
-      hitStart: -1,
-      hitLength: 0,
-    };
+    // Query not in the extracted text. Three sub-cases:
+    //
+    //   (a) Extracted text is non-empty — grep matched structural JSON
+    //       adjacent to real content (e.g., a JSON field name or a
+    //       nearby uuid). Show the extracted text truncated; it's still
+    //       useful context even without the query highlighted.
+    //
+    //   (b) Extracted text is empty AND the raw line contains the query
+    //       — grep matched inside a tool_result content block, a
+    //       toolUseResult file path, or other structural field
+    //       extractText doesn't traverse. Show a windowed snippet around
+    //       the ACTUAL match position in the raw line so the user sees
+    //       the match context, not the JSON metadata head (parentUuid,
+    //       isSidechain, promptId noise). This is the UAT-driven branch.
+    //
+    //   (c) Extracted text is empty AND the query is nowhere in the raw
+    //       line either (defensive edge — grep matched but our lowercase
+    //       indexOf disagrees). Degrade to raw head — always show
+    //       SOMETHING rather than blank.
+    if (rawText.length > 0) {
+      return {
+        snippet: rawText.slice(0, FALLBACK_SNIPPET_LEN),
+        hitStart: -1,
+        hitLength: 0,
+      };
+    }
+    const rawIdx = rawLine.toLowerCase().indexOf(query.toLowerCase());
+    if (rawIdx === -1) {
+      return {
+        snippet: rawLine.slice(0, FALLBACK_SNIPPET_LEN),
+        hitStart: -1,
+        hitLength: 0,
+      };
+    }
+    const start = Math.max(0, rawIdx - SNIPPET_HALF_WINDOW);
+    const end = Math.min(
+      rawLine.length,
+      rawIdx + query.length + SNIPPET_HALF_WINDOW,
+    );
+    const leftEllipsis = start > 0 ? "…" : "";
+    const rightEllipsis = end < rawLine.length ? "…" : "";
+    const snippet = leftEllipsis + rawLine.slice(start, end) + rightEllipsis;
+    const hitStart = rawIdx - start + (leftEllipsis.length > 0 ? 1 : 0);
+    return { snippet, hitStart, hitLength: query.length };
   }
 
   // Step 4: window ±SNIPPET_HALF_WINDOW chars around the hit.

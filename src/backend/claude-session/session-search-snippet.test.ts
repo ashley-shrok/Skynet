@@ -116,16 +116,17 @@ describe("snippetForHit", () => {
   });
 
   // ---------------------------------------------------------------------
-  // Behavior 5b: extractText returns empty (tool_use / tool_result / other
-  // metadata line matched the grep) → fall back to raw-line first-160
-  // chars so the frontend always has SOMETHING to render. Without this
-  // fallback, structural-JSON hits render as blank snippet rows in the
-  // UI, which reads as "empty result" (UAT feedback).
+  // Behavior 5b: extractText doesn't include the query (structural-JSON
+  // hit — grep matched in a tool_result content block, toolUseResult
+  // file path, or top-level metadata that extractText doesn't traverse).
+  // Fallback: window ±80 chars around the match position IN THE RAW LINE
+  // so the user sees the match context, not a dump of the JSON head
+  // (parentUuid / isSidechain / promptId noise).
   // ---------------------------------------------------------------------
-  it("falls back to raw line first-160 chars when extracted text is empty (structural-JSON hit)", () => {
-    // A tool_use record — extractText typically returns empty for these
-    // because there's no user-facing text content. Grep matched 'banana'
-    // because it appears in a tool parameter name / value in the JSON.
+  it("falls back to a windowed raw-line snippet around the match when extracted text is empty (structural-JSON hit)", () => {
+    // A tool_use record — extractText returns empty for these because
+    // there's no message-content text. Grep matched 'banana' because it
+    // appears inside the tool input JSON.
     const line = JSON.stringify({
       type: "assistant",
       message: {
@@ -140,10 +141,31 @@ describe("snippetForHit", () => {
       },
     });
     const result = snippetForHit(line, "banana");
+    // Snippet must contain the query (case-insensitively).
+    expect(result.snippet.toLowerCase()).toContain("banana");
+    // Match indices point at the query INSIDE the returned snippet.
+    expect(result.hitStart).toBeGreaterThanOrEqual(0);
+    expect(result.hitLength).toBe(6);
+    expect(
+      result.snippet
+        .slice(result.hitStart, result.hitStart + result.hitLength)
+        .toLowerCase(),
+    ).toBe("banana");
+  });
+
+  it("emits raw-line head as last-resort fallback if the query is nowhere in the raw line either", () => {
+    // Extractable content is empty and the raw line does not contain the
+    // query (defensive: grep matched inside the first 4KB but our
+    // toLowerCase().indexOf disagrees — hypothetical edge case).
+    // Force this by giving a raw line that JSON-parses but has empty
+    // message.content AND does not literally contain the query.
+    const line = JSON.stringify({
+      type: "system",
+      message: { content: [] },
+    });
+    const result = snippetForHit(line, "banana");
     expect(result.hitStart).toBe(-1);
     expect(result.hitLength).toBe(0);
-    // Fallback is the raw JSON line (truncated), NOT an empty string.
-    expect(result.snippet.length).toBeGreaterThan(0);
     expect(result.snippet).toBe(line.slice(0, 160));
   });
 
