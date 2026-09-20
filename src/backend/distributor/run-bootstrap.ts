@@ -141,6 +141,51 @@ function logBootstrapFailed(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Exported jq templates — single source of truth. Both the SSH-bootstrap
+// (this file) AND the local-fleet bootstrap (local-fleet-install.ts) apply
+// the identical expressions so a change here propagates to both surfaces.
+// ---------------------------------------------------------------------------
+
+/**
+ * Six-key MERGE jq expression. Idempotently sets the six fleet-required
+ * settings.json keys, preserving any other keys. Note: the task-field-check
+ * hook command is stored as the LITERAL string `$HOME/.local/bin/task-field-check`
+ * — bash single-quotes in the SSH-path template don't expand $HOME, so the
+ * value written to disk is a literal that Claude Code's hook runner expands
+ * at execution time via its shell. Local jq invocation must NOT expand it
+ * either (pass the expression as an argv arg, not through a shell).
+ */
+export const SETTINGS_MERGE_JQ =
+  `.permissions = ((.permissions // {}) | .deny = (((.deny // []) + ["AskUserQuestion"]) | unique))` +
+  `  | .askUserQuestionTimeout = "never"` +
+  `  | .env = ((.env // {}) | .DISABLE_AUTOUPDATER = "1" | .CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1")` +
+  `  | .skipDangerousModePermissionPrompt = true` +
+  `  | .hooks = ((.hooks // {}) | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end))`;
+
+/** Six-key CHECK jq expression. Returns true iff all six keys are already set. */
+export const SETTINGS_CHECK_JQ =
+  `(.skipDangerousModePermissionPrompt == true)` +
+  `  and (.askUserQuestionTimeout == "never")` +
+  `  and ((.permissions.deny // []) | contains(["AskUserQuestion"]))` +
+  `  and (.env.DISABLE_AUTOUPDATER == "1")` +
+  `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")` +
+  `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))`;
+
+/** DETECT jq: true iff any PostToolUse entry references gsd-context-monitor. */
+export const GSD_MONITOR_DETECT_JQ =
+  `.hooks.PostToolUse // [] | any(.[]?.hooks[]?.command // ""; test("gsd-context-monitor"))`;
+
+/**
+ * STRIP jq: filter out any PostToolUse entry whose inner hooks reference
+ * gsd-context-monitor. Byte-parallel with the historical SSH-path expression;
+ * matches at the OUTER-drop level (if a group has multiple inner hooks and
+ * ONE matches, the whole group is dropped — sibling non-matching hooks in
+ * the same group are collateral).
+ */
+export const GSD_MONITOR_STRIP_JQ =
+  `.hooks.PostToolUse |= map(select(any(.hooks[]?.command // ""; test("gsd-context-monitor")) | not))`;
+
 /**
  * Run idempotent pre-sweep bootstrap on a managed host.
  *
@@ -310,19 +355,14 @@ export async function runBootstrapForHost(
     // Uses a .new temp file + mv for atomic write (no partial-write state).
     // Same MERGE template drives both (b) and (c) paths so the truth of "what
     // the fleet enforces" lives in exactly one jq expression.
+    // NB: MERGE + CHECK jq bodies are shared constants (SETTINGS_MERGE_JQ,
+    // SETTINGS_CHECK_JQ) so the local-fleet bootstrap in local-fleet-install.ts
+    // executes byte-parallel expressions. Do NOT edit inline — edit the
+    // exported constants above.
     const settingsCmd = [
       `SETTINGS="$HOME/.claude/settings.json"`,
-      `MERGE='.permissions = ((.permissions // {}) | .deny = (((.deny // []) + ["AskUserQuestion"]) | unique))`,
-      `  | .askUserQuestionTimeout = "never"`,
-      `  | .env = ((.env // {}) | .DISABLE_AUTOUPDATER = "1" | .CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1")`,
-      `  | .skipDangerousModePermissionPrompt = true`,
-      `  | .hooks = ((.hooks // {}) | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end))'`,
-      `CHECK='(.skipDangerousModePermissionPrompt == true)`,
-      `  and (.askUserQuestionTimeout == "never")`,
-      `  and ((.permissions.deny // []) | contains(["AskUserQuestion"]))`,
-      `  and (.env.DISABLE_AUTOUPDATER == "1")`,
-      `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")`,
-      `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))'`,
+      `MERGE='${SETTINGS_MERGE_JQ}'`,
+      `CHECK='${SETTINGS_CHECK_JQ}'`,
       `if [ -f "$SETTINGS" ]; then`,
       `  jq -e "$CHECK" "$SETTINGS" > /dev/null 2>&1 || {`,
       `    jq "$MERGE" "$SETTINGS" > "$SETTINGS.new" && mv "$SETTINGS.new" "$SETTINGS"`,
@@ -370,16 +410,20 @@ export async function runBootstrapForHost(
     // file when a matching entry is actually present — keeps the sweep cheap
     // on already-clean hosts. rm -f is unconditionally idempotent (no error
     // if the file is absent) so no guard needed there.
+    // NB: DETECT + STRIP jq bodies are shared constants
+    // (GSD_MONITOR_DETECT_JQ, GSD_MONITOR_STRIP_JQ) so the local-fleet
+    // bootstrap in local-fleet-install.ts executes byte-parallel expressions.
+    // Do NOT edit inline — edit the exported constants above. Regression
+    // note from 2026-09-05: DETECT uses `.[]?.hooks[]?.command` — iterate
+    // the PostToolUse array THEN dive into each entry's inner hooks. An
+    // earlier `.hooks[]?.command` (without the outer `.[]?`) tried to index
+    // the array with "hooks", jq exited 5, the `if` treated that as false,
+    // the strip was silently skipped, and every host got fleet-wide
+    // "PostToolUse:Bash hook error" noise on every tool call. Guarded by test (k).
     const cleanupCmd = [
       `S_FILE="$HOME/.claude/settings.json"`,
-      // `.[]?.hooks[]?.command` — iterate the PostToolUse array THEN dive into
-      // each entry's inner hooks. An earlier `.hooks[]?.command` (without the
-      // outer `.[]?`) tried to index the array itself with "hooks", jq exited
-      // 5, the `if` treated that as false, the strip was silently skipped, and
-      // every host got fleet-wide "PostToolUse:Bash hook error" noise on every
-      // tool call (2026-09-05). The regression is guarded by test (k).
-      `if [ -f "$S_FILE" ] && jq -e '.hooks.PostToolUse // [] | any(.[]?.hooks[]?.command // ""; test("gsd-context-monitor"))' "$S_FILE" > /dev/null 2>&1; then`,
-      `  jq '.hooks.PostToolUse |= map(select(any(.hooks[]?.command // ""; test("gsd-context-monitor")) | not))' "$S_FILE" > "$S_FILE.new" && mv "$S_FILE.new" "$S_FILE"`,
+      `if [ -f "$S_FILE" ] && jq -e '${GSD_MONITOR_DETECT_JQ}' "$S_FILE" > /dev/null 2>&1; then`,
+      `  jq '${GSD_MONITOR_STRIP_JQ}' "$S_FILE" > "$S_FILE.new" && mv "$S_FILE.new" "$S_FILE"`,
       `fi`,
       `rm -f "$HOME/.claude/hooks/gsd-context-monitor.js"`,
       `echo "__CLEANUP_OK__"`,
