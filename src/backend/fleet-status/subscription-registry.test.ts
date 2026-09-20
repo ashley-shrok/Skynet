@@ -1166,7 +1166,7 @@ describe("subscription-registry", () => {
       registry.publishAppUpdate("h1", makeAppState2("h1", "todo"));
 
       const received: FrontendOutboundFrameType[] = [];
-      // Subscribe with a userId → filter engages → pendingAppFrames = []
+      // Subscribe with a userId → filter engages → pendingFrames = []
       registry.subscribe((f) => received.push(f), { userId: "U1" });
 
       // In the queue-window: publish an app-update BEFORE the filter releases.

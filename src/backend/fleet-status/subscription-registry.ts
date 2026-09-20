@@ -80,7 +80,7 @@ export type AppFrameFilter = (
  * (backward-compat with existing session-only tests + any auth-skipping
  * harness).
  *
- * Phase 118 code-review HIGH-4 (fix pass 2026-09-18): `pendingAppFrames`
+ * Phase 118 code-review HIGH-4 (fix pass 2026-09-18): `pendingFrames`
  * holds app-frame deliveries that arrive between the moment subscribe()
  * adds the entry to the Set and the moment the fire-and-forget
  * app-snapshot resolves + sends. Snapshot MUST arrive before any
@@ -102,7 +102,7 @@ export type AppFrameFilter = (
 interface SubscriberEntry {
   send: SendFrame;
   userId?: string;
-  pendingAppFrames: FrontendOutboundFrameType[] | null;
+  pendingFrames: FrontendOutboundFrameType[] | null;
 }
 
 /**
@@ -351,8 +351,8 @@ async function fanOutApp(
       if (!subscribers.has(entry)) {
         return;
       }
-      if (entry.pendingAppFrames !== null) {
-        entry.pendingAppFrames.push(projected);
+      if (entry.pendingFrames !== null) {
+        entry.pendingFrames.push(projected);
         return;
       }
       try {
@@ -468,14 +468,14 @@ export function createSubscriptionRegistry(
       }
       if (entry === undefined) {
         // Phase 118 code-review HIGH-4 (fix pass 2026-09-18): initialize
-        // pendingAppFrames = null (deliver normally) by default. Set to
+        // pendingFrames = null (deliver normally) by default. Set to
         // [] BELOW right before the fire-and-forget app-snapshot block
         // when the filter is wired AND we have a userId — the ONLY
         // scenario that produces a subscribe → snapshot race window.
         entry = {
           send: sendFrame,
           userId: ctx?.userId,
-          pendingAppFrames: null,
+          pendingFrames: null,
         };
         subscribers.add(entry);
       }
@@ -570,13 +570,13 @@ export function createSubscriptionRegistry(
         // queue-window BEFORE spawning the async snapshot. Any
         // publishAppUpdate / publishAppGoneByHostSlug fired between now
         // and when the snapshot's sendFrame call completes will land in
-        // subscriberEntry.pendingAppFrames instead of racing past the
+        // subscriberEntry.pendingFrames instead of racing past the
         // snapshot. The drain-and-null below flushes the queue in FIFO
         // order right after the snapshot lands, then re-opens
         // steady-state delivery. On disposer-during-window (see below)
         // the entry is removed from `subscribers` so future drains have
         // no observers to hit anyway.
-        subscriberEntry.pendingAppFrames = [];
+        subscriberEntry.pendingFrames = [];
         // Fire-and-forget — disposer must return synchronously.
         void (async () => {
           try {
@@ -599,8 +599,8 @@ export function createSubscriptionRegistry(
             // subsequent frames forever is the wrong choice. On failure
             // the drain still flushes any queued frames so the client
             // is not starved of updates that arrived during the window.
-            const pending = subscriberEntry.pendingAppFrames;
-            subscriberEntry.pendingAppFrames = null;
+            const pending = subscriberEntry.pendingFrames;
+            subscriberEntry.pendingFrames = null;
             if (pending !== null && subscribers.has(subscriberEntry)) {
               for (const f of pending) {
                 try {
@@ -654,7 +654,7 @@ export function createSubscriptionRegistry(
         // any queued app frames so if the snapshot promise settles
         // AFTER disposal, the drain sees an empty queue and (via the
         // `subscribers.has` guard) also skips delivery. Belt-and-braces.
-        subscriberEntry.pendingAppFrames = null;
+        subscriberEntry.pendingFrames = null;
 
         // Phase 39 — fire onLastUnsubscriber callbacks on 1 → 0 transition.
         // Same try/catch isolation pattern as onFirstSubscriber.
