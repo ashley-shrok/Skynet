@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-19
 **Status:** Ready for planning
-**Source:** Generated from `.planning/shapes/shape-feedback-general-button.md` (opened + greenlit 2026-09-19 via /build → /open, 6 grill exchanges, no tasting needed per Ashley's early placement pick). Per build-skill rule, discuss-phase does not re-elicit ground the shape file already covers.
+**Source:** Generated from `.planning/shapes/shape-feedback-general-button.md` (opened + greenlit 2026-09-19 via /build → /open, 6 grill exchanges, no tasting needed per the user's early placement pick). Per build-skill rule, discuss-phase does not re-elicit ground the shape file already covers.
 
 <domain>
 ## Phase Boundary
@@ -53,8 +53,8 @@ Shape 3 (message thumbs on assistant messages) is a separate downstream shape an
 - **D-18:** No changes to shape 1's modal, backend, gate signal, or toast. If shape 2 finds itself needing new modal props / new backend fields / new gate signals, something is wrong — shape 1 was supposed to be complete plumbing. Any mismatch is a shape 1 bug, not a shape 2 feature.
 - **D-19:** No interstitial UI on the button. No spinner while modal is open. No disabled state during submit. No badge / dot / accent. The click opens the modal; the modal submits fire-and-forget; the button never reflects submit state.
 - **D-20:** No telemetry, no click analytics, no measurement of dismiss rates. Shape 1 was analytics-free by design; shape 2 inherits.
-- **D-21:** No header redesign as part of shape 2. The button placement is deliberately minimum-invasive because the header is getting redesigned soon (Ashley's steer 2026-09-19). Match the row, don't rework it. Any header-wide restyling belongs in the redesign work, not here.
-- **D-22:** No differentiator styling — no accent color, no "!" badge, no larger icon size, no divider before the button. The button reads as another action in the row, indistinguishable in weight from its five siblings. This is deliberate per Ashley's "it's just another button being added up there."
+- **D-21:** No header redesign as part of shape 2. The button placement is deliberately minimum-invasive because the header is getting redesigned soon (the user's steer 2026-09-19). Match the row, don't rework it. Any header-wide restyling belongs in the redesign work, not here.
+- **D-22:** No differentiator styling — no accent color, no "!" badge, no larger icon size, no divider before the button. The button reads as another action in the row, indistinguishable in weight from its five siblings. This is deliberate per the user's "it's just another button being added up there."
 
 ### Test scope
 
@@ -130,7 +130,7 @@ Shape 3 (message thumbs on assistant messages) is a separate downstream shape an
 
 - **Role-based visibility gating** — admin-only, env-flag toggle. Deferred per D-16; add in future phase if a deployment gets a broader user pool where this matters.
 - **Production keyboard shortcut** sibling to the dev chord — deferred per D-17.
-- **Header redesign** — deferred per D-21; Ashley plans a broader redesign of the conversation-list header. Shape 2 stays minimum-invasive so it doesn't front-run that work.
+- **Header redesign** — deferred per D-21; the user plans a broader redesign of the conversation-list header. Shape 2 stays minimum-invasive so it doesn't front-run that work.
 - **Rate limiting on feedback submissions** — deferred per shape 1 D-28.
 - **Telemetry on button clicks / modal opens / dismiss rates** — deferred per D-20.
 - **Alternative placements** (top-bar corner, floating action button, settings modal entry) — considered during /open discussion, rejected per D-01.

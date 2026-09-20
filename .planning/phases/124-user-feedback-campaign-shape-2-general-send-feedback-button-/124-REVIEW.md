@@ -124,7 +124,7 @@ intended D-12 behavior (feedback gate is independent, others share
 2. Plan L149 "position 5 of 6 per D-02" wording assumes six-button
    presence.
 
-**Scope:** The independent-gate D-12 semantic is what Ashley locked. The
+**Scope:** The independent-gate D-12 semantic is what the user locked. The
 issue is that the plan + shape assumed the two gates would never
 independently fire in a way that leaves the feedback button alone. Test 4
 actually verifies this "orphan" state and asserts it's expected. So this

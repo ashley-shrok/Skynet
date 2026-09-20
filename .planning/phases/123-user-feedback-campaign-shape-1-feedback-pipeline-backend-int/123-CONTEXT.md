@@ -43,7 +43,7 @@ Shape 1 of the `user-feedback` campaign (`.planning/campaign-user-feedback.md`).
 ### Email format
 
 - **D-15:** Plain text email. NOT HTML. Not multipart-with-html-alternative. Just text.
-- **D-16:** Subject line: `[<instance-name> feedback] <type>` where `<instance-name>` is `BrandingConfig.appName` (e.g., "gigaashley") and `<type>` is `general` / `thumbs up` / `thumbs down`.
+- **D-16:** Subject line: `[<instance-name> feedback] <type>` where `<instance-name>` is `BrandingConfig.appName` (e.g., "example-instance") and `<type>` is `general` / `thumbs up` / `thumbs down`.
 - **D-17:** Sender address is the operator's configured from-address env var (not synthesized).
 - **D-18:** Recipient is the operator's destination address env var (not synthesized). Single address per instance; no per-category routing, no multiple recipients.
 - **D-19:** Body layout — key-value header block (`Feedback from: <user>`, `Instance: <appName>`, `When: <timestamp>`, `Type: <type>`), then optional `--- User note ---` section (user's typed text if any), then optional `--- Exchange ---` section (only when content-inclusion is ON and this is a thumb-attached feedback).
@@ -150,13 +150,13 @@ Shape 1 of the `user-feedback` campaign (`.planning/campaign-user-feedback.md`).
 ## Specific Ideas
 
 - **Modal visual reference: A2a + B3b variants** from the tasting page. Winning general variant: title `Send feedback`, placeholder `What's on your mind?`, `Cancel` + `Send`. Winning thumbs-down variant: title `What went wrong?`, placeholder `Anything you want to add?`, close-X, single `Send`. See D-10 / D-11.
-- **Ashley's default posture on her own instances:** BOTH flags on (mechanism + content-inclusion). Design accommodates operators who want mechanism ON but content-inclusion OFF (see D-02, D-21, D-22).
+- **the user's default posture on her own instances:** BOTH flags on (mechanism + content-inclusion). Design accommodates operators who want mechanism ON but content-inclusion OFF (see D-02, D-21, D-22).
 - **Email format example (locked pattern):**
   ```
-  Subject: [gigaashley feedback] thumbs down
+  Subject: [example-instance feedback] thumbs down
 
-  Feedback from: ashley
-  Instance:      gigaashley
+  Feedback from: the-user
+  Instance:      example-instance
   When:          2026-09-19 15:24 UTC-4
   Type:          thumbs down on assistant reply
 
@@ -184,7 +184,7 @@ These came up during /open and are deliberately OUT of shape 1's scope. Preserve
 
 ### Belongs in shape 2 (general button)
 - Placement of the "Send feedback" button in the app shell — deferred to shape 2's `/open` (the campaign artifact says this).
-- Any decision about which surfaces (pretty view, terminal, filestash) get the general button — shape 2's call.
+- Any decision about which surfaces (pretty view, terminal, example-sftp) get the general button — shape 2's call.
 
 ### Belongs in shape 3 (thumbs)
 - Which "assistant" messages get thumbs affordances (all? Certain roles? Bridged agents?) — shape 3's call.

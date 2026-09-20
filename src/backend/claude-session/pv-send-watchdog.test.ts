@@ -868,13 +868,17 @@ describe("Phase 56: widened window for dormant-triggered sends", () => {
 // WW-5 lives OUTSIDE the describe block — it's a file-read invariant guard,
 // not a timer-based watchdog test. Fake-timer setup would be a no-op here.
 describe("Phase 56: constant-drift guard", () => {
-  it("Test WW-5: MARKER_FALLBACK_MS_MIRROR must equal MARKER_FALLBACK_MS in claude-session-server.ts", async () => {
+  it("Test WW-5: MARKER_FALLBACK_MS_MIRROR must equal MARKER_FALLBACK_MS in dormant-wake-gate.ts", async () => {
     const fs = await import("node:fs");
+    // The canonical MARKER_FALLBACK_MS export lives in dormant-wake-gate.ts
+    // (moved from claude-session-server.ts during a refactor that made
+    // dormant-wake-gate the source of truth; claude-session-server now
+    // imports it). Grep the definition site to enforce the mirror.
     const src = fs.readFileSync(
-      "src/backend/claude-session/claude-session-server.ts",
+      "src/backend/claude-session/dormant-wake-gate.ts",
       "utf-8",
     );
-    // Match `MARKER_FALLBACK_MS = 90_000;` (allow `_` in numeric literal).
+    // Match `export const MARKER_FALLBACK_MS = 90_000;` (allow `_` in numeric literal).
     const m = src.match(/MARKER_FALLBACK_MS\s*=\s*(\d[\d_]*)/);
     expect(m).not.toBeNull();
     if (m === null) return; // narrow for TS

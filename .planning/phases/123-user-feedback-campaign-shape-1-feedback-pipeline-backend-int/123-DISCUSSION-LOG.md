@@ -20,7 +20,7 @@
 | Acts-on-it (full) | Every email carries wide conversation context regardless of type | |
 
 **User's choice:** Acts-on-it (mixed) — plus a governing "content flag" makes it operator-configurable.
-**Notes:** Users already know messages travel through operator infrastructure; message content is not a privacy surprise. Ashley's stance: "I want as much info as I can get because that's just gonna help me solve things." Operator gets max signal by default on her instances; other operators split the mechanism from content via two independent flags.
+**Notes:** Users already know messages travel through operator infrastructure; message content is not a privacy surprise. the user's stance: "I want as much info as I can get because that's just gonna help me solve things." Operator gets max signal by default on her instances; other operators split the mechanism from content via two independent flags.
 
 ---
 
@@ -117,7 +117,7 @@ Full tasting artifact: `/home/ubuntu/fleet/identities/lark-box-maintainer/worksp
 | Caller supplies IDs only; backend looks up content server-side | Requires shape 1 to query message store | |
 
 **User's choice:** Middle option. Payload split as chosen means shape 1's backend is stateless on the message store; content travels client-to-server on the wire.
-**Notes:** Verbatim: "any decisions about which parts should be done in each shape is left up to you" — Ashley delegated shape-boundary decisions to the working agent (me).
+**Notes:** Verbatim: "any decisions about which parts should be done in each shape is left up to you" — the user delegated shape-boundary decisions to the working agent (me).
 
 ---
 
@@ -154,7 +154,7 @@ Areas delegated to the working agent:
 - Mail transport library choice (nodemailer is the obvious default; no existing utility in the codebase to reuse).
 - Frontend "is feedback configured" transport shape (REST GET vs. embedded in bootstrap payload vs. WebSocket-borne — pick what matches existing patterns).
 - Dev-only trigger form for shape 1 verification (keyboard chord vs. hidden route vs. dev-menu entry).
-- Shape 1/2/3 internal boundary decisions ("any decisions about which parts should be done in each shape is left up to you" — Ashley 2026-09-19).
+- Shape 1/2/3 internal boundary decisions ("any decisions about which parts should be done in each shape is left up to you" — the user 2026-09-19).
 
 ## Deferred Ideas
 

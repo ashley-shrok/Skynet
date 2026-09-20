@@ -139,14 +139,18 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("runSweepForHost", () => {
-  it("Test 1: all-match sweep on full 26-entry catalog — 0 changes, 0 failures, 0 writes", async () => {
+  it("Test 1: all-match sweep on full catalog — 0 changes, 0 failures, 0 writes", async () => {
     const bundledBytes = Buffer.from("matching-bundle-content");
     // For every catalog entry, read returns __READ_OK__ with the same bytes
     // as the bundled reader (or the runtime resolver map). The decision
     // layer skips them all. Phase 114 Plan 05: the 25th row is the twinkie
     // (sourceKind: "runtime", installMode: "system-root") — provide matching
     // resolvedRuntimeBytes so it also byte-matches. Phase 116 added 2 bundled
-    // rows (image-gen-skill + image-gen-helper) bringing total to 26.
+    // rows (image-gen-skill + image-gen-helper). Later substrate refactors
+    // (retire coord-as-mode, retire backlog/bounty/next-bounty skills) grew +
+    // shrank the catalog; the itemsChecked count below tracks the current
+    // sweep footprint (46 items — update this along with any catalog change
+    // that adds or removes a sweep target).
     const { channel, exec } = makeChannelSequenced((cmd) => {
       if (cmd.includes("base64 -w0")) return b64Ok(bundledBytes);
       // No writes / restarts expected; any other call is unexpected
@@ -161,7 +165,7 @@ describe("runSweepForHost", () => {
 
     expect(logSweepResult).toHaveBeenCalledTimes(1);
     const call = (logSweepResult as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.itemsChecked).toBe(53);
+    expect(call.itemsChecked).toBe(46);
     expect(call.itemsChanged).toBe(0);
     expect(call.itemsFailed).toBe(0);
     expect(logItemChanged).not.toHaveBeenCalled();

@@ -14,20 +14,20 @@ import { composeSubject, composeBody } from "./feedback-email.js";
 
 describe("composeSubject (D-16, T-121-02)", () => {
   it("plain appName + type → bracketed prefix format", () => {
-    expect(composeSubject({ appName: "gigaashley", type: "thumbs down" })).toBe(
-      "[gigaashley feedback] thumbs down",
+    expect(composeSubject({ appName: "example-instance", type: "thumbs down" })).toBe(
+      "[example-instance feedback] thumbs down",
     );
   });
 
   it("general type", () => {
-    expect(composeSubject({ appName: "gigaashley", type: "general" })).toBe(
-      "[gigaashley feedback] general",
+    expect(composeSubject({ appName: "example-instance", type: "general" })).toBe(
+      "[example-instance feedback] general",
     );
   });
 
   it("thumbs up type", () => {
-    expect(composeSubject({ appName: "gigaashley", type: "thumbs up" })).toBe(
-      "[gigaashley feedback] thumbs up",
+    expect(composeSubject({ appName: "example-instance", type: "thumbs up" })).toBe(
+      "[example-instance feedback] thumbs up",
     );
   });
 
@@ -64,8 +64,8 @@ describe("composeSubject (D-16, T-121-02)", () => {
 
 describe("composeBody header block (D-19)", () => {
   const baseArgs = {
-    submitter: "ashley",
-    appName: "gigaashley",
+    submitter: "the-user",
+    appName: "example-instance",
     // 2026-09-19T15:24:00Z — ISO-8601 UTC output
     timestamp: Date.UTC(2026, 8, 19, 15, 24, 0),
     type: "general",
@@ -75,8 +75,8 @@ describe("composeBody header block (D-19)", () => {
   it("header block has exactly 4 lines with the D-19 keys", () => {
     const body = composeBody(baseArgs);
     const headerLines = body.split("\n").slice(0, 4);
-    expect(headerLines[0]).toBe("Feedback from: ashley");
-    expect(headerLines[1]).toBe("Instance:      gigaashley");
+    expect(headerLines[0]).toBe("Feedback from: the-user");
+    expect(headerLines[1]).toBe("Instance:      example-instance");
     expect(headerLines[2]).toBe("When:          2026-09-19T15:24:00.000Z");
     expect(headerLines[3]).toBe("Type:          general");
   });
@@ -90,8 +90,8 @@ describe("composeBody header block (D-19)", () => {
     const body = composeBody(baseArgs);
     // 4 header lines joined by \n, then trailing \n
     const expected =
-      "Feedback from: ashley\n" +
-      "Instance:      gigaashley\n" +
+      "Feedback from: the-user\n" +
+      "Instance:      example-instance\n" +
       "When:          2026-09-19T15:24:00.000Z\n" +
       "Type:          general\n";
     expect(body).toBe(expected);
@@ -102,8 +102,8 @@ describe("composeBody header block (D-19)", () => {
 
 describe("composeBody user-note section (D-19)", () => {
   const baseArgs = {
-    submitter: "ashley",
-    appName: "gigaashley",
+    submitter: "the-user",
+    appName: "example-instance",
     timestamp: Date.UTC(2026, 8, 19, 15, 24, 0),
     type: "general",
   };
@@ -132,8 +132,8 @@ describe("composeBody user-note section (D-19)", () => {
 
 describe("composeBody exchange section (D-21)", () => {
   const baseArgs = {
-    submitter: "ashley",
-    appName: "gigaashley",
+    submitter: "the-user",
+    appName: "example-instance",
     timestamp: Date.UTC(2026, 8, 19, 15, 24, 0),
     type: "thumbs down",
     userNote: "broken",
@@ -179,8 +179,8 @@ describe("composeBody D-20: no URL scheme, no view-in-app affordance", () => {
     ];
     for (const extra of inputs) {
       const body = composeBody({
-        submitter: "ashley",
-        appName: "gigaashley",
+        submitter: "the-user",
+        appName: "example-instance",
         timestamp: Date.UTC(2026, 8, 19, 15, 24, 0),
         type: "thumbs down",
         userNote: "",
@@ -199,8 +199,8 @@ describe("composeBody D-20: no URL scheme, no view-in-app affordance", () => {
 
   it("no --- View in app --- section synthesized for any input", () => {
     const body = composeBody({
-      submitter: "ashley",
-      appName: "gigaashley",
+      submitter: "the-user",
+      appName: "example-instance",
       timestamp: Date.UTC(2026, 8, 19, 15, 24, 0),
       type: "thumbs down",
       userNote: "note",
@@ -213,8 +213,8 @@ describe("composeBody D-20: no URL scheme, no view-in-app affordance", () => {
 
 describe("composeBody 6-permutation matrix (kind x exchangeText presence)", () => {
   const base = {
-    submitter: "ashley",
-    appName: "gigaashley",
+    submitter: "the-user",
+    appName: "example-instance",
     timestamp: Date.UTC(2026, 8, 19, 15, 24, 0),
     userNote: "note text",
   };
@@ -244,16 +244,16 @@ describe("composeBody 6-permutation matrix (kind x exchangeText presence)", () =
 describe("composeBody exact byte layout (snapshot)", () => {
   it("locks the exact string layout for a full-content thumbs-down email", () => {
     const body = composeBody({
-      submitter: "ashley",
-      appName: "gigaashley",
+      submitter: "the-user",
+      appName: "example-instance",
       timestamp: Date.UTC(2026, 8, 19, 15, 24, 0),
       type: "thumbs down",
       userNote: "The migration binary doesn't exist.",
       exchangeText: "User asked X. Bot said Y.",
     });
     const expected =
-      "Feedback from: ashley\n" +
-      "Instance:      gigaashley\n" +
+      "Feedback from: the-user\n" +
+      "Instance:      example-instance\n" +
       "When:          2026-09-19T15:24:00.000Z\n" +
       "Type:          thumbs down\n" +
       "\n" +
@@ -267,15 +267,15 @@ describe("composeBody exact byte layout (snapshot)", () => {
 
   it("locks the exact string layout for a general-only header-only email", () => {
     const body = composeBody({
-      submitter: "ashley",
-      appName: "gigaashley",
+      submitter: "the-user",
+      appName: "example-instance",
       timestamp: Date.UTC(2026, 8, 19, 15, 24, 0),
       type: "general",
       userNote: "",
     });
     const expected =
-      "Feedback from: ashley\n" +
-      "Instance:      gigaashley\n" +
+      "Feedback from: the-user\n" +
+      "Instance:      example-instance\n" +
       "When:          2026-09-19T15:24:00.000Z\n" +
       "Type:          general\n";
     expect(body).toBe(expected);

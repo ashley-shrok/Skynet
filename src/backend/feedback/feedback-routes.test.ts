@@ -94,7 +94,7 @@ vi.mock("nodemailer", () => {
 // exercise the fallback path (Test 14).
 // ---------------------------------------------------------------------------
 
-let __usernameRow: { username: string } | undefined = { username: "ashley" };
+let __usernameRow: { username: string } | undefined = { username: "the-user" };
 
 vi.mock("../database/db/index.js", () => {
   const dbSelect = {
@@ -127,7 +127,7 @@ vi.mock("drizzle-orm", async () => {
 // Branding mock — appName drives the subject line (D-03).
 // ---------------------------------------------------------------------------
 
-let __appName: string = "gigaashley";
+let __appName: string = "example-instance";
 
 vi.mock("../branding/branding-config-loader.js", () => ({
   loadBrandingConfig: () => Promise.resolve({ appName: __appName }),
@@ -278,8 +278,8 @@ describe("feedback-routes (Phase 121 Plan 03 Task 4)", () => {
   beforeEach(async () => {
     __authMode = "pass";
     __authUserId = "user-1";
-    __usernameRow = { username: "ashley" };
-    __appName = "gigaashley";
+    __usernameRow = { username: "the-user" };
+    __appName = "example-instance";
     setEnabledConfig(false);
     mockSendMail.mockReset();
     mockSendMail.mockResolvedValue({ messageId: "test-msg-id" });
@@ -355,7 +355,7 @@ describe("feedback-routes (Phase 121 Plan 03 Task 4)", () => {
   // POST /feedback — kind=general D-23 server-side exchange drop
   // -------------------------------------------------------------------------
 
-  it("Test 8: POST /feedback kind=general → 202; subject `[gigaashley feedback] general`; body OMITS '--- Exchange ---' even when caller sent exchangeText (D-23)", async () => {
+  it("Test 8: POST /feedback kind=general → 202; subject `[example-instance feedback] general`; body OMITS '--- Exchange ---' even when caller sent exchangeText (D-23)", async () => {
     setEnabledConfig(true); // even with includeContent=true, D-23 forces general to drop
     const res = await post("/feedback", {
       kind: "general",
@@ -372,7 +372,7 @@ describe("feedback-routes (Phase 121 Plan 03 Task 4)", () => {
       subject: string;
       text: string;
     };
-    expect(args.subject).toBe("[gigaashley feedback] general");
+    expect(args.subject).toBe("[example-instance feedback] general");
     // D-23 lock: general NEVER carries the exchange section.
     expect(args.text).not.toContain("--- Exchange ---");
     expect(args.text).not.toContain("SHOULD NOT LEAK");
@@ -415,7 +415,7 @@ describe("feedback-routes (Phase 121 Plan 03 Task 4)", () => {
       subject: string;
       text: string;
     };
-    expect(args.subject).toBe("[gigaashley feedback] thumbs up");
+    expect(args.subject).toBe("[example-instance feedback] thumbs up");
     expect(args.text).toContain(
       "--- Exchange ---\nUser asked X. Assistant replied Y.",
     );
@@ -440,7 +440,7 @@ describe("feedback-routes (Phase 121 Plan 03 Task 4)", () => {
       subject: string;
       text: string;
     };
-    expect(args.subject).toBe("[gigaashley feedback] thumbs down");
+    expect(args.subject).toBe("[example-instance feedback] thumbs down");
     expect(args.text).toContain("--- User note ---\nbroken migration binary");
   });
 
@@ -468,7 +468,7 @@ describe("feedback-routes (Phase 121 Plan 03 Task 4)", () => {
     );
     expect(submitCall).toBeDefined();
     const ctx = submitCall![1] as Record<string, unknown>;
-    expect(ctx.submitter).toBe("ashley");
+    expect(ctx.submitter).toBe("the-user");
     expect(ctx.type).toBe("thumbs up");
     expect(ctx.hasNote).toBe(true);
     expect(ctx.hasExchange).toBe(true);

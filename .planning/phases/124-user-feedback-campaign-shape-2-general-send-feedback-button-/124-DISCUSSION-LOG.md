@@ -28,7 +28,7 @@ The log below summarizes the /open grill exchanges verbatim in outcome. See the 
 | Conversation-list header row (peer to create-buttons) | Sits alongside new-conv / create-project / edit-roles / edit-global-files / kebab | ✓ |
 
 **User's choice:** Conversation-list header row, as a new peer to the create-buttons.
-**Notes:** Ashley: "i think right now it should just be added to the button that are at the top of the conversation list where you can make new conversations or new projects etc and so this one should be a pretty easy add and we won't even need a taste testing." Locked D-01 + D-02. Tasting page skipped since placement was picked before discussion needed alternatives.
+**Notes:** the user: "i think right now it should just be added to the button that are at the top of the conversation list where you can make new conversations or new projects etc and so this one should be a pretty easy add and we won't even need a taste testing." Locked D-01 + D-02. Tasting page skipped since placement was picked before discussion needed alternatives.
 
 ---
 
@@ -40,7 +40,7 @@ The log below summarizes the /open grill exchanges verbatim in outcome. See the 
 | Deliberately quieter | Smaller icon, less contrast, tucked at end — "…and there's also this" | |
 
 **User's choice:** Full peer.
-**Notes:** Ashley: "your choice" → then "it's just another button being added up there and the reason i'm not being particular is because i'm going to redesign the whole header pretty soon anyway." Locked D-04 + D-22 (no differentiator styling). Steer captured for planner: header is getting redesigned soon, don't gold-plate — match `.pv-pencil` class + 18px icon exactly.
+**Notes:** the user: "your choice" → then "it's just another button being added up there and the reason i'm not being particular is because i'm going to redesign the whole header pretty soon anyway." Locked D-04 + D-22 (no differentiator styling). Steer captured for planner: header is getting redesigned soon, don't gold-plate — match `.pv-pencil` class + 18px icon exactly.
 
 ---
 
@@ -66,7 +66,7 @@ The log below summarizes the /open grill exchanges verbatim in outcome. See the 
 | Desktop-only for v1 | Button doesn't appear on mobile at all | |
 
 **User's choice:** Same as desktop.
-**Notes:** Ashley: "yeah i mean maybe you should take a look at it but i don't think mobile would be any different." Verified: `PrettyConversationsPanel.tsx` header row is structural variant branch (`variant: "mobile" | "desktop"`) but same content — five icon buttons on both. Adding a sixth is a paste-alike. Locked D-14 + D-15. Modal is Radix Dialog with responsive default — no shape-1-adjacent tweaks needed.
+**Notes:** the user: "yeah i mean maybe you should take a look at it but i don't think mobile would be any different." Verified: `PrettyConversationsPanel.tsx` header row is structural variant branch (`variant: "mobile" | "desktop"`) but same content — five icon buttons on both. Adding a sixth is a paste-alike. Locked D-14 + D-15. Modal is Radix Dialog with responsive default — no shape-1-adjacent tweaks needed.
 
 ---
 
@@ -103,8 +103,8 @@ The log below summarizes the /open grill exchanges verbatim in outcome. See the 
 ## Open questions raised during /open (all resolved)
 
 1. **Role gating** — should the button be gated on user role? → **No gating in v1**, locked D-16. Skynet auth has no operator-vs-user distinction; deployments where this matters have small trusted user pools.
-2. **Ordering within the row** — where in the row does the button sit? → **Position 5 of 6**, right before the kebab menu, locked D-02. My call ("your choice") since Ashley confirmed "not being particular."
-3. **Divider vs no divider** between button and create-siblings → **No divider**, locked D-22. Ashley confirmed the button reads as "just another button up there."
+2. **Ordering within the row** — where in the row does the button sit? → **Position 5 of 6**, right before the kebab menu, locked D-02. My call ("your choice") since the user confirmed "not being particular."
+3. **Divider vs no divider** between button and create-siblings → **No divider**, locked D-22. the user confirmed the button reads as "just another button up there."
 
 ---
 

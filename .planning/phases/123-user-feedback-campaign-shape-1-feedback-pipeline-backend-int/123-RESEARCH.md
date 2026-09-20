@@ -772,18 +772,18 @@ loadFeedbackConfig();
 
 1. **Should feedback config env vars be prefixed `FEEDBACK_` or another convention?**
    - What we know: D-04 locks the semantic set (6 vars). Skynet uses `DATA_DIR`, `JWT_SECRET`, `DATABASE_KEY`, no consistent prefix. Suggested `FEEDBACK_*` for grouping.
-   - What's unclear: whether Ashley wants a different prefix (`FB_`, `MAILER_`, etc.). Bikeshed at plan time.
+   - What's unclear: whether the user wants a different prefix (`FB_`, `MAILER_`, etc.). Bikeshed at plan time.
    - Recommendation: `FEEDBACK_SMTP_HOST`, `FEEDBACK_SMTP_PORT`, `FEEDBACK_SMTP_USER`, `FEEDBACK_SMTP_PASSWORD`, `FEEDBACK_SMTP_FROM`, `FEEDBACK_TO_ADDRESS`, `FEEDBACK_INCLUDE_CONTENT`. Seven vars, not six (D-04 says "six" but the SMTP-transport tuple naturally decomposes into 5 parts + destination + include-content = 7). Confirm with user via discuss-phase if this changes the count.
 
 2. **Should SMTP `user` + `password` env vars be required (feature-enabled iff both present) or optional (some relays are anonymous)?**
    - What we know: D-06 says "mail-transport env vars AND destination address present" implies enabled. "Mail-transport env vars" isn't fully specified — could include or exclude auth.
-   - What's unclear: whether Ashley's deployments will all use authenticated SMTP or if any run through anonymous local relays.
+   - What's unclear: whether the user's deployments will all use authenticated SMTP or if any run through anonymous local relays.
    - Recommendation: Make auth optional. If `FEEDBACK_SMTP_USER` is empty, skip the `auth:` field in the nodemailer transport. Feature is enabled iff HOST + PORT + FROM + TO are present. Planner can tighten if user wants.
 
 3. **Timestamp timezone in email body: UTC vs. operator-local vs. submitter-local?**
    - What we know: D-19 header block includes `When: <timestamp>`. Format not locked.
-   - What's unclear: whether Ashley wants ISO-8601 UTC (safest, portable), operator local (Docker container TZ), or something else.
-   - Recommendation: ISO-8601 with explicit offset from `Date.prototype.toISOString()` (always UTC). Operators can see UTC and mentally convert; leaves no ambiguity in the log stream. If Ashley prefers a friendlier format, discuss-phase adjustment.
+   - What's unclear: whether the user wants ISO-8601 UTC (safest, portable), operator local (Docker container TZ), or something else.
+   - Recommendation: ISO-8601 with explicit offset from `Date.prototype.toISOString()` (always UTC). Operators can see UTC and mentally convert; leaves no ambiguity in the log stream. If the user prefers a friendlier format, discuss-phase adjustment.
 
 4. **Should the `POST /feedback` route return 202 immediately (fire-and-forget from response's POV) or 200 after send completes?**
    - What we know: D-27 says user always sees the "thanks" toast regardless of send outcome — implies client doesn't wait.

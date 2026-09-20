@@ -137,7 +137,7 @@ Skynet's assistant messages can include markdown, code blocks, and images. Only 
 
 **Identity doing the work:** lark (via this session's `/build`).
 
-**Deploy:** After code lands and a code review passes, deploy requires Ashley's explicit greenlight per the role's per-push authorization rule. The GSD phase's execute step covers code + commit + tests green; container build + `docker compose up --force-recreate` is a separate gesture after review.
+**Deploy:** After code lands and a code review passes, deploy requires the user's explicit greenlight per the role's per-push authorization rule. The GSD phase's execute step covers code + commit + tests green; container build + `docker compose up --force-recreate` is a separate gesture after review.
 
 **On completion of the built work:** run `/close shape-feedback-pipeline` to verify conformance against this file, then mark shape 1 complete in the campaign artifact's Shapes section.
 

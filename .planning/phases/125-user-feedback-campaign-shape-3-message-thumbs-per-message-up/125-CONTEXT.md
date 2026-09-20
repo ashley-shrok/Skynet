@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-20
 **Status:** Ready for planning
-**Source:** Generated from `.planning/shapes/shape-message-thumbs.md` (opened + greenlit 2026-09-20 via /build → /open, six grill exchanges + tasting page comparing five variants — Ashley picked variant E with the strong lock that feedback-off deployments must render exactly like today). Per build-skill rule, discuss-phase does not re-elicit ground the shape file already covers.
+**Source:** Generated from `.planning/shapes/shape-message-thumbs.md` (opened + greenlit 2026-09-20 via /build → /open, six grill exchanges + tasting page comparing five variants — the user picked variant E with the strong lock that feedback-off deployments must render exactly like today). Per build-skill rule, discuss-phase does not re-elicit ground the shape file already covers.
 
 <domain>
 ## Phase Boundary

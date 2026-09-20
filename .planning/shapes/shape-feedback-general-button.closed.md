@@ -8,7 +8,7 @@
 
 The production trigger for the feedback pipeline shape 1 built. A single durable button that lives at the top of the conversation list, alongside the existing "new conversation" / "create project" / "edit roles" / "edit global files" / kebab-menu action buttons. Clicking it opens the shared composition modal in its general variant (the freeform-note flavor, not the thumbs-down flavor). Submitting sends whatever the user typed; dismissing sends nothing. No conversation context ever attaches — general means general.
 
-The button is app-level, not conversation-level. It attaches to the app-shell chrome that's already present on every surface (chat with agent, terminal, filestash, settings modals). Its neighborhood — sitting next to the create-conversation and create-project buttons — is coincidental to what it does; the button is not tied to whatever conversation is currently open.
+The button is app-level, not conversation-level. It attaches to the app-shell chrome that's already present on every surface (chat with agent, terminal, example-sftp, settings modals). Its neighborhood — sitting next to the create-conversation and create-project buttons — is coincidental to what it does; the button is not tied to whatever conversation is currently open.
 
 ## Shape
 
@@ -112,11 +112,11 @@ Shape 3 (thumbs on assistant messages) will land later and does not interact wit
 - Recommended icon: `MessageSquare` from `lucide-react` at `size={18}`.
 - Recommended `data-testid`: `pv-header-send-feedback-button` (matches sibling convention).
 
-**Ashley's steer on styling (2026-09-19):** the header is getting redesigned soon, so don't gold-plate. Use the exact same class + icon size + button pattern as the five existing siblings. Any polish beyond "matches the row" is out of scope.
+**the user's steer on styling (2026-09-19):** the header is getting redesigned soon, so don't gold-plate. Use the exact same class + icon size + button pattern as the five existing siblings. Any polish beyond "matches the row" is out of scope.
 
 **Identity doing the work:** lark (via this session's `/build`).
 
-**Deploy:** After code lands and code review passes, deploy is deferred to the end of the campaign arc per Ashley's direction ("follow the campaign — deploy the whole user-feedback arc when all 3 shapes are ready"). Shape 2's code stays local, does not push, does not build, does not deploy.
+**Deploy:** After code lands and code review passes, deploy is deferred to the end of the campaign arc per the user's direction ("follow the campaign — deploy the whole user-feedback arc when all 3 shapes are ready"). Shape 2's code stays local, does not push, does not build, does not deploy.
 
 **On completion of the built work:** run `/close shape-feedback-general-button` to verify conformance against this file, then mark shape 2 complete in the campaign artifact's Shapes section.
 

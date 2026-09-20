@@ -135,7 +135,7 @@ All 31 D-XX decisions map to at least one verified must-have.
 
 None. Every must-have was verifiable programmatically (source-code inspection, test suite, bundle inspection, build). No visual/UX properties, real-time behavior, or external-service integrations require human sign-off at this stage.
 
-The end-to-end operator smoke (wire env vars, click Ctrl+Alt+F, receive email at destination) is a downstream `/close` step per the shape agreement's "Deploy: After code lands and a code review passes, deploy requires Ashley's explicit greenlight." That step is intentionally out of scope for this verification agent.
+The end-to-end operator smoke (wire env vars, click Ctrl+Alt+F, receive email at destination) is a downstream `/close` step per the shape agreement's "Deploy: After code lands and a code review passes, deploy requires the user's explicit greenlight." That step is intentionally out of scope for this verification agent.
 
 ---
 
