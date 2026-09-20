@@ -208,6 +208,23 @@ app.use(cookieParser());
 app.use(createSubdomainDispatchMiddleware());
 app.use(serveUrlHandler);
 
+// Phase 120 D-08 pane proxy — MUST run BEFORE bodyParser.* for the SAME
+// reason serveUrlHandler above does: http-proxy-middleware v4 streams the
+// raw request body to the upstream target, so any prior middleware that
+// consumes the request stream (bodyParser.urlencoded is the load-bearing
+// one for SvelteKit form actions) truncates POST bodies to zero bytes
+// while leaving the original Content-Length header intact, and the
+// upstream then waits forever for bytes that never arrive → browser
+// hangs until edge timeout. Cookie parser stays above because
+// authenticateJWT inside the router reads req.cookies.jwt (header-only,
+// no body consumption). Non-matching /apps sub-paths fall through via
+// next() to reach the /apps/:hostId/:slug/icon router mounted later.
+// WebSocket upgrades on this same path shape are handled at the
+// http.Server level via httpServer.on("upgrade", ...) below because
+// router.all catches HTTP methods only, not upgrade events (BLOCKER 6
+// fix, T-120-32).
+app.use("/apps", appPaneRouter);
+
 app.use(createCorsMiddleware());
 
 const uploadsDir = path.join(process.env.DATA_DIR || "./db/data", "uploads");
@@ -2036,14 +2053,6 @@ app.use("/identities", identitiesRoutes);
 // /identities/:identityKey/avatar (identities.ts:849). See
 // src/backend/database/routes/apps.ts for the route body.
 app.use("/apps", appsRoutes);
-// Phase 120 D-08 — pane proxy under the same /apps prefix; distinct suffix
-// /:hostId/:slug/pane/* means routers coexist cleanly. Two app.use("/apps", ...)
-// calls in sequence work fine in Express — each router matches its own
-// sub-paths; Express does NOT deduplicate mounts. WebSocket upgrades on
-// this same path shape are handled at the http.Server level below via
-// httpServer.on("upgrade", ...) because router.all catches HTTP methods
-// only, not upgrade events (BLOCKER 6 fix, T-120-32).
-app.use("/apps", appPaneRouter);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
 app.use("/identity-send-log", identitySendLogRoutes);
