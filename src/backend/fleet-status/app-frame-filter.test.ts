@@ -28,6 +28,7 @@ import {
   makeAppUpdateFrame,
   makeGoneFrame,
   makeIdentityArchivedFrame,
+  makeProjectListChangedFrame,
   makeSnapshotFrame,
   makeUpdateFrame,
 } from "./wire-protocol.js";
@@ -431,6 +432,61 @@ describe("app-frame-filter", () => {
   });
 
   // -------------------------------------------------------------------------
+  // project-list-changed frame filtering (surface migration — publishProjectListChanged)
+  // -------------------------------------------------------------------------
+
+  it("Test 21: project-list-changed with three hosts — U sees H1 + H3, H2 dropped → projected", async () => {
+    const frame = makeProjectListChangedFrame([
+      { slug: "a", displayName: "A", hostId: "h1", hostname: "one", archived: false },
+      { slug: "b", displayName: "B", hostId: "h2", hostname: "two", archived: false },
+      { slug: "c", displayName: "C", hostId: "h3", hostname: "three", archived: false },
+    ]);
+
+    const resolver = vi.fn(async (hostIdStr: string) => {
+      const map: Record<string, { hostIdNum: number; hostUserId: string }> = {
+        h1: { hostIdNum: 1, hostUserId: "U" },
+        h2: { hostIdNum: 2, hostUserId: "OTHER" },
+        h3: { hostIdNum: 3, hostUserId: "SHARED" },
+      };
+      return map[hostIdStr] ?? null;
+    });
+    const checkAccessMock = vi.fn(
+      async (hostIdNum: number, userId: string, hostUserId: string) => {
+        if (userId === hostUserId) return true;
+        if (hostIdNum === 3) return true;
+        return false;
+      },
+    );
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).not.toBeNull();
+    if (result && result.type === "project-list-changed") {
+      const slugs = result.projects.map((p) => p.slug).sort();
+      expect(slugs).toEqual(["a", "c"]);
+    } else {
+      throw new Error("expected project-list-changed frame");
+    }
+  });
+
+  it("Test 22: empty project-list-changed short-circuits — zero filter calls, frame verbatim", async () => {
+    const frame = makeProjectListChangedFrame([]);
+    const resolver = vi.fn();
+    const checkAccessMock = vi.fn(async () => true);
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).not.toBeNull();
+    if (result && result.type === "project-list-changed") {
+      expect(result.projects).toEqual([]);
+    }
+    expect(checkAccessMock).not.toHaveBeenCalled();
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
   // Sanity tests for the factory + non-app frame passthrough
   // -------------------------------------------------------------------------
 
@@ -457,19 +513,18 @@ describe("app-frame-filter", () => {
     expect(checkAccessMock).toHaveBeenCalledTimes(1);
   });
 
-  it("non-app frame (e.g. session snapshot) is returned verbatim — defense-in-depth", async () => {
-    const nonAppFrame: FrontendOutboundFrameType = {
+  it("non-host-scoped frame (pong) is returned verbatim — defense-in-depth", async () => {
+    const nonHostFrame: FrontendOutboundFrameType = {
       schemaVersion: FRAME_SCHEMA_VERSION,
-      type: "snapshot",
-      states: [],
+      type: "pong",
     };
     const resolver = vi.fn();
     const checkAccessMock = vi.fn();
 
     const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
-    const result = await filterAppFrame(nonAppFrame, ctx, undefined, checkAccessMock);
+    const result = await filterAppFrame(nonHostFrame, ctx, undefined, checkAccessMock);
 
-    expect(result).toEqual(nonAppFrame);
+    expect(result).toEqual(nonHostFrame);
     expect(resolver).not.toHaveBeenCalled();
     expect(checkAccessMock).not.toHaveBeenCalled();
   });

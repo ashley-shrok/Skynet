@@ -11,12 +11,12 @@
  * Contract:
  *   - `app-update` / `app-gone` / `gone` / `identity-archived` / `update`  →
  *     one checkHostAccess call per frame; return the frame or null.
- *   - `app-snapshot` / `snapshot`  → checkHostAccess per unique hostId in the
- *     frame (Promise.all); return a projected COPY of the frame with only
- *     visible entries (empty result is still a valid frame — the emit
- *     happened).
- *   - unmigrated frame types     → verbatim pass-through (defense in depth for
- *     frame types not yet host-scoped-filtered: project-list-changed, pong).
+ *   - `app-snapshot` / `snapshot` / `project-list-changed`  → checkHostAccess
+ *     per unique hostId in the frame (Promise.all); return a projected COPY
+ *     of the frame with only visible entries (empty result is still a valid
+ *     frame — the emit happened).
+ *   - `pong` and any future frame types  → verbatim pass-through (defense in
+ *     depth).
  *
  * Backward-compat guard: `ctx.userId === undefined` → pass every frame
  * through unchanged. Matches the existing bare `subscribe(sendFrame)` shape
@@ -36,7 +36,11 @@
 import { checkHostAccess as defaultCheckHostAccess } from "../ssh/host-resolver.js";
 import { systemLogger } from "../utils/logger.js";
 import type { AppState, FrontendOutboundFrameType } from "./wire-protocol.js";
-import { makeAppSnapshotFrame, makeSnapshotFrame } from "./wire-protocol.js";
+import {
+  makeAppSnapshotFrame,
+  makeProjectListChangedFrame,
+  makeSnapshotFrame,
+} from "./wire-protocol.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -236,6 +240,24 @@ export async function filterAppFrame(
 
     const projectedStates = states.filter((s) => visible.has(s.hostId));
     return makeSnapshotFrame(projectedStates);
+  }
+
+  if (frame.type === "project-list-changed") {
+    const projects = frame.projects;
+    if (projects.length === 0) {
+      return frame;
+    }
+
+    const uniqueHostIds = Array.from(new Set(projects.map((p) => p.hostId)));
+    const visibility = await Promise.all(
+      uniqueHostIds.map(async (hid) => [hid, await canUserSee(hid)] as const),
+    );
+    const visible = new Set(
+      visibility.filter(([, ok]) => ok).map(([hid]) => hid),
+    );
+
+    const projectedProjects = projects.filter((p) => visible.has(p.hostId));
+    return makeProjectListChangedFrame(projectedProjects);
   }
 
   if (frame.type === "app-snapshot") {

@@ -534,14 +534,18 @@ export function createSubscriptionRegistry(
         }
       }
 
-      // Phase 117 Plan 117-03 (D-37): replay the cached project list on
-      // subscribe. Guarded on non-null cache so a fresh registry (no publish
-      // yet) does NOT fan out a spurious empty frame — the frontend must not
-      // learn "no projects" from a registry that has never been told what
-      // the projects ARE. When the first publish lands it will carry the
-      // real array (which may legitimately be empty for a host with no
-      // projects on disk).
-      if (projectListCache !== null) {
+      // Replay the cached project list on subscribe (unfiltered path only).
+      // Filtered subscribers get the projected version inside the fire-and-
+      // forget block below. Guarded on non-null cache so a fresh registry
+      // (no publish yet) does NOT fan out a spurious empty frame — the
+      // frontend must not learn "no projects" from a registry that has
+      // never been told what the projects ARE. When the first publish
+      // lands it will carry the real array (which may legitimately be
+      // empty for a host with no projects on disk).
+      if (
+        projectListCache !== null &&
+        (appFrameFilter === undefined || ctx?.userId === undefined)
+      ) {
         try {
           sendFrame(makeProjectListChangedFrame(projectListCache));
         } catch (err) {
@@ -641,6 +645,33 @@ export function createSubscriptionRegistry(
                   "Fleet-status archived-identity snapshot delivery failed",
                   {
                     operation: "fleet_status_archived_snapshot_failed",
+                    error: err instanceof Error ? err.message : "unknown",
+                  },
+                );
+              }
+            }
+
+            // Replay the cached project list, projected per subscriber.
+            // Guarded on non-null cache (same reason as the sync path
+            // above — a fresh registry that has never been told the
+            // projects must NOT fan out an empty frame).
+            if (projectListCache !== null) {
+              const projectListFrame = makeProjectListChangedFrame(
+                projectListCache,
+              );
+              try {
+                const projectedProjects = await appFrameFilter(
+                  projectListFrame,
+                  userIdForFilter,
+                );
+                if (projectedProjects !== null) {
+                  sendFrame(projectedProjects);
+                }
+              } catch (err) {
+                systemLogger.warn(
+                  "Fleet-status project-list snapshot delivery failed",
+                  {
+                    operation: "fleet_status_project_list_snapshot_failed",
                     error: err instanceof Error ? err.message : "unknown",
                   },
                 );
@@ -811,7 +842,12 @@ export function createSubscriptionRegistry(
       // silently corrupt the cache (and thus poison future idempotent-skip
       // comparisons and snapshot-on-subscribe replays).
       projectListCache = projects.slice();
-      fanOut(subscribers, makeProjectListChangedFrame(projects));
+      const frame = makeProjectListChangedFrame(projects);
+      if (appFrameFilter !== undefined) {
+        void fanOutApp(subscribers, frame, appFrameFilter);
+      } else {
+        fanOut(subscribers, frame);
+      }
     },
 
     publishSessionGone(

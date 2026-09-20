@@ -980,11 +980,17 @@ describe("subscription-registry", () => {
       }
     });
 
-    it("Filter-6: publishProjectListChanged fan-out unaffected (still sync + unfiltered) — project-list migration pending", async () => {
-      // Regression guard for the last not-yet-migrated surface. Update when
-      // publishProjectListChanged moves to filtered fanOutApp.
+    it("Filter-14: publishProjectListChanged routes through filter — U1 sees full list, U2 sees only accessible hosts", async () => {
       const filterMock = vi.fn(
-        async (frame: FrontendOutboundFrameType) => frame,
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          if (userId === "U2" && frame.type === "project-list-changed") {
+            return {
+              ...frame,
+              projects: frame.projects.filter((p) => p.hostId === "99"),
+            };
+          }
+          return frame;
+        },
       );
       const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
 
@@ -995,21 +1001,63 @@ describe("subscription-registry", () => {
       await tick();
       framesU1.length = 0;
       framesU2.length = 0;
-      filterMock.mockClear();
 
       registry.publishProjectListChanged([
-        {
-          slug: "proj-a",
-          displayName: "Project A",
-          hostId: "host-42",
-          hostname: "thenasty",
-          archived: false,
+        { slug: "a", displayName: "A", hostId: "42", hostname: "thenasty", archived: false },
+        { slug: "b", displayName: "B", hostId: "99", hostname: "workstation", archived: false },
+      ]);
+      await tick();
+
+      const listU1 = framesU1.filter((f) => f.type === "project-list-changed");
+      const listU2 = framesU2.filter((f) => f.type === "project-list-changed");
+      expect(listU1).toHaveLength(1);
+      expect(listU2).toHaveLength(1);
+      if (listU1[0].type === "project-list-changed") {
+        expect(listU1[0].projects).toHaveLength(2);
+      }
+      if (listU2[0].type === "project-list-changed") {
+        expect(listU2[0].projects).toHaveLength(1);
+        expect(listU2[0].projects[0].hostId).toBe("99");
+      }
+    });
+
+    it("Filter-15: subscribe-time project-list re-emit is filtered per subscriber (projected)", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          if (userId === "U2" && frame.type === "project-list-changed") {
+            return {
+              ...frame,
+              projects: frame.projects.filter((p) => p.hostId === "99"),
+            };
+          }
+          return frame;
         },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      // Seed the project list BEFORE any subscribe.
+      registry.publishProjectListChanged([
+        { slug: "a", displayName: "A", hostId: "42", hostname: "thenasty", archived: false },
+        { slug: "b", displayName: "B", hostId: "99", hostname: "workstation", archived: false },
       ]);
 
-      expect(filterMock).not.toHaveBeenCalled();
-      expect(framesU1.filter((f) => f.type === "project-list-changed")).toHaveLength(1);
-      expect(framesU2.filter((f) => f.type === "project-list-changed")).toHaveLength(1);
+      const framesU1: FrontendOutboundFrameType[] = [];
+      const framesU2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      registry.subscribe((f) => framesU2.push(f), { userId: "U2" });
+      await tick();
+
+      const listU1 = framesU1.filter((f) => f.type === "project-list-changed");
+      const listU2 = framesU2.filter((f) => f.type === "project-list-changed");
+      expect(listU1).toHaveLength(1);
+      expect(listU2).toHaveLength(1);
+      if (listU1[0].type === "project-list-changed") {
+        expect(listU1[0].projects).toHaveLength(2);
+      }
+      if (listU2[0].type === "project-list-changed") {
+        expect(listU2[0].projects).toHaveLength(1);
+        expect(listU2[0].projects[0].hostId).toBe("99");
+      }
     });
 
     it("Filter-7: filter throwing for one subscriber does NOT block delivery to others", async () => {
