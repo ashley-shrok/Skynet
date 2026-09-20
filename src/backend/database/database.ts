@@ -39,6 +39,12 @@ import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
 // identity's host. Mounted BEFORE the generic /identities router so the
 // :key/archive sub-route isn't intercepted by the generic /:identityKey handler.
 import identityArchiveRoutes from "./routes/identity-archive.js";
+// Phase 122 Plan 122-02: POST /conversation-search — content-grep across the
+// caller's SSH+autoTmux hosts (live + archive identity trees), snippet-windowed
+// results sorted mtime-desc, offset/limit paginated. Backing route file:
+// ./routes/conversation-search.ts. Mount is a standalone base path (no
+// overlap with /identities or /sessions).
+import conversationSearchRoutes from "./routes/conversation-search.js";
 // Phase 117 Plan 117-05 (D-05, D-31, D-36a, D-37): user-initiated project
 // membership write — POST /identities/:key/project writes (or clears)
 // the `project:` frontmatter field on the identity's markdown file via
@@ -1979,6 +1985,11 @@ app.use("/identities", identityNoDormancyRoutes);
 // :key/archive sub-route isn't intercepted by identitiesRoutes's /:identityKey
 // handlers. Same discipline as the exists-on-host + no-dormancy mounts above.
 app.use("/identities", identityArchiveRoutes);
+// Phase 122 Plan 122-02: POST /conversation-search — cross-host content-grep
+// endpoint. Mounted as a standalone base path so it does not overlap with
+// /identities/* or /sessions/*. Frontend (Wave 2) calls
+// authApi.post("/conversation-search", { query, offset, limit }).
+app.use("/conversation-search", conversationSearchRoutes);
 // Phase 117 Plan 117-05 (D-05, D-31, D-36a, D-37): POST /identities/:key/project —
 // writes the `project:` frontmatter field on the identity file via the 117-01
 // writer. Mounted alongside identity-archive; the two /:key/<action> sub-routes
