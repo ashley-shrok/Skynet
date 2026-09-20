@@ -164,11 +164,15 @@ async function concurrentMap<T, U>(
 const MAX_QUERY_LEN = 500;
 
 /**
- * Max grep hits per file — bounds per-host result-set memory (T-122-03).
- * `grep --max-count=3` on each file caps how much one chatty transcript
- * can dominate the returned page.
+ * Max grep hits per file. Set to 1 so one row = one conversation — matches
+ * the shape file's "each result row shows the conversation title" model.
+ * A chatty transcript with N hits used to produce N rows, all pointing to
+ * the same underlying JSONL, which confused UAT (repeated identity names,
+ * inconsistent snippet fidelity across the group). One hit per file also
+ * bounds per-host result-set memory (T-122-03) and simplifies the "load
+ * more" story since offset counts conversations, not hits.
  */
-const MAX_HITS_PER_FILE = 3;
+const MAX_HITS_PER_FILE = 1;
 
 /** Default pagination window. */
 const DEFAULT_LIMIT = 20;

@@ -91,8 +91,20 @@ export function snippetForHit(rawLine: string, query: string): SnippetResult {
   // Step 3: case-insensitive substring search inside the extracted text.
   const idx = rawText.toLowerCase().indexOf(query.toLowerCase());
   if (idx === -1) {
+    // Fallback preference:
+    //   1. If the extracted text has content, show it (grep matched JSON
+    //      syntax rather than the human text — still useful context).
+    //   2. Otherwise (empty extracted text — tool_use, tool_result, or a
+    //      metadata-only line matched), fall back to the raw line so the
+    //      user sees SOMETHING for every result row. Without this, rows
+    //      whose match sat in structural JSON render as blank snippets in
+    //      the UI, which reads as "empty search result" (UAT feedback).
+    const fallback =
+      rawText.length > 0
+        ? rawText.slice(0, FALLBACK_SNIPPET_LEN)
+        : rawLine.slice(0, FALLBACK_SNIPPET_LEN);
     return {
-      snippet: rawText.slice(0, FALLBACK_SNIPPET_LEN),
+      snippet: fallback,
       hitStart: -1,
       hitLength: 0,
     };

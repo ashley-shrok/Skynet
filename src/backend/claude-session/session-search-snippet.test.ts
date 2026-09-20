@@ -116,6 +116,38 @@ describe("snippetForHit", () => {
   });
 
   // ---------------------------------------------------------------------
+  // Behavior 5b: extractText returns empty (tool_use / tool_result / other
+  // metadata line matched the grep) → fall back to raw-line first-160
+  // chars so the frontend always has SOMETHING to render. Without this
+  // fallback, structural-JSON hits render as blank snippet rows in the
+  // UI, which reads as "empty result" (UAT feedback).
+  // ---------------------------------------------------------------------
+  it("falls back to raw line first-160 chars when extracted text is empty (structural-JSON hit)", () => {
+    // A tool_use record — extractText typically returns empty for these
+    // because there's no user-facing text content. Grep matched 'banana'
+    // because it appears in a tool parameter name / value in the JSON.
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_banana_x",
+            name: "some_tool",
+            input: { fruit: "banana" },
+          },
+        ],
+      },
+    });
+    const result = snippetForHit(line, "banana");
+    expect(result.hitStart).toBe(-1);
+    expect(result.hitLength).toBe(0);
+    // Fallback is the raw JSON line (truncated), NOT an empty string.
+    expect(result.snippet.length).toBeGreaterThan(0);
+    expect(result.snippet).toBe(line.slice(0, 160));
+  });
+
+  // ---------------------------------------------------------------------
   // Behavior 6a: ellipsis prefix only when start > 0
   // ---------------------------------------------------------------------
   it("does NOT prefix ellipsis when the hit is at the very start of the text", () => {
