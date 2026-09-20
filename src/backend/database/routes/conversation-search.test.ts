@@ -317,7 +317,7 @@ describe("POST /conversation-search — empty query short-circuit", () => {
 // ===========================================================================
 
 describe("POST /conversation-search — aggregation, sort, isArchived, row shape", () => {
-  it("T-03/T-04/T-08/T-11: aggregates rows across 2 mocked hosts, sorts by mtime desc, flags isArchived per source, and emits all 10 fields per row", async () => {
+  it("T-03/T-04/T-08/T-11: aggregates rows across 2 mocked hosts, sorts by mtime desc, flags isArchived per source, and emits all 11 fields per row", async () => {
     // Two SSH+autoTmux hosts
     simpleDbSelectMock.mockResolvedValue([
       { id: 1, name: "host-a", enableSsh: true, terminalConfig: JSON.stringify({ autoTmux: true }) },
@@ -381,7 +381,9 @@ describe("POST /conversation-search — aggregation, sort, isArchived, row shape
       if (row.identityKey === "bob") expect(row.isArchived).toBe(true);
     }
 
-    // T-11: 10-field row shape
+    // T-11: 11-field row shape (Plan 122-03 Task 1 forward-patch added
+    // tmuxSessionName so AppShell.tsx can feed openTab's targetTmuxSession
+    // option — see conversation-search.ts ConversationSearchResult docblock).
     const expectedFields = [
       "transcriptPath",
       "transcriptMtime",
@@ -393,11 +395,19 @@ describe("POST /conversation-search — aggregation, sort, isArchived, row shape
       "hitStart",
       "hitLength",
       "isArchived",
+      "tmuxSessionName",
     ];
     for (const row of body.results) {
       for (const field of expectedFields) {
         expect(row).toHaveProperty(field);
       }
+    }
+
+    // tmuxSessionName equals identityKey by fleet convention (directory
+    // basename IS the tmux session name — see conversation-store.ts:906
+    // and sessionMatchKey.toLowerCase).
+    for (const row of body.results) {
+      expect(row.tmuxSessionName).toBe(row.identityKey);
     }
 
     // aiTitle deferred (Task 2 <action> item 7) → always null in this task

@@ -15,7 +15,7 @@
  * RESPONSE:
  *   { results: ConversationSearchResult[], hasMore: boolean }
  *
- * RESULT ROW (10 fields — locked by Phase 122 must_haves.truths):
+ * RESULT ROW (11 fields — locked by Phase 122 must_haves.truths):
  *   transcriptPath    — absolute path to the matched JSONL on the host
  *   transcriptMtime   — mtime in milliseconds since epoch
  *   identityKey       — the fleet identity name (from listIdentity*Keys)
@@ -28,6 +28,19 @@
  *   hitLength         — length of match (or 0 on fallback)
  *   isArchived        — true iff identityKey came from
  *                       listArchivedIdentityKeysOnHost, false otherwise
+ *   tmuxSessionName   — the tmux session name to attach to when opening this
+ *                       conversation. By convention, fleet identity directory
+ *                       names ARE the tmux session names (case-preserving),
+ *                       and sessionMatchKey(name).toLowerCase() === identityKey.
+ *                       For live identities the value equals identityKey; for
+ *                       archived identities the tmux session may no longer
+ *                       exist on the host, but the frontend needs the field
+ *                       (for the "coming soon" alert path the value is unused;
+ *                       for the live path it feeds openTab's
+ *                       targetTmuxSession option). Added by Plan 122-03 Task 1
+ *                       forward-patch so AppShell.tsx's onSearchResultOpenActive
+ *                       can call openTab(host, "terminal", undefined,
+ *                       { targetTmuxSession: result.tmuxSessionName, ... }).
  *
  * SECURITY DISPOSITIONS (Phase 122 plan threat register):
  *   T-122-01 (Tampering, shell-injection):
@@ -138,6 +151,18 @@ export interface ConversationSearchResult {
   hitStart: number;
   hitLength: number;
   isArchived: boolean;
+  /**
+   * Tmux session name to attach to when opening the conversation. By fleet
+   * convention `identityKey` (the directory basename under
+   * `~/fleet/identities/`) IS the tmux session name (case-preserving), so
+   * this field carries the same string as `identityKey`. Retained as its
+   * own field because the frontend's AppShell handler reads
+   * `result.tmuxSessionName` to feed `openTab`'s `targetTmuxSession` option,
+   * mirroring the shape of the sidebar's `onDetachedRowClick` at
+   * AppShell.tsx:3068 which reads `row.targetTmuxSession`. Plan 122-03
+   * Task 1 forward-patch.
+   */
+  tmuxSessionName: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +366,12 @@ async function runOneHost(
       hitStart,
       hitLength,
       isArchived: meta.isArchived,
+      // Fleet convention: identity directory name (meta.key) IS the tmux
+      // session name (case-preserving). See conversation-store.ts:906 —
+      // fleet sessions populate `targetTmuxSession: session.sessionName`
+      // and sessionMatchKey lowercases sessionName to derive identityKey.
+      // So the inverse ("identityKey → tmux session") is identity here.
+      tmuxSessionName: meta.key,
     });
   }
   return rows;
