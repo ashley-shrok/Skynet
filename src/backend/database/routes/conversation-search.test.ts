@@ -478,21 +478,27 @@ describe("POST /conversation-search — offset/limit slicing", () => {
     simpleDbSelectMock.mockResolvedValue([
       { id: 1, name: "host-a", enableSsh: true, terminalConfig: null },
     ]);
-    listIdentityKeysOnHostMock.mockResolvedValue(["a"]);
+    listIdentityKeysOnHostMock.mockResolvedValue(["a", "b", "c", "d"]);
     listArchivedIdentityKeysOnHostMock.mockResolvedValue([]);
 
-    // Bulk-discovery + grep response, routed by cmd contents
+    // Bulk-discovery + grep response, routed by cmd contents. Four
+    // distinct identity → transcript mappings so dedup-by-path leaves
+    // all four rows in the result set. (Same-path hits are collapsed
+    // post-fix per the "one row per conversation" rule.)
     const discoveryStdout = makeDiscoveryStdout([
       { mtime: 1000, path: "/x/a.jsonl", firstUserLine: makeIdFirstUserLine("a") },
+      { mtime: 1000, path: "/x/b.jsonl", firstUserLine: makeIdFirstUserLine("b") },
+      { mtime: 1000, path: "/x/c.jsonl", firstUserLine: makeIdFirstUserLine("c") },
+      { mtime: 1000, path: "/x/d.jsonl", firstUserLine: makeIdFirstUserLine("d") },
     ]);
     execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
-      // 4 hits with mtimes 4, 3, 2, 1 (already sorted desc after route sort)
+      // 4 hits, distinct paths, mtimes 4, 3, 2, 1 (sorted desc after route sort)
       return fakeGrepOutput([
         { mtime: 4, path: "/x/a.jsonl", lineno: 1, rawLine: jsonlLine("row A apple") },
-        { mtime: 3, path: "/x/a.jsonl", lineno: 2, rawLine: jsonlLine("row B apple") },
-        { mtime: 2, path: "/x/a.jsonl", lineno: 3, rawLine: jsonlLine("row C apple") },
-        { mtime: 1, path: "/x/a.jsonl", lineno: 4, rawLine: jsonlLine("row D apple") },
+        { mtime: 3, path: "/x/b.jsonl", lineno: 1, rawLine: jsonlLine("row B apple") },
+        { mtime: 2, path: "/x/c.jsonl", lineno: 1, rawLine: jsonlLine("row C apple") },
+        { mtime: 1, path: "/x/d.jsonl", lineno: 1, rawLine: jsonlLine("row D apple") },
       ]);
     });
 

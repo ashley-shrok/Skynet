@@ -95,6 +95,7 @@ import {
   discoverIdentitySessionFile,
   parseDiscoveryStdout,
 } from "../../claude-session/discover-identity-session-file.js";
+import { extractText } from "../../claude-session/session-file-parser.js";
 import { listIdentityKeysOnHost } from "../../claude-session/identity-artifact-reader.js";
 import { listArchivedIdentityKeysOnHost } from "../../claude-session/list-archived-identity-keys.js";
 import { snippetForHit } from "../../claude-session/session-search-snippet.js";
@@ -164,15 +165,15 @@ async function concurrentMap<T, U>(
 const MAX_QUERY_LEN = 500;
 
 /**
- * Max grep hits per file. Set to 1 so one row = one conversation — matches
- * the shape file's "each result row shows the conversation title" model.
- * A chatty transcript with N hits used to produce N rows, all pointing to
- * the same underlying JSONL, which confused UAT (repeated identity names,
- * inconsistent snippet fidelity across the group). One hit per file also
- * bounds per-host result-set memory (T-122-03) and simplifies the "load
- * more" story since offset counts conversations, not hits.
+ * Max grep hits per file. Headroom above 1 so that when the first N grep
+ * matches are inside structural JSON (tool_use params, tool_result
+ * content, uuids, field names — see the isUserOrAssistantTextMatch filter
+ * in runOneHost), we still have a chance to surface a real user/assistant
+ * text match further down the file. Post-filter dedup by transcriptPath
+ * enforces the shape file's "one row per conversation" rule regardless of
+ * this cap.
  */
-const MAX_HITS_PER_FILE = 1;
+const MAX_HITS_PER_FILE = 5;
 
 /** Default pagination window. */
 const DEFAULT_LIMIT = 20;
@@ -433,10 +434,40 @@ async function runOneHost(
   const stdout = await execCommand(conn as Parameters<typeof execCommand>[0], cmd);
   const hits = parseGrepOutput(stdout);
 
+  const queryLower = query.toLowerCase();
   const rows: ConversationSearchResult[] = [];
+  const seenPaths = new Set<string>();
   for (const hit of hits) {
     const meta = pathIndex.get(hit.path);
     if (!meta) continue; // grep matched a path we didn't feed in — shouldn't happen
+    // Dedup by path — one row per conversation regardless of how many
+    // hits grep found in the file.
+    if (seenPaths.has(hit.path)) continue;
+    // Match-in-user-or-assistant-text filter: drop grep hits where the
+    // query lives in structural JSON (tool_use params, tool_result
+    // content, uuids, field names, etc.) rather than in a message's
+    // user/assistant text content. Rationale: grep is a fast bulk
+    // pre-filter, but only text-content matches represent a semantically
+    // meaningful "the conversation was about X" hit. Structural matches
+    // (tool call metadata, file paths in toolUseResult, etc.) produce
+    // noisy result rows with unhelpful snippets. `extractText` returns
+    // concatenated text-block content OR the raw string content for
+    // string-shaped user/assistant messages; anything else (tool_use,
+    // tool_result, thinking, system) yields empty and is dropped.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(hit.rawLine);
+    } catch {
+      continue; // malformed line — safest to drop
+    }
+    const content =
+      parsed !== null && typeof parsed === "object"
+        ? (parsed as { message?: { content?: unknown } }).message?.content
+        : undefined;
+    const text = extractText(content);
+    if (!text.toLowerCase().includes(queryLower)) continue;
+
+    seenPaths.add(hit.path);
     const { snippet, hitStart, hitLength } = snippetForHit(hit.rawLine, query);
     rows.push({
       transcriptPath: hit.path,
