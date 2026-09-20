@@ -45,11 +45,13 @@
  *   The byte-compare mechanism in Plan 03 pushes files, not "items",
  *   so this catalog has one row per file. The bootstrap bounty adds 1 more
  *   row (agent-supervisor.service):
- *     - 4 rows for id/          (SKILL.md + 3 companions)
+ *     - 1 row for id/           (SKILL.md; 3 companions retired 2026-09-20
+ *       with coord-as-mode retirement — coordinator became its own role)
  *     - 2 rows for agent-relay/ (SKILL.md + recv.sh)
- *     - 3 rows for the single-file skills (promote-to-coordinator, queue,
- *       role) — backlog, bounty, and next-bounty retired 2026-09-20 with
- *       the bounty-concept retirement
+ *     - 2 rows for the single-file skills (queue, role) — backlog, bounty,
+ *       and next-bounty retired 2026-09-20 with the bounty-concept
+ *       retirement; promote-to-coordinator retired 2026-09-20 with the
+ *       coord-as-mode retirement
  *     - 1 row for image-gen skill (Phase 116 file-drop broker SKILL.md)
  *     - 26 rows for app-development/ (SKILL.md + 5 helper scripts +
  *       20 starter-template files including a pre-generated initial
@@ -65,7 +67,8 @@
  *     - 1 row for user-onboarding/agent-supervisor.service
  *     - 1 row for instance-policy-claude-md (Phase 114 twinkie — runtime-sourced,
  *       system-root-installed)
- *   Total = 49 (was 52 before 2026-09-20 bounty-concept retirement).
+ *   Total = 45 (was 52 before 2026-09-20 retirements — 3 bounty-adjacent
+ *   skills, 3 id/ coord companions, and promote-to-coordinator).
  *
  * TWO NEW AXES (Phase 114 D-12 + RESEARCH.md § Pattern 1):
  *   Phase 114 introduces two orthogonal axes to CatalogEntry:
@@ -222,33 +225,13 @@ export type CatalogEntry = BundledCatalogEntry | RuntimeCatalogEntry;
  * a single block after the single-file skills to keep the diff clean.
  */
 export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
-  // --- id skill (4 rows: SKILL.md + 3 companion prompts) ---
+  // --- id skill (1 row: SKILL.md — companions retired 2026-09-20 with
+  //     the coord-as-mode retirement; coordinator became its own role) ---
   {
     slug: "id-skill",
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/id/SKILL.md",
     installPath: "~/.claude/skills/id/SKILL.md",
-    restartHook: null,
-  },
-  {
-    slug: "id-actor-status-prompt",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/id/actor-status-prompt.md",
-    installPath: "~/.claude/skills/id/actor-status-prompt.md",
-    restartHook: null,
-  },
-  {
-    slug: "id-clone-picker-prompt",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/id/clone-picker-prompt.md",
-    installPath: "~/.claude/skills/id/clone-picker-prompt.md",
-    restartHook: null,
-  },
-  {
-    slug: "id-coordinator-instructions",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/id/coordinator-instructions.md",
-    installPath: "~/.claude/skills/id/coordinator-instructions.md",
     restartHook: null,
   },
 
@@ -268,15 +251,8 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- single-file skills (3 rows, one SKILL.md each) ---
-  {
-    slug: "promote-to-coordinator-skill",
-    sourceKind: "bundled",
-    bundledPath:
-      "/app/fleet-substrate/skills/promote-to-coordinator/SKILL.md",
-    installPath: "~/.claude/skills/promote-to-coordinator/SKILL.md",
-    restartHook: null,
-  },
+  // --- single-file skills (2 rows, one SKILL.md each; promote-to-coordinator
+  //     retired 2026-09-20 with the coord-as-mode retirement) ---
   {
     slug: "queue-skill",
     sourceKind: "bundled",

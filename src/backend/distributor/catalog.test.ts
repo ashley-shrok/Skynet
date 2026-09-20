@@ -62,7 +62,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // ~/.claude/skills/app-development/ on managed boxes.
     // task-field-check adds 1 helper script (UserPromptSubmit hook for
     // the id-skill task: field nag).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(50);
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(46);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -154,13 +154,14 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       e.bundledPath.startsWith("/app/fleet-substrate/user-onboarding/"),
     );
 
-    // 36 skill-side files: 4 under id/ + 2 under agent-relay/ + 3 single-file
-    // skills (promote-to-coordinator, queue, role; backlog/bounty/next-bounty
-    // retired 2026-09-20) + 1 image-gen (Phase 116) + 26 under
-    // app-development/ (SKILL.md + 5 helpers + 20 template files including
-    // the 3-file pre-generated initial Drizzle migration, first-class-apps
-    // shape 1)
-    expect(skillRows.length).toBe(36);
+    // 32 skill-side files: 1 under id/ (companions retired 2026-09-20 with
+    // coord-as-mode retirement) + 2 under agent-relay/ + 2 single-file
+    // skills (queue, role; backlog/bounty/next-bounty retired 2026-09-20,
+    // promote-to-coordinator retired 2026-09-20) + 1 image-gen (Phase 116) +
+    // 26 under app-development/ (SKILL.md + 5 helpers + 20 template files
+    // including the 3-file pre-generated initial Drizzle migration,
+    // first-class-apps shape 1)
+    expect(skillRows.length).toBe(32);
     // 12 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + install-usage-reporter +
     // claude-usage-collector + fleet-status-sweep (Phase 92 batch sweep) +
@@ -176,7 +177,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     const idRows = skillRows.filter((e) =>
       e.bundledPath.startsWith("/app/fleet-substrate/skills/id/"),
     );
-    expect(idRows.length).toBe(4);
+    expect(idRows.length).toBe(1);
 
     // agent-relay has 2 entries (SKILL.md + recv.sh)
     const agentRelayRows = skillRows.filter((e) =>
@@ -184,13 +185,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     );
     expect(agentRelayRows.length).toBe(2);
 
-    // Three single-file skills each contribute one entry
-    // (backlog, bounty, next-bounty retired 2026-09-20).
-    const singleFileSkillSlugs = [
-      "promote-to-coordinator",
-      "queue",
-      "role",
-    ];
+    // Two single-file skills each contribute one entry (backlog, bounty,
+    // next-bounty, promote-to-coordinator all retired 2026-09-20).
+    const singleFileSkillSlugs = ["queue", "role"];
     for (const slug of singleFileSkillSlugs) {
       const rows = skillRows.filter((e) =>
         e.bundledPath.startsWith(`/app/fleet-substrate/skills/${slug}/`),
@@ -271,7 +268,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     const runtime = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "runtime",
     );
-    expect(bundled.length).toBe(49);
+    expect(bundled.length).toBe(45);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/
