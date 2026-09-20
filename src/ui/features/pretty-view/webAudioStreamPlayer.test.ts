@@ -550,4 +550,52 @@ describe("createWebAudioStreamPlayer", () => {
     expect(onError).not.toHaveBeenCalled();
     expect(onEnded).not.toHaveBeenCalled();
   });
+
+  it("Test 16 — time-based horizon: reader parks after scheduling a fat buffer until playhead advances", async () => {
+    // Regression for the 2026-09-20 bug: the earlier count-based horizon
+    // (8 pending sources) let a single ~1MB reader.read() chunk decode into
+    // a 60s AudioBuffer, then the next 7 large buffers piled up 100+ seconds
+    // of scheduled audio ahead of the playhead — right back in Chrome's
+    // silent-drop zone. The time-based horizon must park the reader after
+    // scheduling ONE fat buffer, and only unblock once the playhead catches
+    // up (nextStart - currentTime < horizon).
+    //
+    // Fat buffer: 20000 frames @ 1000Hz sample rate = 20s buffer duration.
+    // audible = 20 / 1.25 = 16s. That's > SCHEDULE_HORIZON_SECONDS (15).
+    // A low sample rate keeps byte-count small while producing a long buffer.
+    const frames = 20000;
+    const sampleRate = 1000;
+    const fatPcm = new Uint8Array(frames * 2); // mono 16-bit
+    const smallPcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f]);
+    const fatChunk = makeWavChunk(fatPcm, { channels: 1, sampleRate, bitDepth: 16 });
+
+    const player = createWebAudioStreamPlayer({});
+    const response = makeMockResponse([fatChunk, smallPcm, smallPcm]);
+
+    // Kick off play WITHOUT awaiting — reader will park at the backpressure
+    // gate after scheduling the fat buffer, so play() cannot resolve until
+    // we advance currentTime and fire the fat buffer's onended.
+    const playPromise = player.play(response);
+
+    // Yield enough microtasks for the reader loop to consume the fat chunk
+    // and hit the backpressure gate.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    const ctx = ctxInstances[0];
+    // Exactly one source scheduled — reader is parked, not gulping ahead.
+    expect(ctx.sources).toHaveLength(1);
+
+    // Advance the playhead past the fat buffer's audible end, THEN fire its
+    // onended. Order matters: the reader re-checks the horizon on wake, so
+    // if currentTime is still 0 it would just re-block.
+    ctx.currentTime = 20;
+    ctx.sources[0].onended?.();
+
+    // Yield microtasks so the reader wakes, schedules the two remaining
+    // small chunks, and hits done.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    expect(ctx.sources).toHaveLength(3);
+    await playPromise;
+  });
 });

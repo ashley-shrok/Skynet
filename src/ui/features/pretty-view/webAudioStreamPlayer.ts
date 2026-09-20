@@ -25,30 +25,26 @@ import { parseRiffHeader, decodePcmChunk, type RiffHeader } from "./riffPcmDecod
 // Advancing `nextStartTimeRef` must divide by this value to stay gapless.
 const TTS_PLAYBACK_RATE = 1.25;
 
-// the operator 2026-09-17 — bug fix: Chrome silently drops audio output for
-// AudioBufferSourceNodes scheduled too far ahead of the playhead, while
-// still firing their onended callbacks on schedule. Symptom: a long
-// message hard-cuts partway through and finishes with silence, media-ended
-// fires legitimately at the end of the expected duration.
+// the operator 2026-09-20 — Chrome silently drops audio output for
+// AudioBufferSourceNodes scheduled too far ahead of the playhead
+// (empirically ~30-60s), while still firing their onended callbacks on
+// schedule. The 2026-09-17 first pass capped by COUNT (8 pending
+// sources ≈ 13s at ~2s per buffer). That reasoning collapses when
+// individual buffers are large: Ashley reproduced after a pause/resume
+// let Chrome's fetch queue accumulate, and subsequent reader.read()
+// calls returned ~1MB chunks that decoded to 32-65s AudioBuffers. 8
+// such sources = 100+ seconds queued ahead — right back in the drop
+// zone. Symptom: message plays correctly through the first N seconds,
+// then a chunk drops silently while onended still fires on schedule.
 //
-// Cause: Polly generative streams the whole audio faster than we play it
-// (5-6x faster at the 1.25x client rate), so the reader loop schedules
-// every ~2s source immediately as it arrives. For a ~150s message, that
-// leaves ~60s worth of sources queued ahead of the playhead by the time
-// the reader finishes, and Chrome starts silently dropping past its
-// internal-but-undocumented ~30-60s scheduling window.
-//
-// Fix: cap the number of sources scheduled-but-not-yet-ended. When the
-// scheduler window is full, the reader loop awaits an onended before
-// scheduling the next chunk. This naturally backpressures the fetch()
-// body stream — network layer stops reading, TCP window shrinks, Polly
-// slows down — and keeps the audio-thread schedule shallow.
-//
-// Sizing: TTS_PLAYBACK_RATE=1.25 with ~2s buffers → each source spans
-// ~1.6s of ctx clock. Horizon of 8 sources = ~13s of scheduled audio
-// ahead of the playhead. Well below the Chrome drop threshold, generous
-// enough that a brief main-thread stall never underruns playback.
-const SCHEDULE_HORIZON_SOURCES = 8;
+// Fix: cap by TIME instead of COUNT. Block scheduling when the next
+// source would start more than SCHEDULE_HORIZON_SECONDS ahead of the
+// playhead. Bounds the schedule-ahead invariant regardless of
+// individual buffer size — one 60s buffer just delays the loop 60s;
+// no more scheduled sources pile up behind it. Backpressure still
+// propagates the same way (reader parks → fetch stops draining → TCP
+// window shrinks → Polly slows down).
+const SCHEDULE_HORIZON_SECONDS = 15;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -118,7 +114,7 @@ export function createWebAudioStreamPlayer(
   let stopped = false;
   let onEndedFired = false;
   let onErrorFired = false;
-  // Backpressure state — see SCHEDULE_HORIZON_SOURCES rationale at top of file.
+  // Backpressure state — see SCHEDULE_HORIZON_SECONDS rationale at top of file.
   // scheduleWakeup is set by the reader loop when it's waiting for horizon
   // room, cleared+invoked by onSourceEnded when a source finishes.
   let scheduleWakeup: (() => void) | null = null;
@@ -344,18 +340,18 @@ export function createWebAudioStreamPlayer(
 
         if (pcmChunk.byteLength === 0) continue;
 
-        // Backpressure: hold off scheduling if the audio thread already has
-        // SCHEDULE_HORIZON_SOURCES worth of pending (scheduled-but-not-ended)
-        // sources ahead of the playhead. Wake when a source ends. See
-        // SCHEDULE_HORIZON_SOURCES rationale at top of file for why this
+        // Backpressure: hold off scheduling if the next source would start
+        // more than SCHEDULE_HORIZON_SECONDS ahead of the playhead. Wake
+        // when a source ends (playhead advances) or teardown fires. See
+        // SCHEDULE_HORIZON_SECONDS rationale at top of file for why this
         // exists (Chrome silently drops far-future scheduled buffer output).
         while (
           !stopped &&
           audioContext !== null &&
-          sources.length - endedSources >= SCHEDULE_HORIZON_SOURCES
+          nextStartTimeRef.value - audioContext.currentTime >= SCHEDULE_HORIZON_SECONDS
         ) {
           console.info(
-            `[tts-player] backpressure-wait pending=${sources.length - endedSources} horizon=${SCHEDULE_HORIZON_SOURCES} ctxTime=${audioContext.currentTime.toFixed(3)} ctxState=${audioContext.state}`,
+            `[tts-player] backpressure-wait aheadSec=${(nextStartTimeRef.value - audioContext.currentTime).toFixed(3)} horizon=${SCHEDULE_HORIZON_SECONDS} pending=${sources.length - endedSources} ctxTime=${audioContext.currentTime.toFixed(3)} ctxState=${audioContext.state}`,
           );
           await new Promise<void>((resolve) => {
             scheduleWakeup = resolve;
