@@ -64,7 +64,7 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AppWindow, Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessagesSquare, Monitor, MoreVertical, Pin, Search, SquarePen } from "lucide-react";
+import { AppWindow, Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -231,6 +231,12 @@ import type { CreateRelayRoomResponse } from "./participant-types";
 // hardcoded inline-SVG logo import removed — no remaining consumers in this
 // file after the JSX below switched to <img src={brandingConfig.iconPath}>.
 import { useBrandingConfig } from "@/branding/branding-store";
+// Phase 123 shape 2 (D-11): leaf-level subscription to the shape-1
+// useSyncExternalStore singleton that tells us whether feedback is enabled
+// on this deployment. Consumed at the top of the component body — controls
+// the "Send feedback" header button's DOM presence (button ABSENT when
+// disabled, not disabled-and-hidden, per D-11).
+import { useFeedbackEnabled } from "@/feedback/feedback-store";
 import { getBasePath } from "@/lib/base-path";
 import { roleDisplayName } from "@/lib/role-display-name";
 
@@ -427,6 +433,7 @@ export function PrettyConversationsPanel({
   isAdmin = false,
   onCreateRelayRoom,
   onOpenApp,
+  onOpenFeedback,
   onSearchResultOpenActive,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
@@ -543,6 +550,18 @@ export function PrettyConversationsPanel({
    */
   onOpenApp?: (hostId: number, slug: string, title: string) => void;
   /**
+   * Phase 124 shape 2 (rescue-rebased from Phase 123) — fired when the
+   * user clicks the header "Send feedback" button (sixth icon in the
+   * header row, between Search and the kebab). AppShell lifts its
+   * existing feedbackOpen state atom to "general", opening the shared
+   * FeedbackModal that Phase 123 already mounted unconditionally at
+   * AppShell. Optional so tests can render the panel without wiring
+   * feedback (the button will still render if feedbackEnabled is true —
+   * clicking it with no callback is a silent no-op via optional
+   * chaining).
+   */
+  onOpenFeedback?: () => void;
+  /**
    * Phase 122 Plan 03 Task 3 — Fired when the user clicks an ACTIVE
    * (isArchived === false) result in the ConversationSearchModal. AppShell
    * resolves the hostId to a Host and calls openTab(host, "terminal",
@@ -562,6 +581,15 @@ export function PrettyConversationsPanel({
   // from the branding store instead of importing an inline-SVG logo /
   // hardcoding the wordmark asset path.
   const brandingConfig = useBrandingConfig();
+  // Phase 123 shape 2 (D-11/D-12): leaf-level subscription to the
+  // feedback-enabled useSyncExternalStore singleton (shape-1 D-08).
+  // Gates ONLY the header "Send feedback" button — INDEPENDENT of the
+  // showPencilButton gate below (D-12), so the button renders on any
+  // header where feedback is configured even when the create-buttons are
+  // hidden. Starts as false (default-disabled sentinel per shape-1 D-08)
+  // and resolves after feedback-fetch answers — small load-time pop-in
+  // is accepted (D-13; no reserved space, no fade-in, no placeholder).
+  const feedbackEnabled = useFeedbackEnabled();
   // Phase 41 Plan 01: destructure the three-zone shape — `middle` (flat
   // recency-sorted rows) + `rdpGroup` (nullable RDP sentinel group) replace
   // the retired `grouped: HostGroup[]` field.
@@ -2182,18 +2210,19 @@ export function PrettyConversationsPanel({
             </a>
           </span>
           <div className="pv-header-actions">
-            {/* quick-260914-liu: four header icon buttons share a single showPencilButton
-                guard (typeof onCreateSession === "function"). Left-to-right: New conversation,
-                Edit roles, Edit global files, kebab. All four disappear together when
-                onCreateSession is undefined.
-                Phase 122 Plan 03 Task 3: prepended magnifying-glass Search
-                button as the FIRST child of the cluster (leftmost — makes
-                it the most discoverable header action; matches RESEARCH.md
-                Open Question 2 recommendation). Gated by the same
-                showPencilButton conditional as its siblings. Opens
-                ConversationSearchModal (mounted at bottom of the panel's
-                returned JSX tree alongside the other portal-mounted
-                modals). */}
+            {/* Header icon buttons, left-to-right:
+                (1) Search (Phase 122; opens ConversationSearchModal — prepended
+                    as the leftmost for discoverability per that phase's RESEARCH),
+                (2) New conversation, (3) Create project, (4) Edit roles,
+                (5) Edit global files, (6) Send feedback (Phase 124 shape 2;
+                gates independently on useFeedbackEnabled per D-12, not on
+                showPencilButton), (7) kebab.
+                The Search + create/edit/kebab siblings all share the
+                `showPencilButton` guard (typeof onCreateSession === "function")
+                and appear/disappear together. The kebab was split out from
+                this fragment in Phase 124 so the feedback button can render
+                between the guarded cluster and the kebab regardless of
+                showPencilButton. Only the feedback button gates independently. */}
             {showPencilButton && (
               <>
                 <button
@@ -2253,19 +2282,46 @@ export function PrettyConversationsPanel({
                 >
                   <Globe size={18} />
                 </button>
-                <button
-                  ref={menuButtonRef}
-                  type="button"
-                  className="pv-pencil"
-                  onClick={openMenu}
-                  data-testid="pv-header-menu-button"
-                  aria-label="More actions"
-                  aria-haspopup="menu"
-                  aria-expanded={menuOpen}
-                >
-                  <MoreVertical size={18} />
-                </button>
               </>
+            )}
+            {/* Phase 123 shape 2 (D-01/D-02/D-11/D-12): "Send feedback" header
+                button. Position: fifth of six (after Globe, before the kebab).
+                Gate: feedbackEnabled ONLY — deliberately INDEPENDENT of the
+                showPencilButton fragment above and below so the button renders
+                on any header where feedback is configured, even when
+                onCreateSession is undefined (D-12). Chrome mirrors the five
+                siblings exactly: same .pv-pencil class, MessageSquare at
+                size 18, aria-label + title both "Send feedback" verbatim
+                (D-03/D-04/D-05/D-22). Click lifts AppShell's existing
+                feedbackOpen atom to "general" via the onOpenFeedback callback
+                (D-07/D-08); optional-chaining call is a silent no-op if the
+                prop is absent, so tests can render the panel without wiring
+                feedback. */}
+            {feedbackEnabled && (
+              <button
+                type="button"
+                className="pv-pencil"
+                aria-label="Send feedback"
+                title="Send feedback"
+                data-testid="pv-header-send-feedback-button"
+                onClick={() => onOpenFeedback?.()}
+              >
+                <MessageSquare size={18} />
+              </button>
+            )}
+            {showPencilButton && (
+              <button
+                ref={menuButtonRef}
+                type="button"
+                className="pv-pencil"
+                onClick={openMenu}
+                data-testid="pv-header-menu-button"
+                aria-label="More actions"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+              >
+                <MoreVertical size={18} />
+              </button>
             )}
           </div>
         </div>

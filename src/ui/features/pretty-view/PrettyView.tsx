@@ -112,6 +112,16 @@ import { useSessionWaitingFor } from "@/state/session-waiting-store";
 // via this hook. Zero UX change; zero behavior change end-to-end.
 import { useSessionContextPct } from "@/api/fleet-status-client";
 import { WaitingBubble } from "./WaitingBubble";
+// Phase 124 Plan 02 (shape 3 — message thumbs): PrettyView owns the
+// exchange-text computation, the feedback fire paths, and the thumbs-down
+// FeedbackModal mount. ChatMessage exposes onThumbsUp / onThumbsDown
+// callbacks (Plan 01); this file threads them and turns each fire into a
+// real POST /feedback + sonner toast per shape 1's contract (D-18/D-25/D-27).
+// The modal mount is thumbs-down only (D-23/D-37); the general variant
+// stays with AppShell's dev-chord modal per Pattern S-04 option (B).
+import { postFeedback } from "@/feedback/feedback-api";
+import { FeedbackModal } from "@/feedback/FeedbackModal";
+import { toast } from "sonner";
 
 // Patch #148: mirror Terminal.tsx's proven WebSocket auto-reconnect pattern.
 // When the claude-session bridge WS closes unexpectedly (deploy container
@@ -913,6 +923,19 @@ export function PrettyView({
         agentIdentityName: string | null;
       }
   >(null);
+  // Phase 124 Plan 02 (shape 3 — message thumbs, D-23/D-25 / Pattern S-04):
+  // PrettyView-local atom driving the thumbs-down FeedbackModal mount. Null
+  // when closed; when a user clicks the thumbs-down button on an assistant
+  // bubble, handleThumbsDown computes the exchangeText inline and sets this
+  // slot to { eventId, exchangeText } — which is the payload context the
+  // modal's onSubmit / onDismissWithoutSubmit handlers read when POSTing.
+  // Cleared back to null by onOpenChange(false) (Radix close paths) OR by
+  // the onSubmit success path. Per Pattern S-04 option (B), this modal is
+  // owned at the PrettyView level (not AppShell) so the per-message payload
+  // context stays lexically local to the caller.
+  const [feedbackModalContext, setFeedbackModalContext] = useState<
+    null | { eventId: string; exchangeText: string }
+  >(null);
   // Phase 30: SessionHoldingOverlay mounts directly on
   // `renderedState === "holding"`. Patch #74's delay-arm boolean was
   // retired in Phase 29 (subsumed into the hook's 150ms spinner delay-arm)
@@ -1032,6 +1055,116 @@ export function PrettyView({
       return true;
     });
   }, []);
+
+  // Phase 124 Plan 02 (shape 3 — message thumbs, D-18/D-23/D-32/D-33/D-34/D-35/D-38):
+  // handleThumbsUp / handleThumbsDown are the PrettyView-side handlers wired
+  // to ChatMessage's onThumbsUp / onThumbsDown callback props (Plan 01).
+  //
+  // Both handlers locate the assistant message in `effectiveMessages` by its
+  // eventId, then walk BACKWARD from that index looking for the immediately-
+  // prior `type === "message" && role === "user"` entry — the "prompting
+  // user turn." The discriminator is `m.type === "message"` (matching
+  // `MessageEvent.type` at src/ui/api/claude-session-api.ts:43-46 and the
+  // existing PrettyView idiom at ~L3346). Frames whose `type` is `"image"`,
+  // `"relay_outbound"`, `"relay_inbound"`, or `"malformed_line"` are NOT
+  // chat-exchange turns and are correctly skipped by this filter (T-124-05
+  // mitigation: a relay_inbound frame sitting between a user turn and an
+  // assistant reply MUST NOT contribute to exchangeText).
+  //
+  // exchangeText format (D-33 planner-pick — labeled two-block with a
+  // horizontal-rule separator, chosen for operator-legibility in plain-text
+  // email bodies): "**User:**\n\n<userContent>\n\n---\n\n**Assistant:**\n\n<assistantContent>"
+  // For an assistant message with no prior user turn (D-35 edge case —
+  // greeting opens the conversation), emits ONLY "**Assistant:**\n\n<assistantContent>".
+  //
+  // Option A (per PLAN 124-02): the exchange-text lookup is INLINED into
+  // each useCallback body — NO separately-extracted helper exists.
+  // This keeps `[effectiveMessages]` as the direct closure dependency and
+  // makes exhaustive-deps analysis correct without indirection.
+  const handleThumbsUp = useCallback(
+    (eventId: string) => {
+      // Locate the assistant message being thumbed.
+      const assistantIdx = effectiveMessages.findIndex(
+        (m) =>
+          m.type === "message" &&
+          m.eventId === eventId &&
+          m.role === "assistant",
+      );
+      if (assistantIdx < 0) return; // defensive — should not happen for a normally-mounted assistant bubble
+      const assistant = effectiveMessages[assistantIdx];
+      if (assistant.type !== "message") return; // narrowing for TS
+      // Walk backward for the most recent prior user turn.
+      let priorUserContent: string | null = null;
+      for (let i = assistantIdx - 1; i >= 0; i--) {
+        const m = effectiveMessages[i];
+        if (m.type === "message" && m.role === "user") {
+          priorUserContent = m.content;
+          break;
+        }
+      }
+      const exchangeText =
+        priorUserContent !== null
+          ? `**User:**\n\n${priorUserContent}\n\n---\n\n**Assistant:**\n\n${assistant.content}`
+          : `**Assistant:**\n\n${assistant.content}`;
+      void postFeedback({
+        kind: "thumbs_up",
+        userNote: "",
+        messageRef: eventId,
+        exchangeText,
+      });
+      toast.success("Thanks — feedback sent.", { duration: 2000 });
+    },
+    [effectiveMessages],
+  );
+
+  const handleThumbsDown = useCallback(
+    (eventId: string) => {
+      // Fix WR-02 (2026-09-20): if the modal is already open (against some
+      // other message the user is mid-typing on), ignore this click. Without
+      // this guard, tapping thumbs-down on message B while the modal was
+      // opened for message A would swap the modal's payload context to B
+      // WITHOUT resetting the modal's textarea — Radix's open stays true so
+      // FeedbackModal's draft-reset effect never fires — so the user's note
+      // typed for A would send attached to B's exchange. The ChatMessage
+      // second-tap-no-op guard (D-22) is per-message local and does not
+      // catch this cross-message scenario. The user's visual pressed state
+      // on B's button still applies (ChatMessage sets it before invoking
+      // the callback), so the tap feels registered.
+      if (feedbackModalContext !== null) return;
+      // Same inline lookup as handleThumbsUp (Option A — NOT extracted to a
+      // shared helper; each useCallback keeps effectiveMessages as its
+      // direct dep). The two bodies are near-duplicates by design.
+      const assistantIdx = effectiveMessages.findIndex(
+        (m) =>
+          m.type === "message" &&
+          m.eventId === eventId &&
+          m.role === "assistant",
+      );
+      if (assistantIdx < 0) return;
+      const assistant = effectiveMessages[assistantIdx];
+      if (assistant.type !== "message") return;
+      let priorUserContent: string | null = null;
+      for (let i = assistantIdx - 1; i >= 0; i--) {
+        const m = effectiveMessages[i];
+        if (m.type === "message" && m.role === "user") {
+          priorUserContent = m.content;
+          break;
+        }
+      }
+      const exchangeText =
+        priorUserContent !== null
+          ? `**User:**\n\n${priorUserContent}\n\n---\n\n**Assistant:**\n\n${assistant.content}`
+          : `**Assistant:**\n\n${assistant.content}`;
+      // Do NOT fire the feedback POST here — thumbs-down defers the fire
+      // to the modal's onSubmit / onDismissWithoutSubmit handlers (D-25).
+      // Setting this state opens the modal; the modal's handlers read the
+      // eventId + exchangeText from this atom to build the payload.
+      setFeedbackModalContext({ eventId, exchangeText });
+    },
+    // feedbackModalContext is a dep because the WR-02 guard above reads it
+    // (early-return when a modal is already open on another message).
+    [effectiveMessages, feedbackModalContext],
+  );
   // Phase 14 quick-task 260726-vbd: single clear-primitive for asidePending.
   // Clears both the boolean flag and the 60s safety timer. Used by:
   //   (a) aside_ready case — display state takes over, pending flag clears.
@@ -2074,6 +2207,15 @@ export function PrettyView({
       setAutoplayArmed(false);
       setAutoplayTargetEventId(null);
       autoplayArmedRef.current = false;
+      // Fix WR-01/M1 (2026-09-20): feedbackModalContext is per-pane ephemeral —
+      // it holds the eventId + exchangeText of the assistant message the user
+      // clicked thumbs-down on. Without this clear, a modal opened in pane A
+      // that stays open through a paneKey switch to pane B would fire the
+      // thumbs-down POST with pane A's eventId (D-32 says messageRef = the
+      // clicked message's eventId) against pane B's fresh transcript — a
+      // silent mis-attribution with no error surface. Reset alongside the
+      // other per-pane ephemerals here.
+      setFeedbackModalContext(null);
       // Phase 47 (load-more button): transient-across-pane-lifetimes reset
       // per CONTEXT.md § Philosophy — close/reopen returns the pane to the
       // default cap-enforced state. Reset all 6 new state slots (capOff,
@@ -3958,6 +4100,15 @@ export function PrettyView({
                   autoplayTargetEventId={autoplayTargetEventId}
                   onLongPressSpeak={handleLongPressSpeak}
                   onOpenEditor={handleOpenEditor}
+                  // Phase 124 Plan 02 (shape 3 — message thumbs, D-38):
+                  // wire the thumbs callback plumbing ONLY to the
+                  // ChatMessage-branch of the message-type conditional.
+                  // RelayInboundBubble/RelayOutboundBubble/ImageBubble/
+                  // MalformedBubble/WaitingBubble and the pendingSends.map
+                  // optimistic bubbles do NOT receive these props
+                  // (D-12/D-13/D-14 hard lock).
+                  onThumbsUp={handleThumbsUp}
+                  onThumbsDown={handleThumbsDown}
                   // Phase 97 UAT follow-up 4 (2026-09-10): relay-source
                   // adapter injects optimistic bubbles into `messages`
                   // with pendingState="sending" (or "failed"). Harness
@@ -4353,6 +4504,77 @@ export function PrettyView({
       <DropOverlay
         isDragOver={isDragOver}
         folderDropRejected={uploads.folderDropRejected}
+      />
+
+      {/* Phase 124 Plan 02 (shape 3 — message thumbs, D-23/D-25/D-37 /
+          Pattern S-04 option (B)): PrettyView-scoped FeedbackModal mount
+          driving the thumbs-down flow. This modal is separate from
+          AppShell's dev-chord FeedbackModal (AppShell L4165) — Pattern
+          S-04 rationale is that the per-message payload context
+          (eventId + exchangeText) stays lexically local to the caller
+          instead of bouncing through app-scope state.
+
+          Open state derives from `feedbackModalContext !== null` — set by
+          handleThumbsDown above when the user clicks the thumbs-down
+          button on an assistant bubble. Variant is ALWAYS thumbs_down
+          (D-37 lock — this mount does not introduce a general variant;
+          the general/thumbs_down switch remains AppShell's concern).
+
+          Fire paths (D-25 — thumbs-down submit AND thumbs-down dismiss
+          BOTH fire exactly one email):
+            - onSubmit(userNote): the user typed a note and clicked Send.
+              Fires the feedback POST with the typed userNote + toast +
+              clears context.
+            - onDismissWithoutSubmit(): the user closed the modal without
+              Send (close-X, backdrop click, Escape). FeedbackModal
+              invokes this callback internally BEFORE onOpenChange(false)
+              (see FeedbackModal.tsx L124-134). Fires the feedback POST
+              with an EMPTY userNote + toast; the onOpenChange(false)
+              that follows drops feedbackModalContext to null.
+            - onOpenChange(next): only closes the modal (drops context to
+              null) — do NOT invoke the POST here; the dismiss fire is
+              handled by onDismissWithoutSubmit exclusively so the two
+              paths cannot double-fire. */}
+      <FeedbackModal
+        open={feedbackModalContext !== null}
+        variant="thumbs_down"
+        onOpenChange={(next) => {
+          if (!next) setFeedbackModalContext(null);
+        }}
+        onSubmit={(userNote) => {
+          if (feedbackModalContext == null) return;
+          // Fix L1 (2026-09-20): clear the context SYNCHRONOUSLY before firing
+          // the POST. If a Radix ESC / backdrop click races the Send click
+          // (both scheduled in the same tick), onDismissWithoutSubmit would
+          // otherwise see feedbackModalContext still non-null and fire a
+          // second postFeedback with empty userNote — double-firing the
+          // thumbs-down email. Reordering to clear-first means the dismiss
+          // handler's `if (feedbackModalContext == null) return;` guard
+          // short-circuits any racing dismiss. Snapshot the fields locally
+          // first so the POST still uses the pre-clear context.
+          const { eventId, exchangeText } = feedbackModalContext;
+          setFeedbackModalContext(null);
+          void postFeedback({
+            kind: "thumbs_down",
+            userNote,
+            messageRef: eventId,
+            exchangeText,
+          });
+          toast.success("Thanks — feedback sent.", { duration: 2000 });
+        }}
+        onDismissWithoutSubmit={() => {
+          if (feedbackModalContext == null) return;
+          void postFeedback({
+            kind: "thumbs_down",
+            userNote: "",
+            messageRef: feedbackModalContext.eventId,
+            exchangeText: feedbackModalContext.exchangeText,
+          });
+          toast.success("Thanks — feedback sent.", { duration: 2000 });
+          // Note: do NOT setFeedbackModalContext(null) here — Radix will
+          // invoke onOpenChange(false) immediately after this callback
+          // returns (FeedbackModal.tsx L124-134), which drops the context.
+        }}
       />
 
       {/* inactiveReason is captured in state for potential future use

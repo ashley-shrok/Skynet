@@ -19,6 +19,18 @@ import { useKeyboardTabNav } from "@/hooks/use-keyboard-tab-nav";
 import { useKeyboardCloseTab } from "@/hooks/use-keyboard-close-tab";
 import { useKeyboardMessageQueue } from "@/hooks/use-keyboard-message-queue";
 import { useKeyboardTogglePrettyMode } from "@/hooks/use-keyboard-toggle-pretty-mode";
+// Phase 121 Plan 04: feedback pipeline UI wire.
+//   - useKeyboardTriggerFeedbackDev: dev-only Ctrl+Alt+F / Ctrl+Alt+T chord.
+//     Hook is a no-op in production builds (import.meta.env.DEV gate).
+//   - FeedbackModal: shared composition modal (general + thumbs_down variants).
+//   - postFeedback: authApi.post wrapper for POST /feedback.
+//   - fetchFeedbackConfig: GET /api/feedback/enabled; MUST fire after auth,
+//     which is why it lives in AppShell's mount useEffect (AppShell only
+//     renders post-auth) rather than in src/main.tsx alongside branding.
+import { useKeyboardTriggerFeedbackDev } from "@/hooks/use-keyboard-trigger-feedback-dev";
+import { FeedbackModal } from "@/feedback/FeedbackModal";
+import { postFeedback } from "@/feedback/feedback-api";
+import { fetchFeedbackConfig } from "@/feedback/feedback-fetch";
 import type { IdentityPaneHandle } from "@/features/terminal/terminal-types";
 import { CommandPalette } from "@/shell/CommandPalette";
 // Phase 11 Plan 03 (PURGE-02, PURGE-03): AppRail + RailView + 10 sidebar-panel
@@ -341,6 +353,26 @@ export function AppShell({
   // Flips to true once the initial DB read (restore or skip) is done — sync must not fire before this
   const [tabsReady, setTabsReady] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  // Phase 121 Plan 04: FeedbackModal open state.
+  //   Discriminated-union — `false` means closed; the string variant marks
+  //   BOTH open AND which entry variant is showing. Single atom avoids the
+  //   invalid state where "open with no variant" would compile but crash
+  //   the modal's render branch.
+  const [feedbackOpen, setFeedbackOpen] = useState<
+    false | "general" | "thumbs_down"
+  >(false);
+  // Phase 121 Plan 04: dev-only chord opens FeedbackModal (Ctrl+Alt+F general,
+  // Ctrl+Alt+T thumbs_down). Hook is a no-op in prod builds via its own
+  // import.meta.env.DEV gate (T-121-18 mitigation).
+  useKeyboardTriggerFeedbackDev((variant) => setFeedbackOpen(variant));
+  // Phase 121 Plan 04: fire GET /api/feedback/enabled once on AppShell mount.
+  // AppShell only renders AFTER auth succeeds, so this call reaches the
+  // auth-gated route with the JWT cookie attached (contrast /api/branding
+  // which is pre-login and fetched from src/main.tsx). Silent no-op on
+  // failure per feedback-fetch.ts contract — never blocks boot.
+  useEffect(() => {
+    void fetchFeedbackConfig();
+  }, []);
   // Phase 56 Plan 02: split state retired from localStorage. The URL is the
   // single source of truth. The initializer returns null because the tab set
   // (needed for the (host,session) → tabId resolver) is empty on first render;
@@ -3020,6 +3052,16 @@ export function AppShell({
           // parsed tabId matches an entry in currently-open tabs before
           // firing onCloseSession).
           onCloseSession={closeTab}
+          // Phase 123 shape 2 (D-07/D-08): lift the EXISTING feedbackOpen
+          // state atom (L357) to "general" when the panel's header
+          // "Send feedback" button is clicked. Reuses the shape-1
+          // FeedbackModal mount at L4041 unchanged (D-18) — no parallel
+          // useState, no second modal, no new imports needed. The dev-chord
+          // path (L363) and this production button share the same setter
+          // deliberately per D-08.
+          onOpenFeedback={() =>
+            setFeedbackOpen((prev) => (prev === false ? "general" : prev))
+          }
           openTabIds={tabs.map((t) => t.id)}
           onConversationSelected={
             isTouchDevice ? () => navigateToView() : undefined
@@ -4142,6 +4184,62 @@ export function AppShell({
         isOpen={commandPaletteOpen}
         setIsOpen={setCommandPaletteOpen}
         onOpenTab={openTab}
+      />
+
+      {/* Phase 121 Plan 04: FeedbackModal + dev-chord + fire-and-forget POST.
+          Mounted UNCONDITIONALLY — even when useFeedbackEnabled() is false —
+          so the dev chord (Ctrl+Alt+F / Ctrl+Alt+T) can still exercise the
+          pipeline before env vars are wired. The backend POST /feedback will
+          503 harmlessly in that case. Shape 2 (general button) and Shape 3
+          (message thumbs) will gate THEIR triggers on useFeedbackEnabled();
+          THIS mount is deliberately un-gated. */}
+      <FeedbackModal
+        open={feedbackOpen !== false}
+        variant={feedbackOpen === false ? "general" : feedbackOpen}
+        onOpenChange={(next) => {
+          if (!next) setFeedbackOpen(false);
+        }}
+        onSubmit={(userNote) => {
+          // Capture variant BEFORE closing (setFeedbackOpen(false) below).
+          const variant =
+            feedbackOpen === false ? "general" : feedbackOpen;
+          // Shape 3 will supply real messageRef + exchangeText from the
+          // message-thumb call site. For the Shape 1 dev-trigger we synthesize
+          // placeholder values so operators can exercise the pipeline end-to-
+          // end (subject line + body block + optional --- Exchange --- section
+          // per D-19). General never carries messageRef/exchangeText (D-23 +
+          // D-25); server-side (Plan 03) strips them anyway.
+          const payload =
+            variant === "thumbs_down"
+              ? {
+                  kind: "thumbs_down" as const,
+                  userNote,
+                  messageRef: "dev-fake-msg",
+                  exchangeText:
+                    "User asked: Q\n\nAssistant replied: A",
+                }
+              : { kind: "general" as const, userNote };
+          void postFeedback(payload);
+          // D-14 toast fires BEFORE the close-triggering setState to avoid any
+          // race where sonner's imperative scheduler is deferred past the
+          // visible-fade window during unmount.
+          // LOW-2: duration 2000ms per shape spec ("~2 second fade").
+          toast.success("Thanks — feedback sent.", { duration: 2000 });
+          setFeedbackOpen(false);
+        }}
+        onDismissWithoutSubmit={() => {
+          // D-11 thumbs_down dismiss-without-note: still fires ONE email
+          // (the vote itself). Empty userNote is intentional. Same
+          // synthesized dev-trigger payload as the Send path above.
+          void postFeedback({
+            kind: "thumbs_down",
+            userNote: "",
+            messageRef: "dev-fake-msg",
+            exchangeText: "User asked: Q\n\nAssistant replied: A",
+          });
+          // LOW-2: duration 2000ms per shape spec ("~2 second fade").
+          toast.success("Thanks — feedback sent.", { duration: 2000 });
+        }}
       />
     </>
   );

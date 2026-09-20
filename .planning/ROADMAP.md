@@ -2704,3 +2704,38 @@ Plans:
 - [ ] 122-02-PLAN.md — Backend POST /conversation-search endpoint with cross-host fan-out (reusing sessions.ts:319 pattern), archive-tree enumerator, JSON-aware snippet extractor, and nginx location parity
 - [ ] 122-03-PLAN.md — Frontend: search-store (useSyncExternalStore for D-05 persistence), API client, ConversationSearchModal + Row components, header button wiring, AppShell click handler
 - [ ] 122-04-PLAN.md — Remove D-17 inline filter-as-you-type input and all supporting state / callbacks / memos / refs / sentinel constant / CSS (post-modal per D-18 ordering constraint) + human-verify UAT checkpoint
+
+### Phase 123: user-feedback campaign shape 1: feedback pipeline — backend intake, shared composition modal, env-var SMTP config, startup handling
+
+**Goal:** Ship the foundational plumbing for the user-feedback campaign — a portable, per-instance-configurable pipeline (backend intake, nodemailer SMTP transport, shared composition modal with two variants, env-driven config with graceful hide-when-unset, post-send toast, boot-robust startup) that Shape 2 (general button) and Shape 3 (thumbs) will plug callers onto. Dev-only Ctrl+Alt+F / Ctrl+Alt+T chord exists so Shape 1 can be verified end-to-end before Shapes 2/3 land triggers.
+**Requirements**: D-01..D-31 from 123-CONTEXT.md (no REQ-IDs — this campaign was opened via /gsd:phase from a shape file rather than the REQUIREMENTS.md flow)
+**Depends on:** Phase 122
+**Plans:** 4/4 plans complete
+
+Plans:
+
+- [x] 123-01-PLAN.md — Backend foundation: feedback-config.ts (env parser, boot-cached, never-throws per D-07) + feedback-email.ts (pure composeSubject + composeBody per D-16/D-19) + vitest coverage (wave 1)
+- [x] 123-02-PLAN.md — Frontend foundation: feedback-store.ts (useSyncExternalStore singleton, mirrors branding-store) + feedback-fetch.ts (silent-no-op boot fetch, post-auth) + feedback-api.ts (authApi.post wrapper for D-24 payload) (wave 1)
+- [x] 123-03-PLAN.md — Backend integration: install nodemailer (checkpoint:human-verify — [ASSUMED] status, slopcheck unavailable) + feedback-transport.ts (no-verify lazy singleton per D-07) + feedback-routes.ts (auth-gated GET/POST, server-side content-gate D-22/D-23) + starter.ts boot hook + database.ts route mount + nginx dual-file location blocks (wave 2)
+- [x] 123-04-PLAN.md — Frontend integration: FeedbackModal.tsx (Radix Dialog, general + thumbs_down variants per D-10/D-11, locked visual language D-13) + use-keyboard-trigger-feedback-dev.ts (Ctrl+Alt+F/T dev-only chord per D-31) + AppShell wiring (mount modal, fetch config on mount, toast on submit) (wave 2)
+
+### Phase 124: user-feedback campaign shape 2: general "Send feedback" button — new peer in the conversation-list header row wired to shape 1 modal general variant
+
+**Goal:** Surface shape 1's already-shipped feedback pipeline (Phase 123) to real users by adding a durable production trigger: a `MessageSquare` icon button (`Send feedback`) in the conversation-list header row at position 6 of 7 (after Search/SquarePen/FolderOpen/Drama/Globe, before the kebab), wired to open the existing FeedbackModal in `general` variant, gated on `useFeedbackEnabled()` INDEPENDENTLY of the existing `showPencilButton` gate. Paste-alike placement + wiring exercise — invents nothing new.
+**Requirements**: D-01..D-23 (locked in 124-CONTEXT.md; no REQ-IDs — this phase uses D-XX decisions as its requirement set)
+**Depends on:** Phase 123
+**Plans:** 1/1 plans complete
+Plans:
+
+- [x] 124-01-PLAN.md — Wire AppShell `onOpenFeedback` callback + add `MessageSquare` header button + `useFeedbackEnabled` subscription to PrettyConversationsPanel + colocated vitest suite covering D-23 four-case coverage (render+chrome, absent-when-disabled, click, independent-gate). Single wave, autonomous, ~30% context. **Complete** (2026-09-20): 3 atomic commits (`85787b56` AppShell prop, `96e89025` panel button + hook + prop type, `921f795b` colocated vitest suite). All 4 D-23 cases pass; scoped `vitest related` 192/192 across 8 files; `tsc --noEmit` exit 0; `npm run build` clean (16.75s). Placement 2 (split fragment) used per PATTERNS.md for D-02 fifth-of-six ordering. Zero shape-1 files touched (D-18). SUMMARY at `.planning/phases/124-user-feedback-campaign-shape-2-general-send-feedback-button-/124-01-SUMMARY.md`.
+
+### Phase 125: user-feedback campaign shape 3: message thumbs — per-message up/down affordances on assistant bubbles, gated with a layout swap on shape 1's enabled signal
+
+**Goal:** Ship the final user-feedback trigger — per-message thumbs-up/thumbs-down on assistant bubbles inside pretty-view — plus the paired layout swap on `useFeedbackEnabled` (feedback OFF renders exactly as today; feedback ON drops the in-bubble speak button, collapses bubble padding, and mounts a below-bubble action strip with speak + thumbs-up + thumbs-down as three peers). Thumbs-up fires shape 1's `postFeedback` + toast; thumbs-down opens shape 1's `FeedbackModal` in `thumbs_down` variant with modal-submit + modal-dismiss both firing exactly one email. No changes to shape 1 or shape 2 code.
+**Requirements**: D-01..D-54 (see `125-CONTEXT.md`)
+**Depends on:** Phase 124
+**Plans:** 2 plans
+
+Plans:
+- [ ] 125-01-PLAN.md — Modify ChatMessage.tsx: layout swap + below-bubble action strip + thumbs-up/thumbs-down affordance + pressed-state + `useFeedbackEnabled` leaf subscription + new `onThumbsUp`/`onThumbsDown` callback props + colocated `ChatMessage.feedback-thumbs.test.tsx` covering D-53 cases 1-7 (nine test cases). Wave 1, autonomous.
+- [ ] 125-02-PLAN.md — Modify PrettyView.tsx: wire `handleThumbsUp`/`handleThumbsDown` handlers with `exchangeText` computation (prior-user-turn lookup, no-prior-turn edge case) + local `feedbackModalContext` atom + PrettyView-mounted `<FeedbackModal variant="thumbs_down">` + colocated `PrettyView.feedback-thumbs.test.tsx` covering D-53 cases 8-11 + T-124-05 relay-frame-skip test (nine test cases). Wave 2 (depends on 125-01), autonomous.

@@ -480,6 +480,22 @@ if (process.env.VITEST !== "true") {
     );
     await assertBrandingConfigAtBoot();
 
+    // Phase 121 (feedback-config): boot-time env parse + module-scope cache.
+    // DELIBERATELY DIVERGES from the branding assert-boot pattern above:
+    //   - No throw / process.exit on missing env (feedback is optional per
+    //     D-01/D-06). A disabled feedback config is a valid runtime state;
+    //     the frontend hides the UI.
+    //   - No SMTP handshake pre-check at boot (D-07 — the pre-check is
+    //     fragile against unreachable relays and bricks Skynet for what is
+    //     a non-essential feature). Bad-but-present SMTP creds surface at
+    //     real send time in feedback-transport.ts.
+    // loadFeedbackConfig() is synchronous + never-throws (contract locked
+    // in feedback-config.ts JSDoc). No await on the call itself.
+    const { loadFeedbackConfig } = await import(
+      "./feedback/feedback-config.js"
+    );
+    loadFeedbackConfig();
+
     const authManager = AuthManager.getInstance();
     await authManager.initialize();
     DataCrypto.initialize();

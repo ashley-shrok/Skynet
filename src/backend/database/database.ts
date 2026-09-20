@@ -143,6 +143,11 @@ import relayPointerRoutes from "./routes/relay-pointer.js";
 // nginx location blocks land in plan 70-02 (BOTH docker/nginx.conf AND
 // docker/nginx-https.conf per CLAUDE.md nginx caveat).
 import brandingRoutes from "../branding/branding-routes.js";
+// Phase 121 (feedback-pipeline): auth-gated feedback intake + enabled-check.
+// Mounts /api/feedback/enabled (GET) and /feedback (POST). Matching nginx
+// location blocks land in plan 121-03 Task 6 (BOTH docker/nginx.conf AND
+// docker/nginx-https.conf per CLAUDE.md nginx caveat).
+import feedbackRoutes from "../feedback/feedback-routes.js";
 import { getBrandedIndexHtml } from "../branding/branding-template.js";
 // WEEKLY-METER-02: usage collector proxy (plan 260729-1vd).
 // Matching location /api/usage blocks in BOTH nginx configs per CLAUDE.md constraint.
@@ -2109,6 +2114,16 @@ app.use("/voice", voiceRoutes);
 // docker/nginx-https.conf — the /manifest.webmanifest block REPLACES the
 // prior static-serve block. Nginx plumbing lands in plan 70-02.
 app.use(brandingRoutes);
+// Phase 121 (feedback-pipeline): auth-gated feedback intake + enabled-check.
+// Unprefixed mount because the router registers TWO distinct path prefixes
+// (/api/feedback/enabled AND /feedback) — `app.use("/feedback", ...)` would
+// clobber the /api/feedback/enabled route. Mounted AFTER bodyParser.json
+// (L350) so req.body is populated (Pitfall 5), plus the POST handler
+// applies its own inline express.json({limit:"512kb"}) for the T-121-11
+// size cap. Per CLAUDE.md nginx caveat, matching location blocks for
+// /api/feedback/enabled AND /feedback MUST exist in BOTH docker/nginx.conf
+// AND docker/nginx-https.conf. Nginx plumbing lands in plan 121-03 Task 6.
+app.use(feedbackRoutes);
 
 const frontendDistPaths = [
   // Phase 73 branding-nginx fix: the docker image copies the frontend build

@@ -2,8 +2,13 @@ import React, { useRef, useState, useEffect, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { ThumbsUp, Volume2, Loader2, Pause, Play } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Volume2, Loader2, Pause, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
+// Phase 124 Plan 01 (D-39): leaf-level subscription to the feedback-enabled
+// signal per Pattern S-01. Gates BOTH the layout swap (in-bubble speak button
+// → strip below the bubble) AND the thumbs affordance render — they travel
+// together per D-01. useSyncExternalStore-based; O(1) subscribe.
+import { useFeedbackEnabled } from "@/feedback/feedback-store";
 import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
 import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
@@ -70,6 +75,8 @@ export function ChatMessage({
   autoplayArmed = false,
   autoplayTargetEventId = null,
   onLongPressSpeak,
+  onThumbsUp,
+  onThumbsDown,
   onOpenEditor,
   pendingState = null,
   attachments,
@@ -82,6 +89,17 @@ export function ChatMessage({
   autoplayArmed?: boolean;
   autoplayTargetEventId?: string | null;
   onLongPressSpeak?: (eventId: string) => void;
+  // Phase 124 Plan 01 D-38: leaf-level callbacks the assistant-bubble strip
+  // fires on thumbs-up / thumbs-down tap. Payload is the message's eventId
+  // (used as `messageRef` per D-32). Both optional — a ChatMessage without
+  // handlers still renders the strip when feedbackEnabled (Plan 02 wires the
+  // handlers at PrettyView; ChatMessage-scope tests exercise the callback
+  // dispatch without a real postFeedback fire). Note: the modal-open logic
+  // for thumbs-down (D-23) lives in Plan 02's PrettyView handler; this
+  // callback runs BEFORE any modal opens (D-26 — pressed state applies
+  // immediately on tap).
+  onThumbsUp?: (eventId: string) => void;
+  onThumbsDown?: (eventId: string) => void;
   // Phase 40 D-03/D-06: opens the EditableFileModal for a specific tailnet
   // URL. Optional so callers that don't provide it (tests, historical mount
   // sites) safely skip the affordance render.
@@ -119,6 +137,22 @@ export function ChatMessage({
   const bubbleIdRef = useRef(Symbol("speak-bubble"));
   const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Phase 124 Plan 01 (D-39): leaf-level feedback-enabled subscription. When
+  // true AND !isUser, the in-bubble speak button is not rendered (D-03), the
+  // bubble's right-side padding pocket collapses from pr-[42px] to pr-[12px]
+  // (D-03), and an action strip renders below the bubble carrying speak +
+  // thumbs-up + thumbs-down as three peers (D-04/D-05). When false, the
+  // bubble renders byte-identically to today (D-02 lock).
+  const feedbackEnabled = useFeedbackEnabled();
+
+  // Phase 124 Plan 01 (D-40 option (a) + D-30): thumbs pressed-state, scoped
+  // to this ChatMessage instance so it resets on unmount (conversation
+  // switch, hydration flush, page reload). Independent per direction — both
+  // thumbs may be pressed on the same message (D-29). Second-tap-no-op is
+  // enforced in the onClick handlers (D-22/D-28).
+  const [thumbsUpPressed, setThumbsUpPressed] = useState<boolean>(false);
+  const [thumbsDownPressed, setThumbsDownPressed] = useState<boolean>(false);
 
   // Long-press detection refs
   const longPressTimerRef = useRef<number | null>(null);
@@ -435,8 +469,21 @@ export function ChatMessage({
         borderColor: "hsla(0, 70%, 50%, 0.85)",
       }
     : { position: "relative" };
+  // Phase 124 Plan 01 (D-04/D-07 + Pattern S-07 option c): when the strip is
+  // present (assistant + feedbackEnabled), the outer flex wrapper also carries
+  // `flex-col items-start group` so the strip lives directly below the bubble
+  // left-edge-aligned, and Tailwind `group-hover:` on the strip picks up hover
+  // over either the bubble OR the strip itself. On feedback-OFF / user cases,
+  // the wrapper is byte-identical to today (`flex justify-*`) — no group, no
+  // flex-col — so the render path is untouched (D-02 lock).
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+    <div
+      className={cn(
+        "flex",
+        isUser ? "justify-end" : "justify-start",
+        !isUser && feedbackEnabled && "flex-col items-start group",
+      )}
+    >
       <div
         ref={containerRef}
         title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
@@ -450,7 +497,16 @@ export function ChatMessage({
           // Phase 4 Glass: raised-object bubble treatment.
           "max-w-[90%] [overflow-wrap:anywhere] text-sm leading-relaxed",
           "rounded-[var(--radius-pv-bubble)]",
-          isUser ? "px-[12px] py-[7px]" : "pl-[12px] pr-[42px] py-[7px]",
+          // Phase 124 Plan 01 (D-03): assistant + feedbackEnabled collapses
+          // the pr-[42px] speak-button pocket to symmetric pr-[12px] because
+          // the in-bubble speak button is not rendered in that branch (it
+          // moves to the strip below). User bubbles and feedback-OFF
+          // assistant bubbles keep today's padding byte-identically (D-02).
+          isUser
+            ? "px-[12px] py-[7px]"
+            : feedbackEnabled
+              ? "pl-[12px] pr-[12px] py-[7px]"
+              : "pl-[12px] pr-[42px] py-[7px]",
           "backdrop-blur-xl saturate-150",
           "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
           "border border-white/[0.08]",
@@ -600,7 +656,15 @@ export function ChatMessage({
             className="ml-1 inline-block h-3 w-3 animate-spin opacity-70"
           />
         )}
-        {!isUser && (
+        {!isUser && !feedbackEnabled && (
+          // Phase 124 Plan 01 (D-02/D-03): in-bubble speak button — ONLY
+          // renders on feedback-OFF deployments. When feedbackEnabled is
+          // true, this DOM node is ABSENT and speak lives in the strip
+          // below (see the strip render below the bubble div). Every visual
+          // + interaction state (Loader2/Pause/Play/Volume2 glyphs,
+          // autoplay-armed hue tint, long-press 500ms + 10px drift cancel,
+          // hover-lift, touch baseline) is preserved verbatim in the strip
+          // copy per D-15/D-16/D-17.
           <button
             type="button"
             onPointerDown={(e) => {
@@ -691,6 +755,185 @@ export function ChatMessage({
           </button>
         )}
       </div>
+      {!isUser && feedbackEnabled && (
+        // Phase 124 Plan 01 (D-04/D-05): action strip anchored below the
+        // assistant bubble, left-edge aligned via the flex-col wrapper (see
+        // the outer return below where !isUser && feedbackEnabled wraps
+        // bubble+strip in `flex flex-col items-start group`). Three peers
+        // in left-to-right order: speak · thumbs-up · thumbs-down (D-05).
+        // Resting opacity 0.62 (D-07); hovering anywhere in the group lifts
+        // to 100% via Tailwind group-hover (Pattern S-07 option (c)); touch
+        // devices sit at 0.72 always-visible baseline (D-08). The strip
+        // buttons all share the .pv-speak-btn CSS class hook so shell
+        // sizing matches the existing speak button (Pattern S-05).
+        <div
+          data-testid="pv-chat-message-action-strip"
+          className="mt-[4px] pl-[4px] flex items-center gap-[6px] opacity-[0.62] group-hover:opacity-100 [@media(hover:none)]:opacity-[0.72] transition-opacity"
+        >
+          {/* Strip speak button — duplicates the in-bubble button's handlers
+              + glyph state machine verbatim (D-15/D-16/D-17). Position
+              stripped: strip is normal flow, not absolute-positioned. */}
+          <button
+            data-testid="pv-chat-message-speak"
+            type="button"
+            onPointerDown={(e) => {
+              longPressFiredRef.current = false;
+              pointerStartRef.current = { x: e.clientX, y: e.clientY };
+              if (longPressTimerRef.current != null) {
+                window.clearTimeout(longPressTimerRef.current);
+              }
+              longPressTimerRef.current = window.setTimeout(() => {
+                longPressFiredRef.current = true;
+                longPressTimerRef.current = null;
+                if (eventId && onLongPressSpeak) onLongPressSpeak(eventId);
+                void startSpeak("long-press");
+              }, 500);
+            }}
+            onPointerMove={(e) => {
+              const start = pointerStartRef.current;
+              if (!start || longPressTimerRef.current == null) return;
+              const dx = e.clientX - start.x;
+              const dy = e.clientY - start.y;
+              if (Math.hypot(dx, dy) > 10) {
+                window.clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }
+            }}
+            onPointerCancel={() => {
+              if (longPressTimerRef.current != null) {
+                window.clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }
+            }}
+            onPointerUp={() => {
+              if (longPressTimerRef.current != null) {
+                window.clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }
+            }}
+            onClick={(e) => {
+              if (longPressFiredRef.current) {
+                longPressFiredRef.current = false;
+                e.stopPropagation();
+                return;
+              }
+              void onSpeakClick(e);
+            }}
+            aria-label={
+              speakState === "playing"
+                ? "Pause speaking"
+                : speakState === "paused"
+                  ? "Resume speaking"
+                  : "Speak message"
+            }
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: autoplayArmed
+                ? "hsla(var(--pv-id-hue),60%,70%,0.28)"
+                : "rgba(0,0,0,0.28)",
+              borderWidth: 1,
+              borderStyle: "solid",
+              borderColor: autoplayArmed
+                ? "hsla(var(--pv-id-hue),70%,70%,0.35)"
+                : "rgba(255,255,255,0.10)",
+              color: "rgba(255,220,170,0.72)",
+              cursor: "pointer",
+              transition: "opacity 120ms, background 120ms, transform 80ms",
+            }}
+            className="pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+          >
+            {speakState === "loading" ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : speakState === "playing" ? (
+              <Pause size={16} />
+            ) : speakState === "paused" ? (
+              <Play size={16} />
+            ) : (
+              <Volume2 size={16} />
+            )}
+          </button>
+          {/* Thumbs-up — D-18/D-20/D-22. Second-tap-no-op enforced by the
+              early return (`if (thumbsUpPressed) return;`) BEFORE any
+              callback fires. eventId is required (D-32 makes eventId the
+              messageRef); an eventId-less bubble is a defensive no-op. */}
+          <button
+            data-testid="pv-chat-message-thumbs-up"
+            type="button"
+            aria-label={
+              thumbsUpPressed
+                ? "Feedback recorded (thumbs up)"
+                : "Send thumbs up feedback"
+            }
+            onClick={() => {
+              if (thumbsUpPressed) return;
+              if (!eventId) return;
+              setThumbsUpPressed(true);
+              onThumbsUp?.(eventId);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: thumbsUpPressed
+                ? "hsla(var(--pv-id-hue),65%,55%,0.36)"
+                : "rgba(0,0,0,0.28)",
+              borderWidth: 1,
+              borderStyle: "solid",
+              borderColor: thumbsUpPressed
+                ? "hsla(var(--pv-id-hue),70%,70%,0.45)"
+                : "rgba(255,255,255,0.10)",
+              color: "rgba(255,220,170,0.72)",
+              opacity: thumbsUpPressed ? 1 : undefined,
+              cursor: "pointer",
+              transition: "opacity 120ms, background 120ms, transform 80ms",
+            }}
+            className="pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+          >
+            <ThumbsUp size={16} />
+          </button>
+          {/* Thumbs-down — D-23/D-26/D-28. Pressed state applies immediately
+              on tap (D-26 — before any modal opens); the modal-open logic
+              is owned by PrettyView in Plan 02 and consumes the eventId
+              from this callback. Second-tap-no-op mirrors thumbs-up. */}
+          <button
+            data-testid="pv-chat-message-thumbs-down"
+            type="button"
+            aria-label={
+              thumbsDownPressed
+                ? "Feedback recorded (thumbs down)"
+                : "Send thumbs down feedback"
+            }
+            onClick={() => {
+              if (thumbsDownPressed) return;
+              if (!eventId) return;
+              setThumbsDownPressed(true);
+              onThumbsDown?.(eventId);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: thumbsDownPressed
+                ? "hsla(var(--pv-id-hue),65%,55%,0.36)"
+                : "rgba(0,0,0,0.28)",
+              borderWidth: 1,
+              borderStyle: "solid",
+              borderColor: thumbsDownPressed
+                ? "hsla(var(--pv-id-hue),70%,70%,0.45)"
+                : "rgba(255,255,255,0.10)",
+              color: "rgba(255,220,170,0.72)",
+              opacity: thumbsDownPressed ? 1 : undefined,
+              cursor: "pointer",
+              transition: "opacity 120ms, background 120ms, transform 80ms",
+            }}
+            className="pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+          >
+            <ThumbsDown size={16} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
