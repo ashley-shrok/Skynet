@@ -63,6 +63,7 @@ import { sshLogger, databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
+import { performDormantWakeGate } from "../../claude-session/dormant-wake-gate.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -205,6 +206,61 @@ router.post(
         CONNECT_TIMEOUT_MS,
       );
       try {
+        // ─── Dormancy wake gate (2026-09-20 incident regression fix) ───────
+        // Probe .dormant sentinel over the same one-shot conn. When present,
+        // delegate to the shared performDormantWakeGate helper so this
+        // endpoint's behavior matches the WS pv-input path (Phase 56 Plan 01):
+        // send-into-dormant-pane wakes the harness first, then dispatches.
+        // Without this, `/id reset` would paste into the bare bash shell of
+        // a dormant pane, producing `-bash: /id: No such file or directory`
+        // (2026-09-20: lark-box-maintainer). The `[ -f ... ] && echo yes ||
+        // echo no` shape sidesteps execCommand's nonzero-exit reject path.
+        // NB: this can extend the POST latency by up to MARKER_FALLBACK_MS
+        // (~90s) on a genuine wake — matches WS-path semantics (send is
+        // confirmed after wake completes), rare user click, worth the wait.
+        let wasDormant = false;
+        try {
+          const dormantProbe = await execCommand(
+            conn,
+            `[ -f ~/fleet/identities/'${tmuxSession}'/.dormant ] && echo yes || echo no`,
+          );
+          wasDormant = dormantProbe.trim() === "yes";
+        } catch (probeErr) {
+          // Non-fatal — proceed with dispatch. Any real tmux-side failure
+          // will surface via the split-send throw below.
+          sshLogger.warn("agent-reset dormancy probe failed", {
+            operation: "agent_reset_dormancy_probe_failed",
+            userId,
+            hostId: hostIdNum,
+            tmuxSession,
+            error:
+              probeErr instanceof Error ? probeErr.message : String(probeErr),
+          });
+        }
+        if (wasDormant) {
+          await performDormantWakeGate({
+            sshConn: conn,
+            tmuxSession,
+            hostId: hostIdNum,
+            exec: execCommand,
+            markerCommand: async (
+              c: unknown,
+              name: string,
+            ): Promise<string | null> => {
+              try {
+                const out = await execCommand(
+                  c as import("ssh2").Client,
+                  `cat ~/fleet/identities/'${name}'/.resume-complete 2>/dev/null || echo`,
+                );
+                const trimmed = out.trim();
+                return trimmed.length > 0 ? trimmed : null;
+              } catch {
+                return null;
+              }
+            },
+            logOpPrefix: "agent_reset",
+          });
+        }
         // Body write. `-l` sends payload as literal text (no key interp).
         await execCommand(
           conn,

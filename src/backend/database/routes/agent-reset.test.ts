@@ -253,10 +253,13 @@ describe("POST /agent-reset/:hostId/:tmuxSessionName", () => {
     expect(res.status).toBe(200);
     expect((res.body as Record<string, unknown>).ok).toBe(true);
 
-    // Two execCommand calls — body + Enter (mirrors pv-input split-send).
-    expect(mockedExecCommand).toHaveBeenCalledTimes(2);
-    const bodyCmd = mockedExecCommand.mock.calls[0][1] as string;
-    const enterCmd = mockedExecCommand.mock.calls[1][1] as string;
+    // Three execCommand calls — dormancy probe (returns "" → not dormant,
+    // per default mock in beforeEach), body, Enter (split-send mirrors pv-input).
+    expect(mockedExecCommand).toHaveBeenCalledTimes(3);
+    const probeCmd = mockedExecCommand.mock.calls[0][1] as string;
+    const bodyCmd = mockedExecCommand.mock.calls[1][1] as string;
+    const enterCmd = mockedExecCommand.mock.calls[2][1] as string;
+    expect(probeCmd).toContain("[ -f ~/fleet/identities/'tina'/.dormant ]");
     expect(bodyCmd).toContain("tmux send-keys -l");
     expect(bodyCmd).toContain("'tina'");
     expect(bodyCmd).toContain("'/id reset'");
@@ -323,8 +326,8 @@ describe("POST /agent-reset/:hostId/:tmuxSessionName", () => {
         body: { body: "hello\nfrom endpoint" },
       });
       expect(res.status).toBe(200);
-      // Body cmd should contain the collapsed payload.
-      const bodyCmd = mockedExecCommand.mock.calls[0][1] as string;
+      // Body cmd is call[1] (call[0] is dormancy probe).
+      const bodyCmd = mockedExecCommand.mock.calls[1][1] as string;
       // Newline collapsed to a single space, wrapped in parens.
       expect(bodyCmd).toContain("'/id reset (hello from endpoint)'");
     },
@@ -339,7 +342,8 @@ describe("POST /agent-reset/:hostId/:tmuxSessionName", () => {
         body: { body: "   " }, // whitespace-only → trimmed empty
       });
       expect(res.status).toBe(200);
-      const bodyCmd = mockedExecCommand.mock.calls[0][1] as string;
+      // Body cmd is call[1] (call[0] is dormancy probe).
+      const bodyCmd = mockedExecCommand.mock.calls[1][1] as string;
       expect(bodyCmd).toContain("'/id reset'");
       expect(bodyCmd).not.toContain("(");
     },
@@ -375,7 +379,9 @@ describe("POST /agent-reset/:hostId/:tmuxSessionName", () => {
         ),
       ).toBe(true);
 
-      // Dispatch-failure path (execCommand throws).
+      // Dispatch-failure path (execCommand throws on the body-write).
+      // Queue: [probe → "no" (not dormant), body-write → throw].
+      mockedExecCommand.mockResolvedValueOnce("no");
       mockedExecCommand.mockRejectedValueOnce(new Error("ssh boom"));
       const rFail = await httpRequest(server, {
         method: "POST",
@@ -417,6 +423,8 @@ describe("POST /agent-reset/:hostId/:tmuxSessionName", () => {
       });
       expect(mockedForceSave).not.toHaveBeenCalled();
 
+      // Queue: [probe → "no", body-write → throw].
+      mockedExecCommand.mockResolvedValueOnce("no");
       mockedExecCommand.mockRejectedValueOnce(new Error("boom"));
       await httpRequest(server, {
         method: "POST",
@@ -425,4 +433,130 @@ describe("POST /agent-reset/:hostId/:tmuxSessionName", () => {
       expect(mockedForceSave).not.toHaveBeenCalled();
     },
   );
+
+  // ─── Dormancy wake gate (2026-09-20 regression fix) ─────────────────────
+  // These three tests cover the new wake-gate wire-up: reset against a
+  // dormant pane must FIRST wake the harness (drop .dormant sentinel + poll
+  // .resume-complete marker), THEN dispatch — otherwise `/id reset` pastes
+  // into a bare bash shell (2026-09-20 incident: lark-box-maintainer).
+
+  it("Test D1: dormant pane → probe detects, sentinel drop + marker poll + split-send in order", async () => {
+    const triggerTsPad = Date.now();
+    // Dispatch by command substring so we control every hop deterministically.
+    mockedExecCommand.mockImplementation(
+      async (_c: unknown, cmd: string): Promise<string> => {
+        if (cmd.includes(".dormant ]")) return "yes";
+        if (cmd.includes("rm -f") && cmd.includes(".dormant")) return "";
+        if (cmd.includes(".resume-complete")) {
+          // Fresh marker — timestamp strictly > triggerTs the gate records.
+          return new Date(triggerTsPad + 60_000).toISOString();
+        }
+        return "";
+      },
+    );
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/agent-reset/42/tina",
+    });
+    expect(res.status).toBe(200);
+
+    // Expected exec sequence: probe, sentinel drop, marker poll (>=1),
+    // body, Enter. Verify order by finding the index of each shape.
+    const cmds = mockedExecCommand.mock.calls.map(
+      (c) => c[1] as string,
+    );
+    const probeIdx = cmds.findIndex((c) => c.includes(".dormant ]"));
+    const dropIdx = cmds.findIndex(
+      (c) => c.includes("rm -f") && c.includes(".dormant"),
+    );
+    const markerIdx = cmds.findIndex((c) => c.includes(".resume-complete"));
+    const bodyIdx = cmds.findIndex((c) => c.includes("send-keys -l"));
+    const enterIdx = cmds.findIndex((c) =>
+      c.endsWith("send-keys -t 'tina' Enter"),
+    );
+
+    expect(probeIdx).toBe(0);
+    expect(dropIdx).toBeGreaterThan(probeIdx);
+    expect(markerIdx).toBeGreaterThan(dropIdx);
+    expect(bodyIdx).toBeGreaterThan(markerIdx);
+    expect(enterIdx).toBeGreaterThan(bodyIdx);
+
+    // Wake gate emitted its structured logs with the agent_reset prefix.
+    const infoOps = vi
+      .mocked(sshLogger.info)
+      .mock.calls.map(
+        (c) => (c[1] as { operation?: string } | undefined)?.operation ?? "",
+      );
+    expect(infoOps).toContain("agent_reset_dormant_send_start");
+    expect(infoOps).toContain("agent_reset_dormant_marker_fresh");
+  });
+
+  it("Test D2: not-dormant pane → probe only, wake gate skipped, only body + Enter dispatched", async () => {
+    mockedExecCommand.mockImplementation(
+      async (_c: unknown, cmd: string): Promise<string> => {
+        if (cmd.includes(".dormant ]")) return "no";
+        return "";
+      },
+    );
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/agent-reset/42/tina",
+    });
+    expect(res.status).toBe(200);
+
+    const cmds = mockedExecCommand.mock.calls.map(
+      (c) => c[1] as string,
+    );
+    // No sentinel drop, no marker poll — wake gate skipped.
+    expect(cmds.some((c) => c.includes("rm -f") && c.includes(".dormant"))).toBe(
+      false,
+    );
+    expect(cmds.some((c) => c.includes(".resume-complete"))).toBe(false);
+    // Wake-gate logs must NOT have fired.
+    const infoOps = vi
+      .mocked(sshLogger.info)
+      .mock.calls.map(
+        (c) => (c[1] as { operation?: string } | undefined)?.operation ?? "",
+      );
+    expect(infoOps).not.toContain("agent_reset_dormant_send_start");
+  });
+
+  it("Test D3: dormancy probe throws → warn logged, dispatch continues without wake gate, endpoint returns 200", async () => {
+    let callIdx = 0;
+    mockedExecCommand.mockImplementation(
+      async (_c: unknown, _cmd: string): Promise<string> => {
+        callIdx++;
+        if (callIdx === 1) throw new Error("probe boom");
+        return "";
+      },
+    );
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/agent-reset/42/tina",
+    });
+    expect(res.status).toBe(200);
+
+    // Probe-failure warn is emitted with the dedicated operation tag.
+    const warnOps = vi
+      .mocked(sshLogger.warn)
+      .mock.calls.map(
+        (c) => (c[1] as { operation?: string } | undefined)?.operation ?? "",
+      );
+    expect(warnOps).toContain("agent_reset_dormancy_probe_failed");
+    // Split-send still fired (body + Enter follow probe-failure).
+    const cmds = mockedExecCommand.mock.calls.map(
+      (c) => c[1] as string,
+    );
+    expect(cmds.some((c) => c.includes("send-keys -l"))).toBe(true);
+    expect(cmds.some((c) => c.endsWith("send-keys -t 'tina' Enter"))).toBe(
+      true,
+    );
+    // Wake gate was NOT invoked (wasDormant stayed false after probe throw).
+    expect(cmds.some((c) => c.includes("rm -f") && c.includes(".dormant"))).toBe(
+      false,
+    );
+  });
 });
