@@ -687,17 +687,18 @@ describe("fleet-status-server Phase 118 Plan 118-05 combinatorial filter", () =>
     u2.ws.close();
   });
 
-  it("Server-5: session-state fan-out still reaches BOTH subscribers (filter widening did not regress session path)", async () => {
-    // Direct publishSessionState bypasses the watcher hello handshake — the
-    // filter never applies to sessions; both subscribers must get it.
+  it("Server-5: publishSessionState on h1 reaches U1 (owner), does NOT reach U2", async () => {
+    // Session-state fan-out is now filtered by per-user host access (mirrors
+    // Server-2 for apps). publishSessionState on h1 (owned by U1) reaches U1
+    // and is dropped for U2.
     const u1 = await connectAsUser(port, "token-U1");
     const u2 = await connectAsUser(port, "token-U2");
     await waitMs(100);
     u1.frames.length = 0;
     u2.frames.length = 0;
 
-    registry.publishSessionState("host-42", {
-      hostId: "host-42",
+    registry.publishSessionState("h1", {
+      hostId: "h1",
       tmuxSession: "tina",
       sessionId: "session-1",
       pid: 1234,
@@ -708,7 +709,7 @@ describe("fleet-status-server Phase 118 Plan 118-05 combinatorial filter", () =>
     await waitMs(50);
 
     expect(u1.frames.filter((f) => f.type === "update")).toHaveLength(1);
-    expect(u2.frames.filter((f) => f.type === "update")).toHaveLength(1);
+    expect(u2.frames.filter((f) => f.type === "update")).toHaveLength(0);
 
     u1.ws.close();
     u2.ws.close();

@@ -482,26 +482,28 @@ export function createSubscriptionRegistry(
       // Capture into a const the async closure below can safely close over.
       const subscriberEntry = entry;
 
-      // Immediately send a snapshot of current state.
+      // Send the session snapshot immediately for unfiltered subscribers.
+      // The filtered path builds+filters this same snapshot inside the
+      // fire-and-forget block below so the queue-window covers it (matches
+      // archived + app-snapshot ordering discipline).
       //
-      // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism): re-stamp
-      // contextPct at snapshot-delivery time so a late-arriving subscriber
-      // sees the CURRENT value, not the value stored at the last
-      // publishSessionState tick. Uses the same store-read the publish path
-      // uses; null when the store has no entry.
-      const snapshot = makeSnapshotFrame(
-        Array.from(state.values()).map((s) => ({
-          ...s,
-          contextPct: getContextPct(s.hostId, s.tmuxSession ?? "") ?? null,
-        })),
-      );
-      try {
-        sendFrame(snapshot);
-      } catch (err) {
-        systemLogger.warn("Fleet-status initial snapshot delivery failed", {
-          operation: "fleet_status_snapshot_failed",
-          error: err instanceof Error ? err.message : "unknown",
-        });
+      // re-stamp contextPct at snapshot-delivery time so a late-arriving
+      // subscriber sees the CURRENT value from contextpct-store.
+      if (appFrameFilter === undefined || ctx?.userId === undefined) {
+        const snapshot = makeSnapshotFrame(
+          Array.from(state.values()).map((s) => ({
+            ...s,
+            contextPct: getContextPct(s.hostId, s.tmuxSession ?? "") ?? null,
+          })),
+        );
+        try {
+          sendFrame(snapshot);
+        } catch (err) {
+          systemLogger.warn("Fleet-status initial snapshot delivery failed", {
+            operation: "fleet_status_snapshot_failed",
+            error: err instanceof Error ? err.message : "unknown",
+          });
+        }
       }
 
       // Re-emit every archived identity as an `identity-archived` frame so a
@@ -586,6 +588,34 @@ export function createSubscriptionRegistry(
         // Fire-and-forget — disposer must return synchronously.
         void (async () => {
           try {
+            // Build + filter the session snapshot. contextPct restamp
+            // happens here so the client gets the freshest value from
+            // contextpct-store at emit time.
+            const sessionSnapshot = makeSnapshotFrame(
+              Array.from(state.values()).map((s) => ({
+                ...s,
+                contextPct:
+                  getContextPct(s.hostId, s.tmuxSession ?? "") ?? null,
+              })),
+            );
+            try {
+              const projectedSession = await appFrameFilter(
+                sessionSnapshot,
+                userIdForFilter,
+              );
+              if (projectedSession !== null) {
+                sendFrame(projectedSession);
+              }
+            } catch (err) {
+              systemLogger.warn(
+                "Fleet-status initial snapshot delivery failed",
+                {
+                  operation: "fleet_status_snapshot_failed",
+                  error: err instanceof Error ? err.message : "unknown",
+                },
+              );
+            }
+
             // Filter + re-emit each archived-identity row inside the queue-
             // window so real-time publishIdentityArchived arriving during
             // this block queue behind the snapshot rather than racing past it.
@@ -728,7 +758,12 @@ export function createSubscriptionRegistry(
         contextPct: getContextPct(hostId, sessionState.tmuxSession ?? "") ?? null,
       };
       state.set(key, stampedState);
-      fanOut(subscribers, makeUpdateFrame(stampedState));
+      const frame = makeUpdateFrame(stampedState);
+      if (appFrameFilter !== undefined) {
+        void fanOutApp(subscribers, frame, appFrameFilter);
+      } else {
+        fanOut(subscribers, frame);
+      }
     },
 
     publishIdentityArchived(

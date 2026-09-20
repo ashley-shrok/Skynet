@@ -9,14 +9,14 @@
  * language) can wrap identity frames through the same shape.
  *
  * Contract:
- *   - `app-update` / `app-gone` / `gone` / `identity-archived`  → one
- *     checkHostAccess call per frame; return the frame or null.
- *   - `app-snapshot`             → checkHostAccess per unique hostId in the
+ *   - `app-update` / `app-gone` / `gone` / `identity-archived` / `update`  →
+ *     one checkHostAccess call per frame; return the frame or null.
+ *   - `app-snapshot` / `snapshot`  → checkHostAccess per unique hostId in the
  *     frame (Promise.all); return a projected COPY of the frame with only
- *     visible apps (empty apps: [] is still a valid frame — the emit happened).
+ *     visible entries (empty result is still a valid frame — the emit
+ *     happened).
  *   - unmigrated frame types     → verbatim pass-through (defense in depth for
- *     frame types not yet host-scoped-filtered: snapshot, update,
- *     project-list-changed, pong).
+ *     frame types not yet host-scoped-filtered: project-list-changed, pong).
  *
  * Backward-compat guard: `ctx.userId === undefined` → pass every frame
  * through unchanged. Matches the existing bare `subscribe(sendFrame)` shape
@@ -36,7 +36,7 @@
 import { checkHostAccess as defaultCheckHostAccess } from "../ssh/host-resolver.js";
 import { systemLogger } from "../utils/logger.js";
 import type { AppState, FrontendOutboundFrameType } from "./wire-protocol.js";
-import { makeAppSnapshotFrame } from "./wire-protocol.js";
+import { makeAppSnapshotFrame, makeSnapshotFrame } from "./wire-protocol.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -211,6 +211,31 @@ export async function filterAppFrame(
 
   if (frame.type === "identity-archived") {
     return (await canUserSee(frame.hostId)) ? frame : null;
+  }
+
+  if (frame.type === "update") {
+    return (await canUserSee(frame.state.hostId)) ? frame : null;
+  }
+
+  if (frame.type === "snapshot") {
+    // Same projection shape as app-snapshot below. Empty states array short-
+    // circuits (no filter calls needed — an empty snapshot proves the emit
+    // happened and the frontend renders empty state gracefully).
+    const states = frame.states;
+    if (states.length === 0) {
+      return frame;
+    }
+
+    const uniqueHostIds = Array.from(new Set(states.map((s) => s.hostId)));
+    const visibility = await Promise.all(
+      uniqueHostIds.map(async (hid) => [hid, await canUserSee(hid)] as const),
+    );
+    const visible = new Set(
+      visibility.filter(([, ok]) => ok).map(([hid]) => hid),
+    );
+
+    const projectedStates = states.filter((s) => visible.has(s.hostId));
+    return makeSnapshotFrame(projectedStates);
   }
 
   if (frame.type === "app-snapshot") {

@@ -28,7 +28,10 @@ import {
   makeAppUpdateFrame,
   makeGoneFrame,
   makeIdentityArchivedFrame,
+  makeSnapshotFrame,
+  makeUpdateFrame,
 } from "./wire-protocol.js";
+import type { SessionState } from "./wire-protocol.js";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -331,6 +334,100 @@ describe("app-frame-filter", () => {
 
     expect(result).toBeNull();
     expect(checkAccessMock).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // update + snapshot frame filtering (surface migration — publishSessionState)
+  // -------------------------------------------------------------------------
+
+  function makeSessionState(hostId: string, tmuxSession: string | null): SessionState {
+    return {
+      hostId,
+      tmuxSession,
+      sessionId: `${hostId}-${tmuxSession ?? "null"}`,
+      pid: 1000,
+      status: "busy",
+      backgroundTasks: [],
+      updatedAt: 1_700_000_000_000,
+    };
+  }
+
+  it("Test 17: update frame for a host the user cannot access → dropped", async () => {
+    const frame = makeUpdateFrame(makeSessionState("h1", "tina"));
+    const resolver = vi
+      .fn()
+      .mockResolvedValue({ hostIdNum: 1, hostUserId: "OTHER_USER" });
+    const checkAccessMock = vi.fn(async () => false);
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).toBeNull();
+    expect(checkAccessMock).toHaveBeenCalledWith(1, "U", "OTHER_USER", "read");
+  });
+
+  it("Test 18: update frame for an accessible host → passes verbatim", async () => {
+    const frame = makeUpdateFrame(makeSessionState("h1", "tina"));
+    const resolver = vi
+      .fn()
+      .mockResolvedValue({ hostIdNum: 1, hostUserId: "U" });
+    const checkAccessMock = vi.fn(async () => true);
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).toEqual(frame);
+  });
+
+  it("Test 19: snapshot with three hosts — U sees H1 + H3, H2 dropped → projected snapshot", async () => {
+    const stateH1 = makeSessionState("h1", "tina");
+    const stateH2 = makeSessionState("h2", "nelly");
+    const stateH3 = makeSessionState("h3", "wren");
+    const frame = makeSnapshotFrame([stateH1, stateH2, stateH3]);
+
+    const resolver = vi.fn(async (hostIdStr: string) => {
+      const map: Record<string, { hostIdNum: number; hostUserId: string }> = {
+        h1: { hostIdNum: 1, hostUserId: "U" },
+        h2: { hostIdNum: 2, hostUserId: "OTHER" },
+        h3: { hostIdNum: 3, hostUserId: "SHARED" },
+      };
+      return map[hostIdStr] ?? null;
+    });
+    const checkAccessMock = vi.fn(
+      async (hostIdNum: number, _userId: string, hostUserId: string) => {
+        if (_userId === hostUserId) return true;
+        if (hostIdNum === 3) return true;
+        return false;
+      },
+    );
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).not.toBeNull();
+    if (result && result.type === "snapshot") {
+      const hostIds = result.states.map((s) => s.hostId).sort();
+      expect(hostIds).toEqual(["h1", "h3"]);
+      expect(result.schemaVersion).toBe(FRAME_SCHEMA_VERSION);
+    } else {
+      throw new Error("expected snapshot frame");
+    }
+  });
+
+  it("Test 20: empty snapshot returns a frame with states: [] and makes zero checkHostAccess calls", async () => {
+    const frame = makeSnapshotFrame([]);
+    const resolver = vi.fn();
+    const checkAccessMock = vi.fn(async () => true);
+
+    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
+
+    expect(result).not.toBeNull();
+    if (result && result.type === "snapshot") {
+      expect(result.states).toEqual([]);
+    }
+    expect(checkAccessMock).not.toHaveBeenCalled();
+    expect(resolver).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------

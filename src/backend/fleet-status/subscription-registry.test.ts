@@ -980,9 +980,9 @@ describe("subscription-registry", () => {
       }
     });
 
-    it("Filter-6: publishSessionState fan-out unaffected (still sync + unfiltered) — session-state migration pending", async () => {
-      // Regression guard for the not-yet-migrated session-state surface.
-      // Update when publishSessionState moves to filtered fanOutApp.
+    it("Filter-6: publishProjectListChanged fan-out unaffected (still sync + unfiltered) — project-list migration pending", async () => {
+      // Regression guard for the last not-yet-migrated surface. Update when
+      // publishProjectListChanged moves to filtered fanOutApp.
       const filterMock = vi.fn(
         async (frame: FrontendOutboundFrameType) => frame,
       );
@@ -995,16 +995,21 @@ describe("subscription-registry", () => {
       await tick();
       framesU1.length = 0;
       framesU2.length = 0;
-      // Clear filter calls made during subscribe-path snapshot emits
-      // (those DO go through the filter for the migrated frame families).
       filterMock.mockClear();
 
-      const state = makeState("host-42", "tina", "session-1");
-      registry.publishSessionState("host-42", state);
+      registry.publishProjectListChanged([
+        {
+          slug: "proj-a",
+          displayName: "Project A",
+          hostId: "host-42",
+          hostname: "thenasty",
+          archived: false,
+        },
+      ]);
 
       expect(filterMock).not.toHaveBeenCalled();
-      expect(framesU1.filter((f) => f.type === "update")).toHaveLength(1);
-      expect(framesU2.filter((f) => f.type === "update")).toHaveLength(1);
+      expect(framesU1.filter((f) => f.type === "project-list-changed")).toHaveLength(1);
+      expect(framesU2.filter((f) => f.type === "project-list-changed")).toHaveLength(1);
     });
 
     it("Filter-7: filter throwing for one subscriber does NOT block delivery to others", async () => {
@@ -1032,6 +1037,68 @@ describe("subscription-registry", () => {
       expect(framesGood.filter((f) => f.type === "app-update")).toHaveLength(1);
       // Bad subscriber's filter threw → frame not delivered to them.
       expect(framesBad.filter((f) => f.type === "app-update")).toHaveLength(0);
+    });
+
+    it("Filter-12: publishSessionState routes through filter — U1 sees update, U2 does not", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          if (userId === "U2" && frame.type === "update") return null;
+          return frame;
+        },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      const framesU1: FrontendOutboundFrameType[] = [];
+      const framesU2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      registry.subscribe((f) => framesU2.push(f), { userId: "U2" });
+      await tick();
+      framesU1.length = 0;
+      framesU2.length = 0;
+
+      registry.publishSessionState("host-42", makeState("host-42", "tina", "session-1"));
+      await tick();
+
+      expect(framesU1.filter((f) => f.type === "update")).toHaveLength(1);
+      expect(framesU2.filter((f) => f.type === "update")).toHaveLength(0);
+    });
+
+    it("Filter-13: subscribe-time session snapshot is filtered per subscriber (projected)", async () => {
+      const filterMock = vi.fn(
+        async (frame: FrontendOutboundFrameType, userId?: string) => {
+          // U2 can only see host "99"; project the snapshot down to that.
+          if (userId === "U2" && frame.type === "snapshot") {
+            return {
+              ...frame,
+              states: frame.states.filter((s) => s.hostId === "99"),
+            };
+          }
+          return frame;
+        },
+      );
+      const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
+
+      // Seed two hosts BEFORE any subscribe.
+      registry.publishSessionState("42", makeState("42", "tina", "session-1"));
+      registry.publishSessionState("99", makeState("99", "tabitha", "session-2"));
+
+      const framesU1: FrontendOutboundFrameType[] = [];
+      const framesU2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => framesU1.push(f), { userId: "U1" });
+      registry.subscribe((f) => framesU2.push(f), { userId: "U2" });
+      await tick();
+
+      const snapU1 = framesU1.filter((f) => f.type === "snapshot");
+      const snapU2 = framesU2.filter((f) => f.type === "snapshot");
+      expect(snapU1).toHaveLength(1);
+      expect(snapU2).toHaveLength(1);
+      if (snapU1[0].type === "snapshot") {
+        expect(snapU1[0].states).toHaveLength(2);
+      }
+      if (snapU2[0].type === "snapshot") {
+        expect(snapU2[0].states).toHaveLength(1);
+        expect(snapU2[0].states[0].hostId).toBe("99");
+      }
     });
 
     it("Filter-10: publishIdentityArchived routes through filter — U1 sees frame, U2 does not", async () => {
