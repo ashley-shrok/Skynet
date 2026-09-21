@@ -731,6 +731,29 @@ export function AppShell({
         const hostIdNum = parseInt(hostIdRaw, 10);
         if (!Number.isFinite(hostIdNum)) return;
         upsertArchivedFleetRow({ hostId: hostIdNum, name, hostname });
+
+        // Close any open tabs pointing at the archived identity. doCloseTab
+        // removes the tab, deletes its server-persisted openTab record (so a
+        // refresh doesn't restore a dead tab that then falls through to the
+        // "tmux session 'X' not found" connection-log fallback), and drops
+        // its leaf from the split tree via removeLeaf. Identity name === tmux
+        // session name (Skynet SSHes to <name> tmux to render the identity's
+        // terminal), so the (host.id, targetTmuxSession) tuple identifies
+        // matching tabs. The identity-archived frame re-emits idempotently
+        // on WS reconnect (see wire-protocol.ts § idempotency), so a refresh
+        // that lands after archive is covered by the same handler on
+        // reconnect. Sidebar row cleanup falls out of the paired `gone`
+        // frame the backend fires from the same archive-detection reconcile
+        // (see onGone below → removeFleetSession).
+        for (const tab of tabsRef.current) {
+          if (
+            tab.host != null &&
+            parseInt(tab.host.id, 10) === hostIdNum &&
+            tab.targetTmuxSession === name
+          ) {
+            doCloseTabRef.current(tab.id);
+          }
+        }
       },
       // Phase 117 Plan 117-07 (D-37): project-list-changed wire frame from
       // 117-03's registry.publishProjectListChanged. Backend fires this on
@@ -2695,6 +2718,14 @@ export function AppShell({
   const doCloseTabRef = useRef(doCloseTab);
   useEffect(() => {
     doCloseTabRef.current = doCloseTab;
+  });
+  // Same rationale as doCloseTabRef above: the fleet-status effect
+  // (~L657) subscribes ONCE at mount, so its identity-archived handler
+  // can't close over React state directly. Refreshed every render so
+  // the handler enumerates the LATEST openTabs.
+  const tabsRef = useRef(tabs);
+  useEffect(() => {
+    tabsRef.current = tabs;
   });
   useEffect(() => {
     const unsub = subscribeToDragAccepts((tabId) => {
