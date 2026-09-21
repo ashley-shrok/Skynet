@@ -191,7 +191,7 @@ Per the audit protocol in `127-04-MIGRATION-AUDIT.md`:
 
 1. Run `find ~/fleet/roles -maxdepth 3 -type f -name '*.json' -path '*/wakeups/*'` on each remote managed host.
 2. If count ≤ ~10 across all hosts: hand-migrate using the 6-step protocol in the audit document.
-3. If count > ~10: flag to Ashley for scripted migration per D-15 threshold.
+3. If count > ~10: flag to the user for scripted migration per D-15 threshold.
 
 This host: 0 specs, no migration needed.
 

@@ -173,7 +173,7 @@ No arguments, no return values that require handling (playTink is fire-and-forge
 
 ## Open Items
 
-None. Zero consumers wired (by design — Plan 02 owns wiring). Zero stubs. Zero placeholders. The tink asset is a real playable MP3 (not a silence placeholder). Ashley can swap in a different sample later without touching any code — the file at `src/ui/assets/sounds/ready-cue/tink.mp3` is the only change needed for an asset revision.
+None. Zero consumers wired (by design — Plan 02 owns wiring). Zero stubs. Zero placeholders. The tink asset is a real playable MP3 (not a silence placeholder). the user can swap in a different sample later without touching any code — the file at `src/ui/assets/sounds/ready-cue/tink.mp3` is the only change needed for an asset revision.
 
 ## Success-Criteria Checklist (from PLAN.md)
 

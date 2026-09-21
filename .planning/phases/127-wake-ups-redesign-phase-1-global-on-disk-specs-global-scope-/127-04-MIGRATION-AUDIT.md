@@ -147,17 +147,17 @@ cat ~/fleet/wakeups/$SLUG/wakeup.json | python3 -m json.tool > /dev/null && echo
 If the **fleet-wide total** of per-role specs found across all managed hosts exceeds
 **~10 specs**, the hand-migration protocol above becomes impractical. At that threshold:
 
-1. **Flag the count to Ashley** before executing any migrations.
+1. **Flag the count to the user** before executing any migrations.
 2. **Request a small automation script** to handle the sweep rather than hand-migrating
    each spec. The script would implement steps 2–6 above in a loop, producing a
    migration report for review.
 3. **Do NOT proceed with hand-migration** beyond ~10 specs without explicit user approval
    of the scripted approach.
 
-This decision is deferred to Ashley at the phase-close checkpoint (Task 4). Based on the
+This decision is deferred to the user at the phase-close checkpoint (Task 4). Based on the
 pre-verified state of this host (0 specs) and the fleet's likely composition (small,
 box-maintainer-centric), the total is expected to remain well below the D-15 threshold.
-Ashley should confirm the remote-host count before the distributor push if possible.
+the user should confirm the remote-host count before the distributor push if possible.
 
 ---
 
@@ -181,6 +181,6 @@ documents the sweep protocol for the orchestrator.
 
 Per the phase-1-ownership-boundary rule: executor scope = code + commit + scoped tests
 green on this host. The actual remote-host sweep + coordinator-instructions.md edits on
-other hosts are Ashley's greenlight → orchestrator's execution.
+other hosts are the user's greenlight → orchestrator's execution.
 
 **Traceability:** D-14 (hand-migration), D-15 (escalation threshold).
