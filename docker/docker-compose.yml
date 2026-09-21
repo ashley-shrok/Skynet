@@ -57,6 +57,13 @@ services:
       dockerfile: docker/Dockerfile
       labels:
         org.skynet.commit: "${SKYNET_BUILD_SHA:-}"
+      # Per-deployment TTS playback-rate override. Threaded into the Dockerfile
+      # `frontend-builder` stage's ARG so Vite substitutes it into the built
+      # bundle at `npm run build`. Empty/unset falls back to 1.0 in
+      # webAudioStreamPlayer. Set in the deployment's env file (e.g.
+      # /opt/skynet/.env) — t1000 uses 1.25; T800 leaves unset.
+      args:
+        VITE_TTS_PLAYBACK_RATE: "${VITE_TTS_PLAYBACK_RATE:-}"
     expose:
       - "8080"
     volumes:

@@ -25,6 +25,15 @@ COPY . .
 
 RUN find public/fonts -name "*.ttf" ! -name "*Regular.ttf" ! -name "*Bold.ttf" ! -name "*Italic.ttf" -delete
 
+# Per-deployment TTS playback-rate override. Vite reads `import.meta.env.VITE_*`
+# from process env at build time; ARG makes it a build-time input, ENV exposes
+# it to the `npm run build` RUN command below. Empty/unset => webAudioStreamPlayer
+# falls back to 1.0 (native rate). Set via `docker/docker-compose.yml`'s
+# `services.skynet.build.args`, sourced from the deployment's `.env` (e.g.
+# `/opt/skynet/.env`). t1000 runs at 1.25; T800 leaves it unset to keep 1.0.
+ARG VITE_TTS_PLAYBACK_RATE
+ENV VITE_TTS_PLAYBACK_RATE=$VITE_TTS_PLAYBACK_RATE
+
 RUN npm cache clean --force && \
     NODE_OPTIONS="--max-old-space-size=3072" npm run build
 
