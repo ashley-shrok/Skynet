@@ -101,9 +101,11 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
 // subscription-registry singleton accessor — Wave 2 route relies on this
 // to reach the WS registry that starter.ts creates.
 const mockPublishProjectListChanged = vi.fn();
+const mockPublishSessionProjectChanged = vi.fn();
 vi.mock("../../fleet-status/subscription-registry.js", () => ({
   getSubscriptionRegistry: () => ({
     publishProjectListChanged: mockPublishProjectListChanged,
+    publishSessionProjectChanged: mockPublishSessionProjectChanged,
   }),
 }));
 
@@ -263,10 +265,18 @@ describe("POST /identities/:key/project", () => {
     // LOCAL branch must not open an SSH connection.
     expect(connectOneShot).not.toHaveBeenCalled();
     // Phase 117 M5 fix (2026-09-18): session-field writes do NOT change
-    // the projects[] list, so this route no longer publishes anything —
-    // and no longer re-enumerates via listProjects.
+    // the projects[] list, so this route no longer publishes anything on
+    // that channel — and no longer re-enumerates via listProjects.
     expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
     expect(listProjects).not.toHaveBeenCalled();
+    // The session-project-changed per-identity delta DOES fire — this is
+    // what the sidebar subscribes to for live row updates.
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledTimes(1);
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledWith(
+      "wren",
+      5,
+      "alpha",
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -291,10 +301,17 @@ describe("POST /identities/:key/project", () => {
     );
     // Finally block must close the SSH connection.
     expect(stubConn.end).toHaveBeenCalledTimes(1);
-    // Phase 117 M5 fix (2026-09-18): no publish, no extra listProjects
-    // round-trip on a session-field write.
+    // Phase 117 M5 fix (2026-09-18): no project-list publish, no extra
+    // listProjects round-trip on a session-field write.
     expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
     expect(listProjects).not.toHaveBeenCalled();
+    // session-project-changed per-identity delta fires on REMOTE too.
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledTimes(1);
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledWith(
+      "wren",
+      7,
+      "alpha",
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -312,6 +329,13 @@ describe("POST /identities/:key/project", () => {
     expect(res.body).toEqual({ ok: true });
     expect(writeSessionProjectField).toHaveBeenCalledTimes(1);
     expect(writeSessionProjectField).toHaveBeenCalledWith(null, "wren", null);
+    // Clear gesture fires the delta with project=null.
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledTimes(1);
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledWith(
+      "wren",
+      5,
+      null,
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -329,6 +353,7 @@ describe("POST /identities/:key/project", () => {
     expect((res.body as { error: string }).error).toMatch(/hostId is required/);
     expect(writeSessionProjectField).not.toHaveBeenCalled();
     expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
+    expect(mockPublishSessionProjectChanged).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
@@ -410,6 +435,11 @@ describe("POST /identities/:key/project", () => {
     });
     expect(res.status).toBe(200);
     expect(writeSessionProjectField).toHaveBeenCalledWith(null, "wren", null);
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledWith(
+      "wren",
+      5,
+      null,
+    );
   });
 
   it("Test 7e: project='abc' → 200 (set)", async () => {
@@ -420,6 +450,35 @@ describe("POST /identities/:key/project", () => {
     });
     expect(res.status).toBe(200);
     expect(writeSessionProjectField).toHaveBeenCalledWith(null, "wren", "abc");
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledWith(
+      "wren",
+      5,
+      "abc",
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 7f: publisher throws → write still succeeds → 200
+  // -------------------------------------------------------------------------
+
+  it("Test 7f: publisher throws → 200 { ok: true } (write not turned into 500)", async () => {
+    mockPublishSessionProjectChanged.mockImplementationOnce(() => {
+      throw new Error("fanout registry blew up");
+    });
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/project",
+      body: { hostId: 5, project: "alpha" },
+    });
+
+    // Write succeeded on disk; the fanout is best-effort and MUST NOT
+    // convert a successful mutation into a client-facing 500.
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    expect(writeSessionProjectField).toHaveBeenCalledTimes(1);
+    // Publisher was invoked (and threw); the on-error handler swallowed it.
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledTimes(1);
   });
 
   // -------------------------------------------------------------------------
@@ -479,8 +538,10 @@ describe("POST /identities/:key/project", () => {
     // No error leak.
     expect(JSON.stringify(res.body)).not.toContain("ENOSPC");
     expect(JSON.stringify(res.body)).not.toContain("sensitive");
-    // publishProjectListChanged only fires on success.
+    // Publishers only fire on write success — write threw before we hit
+    // the publish site.
     expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
+    expect(mockPublishSessionProjectChanged).not.toHaveBeenCalled();
     // finally { conn.end() } fires even on write throw.
     expect(stubConn.end).toHaveBeenCalledTimes(1);
   });

@@ -671,6 +671,85 @@ describe("subscription-registry", () => {
     });
   });
 
+  // ─── publishSessionProjectChanged (per-identity delta) ─────────────────
+  // Fires on every session-project write from the backend. Distinct from
+  // publishProjectListChanged: NO idempotent-skip cache — every call fans
+  // out. NO snapshot-on-subscribe replay — a reconnecting client learns
+  // current membership via the /identities REST fetch, not via this
+  // channel. The frame carries the delta only: { identityKey, hostId,
+  // project } where project is nullable.
+
+  describe("publishSessionProjectChanged", () => {
+    it("fans out a session-project-changed frame with identityKey/hostId/project", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      registry.publishSessionProjectChanged("wren", 5, "alpha");
+
+      const deltas = receivedFrames.filter(
+        (f) => f.type === "session-project-changed",
+      );
+      expect(deltas).toHaveLength(1);
+      const frame = deltas[0];
+      if (frame.type === "session-project-changed") {
+        expect(frame.schemaVersion).toBe(FRAME_SCHEMA_VERSION);
+        expect(frame.identityKey).toBe("wren");
+        expect(frame.hostId).toBe(5);
+        expect(frame.project).toBe("alpha");
+      }
+    });
+
+    it("fans out on every call — NO idempotent-skip; byte-identical repeats each fan out", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      registry.publishSessionProjectChanged("wren", 5, "alpha");
+      registry.publishSessionProjectChanged("wren", 5, "alpha");
+      registry.publishSessionProjectChanged("wren", 5, "alpha");
+
+      const deltas = receivedFrames.filter(
+        (f) => f.type === "session-project-changed",
+      );
+      expect(deltas).toHaveLength(3);
+    });
+
+    it("carries project=null on a clear gesture", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      registry.publishSessionProjectChanged("wren", 5, null);
+
+      const deltas = receivedFrames.filter(
+        (f) => f.type === "session-project-changed",
+      );
+      expect(deltas).toHaveLength(1);
+      const frame = deltas[0];
+      if (frame.type === "session-project-changed") {
+        expect(frame.project).toBe(null);
+      }
+    });
+
+    it("NO snapshot replay — a client that subscribes AFTER a publish does NOT receive the historical delta", () => {
+      const registry = createSubscriptionRegistry();
+
+      registry.publishSessionProjectChanged("wren", 5, "alpha");
+
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+
+      const deltas = receivedFrames.filter(
+        (f) => f.type === "session-project-changed",
+      );
+      expect(deltas).toHaveLength(0);
+    });
+  });
+
   // ─── Phase 118 Plan 118-03 — apps map + publish surface (D-09/D-10/D-13/D-14/D-16) ─
   // Sibling to the SessionState map: apps live in their own Map<`${hostId}:${slug}`,
   // AppState> populated by publishAppUpdate, drained by publishAppGoneByHostSlug,

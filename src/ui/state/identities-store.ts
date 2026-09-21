@@ -450,6 +450,38 @@ export function patchIdentityFlag(
   setIdentities(nextList);
 }
 
+/**
+ * Patch a single identity's `project` field in place — consumed by the
+ * `session-project-changed` frame handler in AppShell. Distinct from
+ * patchIdentityFlag: `project` is `string | null`, not boolean, so the
+ * shared generic doesn't fit. Match semantics mirror patchIdentityFlag —
+ * (identityKey, hostId) tuple identifies the row; no-op if not found or
+ * value unchanged.
+ *
+ * hostId is a required non-null number here (unlike patchIdentityFlag's
+ * nullable variant) because the wire frame always carries it. If the row
+ * isn't yet loaded (WS frame arrived before the /identities REST fetch
+ * landed), this is a silent no-op — the subsequent fetch will read the
+ * current on-disk project field directly.
+ */
+export function setIdentityProject(
+  identityKey: string,
+  hostId: number,
+  project: string | null,
+): void {
+  const keyLc = identityKey.toLowerCase();
+  let changed = false;
+  const nextList = state.identities.map((i) => {
+    if (i.identityKey.toLowerCase() !== keyLc) return i;
+    if (typeof i.hostId !== "number" || i.hostId !== hostId) return i;
+    if (i.project === project) return i;
+    changed = true;
+    return { ...i, project };
+  });
+  if (!changed) return;
+  setIdentities(nextList);
+}
+
 // ─── Private helper: sorted-key JSON serialization for roleDefaults ──────────
 // Used by mergeIdentityAppearance to compare roleDefaults structurally rather
 // than by reference. Mirrors the sorted-key serialization the backend's

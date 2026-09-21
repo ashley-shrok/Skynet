@@ -20,6 +20,7 @@ import {
   makeGoneFrame,
   makeIdentityArchivedFrame,
   makeProjectListChangedFrame,
+  makeSessionProjectChangedFrame,
   makeSnapshotFrame,
   makeUpdateFrame,
 } from "./wire-protocol.js";
@@ -174,6 +175,27 @@ export interface SubscriptionRegistry {
    * publishing [] after a non-empty cache IS a delta and DOES fan out.
    */
   publishProjectListChanged(projects: ProjectListEntry[]): void;
+
+  /**
+   * Publish a `session-project-changed` frame carrying the delta from a
+   * single-identity `project:` frontmatter write (e.g. sidebar drag-drop
+   * onto a project, or explicit clear). Distinct from
+   * publishProjectListChanged: the projects[] array itself doesn't change
+   * when an identity moves between projects — only which identity belongs
+   * where — so this fanout carries just { identityKey, hostId, project }.
+   *
+   * No idempotent-skip cache: every call fans out. The frame is a delta;
+   * a reconnecting client learns about current membership via the
+   * `/identities` REST fetch (which reads the frontmatter directly), not
+   * via replay of this channel.
+   *
+   * `project` is nullable: string = assigned to that slug; null = cleared.
+   */
+  publishSessionProjectChanged(
+    identityKey: string,
+    hostId: number,
+    project: string | null,
+  ): void;
 
   /**
    * Mark a session as gone. If the key exists in the map:
@@ -843,6 +865,19 @@ export function createSubscriptionRegistry(
       // comparisons and snapshot-on-subscribe replays).
       projectListCache = projects.slice();
       const frame = makeProjectListChangedFrame(projects);
+      if (appFrameFilter !== undefined) {
+        void fanOutApp(subscribers, frame, appFrameFilter);
+      } else {
+        fanOut(subscribers, frame);
+      }
+    },
+
+    publishSessionProjectChanged(
+      identityKey: string,
+      hostId: number,
+      project: string | null,
+    ): void {
+      const frame = makeSessionProjectChangedFrame(identityKey, hostId, project);
       if (appFrameFilter !== undefined) {
         void fanOutApp(subscribers, frame, appFrameFilter);
       } else {

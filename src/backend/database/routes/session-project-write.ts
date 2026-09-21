@@ -61,9 +61,7 @@ import {
   // this route no longer re-enumerates the host's project list after
   // a session-field write (which does not change the list itself).
 } from "../../claude-session/identity-artifact-reader.js";
-// Phase 117 M5 fix (2026-09-18): getSubscriptionRegistry import removed —
-// this route no longer publishes on the projects-list channel after a
-// session-field write (see the intentionally-omitted publish block below).
+import { getSubscriptionRegistry } from "../../fleet-status/subscription-registry.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -195,25 +193,32 @@ router.post(
         return;
       }
 
-      // 6. Post-write wire event (D-37) — INTENTIONALLY OMITTED.
+      // 6. Post-write wire event: fan out session-project-changed carrying
+      // { identityKey, hostId, project }. Distinct from
+      // project-list-changed — the projects[] array itself doesn't change
+      // when an identity moves between projects, only which identity
+      // belongs where. Frontend sidebar listens for this to patch the
+      // affected identity row in place without a full /identities refetch.
       //
-      // Phase 117 M5 fix (2026-09-18): pre-fix, this route re-enumerated
-      // the host's projects list via listProjects(conn) — one extra SSH
-      // round-trip — and handed the (unchanged) array to
-      // publishProjectListChanged. The projects[] array itself does NOT
-      // change on a session-field write (only which conversation belongs
-      // to a project changes), so the registry's idempotent-skip absorbed
-      // it 100% of the time; net effect was pure wasted work on every
-      // drag.
+      // Phase 117 M5 (2026-09-18) removed the pre-existing (unrelated)
+      // publishProjectListChanged call here because it was fanning out a
+      // list that hadn't changed. This is the promised follow-up frame.
       //
-      // If a per-session membership ping is needed downstream, that
-      // should be a distinct session-project-changed frame carrying
-      // {key, hostId, project} without touching the projects cache — but
-      // that's out of scope for this fix pass (same treatment as H2 on
-      // relay-room-project-tag).
-      //
-      // Note: getSubscriptionRegistry and listProjects are intentionally
-      // NOT called here now.
+      // Publisher failure MUST NOT convert a successful write into a 500 —
+      // the on-disk state is correct even if one fanout hop drops. Log and
+      // continue.
+      try {
+        const registry = getSubscriptionRegistry();
+        if (registry) {
+          registry.publishSessionProjectChanged(key, hostId, project);
+        }
+      } catch (pubErr) {
+        databaseLogger.warn(
+          `session-project-changed publish failed key=${key} hostId=${hostId}: ${
+            pubErr instanceof Error ? pubErr.message : String(pubErr)
+          }`,
+        );
+      }
 
       // Audit log per T-117-05 (repudiation): who wrote what.
       databaseLogger.info(

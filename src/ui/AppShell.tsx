@@ -155,7 +155,11 @@ import {
   navigateToView,
   navigateToList,
 } from "@/lib/mobile-flow";
-import { useIdentities, mergeIdentityAppearance } from "@/state/identities-store";
+import {
+  useIdentities,
+  mergeIdentityAppearance,
+  setIdentityProject,
+} from "@/state/identities-store";
 // Phase 34 Plan 06: fleet-status control WebSocket — boot-time singleton
 import { createFleetStatusClient } from "@/api/fleet-status-client";
 import type { SessionState } from "@/api/fleet-status-types";
@@ -766,6 +770,14 @@ export function AppShell({
       // hostname, archived}), so no field massaging is required at the
       // adapter boundary.
       onProjectListChanged: (projects) => setProjects(projects),
+      // Per-identity project delta from the backend's session-project write
+      // path — patch the affected row's `project` field in place so the
+      // sidebar reflects the new bucket without a full /identities refetch.
+      // Silent no-op if the identity isn't yet in the store (WS frame beat
+      // the REST fetch); the fetch will read the on-disk field.
+      onSessionProjectChanged: (identityKey, hostId, project) => {
+        setIdentityProject(identityKey, hostId, project);
+      },
       onGone: (hostId, tmuxSession, sessionId) => {
         // The three pre-existing publishes — mark per-session state. These are
         // orthogonal to membership and must remain. Do NOT reorder.

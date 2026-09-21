@@ -382,6 +382,20 @@ export interface FrontendProjectListChangedFrame {
   projects: ProjectListEntry[];
 }
 
+// session-project-changed frame — per-identity delta from a session-project
+// write (sidebar drag-drop onto a project, or clear). Distinct from
+// project-list-changed: only which identity belongs to which project has
+// changed; the projects[] array itself is unchanged. Mirrors wire-protocol.ts
+// FrontendSessionProjectChangedFrameSchema. MUST stay in lockstep — any
+// wire-protocol change is mirrored here.
+export interface FrontendSessionProjectChangedFrame {
+  schemaVersion: typeof FRAME_SCHEMA_VERSION;
+  type: "session-project-changed";
+  identityKey: string;
+  hostId: number;
+  project: string | null;
+}
+
 // Phase 119 Plan 119-01 (D-14, D-16): three new frame arms mirroring the
 // Phase 118 backend wire-protocol.ts app-snapshot / app-update / app-gone
 // schemas (wire-protocol.ts:646-663). Together they carry the sidebar's live
@@ -416,6 +430,7 @@ export type FrontendOutboundFrame =
   | FrontendPongFrame
   | FrontendIdentityArchivedFrame
   | FrontendProjectListChangedFrame
+  | FrontendSessionProjectChangedFrame
   | FrontendAppSnapshotFrame
   | FrontendAppUpdateFrame
   | FrontendAppGoneFrame;

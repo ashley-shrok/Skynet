@@ -92,6 +92,22 @@ export interface FleetStatusClientOptions {
    * tests that don't need the callback.
    */
   onProjectListChanged?: (projects: ProjectListEntry[]) => void;
+  /**
+   * Fired on every `session-project-changed` frame — a per-identity delta
+   * emitted by the backend when an identity's `project:` frontmatter is
+   * written (sidebar drag-drop onto a project, or clear). Distinct from
+   * `onProjectListChanged`: the projects[] array is unchanged; only which
+   * identity belongs to which project has moved. AppShell routes this into
+   * the identities store's `setIdentityProject` to patch the affected row
+   * in place without a full /identities refetch.
+   *
+   * `project` is nullable: string = assigned to slug; null = cleared.
+   */
+  onSessionProjectChanged?: (
+    identityKey: string,
+    hostId: number,
+    project: string | null,
+  ) => void;
   // Phase 119 Plan 119-01 (D-14, D-16): fired on every `app-snapshot` /
   // `app-update` / `app-gone` frame from the Phase 118 app-registry
   // channel. Later 117-* plans wire these to the new app-tiles store
@@ -128,6 +144,7 @@ export function createFleetStatusClient(
     onGone,
     onIdentityArchived,
     onProjectListChanged,
+    onSessionProjectChanged,
     onAppSnapshot,
     onAppUpdate,
     onAppGone,
@@ -290,6 +307,24 @@ export function createFleetStatusClient(
             projectCount: parsed.projects.length,
           });
           onProjectListChanged?.(parsed.projects);
+          break;
+        case "session-project-changed":
+          // Per-identity delta from backend session-project-write. The frame
+          // carries { identityKey, hostId, project } — no array to
+          // shape-validate beyond what JSON.parse guarantees. Log for
+          // observability and hand to AppShell's patch-in-place callback.
+          console.info({
+            operation: "fleet_status_client_session_project_changed",
+            url,
+            identityKey: parsed.identityKey,
+            hostId: parsed.hostId,
+            project: parsed.project,
+          });
+          onSessionProjectChanged?.(
+            parsed.identityKey,
+            parsed.hostId,
+            parsed.project,
+          );
           break;
         case "app-snapshot":
           // Phase 119 Plan 119-01 (D-14, D-16): Phase 118 app-registry

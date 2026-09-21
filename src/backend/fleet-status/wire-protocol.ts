@@ -637,6 +637,30 @@ export const FrontendProjectListChangedFrameSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// session-project-changed — per-session membership ping.
+//
+// Fires when a single identity's `project:` frontmatter field is written
+// (e.g. from the sidebar drag-drop-onto-project gesture). The projects[]
+// array itself does NOT change on such a write — only which identity
+// belongs to which project — so this frame is DISTINCT from
+// project-list-changed and carries only the delta.
+//
+// The `project` field is nullable: string = assigned to slug; null = cleared
+// (the identity is now unassociated with any project).
+//
+// No idempotent-skip cache; publisher fans out on every call. Additive
+// discriminated-union member — FRAME_SCHEMA_VERSION stays at 1.
+// ---------------------------------------------------------------------------
+
+export const FrontendSessionProjectChangedFrameSchema = z.object({
+  schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
+  type: z.literal("session-project-changed"),
+  identityKey: z.string(),
+  hostId: z.number(),
+  project: z.string().nullable(),
+});
+
+// ---------------------------------------------------------------------------
 // Phase 118 Plan 118-03 (D-05, D-06, D-08, D-14): AppState + three new outbound
 // frame kinds for source-C apps (~/fleet/apps/<slug>/ + systemd unit +
 // three-check inclusion filter).
@@ -724,6 +748,7 @@ export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendPongFrameSchema,
   FrontendIdentityArchivedFrameSchema,
   FrontendProjectListChangedFrameSchema,
+  FrontendSessionProjectChangedFrameSchema,
   AppSnapshotFrameSchema,
   AppUpdateFrameSchema,
   AppGoneFrameSchema,
@@ -801,6 +826,26 @@ export function makeProjectListChangedFrame(
     schemaVersion: FRAME_SCHEMA_VERSION,
     type: "project-list-changed",
     projects,
+  };
+}
+
+/**
+ * Construct a `session-project-changed` frame carrying the identity that
+ * just had its `project:` frontmatter field written. Called by
+ * subscription-registry's publishSessionProjectChanged from the write
+ * route that mutated the file.
+ */
+export function makeSessionProjectChangedFrame(
+  identityKey: string,
+  hostId: number,
+  project: string | null,
+): FrontendOutboundFrameType {
+  return {
+    schemaVersion: FRAME_SCHEMA_VERSION,
+    type: "session-project-changed",
+    identityKey,
+    hostId,
+    project,
   };
 }
 
