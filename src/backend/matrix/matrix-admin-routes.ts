@@ -13,7 +13,6 @@
  */
 import express from "express";
 import type { Request, Response } from "express";
-import { promises as fsp } from "node:fs";
 import { AuthManager } from "../utils/auth-manager.js";
 import { authLogger } from "../utils/logger.js";
 import type { AuthenticatedRequest } from "../../types/index.js";
@@ -23,8 +22,11 @@ import {
   setMatrixAdminServerName,
   setMatrixAdminHostSideBase,
 } from "./matrix-admin-creds-store.js";
-import { mintAndWriteHumanToken } from "../telegram/human-token-writer.js";
-import { TG_BRIDGE_STATE_DIR } from "../telegram/shared-volume.js";
+// Phase 128-09 (D-18): removed imports of ../telegram/human-token-writer.js
+// and ../telegram/shared-volume.js — the /migrate-cred-files handler (a
+// Phase 79 Plan 08 one-shot migration from Nina's install to the Docker
+// tg-bridge) is deleted alongside the bridge itself. The migration was
+// invoked during Phase 79-09 cutover and is no longer reachable.
 
 const MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/;
 
@@ -261,124 +263,12 @@ router.patch(
   },
 );
 
-// Phase 79 Plan 08 — one-shot admin-gated migration endpoint.
-// For each Skynet user with a non-null mxid, mints a fresh Matrix token
-// via loginAsUser (Phase 77 admin primitive) and writes it to
-// /state/<humanName>.token (mode 0600, atomic .tmp+rename). Then scans
-// TG_BRIDGE_STATE_DIR for legacy `<humanName>.cred` files (plaintext
-// passwords from Nina's bridge) and deletes each one.
-//
-// Idempotent by design — safe to re-run. Second call re-mints (Synapse
-// loginAsUser is cheap + stateless per RESEARCH § Q9) and reports the
-// same shape. Zero artificial "already-migrated" gate: the endpoint's
-// job is to GUARANTEE tokens exist and .cred files do not.
-//
-// Users with mxid === null (Laura, per RESEARCH § A6) are reported as
-// `status: "skipped-no-mxid"` — Laura's mxid provisioning is deferred.
-router.post(
-  "/migrate-cred-files",
-  express.json(),
-  requireAdmin,
-  async (req: Request, res: Response): Promise<void> => {
-    const adminUserId = (req as AuthenticatedRequest).userId;
-    try {
-      // Dynamic import to avoid a circular-module problem at boot —
-      // matrix-admin-routes is imported from server.ts very early, and
-      // pulling db + schema at top-level tangles the initialization
-      // graph. This mirrors the same pattern used above for
-      // saveMemoryDatabaseToFile in the /creds handler.
-      const { db } = await import("../database/db/index.js");
-      const { users } = await import("../database/db/schema.js");
-      const rows = (await db
-        .select({ name: users.username, mxid: users.mxid })
-        .from(users)) as Array<{
-        name: string | null;
-        mxid: string | null;
-      }>;
-
-      const results: Array<{
-        humanName: string;
-        mxid: string | null;
-        status: "minted" | "failed" | "skipped-no-mxid";
-        error?: string;
-      }> = [];
-
-      for (const row of rows) {
-        // Blocker B-4 (verified): users.username is already lowercase in
-        // prod. .toLowerCase() below is defensive — no-op today, safety
-        // net if the column ever drifts.
-        const humanName = String(row.name ?? "").toLowerCase();
-        if (!humanName) continue;
-        if (!row.mxid) {
-          results.push({ humanName, mxid: null, status: "skipped-no-mxid" });
-          continue;
-        }
-        try {
-          const mintResult = await mintAndWriteHumanToken(row.mxid, humanName);
-          // Note: use `=== false` narrowing (not `!mintResult.ok`) — strict tsc
-          // (tsconfig.node.json used by docker build) does not narrow
-          // discriminated unions on the truthy-`.ok` branch here, whereas
-          // `=== false` works. See commit 967ab598 (Phase 77 rescue) for the
-          // same fix pattern in identity-birth-orchestrator.ts.
-          if (mintResult.ok === false) {
-            results.push({
-              humanName,
-              mxid: row.mxid,
-              status: "failed",
-              error: mintResult.error,
-            });
-          } else {
-            results.push({ humanName, mxid: row.mxid, status: "minted" });
-          }
-        } catch (mintThrew) {
-          // Defensive — mintAndWriteHumanToken shouldn't throw except on
-          // guard-rejected humanName. Report per-row so the batch continues.
-          results.push({
-            humanName,
-            mxid: row.mxid,
-            status: "failed",
-            error: mintThrew instanceof Error ? mintThrew.message : "unknown",
-          });
-        }
-      }
-
-      // Delete legacy .cred files under the shared volume. Scoped by
-      // suffix inside TG_BRIDGE_STATE_DIR only — readdir returns bare
-      // filenames, no attacker-controlled absolute paths.
-      const entries = await fsp
-        .readdir(TG_BRIDGE_STATE_DIR)
-        .catch(() => [] as string[]);
-      const credFiles = entries.filter((e) => e.endsWith(".cred"));
-      const deletedCredFiles: string[] = [];
-      for (const f of credFiles) {
-        try {
-          await fsp.unlink(`${TG_BRIDGE_STATE_DIR}/${f}`);
-          deletedCredFiles.push(f);
-        } catch (unlinkErr) {
-          authLogger.warn("migrate-cred-files: failed to unlink cred file", {
-            operation: "matrix_admin_migrate_cred_files_unlink_failed",
-            filename: f,
-            error: unlinkErr instanceof Error ? unlinkErr.message : "unknown",
-          });
-        }
-      }
-
-      authLogger.info("matrix-admin migrate-cred-files completed", {
-        operation: "matrix_admin_migrate_cred_files",
-        adminId: adminUserId,
-        mintedCount: results.filter((r) => r.status === "minted").length,
-        failedCount: results.filter((r) => r.status === "failed").length,
-        skippedCount: results.filter((r) => r.status === "skipped-no-mxid").length,
-        deletedCredFilesCount: deletedCredFiles.length,
-      });
-
-      res.json({ ok: true, results, deletedCredFiles });
-    } catch (err) {
-      authLogger.error("Failed to migrate cred files", err);
-      res.status(500).json({ error: "Failed to migrate cred files" });
-    }
-  },
-);
+// Phase 128-09 (D-18): the Phase 79 Plan 08 POST /matrix-admin/migrate-cred-files
+// one-shot handler (mint fresh Matrix tokens for every registered human +
+// unlink legacy .cred files under TG_BRIDGE_STATE_DIR) is deleted here as
+// part of the tg-bridge teardown. The migration was invoked during Phase
+// 79-09 cutover from Nina's install to the Docker tg-bridge; with the
+// bridge itself removed there is nothing left to migrate onto.
 
 // One-shot admin-gated reset for the two registry-room settings rows.
 // Existing `ensureRegistryRoomsExist` runs at boot only, and takes a
@@ -397,9 +287,9 @@ router.post(
     const adminUserId = (req as AuthenticatedRequest).userId;
     try {
       // Dynamic imports mirror the other handlers in this file (see /creds
-      // and /migrate-cred-files above) — matrix-admin-routes is imported
-      // from server.ts very early and pulling db/schema/registry-rooms at
-      // top-level tangles the initialization graph.
+      // above) — matrix-admin-routes is imported from server.ts very early
+      // and pulling db/schema/registry-rooms at top-level tangles the
+      // initialization graph.
       const { db, saveMemoryDatabaseToFile } = await import(
         "../database/db/index.js"
       );
@@ -426,7 +316,7 @@ router.post(
       // === false narrowing (not `!ensured.ok`) — strict tsc doesn't
       // narrow discriminated unions on the truthy `.ok` branch here, same
       // pattern as identity-birth-orchestrator.ts fix pinpointed at commit
-      // 967ab598 and the migrate-cred-files handler above.
+      // 967ab598.
       if (ensured.ok === false) {
         res.status(503).json({
           error: "reset_registry_rooms_failed",

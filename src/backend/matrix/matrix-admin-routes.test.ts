@@ -22,7 +22,7 @@
  *     9. GET returns {present: false} when no creds ingested
  *     10. GET returns {present: true, mxid, homeserverBase} (no password/token leaked)
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -75,26 +75,19 @@ vi.mock("./matrix-admin-creds-store.js", () => ({
   setMatrixAdminHostSideBase: setMatrixAdminHostSideBaseMock,
 }));
 
-const { saveMemoryDatabaseToFileMock, dbSelectMock, dbPrepareRunMock } = vi.hoisted(() => ({
+const { saveMemoryDatabaseToFileMock, dbPrepareRunMock } = vi.hoisted(() => ({
   saveMemoryDatabaseToFileMock: vi.fn(),
-  // Phase 79 Plan 08 — POST /migrate-cred-files iterates the users table
-  // via db.select({name, mxid}).from(users). The route dynamic-imports
-  // both db/index.js and db/schema.js at handler time (avoids a
-  // circular-module problem at boot), so we mock both here and let the
-  // per-test setup swap mockUserRows.
-  dbSelectMock: vi.fn(),
   // POST /reset-registry-rooms deletes the two settings rows via
   // db.$client.prepare(...).run(...). Mock captures the run() call so
   // tests can assert the DELETE was issued.
+  // Phase 128-09 (D-18): the db.select() plumbing that supported the
+  // deleted /migrate-cred-files handler was removed alongside it.
   dbPrepareRunMock: vi.fn(),
 }));
 
 vi.mock("../database/db/index.js", () => ({
   saveMemoryDatabaseToFile: saveMemoryDatabaseToFileMock,
   db: {
-    select: () => ({
-      from: () => Promise.resolve(dbSelectMock()),
-    }),
     $client: {
       prepare: () => ({ run: dbPrepareRunMock }),
     },
@@ -115,33 +108,13 @@ vi.mock("../relay-sessions/registry-rooms.js", () => ({
   SETTINGS_KEY_HUMANS_REGISTRY: "humans_registry_room_id",
 }));
 
-// The users symbol is only used as a column reference — return a bare
-// object; the db.select mock ignores it entirely.
-vi.mock("../database/db/schema.js", () => ({
-  users: { username: "username", mxid: "mxid" },
-}));
+// Phase 128-09 (D-18): the users schema mock supported the deleted
+// /migrate-cred-files handler; no surviving test path needs it.
 
-// Phase 79 Plan 08 — migrate-cred-files calls mintAndWriteHumanToken for
-// each user with an mxid. Mock it here so tests can control per-call
-// success/failure.
-const { mintAndWriteHumanTokenMock } = vi.hoisted(() => ({
-  mintAndWriteHumanTokenMock: vi.fn(),
-}));
-
-vi.mock("../telegram/human-token-writer.js", () => ({
-  mintAndWriteHumanToken: mintAndWriteHumanTokenMock,
-}));
-
-// Phase 79 Plan 08 — shared-volume.ts computes TG_BRIDGE_STATE_DIR as a
-// const at module-load time from TG_BRIDGE_STATE_DIR_OVERRIDE. Because
-// matrix-admin-routes.js is imported at file scope (below), the const
-// is frozen before the per-test tempDir is set. Mock the export directly
-// with a getter that always reads the current env var.
-vi.mock("../telegram/shared-volume.js", () => ({
-  get TG_BRIDGE_STATE_DIR() {
-    return process.env.TG_BRIDGE_STATE_DIR_OVERRIDE || "/state";
-  },
-}));
+// Phase 128-09 (D-18): the Phase 79 Plan 08 vi.mock for
+// ../telegram/human-token-writer.js + ../telegram/shared-volume.js are
+// deleted alongside the migrate-cred-files test block below and the
+// migrate-cred-files handler in matrix-admin-routes.ts.
 
 // Silence logger noise
 vi.mock("../utils/logger.js", () => ({
@@ -645,180 +618,12 @@ describe("PATCH /matrix-admin/creds/host-side-base", () => {
   });
 });
 
-// Vitest wants at least one afterEach import — keep the linter happy
-import { afterEach } from "vitest";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
-
 // ---------------------------------------------------------------------------
-// Phase 79 Plan 08 — POST /matrix-admin/migrate-cred-files tests
+// Phase 128-09 (D-18): the Phase 79 Plan 08 describe("POST /matrix-admin/
+// migrate-cred-files") block is deleted alongside the corresponding handler
+// in matrix-admin-routes.ts. The bridge is torn down; the one-shot migration
+// endpoint has no reason to exist.
 // ---------------------------------------------------------------------------
-
-describe("POST /matrix-admin/migrate-cred-files", () => {
-  let server: { port: number; close: () => Promise<void> };
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tg-bridge-migrate-"));
-    process.env.TG_BRIDGE_STATE_DIR_OVERRIDE = tempDir;
-    mintAndWriteHumanTokenMock.mockReset();
-    dbSelectMock.mockReset().mockReturnValue([]);
-    mockIsAdmin = true;
-    server = await startServer();
-  });
-
-  afterEach(async () => {
-    delete process.env.TG_BRIDGE_STATE_DIR_OVERRIDE;
-    await server.close();
-    try {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  });
-
-  it("401 when no auth token present", async () => {
-    mockIsAdmin = null;
-    const res = await request(server.port, "POST", "/matrix-admin/migrate-cred-files", {});
-    expect(res.status).toBe(401);
-    expect(mintAndWriteHumanTokenMock).not.toHaveBeenCalled();
-  });
-
-  it("403 when caller is authenticated but not admin", async () => {
-    mockIsAdmin = false;
-    const res = await request(server.port, "POST", "/matrix-admin/migrate-cred-files", {});
-    expect(res.status).toBe(403);
-    expect(mintAndWriteHumanTokenMock).not.toHaveBeenCalled();
-  });
-
-  it("200 — mints for humans-with-mxid, reports skipped-no-mxid for Laura-like row", async () => {
-    dbSelectMock.mockReturnValue([
-      { name: "user", mxid: "@ashley:t1000.taild9b663.ts.net" },
-      { name: "laura", mxid: null },
-    ]);
-    mintAndWriteHumanTokenMock.mockResolvedValue({ ok: true });
-
-    const res = await request(server.port, "POST", "/matrix-admin/migrate-cred-files", {});
-    expect(res.status).toBe(200);
-    const parsed = JSON.parse(res.body);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.results).toHaveLength(2);
-
-    const user = parsed.results.find(
-      (r: { humanName: string }) => r.humanName === "user",
-    );
-    const laura = parsed.results.find(
-      (r: { humanName: string }) => r.humanName === "laura",
-    );
-
-    expect(user.status).toBe("minted");
-    expect(user.mxid).toBe("@ashley:t1000.taild9b663.ts.net");
-    expect(laura.status).toBe("skipped-no-mxid");
-    expect(laura.mxid).toBeNull();
-
-    expect(mintAndWriteHumanTokenMock).toHaveBeenCalledWith(
-      "@ashley:t1000.taild9b663.ts.net",
-      "user",
-    );
-    expect(mintAndWriteHumanTokenMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("200 — reports status:failed when mintAndWriteHumanToken rejects for one user; other users continue", async () => {
-    dbSelectMock.mockReturnValue([
-      { name: "user", mxid: "@ashley:t1000.taild9b663.ts.net" },
-      { name: "zoey", mxid: "@zoey:thenasty.taild9b663.ts.net" },
-    ]);
-    mintAndWriteHumanTokenMock.mockImplementation(
-      async (_mxid: string, humanName: string) => {
-        if (humanName === "user") {
-          return { ok: false, error: "synapse_500" };
-        }
-        return { ok: true };
-      },
-    );
-
-    const res = await request(server.port, "POST", "/matrix-admin/migrate-cred-files", {});
-    expect(res.status).toBe(200);
-    const parsed = JSON.parse(res.body);
-    expect(parsed.results).toHaveLength(2);
-
-    const user = parsed.results.find(
-      (r: { humanName: string }) => r.humanName === "user",
-    );
-    const zoey = parsed.results.find(
-      (r: { humanName: string }) => r.humanName === "zoey",
-    );
-
-    expect(user.status).toBe("failed");
-    expect(user.error).toBe("synapse_500");
-    expect(zoey.status).toBe("minted");
-  });
-
-  it("200 — deletes stale .cred files under TG_BRIDGE_STATE_DIR and reports them", async () => {
-    dbSelectMock.mockReturnValue([
-      { name: "user", mxid: "@ashley:t1000.taild9b663.ts.net" },
-    ]);
-    mintAndWriteHumanTokenMock.mockResolvedValue({ ok: true });
-
-    // Materialize legacy .cred files.
-    fs.writeFileSync(path.join(tempDir, "user.cred"), "plaintext-legacy-1");
-    fs.writeFileSync(path.join(tempDir, "zoey.cred"), "plaintext-legacy-2");
-    // Non-.cred file to prove the filter is scoped.
-    fs.writeFileSync(path.join(tempDir, "registry.json"), "{}");
-
-    const res = await request(server.port, "POST", "/matrix-admin/migrate-cred-files", {});
-    expect(res.status).toBe(200);
-    const parsed = JSON.parse(res.body);
-
-    expect(parsed.deletedCredFiles).toEqual(
-      expect.arrayContaining(["user.cred", "zoey.cred"]),
-    );
-    expect(parsed.deletedCredFiles).toHaveLength(2);
-
-    // Post-condition: .cred files are gone; registry.json survives.
-    expect(fs.existsSync(path.join(tempDir, "user.cred"))).toBe(false);
-    expect(fs.existsSync(path.join(tempDir, "zoey.cred"))).toBe(false);
-    expect(fs.existsSync(path.join(tempDir, "registry.json"))).toBe(true);
-  });
-
-  it("200 — idempotent: two consecutive calls both succeed with same response shape", async () => {
-    dbSelectMock.mockReturnValue([
-      { name: "user", mxid: "@ashley:t1000.taild9b663.ts.net" },
-    ]);
-    mintAndWriteHumanTokenMock.mockResolvedValue({ ok: true });
-
-    const res1 = await request(server.port, "POST", "/matrix-admin/migrate-cred-files", {});
-    const res2 = await request(server.port, "POST", "/matrix-admin/migrate-cred-files", {});
-
-    expect(res1.status).toBe(200);
-    expect(res2.status).toBe(200);
-
-    const p1 = JSON.parse(res1.body);
-    const p2 = JSON.parse(res2.body);
-
-    // Same shape both times — second call is NOT a no-op, it re-mints.
-    expect(p1.ok).toBe(true);
-    expect(p2.ok).toBe(true);
-    expect(p1.results).toHaveLength(1);
-    expect(p2.results).toHaveLength(1);
-    expect(p1.results[0].status).toBe("minted");
-    expect(p2.results[0].status).toBe("minted");
-    expect(mintAndWriteHumanTokenMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("200 — empty users table returns ok:true with results: []", async () => {
-    dbSelectMock.mockReturnValue([]);
-
-    const res = await request(server.port, "POST", "/matrix-admin/migrate-cred-files", {});
-    expect(res.status).toBe(200);
-    const parsed = JSON.parse(res.body);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.results).toEqual([]);
-    expect(parsed.deletedCredFiles).toEqual([]);
-    expect(mintAndWriteHumanTokenMock).not.toHaveBeenCalled();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Relay-migration shape 6 — POST /matrix-admin/reset-registry-rooms tests
