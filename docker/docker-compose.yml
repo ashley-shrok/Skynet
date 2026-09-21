@@ -33,6 +33,15 @@ services:
     # the practical process-visibility the container already has when it
     # SSHes as `ubuntu` to any other fleet host.
     pid: host
+    # /proc/<pid>/environ is mode 0400, readable only by the process owner
+    # (or a process with CAP_SYS_PTRACE). The container runs as root inside
+    # but session PIDs are owned by the host's ubuntu user, so the read
+    # fails EPERM without this capability. Docker drops SYS_PTRACE by
+    # default; adding it here lets the sweep resolve each PID's identity
+    # via its tmux environment. Same practical power the container already
+    # has when it SSHes to any fleet host as ubuntu.
+    cap_add:
+      - SYS_PTRACE
     # Build block added 2026-09-10 (bounty compose-tg-bridge-buildpath-cleanup)
     # so `docker compose build` from a maintainer's worktree rebuilds both
     # skynet-patched:local AND tg-bridge:local in one command. Previously
