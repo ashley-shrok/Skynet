@@ -2775,7 +2775,7 @@ Plans:
 
 **Requirements**: D-01..D-20 (see `128-CONTEXT.md`) plus the shape file at `.planning/shapes/shape-notifications.md`
 **Depends on:** Phase 127
-**Plans:** 7/11 plans executed
+**Plans:** 8/11 plans executed
 
 Plans:
 - [x] 128-01-PLAN.md — pushSubscriptions Drizzle schema + runTelegramBotTokensTableDrop() drop-migration wired at boot. Wave 1, autonomous. 5 atomic commits (TDD), 2533 tests green, build clean.
@@ -2785,7 +2785,7 @@ Plans:
 - [x] 128-05-PLAN.md — push-subscriptions Express router (POST register auth-gated userId-from-JWT, GET vapid-public-key) + dual-nginx blocks (nginx.conf + nginx-https.conf byte-mirror verified). Wave 1, autonomous. 4 commits, 17/17 scoped tests, build clean.
 - [x] 128-06-PLAN.md — NOVEL push-trigger-loop.ts (per-user always-on live-event pump reusing `harness_dm` classifier; per-room cursor; existing observation-loop scheduler shape) + push-trigger-starter.ts boot dispatch. Wave 2 (depends on 128-01, 128-02, 128-03). 4 atomic commits (TDD RED/GREEN × 2), 22/22 tests green, cold-start suppression enforced (T-128-29 mitigation), backend + full build clean, zero telegram imports.
 - [x] 128-07-PLAN.md — EnableNotificationsButton opt-in UI (user-gesture gated `Notification.requestPermission()` per iOS constraint) + push-subscription-api hook + AppShell openRoom deep-link handler. Wave 2 (depends on 128-05).
-- [ ] 128-08-PLAN.md — starter.ts VAPID + push-trigger wiring; delete 3 telegram-loop dispatches; database.ts /push-subscriptions route mount + delete /telegram route mount. Wave 3.
+- [x] 128-08-PLAN.md — starter.ts VAPID + push-trigger wiring; delete 3 telegram-loop dispatches; database.ts /push-subscriptions route mount + delete /telegram route mount. Wave 3.
 - [ ] 128-09-PLAN.md — Delete src/backend/telegram/ (22 files) + substrate/services/tg-bridge/ + voice.ts bridge-service special-case + schema.ts telegramBotTokens export + conditional getSharedDMRoom (grep-gate for non-bridge callers). Wave 4.
 - [ ] 128-10-PLAN.md — Delete tg-bridge from docker/docker-compose.yml + tg-bridge-state volume + /telegram nginx blocks from BOTH docker/nginx.conf + docker/nginx-https.conf. Wave 4.
 - [ ] 128-11-PLAN.md — [BLOCKING] initializeDatabase integration test (7 tests: table presence, UNIQUE constraint, drop-migration hit/miss/idempotency, FK cascade) + phase-wide scoped vitest sweep. Wave 5.

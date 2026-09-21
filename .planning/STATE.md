@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-21T03:25:21.643Z"
+last_updated: "2026-09-21T03:39:47.109Z"
 last_activity: 2026-09-21
 progress:
   total_phases: 129
   completed_phases: 108
   total_plans: 563
-  completed_plans: 550
+  completed_plans: 551
   percent: 84
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 128 (Push notifications replacing Telegram bridge) — EXECUTING
-Plan: 8 of 11 (advance after 06 completion — 06 was the novel load-bearing Wave 2 plan; per phase graph, next unblocked is Wave 3 which depends on 06 being landed)
+Plan: 9 of 11 (advance after 06 completion — 06 was the novel load-bearing Wave 2 plan; per phase graph, next unblocked is Wave 3 which depends on 06 being landed)
 
 Last activity: 2026-09-21
 
@@ -229,7 +229,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — user can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 Progress: [██████████] 100%
 Progress: [██████████] 100%
 
@@ -401,6 +401,7 @@ Progress: [██████████] 100%
 | Phase 120 P07 | 17m 17s | 3 tasks | 7 files |
 | Phase 120 P08 | 3min | 2 tasks | 2 files |
 | Phase 128 P07 | 15 | 3 tasks | 6 files |
+| Phase 128 P08 | 2min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -652,6 +653,8 @@ Recent decisions affecting current work:
 - [Phase ?]: No src/backend/distributor/catalog.ts edit needed for svelte.config.js content-only change (byte-compare picks up new content at push time; row count unchanged at 52)
 - [Phase 128]: Phase 128 Plan 07: openRoom deep-link handler extracted to open-room-deep-link.ts for unit-testability without mounting AppShell's 4256-line tree; AppShell useEffect delegates via injected callback.
 - [Phase 128]: Phase 128 Plan 07: EnableNotificationsButton placed in top-right fixed AppShell chrome (Pitfall 1 reachable-at-any-time) rather than a settings menu that does not exist post-Phase-11-strip.
+- [Phase ?]: 128-08: Add push-trigger dispatch AFTER observation-loop dispatch (symmetry keeps the bootstrap pair visually paired; both enumerate users with mxid)
+- [Phase ?]: 128-08: Land assertVapidConfigAtBoot as a bare call matching assertBrandingConfigAtBoot let-throws-propagate style (starter's uncaught-exception handler surfaces structured error + non-zero exit)
 
 ### Pending Todos
 
@@ -1030,7 +1033,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-21T03:25:12.547Z
+Last session: 2026-09-21T03:39:13.735Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed 128-07 (frontend push opt-in + openRoom deep-link)
@@ -1045,7 +1048,7 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: 128-08-PLAN.md
+Resume file: None
 Resume file: .planning/phases/118-first-class-apps-sweep-registry-shape-2/118-CONTEXT.md
 
 - Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)
