@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-09-19T04:44:46.443Z"
-last_activity: 2026-09-19
+status: executing
+last_updated: "2026-09-21T03:02:00.000Z"
+last_activity: "2026-09-21 -- Completed Phase 128 Plan 06 (push-trigger-loop + starter)"
 progress:
-  total_phases: 120
-  completed_phases: 103
-  total_plans: 529
-  completed_plans: 522
-  percent: 85
+  total_phases: 129
+  completed_phases: 108
+  total_plans: 563
+  completed_plans: 549
+  percent: 84
 ---
 
 # Project State
@@ -20,16 +20,19 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** user never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 116 — image-gen-skill-file-drop-broker-for-openai-image-generation
+**Current focus:** Phase 128 — Push notifications replacing Telegram bridge
 
 ## Current Position
 
-Phase: 116 (image-gen-skill-file-drop-broker-for-openai-image-generation) — EXECUTING
-Plan: 4 of 4
+Phase: 128 (Push notifications replacing Telegram bridge) — EXECUTING
+Plan: 7 of 11 (advance after 06 completion — 06 was the novel load-bearing Wave 2 plan; per phase graph, next unblocked is Wave 3 which depends on 06 being landed)
 
+Last activity: 2026-09-21 — Completed Phase 128 Plan 06 (push-trigger-loop + starter). Novel per-user always-on Matrix live-event pump landed at `src/backend/notifications/push-trigger-loop.ts` + boot bootstrap at `src/backend/notifications/push-trigger-starter.ts`. This is the LOAD-BEARING trigger for every push notification the phase delivers — without this loop, Wave 1's vapid-config + push-sender + service worker handlers + subscription route would have no way to fire. Four-step filter pipeline delivers D-04 (non-message rejected, self-sent rejected, edits rejected via `m.relates_to.rel_type === "m.replace"`, non-`harness_dm` classifier decisions rejected). classifyRoom is CALLED per-event (D-02 — no re-derivation), scheduler shape mirrors observation-loop.ts's createObservationLoop (BACKOFF_LADDER + in-flight guard + ±20% jitter + [0, 500ms) initial-tick spread), per-user isolation preserved. NOVEL invariant: cold-start suppression on first tick per room (discards events, only sets cursor) prevents boot-time push storm (T-128-29 mitigation, called out in SUMMARY for /close arc). Never-throws contract: sendPushToUser failures absorbed to .warn but cursor still advances (dropping preferable to re-firing same event from unchanged cursor). Starter is byte-mirror of observation-loop-starter.ts shape with VAPID-config gate replacing the ensureRegistryRoomsExist gate (fail-SAFE not fail-fast — assertVapidConfigAtBoot in starter.ts is the fail-fast surface; this belt-and-suspenders warn-and-return). Two atomic TDD cycles: 8a03e90a (test 128-06-1 RED) → 3051ba31 (feat 128-06-1 GREEN, 17 tests green) + f4f581f6 (test 128-06-2 RED) → 04a39391 (feat 128-06-2 GREEN, 5 tests green). Total 22/22 test cases pass, backend + full builds clean, zero telegram imports (grep). HEAD `04a39391` LOCAL, NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule; ships batched with rest of Phase 128 waves. SUMMARY at `.planning/phases/128-push-notifications-replacing-telegram-bridge/128-06-SUMMARY.md`. Next: Plan 08 (starter.ts wire-up) will invoke `startPushTriggerLoopOnBoot` alongside the observation-loop dispatch — copy-paste template lives at 128-PATTERNS.md § 14.
+
+Last activity (prior): 2026-09-21 -- Phase 128 execution started
 Last activity (prior): 2026-09-10 -- Phase 103 execution started
 Last activity (prior): 2026-09-10 — Completed Phase 98 more-versatile-stt-tts-support (Amazon Polly + Amazon Transcribe swap for Chatterbox). All 5 waves shipped: Wave 1 (98-01 ffmpeg+SDK install, 98-02 kernels, 98-03 frontend catalog, 98-09 deploy doc), Wave 2 (98-04 AWS adapters, 98-05 migration one-shot + inline Dirent type fix), Wave 3 (98-06 voice.ts rewrite, 98-07 validator flip + inline roles-create followon fix), Wave 4 (98-08 tg-bridge rewire to Skynet /voice/transcribe), Wave 5 (98-10 Chatterbox kill, media-endpoints.ts deleted). Unbiased code review clean (1 HIGH + 3 MED + 2 LOW applied; 3 LOW deferred). Both backend + frontend tsc exit 0 across the full delta. Every plan has SUMMARY.md committed. All Chatterbox integration paths removed cleanly (no dual-provider seam). Ambient IMDS creds via Iris's `SkynetPollyTranscribeAccess` inline policy on `termix-ssm-role`. Voice-migration one-shot wipes existing identity voice values on boot (users re-pick from 7-voice Polly generative catalog). tg-bridge routes through Skynet `/voice/transcribe` (provider-agnostic). Held at push boundary per greenlight-at-push rule; ship in flight.
-Last activity: 2026-09-19
+Last activity: 2026-09-21 -- Phase 128 execution started
 Last activity (prior): 2026-09-18 — Completed quick task 260918-5lb: fleet-substrate distributor local-FS bypass for the local Skynet host record. HEAD `d2167e48` LOCAL — NOT pushed / NOT built / NOT deployed.
 Last activity (prior): 2026-09-12 — Completed Phase 107 execution (vega): hide identity rows via disk sentinel. All 4 waves shipped as 10 code commits: (Wave 1) 107-01 primitive — extend ALLOWED_REL_PATHS to include `.hidden`, 10 primitive tests; (Wave 2) 107-02 backend fanout — `publicIdentity` gains `hidden:boolean` seventh arg populated by parallel `.hidden` probe alongside `.pinned` in same Promise.all wave, mirror pinnedConversationIds fanout for hiddenConversationIds in PUT /user-preferences sharing ONE connByHost + try/finally when both slices present in same body (HID-107-PUT-09 conn-sharing invariant), retire hiddenConversationIds DB read/write path, 15 new HID-107-* tests + all pre-existing green; (Wave 3a) 107-03 schema drop — `runHiddenColumnDrop` byte-mirror of `runPinColumnDrop`, wired into `migrateSchema()` AFTER pin preflight + BEFORE addColumnIfNotExists sweep with `phase-107-hidden-sentinel-migration` forceSave label batching both column drops + sweep in one atomic write, drizzle mirror + sweep line deleted, 2 migration tests; (Wave 3b) 107-04 frontend + affordance narrowing — `putHiddenIds(ids, identityHosts)` widened + `toBareIdentityKey` wire-strip reused + `getHiddenIds` retired + `Identity.hidden?: boolean` added + `deriveDiskHiddenIds` selector export, `hideConversation`/`unhideConversation` thread identityHosts via `buildIdentityHostsFromFleet` (H2 reuse), the both-loaded hydrate effect (from quick-260912-5q2) extended to derive hidden alongside pinned in one pass (one hydratedRef guards both, one dep array triggers both), Hide button narrowed to fleet-synthetic identity rows via `isFleetIdentityRow(row)` gate = `row.id.startsWith("fleet::") && row.kind !== "relay-room" && row.rdpHostRow !== true` applied at all 4 render sites (belt-and-suspenders panel-level defensive check preserved), 298 tests across 9 UI files all green. Total: 20 commits since baseline `289b79d7` (quick-260912-5q2 pin-hydration fix pushed to origin, then Phase 107 shape+CONTEXT+4 plans docs + Waves 1-4 test-first RED/GREEN pairs per plan + executor-committed per-plan docs for 01/02/03). All scoped tests green; `npm run build:backend` clean; `npx tsc --noEmit` clean. user acknowledged tradeoff: `.hidden` sentinel is identity-scoped not user-scoped (one user hides = hides for everyone) — mirrors `.pinned` scoping; multi-user rescoping is explicitly a future separate phase. HEAD `dbbf5b5e` LOCAL, NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule. Per /build pipeline: next is unbiased general-purpose subagent code review (step 5) + agent-side UAT (step 6) + deploy (step 7, needs user greenlight) + hand-off (step 8) + stakeholder notify (step 9). Shape file: `.planning/shapes/shape-hidden-identity-rows-via-sentinel.md`; phase artifacts at `.planning/phases/107-hide-identity-rows-via-disk-sentinel-mirror-phase-92-for-the/`.
 Last activity (prior): 2026-09-12 — Completed quick task 260912-0t4: hostId-scope identity lookup fixes cross-host cosmetics collision. Backend `identities.ts` first-host-wins dedup dropped; frontend `identities-store.ts` gained additive `byHostKey` map keyed `${hostId}::${identityKey.toLowerCase()}` alongside preserved `byKey`. Five consumer sites rewired (PrettyConversationRow + PrettyView + PrettyConversationsPanel×4 + IdentitySessionPane). `useSessionIdentity` widened to `(name, hostId?)` with byKey fallback. Four atomic code commits (`15112ca9`+`8c3c45f4`+`f0a31679`+`9d69753a`) plus docs. Ships in this batch.
@@ -94,7 +97,7 @@ Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bo
 
 Phase: 44 (frontend-skill-editing-editor-surface-for-skill-folders-on-a) — EXECUTING
 Plan: 3 of 3
-Status: Phase complete — ready for verification
+Status: Executing Phase 128
 
 Last activity: 2026-08-19
 
