@@ -651,21 +651,21 @@ describe("PrettyConversationRow: Phase 13 ready-dot suppression — unknown", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 17 — Ambient (!inActiveSet) idle row never spins. user 2026-08-20
-//           UAT tightening scoped the spinner to active-set-only, so ambient
-//           idle rows have neither the retired ready-dot nor the spinner-on
-//           class. (Prior 2026-08-19 full-inversion shape briefly lit every
-//           ambient row and user reported it as inverted.)
+// Test 17 — Ambient (!inActiveSet) IDLE row never spins. user 2026-09-21
+//           decouple: the spinner is gated on the fleet-authoritative work
+//           axis alone (isWorking || isRecycling || hasQueuePending), no
+//           active-set conjunct. An idle row (all three predicates false)
+//           never spins, regardless of active-set membership. Ambient
+//           WORKING rows now DO spin — see P47-15 for that lock.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: ambient rows never spin (post-2026-08-20 UAT tightening)", () => {
-  it("Test 17: !inActiveSet+isWorking===false has NO ready-dot AND NO `spinner-on` class (ambient rows are silent for both indicators)", () => {
-    // Under the active-set-scoped gate `inActiveSet && (isWorking===true ||
-    // isRecycling || hasQueuePending)`, inActiveSet=false short-circuits the
-    // whole expression to `false` → no spinner-on. Combined with the retired
-    // ready-dot, ambient idle rows carry NEITHER indicator — they are fully
-    // silent. See also P47-15 for the same invariant with isWorking=true
-    // (ambient working rows also don't spin).
+describe("PrettyConversationRow: idle rows never spin (post-2026-09-21 decouple)", () => {
+  it("Test 17: !inActiveSet+isWorking===false has NO ready-dot AND NO `spinner-on` class (idle rows never spin)", () => {
+    // Under the decoupled gate `isWorking===true || isRecycling ||
+    // hasQueuePending`, all three predicates false/undefined collapse the
+    // expression to `false` → no spinner-on. The retired ready-dot is
+    // absent as well. See P47-15 for the working-ambient case (ambient
+    // working rows DO spin under decouple).
     currentIdentity = makeIdentity(210);
     const { container, queryByLabelText } = render(
       <PrettyConversationRow
@@ -837,20 +837,15 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
   });
 
   // isWorking===false on BOTH inActiveSet=true and =false yields NO spinner-on
-  // under the active-set-scoped gate (user 2026-08-20 UAT tightening):
-  //   inActiveSet=true  + isWorking===false → active-set-idle → no spinner-on
-  //                                            (the ready-dot's exclusive
-  //                                            branch).
-  //   inActiveSet=false + isWorking===false → ambient rows silent → no
-  //                                            spinner-on (short-circuits on
-  //                                            the outer `inActiveSet`
-  //                                            conjunct).
-  // The two branches WERE briefly asymmetric under the 2026-08-19 full-
-  // inversion shape, and user reported that as "idle rows have spinners" on
-  // first UAT — this test now locks the tightened symmetry so a regression
-  // back to the full-inversion shape would fail. The ready-dot is fully
-  // retired in both branches (that part was unchanged by the tightening).
-  it("Test SPINNER-INVERSION-01: isWorking===false yields NO spinner-on on either inActiveSet=true or =false — ready-dot also fully absent in both cases (ambient-scope tightening)", () => {
+  // under the decoupled gate (user 2026-09-21 decouple from active-set):
+  //   `showSpinnerOn = isWorking === true || isRecycling || hasQueuePending`
+  //   — with all three predicates false/undefined, the expression collapses
+  //   to `false` regardless of `inActiveSet`. Idle rows never spin, whether
+  //   ambient or active-set. This invariant held under the prior 2026-08-20
+  //   active-set-scoped gate and still holds under the decouple (the two
+  //   gates agree on the idle branch; they differ only on the working-
+  //   ambient branch — see P47-15 for that).
+  it("Test SPINNER-INVERSION-01: isWorking===false yields NO spinner-on on either inActiveSet=true or =false — ready-dot also fully absent in both cases (idle rows never spin)", () => {
     for (const inActiveSet of [true, false]) {
       currentIdentity = makeIdentity(210);
       const { container, queryByLabelText, unmount } = render(
@@ -871,7 +866,7 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
         container.querySelector(".pv-ready-dot"),
         `inActiveSet=${inActiveSet}`,
       ).toBeNull();
-      // Active-set-scoped spinner: neither branch spins when isWorking=false.
+      // Decoupled spinner: neither branch spins when isWorking=false.
       const wrapper = container.querySelector(
         '[data-conversation-id="conv-1"]',
       ) as HTMLElement;
@@ -2865,24 +2860,24 @@ describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () =>
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 48 Plan 05 (v14 locked shape, user 2026-08-19)
+// Phase 48 Plan 05 (v14 locked shape, user 2026-08-19) — spinner gate
+// updated 2026-09-21 (decouple from active-set)
 // ─────────────────────────────────────────────────────────────────────────────
-// New tests locking the v14 shape invariants: title-line hostname parens
+// Tests locking the v14 shape invariants: title-line hostname parens
 // suffix; subtitle line = aiTitle (or muted italic ellipsis placeholder
 // when null); Server icon fully retired; ready-dot fully retired; .pv-meta
 // wrapper fully retired; bounty badges relocated to avatar corners; spinner-
-// on className emitted per the active-set-scoped 4-input boolean (user
-// 2026-08-20 UAT tightening of 2026-08-19 verbatim):
+// on className emitted per the decoupled 3-input boolean (user 2026-09-21):
 //
-//   showSpinnerOn = inActiveSet
-//                && (isWorking===true || isRecycling || hasQueuePending)
+//   showSpinnerOn = isWorking===true || isRecycling || hasQueuePending
 //
 // P47-14 and P47-15 are LOAD-BEARING regression guards. P47-14 locks
-// hasQueuePending as a first-class input within the active-set scope. P47-15
-// locks the ambient-scope short-circuit — non-active-set rows never spin.
-// Together they guard against BOTH the pre-Phase-48 CSS-only gate `.pv-row
-// .active-set:is(.working, .recycling)` (which dropped hasQueuePending) AND
-// the 2026-08-19 full-inversion shape (which lit every ambient idle row).
+// hasQueuePending as a first-class positive trigger. P47-15 locks the
+// decouple — ambient (non-active-set) working rows DO spin, because
+// agent-readiness is client-scope-independent. Together they guard against
+// BOTH the pre-Phase-48 CSS-only gate `.pv-row.active-set:is(.working,
+// .recycling)` (which dropped hasQueuePending) AND the 2026-08-20 active-
+// set-scoped shape (which made the same agent's readiness client-dependent).
 // Do NOT weaken or delete either.
 describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   it("Test P48-01: title line renders identityName + ' (hostname)' suffix (parens contain hostname, single space between name and parens)", () => {
@@ -3148,16 +3143,17 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     expect(body.className).not.toContain("recycling");
   });
 
-  it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row does NOT have `spinner-on` class (ambient rows never spin, user 2026-08-20 UAT tightening)", () => {
-    // Active-set-scoped gate: `inActiveSet && (isWorking===true ||
-    // isRecycling || hasQueuePending)` short-circuits to `false` when
-    // inActiveSet=false, regardless of the inner three predicates. Ambient
-    // rows are silent for BOTH the retired ready-dot and the spinner.
-    // This test locks the ambient-scope tightening — if a future change
-    // widened the gate back to the 2026-08-19 full-inversion shape (where
-    // ambient working AND ambient idle rows both spun), this test would
-    // fail. Paired with P47-14 which locks queue-pending as a first-class
-    // input within the active-set scope.
+  it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row HAS `spinner-on` class (agent-readiness is client-scope-independent, user 2026-09-21 decouple)", () => {
+    // Decoupled gate: `showSpinnerOn = isWorking === true || isRecycling ||
+    // hasQueuePending`. `activeSet` is a per-tab client-side artifact and
+    // the wrong axis to gate on — the same agent's readiness must not
+    // appear or disappear depending on which client has the tab open.
+    // `isWorking` and `isRecycling` are backend-authoritative via the
+    // fleet-status poller (Plan 53-03); the spinner lights whenever the
+    // agent is working regardless of active-set membership. This test
+    // locks the decouple — if a future change re-scoped the gate back to
+    // `inActiveSet && ...`, this test would fail. Paired with P47-14
+    // which locks queue-pending as a first-class positive trigger.
     currentIdentity = makeIdentity(210, "tanya");
     const { container } = render(
       <PrettyConversationRow
@@ -3177,10 +3173,11 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    expect(body.className).not.toContain("spinner-on");
-    // The row DOES carry `.working` (isWorking===true) but does NOT carry
-    // `.active-set` — under the active-set-scoped gate, `.working` alone
-    // without `.active-set` is not enough to trip the spinner.
+    expect(body.className).toContain("spinner-on");
+    // The row carries `.working` (isWorking===true) and does NOT carry
+    // `.active-set` (inActiveSet=false) — the spinner is now gated on the
+    // fleet-authoritative work axis alone, decoupled from client-side
+    // active-set membership.
     expect(body.className).toContain("working");
     expect(body.className).not.toContain("active-set");
   });

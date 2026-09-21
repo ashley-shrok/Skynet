@@ -458,19 +458,19 @@
    ═══════════════════════════════════════════════════════════════════════════
    Slow dashed spinner ring painted around the avatar disc, keyed on the
    `.spinner-on` class emitted by PrettyConversationRow.tsx from the JS-
-   computed 4-input active-set-scoped boolean:
+   computed boolean:
 
-     showSpinnerOn = inActiveSet
-                  && (isWorking === true || isRecycling || hasQueuePending)
+     showSpinnerOn = isWorking === true || isRecycling || hasQueuePending
 
-   Same 4 inputs as the pre-Phase-48 ready-dot gate, `inActiveSet` preserved
-   as the outer scope, three inner predicates flipped to positive-work
-   polarity. Ready-dot fires on `inActiveSet && idle`; spinner fires on
-   `inActiveSet && !idle`; ambient rows silent for both. user 2026-08-20
-   UAT tightening of the 2026-08-19 verbatim rule after the full-inversion
-   shape lit every ambient idle row.
+   user 2026-09-21 decouple: the active-set scope was retired. The spinner
+   is a pure agent-readiness signal — `isWorking` and `isRecycling` are
+   backend-authoritative via the fleet-status poller, so the ring lights
+   whenever the agent is working regardless of which client has the tab
+   open. `hasQueuePending` remains as a first-class positive trigger; it's
+   a per-client ComposeBox signal, so it only fires for sessions this
+   client has open, which is the intended shape.
 
-   All 4 inputs live in JS; CSS keys off the single resulting className. DO
+   All inputs live in JS; CSS keys off the single resulting className. DO
    NOT add `:is(.working, .recycling)` narrowing on the CSS side — that would
    drop `hasQueuePending` from the input set. See PrettyConversationRow.tsx
    showSpinnerOn computation for the authoritative comment.

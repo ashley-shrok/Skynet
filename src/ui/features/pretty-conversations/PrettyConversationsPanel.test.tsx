@@ -1017,18 +1017,16 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
     expect(container.querySelector('[data-testid="rdp-divider"]')).toBeNull();
   });
 
-  // user 2026-08-20 UAT tightening of the 2026-08-19 verbatim rule: idle
-  // rows have NOTHING; ACTIVE-SET working rows get a slow dashed spinner
-  // ring on the avatar via `.pv-row.spinner-on .pv-avatar::before`. The
-  // `spinner-on` class is JS-emitted by the active-set-scoped gate
-  // `inActiveSet && (isWorking===true || isRecycling || hasQueuePending)`.
-  // For a non-active-set, non-working row, the gate short-circuits to false
-  // → NO spinner-on. Ambient rows are silent for both the ready-dot and the
-  // spinner — the two indicators mutually partition the ACTIVE-SET only.
-  // This test locks that partitioning at the panel level (integration): a
-  // regression that widened the gate back to the 2026-08-19 full-inversion
-  // shape (every ambient idle row spinning) would fail here.
-  it("Test 19E: non-active-set idle rows have NO ready-dot AND NO `spinner-on` (ambient rows silent for both indicators, user 2026-08-20)", () => {
+  // user 2026-09-21 decouple: idle rows have NOTHING; working rows get a
+  // slow dashed spinner ring on the avatar via `.pv-row.spinner-on
+  // .pv-avatar::before`. The `spinner-on` class is JS-emitted by the
+  // decoupled gate `isWorking===true || isRecycling || hasQueuePending` —
+  // no `inActiveSet` conjunct. For a non-working row (regardless of
+  // active-set membership), all three predicates are false → NO spinner-on.
+  // This test locks that panel-level integration for the idle-ambient case
+  // — the row-level P47-15 lock covers the WORKING-ambient case (ambient
+  // working rows now DO spin, decoupled from client-side active-set state).
+  it("Test 19E: non-active-set idle rows have NO ready-dot AND NO `spinner-on` (idle rows never spin, user 2026-09-21 decouple)", () => {
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
       // Two rows, neither in the active-set, both non-working (default in
@@ -1053,9 +1051,10 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
     expect(m2!.querySelector('[data-pv-conv-ready-dot="true"]')).toBeNull();
     expect(m1!.querySelector(".pv-ready-dot")).toBeNull();
     expect(m2!.querySelector(".pv-ready-dot")).toBeNull();
-    // Neither row carries `.spinner-on` — ambient scope short-circuits the
-    // active-set-scoped gate. See Test P47-15 in PrettyConversationRow.
-    // test.tsx for the row-level invariant lock.
+    // Neither row carries `.spinner-on` — idle rows (all three work
+    // predicates false) never spin under the decoupled gate. See Test
+    // P47-15 in PrettyConversationRow.test.tsx for the row-level lock on
+    // the working-ambient branch (which now DOES spin under decouple).
     const m1Body = m1!.querySelector('[role="button"]') as HTMLElement;
     const m2Body = m2!.querySelector('[role="button"]') as HTMLElement;
     expect(m1Body.className).not.toContain("spinner-on");

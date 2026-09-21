@@ -33,21 +33,21 @@
 //     in Phase 48 Plan 05 (retired in Phase 104 Plan 03 alongside the
 //     bounty-count wire). The current avatar-corner affordance is the
 //     Phase 104 Plan 02 trapped-work indicator.
-//   * `showSpinnerOn` JS-computed boolean (user 2026-08-20 post-UAT
-//     tightening of 2026-08-19 verbatim): the spinner mirrors the ready-dot
-//     scope — it is a SCOPED-TO-ACTIVE-SET signal, ON when the row is in
-//     the active set AND the agent is doing something (working, recycling,
-//     or has a queued send pending). Ambient (not-in-active-set) rows never
-//     spin, regardless of their working state. Concretely:
-//     `showSpinnerOn = inActiveSet && (isWorking === true || isRecycling
-//       || hasQueuePending)` — the SAME 4 inputs the pre-Phase-48 ready-dot
-//     gate used, with `inActiveSet` preserved as the outer scope and the
-//     inner three predicates flipped to their positive-work polarity. The
-//     ready-dot lit for `inActiveSet && idle`; the spinner lights for
-//     `inActiveSet && !idle` — same universe, mutually exclusive triggers,
-//     ambient rows silent for both. Emitted as the `spinner-on` className
-//     on `.pv-row` (see className composition below). CSS keys off
-//     `.pv-row.spinner-on .pv-avatar::before` — single class match; all 4
+//   * `showSpinnerOn` JS-computed boolean (user 2026-09-21 decouple from
+//     active-set, superseding the 2026-08-20 active-set-scoped shape). The
+//     spinner is a pure agent-readiness signal: ON when the agent is
+//     working, recycling, or has a queued send pending, regardless of
+//     whether this client happens to have the tab open. `activeSet` is a
+//     per-tab client-side artifact and was the wrong axis to gate on — the
+//     same agent's readiness appeared or disappeared depending on the
+//     client's tab history. Concretely:
+//     `showSpinnerOn = isWorking === true || isRecycling || hasQueuePending`.
+//     `isWorking` and `isRecycling` are backend-authoritative via the fleet-
+//     status poller (Plan 53-03); `hasQueuePending` is a per-client
+//     ComposeBox signal that is only `true` for sessions this client has
+//     open, which is fine as a positive trigger. Emitted as the `spinner-on`
+//     className on `.pv-row` (see className composition below). CSS keys off
+//     `.pv-row.spinner-on .pv-avatar::before` — single class match; all
 //     inputs live in JS, CSS is the paint layer only.
 //
 // Phase 13 Plan 01 (user 2026-07-23 lift-from-mock v4) — as amended by
@@ -66,15 +66,13 @@
 //
 // This component keeps only the surviving JS-only concerns:
 //
-//   - Working-spinner active-set-scoped gate (user 2026-08-20 UAT):
-//     JS computes `showSpinnerOn = inActiveSet && (isWorking === true ||
-//     isRecycling || hasQueuePending)` — the pre-Phase-48 ready-dot 4-input
-//     universe scoped to the active set, with the three "doing-work"
-//     predicates in their positive polarity. Ready-dot on active-set-idle,
-//     spinner on active-set-not-idle, both silent on ambient rows. Emitted
-//     as the `spinner-on` className on `.pv-row`; CSS at `.pv-row.spinner-on
-//     .pv-avatar::before` paints the slow dashed spinner ring. All 4 inputs
-//     live in JS; CSS is the paint layer only.
+//   - Working-spinner gate (user 2026-09-21 decouple from active-set):
+//     JS computes `showSpinnerOn = isWorking === true || isRecycling ||
+//     hasQueuePending`. Backend-authoritative via the fleet-status poller;
+//     no client-side scope. Emitted as the `spinner-on` className on
+//     `.pv-row`; CSS at `.pv-row.spinner-on .pv-avatar::before` paints the
+//     slow dashed spinner ring. All inputs live in JS; CSS is the paint
+//     layer only.
 //   - Avatar image src selection (identity.avatarUrl vs initial letter vs
 //     tabIcon fallback).
 //   - Click / keyboard / touch handlers, aria-labels, `--pv-hue` custom
@@ -1099,33 +1097,29 @@ export function PrettyConversationRow({
     dxLive < 0 &&
     swipeRawDx <= -swipeThreshold;
 
-  // Working-spinner active-set-scoped gate (user 2026-08-20 UAT tightening
-  // of the 2026-08-19 verbatim rule). user on the first-look UAT of the
-  // full-inversion shape: the ambient rows all lit up because the outer
-  // `inActiveSet` was included in the inversion, which reads as "idle rows
-  // have spinners." The intended shape is a SCOPED mirror of the ready-dot,
-  // not a full universe inversion: the ready-dot lights on
-  // `inActiveSet && idle`, the spinner lights on `inActiveSet && !idle`, and
-  // ambient rows are silent for both. Same 4 inputs, same JS-store source,
-  // `inActiveSet` preserved as the outer scope, the three inner predicates
-  // flipped to positive-work polarity:
+  // Working-spinner gate (user 2026-09-21 decouple from active-set).
+  // `activeSet` is a per-tab client-side artifact — a sessionStorage-backed
+  // set of tab ids this ONE client currently has open or recently opened.
+  // Gating spinner visibility on it made the same agent's readiness appear
+  // or disappear depending on which client the user was looking from, which
+  // is the wrong axis. `isWorking` and `isRecycling` are already backend-
+  // authoritative via the fleet-status poller (Plan 53-03), so the spinner
+  // now lights on the fleet signal alone regardless of which client has
+  // the tab open. `hasQueuePending` remains a first-class positive trigger;
+  // it's a per-client ComposeBox signal, so it can only be `true` when
+  // this client has the session open — which is fine as a positive trigger
+  // and matches the pre-decouple behavior for that predicate.
   //
-  //   showSpinnerOn = inActiveSet
-  //                && (isWorking === true || isRecycling || hasQueuePending)
+  //   showSpinnerOn = isWorking === true || isRecycling || hasQueuePending
   //
   // Emitted as the `spinner-on` className on `.pv-row`; CSS matches on that
-  // single class alone at `.pv-row.spinner-on .pv-avatar::before` — no
-  // CSS-side narrowing to `:is(.working, .recycling)`, no `.active-set`
-  // scoping. All 4 inputs live in JS; CSS is the paint layer only. Tests
-  // P47-14 (`inActiveSet + hasQueuePending → spinner ON` — queue-pending is
-  // a first-class input, not a bystander) and P47-15 (`!inActiveSet +
-  // isWorking=true → spinner OFF` — ambient rows never spin) lock the
-  // full 4-input scoped boolean against regression to either a CSS-only
-  // 2-input `.pv-row:is(.working, .recycling)` shape (which would drop
-  // `hasQueuePending` and `.active-set` scoping) or the pre-UAT full
-  // inversion (which would light every ambient idle row).
+  // single class alone at `.pv-row.spinner-on .pv-avatar::before`. The
+  // `.active-set` class is still emitted from `inActiveSet` for the other
+  // things active-set legitimately drives (deactivate hover-reveal, swipe
+  // direction, "Open in new window" menu behavior) — it just no longer
+  // gates the spinner.
   const showSpinnerOn =
-    inActiveSet && (isWorking === true || isRecycling || hasQueuePending);
+    isWorking === true || isRecycling || hasQueuePending;
 
   const rowClassName = cn(
     "pv-row",
@@ -1380,12 +1374,11 @@ export function PrettyConversationRow({
                 hack) plus the 4-input `isWorkingFalse + notRecycling +
                 noQueuePending` JSX render gate → replaced by the CSS-painted
                 spinner ring on `.pv-avatar::before` (see pretty-conversations
-                .css). The same 4 inputs now drive the active-set-scoped
-                `showSpinnerOn` className computed at the rowClassName
-                composition above (user 2026-08-20 UAT tightening: the
-                ready-dot's `inActiveSet` scope is PRESERVED so ambient rows
-                never spin; only the three inner "doing-work" predicates
-                flip to positive polarity). */}
+                .css). The three positive-polarity work predicates now drive
+                the `showSpinnerOn` className computed at the rowClassName
+                composition above (user 2026-09-21 decouple: the active-set
+                scope was retired — the spinner reflects agent readiness on
+                the fleet-authoritative signal, not client-side tab state). */}
       </div>
       {/* Right-click menu portal. Items filter by row eligibility: Pin
           renders for any row; Open/Move in new window renders on desktop for
