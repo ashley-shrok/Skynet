@@ -648,7 +648,15 @@ def main():
         #
         # Event set — union of what fixed targets and the runbook tree need:
         #   close_write: normal file save
-        #   move_self:   fixed-target inode replaced (mv new old) → respawn
+        #   move_self:   fixed-target inode itself renamed away → respawn
+        #   delete_self: fixed-target inode unlinked (backend atomic tmp+rename over
+        #                the watched file unlinks the old inode; kernel fires
+        #                DELETE_SELF on the OLD inode's watch, then IN_IGNORED
+        #                auto-removes it). MOVE_SELF does NOT fire here — that's
+        #                only for the watched inode being the SOURCE of a rename,
+        #                whereas an atomic-rename-over makes it the DISPLACED
+        #                target. Without delete_self + respawn, the watch dies
+        #                silently and every subsequent edit is invisible.
         #   moved_to:    fixed-target replaced OR new file landed in runbooks/
         #   delete:      runbook.md removed OR slug subfolder removed
         #   create:      slug subfolder created OR runbook.md created
@@ -657,7 +665,7 @@ def main():
         watched_args = list(role_id_paths)
         if runbooks_watched:
             watched_args.append(runbooks_dir)
-        inotify_events = "close_write,move_self,moved_to,delete,create,moved_from"
+        inotify_events = "close_write,move_self,delete_self,moved_to,delete,create,moved_from"
         while True:
             # Orphan check
             if harness_pid is not None:
@@ -708,8 +716,25 @@ def main():
                     # inotifywait emits `%w = <full file path>`, `%f = ""` when
                     # the watched target is a file argument (not a directory).
                     if not f_name and w_path in role_id_paths:
-                        if "MOVE_SELF" in events:
+                        # MOVE_SELF: watched inode itself was renamed AWAY. New
+                        # content may already be at the path (atomic-rename
+                        # patterns overwriting the file), so emit any diff then
+                        # respawn to re-arm on whatever inode now sits at the
+                        # path.
+                        #
+                        # DELETE_SELF: watched inode was unlinked. Fires in two
+                        # cases: (1) backend atomic tmp+rename over the file —
+                        # a new inode is already at the path with new content;
+                        # (2) genuine deletion (no replacement). If a file
+                        # exists at the path shortly after the event, treat as
+                        # case 1 (emit diff + respawn); otherwise treat as
+                        # case 2 (fatal — the target is gone). This mirrors
+                        # MOVE_SELF's respawn semantics: never silently deaf.
+                        if "MOVE_SELF" in events or "DELETE_SELF" in events:
                             if _diff_and_emit_all(targets, baseline_dir, spill_dir):
+                                # Target actually gone — fatal exit (same as
+                                # pre-fix DELETE_SELF behavior). _diff_and_emit
+                                # returns True when the file is unreadable.
                                 sys.exit(1)
                             # Respawn to re-arm on new inode.
                             try:
@@ -718,14 +743,6 @@ def main():
                                 pass
                             _inotify_proc = None
                             break
-                        if "DELETE_SELF" in events:
-                            print(
-                                "⚠️ [role-file-watch] a watched file was deleted: %s"
-                                % event_line,
-                                file=sys.stderr,
-                                flush=True,
-                            )
-                            sys.exit(1)
                         if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                             sys.exit(1)
                         continue
