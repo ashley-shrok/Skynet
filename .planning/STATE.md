@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-21T04:02:42Z"
+last_updated: "2026-09-21T04:12:46.091Z"
 last_activity: 2026-09-21
 progress:
   total_phases: 129
   completed_phases: 108
   total_plans: 563
-  completed_plans: 552
+  completed_plans: 553
   percent: 84
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 128 (Push notifications replacing Telegram bridge) — EXECUTING
-Plan: 10 of 11 (Wave 4 — Plan 09 completed 2026-09-21T04:02:42Z; Plan 10 (docker/nginx teardown) is the parallel Wave-4 sibling and shares Plan-08 dependency, so it is next unblocked. Plan 11 (verification sweep) is Wave 5, blocked on 09 + 10 both landing.)
+Plan: 11 of 11 (Wave 4 — Plan 09 completed 2026-09-21T04:02:42Z; Plan 10 (docker/nginx teardown) is the parallel Wave-4 sibling and shares Plan-08 dependency, so it is next unblocked. Plan 11 (verification sweep) is Wave 5, blocked on 09 + 10 both landing.)
 
 Last activity: 2026-09-21
 
@@ -404,6 +404,7 @@ Progress: [██████████] 100%
 | Phase 120 P08 | 3min | 2 tasks | 2 files |
 | Phase 128 P07 | 15 | 3 tasks | 6 files |
 | Phase 128 P08 | 2min | 2 tasks | 2 files |
+| Phase 128 P10 | 15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -657,6 +658,8 @@ Recent decisions affecting current work:
 - [Phase 128]: Phase 128 Plan 07: EnableNotificationsButton placed in top-right fixed AppShell chrome (Pitfall 1 reachable-at-any-time) rather than a settings menu that does not exist post-Phase-11-strip.
 - [Phase ?]: 128-08: Add push-trigger dispatch AFTER observation-loop dispatch (symmetry keeps the bootstrap pair visually paired; both enumerate users with mxid)
 - [Phase ?]: 128-08: Land assertVapidConfigAtBoot as a bare call matching assertBrandingConfigAtBoot let-throws-propagate style (starter's uncaught-exception handler surfaces structured error + non-zero exit)
+- [Phase ?]: 128-10: skynet service's tg-bridge-state:/state mount had to go too — leaving it in place after removing the volume declaration would have broken docker compose config (Rule 2/3 auto-fix)
+- [Phase ?]: 128-10: /push-subscriptions comment header rewritten to remove stale /telegram references — fleet-rules grep=0 gate required it (Rule 3); the location block itself is byte-for-byte preserved
 
 ### Pending Todos
 
@@ -1035,7 +1038,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-21T03:39:13.735Z
+Last session: 2026-09-21T04:12:41.412Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed 128-07 (frontend push opt-in + openRoom deep-link)
