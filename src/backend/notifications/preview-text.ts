@@ -138,9 +138,13 @@ export function derivePreviewText(event: MatrixMessageEvent): string {
         : PREVIEW_LABELS.file;
     case "m.text":
     case undefined:
-      // Truncate at PREVIEW_MAX_BODY_LEN. `slice` is safe for any length
-      // including 0 (returns "" if body is empty — see next line).
-      return body.slice(0, PREVIEW_MAX_BODY_LEN);
+      // Truncate at PREVIEW_MAX_BODY_LEN. Body may be empty (rare: some
+      // Matrix clients emit m.text with body:"" for edits or pipeline
+      // races). We MUST NOT let "" reach the sw.js push handler — iOS's
+      // silent-revocation heuristic invalidates the subscription when the
+      // rendered body is empty (Pitfall 3). Fall back to the sentinel so
+      // the visible notification always has content.
+      return body ? body.slice(0, PREVIEW_MAX_BODY_LEN) : EMPTY_FALLBACK;
     default:
       // Unknown msgtype (m.location, m.notice, custom types, ...) — mirror
       // the client's best-effort "show the body" behavior. If the body is

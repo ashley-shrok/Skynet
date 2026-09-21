@@ -119,16 +119,27 @@ describe("derivePreviewText", () => {
 
   // ─── Additional guardrails ──────────────────────────────────────────────
 
-  it("returns empty-body-safe output for m.text with empty body", () => {
-    // Empty m.text body is edge — Matrix allows it (rare); we should still
-    // produce a non-empty preview so iOS doesn't invalidate the sub (Pitfall 3).
-    // The truncation of "" is "" — so we deliberately keep the shape but
-    // guard callers by testing the observable: never a silent push.
-    // (This test documents current behavior. If we ever want a fallback here,
-    // change the contract deliberately.)
+  it("returns non-empty EMPTY_FALLBACK for m.text with empty body (Pitfall 3 — never empty)", () => {
+    // Empty m.text body is edge — Matrix allows it (rare, e.g. from edit
+    // pipeline races). Module contract (Pitfall 3): NEVER return "" because
+    // iOS's silent-revocation heuristic invalidates the subscription when
+    // the visible notification body renders empty. The m.text branch must
+    // fall through to the same EMPTY_FALLBACK sentinel the default branch
+    // uses. Fix pass: post-review M-2.
     const result = derivePreviewText({
       content: { msgtype: "m.text", body: "" },
     });
-    expect(typeof result).toBe("string");
+    expect(result).toBe("(message)");
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("returns non-empty EMPTY_FALLBACK for undefined msgtype with empty body (Pitfall 3 — never empty)", () => {
+    // Same discipline for the undefined-msgtype branch (which shares the
+    // m.text case-body). Fix pass: post-review M-2.
+    const result = derivePreviewText({
+      content: { msgtype: undefined, body: "" },
+    });
+    expect(result).toBe("(message)");
+    expect(result.length).toBeGreaterThan(0);
   });
 });
