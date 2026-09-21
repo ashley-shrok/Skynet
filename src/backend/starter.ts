@@ -10,6 +10,11 @@ import { AutoSSLSetup } from "./utils/auto-ssl-setup.js";
 import { AuthManager } from "./utils/auth-manager.js";
 import { DataCrypto } from "./utils/data-crypto.js";
 import { SystemCrypto } from "./utils/system-crypto.js";
+// Phase 128 Plan 08 — VAPID env fail-fast boot gate (mirrors
+// assertBrandingConfigAtBoot placement at ~L474-481). Static import: this
+// is a synchronous throw-at-boot gate, not a fire-and-forget module load
+// (contrast with the void-import blocks below).
+import { assertVapidConfigAtBoot } from "./notifications/vapid-config.js";
 import {
   systemLogger,
   versionLogger,
@@ -358,25 +363,6 @@ if (process.env.VITEST !== "true") {
       operation: "backend_init_db",
     });
 
-    // Phase 79 Plan 04 — bridge-config-writer
-    // Write /state/config.env + registry.json + <human>.token
-    // + <identityKey>.bottoken files for the tg-bridge Docker service.
-    // Fire-and-forget: bridge tolerates a 5-min cold-start delay per
-    // RESEARCH.md § Assumption A9. Failure here is non-fatal — Plan 08's
-    // reconcile loop will re-attempt any missing human tokens on its
-    // next tick, and Plan 03's /telegram/activate handler calls
-    // rewriteRegistryFromCurrentState on every activation so
-    // first-user-activation self-heals a startup miss.
-    // See CONTEXT § 4C for the reliability check.
-    void import("./telegram/bridge-config-writer.js")
-      .then((m) => m.ensureBridgeConfigWritten())
-      .catch((err) => {
-        systemLogger.warn("ensureBridgeConfigWritten failed at startup", {
-          operation: "bridge_config_write_startup_failed",
-          error: err instanceof Error ? err.message : "unknown",
-        });
-      });
-
     // Phase 98 — one-shot voice-value migration.
     // Walks ~/.claude/identities/*/*.md and ~/.claude/roles/*/*.md and
     // clears any voice: frontmatter value matching the old Chatterbox
@@ -391,53 +377,6 @@ if (process.env.VITEST !== "true") {
       .catch((err) => {
         systemLogger.warn("ensureVoiceValuesMigrated failed at startup", {
           operation: "voice_migration_startup_failed",
-          error: err instanceof Error ? err.message : "unknown",
-        });
-      });
-
-    // Phase 79 Plan 08 — start the 30s reconcile-dead-tokens loop.
-    // Reactive-to-401s only (RESEARCH § Q6 — admin-minted tokens don't
-    // TTL-expire). Fire-and-forget: startReconcileLoop returns a timer
-    // handle that we don't store (loop runs for container lifetime).
-    // Errors inside the loop log a warn and continue; the loop never
-    // crashes the container (T-79-08-06).
-    //
-    // Ordering (blocker W-1): this block MUST come after the Plan 04
-    // `bridge_config_write_startup_failed` block; the reconcile loop
-    // assumes the shared volume has been initialized (config.env +
-    // registry.json + at least an initial pass at .token / .bottoken
-    // files).
-    void import("./telegram/reconcile-dead-tokens.js")
-      .then((m) => {
-        m.startReconcileLoop(30_000);
-      })
-      .catch((err) => {
-        systemLogger.warn("startReconcileLoop failed to start", {
-          operation: "reconcile_dead_tokens_start_failed",
-          error: err instanceof Error ? err.message : "unknown",
-        });
-      });
-
-    // Phase 83 Plan 03 — start the 30s reconcile-pending-chat-ids loop.
-    // Reads /state/<agent>.pending-chat-id sentinels the bridge writes when
-    // tg_poller sees an unknown chat_id (Plan 83-01), persists chat_id to
-    // telegram_bot_tokens.telegramChatId, and triggers registry rewrite.
-    // Fire-and-forget: startReconcilePendingChatIdsLoop returns a
-    // .unref()'d timer handle that we don't store. Errors inside the loop
-    // log a warn and continue; the loop never crashes the container
-    // (T-83-03 mirrors T-79-08-06 fail-open contract).
-    //
-    // Ordering: MUST come after the Plan 04 bridge_config_write block AND
-    // after reconcile-dead-tokens (same shared-volume assumption). Placed
-    // as a sibling of reconcile-dead-tokens for symmetry — both loops
-    // consume /state sentinels at the same cadence.
-    void import("./telegram/reconcile-pending-chat-ids.js")
-      .then((m) => {
-        m.startReconcilePendingChatIdsLoop(30_000);
-      })
-      .catch((err) => {
-        systemLogger.warn("startReconcilePendingChatIdsLoop failed to start", {
-          operation: "reconcile_pending_chat_id_start_failed",
           error: err instanceof Error ? err.message : "unknown",
         });
       });
@@ -471,6 +410,36 @@ if (process.env.VITEST !== "true") {
         });
       });
 
+    // Phase 128 — start the push-trigger loop that dispatches web-push
+    // notifications on new DM messages. Fire-and-forget mirroring the
+    // observation-loop-starter block above (S3 discipline in
+    // 128-PATTERNS.md § S3): outer catch on the dynamic import, inner
+    // catch on the startPushTriggerLoopOnBoot() promise. Both operation
+    // strings are grep-anchors — see 128-08-PLAN.md acceptance criteria.
+    // Ordering: after observation-loop (both enumerate users with mxid;
+    // symmetry keeps the bootstrap pair visually paired). The push loop
+    // additionally requires VAPID env; assertVapidConfigAtBoot below is
+    // the fail-fast gate for that env, but push-trigger-starter also
+    // performs its own belt-and-suspenders getVapidDetails() gate.
+    void import("./notifications/push-trigger-starter.js")
+      .then((m) => {
+        m.startPushTriggerLoopOnBoot().catch((err) => {
+          systemLogger.warn(
+            "[phase-128] push-trigger bootstrap failed at startup",
+            {
+              operation: "push_trigger_bootstrap_error",
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
+        });
+      })
+      .catch((err) => {
+        systemLogger.warn("startPushTriggerLoopOnBoot module load failed", {
+          operation: "push_trigger_bootstrap_module_load_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      });
+
     // Phase 74: fail-fast if the branding config lacks a non-empty
     // avatarDirectorSpec. Placed AFTER initializeDatabase() so the DB
     // logger stream is live, and BEFORE AuthManager + the dbServer
@@ -479,6 +448,17 @@ if (process.env.VITEST !== "true") {
       "./branding/assert-boot.js"
     );
     await assertBrandingConfigAtBoot();
+
+    // Phase 128 Plan 08 — fail-fast if VAPID env vars are missing or
+    // malformed. Mirrors the branding assert-boot placement (BEFORE any
+    // route mounts). Synchronous throw contract — matches the "let it
+    // propagate" style of assertBrandingConfigAtBoot; starter's
+    // uncaught-exception handler surfaces the structured error + non-zero
+    // exit that container supervisor watches for. See
+    // src/backend/notifications/vapid-config.ts for the fail-fast rationale
+    // (missing/malformed VAPID subject = every push returns 403 silently
+    // from Apple's push service — better to refuse to boot).
+    assertVapidConfigAtBoot();
 
     // Phase 121 (feedback-config): boot-time env parse + module-scope cache.
     // DELIBERATELY DIVERGES from the branding assert-boot pattern above:
