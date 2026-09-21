@@ -463,14 +463,13 @@ export function buildRelayJsonBody(opts: BuildRelayJsonBodyOpts): string {
 // getUserJoinedRooms — GET /_synapse/admin/v1/users/{mxid}/joined_rooms
 // ---------------------------------------------------------------------------
 //
-// Top-level primitive extracted from getSharedDMRoom's internal helper in
-// Phase 89-03 Task 1. The observation loop (Plan 89-03) polls each user's
-// joined-rooms list on ~10s cadence and needs the failure REASON to drive
-// per-user backoff decisions (D-06), so this primitive returns the standard
-// discriminated-union shape rather than the previous internal-nullable that
-// was cleaner for getSharedDMRoom's Promise.all-across-pairs use case.
-// getSharedDMRoom now delegates to this primitive and collapses failures to
-// null internally to preserve its existing null-tolerant callers.
+// Top-level primitive originally extracted from an internal helper inside
+// the (Phase 128-09 D-19 deleted) getSharedDMRoom, hoisted at Phase 89-03
+// Task 1. The observation loop (Plan 89-03) polls each user's joined-rooms
+// list on ~10s cadence and needs the failure REASON to drive per-user
+// backoff decisions (D-06), so this primitive returns the standard
+// discriminated-union shape rather than the previous internal-nullable
+// form.
 
 export type GetUserJoinedRoomsOk = AdminOk<{ roomIds: string[] }>;
 
@@ -617,11 +616,12 @@ export async function getRoomLatestEventTs(
 // getRoomJoinedMembers — GET /_synapse/admin/v1/rooms/{roomId}/members
 // ---------------------------------------------------------------------------
 //
-// Phase 89-03 Task 1 — hoists the existing endpoint used inside
-// getSharedDMRoom's L511 members-count loop to a top-level primitive with
-// the standard discriminated-union return. The observation loop uses this
-// (a) to enumerate members for the D-08/D-09 classifier decision, and (b)
-// to fetch the agents-registry-room members for the D-09 authority set.
+// Phase 89-03 Task 1 — hoists the members-count endpoint originally used
+// inside the (Phase 128-09 D-19 deleted) getSharedDMRoom to a top-level
+// primitive with the standard discriminated-union return. The observation
+// loop uses this (a) to enumerate members for the D-08/D-09 classifier
+// decision, and (b) to fetch the agents-registry-room members for the D-09
+// authority set.
 
 export type GetRoomJoinedMembersOk = AdminOk<{
   memberMxids: string[];
@@ -686,86 +686,19 @@ export async function getRoomJoinedMembers(
 }
 
 // ---------------------------------------------------------------------------
-// getSharedDMRoom — free helper composing joined_rooms + rooms/members
+// Phase 128-09 (D-19): getSharedDMRoom deleted
 // ---------------------------------------------------------------------------
-
-/**
- * Return the first Matrix room_id where BOTH agentMxid and humanMxid are
- * joined AND the total joined-member count is exactly 2 (i.e. a DM room).
- * Returns null when no such room exists, when either user's joined_rooms
- * call fails, or when creds are absent.
- *
- * Never throws — every error path collapses to null so the caller
- * (bridge-config-writer.ts Plan 81-04) can Promise.all across pairs
- * without try/catch at every site. Discriminated-union errors would
- * force the caller to unwrap on every element; a nullable is cleaner
- * for the "best-effort discover then fall back" pattern.
- *
- * Path-traversal defense: encodeURIComponent on every mxid AND every
- * candidate room_id (T-75-05 — matches createOrUpdateUser L76 pattern).
- *
- * Timeouts: each fetch wrapped in a fresh AbortController + 30s timeout
- * matching REQUEST_TIMEOUT_MS. clearTimeout on both branches.
- */
-export async function getSharedDMRoom(
-  agentMxid: string,
-  humanMxid: string,
-): Promise<string | null> {
-  const creds = await getMatrixAdminCreds();
-  if (!creds) return null;
-
-  // Delegate to the top-level getUserJoinedRooms primitive (extracted from
-  // the previous internal `joinedRooms` helper at Phase 89-03 Task 1).
-  // Collapse discriminated-union errors to null to preserve this function's
-  // existing null-tolerant signature — bridge-config-writer.ts + other
-  // existing callers expect null-on-error.
-  const [agentResult, humanResult] = await Promise.all([
-    getUserJoinedRooms(agentMxid),
-    getUserJoinedRooms(humanMxid),
-  ]);
-  const agentRooms = agentResult.ok ? agentResult.roomIds : null;
-  const humanRooms = humanResult.ok ? humanResult.roomIds : null;
-  if (agentRooms === null || humanRooms === null) return null;
-
-  const humanSet = new Set(humanRooms);
-  const shared = agentRooms.filter((r) => humanSet.has(r));
-  if (shared.length === 0) return null;
-
-  // Serialize member-count checks so we short-circuit on the first match
-  // (typical case: at most 1-2 shared rooms — parallelizing gives no win).
-  for (const roomId of shared) {
-    const url = `${creds.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}/members`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${creds.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (!response.ok) continue;
-      const parsed = (await response.json()) as {
-        members?: unknown;
-        total?: unknown;
-      };
-      const total =
-        typeof parsed.total === "number"
-          ? parsed.total
-          : Array.isArray(parsed.members)
-            ? parsed.members.length
-            : -1;
-      if (total === 2) return roomId;
-    } catch {
-      clearTimeout(timeoutId);
-      continue;
-    }
-  }
-  return null;
-}
+//
+// The Plan 128-09 grep gate on `getSharedDMRoom` confirmed zero non-telegram
+// callers in src/ outside matrix-admin-client.ts itself + its .test.ts:
+//   grep -rn "getSharedDMRoom" src/ | grep -v "src/backend/telegram/" \
+//     | grep -v "src/backend/matrix/matrix-admin-client.ts:"
+//   → hits are all in matrix-admin-client.test.ts (test coverage) only.
+// With src/backend/telegram/ deleted in Plan 128-09 Task 1, the sole
+// production caller (bridge-config-writer.ts Plan 81-04) is gone too, so
+// this helper has no live use. Its two internal helpers — getUserJoinedRooms
+// and getRoomJoinedMembers — remain as top-level exports (extracted at
+// Phase 89-03 Task 1) with independent non-telegram callers.
 
 // ---------------------------------------------------------------------------
 // getRoomName — GET /_matrix/client/v3/rooms/{roomId}/state/m.room.name

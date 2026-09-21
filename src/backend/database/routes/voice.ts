@@ -3,7 +3,7 @@ import express from "express";
 import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
-import type { Request, Response, NextFunction } from "express";
+import type { Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
@@ -417,28 +417,16 @@ router.post(
   },
 );
 
-// Reject bridge service tokens on /speak endpoints. The tg-bridge JWT is
-// minted with userId="tg-bridge-service" and legitimately only needs
-// /voice/transcribe. Scoping the token at the route layer (not the JWT
-// verify layer) means a leaked bridge JWT gets 403 on TTS surfaces rather
-// than the AWS-Polly-billing-burn a leaked wildcard would enable. User
-// tokens carry real DB userIds and pass through unchanged.
-function rejectBridgeServiceOnSpeak(req: Request, res: Response, next: NextFunction) {
-  const authReq = req as AuthenticatedRequest;
-  if (authReq.userId === "tg-bridge-service") {
-    res.status(403).json({
-      error: "voice: bridge service tokens are not authorized for /speak endpoints",
-    });
-    return;
-  }
-  next();
-}
+// Phase 128-09 (D-18): the rejectBridgeServiceOnSpeak middleware — which
+// 403'd any /speak or /speak-stream request whose JWT carried
+// userId="tg-bridge-service" — is deleted alongside the tg-bridge itself.
+// The "tg-bridge-service" identity no longer exists post-teardown, so the
+// guard has no live class of caller to gate.
 
 // --- Route: POST /speak ---
 router.post(
   "/speak",
   authenticateJWT,
-  rejectBridgeServiceOnSpeak,
   express.json({ limit: "64kb" }),
   (req: Request, res: Response) => {
     void handleSpeak(req, res);
@@ -446,13 +434,12 @@ router.post(
 );
 
 // --- Route: POST /speak-stream ---
-// Middleware chain: authenticateJWT (401 if unauth) → rejectBridgeServiceOnSpeak
-// (403 if bridge token) → express.json (body parse) → handleSpeakStream
+// Middleware chain: authenticateJWT (401 if unauth) → express.json (body
+// parse) → handleSpeakStream.
 // T-19-01: authenticateJWT BEFORE express.json — body is never parsed if JWT is invalid.
 router.post(
   "/speak-stream",
   authenticateJWT,
-  rejectBridgeServiceOnSpeak,
   express.json({ limit: "64kb" }),
   (req: Request, res: Response) => {
     void handleSpeakStream(req, res);

@@ -39,7 +39,6 @@ import {
   listRooms,
   buildRelayJsonBody,
   countUsersMatching,
-  getSharedDMRoom,
   deactivateUser,
   createRoom,
   getUserJoinedRooms,
@@ -542,164 +541,10 @@ describe("buildRelayJsonBody", () => {
     expect(parsed.password).toBe(BUILD_OPTS.password);
   });
 });
-// getSharedDMRoom (Plan 83-02 — FIXB-03)
-// ---------------------------------------------------------------------------
-
-describe("getSharedDMRoom", () => {
-  const AGENT = "@alexander:server";
-  const HUMAN = "@ashley:server";
-
-  it("G-01 happy path 2-member shared room resolves to that room_id", async () => {
-    // Sequenced fetch: (1) agent joined_rooms, (2) human joined_rooms,
-    // (3) members lookup for the intersecting room.
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, {
-          joined_rooms: ["!roomA:server", "!roomB:server"],
-        }),
-      )
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, {
-          joined_rooms: ["!roomB:server", "!roomC:server"],
-        }),
-      )
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, {
-          members: ["@alexander:server", "@ashley:server"],
-          total: 2,
-        }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getSharedDMRoom(AGENT, HUMAN);
-    expect(result).toBe("!roomB:server");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-
-    // Verify encodeURIComponent applied to mxids in first two calls.
-    const call0Url = fetchMock.mock.calls[0][0] as string;
-    const call1Url = fetchMock.mock.calls[1][0] as string;
-    expect(call0Url).toContain(encodeURIComponent(AGENT));
-    expect(call0Url).toContain("/joined_rooms");
-    expect(call1Url).toContain(encodeURIComponent(HUMAN));
-    expect(call1Url).toContain("/joined_rooms");
-    // Verify encodeURIComponent applied to room_id in third call.
-    const call2Url = fetchMock.mock.calls[2][0] as string;
-    expect(call2Url).toContain(encodeURIComponent("!roomB:server"));
-    expect(call2Url).toContain("/members");
-  });
-
-  it("G-02 no shared room returns null without members lookup", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, { joined_rooms: ["!roomA:server"] }),
-      )
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, { joined_rooms: ["!roomC:server"] }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getSharedDMRoom(AGENT, HUMAN);
-    expect(result).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("G-03 3-member shared room filtered out (returns null)", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, { joined_rooms: ["!bigroom:server"] }),
-      )
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, { joined_rooms: ["!bigroom:server"] }),
-      )
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, {
-          members: [
-            "@alexander:server",
-            "@ashley:server",
-            "@somebody-else:server",
-          ],
-          total: 3,
-        }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getSharedDMRoom(AGENT, HUMAN);
-    expect(result).toBeNull();
-    // Members endpoint IS called for the shared room; result filtered.
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-  });
-
-  it("G-04 joined_rooms 500 returns null (short-circuits)", async () => {
-    // Both calls fire in Promise.all — the second one succeeding is fine;
-    // implementation short-circuits AFTER the pair resolves when either
-    // is null. So we expect exactly 2 calls (no members lookup).
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(mockFetchResponse(500, {}))
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, { joined_rooms: ["!roomX:server"] }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getSharedDMRoom(AGENT, HUMAN);
-    expect(result).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("G-05 missing creds returns null without fetch call", async () => {
-    vi.mocked(getMatrixAdminCreds).mockResolvedValue(null);
-    const fetchMock = vi.fn(async () => {
-      throw new Error("fetch must not be called when creds are missing");
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getSharedDMRoom(AGENT, HUMAN);
-    expect(result).toBeNull();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("G-06 AbortError on first fetch returns null", async () => {
-    stubFetchAbort();
-    const result = await getSharedDMRoom(AGENT, HUMAN);
-    expect(result).toBeNull();
-    // No unhandled rejection: if clearTimeout weren't called, the test
-    // process would emit warnings — vitest surfaces those. Absence is
-    // the (indirect) proof.
-  });
-
-  it("G-07 encodeURIComponent applied to mxids and room_id (path-traversal defense)", async () => {
-    // mxid already contains a %2f — encodeURIComponent double-encodes to %252f.
-    const traversalMxid = "@alex%2fetc:server";
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, { joined_rooms: ["!weird/room:server"] }),
-      )
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, { joined_rooms: ["!weird/room:server"] }),
-      )
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, {
-          members: [traversalMxid, HUMAN],
-          total: 2,
-        }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await getSharedDMRoom(traversalMxid, HUMAN);
-    // Agent mxid URL: %40alex%252fetc%3Aserver (double-encoded slash).
-    const agentUrl = fetchMock.mock.calls[0][0] as string;
-    expect(agentUrl).toContain("%40alex%252fetc%3Aserver");
-    expect(agentUrl).not.toContain("%2fetc"); // raw %2f must not survive
-    // Room_id URL must encodeURIComponent the '/' in the room name.
-    const roomUrl = fetchMock.mock.calls[2][0] as string;
-    expect(roomUrl).toContain(encodeURIComponent("!weird/room:server"));
-    expect(roomUrl).not.toContain("!weird/room:server");
-  });
-});
+// Phase 128-09 (D-19): the getSharedDMRoom describe block is deleted
+// alongside the helper it exercised (see matrix-admin-client.ts § "Phase
+// 128-09 (D-19): getSharedDMRoom deleted" for rationale + grep-gate
+// evidence).
 
 // ---------------------------------------------------------------------------
 // deactivateUser (Phase 88-02)
@@ -919,9 +764,10 @@ describe("createRoom", () => {
 });
 
 // ---------------------------------------------------------------------------
-// getUserJoinedRooms (Phase 89-03 Task 1) — top-level primitive extracted
-// from getSharedDMRoom's internal helper at L473. Discriminated-union return
-// so the observation loop can drive per-user backoff on failure reasons.
+// getUserJoinedRooms (Phase 89-03 Task 1) — top-level primitive originally
+// extracted from an internal helper inside the (Phase 128-09 D-19 deleted)
+// getSharedDMRoom. Discriminated-union return so the observation loop can
+// drive per-user backoff on failure reasons.
 // ---------------------------------------------------------------------------
 
 describe("getUserJoinedRooms", () => {
@@ -986,32 +832,8 @@ describe("getUserJoinedRooms", () => {
     }
   });
 
-  it("Test 5: getSharedDMRoom's happy path still works after extraction refactor (regression)", async () => {
-    const AGENT = "@alexander:server";
-    const HUMAN = "@ashley:server";
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, {
-          joined_rooms: ["!roomA:server", "!roomB:server"],
-        }),
-      )
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, {
-          joined_rooms: ["!roomB:server", "!roomC:server"],
-        }),
-      )
-      .mockResolvedValueOnce(
-        mockFetchResponse(200, {
-          members: ["@alexander:server", "@ashley:server"],
-          total: 2,
-        }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-    const result = await getSharedDMRoom(AGENT, HUMAN);
-    expect(result).toBe("!roomB:server");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-  });
+  // Phase 128-09 (D-19): the "getSharedDMRoom's happy path still works after
+  // extraction refactor (regression)" test is deleted alongside the helper.
 });
 
 // ---------------------------------------------------------------------------
@@ -1085,8 +907,8 @@ describe("getRoomLatestEventTs", () => {
 
 // ---------------------------------------------------------------------------
 // getRoomJoinedMembers (Phase 89-03 Task 1) — GET /_synapse/admin/v1/rooms/
-// {roomId}/members — top-level primitive using the same endpoint that lives
-// inside getSharedDMRoom's L511 members-count loop.
+// {roomId}/members — top-level primitive originally hoisted from the
+// members-count loop inside the (Phase 128-09 D-19 deleted) getSharedDMRoom.
 // ---------------------------------------------------------------------------
 
 describe("getRoomJoinedMembers", () => {
