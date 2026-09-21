@@ -134,6 +134,17 @@ services:
       # canonical env file) — required for BOTH steps because compose
       # interpolates volume paths at config-parse time, not just at up.
       - ${SKYNET_HOME_MOUNT_SRC:?SKYNET_HOME_MOUNT_SRC must be set — pass --env-file /opt/skynet/.env to docker compose (required for BOTH build and up; see docker/docker-compose.yml note above)}:/host-home
+      # tmux socket directory for the fleet-status sweep's pid→identity
+      # resolver. The sweep reads /proc/<pid>/environ (needs pid: host +
+      # SYS_PTRACE + apparmor:unconfined above) to get TMUX_PANE, then
+      # spawns `tmux display-message` to translate that pane id into the
+      # session name (which is the identity name on this fleet). Without
+      # the socket bind, tmux inside the container can't talk to the host's
+      # tmux server so every resolve returns None and every pid line is
+      # dropped. The socket + directory are owned by uid 1000 (ubuntu);
+      # container root can connect fine. Read-only is sufficient — the
+      # container never creates panes, only queries.
+      - /tmp/tmux-1000:/tmp/tmux-1000:ro
     env_file:
       - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
     environment:
