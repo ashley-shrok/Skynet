@@ -143,3 +143,58 @@ None.
 ### Notes
 
 The phase's own 128-09 summary explicitly flagged the untouched UI-side Telegram surface as a follow-up but no follow-up shape was ever opened. Post-teardown the frontend's Telegram calls hit 404s at the now-unmounted routes. The core push-notifications machinery matches the shape closely — per-event classifier reuse, no cached DM designation, no observability UI, one-tap gesture-gated opt-in, delivery via the browser push service with service-worker rehydration on rotation, and inline dead-endpoint pruning. The frontend teardown gap is the sole load-bearing miss.
+
+---
+
+## Close-Out (re-close after fix)
+
+**Closed:** 2026-09-21
+**Vehicle used:** GSD phase
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Skynet-native push delivery to the installed PWA is present end-to-end, and the Telegram surface is fully gone from backend, container stack, substrate, and PWA in the same shipping unit.
+- **Shape — the trigger** — present · Per-event pipeline filters non-messages, self-sent, edits, and non-DM rooms; the classifier runs on every event with no cached DM designation.
+- **Shape — the delivery** — present · Web Push via VAPID; service worker calls showNotification on every push with agent display name plus server-derived preview; tapping opens the PWA into the DM room via a deep-link param, and a rotation handler silently re-subscribes.
+- **Shape — the opt-in** — present · Single tap raises the OS permission sheet inside the click gesture with no await before the request; button remains reachable at all times for re-subscription; no auto-prompt on mount and no in-app disable path.
+- **Shape — and what comes out** — present · Backend telegram directory, tg-bridge substrate service, docker service, nginx routes, bot-token table (dropped at boot), voice-route bridge special-case, admin-route migration handler, field-crypto allowlist entry, and the frontend TelegramTab + telegram-api client are all gone in the same ship.
+- **Philosophy — consolidation over integration** — present · Whole Telegram surface leaves — both backend infrastructure and the visible PWA tab — so there is one fewer app in the loop.
+- **Philosophy — real notifications, not in-app** — present · Push happens via the browser's push service inside the service worker's push event with event.waitUntil — wakes the device from a locked/closed state; not an in-app toast.
+- **Philosophy — the trigger is the shape, not a stored mark** — present · Every event flows through the shape-based classifier; no per-pair designated DM room is cached; a second DM room would still push.
+- **Philosophy — no proactive observability** — present · No last-delivered indicator, no health page, no self-test button; only a local click-outcome status on the enable button.
+- **Prior context — reuse existing DM classifier** — present · The push trigger calls the same classifyRoom the observation loop uses; DM-shape logic is not re-derived.
+- **What would make it wrong: DM message from Ashley's own agent does not push** — present · That is the exact positive path the pipeline is built around — sender is the local agent, room is two-member harness_dm, event is a fresh m.room.message.
+- **What would make it wrong: non-DM traffic pushes** — present · Group rooms, admin rooms, solo rooms, non-member rooms, and rooms whose other member is not in the local agents registry all return a non-harness_dm classifier reason and are skipped.
+- **What would make it wrong: edits, reactions, joins/leaves push** — present · Non-m.room.message events are filtered; edit events (m.replace relation) are explicitly filtered out; only fresh messages reach dispatch.
+- **What would make it wrong: push works only when tab is open** — present · Delivery is via the service worker's push event and self.registration.showNotification with event.waitUntil — wakes the device even with the PWA closed.
+- **What would make it wrong: the bridge is still running in production when the ship lands** — present · Bridge service, backend telegram directory, endpoints, bot-token table, substrate service payload, docker service, and the PWA-side Telegram tab and API client are all removed together — no both-surfaces-buzz risk.
+- **What would make it wrong: opt-in requires technical knowledge** — present · One tap, one system permission sheet; no service-worker, subscription, or token language surfaced to the user.
+- **What would make it wrong: lock-screen content differs surprisingly from what the app shows** — present · Preview text derivation mirrors the substrate agent-relay recv taxonomy byte-for-byte (image/audio/video/file labels), with text messages passed through and truncated at 100 chars.
+- **Scope In — web push delivery to any subscribed device** — present · sendPushToUser dispatches to every subscription row for a user in parallel; no device-selection routing.
+- **Scope In — per-event shape-based trigger reusing DM classification** — present · The loop's filter step delegates to the existing classifyRoom without re-deriving shape logic.
+- **Scope In — one-time opt-in flow raising OS permission via a user tap** — present · Button click synchronously invokes Notification.requestPermission and, on grant, subscribes and posts to the backend.
+- **Scope In — backend subscription lifecycle with dead-endpoint tolerance** — present · Register endpoint deduplicates on (user, endpoint); sender inline-prunes rows on 410/404 and force-saves only when a prune occurred.
+- **Scope In — complete removal of the Telegram bridge (service, registry, tokens, config, related endpoints)** — present · Backend, container, substrate, endpoints, table, field-crypto entry, and the PWA-side surface are all removed.
+- **Scope In — PWA-manifest and service-worker work to make the PWA a valid push target** — present · Service worker registers push, notificationclick, and pushsubscriptionchange handlers; manifest declares standalone display with icons.
+- **Scope Out — cross-device smart routing** — present · No routing logic; every subscription gets fired.
+- **Scope Out — per-agent mute / DND / quiet hours** — present · No mute, DND, or quiet-hours surface.
+- **Scope Out — in-app on/off toggle for notifications** — present · The button is enable-only; there is no in-app disable path.
+- **Scope Out — notifications health/status UI, last-delivered indicator, self-test button** — present · None of these surfaces exist; only a per-click status label on the enable button.
+- **Scope Out — notifications for anything other than fresh DM messages from the agent side** — present · Filter pipeline restricts to exactly this.
+- **Scope Out — notifications for messages Ashley herself sends** — present · Self-sent messages are filtered by sender-equality check.
+- **Tempting-but-no — rich notification-preferences settings panel** — present · None was built.
+- **Tempting-but-no — test push during onboarding** — present · None was built.
+- **Tempting-but-no — caching a designated DM room per pair** — present · The loop deliberately re-classifies per event and does not cache a designated room.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Second pass after prior close-with-misses. The previously-flagged frontend Telegram surface (TelegramTab, telegram-api client, associated modal wiring, and stale field-crypto allowlist entry) has been fully removed in the same shipping unit as backend teardown; every reference to Telegram in the current tree is a historical comment explaining the removal. Two defensive behaviors that go slightly beyond what the shape spelled out but read as guardrails rather than added features: (1) cold-start suppression on the first tick per room to prevent boot-time push storms — protects the "only fresh new messages push" promise; (2) the enable-notifications button carries a local click-outcome label (idle/requesting/enabled/denied/failed) — this is opt-in gesture feedback, not delivery observability, and stays within the shape's opt-in-simplicity contract. Neither warrants raising to the user.
