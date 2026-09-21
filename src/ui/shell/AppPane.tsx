@@ -1,4 +1,7 @@
 import type { ReactElement } from "react";
+import { useEffect, useRef } from "react";
+
+import { hasSkynetDragPayload } from "./SplitView";
 
 // ─── AppPane — Phase 120 Plan 06 (D-05, D-19, D-20) ─────────────────────────
 //
@@ -39,6 +42,16 @@ import type { ReactElement } from "react";
 // Failure surface (D-17): iframe naturally shows the browser's blank frame
 // until first paint; tunnel failures render Phase 103's interstitial inside
 // the frame via the proxy. No Skynet-authored placeholder here (fleet rule).
+//
+// ─── Iframe drag-passthrough (2026-09-21) ──────────────────────────────────
+// Drag events (dragover/dragenter/drop) fire in the iframe's own document,
+// not on the parent. Without intervention a Skynet drag (identity badge, conv
+// row, app tile) landing on an app pane never reaches the Pane's outer
+// dragover listener at SplitView.tsx:355 — no coral preview, drop silently
+// ignored. While a Skynet drag is in flight we set the iframe's
+// pointer-events to "none" so those events pass through to the pane element
+// underneath; dragend/drop restore. Gated on hasSkynetDragPayload so browser
+// text-selection drags and OS file drags leave the iframe interactive.
 
 export interface AppPaneProps {
   hostId: number;
@@ -58,9 +71,35 @@ export function AppPane({
   // GuacamoleApp integration (parent manages visibility via CSS
   // display:none / hidden style; the iframe stays mounted so state is
   // preserved when the user swaps between leaves).
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    const onDragStart = (e: DragEvent) => {
+      if (!hasSkynetDragPayload(e.dataTransfer)) return;
+      const el = iframeRef.current;
+      if (el !== null) el.style.pointerEvents = "none";
+    };
+    const restore = () => {
+      const el = iframeRef.current;
+      if (el !== null) el.style.pointerEvents = "";
+    };
+    window.addEventListener("dragstart", onDragStart);
+    window.addEventListener("dragend", restore);
+    // Belt-and-braces: some drag sources (e.g. rows removed from a filtered
+    // list mid-drop) are unmounted before dragend fires. drop on window is
+    // the last-chance signal that the drag has ended.
+    window.addEventListener("drop", restore);
+    return () => {
+      window.removeEventListener("dragstart", onDragStart);
+      window.removeEventListener("dragend", restore);
+      window.removeEventListener("drop", restore);
+    };
+  }, []);
+
   const src = `/apps/${encodeURIComponent(hostId)}/${encodeURIComponent(slug)}/pane/`;
   return (
     <iframe
+      ref={iframeRef}
       src={src}
       title={`App ${slug}`}
       referrerPolicy="no-referrer"

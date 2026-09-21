@@ -192,7 +192,7 @@ function EmptyDropTarget({
 // Pure function; used in all three Pane native drag listeners (onDragOver,
 // onDragLeave, onDrop) to reject browser text-selection drags, which carry
 // only text/plain=<selected-text> and were falsely passing the old gate.
-function hasSkynetDragPayload(dt: DataTransfer | null | undefined): boolean {
+export function hasSkynetDragPayload(dt: DataTransfer | null | undefined): boolean {
   return (
     (dt?.types.includes("application/x-skynet-badge") ?? false) ||
     (dt?.types.includes("application/x-skynet-row") ?? false) ||

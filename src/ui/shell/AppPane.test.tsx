@@ -24,9 +24,39 @@
  *   - `data-*` attributes for downstream test/debug identification.
  */
 
-import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { describe, it, expect, afterEach } from "vitest";
+import { render, cleanup } from "@testing-library/react";
 import { AppPane } from "./AppPane";
+
+// Map-backed DataTransfer stub. Mirrors the shape used in
+// SplitView.text-selection-drag.test.tsx so the type-gate check
+// (hasSkynetDragPayload) sees the correct `types` array.
+function makeDataTransferStub(entries: Record<string, string> = {}) {
+  const store = new Map<string, string>(Object.entries(entries));
+  return {
+    setData: (type: string, value: string) => {
+      store.set(type, value);
+    },
+    getData: (type: string): string => store.get(type) ?? "",
+    effectAllowed: "none" as string,
+    get types(): string[] {
+      return Array.from(store.keys());
+    },
+  };
+}
+
+function fireWindowDragEvent(
+  type: "dragstart" | "dragend" | "drop",
+  dataTransfer: ReturnType<typeof makeDataTransferStub> | null,
+) {
+  // jsdom does not implement DragEvent; a plain Event with a monkey-patched
+  // dataTransfer property is what the listener actually reads.
+  const evt = new Event(type, { bubbles: true }) as Event & {
+    dataTransfer?: unknown;
+  };
+  evt.dataTransfer = dataTransfer;
+  window.dispatchEvent(evt);
+}
 
 describe("AppPane iframe wrapper (Phase 120 D-05)", () => {
   it("Test 1: renders exactly one <iframe> element", () => {
@@ -112,5 +142,83 @@ describe("AppPane iframe wrapper (Phase 120 D-05)", () => {
     );
     const iframe = container.querySelector("iframe");
     expect(iframe?.getAttribute("class")).toBe("h-full w-full border-0");
+  });
+});
+
+// ─── Iframe drag-passthrough (2026-09-21) ──────────────────────────────────
+// Drag events fire inside the iframe's own document, so Pane-level dragover
+// listeners at SplitView.tsx:355 never see them. AppPane sets the iframe's
+// pointer-events to "none" while a Skynet drag is in flight; dragend/drop
+// restore. Non-Skynet drags (browser text selection, OS file drags) leave
+// the iframe interactive.
+describe("AppPane drag-passthrough", () => {
+  afterEach(() => cleanup());
+
+  const skynetMimes = [
+    "application/x-skynet-badge",
+    "application/x-skynet-row",
+    "application/x-skynet-app-tile",
+  ] as const;
+
+  for (const mime of skynetMimes) {
+    it(`dragstart carrying ${mime} sets iframe pointer-events to 'none'`, () => {
+      const { container } = render(
+        <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+      );
+      const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+      expect(iframe.style.pointerEvents).toBe("");
+      fireWindowDragEvent("dragstart", makeDataTransferStub({ [mime]: "x" }));
+      expect(iframe.style.pointerEvents).toBe("none");
+    });
+  }
+
+  it("dragend restores iframe pointer-events after a Skynet drag", () => {
+    const { container } = render(
+      <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+    );
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    fireWindowDragEvent(
+      "dragstart",
+      makeDataTransferStub({ "application/x-skynet-badge": "x" }),
+    );
+    expect(iframe.style.pointerEvents).toBe("none");
+    fireWindowDragEvent("dragend", null);
+    expect(iframe.style.pointerEvents).toBe("");
+  });
+
+  it("drop restores iframe pointer-events (dragend safety net)", () => {
+    const { container } = render(
+      <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+    );
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    fireWindowDragEvent(
+      "dragstart",
+      makeDataTransferStub({ "application/x-skynet-row": "x" }),
+    );
+    expect(iframe.style.pointerEvents).toBe("none");
+    fireWindowDragEvent("drop", null);
+    expect(iframe.style.pointerEvents).toBe("");
+  });
+
+  it("non-Skynet drag (text/plain only) does NOT mute the iframe", () => {
+    const { container } = render(
+      <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+    );
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    // Browser text-selection drag carries only text/plain.
+    fireWindowDragEvent(
+      "dragstart",
+      makeDataTransferStub({ "text/plain": "some selected text" }),
+    );
+    expect(iframe.style.pointerEvents).toBe("");
+  });
+
+  it("dragstart with null dataTransfer is a no-op", () => {
+    const { container } = render(
+      <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+    );
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    fireWindowDragEvent("dragstart", null);
+    expect(iframe.style.pointerEvents).toBe("");
   });
 });
