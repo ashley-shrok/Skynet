@@ -88,3 +88,58 @@ Skynet is a PWA-capable web app. iOS supports web push for PWAs installed to the
 **Identity doing the work:** `olympus-box-maintainer` on this box.
 
 **Close arc:** `/close notifications` at the end verifies the built result matches this shape both ways (nothing in the shape missing from the build, nothing in the build that wasn't in the shape).
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-21
+**Vehicle used:** GSD phase
+**Overall verdict:** closed-with-misses
+
+### Shape features (conformance)
+
+- **What this is** — partial · Skynet-native push delivery to the installed PWA is present end-to-end, but the Telegram replacement is incomplete — Telegram is gone from the backend and container stack, but not from the PWA itself.
+- **Shape — the trigger** — present · Per-event pipeline filters non-messages, self-sent, edits, and non-DM rooms; classifier is called per event with no cached DM designation.
+- **Shape — the delivery** — present · Web Push via VAPID; service worker calls showNotification on every push; notification body is agent display name plus preview text derived server-side; tapping opens the PWA into the DM room via a deep-link param.
+- **Shape — the opt-in** — present · Single tap raises the OS permission sheet inside the click gesture with no await before the request; button remains reachable at all times for re-subscription; no auto-prompt on mount.
+- **Shape — and what comes out** — partial · Backend telegram directory, tg-bridge substrate service, docker service, nginx routes, bot-token table, voice-route bridge special-case, and admin-route migration handler are all gone — but the frontend Telegram tab, its API client, and its modal wiring remain live in the PWA. Same shipping unit was supposed to remove Telegram entirely.
+- **Philosophy — consolidation over integration** — partial · Backend consolidation achieved; frontend still presents a Telegram tab to admins, so the "one fewer surface" promise is only half-kept on the visible surface.
+- **Philosophy — real notifications, not in-app** — present · Push happens via the browser's push service inside the service worker's push event — wakes the device from a locked/closed state; not an in-app toast.
+- **Philosophy — the trigger is the shape, not a stored mark** — present · Every event flows through the shape-based classifier; no per-pair designated DM room is cached; a second DM room would still push.
+- **Philosophy — no proactive observability** — present · No last-delivered indicator, no health page, no self-test button; the button carries a status label but no delivery introspection.
+- **Prior context — reuse existing DM classifier** — present · The push trigger calls the same classifier the observation loop uses; DM-shape logic is not re-derived.
+- **What would make it wrong: DM message from Ashley's own agent does not push** — present · That is the exact positive path the pipeline is built around — sender is the local agent, room is two-member harness_dm, event is a fresh m.room.message.
+- **What would make it wrong: non-DM traffic pushes** — present · Group rooms materialize (not push); admin rooms, solo rooms, non-member rooms, and rooms whose other member is not in the local agents registry all return a non-harness_dm classifier reason and are skipped.
+- **What would make it wrong: edits, reactions, joins/leaves push** — present · Non-m.room.message events are filtered; edit events (m.replace relation) are explicitly filtered out; only fresh messages reach dispatch.
+- **What would make it wrong: push works only when tab is open** — present · Delivery is via the service worker's push event and self.registration.showNotification with event.waitUntil — wakes the device even with the PWA closed.
+- **What would make it wrong: the bridge is still running in production when the ship lands** — drifted · The bridge service and its backend endpoints are gone, but the Telegram tab is still in the PWA for admins — the visible Telegram surface has not fully left the shipping unit.
+- **What would make it wrong: opt-in requires technical knowledge** — present · One tap, one system permission sheet; no service-worker, subscription, or token language surfaced to the user.
+- **What would make it wrong: lock-screen content differs surprisingly from what the app shows** — present · Preview text derivation mirrors the substrate agent-relay recv taxonomy byte-for-byte (image/audio/video/file labels), with text messages passed through and truncated; documented as the intended shared source until a future unification.
+- **Scope In — web push delivery to any subscribed device** — present · sendPushToUser dispatches to every subscription row for a user in parallel; no device-selection routing.
+- **Scope In — per-event shape-based trigger reusing DM classification** — present · The loop's filter step delegates to the existing classifyRoom without re-deriving shape logic.
+- **Scope In — one-time opt-in flow raising OS permission via a user tap** — present · Button click synchronously invokes Notification.requestPermission and, on grant, subscribes and posts to the backend.
+- **Scope In — backend subscription lifecycle with dead-endpoint tolerance** — present · Register endpoint deduplicates on (user, endpoint); sender inline-prunes rows on 410/404 and force-saves only when a prune occurred.
+- **Scope In — complete removal of the Telegram bridge (service, registry, tokens, config, related endpoints)** — missing · Backend and container removal is complete; frontend Telegram tab, API client, and modal wiring remain in the app, and a stale token-field entry remains in the field-crypto allowlist.
+- **Scope In — PWA-manifest and service-worker work to make the PWA a valid push target** — present · Service worker registers push, notificationclick, and pushsubscriptionchange handlers; manifest declares standalone display with icons.
+- **Scope Out — cross-device smart routing** — present · No routing logic; every subscription gets fired.
+- **Scope Out — per-agent mute / DND / quiet hours** — present · No mute, DND, or quiet-hours surface.
+- **Scope Out — in-app on/off toggle for notifications** — present · The button is enable-only; there is no in-app disable path.
+- **Scope Out — notifications health/status UI, last-delivered indicator, self-test button** — present · None of these surfaces exist; only a per-button status label.
+- **Scope Out — notifications for anything other than fresh DM messages from the agent side** — present · Filter pipeline restricts to exactly this.
+- **Scope Out — notifications for messages Ashley herself sends** — present · Self-sent messages are filtered by sender-equality check.
+- **Tempting-but-no — rich notification-preferences settings panel** — present · None was built.
+- **Tempting-but-no — test push during onboarding** — present · None was built.
+- **Tempting-but-no — caching a designated DM room per pair** — present · The loop deliberately re-classifies per event and does not cache a designated room.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+- Remove the frontend Telegram surface in the PWA — the Telegram tab in the identity modal, the telegram-api client, the associated tests, and the stale field-crypto allowlist entry — so the whole Telegram surface leaves in the same shipping unit as the backend teardown intended. — user directed to close in the SAME shipping unit (no later shape queued); folding fix into current phase and re-closing before deploy.
+
+### Notes
+
+The phase's own 128-09 summary explicitly flagged the untouched UI-side Telegram surface as a follow-up but no follow-up shape was ever opened. Post-teardown the frontend's Telegram calls hit 404s at the now-unmounted routes. The core push-notifications machinery matches the shape closely — per-event classifier reuse, no cached DM designation, no observability UI, one-tap gesture-gated opt-in, delivery via the browser push service with service-worker rehydration on rotation, and inline dead-endpoint pruning. The frontend teardown gap is the sole load-bearing miss.

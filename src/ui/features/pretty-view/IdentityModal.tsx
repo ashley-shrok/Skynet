@@ -27,7 +27,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // override render helpers below (renderInheritedBadge / renderRevertButton).
 // Mirrors the pattern used by src/ui/components/section-card.tsx.
 import type React from "react";
-import { AlarmClock, Folder, Pencil, Send, User, X } from "lucide-react";
+import { AlarmClock, Folder, Pencil, User, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -77,25 +77,23 @@ import type { Identity } from "@/api/identities-api";
 import { cn } from "@/lib/utils";
 import { IdentityFileTab, type TabState } from "./IdentityFileTab";
 import { WakeupsTab } from "./WakeupsTab";
-// Phase 79 Plan 07 — Telegram bridge tab (identity-scope, fixed real-estate
-// per CONTEXT § Locked decisions #2). TelegramState is threaded from a
-// useState slot in this component and reset on modal open/identity switch.
-import { TelegramTab, type TelegramState } from "./TelegramTab";
+// Phase 128 (frontend-teardown / /close notifications close-loop): TelegramTab
+// import + `getUserInfo` fetch (which existed only to source humanUserId +
+// isAdmin for the Telegram tab) DELETED. The Telegram bridge is gone
+// end-to-end — backend routes unmounted (Plan 128-08), source files deleted
+// (Plan 128-09), Docker/nginx retired (Plan 128-10). The UI surface leaves
+// in the same close-loop as the rest of the teardown.
 // Phase 118 Plan 118-04 (D-01, D-02, D-03): Workspace tab — inline file browser
 // mounted via NAV_SECTIONS entry + TabsContent block. No new modal or badge
 // menu; reuses the existing badge → IdentityModal → tab bar path (D-03).
 import WorkspaceTab from "./WorkspaceTab";
-// Phase 79 Plan 07 (blocker W-3) — resolve the authenticated user's userId
-// on modal open so we can pass it as humanUserId to TelegramTab. Mirrors the
-// AppShell.tsx:412 / FullScreenAppWrapper.tsx:43 / Auth.tsx pattern for the
-// same source of truth.
-import { getUserInfo } from "@/main-axios";
 
 // Phase 90 Plan 90-06 (D-09): identity modal is now identity-scope only.
-// Post-Phase-90-06 nav sections: Identity file / Wakeups / Telegram. All
-// role-scope surfaces (Role file / Runbooks / Bounties / Role-Wakeups)
-// moved to the new RoleModal component (Plan 90-04). The segmented
-// Role/Identity scope switch is deleted; ModalScope store retired.
+// Post-Phase-90-06 nav sections were: Identity file / Wakeups / Telegram.
+// Phase 128 close-loop-fix: Telegram entry deleted (see teardown lineage in
+// the imports block above). All role-scope surfaces (Role file / Runbooks /
+// Bounties / Role-Wakeups) moved to the new RoleModal component (Plan 90-04).
+// The segmented Role/Identity scope switch is deleted; ModalScope store retired.
 //
 // Patch #17g: parallel fetch of artifacts (identity file, wakeups) on modal
 // open; tab renderers extracted to sibling files (IdentityFileTab /
@@ -290,17 +288,13 @@ export function IdentityModal({
   // Phase 90 Plan 90-06: identity-scope wakeups state (role-scope roleWakeupsState
   // moved to RoleModal). Kept name for symmetry with the identity-wakeups tab value.
   const [identityWakeupsState, setIdentityWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
-  // Phase 79 Plan 07 — Telegram bridge tab state. Fetched on modal open via
-  // getTelegramStatus (see effect below).
-  const [telegramState, setTelegramState] = useState<TelegramState>({ status: "loading" });
-  // Phase 79 Plan 07 (blocker W-3) — authenticated user's userId. Sourced
-  // from getUserInfo() on modal open (mirrors AppShell.tsx:412 pattern).
-  // Empty string until fetch resolves; TelegramTab's Submit gates on non-
-  // empty. Backend re-verifies via authenticateJWT.req.userId — even a
-  // spoofed empty humanUserId gets rejected there (Plan 03 T-79-03-01).
-  const [authUserId, setAuthUserId] = useState<string>("");
-  // Fails closed: Telegram stays hidden until /users/me confirms admin.
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  // Phase 128 close-loop-fix: telegramState / authUserId / isAdmin state slots
+  // DELETED. They existed only to feed the Telegram bridge tab (state + humanUserId
+  // + admin-gated nav visibility). The tab, its API client, and the effect that
+  // sourced authUserId + isAdmin via getUserInfo() are all gone in this same
+  // commit. getUserInfo remains available in @/main-axios for callers that need
+  // it (AppShell.tsx, FullScreenAppWrapper.tsx, Auth.tsx) — the modal simply no
+  // longer has a reason to call it.
 
   // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
   //
@@ -309,20 +303,14 @@ export function IdentityModal({
   // Bounties / Role-Wakeups) migrated to RoleModal (Plan 90-04). Post-Phase-90-06
   // labels are just plain "Identity file" / "Wakeups" — no scope-disambiguating
   // prefix needed since scope switch is gone.
+  // Phase 128 close-loop-fix: Telegram admin-gated entry DELETED — see comment
+  // above the useState block. The array is no longer conditional.
   const NAV_SECTIONS = [
     { value: "identity", label: "Identity file", Icon: User },
     { value: "identity-wakeups", label: "Wakeups", Icon: AlarmClock },
     // Phase 118 (D-01, D-02): Workspace tab — available to ALL users (not admin-gated per D-22, D-02).
     // Renders WorkspaceTab (Plan 118-03) inline in the tab body per D-10 (no modal stacking).
-    // Placed BEFORE the isAdmin spread so every user sees it regardless of admin status.
     { value: "workspace", label: "Files", Icon: Folder },
-    // Phase 79 Plan 07 — Telegram bridge tab (CONTEXT § 2 fixed real-estate).
-    // UI-hide only: the backend telegram routes remain user-auth by design
-    // (src/backend/telegram/routes.ts header), so this is presentation, not
-    // an access boundary.
-    ...(isAdmin
-      ? [{ value: "telegram", label: "Telegram", Icon: Send } as const]
-      : []),
   ] as const;
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -339,10 +327,10 @@ export function IdentityModal({
     // Reset artifact state slots to loading.
     setIdentityFileState({ status: "loading" });
     setIdentityWakeupsState({ status: "loading" });
-    // Phase 79 Plan 07 — reset Telegram tab state + authUserId on modal
-    // open / identity switch. Effects below re-fetch both.
-    setTelegramState({ status: "loading" });
-    setAuthUserId("");
+    // Phase 128 close-loop-fix: telegramState + authUserId reset lines removed
+    // with the Telegram tab teardown. Nothing else in this effect body needs
+    // touching — the identity-file + identity-wakeups fetches are the only
+    // remaining artifacts.
 
     let cancelled = false;
 
@@ -488,64 +476,20 @@ export function IdentityModal({
     return () => { cancelled = true; };
   }, [open, identity.identityKey, hostId]);
 
-  // Phase 79 Plan 07 (blocker W-3) — resolve the authenticated user's userId
-  // once per modal open. Same mechanism AppShell.tsx:412 uses at app root.
-  // Identity switches inside the same session reuse the userId (getUserInfo
-  // hits /users/me which is JWT-cookie-authenticated so it's fast).
+  // Phase 128 close-loop-fix: two effects DELETED here.
   //
-  // On failure: authUserId stays empty, TelegramTab renders the "couldn't
-  // verify session" hint + disabled Submit. Other tabs (Identity file /
-  // Wakeups / Handoff) handle their own auth via the WebSocket path — no
-  // change to them.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const info = await getUserInfo();
-        if (cancelled) return;
-        setAuthUserId(info.userId);
-        setIsAdmin(!!info.is_admin);
-      } catch (err) {
-        if (cancelled) return;
-        // Non-fatal for the modal open. Do NOT toast — the missing session
-        // is surfaced inside the Telegram tab where it actually matters.
-        console.warn("IdentityModal: getUserInfo failed", err);
-        setAuthUserId("");
-        setIsAdmin(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [open]);
-
-  // Phase 79 Plan 07 — fetch initial Telegram bridge status on modal open /
-  // identity switch. Dynamic import keeps the modal chunk lean.
-  useEffect(() => {
-    if (!open || !identity.identityKey || !isAdmin) return;
-    let cancelled = false;
-    (async () => {
-      const { getTelegramStatus } = await import("../../api/telegram-api");
-      const result = await getTelegramStatus(identity.identityKey);
-      if (cancelled) return;
-      if (result.status === "error") {
-        setTelegramState({ status: "error", error: result.error });
-      } else if (result.status === "connected") {
-        setTelegramState({
-          status: "connected",
-          botUsername: result.botUsername,
-          // Filled in once we learn the human's TG handle via chat_id lookup
-          // (deferred to a later plan — the wire response today carries only
-          // botUsername + telegramChatId; humanHandle resolution is a follow-
-          // up). "unknown" is a placeholder that CONTEXT § 3A's minimal
-          // connected view still reads cleanly.
-          telegramHandle: "unknown",
-        });
-      } else {
-        setTelegramState({ status: "unconfigured" });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [open, identity.identityKey, isAdmin]);
+  // 1. The getUserInfo() fetch that populated authUserId + isAdmin existed
+  //    solely to (a) thread humanUserId into TelegramTab and (b) gate the
+  //    admin-only Telegram nav entry. Both consumers are gone in this
+  //    commit, so the effect has no reason to fire.
+  //
+  // 2. The initial Telegram status fetch (dynamic-imported ../../api/telegram-api
+  //    and called getTelegramStatus) is deleted with the module it imported —
+  //    the whole Telegram surface leaves in the same shipping unit as the
+  //    backend teardown (Plans 128-08, 128-09, 128-10).
+  //
+  // Other tabs (Identity file / Wakeups / Files/Workspace) handle their own
+  // auth via the WebSocket path and are unaffected.
 
   // Phase 90 Plan 90-06: bounty grouping / `grouped` memo DELETED — bounties
   // moved to RoleModal via RoleBountiesTab (Plan 90-04 Task 2).
@@ -1553,9 +1497,10 @@ export function IdentityModal({
             moved to RoleModal (Plan 90-04). Title-line clickable treatment
             (D-04) above provides the jump path to the role modal. */}
 
-        {/* Tabs — Phase 90 Plan 90-06 post-refactor: 3 tabs (Identity file /
-            Wakeups / Telegram) — identity scope only. Role file, Runbooks,
-            Bounties, and Role-Wakeups all moved to RoleModal. */}
+        {/* Tabs — Phase 90 Plan 90-06 post-refactor + Phase 128 close-loop-fix:
+            3 tabs (Identity file / Wakeups / Files) — identity scope only.
+            Telegram removed with the rest of the bridge teardown. Role file,
+            Runbooks, Bounties, and Role-Wakeups moved to RoleModal. */}
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
@@ -1597,24 +1542,10 @@ export function IdentityModal({
               role-scope wakeups moved to RoleModal (Plan 90-04). Only the
               identity-wakeups TabsContent above remains in this modal. */}
 
-          {/* Phase 79 Plan 07 — Telegram bridge tab (identity-scope only).
-              humanUserId sourced from getUserInfo() in the useEffect above
-              (blocker W-3 fix); empty until fetch resolves, which disables
-              TelegramTab's Submit inside the component. */}
-          {isAdmin && (
-            <TabsContent
-              value="telegram"
-              className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-            >
-              <TelegramTab
-                state={telegramState}
-                identityKey={identity.identityKey}
-                identityName={identity.displayName ?? identity.identityKey}
-                humanUserId={authUserId}
-                onStateChange={setTelegramState}
-              />
-            </TabsContent>
-          )}
+          {/* Phase 128 close-loop-fix: Telegram TabsContent DELETED alongside
+              TelegramTab.tsx + telegram-api.ts. The whole bridge surface — from
+              backend routes (Plan 128-08) through source files (Plan 128-09)
+              and Docker/nginx (Plan 128-10) — leaves in one shipping unit. */}
 
           {/* Phase 118 (D-01, D-09, D-10): Workspace tab body — inline-swap mode
               (list ↔ viewer) handled INSIDE WorkspaceTab; no Dialog wrapper, no
