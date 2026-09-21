@@ -31,6 +31,8 @@ const {
   loopStartMock,
   loopStopMock,
   getVapidDetailsMock,
+  warnSpy,
+  infoSpy,
 } = vi.hoisted(() => {
   const allMock = vi.fn();
   const prepareMock = vi.fn(() => ({ all: allMock }));
@@ -46,6 +48,8 @@ const {
     publicKey: "test-public-key",
     privateKey: "test-private-key",
   }));
+  const warnSpy = vi.fn();
+  const infoSpy = vi.fn();
   return {
     prepareMock,
     allMock,
@@ -53,6 +57,8 @@ const {
     loopStartMock,
     loopStopMock,
     getVapidDetailsMock,
+    warnSpy,
+    infoSpy,
   };
 });
 
@@ -115,8 +121,6 @@ vi.mock("./resolve-agent-display-name.js", () => ({
   resolveAgentDisplayName: vi.fn(async () => "Agent"),
 }));
 
-const warnSpy = vi.fn();
-const infoSpy = vi.fn();
 vi.mock("../utils/logger.js", () => ({
   databaseLogger: {
     warn: warnSpy,
