@@ -478,6 +478,11 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       avatarCandidateId: "",
       role: item.roles[0], // TODO: multi-role — pass full roles[] once BirthOptions accepts it (D-13, RESEARCH Assumption A2)
       task: item.task ?? undefined,
+      // Phase 127 follow-up: wake-up spec's `prompt` field lands as the
+      // newborn's identity-file body `## Do this first` section — id-skill
+      // reads it on load and acts on it in the same turn (pre-authorized
+      // next action). Empty prompt → undefined → absent-⇒-omit.
+      bodyContent: item.prompt || undefined,
       poolPicked: true, // worker births are always pool-picked (Pattern 6)
     };
 

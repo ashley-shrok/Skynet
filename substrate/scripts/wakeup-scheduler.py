@@ -265,7 +265,11 @@ def _drop_spawn_request(spec, state_dir):
         "roles": spec.get("roles", []),
         "skills": spec.get("skills", []),
         "prompt": spec.get("prompt", ""),
-        "task": None,
+        # task carries the wake-up spec's `name` so the newborn's `task:`
+        # frontmatter surfaces "what is this identity for?" in the UI on
+        # birth (existing BirthOptions.task plumbing, Phase 80). Empty/absent
+        # name → None → absent-⇒-omit at buildIdentityFileBody.
+        "task": spec.get("name") or None,
         "requested_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     req_path = os.path.join(req_dir, req_id + ".json")

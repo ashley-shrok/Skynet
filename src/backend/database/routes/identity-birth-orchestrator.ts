@@ -251,6 +251,18 @@ export interface BirthOptions {
    * partial state); only the long-running wait block honors it.
    */
   abortSignal?: AbortSignal;
+  /**
+   * Phase 127 follow-up: optional body content emitted into the identity
+   * file after the `# <name>` heading, rendered as a `## Do this first`
+   * section. Consumed by the id-skill's load-time body-read contract —
+   * the first client that loads the newborn (via `/id <name>` or Skynet
+   * UI) treats it as a pre-authorized next action and acts on it in the
+   * same turn. Used by wake-up-scheduler spawn-requests to deliver the
+   * wake-up's `prompt` field to the newborn. Absent / null / empty /
+   * whitespace-only → no block emitted (absent-⇒-omit invariant matches
+   * title/voice/task pattern above).
+   */
+  bodyContent?: string;
 }
 
 export interface BirthDeps {
@@ -582,7 +594,13 @@ function buildIdentityFileBody(
     },
   );
 
-  return `---\n${yamlBody}---\n\n# ${opts.name}\n`;
+  let body = `---\n${yamlBody}---\n\n# ${opts.name}\n`;
+  // Phase 127 follow-up: emit `## Do this first` section when bodyContent
+  // is set. Absent-⇒-omit — trims whitespace and skips if empty.
+  if (typeof opts.bodyContent === "string" && opts.bodyContent.trim().length > 0) {
+    body += `\n## Do this first\n\n${opts.bodyContent.trim()}\n`;
+  }
+  return body;
 }
 
 // ---------------------------------------------------------------------------

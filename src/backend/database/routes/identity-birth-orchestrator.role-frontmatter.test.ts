@@ -883,6 +883,91 @@ it("Test T-80-03-e: task containing colon 'fix the pool: shape gate' → yaml.du
   expect(parsed.task).toBe("fix the pool: shape gate");
 }, 30_000);
 
+// ---------------------------------------------------------------------------
+// Phase 127 follow-up — bodyContent emission in `## Do this first` block
+// ---------------------------------------------------------------------------
+//
+// buildIdentityFileBody must emit a `## Do this first` section in the body
+// (after the `# <name>` heading) when opts.bodyContent is a non-empty string.
+// Absent, undefined, empty, or whitespace-only → no block emitted. Consumed
+// by the id-skill's load-time body-read contract for wake-up-driven births.
+
+it("Test T-127-a: opts.bodyContent present + non-empty → identity file body contains ## Do this first block after # <name>", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({ writeMarkdownFileAtomic: writeAtomic });
+  const opts = makeOpts({
+    name: "testkey",
+    role: "box-maintainer",
+    bodyContent: "Read the shared inbox and triage anything routed to me." as unknown as never,
+  } as unknown as Partial<BirthOptions>);
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  expect(writeAtomic).toHaveBeenCalled();
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+  expect(contents).toMatch(/^# testkey\s*\n/m);
+  expect(contents).toContain("## Do this first");
+  expect(contents).toContain("Read the shared inbox and triage anything routed to me.");
+  // Ordering: ## Do this first must come AFTER the # <name> heading
+  const nameIdx = contents.indexOf("# testkey");
+  const blockIdx = contents.indexOf("## Do this first");
+  expect(nameIdx).toBeGreaterThanOrEqual(0);
+  expect(blockIdx).toBeGreaterThan(nameIdx);
+}, 30_000);
+
+it("Test T-127-b: opts.bodyContent = '' (empty string) → NO Do this first block in body", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({ writeMarkdownFileAtomic: writeAtomic });
+  const opts = makeOpts({
+    name: "testkey",
+    role: "box-maintainer",
+    bodyContent: "" as unknown as never,
+  } as unknown as Partial<BirthOptions>);
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+  expect(contents).not.toContain("## Do this first");
+}, 30_000);
+
+it("Test T-127-c: opts.bodyContent = '   ' (whitespace-only) → NO Do this first block (absent-⇒-omit)", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({ writeMarkdownFileAtomic: writeAtomic });
+  const opts = makeOpts({
+    name: "testkey",
+    role: "box-maintainer",
+    bodyContent: "   \n  \t  " as unknown as never,
+  } as unknown as Partial<BirthOptions>);
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+  expect(contents).not.toContain("## Do this first");
+}, 30_000);
+
+it("Test T-127-d: opts.bodyContent undefined → NO Do this first block (backward-compat with pre-follow-up callers)", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({ writeMarkdownFileAtomic: writeAtomic });
+  const opts = makeOpts({ name: "testkey", role: "box-maintainer" });
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+  expect(contents).not.toContain("## Do this first");
+}, 30_000);
+
 it("Test 24b: mkdir+touch fired ONCE + writeMarkdownFileAtomic fired ONCE before the avatar-write throw (partial identity folder preserved)", async () => {
   const callOrder: string[] = [];
 

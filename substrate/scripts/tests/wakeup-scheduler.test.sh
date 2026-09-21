@@ -209,8 +209,8 @@ if d.get('prompt') != 'hello':
     errors.append('prompt: expected=hello got=' + repr(d.get('prompt')))
 if d.get('skills') != []:
     errors.append('skills: expected=[] got=' + repr(d.get('skills')))
-if d.get('task') is not None:
-    errors.append('task: expected=null got=' + repr(d.get('task')))
+if d.get('task') != 't1':
+    errors.append('task: expected=\"t1\" (from spec name) got=' + repr(d.get('task')))
 if not isinstance(d.get('requested_at'), str) or not d['requested_at'].endswith('Z'):
     errors.append('requested_at: expected ISO-Z string got=' + repr(d.get('requested_at')))
 if errors:
@@ -396,8 +396,8 @@ if d.get('roles') != ['coordinator']:
     errors.append('roles: expected=[\"coordinator\"] got=' + repr(d.get('roles')))
 if d.get('prompt') != 'one-shot fire':
     errors.append('prompt: expected=\"one-shot fire\" got=' + repr(d.get('prompt')))
-if d.get('task') is not None:
-    errors.append('task: expected=null got=' + repr(d.get('task')))
+if d.get('task') != 'one-shot':
+    errors.append('task: expected=\"one-shot\" (from spec name) got=' + repr(d.get('task')))
 if errors:
     print('FAIL: ' + '; '.join(errors))
 else:
