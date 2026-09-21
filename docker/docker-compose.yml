@@ -23,6 +23,16 @@ services:
     image: skynet-patched:local
     container_name: skynet
     restart: unless-stopped
+    # Share the host's PID namespace so the fleet-status sweep (invoked
+    # locally via acquireLocalChannel for the self-poll) can resolve
+    # ~/.claude/sessions/*.json PIDs via /proc/<pid>/environ. The bind-mounted
+    # HOME gets the sweep the session files; the host PID namespace gets it
+    # the /proc lookups needed to fold each PID into its identity. Without
+    # this, every self-hosted session's pid line is dropped and no WIP
+    # indicators light up for identities on the Skynet host itself. Matches
+    # the practical process-visibility the container already has when it
+    # SSHes as `ubuntu` to any other fleet host.
+    pid: host
     # Build block added 2026-09-10 (bounty compose-tg-bridge-buildpath-cleanup)
     # so `docker compose build` from a maintainer's worktree rebuilds both
     # skynet-patched:local AND tg-bridge:local in one command. Previously
