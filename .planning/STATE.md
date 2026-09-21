@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-09-21T04:23:27.663Z"
+last_updated: "2026-09-21T05:20:29.279Z"
 last_activity: 2026-09-21
 progress:
   total_phases: 129
   completed_phases: 109
   total_plans: 563
-  completed_plans: 554
+  completed_plans: 555
   percent: 84
 ---
 
@@ -406,6 +406,7 @@ Progress: [██████████] 100%
 | Phase 128 P08 | 2min | 2 tasks | 2 files |
 | Phase 128 P10 | 15min | 2 tasks | 3 files |
 | Phase 128 P11 | 12min | 2 tasks | 1 files |
+| Phase 128 Pclose-loop-fix | 41min | 4 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -662,6 +663,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 128-10: skynet service's tg-bridge-state:/state mount had to go too — leaving it in place after removing the volume declaration would have broken docker compose config (Rule 2/3 auto-fix)
 - [Phase ?]: 128-10: /push-subscriptions comment header rewritten to remove stale /telegram references — fleet-rules grep=0 gate required it (Rule 3); the location block itself is byte-for-byte preserved
 - [Phase ?]: Phase 128 Plan 11: byte-parallel DDL integration test at src/backend/database/db/index.integration.test.ts is Skynet's schema-push equivalent — substitute for drizzle-kit push in the hand-migrated CREATE TABLE + runXxxTableDrop convention. Established phase-wide scoped vitest-related sweep as the phase-close verification pattern (fleet test discipline: never bare npx vitest run).
+- [Phase ?]: Frontend Telegram teardown: 4 chore commits landed the frontend surface that the /close notifications review flagged as closed-with-misses. See 128-CLOSE-LOOP-FIX-SUMMARY.md.
 
 ### Pending Todos
 
@@ -1040,7 +1042,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-21T04:23:03.905Z
+Last session: 2026-09-21T05:19:34.739Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed 128-07 (frontend push opt-in + openRoom deep-link)

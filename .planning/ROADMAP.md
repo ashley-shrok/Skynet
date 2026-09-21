@@ -2775,7 +2775,7 @@ Plans:
 
 **Requirements**: D-01..D-20 (see `128-CONTEXT.md`) plus the shape file at `.planning/shapes/shape-notifications.md`
 **Depends on:** Phase 127
-**Plans:** 11/11 plans complete
+**Plans:** 12/11 plans complete
 
 Plans:
 - [x] 128-01-PLAN.md — pushSubscriptions Drizzle schema + runTelegramBotTokensTableDrop() drop-migration wired at boot. Wave 1, autonomous. 5 atomic commits (TDD), 2533 tests green, build clean.
