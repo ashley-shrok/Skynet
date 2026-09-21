@@ -2739,3 +2739,13 @@ Plans:
 Plans:
 - [ ] 125-01-PLAN.md — Modify ChatMessage.tsx: layout swap + below-bubble action strip + thumbs-up/thumbs-down affordance + pressed-state + `useFeedbackEnabled` leaf subscription + new `onThumbsUp`/`onThumbsDown` callback props + colocated `ChatMessage.feedback-thumbs.test.tsx` covering D-53 cases 1-7 (nine test cases). Wave 1, autonomous.
 - [ ] 125-02-PLAN.md — Modify PrettyView.tsx: wire `handleThumbsUp`/`handleThumbsDown` handlers with `exchangeText` computation (prior-user-turn lookup, no-prior-turn edge case) + local `feedbackModalContext` atom + PrettyView-mounted `<FeedbackModal variant="thumbs_down">` + colocated `PrettyView.feedback-thumbs.test.tsx` covering D-53 cases 8-11 + T-124-05 relay-frame-skip test (nine test cases). Wave 2 (depends on 125-01), autonomous.
+
+### Phase 126: Audio cue when WIP indicator clears
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 125
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 126 to break down)
