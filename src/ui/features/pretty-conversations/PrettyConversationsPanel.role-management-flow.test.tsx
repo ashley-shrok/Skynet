@@ -259,9 +259,8 @@ vi.mock("@/main-axios", () => ({
   getUserInfo: vi.fn().mockResolvedValue({ userId: "u-1" }),
 }));
 
-vi.mock("../../api/telegram-api", () => ({
-  getTelegramStatus: vi.fn().mockResolvedValue({ status: "unconfigured" }),
-}));
+// Phase 128 close-loop-fix: vi.mock("../../api/telegram-api", …) DELETED —
+// module is gone and IdentityModal no longer imports it.
 
 vi.mock("@/api/runbooks-api", () => ({
   listRunbooks: vi.fn().mockResolvedValue([]),

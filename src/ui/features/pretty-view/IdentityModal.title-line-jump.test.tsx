@@ -2,8 +2,12 @@
  * Phase 90 Plan 90-06 Task 1 — IdentityModal title-line clickable treatment.
  *
  * D-04 exact spec test suite. Covers:
- *   A: post-refactor tab count (3 tabs: Identity file / Wakeups / Telegram).
- *   A2: Telegram tab is hidden for a non-admin viewer (UI-hide only).
+ *   A: post-refactor tab count (Phase 128 close-loop-fix: now 3 tabs —
+ *      Identity file / Wakeups / Files/Workspace; Telegram tab retired
+ *      with the rest of the bridge teardown).
+ *   [A2 DELETED — Phase 128 close-loop-fix: the Telegram tab admin-gating
+ *    scenario is moot because the tab itself is gone. No admin-vs-non-admin
+ *    tab-count divergence remains in the identity modal.]
  *   B: no scope switch — `queryByRole('group', {name: /scope/i})` is null.
  *   C: no role-scope Role file tab.
  *   D: no Runbooks tab in identity modal.
@@ -110,16 +114,18 @@ vi.mock("@/state/identities-store", async (importOriginal) => {
 });
 
 vi.mock("@/main-axios", () => ({
+  // Phase 128 close-loop-fix: IdentityModal no longer imports getUserInfo
+  // (the effect that sourced authUserId + isAdmin for the Telegram tab is
+  // gone). Mock kept for other callers of @/main-axios that the module
+  // graph may pull in — harmless when nothing calls it.
   getUserInfo: vi.fn().mockResolvedValue({ userId: "u-1", is_admin: true }),
 }));
 
-vi.mock("../../api/telegram-api", () => ({
-  getTelegramStatus: vi.fn().mockResolvedValue({ status: "unconfigured" }),
-}));
+// Phase 128 close-loop-fix: vi.mock("../../api/telegram-api", …) DELETED —
+// module is gone and IdentityModal no longer imports it.
 
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
-import { getUserInfo } from "@/main-axios";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -186,39 +192,31 @@ afterAll(() => {
 // Test A — post-refactor tab count
 // ─────────────────────────────────────────────────────────────────────────────
 describe("IdentityModal Phase 90 refactor — tab structure", () => {
-  it("A: renders 3 identity-scope tabs (Identity file / Wakeups / Telegram)", async () => {
+  it("A: renders 3 identity-scope tabs (Identity file / Wakeups / Files) — Telegram tab retired in Phase 128 close-loop-fix", async () => {
     renderModal();
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     // The bottom nav bar renders as plain buttons (not role="tab"). Radix
     // Tabs still creates one TabsContent per NAV_SECTIONS entry — count those
-    // (role="tabpanel"). Post-Phase-121: exactly 4 for admins
-    // (Identity file / Wakeups / Telegram / Workspace).
+    // (role="tabpanel"). Phase 128 close-loop-fix: exactly 3 for everyone
+    // (Identity file / Wakeups / Files). Pre-Phase-128: 4 for admins /
+    // 3 for non-admins (Telegram was admin-gated); Telegram is now gone
+    // for both viewer classes since the bridge is retired end-to-end.
     const tabpanels = document.querySelectorAll('[role="tabpanel"]');
-    expect(tabpanels.length).toBe(4);
-  });
-
-  it("A2: hides the Telegram tab for a non-admin viewer", async () => {
-    (getUserInfo as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      userId: "u-1",
-      is_admin: false,
-    });
-    renderModal();
-    await waitFor(() => {
-      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    });
-    await waitFor(() => {
-      // Post-Phase-121: 3 for non-admins (Identity file / Wakeups / Workspace);
-      // Telegram is admin-only.
-      expect(document.querySelectorAll('[role="tabpanel"]').length).toBe(3);
-    });
+    expect(tabpanels.length).toBe(3);
+    // Belt-and-suspenders: no button in the identity modal is labelled Telegram.
     const navLabels = Array.from(
       document.querySelectorAll("button"),
       (b) => b.textContent ?? "",
     );
     expect(navLabels.some((t) => /telegram/i.test(t))).toBe(false);
   });
+
+  // Phase 128 close-loop-fix: Test A2 DELETED. It asserted that a non-admin
+  // viewer sees 3 tabpanels (no Telegram) vs. an admin's 4. Post-teardown
+  // every viewer sees the same 3 (Identity file / Wakeups / Files) — there
+  // is no admin-vs-non-admin tab-count divergence to test.
 
   it("B: no segmented Scope group is rendered (scope switch removed)", async () => {
     renderModal();
