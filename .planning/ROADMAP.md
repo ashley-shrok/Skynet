@@ -2742,10 +2742,11 @@ Plans:
 
 ### Phase 126: Audio cue when WIP indicator clears
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Ship a subtle "tink" audio cue that fires each time a conversation row's WIP indicator clears, gated so it only fires when there was genuinely new agent output during that work cycle AND the row's pane is currently visible on screen. Per-row `armed:boolean` latch: any new `role === "assistant"` MessageEvent arms it; next `isWorking` true→false transition fires `playTink()` AND disarms IF the row's pane is visible (D-05). Multi-bubble work cycles collapse to one chime; WIP flickers without new agent bubbles fire zero chimes (D-04). New audio module `src/ui/audio/ready-cue.ts` owns shared AudioContext + iOS-PWA first-gesture unlock (D-18) + per-fire `AudioBufferSourceNode` (D-21). New latch store `src/ui/state/ready-cue-latch-store.ts` owns the per-`sessionKey` armed Map (D-22). AppShell installs the unlock listener on mount; PrettyView.tsx wires arm-on-assistant-bubble + fire-on-WIP-edge. Default-on for everyone, NO preferences surface (D-16, D-17 hard lock — Ashley 2026-09-21: *"we're not giving any kind of preferences the app has no preference surface and this isn't going to add it and it would default to on for everyone"*).
+**Requirements**: D-01..D-27 (see `126-CONTEXT.md`)
 **Depends on:** Phase 125
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 126 to break down)
+- [ ] 126-01-PLAN.md — Create audio subsystem module `src/ui/audio/ready-cue.ts` (playTink + initReadyCueAudioUnlock + isReadyCueUnlocked + __resetForTest) + tink.mp3 asset at `src/ui/assets/sounds/ready-cue/tink.mp3` + colocated vitest suite (six tests covering D-18/D-19/D-20/D-21/D-27 unlock-guard + playback API). Wave 1, autonomous. Zero consumers wired.
+- [ ] 126-02-PLAN.md — Latch state + WIP-transition observer + visibility gate + unlock-installer wire-up. New store `src/ui/state/ready-cue-latch-store.ts` (armRow/disarmRow/isRowArmed/__resetForTest) + PrettyView.tsx arm-on-assistant-MessageEvent effect + PrettyView.tsx fire-on-WIP-true→false effect (gated on isRowArmed && isVisible) + AppShell.tsx mount-only initReadyCueAudioUnlock() call + two colocated vitest suites (six + seven tests covering D-25 latch state machine + D-26 visibility gate + D-04 flicker collapse). Wave 2 (depends on 126-01), autonomous.
