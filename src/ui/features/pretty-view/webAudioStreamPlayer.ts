@@ -23,7 +23,14 @@ import { parseRiffHeader, decodePcmChunk, type RiffHeader } from "./riffPcmDecod
 // Client-side playback speedup. Applied per AudioBufferSourceNode; pitch scales
 // with rate (Web Audio API has no native time-stretch), so keep this modest.
 // Advancing `nextStartTimeRef` must divide by this value to stay gapless.
-const TTS_PLAYBACK_RATE = 1.25;
+// Default 1.0 (native rate); override per Skynet deployment via the build-time
+// env `VITE_TTS_PLAYBACK_RATE` (e.g. `VITE_TTS_PLAYBACK_RATE=1.25`). A
+// non-finite or non-positive value falls back to the default.
+const TTS_PLAYBACK_RATE: number = (() => {
+  const raw = import.meta.env.VITE_TTS_PLAYBACK_RATE;
+  const parsed = raw != null ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1.0;
+})();
 
 // the operator 2026-09-20 — Chrome silently drops audio output for
 // AudioBufferSourceNodes scheduled too far ahead of the playhead

@@ -561,7 +561,9 @@ describe("createWebAudioStreamPlayer", () => {
     // up (nextStart - currentTime < horizon).
     //
     // Fat buffer: 20000 frames @ 1000Hz sample rate = 20s buffer duration.
-    // audible = 20 / 1.25 = 16s. That's > SCHEDULE_HORIZON_SECONDS (15).
+    // audible = 20 / TTS_PLAYBACK_RATE (default 1.0) = 20s.
+    // That's > SCHEDULE_HORIZON_SECONDS (15) at the 1.0 default and remains
+    // > 15 for any deployment override ≤ 1.33x.
     // A low sample rate keeps byte-count small while producing a long buffer.
     const frames = 20000;
     const sampleRate = 1000;
