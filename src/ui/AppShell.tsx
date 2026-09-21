@@ -172,6 +172,9 @@ import {
   // seeded regardless of which source class delivered the row.
   seedSessionAiTitle,
 } from "@/state/session-working-store";
+// Phase 126 Plan 02 (D-18): AudioContext unlock installer for the readiness
+// cue subsystem — wired below via a mount-only useEffect.
+import { initReadyCueAudioUnlock } from "@/audio/ready-cue";
 import { publishFleetStatusWaitingFor } from "@/state/session-waiting-store";
 // Phase 119 Plan 119-02 (D-14, D-16): the standalone app-tiles store slice
 // consumes the three app frames dispatched by 119-01's fleet-status-client
@@ -503,6 +506,13 @@ export function AppShell({
     getUserInfo()
       .then((info) => setIsAdmin(info.is_admin))
       .catch(() => setIsAdmin(false));
+  }, []);
+
+  // Phase 126 Plan 02 (D-18): install first-gesture AudioContext unlock so
+  // playTink() from mounted PrettyView instances fires post-user-interaction.
+  // Idempotent per Plan 01 Task 2 — safe under StrictMode double-invoke.
+  useEffect(() => {
+    initReadyCueAudioUnlock();
   }, []);
 
   // Phase 59 Plan 01 Gap 1 — window-level dragend listener for the empty-PV
