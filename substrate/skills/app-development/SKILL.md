@@ -21,6 +21,14 @@ Your job with this skill is to build one such app when the user asks —
 "give me a dashboard for Z", "log every W" — or to edit an existing app
 when she asks for changes to something you or another agent made before.
 
+**The sidebar tile IS the handoff.** When you finish, do NOT hand the user
+a URL, a serve-URL, a link, or a "you can open it at …" pointer. The
+sidebar sweep publishes the app to her client automatically as soon as
+you complete the publish step below (§ Making a new app step 8). The tile
+is how she opens it. Handing her a URL is redundant and often broken
+(the URL depends on which client she's on). Just tell her it's ready and
+name the tile.
+
 ## The stack — one canonical shape, not a menu
 
 Every app uses the same stack. No branches, no "pick your framework". This
@@ -86,6 +94,20 @@ Do NOT add fields to `app.json`. Two fields today, two fields forever. The
 whole design of the metadata file is "only what has no natural home
 elsewhere". Every added field is a new drift risk.
 
+**`app.json` is also the sidebar-visibility switch.** The sweep only
+emits a tile when `app.json` exists and parses. `create-app.sh` therefore
+does NOT write `app.json` — it writes `app.json.pending` (same shape,
+title pre-filled) and leaves it that way. The app is running under
+systemd from the moment `create-app.sh` finishes, but the user cannot
+see it. Renaming `app.json.pending` → `app.json` is the explicit
+"publish" step, done ONLY when the app is complete and verified end-to-end
+(§ Making a new app step 8). This prevents a half-built app from flashing
+onto her sidebar and inviting a click that hits a broken page.
+
+For **editing** an existing app, this doesn't apply — its `app.json`
+already exists (it's already on her sidebar). Only NEW apps go through
+the pending flow.
+
 ## Lifecycle — the five helpers
 
 Every generic step in an app's life is a bundled helper script alongside
@@ -100,9 +122,11 @@ everything else.
 
 - **`create-app.sh <slug> [title]`** — allocates the next free port in the
   9501-9599 range, scaffolds the starter template into `~/fleet/apps/<slug>/`,
-  installs dependencies, writes `app.json`, renders + installs the systemd
-  unit, starts the service, verifies it's live. Slug must be kebab-case.
-  Title is optional; defaults to a title-cased slug if omitted.
+  installs dependencies, writes `app.json.pending` (the app stays invisible
+  to the sidebar until you rename it to `app.json` at publish time),
+  renders + installs the systemd unit, starts the service, verifies it's
+  live. Slug must be kebab-case. Title is optional; defaults to a
+  title-cased slug if omitted.
 
 - **`archive-app.sh <slug>`** — stops the systemd unit, disables it, removes
   the unit file, runs `daemon-reload`, moves `~/fleet/apps/<slug>/` to
@@ -155,7 +179,8 @@ everything else.
      and form actions with your app's real server logic.
    - `README.md` — write what the app is, in one paragraph. Aimed at a
      future agent who might edit it.
-   - `app.json` — set the `title` and `description` you want in the sidebar.
+   - `app.json.pending` — fill in the `description` field. Leave the
+     filename as `.pending` for now; it gets renamed at publish (step 8).
 6. **Iterate.** See § Iteration workflow.
 7. **Verify.** Once it looks right in dev mode, build the production output
    and restart the systemd unit:
@@ -165,8 +190,18 @@ everything else.
        systemctl --user restart app-<slug>
 
    Then confirm it's live: `systemctl --user status app-<slug>` should read
-   `active (running)`, and the front-end client's next sweep will pick up any
-   metadata changes.
+   `active (running)`. Open the app yourself (dev mode or a local
+   `curl 127.0.0.1:<port>`) and walk the golden path — this is the last
+   moment before it goes on the user's sidebar. If anything is still
+   broken, do NOT continue to step 8.
+8. **Publish.** This is the moment the tile appears on the user's sidebar.
+   Only do this once step 7 has actually passed:
+
+       mv ~/fleet/apps/<slug>/app.json.pending ~/fleet/apps/<slug>/app.json
+
+   The front-end client's next sweep picks it up. Tell the user the app
+   is ready and name the tile ("your `Birthdays` tile is on the sidebar
+   now") — do NOT hand her a URL (see § What this skill builds).
 
 ## Iteration workflow — dev mode vs prod
 
@@ -355,6 +390,16 @@ what you're doing — surprises here are worse than a moment of confirmation.
   Everything else has a natural home elsewhere.
 - About to build a portal-like page that lists apps → **stop.** The
   front-end client's sidebar is the portal now.
+- About to hand the user a URL, serve-URL, or "open it at …" link when
+  the app is ready → **stop.** Publishing (§ Making a new app step 8)
+  puts the tile on her sidebar automatically; the tile IS the entry
+  point. Name the tile in your handoff, not a URL.
+- About to `mv app.json.pending app.json` for a new app before it
+  actually works end-to-end → **stop.** Publishing early flashes a
+  broken app onto her sidebar. Verify step 7 first.
+- About to write `app.json` directly for a new app (skipping the
+  pending file) → **stop.** Use the pending flow — the whole point is
+  the app is invisible to the sidebar until you publish.
 
 ## Common questions
 
@@ -370,6 +415,10 @@ what you're doing — surprises here are worse than a moment of confirmation.
   different port by default so you can even skip the stop step, but the
   cleaner story is stop-dev-restart.
 - **How do I see what apps are on this box?** `ls ~/fleet/apps/`.
+- **Why isn't my new app showing up on the user's sidebar?** Almost
+  certainly because `app.json.pending` hasn't been renamed to `app.json`
+  yet — the sweep gates on `app.json` existing. Verify the app works,
+  then `mv app.json.pending app.json` (§ Making a new app step 8).
 - **How do I see archived apps?** `ls ~/fleet/apps-archive/`.
 - **How do I recover an archived app?**
   `bash ~/.claude/skills/app-development/restore-app.sh <slug>`.

@@ -158,16 +158,26 @@ log "scaffolded starter into $APP_DIR"
 # don't need a copy in every app folder.
 rm -f "$APP_DIR/app-SLUG.service.template"
 
+# Delete the starter's shipped app.json — the sidebar sweep gates on this file
+# existing, so leaving it in place would flash a half-built app onto the
+# user's sidebar the moment the systemd unit comes up. Instead we write
+# app.json.pending (see below); the agent renames it to app.json as the
+# explicit publish step once the app is actually complete + verified.
+rm -f "$APP_DIR/app.json"
+
 # --- Substitutions ---------------------------------------------------------
 
-# app.json — set title (JSON-escaped via python; TITLE is arbitrary input),
-# leave description blank for the agent to fill in.
-python3 - "$APP_DIR/app.json" "$TITLE" <<'PYEOF'
+# app.json.pending — same shape as the final app.json (two fields: title,
+# description). Title pre-filled; description blank for the agent to fill.
+# The `.pending` suffix keeps the app INVISIBLE to the sidebar sweep until
+# the agent renames it to app.json as the publish step.
+python3 - "$APP_DIR/app.json.pending" "$TITLE" <<'PYEOF'
 import json, sys, pathlib
 p = pathlib.Path(sys.argv[1])
 p.write_text(json.dumps({"title": sys.argv[2], "description": ""}, indent=2) + "\n")
 PYEOF
-log "wrote app.json (title=\"$TITLE\", description empty — fill it in when you know what the app is)"
+log "wrote app.json.pending (title=\"$TITLE\", description empty)"
+log "  → sidebar will NOT show this app until you publish: mv app.json.pending app.json"
 
 # package.json — set the "name" field to the slug so it doesn't collide
 # with the template's default name if bun install caches by name.
@@ -231,18 +241,25 @@ cat <<EOF
   logs:    journalctl --user -u app-$SLUG -f
   status:  systemctl --user status app-$SLUG
 
+  ⚠️ The app is NOT on the user's sidebar yet. The sweep gates on app.json
+     existing; you have app.json.pending. Publish (final step) once the app
+     is actually complete + verified: mv app.json.pending app.json
+
 Next: edit the starter down to your app's actual shape.
   - src/lib/server/db/schema.ts  — the Drizzle schema (replace the starter table)
   - src/routes/+page.svelte       — the UI
   - src/routes/+page.server.ts    — server logic (load + form actions)
   - README.md                     — describe the app for future maintainers
-  - app.json                      — fill in the "description" field
+  - app.json.pending              — fill in the "description" field
 
 Iterate in dev mode:
     systemctl --user stop app-$SLUG
     cd $APP_DIR
     bun run dev
 
-Then ship:
+Then build + restart:
     bun run build && systemctl --user restart app-$SLUG
+
+Finally, publish (this puts the tile on the user's sidebar):
+    mv $APP_DIR/app.json.pending $APP_DIR/app.json
 EOF
