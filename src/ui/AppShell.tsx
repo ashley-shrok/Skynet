@@ -3571,18 +3571,34 @@ export function AppShell({
         )}
 
         {/* Phase 128 Plan 07 Task 3 (D-10, Pitfall 1) — EnableNotificationsButton.
-            Fixed top-right chrome placement so it's reachable AT ANY TIME —
+            Fixed BOTTOM-right chrome placement so it's reachable AT ANY TIME —
             iOS PWA subscriptions rotate silently every 1-2 weeks per
             Pitfall 1, so the user needs a persistent entry point to re-mint
-            after silent rotation. Top-right corner avoids the top-left
-            sidebar-toggle affordance. Rendered above the sidebar's z-index
-            layer so it stays visible even when the sidebar Sheet is open on
+            after silent rotation.
+
+            Auth-gating invariant (M-6 review-fix): AppShell is only mounted
+            when auth succeeds (src/main.tsx: `showApp` gate wraps the
+            <AppShell/> render behind the post-login phase). Do NOT move
+            this button into a subtree that renders pre-auth — an
+            unauthenticated user tapping "Enable notifications" hits the
+            POST /push-subscriptions endpoint, gets 401, and lands in the
+            misleading "Notifications setup failed" state.
+
+            Bottom-right placement (M-6 review-fix): the earlier top-right
+            slot overlapped the PrettyView IdentityBadge (absolute top-4
+            right-5 z-[101] inside each pane at PrettyView.tsx:3781). The
+            badge's higher z-index obscured the button whenever a pane
+            was maximized to the viewport's top edge. Bottom-right is
+            free chrome space (no known conflicting fixed/absolute
+            elements) and the safe-area-inset guards handle iOS home-bar
+            spacing. Rendered above the sidebar's z-index layer so it
+            stays visible even when the sidebar Sheet is open on
             mobile. The button owns its own state — no props threaded from
             AppShell — so wiring is a single mount call. */}
         <div
           style={{
             position: "fixed",
-            top: "max(env(safe-area-inset-top), 8px)",
+            bottom: "max(env(safe-area-inset-bottom), 8px)",
             right: "max(env(safe-area-inset-right), 8px)",
             zIndex: 40,
           }}
