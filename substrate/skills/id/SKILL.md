@@ -181,8 +181,7 @@ IDENTITY_FILE=~/fleet/identities/$name/$name.md
 - If the file **does not exist**: this identity has not been created on
   this box. Say so and stop — do not try to create it yourself. Identities
   are created through the front-end of the app the user talks to you
-  through: either by a user through the new-agent UI, or by a coordinator
-  spawning one on her behalf.
+  through the new-agent UI.
 
 ### 2. Loading an existing identity
 

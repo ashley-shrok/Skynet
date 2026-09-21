@@ -310,7 +310,8 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     operation: "spawn_request_worker_start",
     uuid: item.uuid,
     hostId: item.hostIdNum,  // LogContext.hostId is number; PendingBirth carries both string+num forms
-    role: item.role,
+    role: item.roles?.[0] ?? "(none)",  // D-13 bridge: log roles[0] for operator searchability
+    roles_count: item.roles?.length ?? 0,
     malformed: item.malformedReason !== undefined,
   });
 
@@ -475,7 +476,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       colorHue: null,
       voice: null,
       avatarCandidateId: "",
-      role: item.role,
+      role: item.roles[0], // TODO: multi-role — pass full roles[] once BirthOptions accepts it (D-13, RESEARCH Assumption A2)
       task: item.task ?? undefined,
       poolPicked: true, // worker births are always pool-picked (Pattern 6)
     };

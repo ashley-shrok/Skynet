@@ -27,8 +27,9 @@ export const TASK_MAX_LENGTH = 500;
 /**
  * Parse and validate a request file's raw JSON body.
  * Returns ok:true + SpawnRequestBody on success, or ok:false + reason + message
- * on any validation failure (D-04, D-05, T-99-01).
+ * on any validation failure (D-04, D-05, D-12, T-99-01).
  *
+ * Accepted fields: roles[], skills?[], prompt, task, requested_at.
  * Extra fields (coord_mxid, target-host, priority, retry_count, ordinal) are
  * rejected as malformed (D-05).
  */
@@ -53,17 +54,41 @@ export function parseRequestBody(
 
   const obj = parsed as Record<string, unknown>;
 
-  const role = obj["role"];
-  if (typeof role !== "string" || role.length === 0) {
-    return { ok: false, reason: "malformed", message: "missing required field: role" };
+  // roles[] validation — replaces single role: string (D-12)
+  const roles = obj["roles"];
+  if (!Array.isArray(roles) || roles.length === 0) {
+    return { ok: false, reason: "malformed", message: "missing required field: roles (must be non-empty array)" };
+  }
+  for (const r of roles) {
+    if (typeof r !== "string" || r.length === 0) {
+      return { ok: false, reason: "malformed", message: "roles: each element must be a non-empty string" };
+    }
+    if (!ROLE_NAME_PATTERN.test(r)) {
+      return {
+        ok: false,
+        reason: "malformed",
+        message: `roles: element does not match pattern ${ROLE_NAME_PATTERN}: ${JSON.stringify(r)}`,
+      };
+    }
   }
 
-  if (!ROLE_NAME_PATTERN.test(role)) {
-    return {
-      ok: false,
-      reason: "malformed",
-      message: `role does not match pattern ${ROLE_NAME_PATTERN}: ${JSON.stringify(role)}`,
-    };
+  // skills[] validation — optional field (D-04)
+  const skills = obj["skills"];
+  if (skills !== undefined) {
+    if (!Array.isArray(skills)) {
+      return { ok: false, reason: "malformed", message: "skills must be an array if present" };
+    }
+    for (const s of skills) {
+      if (typeof s !== "string" || s.length === 0) {
+        return { ok: false, reason: "malformed", message: "skills: each element must be a non-empty string" };
+      }
+    }
+  }
+
+  // prompt validation — plain string, no length cap (D-06)
+  const prompt = obj["prompt"];
+  if (typeof prompt !== "string" || prompt.length === 0) {
+    return { ok: false, reason: "malformed", message: "missing required field: prompt" };
   }
 
   const task = obj["task"];
@@ -86,6 +111,6 @@ export function parseRequestBody(
 
   return {
     ok: true,
-    body: { role, task: task as string | null, requested_at },
+    body: { roles, skills: skills as string[] | undefined, prompt, task: task as string | null, requested_at },
   };
 }

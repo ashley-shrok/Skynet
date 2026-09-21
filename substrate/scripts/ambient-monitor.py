@@ -323,43 +323,13 @@ CHILDREN.append({
     "critical": False,
 })
 
-if IS_COORDINATOR:
-    # Coordinators: no file-watch (they don't hold role or identity file in
-    # context the same way actors do), PLUS an extra scheduler pointed at the
-    # role folder so role-general schedules still fire. Requires a resolvable
-    # AND existing role folder; if either check fails, fall back to spawning
-    # role-file-watch so its own SETUP FAILED wake surfaces the underlying
-    # misconfig (rather than silently pointing a scheduler at a nonexistent
-    # path — the scheduler would makedirs a phantom role folder and never
-    # find any specs).
-    role_folder = None
-    if ROLE_NAME is not None:
-        candidate = HOME / "fleet" / "roles" / ROLE_NAME
-        if candidate.is_dir():
-            role_folder = candidate
-    if role_folder is not None:
-        CHILDREN.append({
-            "name": "wakeup-scheduler-role",
-            "cmd": ["python3", str(HOME / ".local/bin/wakeup-scheduler"), str(role_folder)],
-            "env_extra": {},
-            "critical": False,
-        })
-    else:
-        # Couldn't resolve or find the role folder — spawn file-watch so its
-        # own SETUP FAILED wake surfaces the underlying misconfig loudly.
-        CHILDREN.append({
-            "name": "role-file-watch",
-            "cmd": ["python3", str(HOME / ".local/bin/role-file-watch"), str(IDENTITY_DIR)],
-            "env_extra": {},
-            "critical": False,
-        })
-else:
-    CHILDREN.append({
-        "name": "role-file-watch",
-        "cmd": ["python3", str(HOME / ".local/bin/role-file-watch"), str(IDENTITY_DIR)],
-        "env_extra": {},
-        "critical": False,
-    })
+# Phase 126: per-role wakeup-scheduler spawn removed — global scheduler in agent-supervisor.sh handles role-general wake-ups at host scope (D-16(a)). role-file-watch runs for BOTH coordinators and actors now.
+CHILDREN.append({
+    "name": "role-file-watch",
+    "cmd": ["python3", str(HOME / ".local/bin/role-file-watch"), str(IDENTITY_DIR)],
+    "env_extra": {},
+    "critical": False,
+})
 
 # ---------------------------------------------------------------------- I/O
 # stdout is the wake stream: every line becomes an async wake to the agent.

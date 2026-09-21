@@ -79,7 +79,8 @@ export function enqueue(item: PendingBirth): void {
     operation: "spawn_request_enqueued",
     uuid: item.uuid,
     hostId: item.hostIdNum,  // LogContext.hostId is number; PendingBirth carries both string+num forms
-    role: item.role,
+    role: item.roles?.[0] ?? "(none)",  // D-13 bridge: log roles[0] for operator searchability
+    roles_count: item.roles?.length ?? 0,
   });
   workerPromise = workerPromise.then(() => drainOne());
 }

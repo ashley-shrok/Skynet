@@ -8,15 +8,17 @@
  */
 
 /**
- * Request file body schema (D-04).
+ * Request file body schema (D-04, D-12).
  * The request-id (uuid) lives in the filename, NOT the body.
  * Extra fields (coord_mxid, target-host, priority, ordinal, retry_count) are
  * rejected by parseRequestBody as malformed (D-05).
  */
 export interface SpawnRequestBody {
-  role: string;
-  task: string | null;
-  requested_at: string; // ISO-Z timestamp for debug tracing
+  roles: string[];       // one or more role names (replaces single role: string — D-12)
+  skills?: string[];     // optional list of skill slugs the newborn has ready (D-04)
+  prompt: string;        // first user message to the newborn agent (D-05)
+  task: string | null;   // kept for coord-drop backwards compat; wake fires set null (D-12)
+  requested_at: string;  // ISO-Z timestamp for debug tracing
 }
 
 /**
@@ -28,7 +30,9 @@ export interface PendingBirth {
   hostId: string;      // HostRecord.id (string from PerHostState)
   hostIdNum: number;   // parseInt(hostId, 10) for BirthOptions.hostId (Pitfall 2)
   uuid: string;        // from filename (strip .json)
-  role: string;
+  roles: string[];     // one or more role names (replaces role: string — D-12)
+  skills?: string[];   // optional list of skill slugs the newborn has ready (D-04)
+  prompt: string;      // first user message to the newborn agent (D-05)
   task: string | null;
   requested_at: string;
   userId: string;      // owner-userId from host record (D-14)

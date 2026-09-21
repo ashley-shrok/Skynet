@@ -5,30 +5,36 @@
  *
  * Tests:
  *   Parse-side (parseRequestBody):
- *     1. Valid JSON returns ok:true + SpawnRequestBody
+ *     1. Valid extended body {roles, skills, prompt} returns ok:true + SpawnRequestBody
  *     2. Malformed JSON string returns ok:false reason:malformed message:/JSON/i
- *     3. Missing role field returns malformed + message:/role/i
- *     4. role failing ROLE_NAME_PATTERN returns malformed + message:/role.*pattern|invalid.*role/i
+ *     3. Missing roles field returns malformed + message:/roles/i
+ *     4. roles element failing ROLE_NAME_PATTERN returns malformed + message about role/pattern
  *     5. task > 500 chars returns malformed + message:/task.*length|too long/i
  *     6. task null returns ok:true body.task===null
  *     7. Missing requested_at returns malformed + message:/requested_at/i
+ *     8. Valid extended body {roles, skills, prompt} asserts body.roles, body.skills, body.prompt
+ *     9. Empty roles array rejected as malformed + message:/roles/i
+ *    10. roles element failing ROLE_NAME_PATTERN rejected as malformed
+ *    11. Missing prompt rejected as malformed + message:/prompt/i
+ *    12. skills present as non-array rejected as malformed + message:/skills/i
+ *    13. skills absent (undefined) accepted — field is optional
  *
  *   Failure-mapping (mapEndedEventToReason):
- *     8. failedStep:1 + reason:"ssh connect timeout" → homeserver_unreachable
- *     9. failedStep:6 + reason matching /refused/ → homeserver_unreachable (or birth_failed)
- *    10. failedStep:2 no reason → birth_failed
+ *    14. failedStep:1 + reason:"ssh connect timeout" → homeserver_unreachable
+ *    15. failedStep:6 + reason matching /refused/ → homeserver_unreachable (or birth_failed)
+ *    16. failedStep:2 no reason → birth_failed
  *
  *   processBirth end-to-end (with injected deps + mocked birthIdentity):
- *    11. Successful birth → writeMarkdownFileAtomic called with .success.json + {name,mxid,birthed_at}
- *    12. Failed birth (ok:false, failedStep:2) → .failure.json + {reason:"birth_failed"}
- *    13. Malformed request → .failure.json + {reason:"malformed", message non-empty}
- *    14. Pool empty → .failure.json + {reason:"pool_exhausted"}, no birthIdentity call
- *    15. Matrix creds missing → .failure.json + {reason:"matrix_creds_missing"}, no birthIdentity call
- *    16. Host-owner lookup returns null → .failure.json + {reason:"birth_failed"}, no birthIdentity call
- *    17. Response-file write via writeMarkdownFileAtomic (NOT writeIdentityFile — Pitfall 1 guard)
- *    18. hostIdNum passed as number to birthIdentity opts.hostId
- *    19. opts.poolPicked === true (worker births are always pool-picked)
- *    20. connectOneShot called by the worker (for response-file SFTP write)
+ *    17. Successful birth → writeMarkdownFileAtomic called with .success.json + {name,mxid,birthed_at}
+ *    18. Failed birth (ok:false, failedStep:2) → .failure.json + {reason:"birth_failed"}
+ *    19. Malformed request → .failure.json + {reason:"malformed", message non-empty}
+ *    20. Pool empty → .failure.json + {reason:"pool_exhausted"}, no birthIdentity call
+ *    21. Matrix creds missing → .failure.json + {reason:"matrix_creds_missing"}, no birthIdentity call
+ *    22. Host-owner lookup returns null → .failure.json + {reason:"birth_failed"}, no birthIdentity call
+ *    23. Response-file write via writeMarkdownFileAtomic (NOT writeIdentityFile — Pitfall 1 guard)
+ *    24. hostIdNum passed as number to birthIdentity opts.hostId
+ *    25. opts.poolPicked === true (worker births are always pool-picked)
+ *    26. connectOneShot called by the worker (for response-file SFTP write)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -119,7 +125,8 @@ function makePendingBirth(overrides?: Partial<PendingBirth>): PendingBirth {
     hostId: "42",
     hostIdNum: 42,
     uuid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    role: "coordinator",
+    roles: ["coordinator"],
+    prompt: "test-prompt",
     task: "do a thing",
     requested_at: "2026-09-10T00:00:00Z",
     userId: "user-abc",
@@ -179,21 +186,23 @@ describe("spawn-request worker", () => {
   // -------------------------------------------------------------------------
 
   describe("parseRequestBody", () => {
-    it("Test 1: valid JSON returns ok:true + SpawnRequestBody", () => {
+    it("Test 1: valid extended body {roles, skills, prompt} returns ok:true + SpawnRequestBody", () => {
       const result = parseRequestBody(
         "test-uuid",
-        JSON.stringify({ role: "coordinator", task: "do a thing", requested_at: "2026-09-10T00:00:00Z" }),
+        JSON.stringify({ roles: ["coordinator"], skills: ["id"], prompt: "Check the Kanban", task: "do a thing", requested_at: "2026-09-10T00:00:00Z" }),
       );
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.body.role).toBe("coordinator");
+        expect(result.body.roles).toEqual(["coordinator"]);
+        expect(result.body.skills).toEqual(["id"]);
+        expect(result.body.prompt).toBe("Check the Kanban");
         expect(result.body.task).toBe("do a thing");
         expect(result.body.requested_at).toBe("2026-09-10T00:00:00Z");
       }
     });
 
     it("Test 2: malformed JSON string returns ok:false reason:malformed message:/JSON/i", () => {
-      const result = parseRequestBody("test-uuid", '{"role":"coordinator"');
+      const result = parseRequestBody("test-uuid", '{"roles":["coordinator"]');
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.reason).toBe("malformed");
@@ -201,28 +210,28 @@ describe("spawn-request worker", () => {
       }
     });
 
-    it("Test 3: missing role field returns malformed + message:/role/i", () => {
+    it("Test 3: missing roles field returns malformed + message:/roles/i", () => {
       const result = parseRequestBody(
         "test-uuid",
-        JSON.stringify({ task: "do a thing", requested_at: "2026-09-10T00:00:00Z" }),
+        JSON.stringify({ prompt: "do a thing", task: null, requested_at: "2026-09-10T00:00:00Z" }),
       );
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.reason).toBe("malformed");
-        expect(result.message).toMatch(/role/i);
+        expect(result.message).toMatch(/roles/i);
       }
     });
 
-    it("Test 4: role failing ROLE_NAME_PATTERN returns malformed + message about role pattern", () => {
+    it("Test 4: roles element failing ROLE_NAME_PATTERN returns malformed + message about role/pattern", () => {
       // ROLE_NAME_PATTERN validates role names; "INVALID ROLE WITH SPACES" should fail
       const result = parseRequestBody(
         "test-uuid",
-        JSON.stringify({ role: "INVALID ROLE WITH SPACES", task: null, requested_at: "2026-09-10T00:00:00Z" }),
+        JSON.stringify({ roles: ["INVALID ROLE WITH SPACES"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z" }),
       );
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.reason).toBe("malformed");
-        expect(result.message).toMatch(/role.*pattern|invalid.*role|does not match/i);
+        expect(result.message).toMatch(/role.*pattern|does not match|roles/i);
       }
     });
 
@@ -230,7 +239,7 @@ describe("spawn-request worker", () => {
       const longTask = "x".repeat(501);
       const result = parseRequestBody(
         "test-uuid",
-        JSON.stringify({ role: "coordinator", task: longTask, requested_at: "2026-09-10T00:00:00Z" }),
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: longTask, requested_at: "2026-09-10T00:00:00Z" }),
       );
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -242,7 +251,7 @@ describe("spawn-request worker", () => {
     it("Test 6: task present as null returns ok:true body.task===null", () => {
       const result = parseRequestBody(
         "test-uuid",
-        JSON.stringify({ role: "coordinator", task: null, requested_at: "2026-09-10T00:00:00Z" }),
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z" }),
       );
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -253,12 +262,90 @@ describe("spawn-request worker", () => {
     it("Test 7: missing requested_at returns malformed + message:/requested_at/i", () => {
       const result = parseRequestBody(
         "test-uuid",
-        JSON.stringify({ role: "coordinator", task: "do a thing" }),
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: "do a thing" }),
       );
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.reason).toBe("malformed");
         expect(result.message).toMatch(/requested_at/i);
+      }
+    });
+
+    it("Test 8: valid extended body {roles, skills, prompt} — asserts body.roles / body.skills / body.prompt", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({
+          roles: ["coordinator"],
+          skills: ["id"],
+          prompt: "Check the Kanban",
+          task: null,
+          requested_at: "2026-09-10T00:00:00Z",
+        }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.body.roles).toEqual(["coordinator"]);
+        expect(result.body.skills).toEqual(["id"]);
+        expect(result.body.prompt).toBe("Check the Kanban");
+      }
+    });
+
+    it("Test 9: empty roles array rejected as malformed + message:/roles/i", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: [], prompt: "do something", task: null, requested_at: "2026-09-10T00:00:00Z" }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("malformed");
+        expect(result.message).toMatch(/roles/i);
+      }
+    });
+
+    it("Test 10: roles element failing ROLE_NAME_PATTERN rejected as malformed", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["INVALID ROLE"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z" }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("malformed");
+        expect(result.message).toMatch(/role/i);
+      }
+    });
+
+    it("Test 11: missing prompt rejected as malformed + message:/prompt/i", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["coordinator"], task: null, requested_at: "2026-09-10T00:00:00Z" }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("malformed");
+        expect(result.message).toMatch(/prompt/i);
+      }
+    });
+
+    it("Test 12: skills present as non-array rejected as malformed + message:/skills/i", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["coordinator"], skills: "id", prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z" }),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("malformed");
+        expect(result.message).toMatch(/skills/i);
+      }
+    });
+
+    it("Test 13: skills absent (undefined) accepted — field is optional", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z" }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.body.skills).toBeUndefined();
       }
     });
   });
@@ -272,7 +359,7 @@ describe("spawn-request worker", () => {
     // because BirthEvent.ended has no reason field — reasons live on step events.
     // Worker threads the last step:failed reason through as the 2nd arg.
 
-    it("Test 8: stepFailReason='ssh connect timeout' → homeserver_unreachable", () => {
+    it("Test 14: stepFailReason='ssh connect timeout' → homeserver_unreachable", () => {
       const event: BirthEvent & { type: "ended" } = {
         type: "ended",
         ok: false,
@@ -282,7 +369,7 @@ describe("spawn-request worker", () => {
       expect(result).toBe("homeserver_unreachable");
     });
 
-    it("Test 9: stepFailReason containing /refused/ → homeserver_unreachable", () => {
+    it("Test 15: stepFailReason containing /refused/ → homeserver_unreachable", () => {
       const event: BirthEvent & { type: "ended" } = {
         type: "ended",
         ok: false,
@@ -292,7 +379,7 @@ describe("spawn-request worker", () => {
       expect(result).toBe("homeserver_unreachable");
     });
 
-    it("Test 10: no stepFailReason → birth_failed", () => {
+    it("Test 16: no stepFailReason → birth_failed", () => {
       const event: BirthEvent & { type: "ended" } = {
         type: "ended",
         ok: false,
@@ -302,7 +389,7 @@ describe("spawn-request worker", () => {
       expect(result).toBe("birth_failed");
     });
 
-    it("Test 10b: stepFailReason='role not found on host' → role_unknown", () => {
+    it("Test 16b: stepFailReason='role not found on host' → role_unknown", () => {
       const event: BirthEvent & { type: "ended" } = {
         type: "ended",
         ok: false,
@@ -312,7 +399,7 @@ describe("spawn-request worker", () => {
       expect(result).toBe("role_unknown");
     });
 
-    it("Test 10c: stepFailReason='unrelated database write error' → birth_failed (default)", () => {
+    it("Test 16c: stepFailReason='unrelated database write error' → birth_failed (default)", () => {
       const event: BirthEvent & { type: "ended" } = {
         type: "ended",
         ok: false,
@@ -328,7 +415,7 @@ describe("spawn-request worker", () => {
   // -------------------------------------------------------------------------
 
   describe("processBirth", () => {
-    it("Test 11: successful birth → writeMarkdownFileAtomic called with .success.json + required keys", async () => {
+    it("Test 17: successful birth → writeMarkdownFileAtomic called with .success.json + required keys", async () => {
       const deps = buildTestDeps();
       const item = makePendingBirth();
 
@@ -347,7 +434,7 @@ describe("spawn-request worker", () => {
       expect(parsed).not.toHaveProperty("mxid");
     });
 
-    it("Test 11a: birthDeps assembly passes discoverIdentitySessionFile function to birthIdentity (Phase 106 review M4 fix)", async () => {
+    it("Test 17a: birthDeps assembly passes discoverIdentitySessionFile function to birthIdentity (Phase 106 review M4 fix)", async () => {
       // Guards against accidental removal of the discoverIdentitySessionFile
       // line from worker.ts's birthDeps object. Without this line the
       // orchestrator's wait-for-supervisor poll calls undefined() and worker
@@ -370,7 +457,7 @@ describe("spawn-request worker", () => {
       expect(typeof bd.discoverIdentitySessionFile).toBe("function");
     });
 
-    it("Test 12: failed birth (ok:false, failedStep:2) → .failure.json + {reason:'birth_failed'}", async () => {
+    it("Test 18: failed birth (ok:false, failedStep:2) → .failure.json + {reason:'birth_failed'}", async () => {
       const deps = buildTestDeps({
         birthIdentity: vi.fn().mockImplementation(async (_opts, emit: (e: BirthEvent) => void) => {
           emit({ type: "ended", ok: false, failedStep: 2 });
@@ -394,6 +481,7 @@ describe("spawn-request worker", () => {
     });
 
     it("Test 108-W1: Phase 108 — birthIdentity ended{ok:false, failedStep:1, reason:'role not found on target host: bogus'} → .failure.json body {reason:'role_unknown'}", async () => {
+      // (renumbered from Test 12 → now part of 18+ range)
       // Phase 108 processBirth-level integration test (D-14): mocks the
       // birth orchestrator's real emit sequence when its Step 1 role-folder
       // probe throws. The mock emits step:1:failed FIRST (so the worker's
@@ -425,7 +513,7 @@ describe("spawn-request worker", () => {
           },
         ),
       });
-      const item = makePendingBirth({ role: "bogus" });
+      const item = makePendingBirth({ roles: ["bogus"] });
 
       await processBirth(item, deps);
 
@@ -447,7 +535,7 @@ describe("spawn-request worker", () => {
       }
     });
 
-    it("Test 13: malformed request → .failure.json + {reason:'malformed', message non-empty}", async () => {
+    it("Test 19: malformed request → .failure.json + {reason:'malformed', message non-empty}", async () => {
       const deps = buildTestDeps();
       // Use a PendingBirth with invalid role so parseRequestBody fails when
       // the worker calls it via the body (we simulate by crafting a special item)
@@ -504,7 +592,7 @@ describe("spawn-request worker", () => {
       // This is what the plan's integration requirement describes: coord drops malformed →
       // sweep calls parseRequestBody → gets malformed → creates a failure PendingBirth-like
       // item → writes failure file. We simulate this inline.
-      const malformedRawBody = '{"role": "", "task": null, "requested_at": "2026-09-10"}';
+      const malformedRawBody = '{"roles": [], "prompt": "", "task": null, "requested_at": "2026-09-10"}';
       const parseResult = parseRequestBody("test-uuid", malformedRawBody);
       expect(parseResult.ok).toBe(false);
       if (!parseResult.ok) {
@@ -530,7 +618,7 @@ describe("spawn-request worker", () => {
       expect(parsed.message).toBeTruthy();
     });
 
-    it("Test 13b: PendingBirth with malformedReason → .failure.json {reason:malformed, message:<preserved>} + short-circuit (no birthIdentity)", async () => {
+    it("Test 19b: PendingBirth with malformedReason → .failure.json {reason:malformed, message:<preserved>} + short-circuit (no birthIdentity)", async () => {
       // Post-code-review M2/M3: sweep's parseSpawnRequestBatch now attaches
       // malformedReason directly to PendingBirth; processBirth must short-circuit
       // and drop a proper malformed failure file without calling birthIdentity.
@@ -539,7 +627,8 @@ describe("spawn-request worker", () => {
         birthIdentity: mockBirthIdentity,
       });
       const item = makePendingBirth({
-        role: "",
+        roles: [],
+        prompt: "",
         task: null,
         requested_at: "",
         malformedReason: "invalid JSON: Unexpected token n at position 1",
@@ -561,7 +650,7 @@ describe("spawn-request worker", () => {
       expect(parsed.message).toBe("invalid JSON: Unexpected token n at position 1");
     });
 
-    it("Test 14: pool empty → .failure.json with reason:pool_exhausted, no birthIdentity call", async () => {
+    it("Test 20: pool empty → .failure.json with reason:pool_exhausted, no birthIdentity call", async () => {
       const mockBirthIdentity = vi.fn();
       const deps = buildTestDeps({
         getVettedPool: vi.fn().mockReturnValue([]),
@@ -579,7 +668,7 @@ describe("spawn-request worker", () => {
       expect(mockBirthIdentity).not.toHaveBeenCalled();
     });
 
-    it("Test 15: matrix creds missing → .failure.json with reason:matrix_creds_missing, no birthIdentity call", async () => {
+    it("Test 21: matrix creds missing → .failure.json with reason:matrix_creds_missing, no birthIdentity call", async () => {
       const mockBirthIdentity = vi.fn();
       const deps = buildTestDeps({
         getMatrixAdminCreds: vi.fn().mockResolvedValue(null),
@@ -597,7 +686,7 @@ describe("spawn-request worker", () => {
       expect(mockBirthIdentity).not.toHaveBeenCalled();
     });
 
-    it("Test 16: host-owner lookup returns null → .failure.json with reason:birth_failed, no birthIdentity call", async () => {
+    it("Test 22: host-owner lookup returns null → .failure.json with reason:birth_failed, no birthIdentity call", async () => {
       const mockBirthIdentity = vi.fn();
       const deps = buildTestDeps({
         getHostOwnerUserId: vi.fn().mockResolvedValue(null),
@@ -615,7 +704,7 @@ describe("spawn-request worker", () => {
       expect(mockBirthIdentity).not.toHaveBeenCalled();
     });
 
-    it("Test 17: response-file write uses writeMarkdownFileAtomic (Pitfall 1 guard)", async () => {
+    it("Test 23: response-file write uses writeMarkdownFileAtomic (Pitfall 1 guard)", async () => {
       const deps = buildTestDeps();
       // There's no writeIdentityFile in our deps — this test confirms the mock
       // writeMarkdownFileAtomic is what gets called (not some other function).
@@ -630,7 +719,7 @@ describe("spawn-request worker", () => {
       expect(path).toMatch(/fleet\/spawn-requests/);
     });
 
-    it("Test 18: hostIdNum passed as number to birthIdentity opts.hostId", async () => {
+    it("Test 24: hostIdNum passed as number to birthIdentity opts.hostId", async () => {
       const mockBirthIdentity = vi.fn().mockImplementation(
         async (_opts: unknown, emit: (e: BirthEvent) => void) => {
           emit({ type: "ended", ok: true, identityId: "willow", sessionName: "Willow-Coordinator" });
@@ -647,7 +736,7 @@ describe("spawn-request worker", () => {
       expect(opts.hostId).toBe(42);
     });
 
-    it("Test 19: opts.poolPicked === true (worker births are always pool-picked)", async () => {
+    it("Test 25: opts.poolPicked === true (worker births are always pool-picked)", async () => {
       const mockBirthIdentity = vi.fn().mockImplementation(
         async (_opts: unknown, emit: (e: BirthEvent) => void) => {
           emit({ type: "ended", ok: true, identityId: "willow", sessionName: "Willow-Coordinator" });
@@ -663,7 +752,7 @@ describe("spawn-request worker", () => {
       expect(opts.poolPicked).toBe(true);
     });
 
-    it("Test 20: connectOneShot invoked by the worker for response-file SFTP write", async () => {
+    it("Test 26: connectOneShot invoked by the worker for response-file SFTP write", async () => {
       const mockConnectOneShot = vi.fn().mockResolvedValue({ end: vi.fn(), sftp: vi.fn() });
       const deps = buildTestDeps({ connectOneShot: mockConnectOneShot });
       const item = makePendingBirth();
@@ -675,7 +764,7 @@ describe("spawn-request worker", () => {
       expect(mockConnectOneShot).toHaveBeenCalled();
     });
 
-    it("Test 21: LOCAL host (isLocalHostId=true) → writeResponseFile skips connectOneShot + resolveHostById, calls writeMarkdownFileAtomic with conn=null", async () => {
+    it("Test 27: LOCAL host (isLocalHostId=true) → writeResponseFile skips connectOneShot + resolveHostById, calls writeMarkdownFileAtomic with conn=null", async () => {
       // 2026-09-11: LOCAL-branch fix — spawn-requests worker used to fail on
       // co-located hosts because resolveHostById returns null for local hosts
       // (spawn_request_response_host_not_found log), so no response file

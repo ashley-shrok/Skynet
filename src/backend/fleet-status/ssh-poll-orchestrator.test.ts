@@ -8466,11 +8466,12 @@ describe("spawn-request scan helpers", () => {
   });
 
   // scanSpawnRequests — valid request file → PendingBirth item
-  it("scanSpawnRequests valid request file → PendingBirth item with role/task/requested_at", async () => {
+  it("scanSpawnRequests valid request file → PendingBirth item with roles/prompt/task/requested_at", async () => {
     const channel = new MockSshChannel();
     const uuid = "12345678-1234-1234-1234-1234567890ab";
     const body = JSON.stringify({
-      role: "coordinator",
+      roles: ["coordinator"],
+      prompt: "test prompt",
       task: "test task",
       requested_at: "2026-09-10T00:00:00Z",
     });
@@ -8481,7 +8482,8 @@ describe("spawn-request scan helpers", () => {
     expect(result).toHaveLength(1);
     const item = result[0] as PendingBirth;
     expect(item.uuid).toBe(uuid);
-    expect(item.role).toBe("coordinator");
+    expect(item.roles).toEqual(["coordinator"]);
+    expect(item.prompt).toBe("test prompt");
     expect(item.task).toBe("test task");
     expect(item.requested_at).toBe("2026-09-10T00:00:00Z");
     expect(item.userId).toBe(""); // worker refetches via getHostOwnerUserId
@@ -8502,16 +8504,18 @@ describe("spawn-request scan helpers", () => {
     expect(item.uuid).toBe(uuid);
     expect(item.malformedReason).toBeDefined();
     expect(String(item.malformedReason)).toMatch(/JSON/i);
-    expect(item.role).toBe("");
+    expect(item.roles).toEqual([]);
+    expect(item.prompt).toBe("");
     expect(item.task).toBeNull();
   });
 
-  // scanSpawnRequests — role failing ROLE_NAME_PATTERN → malformedReason
-  it("scanSpawnRequests role failing ROLE_NAME_PATTERN → PendingBirth with malformedReason (role field)", async () => {
+  // scanSpawnRequests — roles element failing ROLE_NAME_PATTERN → malformedReason
+  it("scanSpawnRequests roles element failing ROLE_NAME_PATTERN → PendingBirth with malformedReason (roles field)", async () => {
     const channel = new MockSshChannel();
     const uuid = "12345678-1234-1234-1234-1234567890ab";
     const body = JSON.stringify({
-      role: "INVALID ROLE WITH SPACES",
+      roles: ["INVALID ROLE WITH SPACES"],
+      prompt: "test prompt",
       task: "test",
       requested_at: "2026-09-10T00:00:00Z",
     });
@@ -8531,8 +8535,8 @@ describe("spawn-request scan helpers", () => {
     const channel = new MockSshChannel();
     const uuid1 = "12345678-1234-1234-1234-1234567890ab";
     const uuid2 = "abcdef12-abcd-abcd-abcd-abcdef123456";
-    const body1 = JSON.stringify({ role: "coordinator", task: "task one", requested_at: "2026-09-10T00:00:00Z" });
-    const body2 = JSON.stringify({ role: "executor", task: "task two", requested_at: "2026-09-10T00:01:00Z" });
+    const body1 = JSON.stringify({ roles: ["coordinator"], prompt: "prompt one", task: "task one", requested_at: "2026-09-10T00:00:00Z" });
+    const body2 = JSON.stringify({ roles: ["executor"], prompt: "prompt two", task: "task two", requested_at: "2026-09-10T00:01:00Z" });
     channel.setResponse(
       "fleet/spawn-requests",
       `${uuid1}.json\t${body1}\n${uuid2}.json\t${body2}\n`,
