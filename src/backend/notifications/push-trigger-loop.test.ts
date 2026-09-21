@@ -106,7 +106,6 @@ function makeDeps(
     listAdminRooms: vi.fn(async () => []),
     getAgentsRegistryRoomId: vi.fn(async () => AGENTS_REGISTRY_ROOM_ID),
     getRegistryMembers: vi.fn(async () => new Set<string>([AGENT_MXID])),
-    resolveUserId: vi.fn((_mxid: string) => USER_A),
     sendPushToUser: vi.fn(async () => {}),
     derivePreviewText: vi.fn(() => "hey"),
     resolveAgentDisplayName: vi.fn(async () => "Fanny"),

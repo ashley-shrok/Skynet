@@ -230,12 +230,6 @@ export interface PushTriggerLoopDeps {
    */
   getRegistryMembers(agentsRegistryRoomId: string): Promise<Set<string>>;
   /**
-   * Resolve a userMxid to the internal userId (users table primary key)
-   * for the push-subscription lookup. Wired to a per-mxid DB query at
-   * boot; returns null if the user was deleted concurrently.
-   */
-  resolveUserId(userMxid: string): string | null;
-  /**
    * Dispatch a push notification for a qualifying event. Never-throws by
    * contract (T-128-09) — see push-sender.ts. This dep's I/O and prune
    * discipline are owned entirely by push-sender.

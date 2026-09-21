@@ -160,15 +160,11 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
   }
 
   // ── Step 3: wire deps + start the loop ────────────────────────────────
-  // Build a userMxid → userId reverse map so the loop can resolve the
-  // internal userId for the push-subscription lookup without another DB
-  // round-trip per event. Users may be added/renamed while the loop
-  // runs; hot-reload is a future slice (v1 accepts the boot-time
-  // snapshot).
-  const mxidToUserId = new Map<string, string>();
-  for (const { userId, userMxid } of users) {
-    mxidToUserId.set(userMxid, userId);
-  }
+  // Fix pass M-7: the earlier `mxidToUserId` reverse map + `resolveUserId`
+  // dep is deleted. The loop's dispatch site already has `userId` in scope
+  // (bound to state.userMxid at start()); it never called resolveUserId.
+  // Removing the dead surface prevents a future maintainer from adding a
+  // wrong call site.
 
   try {
     const deps: PushTriggerLoopDeps = {
@@ -216,7 +212,6 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
         }
         return new Set(result.memberMxids);
       },
-      resolveUserId: (mxid: string) => mxidToUserId.get(mxid) ?? null,
       sendPushToUser,
       derivePreviewText,
       resolveAgentDisplayName,

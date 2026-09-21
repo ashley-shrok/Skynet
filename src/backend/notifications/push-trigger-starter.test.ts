@@ -239,7 +239,10 @@ describe("startPushTriggerLoopOnBoot", () => {
     expect(depsArg).toHaveProperty("listAdminRooms");
     expect(depsArg).toHaveProperty("getAgentsRegistryRoomId");
     expect(depsArg).toHaveProperty("getRegistryMembers");
-    expect(depsArg).toHaveProperty("resolveUserId");
+    // Fix pass M-7: `resolveUserId` dep deleted — was declared but never
+    // called by runPushTriggerTick. Explicitly assert the shape stays gone
+    // so a future maintainer doesn't quietly re-add it.
+    expect(depsArg).not.toHaveProperty("resolveUserId");
     expect(depsArg).toHaveProperty("sendPushToUser");
     expect(depsArg).toHaveProperty("derivePreviewText");
     expect(depsArg).toHaveProperty("resolveAgentDisplayName");
