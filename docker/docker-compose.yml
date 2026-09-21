@@ -42,6 +42,14 @@ services:
     # has when it SSHes to any fleet host as ubuntu.
     cap_add:
       - SYS_PTRACE
+    # Docker's default AppArmor profile (docker-default) denies the ptrace
+    # syscall regardless of CAP_SYS_PTRACE — profile-level deny sits above
+    # capability grants. Unconfined disables that profile for THIS container
+    # only. Combined with pid: host + SYS_PTRACE this gives the container
+    # the same read visibility into host processes it would have if it
+    # SSHed in as ubuntu. No other containers on the daemon are affected.
+    security_opt:
+      - apparmor:unconfined
     # Build block added 2026-09-10 (bounty compose-tg-bridge-buildpath-cleanup)
     # so `docker compose build` from a maintainer's worktree rebuilds both
     # skynet-patched:local AND tg-bridge:local in one command. Previously
