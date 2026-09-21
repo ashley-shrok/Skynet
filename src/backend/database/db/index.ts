@@ -336,23 +336,13 @@ async function initializeCompleteDatabase(): Promise<void> {
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- Phase 79 Plan 01 — per-identity Telegram bot tokens. One row per
-    -- identity (identity_key PRIMARY KEY). Writes go through
-    -- src/backend/telegram/tokens-store.ts, which FieldCrypto-encrypts
-    -- bot_token (AES-256-GCM) before INSERT/UPDATE. IF NOT EXISTS keeps
-    -- the DDL idempotent across boots. Persisted via a forceSave() block
-    -- below alongside the phase-75 matrix_admin_creds save so the new
-    -- table survives container restart even without an unrelated write
-    -- firing the debounced trigger.
-    CREATE TABLE IF NOT EXISTS telegram_bot_tokens (
-        identity_key TEXT PRIMARY KEY,
-        bot_token TEXT NOT NULL,
-        bot_username TEXT NOT NULL,
-        human_user_id TEXT NOT NULL,
-        telegram_chat_id TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
+    -- Phase 128 Plan 01 (D-18) — CREATE TABLE for the retired Telegram
+    -- bridge's per-identity bot-tokens table was DELETED here in Task 2.
+    -- The table is now dropped by the drop-migration in migrateSchema
+    -- below (adjacent to runPinColumnDrop / runHiddenColumnDrop); keeping
+    -- a CREATE IF NOT EXISTS here would defeat that drop by silently
+    -- re-adding the table on every boot. D-20 documents user acceptance
+    -- of the destructive shutdown.
 
     CREATE TABLE IF NOT EXISTS snippets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -610,6 +600,43 @@ async function initializeCompleteDatabase(): Promise<void> {
     -- silently starts creating duplicate rows on external-kick then re-invite.
     CREATE UNIQUE INDEX IF NOT EXISTS relay_room_sessions_user_room_uidx
         ON relay_room_sessions(user_id, room_id);
+
+    -- Phase 128 Plan 01 (D-11, D-13, D-14) — push_subscriptions: per-user,
+    -- per-device Web Push subscriptions. Row shape mirrors the browser's
+    -- PushSubscriptionJSON payload (endpoint + keys.p256dh + keys.auth) —
+    -- passed straight to web-push.sendNotification at push time. FK matches
+    -- the relay_room_sessions pattern above (ON DELETE CASCADE — a user
+    -- deletion sweeps their subscription rows, T-128-01 mitigation). Writes
+    -- go through a new store module (Plan 02 slice); every INSERT / DELETE
+    -- MUST be paired with DatabaseSaveTrigger.forceSave("push-subscription-...")
+    -- per the in-memory SQLite invariant. Persisted via a labeled forceSave
+    -- in the migration block below (belt-and-suspenders same as
+    -- relay_room_sessions — the incremental probe adds a second CREATE
+    -- TABLE IF NOT EXISTS in the migration block).
+    --
+    -- Drizzle mirror at schema.ts pushSubscriptions.
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_delivered_at TEXT,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+
+    -- Phase 128 Plan 01 (D-14) — UNIQUE(user_id, endpoint) is LOAD-BEARING
+    -- for the multi-device semantics: one row per (user, endpoint), NOT one
+    -- row per user. Same user on desktop + phone gets TWO rows (two different
+    -- endpoints); same user re-registering the same endpoint (browser
+    -- rotation) hits ON CONFLICT DO NOTHING at the route layer. Do NOT
+    -- collapse this to UNIQUE(user_id) — that would clobber multi-device.
+    -- Do NOT collapse to UNIQUE(endpoint) — endpoints are per-device, but the
+    -- authz key is user_id (a subscription is meaningless without knowing
+    -- WHICH user's messages to route through it).
+    CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_user_endpoint_unique
+        ON push_subscriptions(user_id, endpoint);
 
     -- Phase 89 Plan 01 (D-16) — admin_rooms: Skynet-instance-owned internal
     -- ignore-list. Populated when Skynet creates each registry room (D-10)
@@ -934,6 +961,49 @@ export function runHiddenColumnDrop(sqliteDb: Database.Database): void {
   dropColumnIfExists(sqliteDb, "user_preferences", "hidden_conversation_ids");
 }
 
+/**
+ * Phase 128 Plan 01 (D-18, D-20) — drop the `telegram_bot_tokens` table
+ * entirely. The whole tg-bridge is coming out in the same shipping unit as
+ * the push-notifications land (D-17); the table (identity_key, bot_token,
+ * bot_username, human_user_id, telegram_chat_id) solely supports the bridge
+ * and is destructive-shutdown-accepted per D-20 (existing bridge
+ * subscriptions/tokens are dropped on deploy; no rollback path).
+ *
+ * Byte-mirror of runIdentitiesTableDrop (L910-927) — the ONLY difference is
+ * the table name. `DROP TABLE IF EXISTS` is idempotent: safe on fresh
+ * installs (table never existed) and on upgraded installs (table dropped on
+ * first successful boot; subsequent boots no-op).
+ *
+ * A failed drop is non-fatal (T-128-04): the table is deadweight if it
+ * lingers (no runtime code path reads or writes it post-Phase-126 — the
+ * whole src/backend/telegram/ directory is scheduled for deletion in a
+ * later plan of this same phase), so a warn-and-continue matches the
+ * existing runXxxTableDrop discipline.
+ *
+ * Exported so index.migration.test.ts can exercise Test P128-01 (populated
+ * → drop → absent) + Test P128-02 (absent → drop is idempotent no-op)
+ * against test-owned in-memory databases — parallel to runIdentitiesTableDrop
+ * export pattern at L910-927.
+ */
+export function runTelegramBotTokensTableDrop(
+  sqliteDb: Database.Database,
+): void {
+  try {
+    sqliteDb.exec("DROP TABLE IF EXISTS telegram_bot_tokens;");
+  } catch (dropError) {
+    // Non-fatal per T-128-04 accept: boot continues on failure; operator
+    // sees the warn and can re-drop by restarting (IF EXISTS is idempotent).
+    databaseLogger.warn(
+      "Failed to drop telegram_bot_tokens table",
+      {
+        operation: "schema_migration_drop_table",
+        table: "telegram_bot_tokens",
+        error: dropError,
+      },
+    );
+  }
+}
+
 const migrateSchema = async () => {
   // Phase 66 Plan 04: drop the cosmetic columns from identities (now live on
   // disk per shape file). Preflight asserts SQLite >= 3.35 (native DROP
@@ -1030,34 +1100,75 @@ const migrateSchema = async () => {
     throw preflightErr;
   }
 
+  // Phase 128 Plan 01 (D-18, D-20) — drop the telegram_bot_tokens table
+  // entirely. The whole tg-bridge is coming out in the same shipping unit
+  // as the push-notifications land (D-17); the DB row that solely supports
+  // the bridge is dropped in the same motion. Destructive-shutdown accepted
+  // per D-20 (existing bridge subscriptions/tokens gone on deploy; no
+  // rollback path).
+  //
+  // Ranked adjacent to the runPinColumnDrop / runHiddenColumnDrop calls
+  // above per the drops-before-adds ordering rationale documented at their
+  // callsites (a stale install cannot briefly re-add this table because
+  // the CREATE TABLE IF NOT EXISTS block for it was DELETED from the
+  // top-of-init SQL in the same task).
+  //
+  // Unlike the column drops above, the whole-table drop does NOT need
+  // assertSqliteSupportsDropColumn (DROP TABLE has been supported since
+  // SQLite 1.x). Wrapped in try/catch with a non-fatal warn: a failed
+  // drop leaves the table intact as deadweight (no runtime code path reads
+  // or writes it post-Phase-126 — the whole src/backend/telegram/ directory
+  // is scheduled for deletion in a later plan of this same phase). Boot
+  // continues per T-128-04 (accept disposition).
+  try {
+    runTelegramBotTokensTableDrop(sqlite);
+  } catch (dropErr) {
+    databaseLogger.warn(
+      "[phase-128] telegram_bot_tokens table drop failed (non-fatal — table becomes inert deadweight; next boot retries via IF EXISTS)",
+      {
+        operation: "schema_migration_drop_table",
+        table: "telegram_bot_tokens",
+        error: dropErr,
+      },
+    );
+  }
+
   addColumnIfNotExists("user_preferences", "theme", "TEXT");
   addColumnIfNotExists("user_preferences", "font_size", "TEXT");
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
   addColumnIfNotExists("user_preferences", "language", "TEXT");
 
-  // Phase 107 Plan 03 — persist BOTH the pinned_conversation_ids DROP
-  // (runPinColumnDrop above) AND the hidden_conversation_ids DROP
-  // (runHiddenColumnDrop above) to the encrypted SQLite file in one
-  // atomic file write. Direct .exec() writes only reach RAM per CLAUDE.md
-  // § "In-memory SQLite pattern"; without an explicit forceSave the drops
-  // live only in memory until an unrelated write fires the debounced save
-  // trigger — a restart in that window would lose the schema mutation and
-  // re-run the drop on next boot. Wrapped in try/catch with a non-fatal
-  // warn: dropColumnIfExists is idempotent, so a save failure retries on
-  // the next boot cycle. The label is always the LATEST migration touching
-  // this file — per Phase 92 Plan 03 precedent, one forceSave batches all
-  // prior mutations (both drops + the user_preferences addColumnIfNotExists
-  // sweep) in a single atomic write. Mirrors the L928-939 (phase-68) /
-  // L995-1006 (phase-75) precedent — same shape, same reason, same
-  // tolerance for uninitialized-trigger races on the first-ever boot.
+  // Phase 128 Plan 01 (D-18) — persist the batch of schema mutations from
+  // this block to the encrypted SQLite file in one atomic write: (a) the
+  // Phase 92 pinned_conversation_ids DROP (runPinColumnDrop above), (b) the
+  // Phase 107 hidden_conversation_ids DROP (runHiddenColumnDrop above),
+  // (c) the Phase 128 telegram_bot_tokens table DROP
+  // (runTelegramBotTokensTableDrop above), and (d) the user_preferences
+  // addColumnIfNotExists sweep between them.
+  //
+  // Direct .exec() writes only reach RAM per CLAUDE.md § "In-memory SQLite
+  // pattern"; without an explicit forceSave the drops live only in memory
+  // until an unrelated write fires the debounced save trigger — a restart
+  // in that window would lose the schema mutation and re-run the drop on
+  // next boot. Wrapped in try/catch with a non-fatal warn: both
+  // dropColumnIfExists and runTelegramBotTokensTableDrop are idempotent
+  // (DROP TABLE IF EXISTS on the whole-table drop), so a save failure
+  // retries on the next boot cycle. The label is always the LATEST
+  // migration touching this file — per Phase 92 Plan 03 precedent, one
+  // forceSave batches all prior mutations in a single atomic write.
+  // Mirrors the L928-939 (phase-68) / L995-1006 (phase-75) precedent —
+  // same shape, same reason, same tolerance for uninitialized-trigger
+  // races on the first-ever boot.
   try {
-    await DatabaseSaveTrigger.forceSave("phase-107-hidden-sentinel-migration");
+    await DatabaseSaveTrigger.forceSave(
+      "phase-128-telegram-bot-tokens-table-drop",
+    );
   } catch (saveError) {
     databaseLogger.warn(
-      "[phase-107] forceSave failed post-drop (non-fatal — dropColumnIfExists is idempotent, next boot retries)",
+      "[phase-128] forceSave failed post-drop (non-fatal — dropColumnIfExists + DROP TABLE IF EXISTS are idempotent, next boot retries)",
       {
         operation: "schema_migration_force_save_post_drop",
-        reason: "phase-107-hidden-sentinel-migration",
+        reason: "phase-128-telegram-bot-tokens-table-drop",
         error: saveError,
       },
     );
@@ -1154,29 +1265,11 @@ const migrateSchema = async () => {
     );
   }
 
-  // Phase 79 Plan 01 — persist the new telegram_bot_tokens table to the
-  // encrypted SQLite file. Same reason as phase-75: the CREATE TABLE
-  // executes against RAM SQLite, and without an explicit forceSave the new
-  // schema lives only in memory until an unrelated write fires the
-  // debounced save trigger. A restart before that first unrelated write
-  // loses the schema and re-runs the DDL on next boot.
-  //
-  // Wrapped in try/catch with a non-fatal warn: DatabaseSaveTrigger may
-  // not yet be initialized on the first-ever boot; the CREATE TABLE IF
-  // NOT EXISTS is idempotent, so a save failure retries on the next boot.
-  // Mirrors phase-75 precedent exactly (same shape, same reason).
-  try {
-    await DatabaseSaveTrigger.forceSave("phase-79-telegram-bot-tokens-schema");
-  } catch (saveError) {
-    databaseLogger.warn(
-      "[phase-79] forceSave failed post-schema (non-fatal — CREATE IF NOT EXISTS is idempotent, next boot retries)",
-      {
-        operation: "schema_migration_force_save_post_add",
-        reason: "phase-79-telegram-bot-tokens-schema",
-        error: saveError,
-      },
-    );
-  }
+  // Phase 128 Plan 01 (D-18) — the earlier Telegram-bridge forceSave that
+  // persisted the (now-dropped) bot-tokens CREATE TABLE was DELETED in
+  // Task 2. The drop-migration in migrateSchema above has its own labeled
+  // forceSave via the shared drops-then-batched-save discipline
+  // (phase-128-telegram-bot-tokens-table-drop is now the latest label).
 
   addColumnIfNotExists("ssh_data", "name", "TEXT");
   addColumnIfNotExists("ssh_data", "folder", "TEXT");
@@ -1605,6 +1698,40 @@ const migrateSchema = async () => {
     }
   }
 
+  // Phase 128 Plan 01 (D-11, D-13, D-14) — belt-and-suspenders migration
+  // probe for push_subscriptions. The top-of-init CREATE TABLE IF NOT EXISTS
+  // block above covers fresh installs; this probe covers the upgrade-from-
+  // old-schema path (relay_room_sessions precedent at L1564-1588). Both DDLs
+  // are idempotent (IF NOT EXISTS + IF NOT EXISTS on the unique index) so
+  // re-execing on an already-migrated DB is a no-op. The labeled forceSave
+  // below persists the migration to the encrypted disk file so a restart
+  // before the next unrelated write does not silently re-run the DDL forever.
+  try {
+    sqlite.prepare("SELECT id FROM push_subscriptions LIMIT 1").get();
+  } catch {
+    try {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          endpoint TEXT NOT NULL,
+          p256dh TEXT NOT NULL,
+          auth TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_delivered_at TEXT,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_user_endpoint_unique
+          ON push_subscriptions(user_id, endpoint);
+      `);
+    } catch (createError) {
+      databaseLogger.warn("Failed to create push_subscriptions table", {
+        operation: "schema_migration",
+        error: createError,
+      });
+    }
+  }
+
   // Phase 89 Plan 01 — persist the new relay_room_sessions + admin_rooms
   // schema to the encrypted SQLite file. Same reason as the phase-75
   // matrix_admin_creds save at L920-933: both DDLs above execute against
@@ -1626,6 +1753,34 @@ const migrateSchema = async () => {
       {
         operation: "schema_migration_force_save_post_create",
         reason: "phase-89-relay-sessions-schema-init",
+        error: saveError,
+      },
+    );
+  }
+
+  // Phase 128 Plan 01 — persist the new push_subscriptions schema to the
+  // encrypted SQLite file. Same reason as the phase-89 save above: the
+  // CREATE TABLE + CREATE UNIQUE INDEX above execute against RAM SQLite;
+  // without an explicit forceSave the new schema lives only in memory until
+  // an unrelated write fires the debounced save trigger. A restart before
+  // that first unrelated write loses the schema and re-runs the DDL on
+  // next boot.
+  //
+  // Wrapped in try/catch with a non-fatal warn: DatabaseSaveTrigger may
+  // not yet be initialized on the first-ever boot; both CREATE TABLE IF
+  // NOT EXISTS + CREATE UNIQUE INDEX IF NOT EXISTS blocks are idempotent,
+  // so a save failure retries on the next boot cycle. Mirrors phase-89
+  // precedent exactly (same shape, same reason).
+  try {
+    await DatabaseSaveTrigger.forceSave(
+      "phase-128-push-subscriptions-schema-init",
+    );
+  } catch (saveError) {
+    databaseLogger.warn(
+      "[phase-128] forceSave failed post-schema (non-fatal — CREATE IF NOT EXISTS + UNIQUE INDEX IF NOT EXISTS are idempotent, next boot retries)",
+      {
+        operation: "schema_migration_force_save_post_create",
+        reason: "phase-128-push-subscriptions-schema-init",
         error: saveError,
       },
     );

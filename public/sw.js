@@ -95,3 +95,81 @@ self.addEventListener("fetch", (event) => {
     }),
   );
 });
+
+self.addEventListener("push", (event) => {
+  // iOS 16.4+ REQUIRES showNotification() to be called for every push,
+  // or the subscription silently gets invalidated after too many silent pushes.
+  // event.waitUntil is REQUIRED — without it iOS terminates the SW early and
+  // may cancel the subscription (Apple forum confirmed pattern).
+  // Defense-in-depth (Pitfall 3): if event.data is missing OR JSON parse throws,
+  // still call showNotification with a safe fallback — NEVER return silently.
+  let payload;
+  try {
+    payload = event.data
+      ? event.data.json()
+      : { title: "SKYNET", body: "" };
+  } catch (_err) {
+    payload = { title: "SKYNET", body: "(empty message)" };
+  }
+  const title = payload.title || "SKYNET";
+  const body = payload.body || "";
+  const roomId = payload.roomId;
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: body,
+      data: { roomId: roomId, agentMxid: payload.agentMxid },
+      tag: roomId ? `room-${roomId}` : "skynet-push", // groups per-room; iOS stacks by tag
+      // Do NOT use `renotify: false` — every message should fire a fresh buzz per D-09.
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const roomId = event.notification.data?.roomId;
+  const targetUrl = roomId ? `/?openRoom=${encodeURIComponent(roomId)}` : "/";
+  event.waitUntil((async () => {
+    const clientsList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    // Focus an existing window if any, then navigate it; otherwise open a new one.
+    for (const client of clientsList) {
+      if ("focus" in client) {
+        await client.focus();
+        if ("navigate" in client) await client.navigate(targetUrl);
+        return;
+      }
+    }
+    await self.clients.openWindow(targetUrl);
+  })());
+});
+
+self.addEventListener("pushsubscriptionchange", (event) => {
+  // Re-subscribe when the browser rotates the subscription.
+  // iOS in particular does this silently after 1-2 weeks or after ~100 pushes.
+  event.waitUntil((async () => {
+    const oldOptions = event.oldSubscription ? event.oldSubscription.options : null;
+    if (!oldOptions) return;
+    const fresh = await self.registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: oldOptions.applicationServerKey,
+    });
+    await fetch("/push-subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include", // JWT cookie
+      body: JSON.stringify({
+        endpoint: fresh.endpoint,
+        keys: {
+          p256dh: arrayBufferToBase64Url(fresh.getKey("p256dh")),
+          auth: arrayBufferToBase64Url(fresh.getKey("auth")),
+        },
+      }),
+    });
+  })());
+});
+
+function arrayBufferToBase64Url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}

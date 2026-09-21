@@ -75,6 +75,7 @@
     "speakeasy": "^2.0.0",
     "ssh2": "^1.17.0",
     "undici": "^7.0.0",
+    "web-push": "^3.6.7",
     "ws": "^8.20.0",
     "zod": "^4.4.3"
   },
@@ -129,6 +130,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/speakeasy": "^2.0.10",
     "@types/ssh2": "^1.15.5",
+    "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1",
     "@uiw/codemirror-extensions-langs": "^4.25.9",
     "@uiw/codemirror-theme-github": "^4.25.9",
