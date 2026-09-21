@@ -50,16 +50,11 @@ services:
     # SSHed in as ubuntu. No other containers on the daemon are affected.
     security_opt:
       - apparmor:unconfined
-    # Build block added 2026-09-10 (bounty compose-tg-bridge-buildpath-cleanup)
-    # so `docker compose build` from a maintainer's worktree rebuilds both
-    # skynet-patched:local AND tg-bridge:local in one command. Previously
-    # skynet was built out-of-band with `docker build -t skynet-patched:local
-    # -f docker/Dockerfile .` and only tg-bridge lived in the compose file's
-    # build set — a mental-model gap that caused Phase 98's tg-bridge to
-    # ship half-way (silent-deaf incident 2026-09-10). Context `..` resolves
-    # to the repo root from docker/docker-compose.yml; matches the historical
-    # standalone command. SKYNET_BUILD_SHA is set by the ship runbook so the
-    # commit sha lands as an OCI label on the built image (drift-detection).
+    # Build block: `docker compose build` from a maintainer's worktree
+    # rebuilds skynet-patched:local. Context `..` resolves to the repo
+    # root from docker/docker-compose.yml. SKYNET_BUILD_SHA is set by the
+    # ship runbook so the commit sha lands as an OCI label on the built
+    # image (drift-detection).
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -92,13 +87,6 @@ services:
         read_only: true
         bind:
           create_host_path: true
-      # Phase 79 Plan 06 — shared named volume with tg-bridge service.
-      # Skynet writes config.env (Plan 04) + registry.json + <human>.token
-      # + <identityKey>.bottoken files here. Bridge (tg-bridge service,
-      # defined below) reads them + writes per-human .since cursors +
-      # .token-dead sentinels back.
-      # NOT read_only — Skynet writes from the container.
-      - tg-bridge-state:/state
       # LOCAL-branch bind mount for co-located deployments (opt-in). When a
       # deployment's own box is registered as a Skynet host AND wants
       # identity-artifact-reader / identity-birth / spawn-request-worker /
@@ -236,30 +224,6 @@ services:
     networks:
       - skynet-net
 
-  # Phase 79 Plan 06 — Telegram <-> Matrix bridge, co-located with Skynet.
-  # Bridge script + Dockerfile at substrate/services/tg-bridge/. Reads all
-  # config from /state/config.env (written by Skynet at boot per Plan 04).
-  # NO environment: block for MATRIX_ROOT/STT_URL — CONTEXT § 4C enforces
-  # "config values come from Skynet's config" as a HARD requirement, so
-  # the bridge sources /state/config.env at boot instead of receiving env
-  # vars at compose-up time. This keeps Skynet the single source of truth.
-  tg-bridge:
-    build:
-      context: ../substrate/services/tg-bridge
-      dockerfile: Dockerfile.tg-bridge
-      # SKYNET_BUILD_SHA: see skynet service build block above (2026-09-10).
-      labels:
-        org.skynet.commit: "${SKYNET_BUILD_SHA:-}"
-    image: tg-bridge:local
-    container_name: tg-bridge
-    restart: always
-    volumes:
-      - tg-bridge-state:/state
-    depends_on:
-      - skynet
-    networks:
-      - skynet-net
-
 volumes:
   skynet-data:
     driver: local
@@ -268,12 +232,6 @@ volumes:
   caddy-config:
     driver: local
   synapse-data:
-    driver: local
-  # Phase 79 Plan 06 — shared state volume for tg-bridge <-> skynet handshake.
-  # Contents: config.env, registry.json, <human>.token, <human>.since,
-  # <human>.token-dead, <identityKey>.bottoken, offset.<agent>, work/.
-  # Skynet writes config + tokens + registry + .bottoken; bridge writes cursor + sentinels.
-  tg-bridge-state:
     driver: local
 
 networks:
