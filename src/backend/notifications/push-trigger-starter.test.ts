@@ -233,6 +233,8 @@ describe("startPushTriggerLoopOnBoot", () => {
     const depsArg = createPushTriggerLoopMock.mock.calls[0][0];
     // Every dep the loop expects MUST be present.
     expect(depsArg).toHaveProperty("fetchLive");
+    // Fix pass M-1: cold-start anchor dep — MUST be wired.
+    expect(depsArg).toHaveProperty("fetchInitialCursor");
     expect(depsArg).toHaveProperty("getUserJoinedRooms");
     expect(depsArg).toHaveProperty("getRoomJoinedMembers");
     expect(depsArg).toHaveProperty("classifyRoom");

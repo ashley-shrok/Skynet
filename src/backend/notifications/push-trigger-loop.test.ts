@@ -90,6 +90,13 @@ function makeDeps(
       events: [],
       nextSinceToken: "cursor-1",
     })),
+    // Fix pass M-1: default fetchInitialCursor returns the CURRENT head
+    // token; cold-start seeds cursorByRoom with this value + dispatches
+    // NO pushes on the first tick.
+    fetchInitialCursor: vi.fn(async () => ({
+      ok: true as const,
+      endToken: "cursor-head-anchor",
+    })),
     getUserJoinedRooms: vi.fn(async () => ({
       ok: true as const,
       roomIds: [ROOM_ID],
@@ -310,17 +317,26 @@ describe("runPushTriggerTick — cursor management", () => {
     expect(state.cursorByRoom.get(ROOM_ID)).toBe("cursor-advanced-42");
   });
 
-  it("Test 12: Cold-start — first tick for a fresh room does NOT emit pushes, only sets cursor", async () => {
-    // A NEW event exists on the room, but it's the FIRST tick for this room
-    // (no cursor). Cold-start policy: discard, just set the cursor. Prevents
-    // boot-time push storm.
+  it("Test 12 (M-1 review-fix): Cold-start uses fetchInitialCursor (backward-fetch), NOT fetchLive; NO push dispatched", async () => {
+    // Cold-start policy (post M-1 review): first tick per room MUST call
+    // fetchInitialCursor to anchor at the room's CURRENT head. Calling
+    // fetchLive on cold-start would seed the cursor ~one batch into
+    // historical events (since dir=f with no `from` starts from the
+    // room's history start), causing the second tick to replay history
+    // as fresh pushes.
     const event = makeEvent();
+    const fetchLiveSpy = vi.fn(async () => ({
+      ok: true as const,
+      events: [event],
+      nextSinceToken: "cursor-should-not-be-used",
+    }));
+    const fetchInitialCursorSpy = vi.fn(async () => ({
+      ok: true as const,
+      endToken: "cursor-head-anchor",
+    }));
     const deps = makeDeps({
-      fetchLive: vi.fn(async () => ({
-        ok: true as const,
-        events: [event],
-        nextSinceToken: "cursor-cold-1",
-      })),
+      fetchLive: fetchLiveSpy,
+      fetchInitialCursor: fetchInitialCursorSpy,
     });
     // Empty cursorByRoom — first tick.
     const state: PerUserState = {
@@ -333,10 +349,79 @@ describe("runPushTriggerTick — cursor management", () => {
 
     await runPushTriggerTick(USER_A, state, deps);
 
-    // NO push fired despite qualifying event.
+    // fetchInitialCursor was called, fetchLive was NOT.
+    expect(fetchInitialCursorSpy).toHaveBeenCalledTimes(1);
+    expect(fetchInitialCursorSpy).toHaveBeenCalledWith(ROOM_ID);
+    expect(fetchLiveSpy).not.toHaveBeenCalled();
+    // NO push fired.
     expect(deps.sendPushToUser).not.toHaveBeenCalled();
-    // Cursor IS set — second tick onward gets normal filter+dispatch flow.
-    expect(state.cursorByRoom.get(ROOM_ID)).toBe("cursor-cold-1");
+    // Cursor IS set to the head-anchor token — second tick onward gets
+    // fetchLive(dir=f, from=head-anchor) → only NEW events.
+    expect(state.cursorByRoom.get(ROOM_ID)).toBe("cursor-head-anchor");
+  });
+
+  it("M-1 review-fix: Cold-start with empty-room (endToken null) parks a sentinel cursor and dispatches nothing", async () => {
+    // Matrix omits `end` when the backward-fetch hits the start of an
+    // empty room. Loop must still record the room as "seen" (set the
+    // sentinel cursor "") so a subsequent tick doesn't infinitely
+    // re-cold-start — and still dispatches NO push.
+    const fetchLiveSpy = vi.fn();
+    const fetchInitialCursorSpy = vi.fn(async () => ({
+      ok: true as const,
+      endToken: null,
+    }));
+    const deps = makeDeps({
+      fetchLive: fetchLiveSpy,
+      fetchInitialCursor: fetchInitialCursorSpy,
+    });
+    const state: PerUserState = {
+      userMxid: USER_A_MXID,
+      nextRunAt: 0,
+      backoffIndex: 0,
+      inFlight: false,
+      cursorByRoom: new Map(),
+    };
+
+    await runPushTriggerTick(USER_A, state, deps);
+
+    expect(fetchInitialCursorSpy).toHaveBeenCalledTimes(1);
+    expect(fetchLiveSpy).not.toHaveBeenCalled();
+    expect(deps.sendPushToUser).not.toHaveBeenCalled();
+    // Sentinel "" cursor recorded → cursorByRoom.has(ROOM_ID) === true
+    // on next tick → cold-start branch NOT re-entered.
+    expect(state.cursorByRoom.has(ROOM_ID)).toBe(true);
+    expect(state.cursorByRoom.get(ROOM_ID)).toBe("");
+  });
+
+  it("M-1 review-fix: Cold-start fetchInitialCursor failure leaves cursor UNSET so next tick retries", async () => {
+    // Transient failure of the backward-fetch anchor — the room stays
+    // "cold" until the next tick, at which point we retry the anchor.
+    // Do NOT dispatch pushes; do NOT record any cursor.
+    const fetchLiveSpy = vi.fn();
+    const fetchInitialCursorSpy = vi.fn(async () => ({
+      ok: false as const,
+      status: 502,
+      error: "proxy",
+    }));
+    const deps = makeDeps({
+      fetchLive: fetchLiveSpy,
+      fetchInitialCursor: fetchInitialCursorSpy,
+    });
+    const state: PerUserState = {
+      userMxid: USER_A_MXID,
+      nextRunAt: 0,
+      backoffIndex: 0,
+      inFlight: false,
+      cursorByRoom: new Map(),
+    };
+
+    await runPushTriggerTick(USER_A, state, deps);
+
+    expect(fetchInitialCursorSpy).toHaveBeenCalledTimes(1);
+    expect(fetchLiveSpy).not.toHaveBeenCalled();
+    expect(deps.sendPushToUser).not.toHaveBeenCalled();
+    // No cursor entry — next tick will re-attempt the cold-start anchor.
+    expect(state.cursorByRoom.has(ROOM_ID)).toBe(false);
   });
 
   it("Cursor does NOT advance when fetchLive fails — subsequent ticks retry the same range", async () => {

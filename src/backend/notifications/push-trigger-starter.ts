@@ -192,6 +192,22 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
             typeof result.end === "string" ? result.end : null,
         };
       },
+      // Fix pass M-1: anchor the forward-cursor at the room's CURRENT
+      // head via a backward-fetch with limit=1. Byte-mirror of the
+      // fetchInitialHistory closure at
+      // relay-room-stream-server.ts:1101-1121 (same primitive,
+      // narrower shape — we only need `end`).
+      fetchInitialCursor: async (roomId: string) => {
+        const result = await fetchRoomHistory(roomId, {
+          dir: "b",
+          count: 1,
+        });
+        if (result.ok === false) return result;
+        return {
+          ok: true as const,
+          endToken: typeof result.end === "string" ? result.end : null,
+        };
+      },
       getUserJoinedRooms,
       getRoomJoinedMembers,
       classifyRoom,
