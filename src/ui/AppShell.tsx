@@ -197,6 +197,21 @@ import {
   publishFleetStatusTmuxSessionGone,
   useSessionTmuxName,
 } from "@/state/session-tmux-store";
+// Phase 128 Plan 07 (D-08, D-10, Pitfall 1) — push-notification opt-in
+// surface + notificationclick deep-link receiver.
+//   - EnableNotificationsButton: user-gesture-gated opt-in button. Placed
+//     in top-level AppShell chrome (top-left, next to the sidebar toggle)
+//     so it's reachable at any time per Pitfall 1 — subscriptions rotate
+//     silently every 1-2 weeks on iOS, so the user needs a persistent
+//     entry to re-mint after silent rotation, not one-shot onboarding.
+//   - parseAndOpenRoomFromUrl: pure URL-param parser fired inside a
+//     mount-only useEffect. Reads `?openRoom=<roomId>` written by the
+//     public/sw.js notificationclick handler (Plan 04) and opens the
+//     target relay-room tab, then strips the param via replaceState
+//     (T-126-38 confidentiality — a copied URL after arrival doesn't
+//     embed the roomId; a reload doesn't re-trigger the deep-link).
+import { EnableNotificationsButton } from "@/features/notifications/EnableNotificationsButton";
+import { parseAndOpenRoomFromUrl } from "@/features/notifications/open-room-deep-link";
 // Phase 11 Plan 03 (user "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -2242,6 +2257,56 @@ export function AppShell({
     return tabId;
   }, []);
 
+  // Phase 128 Plan 07 Task 3 (D-08) — openRoom deep-link handler.
+  //
+  // The public/sw.js notificationclick handler (Plan 04) navigates the
+  // client to `/?openRoom=<roomId>`. This mount-only effect delegates to
+  // parseAndOpenRoomFromUrl, which:
+  //   - reads the openRoom param via `new URLSearchParams(window.location.search)`;
+  //   - guards on non-empty + basic Matrix-room-id shape (starts with `!`,
+  //     contains `:`) so malformed input warns without crashing (T-126-36);
+  //   - fires the injected open-callback below to open the relay-room tab;
+  //   - strips the openRoom param via `window.history.replaceState(null, "", pathname)`
+  //     so a reload doesn't re-trigger the deep-link and a copied URL after
+  //     arrival doesn't embed the roomId (T-126-38).
+  //
+  // AppShell's open-callback mirrors the sidebar's onRelayRoomRowClick
+  // handler (site ~L3200): looks up the friendly title from the
+  // relay-room-titles snapshot, calls openTab with the same relay-room
+  // options shape, then selectConversationDeferred to promote the tab.
+  // If the fleet snapshot hasn't populated the title yet, the raw roomId
+  // is used as the label — the Phase 97 title-backfill effect (L1131-1151)
+  // upgrades the label when the fleet snapshot lands.
+  //
+  // Runs once per mount: guarded by openRoomFiredRef so a store-driven
+  // re-render doesn't re-trigger. No auto-prompt for notification
+  // permission on mount (D-10) — the opt-in surface is the
+  // user-gesture-gated EnableNotificationsButton rendered below.
+  const openRoomFiredRef = useRef(false);
+  useEffect(() => {
+    if (openRoomFiredRef.current) return;
+    openRoomFiredRef.current = true;
+    parseAndOpenRoomFromUrl((roomId) => {
+      // Look up the friendly title from the relay-room-titles snapshot;
+      // fall back to the roomId as label if the snapshot isn't populated
+      // yet (Phase 97 title-backfill effect will fix the label later).
+      const roomTitle = relayRoomTitles.get(roomId) ?? null;
+      const newTabId = openTab(null, "terminal", undefined, {
+        sessionKind: "relay-room",
+        relayRoomId: roomId,
+        relayRoomTitle: roomTitle,
+        label: roomTitle ?? roomId,
+        allowCreateTmux: false,
+      });
+      selectConversationDeferred(newTabId);
+    });
+    // Deliberately mount-only — the sw.js navigation reloads the SPA (or
+    // navigates the existing client via .navigate), so a fresh AppShell
+    // mount is exactly when the param is meaningful. Later re-renders
+    // must not fire this again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function connectHost(host: Host, preferredType?: TabType) {
     const type: TabType =
       preferredType ??
@@ -3504,6 +3569,26 @@ export function AppShell({
             </span>
           </button>
         )}
+
+        {/* Phase 128 Plan 07 Task 3 (D-10, Pitfall 1) — EnableNotificationsButton.
+            Fixed top-right chrome placement so it's reachable AT ANY TIME —
+            iOS PWA subscriptions rotate silently every 1-2 weeks per
+            Pitfall 1, so the user needs a persistent entry point to re-mint
+            after silent rotation. Top-right corner avoids the top-left
+            sidebar-toggle affordance. Rendered above the sidebar's z-index
+            layer so it stays visible even when the sidebar Sheet is open on
+            mobile. The button owns its own state — no props threaded from
+            AppShell — so wiring is a single mount call. */}
+        <div
+          style={{
+            position: "fixed",
+            top: "max(env(safe-area-inset-top), 8px)",
+            right: "max(env(safe-area-inset-right), 8px)",
+            zIndex: 40,
+          }}
+        >
+          <EnableNotificationsButton />
+        </div>
 
         {/* Phase 11 Plan 03 (PURGE-02): AppRail mount RETIRED here — the
             skinny icon rail was the primary UI entry point to every dead
