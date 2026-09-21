@@ -105,6 +105,20 @@ import {
   useSessionIsRecycling,
 } from "@/state/session-working-store";
 import { useSessionWaitingFor } from "@/state/session-waiting-store";
+// Phase 126 Plan 02 (D-01, D-02, D-03, D-22) — per-row armed:boolean latch.
+// Read/written imperatively from the arm-effect + fire-effect below (~L1725
+// area) — no useSyncExternalStore, no render reactivity. See the store's
+// header comment for the full state-machine contract.
+import {
+  armRow,
+  disarmRow,
+  isRowArmed,
+} from "@/state/ready-cue-latch-store";
+// Phase 126 Plan 02 (D-03) — the audio primitive from Plan 01. Called
+// synchronously from the WIP true→false edge observer when the latch is
+// armed AND the pane is visible. Fire-and-forget; pre-unlock is a silent
+// no-op (D-19). AppShell installs the unlock listeners at mount (D-18).
+import { playTink } from "@/audio/ready-cue";
 // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, user 2026-09-08 D-03
 // mechanical waiver): contextPct now lives on fleet-status (single source of
 // truth) rather than in this component's local useState. Both PrettyView and
@@ -1721,6 +1735,90 @@ export function PrettyView({
       setOptimisticRecycling(false);
     }
   }, [isRecycling]);
+
+  // Phase 126 Plan 02 (D-02, D-08, D-09, D-10, D-12) — arm-on-new-assistant-bubble.
+  //
+  // Watches `messages` length growth. For each newly-appended entry, if its
+  // discriminant is `type === "message"` AND `role === "assistant"`, arm this
+  // row's latch (D-02, D-08).
+  //
+  // Type discriminator naturally excludes the other bubble variants:
+  //   - `role === "user"` messages (D-09) — type matches but role fails.
+  //   - `type === "relay_inbound"` (D-12) — type discriminator fails; also,
+  //     relay-kind sources don't populate `messages` at all (they route
+  //     through chatSurfaceAdapter.messages, see effectiveMessages at L720),
+  //     so this effect never observes growth for relay rows — double safety.
+  //   - `RelayOutboundEvent`, `ImageEvent`, `MalformedLineEvent` (D-10) —
+  //     type discriminator fails.
+  //   - `WaitingBubble` (D-11) is rendered by a separate branch at ~L4171
+  //     and never lands in `messages[]`.
+  //
+  // T-126-07 diagnostic: `console.info` on each arm makes the decision
+  // reconstructable from console-forward logs.
+  const prevMessagesLenRef = useRef<number>(0);
+  useEffect(() => {
+    const prevLen = prevMessagesLenRef.current;
+    const currLen = messages.length;
+    if (currLen > prevLen) {
+      for (let i = prevLen; i < currLen; i += 1) {
+        const entry = messages[i];
+        if (entry && entry.type === "message" && entry.role === "assistant") {
+          armRow(sessionWorkingKey);
+          // eslint-disable-next-line no-console
+          console.info(`[ready-cue] armed key=${sessionWorkingKey}`);
+        }
+      }
+    }
+    prevMessagesLenRef.current = currLen;
+  }, [messages, sessionWorkingKey]);
+
+  // Phase 126 Plan 02 (D-03, D-04, D-05, D-06, D-23) — fire-on-WIP-true→false.
+  //
+  // Observes `isWorking` (from useSessionIsWorking at L1698, reused here).
+  // Tracks the previous value in a ref (D-23 edge-detection pattern). On the
+  // true→false edge, gates the fire in this order:
+  //
+  //   1. `isRowArmed(sessionWorkingKey)` — if false, the latch was disarmed
+  //      by a prior fire or never armed (D-04 first flicker semantics). Log
+  //      and return; do NOT call disarmRow (already false, no-op).
+  //   2. `isVisible` (the D-05 gate — AppShell already threads this prop via
+  //      renderTabContent) — if false, the pane isn't on screen and the fire
+  //      is skipped. The latch STAYS ARMED (D-05: arm survives to the next
+  //      WIP-off cycle when the pane is visible; D-06: off-screen rows do
+  //      NOT fire).
+  //   3. Both true → `playTink()` + `disarmRow(sessionWorkingKey)` (D-03,
+  //      atomically in the same effect body).
+  //
+  // T-126-07 diagnostic: three log states (armed / skip-with-reason / fired)
+  // so the console-forward log alone tells the fire decision for each edge.
+  //
+  // Relay-source safety: `useSessionIsWorking(sessionWorkingKey)` returns
+  // `false` unchanged for relay rooms (the working store is fed exclusively
+  // from fleet-status frames per session-working-store.ts:10 header; relay
+  // rooms have no matching backend session). So `wasWorking && !isWorking`
+  // is never satisfied for relay — the fire body is unreachable.
+  const prevIsWorkingRef = useRef<boolean>(isWorking);
+  useEffect(() => {
+    const wasWorking = prevIsWorkingRef.current;
+    prevIsWorkingRef.current = isWorking;
+    if (!wasWorking || isWorking) return;
+    // eslint-disable-next-line no-console
+    const log = (msg: string) => console.info(msg);
+    const armed = isRowArmed(sessionWorkingKey);
+    if (!armed) {
+      log(`[ready-cue] skip key=${sessionWorkingKey} reason=unarmed`);
+      return;
+    }
+    if (!isVisible) {
+      // D-05 gate: off-screen row — skip fire; latch STAYS armed.
+      log(`[ready-cue] skip key=${sessionWorkingKey} reason=not-visible`);
+      return;
+    }
+    // isVisible=true + armed=true → fire (D-03).
+    playTink();
+    disarmRow(sessionWorkingKey);
+    log(`[ready-cue] fired key=${sessionWorkingKey}`);
+  }, [isWorking, isVisible, sessionWorkingKey]);
 
   // Phase 41 Plan 01: re-source isIdle from the fleet-status broadcast store
   // instead of reading the isIdle prop (which was always null in production
