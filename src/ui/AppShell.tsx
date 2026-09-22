@@ -2920,13 +2920,38 @@ export function AppShell({
   // shows the metadata title, not the app's live document.title).
   const onOpenApp = useCallback(
     (hostId: number, slug: string, title: string) => {
-      openTab(null, "app", undefined, {
+      const newTabId = openTab(null, "app", undefined, {
         app: { hostId, slug },
         label: title,
         allowCreateTmux: false,
       });
+      // Promote the freshly-created app tab to selected — without this the
+      // tab exists in the tabs array but the visible surface still points at
+      // the previously-selected conversation, and the click looks like a
+      // no-op. Mirrors onCreateSession's promotion pattern.
+      selectConversationDeferred(newTabId);
+      // If a split arrangement is already up, slot the new app leaf into
+      // the currently-largest pane so the click actually reveals the app
+      // rather than hiding it behind the fullscreen active-tab render.
+      // Empty tree (no split) falls through to the fullscreen path via
+      // selectedId. Mirrors onCreateSession at the sidebarPanelContent site.
+      if (splitTree !== null) {
+        const targetPath = findLargestLeafPath(splitTree);
+        if (targetPath !== null) {
+          openSessionInTree(newTabId, targetPath, "right");
+        }
+      }
+      systemLogger.info("app-tile click onOpenApp", {
+        operation: "app_shell_on_open_app",
+        hostId,
+        slug,
+        tabId: newTabId,
+        hadSplitTree: splitTree !== null,
+      });
+      if (isTouchDevice) navigateToView();
+      if (isMobile) setSidebarOpen(false);
     },
-    [openTab],
+    [openTab, splitTree, openSessionInTree, isTouchDevice, isMobile],
   );
 
   // Phase 120 D-07 — edge-drop on the split view carrying an AppTile
