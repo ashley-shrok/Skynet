@@ -197,20 +197,15 @@ import {
   publishFleetStatusTmuxSessionGone,
   useSessionTmuxName,
 } from "@/state/session-tmux-store";
-// Phase 128 Plan 07 (D-08, D-10, Pitfall 1) — push-notification opt-in
-// surface + notificationclick deep-link receiver.
-//   - EnableNotificationsButton: user-gesture-gated opt-in button. Placed
-//     in top-level AppShell chrome (top-left, next to the sidebar toggle)
-//     so it's reachable at any time per Pitfall 1 — subscriptions rotate
-//     silently every 1-2 weeks on iOS, so the user needs a persistent
-//     entry to re-mint after silent rotation, not one-shot onboarding.
-//   - parseAndOpenRoomFromUrl: pure URL-param parser fired inside a
-//     mount-only useEffect. Reads `?openRoom=<roomId>` written by the
-//     public/sw.js notificationclick handler (Plan 04) and opens the
-//     target relay-room tab, then strips the param via replaceState
-//     (T-126-38 confidentiality — a copied URL after arrival doesn't
-//     embed the roomId; a reload doesn't re-trigger the deep-link).
-import { EnableNotificationsButton } from "@/features/notifications/EnableNotificationsButton";
+// Phase 128 Plan 07 (D-08) — notificationclick deep-link receiver.
+// parseAndOpenRoomFromUrl: pure URL-param parser fired inside a
+// mount-only useEffect. Reads `?openRoom=<roomId>` written by the
+// public/sw.js notificationclick handler (Plan 04) and opens the
+// target relay-room tab, then strips the param via replaceState
+// (T-126-38 confidentiality — a copied URL after arrival doesn't
+// embed the roomId; a reload doesn't re-trigger the deep-link).
+// The Enable-notifications opt-in surface is the modal opened from
+// the PrettyConversationsPanel kebab menu (feature-detected).
 import { parseAndOpenRoomFromUrl } from "@/features/notifications/open-room-deep-link";
 // Phase 11 Plan 03 (user "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
@@ -2280,8 +2275,8 @@ export function AppShell({
   //
   // Runs once per mount: guarded by openRoomFiredRef so a store-driven
   // re-render doesn't re-trigger. No auto-prompt for notification
-  // permission on mount (D-10) — the opt-in surface is the
-  // user-gesture-gated EnableNotificationsButton rendered below.
+  // permission on mount (D-10) — the opt-in surface is the modal
+  // opened from the PrettyConversationsPanel kebab menu.
   const openRoomFiredRef = useRef(false);
   useEffect(() => {
     if (openRoomFiredRef.current) return;
@@ -3594,42 +3589,6 @@ export function AppShell({
             </span>
           </button>
         )}
-
-        {/* Phase 128 Plan 07 Task 3 (D-10, Pitfall 1) — EnableNotificationsButton.
-            Fixed BOTTOM-right chrome placement so it's reachable AT ANY TIME —
-            iOS PWA subscriptions rotate silently every 1-2 weeks per
-            Pitfall 1, so the user needs a persistent entry point to re-mint
-            after silent rotation.
-
-            Auth-gating invariant (M-6 review-fix): AppShell is only mounted
-            when auth succeeds (src/main.tsx: `showApp` gate wraps the
-            <AppShell/> render behind the post-login phase). Do NOT move
-            this button into a subtree that renders pre-auth — an
-            unauthenticated user tapping "Enable notifications" hits the
-            POST /push-subscriptions endpoint, gets 401, and lands in the
-            misleading "Notifications setup failed" state.
-
-            Bottom-right placement (M-6 review-fix): the earlier top-right
-            slot overlapped the PrettyView IdentityBadge (absolute top-4
-            right-5 z-[101] inside each pane at PrettyView.tsx:3781). The
-            badge's higher z-index obscured the button whenever a pane
-            was maximized to the viewport's top edge. Bottom-right is
-            free chrome space (no known conflicting fixed/absolute
-            elements) and the safe-area-inset guards handle iOS home-bar
-            spacing. Rendered above the sidebar's z-index layer so it
-            stays visible even when the sidebar Sheet is open on
-            mobile. The button owns its own state — no props threaded from
-            AppShell — so wiring is a single mount call. */}
-        <div
-          style={{
-            position: "fixed",
-            bottom: "max(env(safe-area-inset-bottom), 8px)",
-            right: "max(env(safe-area-inset-right), 8px)",
-            zIndex: 40,
-          }}
-        >
-          <EnableNotificationsButton />
-        </div>
 
         {/* Phase 11 Plan 03 (PURGE-02): AppRail mount RETIRED here — the
             skinny icon rail was the primary UI entry point to every dead

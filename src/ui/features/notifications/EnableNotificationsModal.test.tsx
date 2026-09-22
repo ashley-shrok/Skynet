@@ -1,31 +1,29 @@
 /**
- * Phase 128 Plan 07 Task 2 — EnableNotificationsButton tests.
+ * EnableNotificationsModal tests — ported from the retired
+ * EnableNotificationsButton.test.tsx.
  *
  * Four behavior cases:
- *   1. Grant path: Notification.requestPermission → "granted" → the full
- *      flow runs (getVapidPublicKey → pushManager.subscribe → POST /push-subscriptions),
- *      and the button state flips to "enabled".
+ *   1. Grant path: Notification.requestPermission → "granted" → full flow
+ *      runs (getVapidPublicKey → pushManager.subscribe → POST
+ *      /push-subscriptions), button state flips to "enabled".
  *   2. Deny path: requestPermission → "denied" → flow short-circuits;
  *      no subscription mint, no POST, denied hint rendered.
- *   3. Subscribe error path: pushManager.subscribe throws → button renders
- *      error state; the button remains clickable for retry.
+ *   3. Subscribe error path: pushManager.subscribe throws → error state
+ *      rendered; button remains clickable for retry.
  *   4. LOAD-BEARING (Pitfall 4): requestPermission is called SYNCHRONOUSLY
- *      inside the onClick handler — no `await` boundary before the call.
- *      This test asserts the invocation lands in the same microtask as the
- *      click event (spy called by the time click() returns) — the iOS PWA
- *      gesture-gate silently blocks a permission request placed after an
- *      await boundary.
+ *      inside the enable-button onClick — no `await` boundary before the
+ *      call. Regression gate for the iOS PWA gesture-gate invariant.
  *
- * Global stubs (jsdom does not provide Notification or ServiceWorker):
- *   - global.Notification with static requestPermission + `permission` field
- *   - navigator.serviceWorker.ready → mock registration with pushManager
- *   - global.fetch → mocked per-test for GET vapid-public-key + POST subs
+ * Plus one feature-detect test for pushNotificationsSupported().
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { EnableNotificationsButton } from "./EnableNotificationsButton";
+import {
+  EnableNotificationsModal,
+  pushNotificationsSupported,
+} from "./EnableNotificationsModal";
 
 // ─── Global stubs ────────────────────────────────────────────────────────────
 
@@ -86,7 +84,7 @@ function makeFakeSubscription(): PushSubscription {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe("EnableNotificationsButton", () => {
+describe("EnableNotificationsModal", () => {
   let originalFetch: typeof global.fetch;
   let originalNotification: typeof global.Notification | undefined;
   let originalServiceWorker: PropertyDescriptor | undefined;
@@ -122,13 +120,12 @@ describe("EnableNotificationsButton", () => {
     const subscribe = vi.fn().mockResolvedValue(makeFakeSubscription());
     installServiceWorkerReadyMock(subscribe);
 
-    // Fetch: GET vapid-public-key + POST /push-subscriptions
     global.fetch = vi
       .fn()
       .mockImplementationOnce(async () => ({
         ok: true,
         status: 200,
-        json: async () => ({ publicKey: "SGVsbG8" }), // base64url decodes clean
+        json: async () => ({ publicKey: "SGVsbG8" }),
       }))
       .mockImplementationOnce(async () => ({
         ok: true,
@@ -136,8 +133,8 @@ describe("EnableNotificationsButton", () => {
         json: async () => ({ ok: true }),
       })) as unknown as typeof global.fetch;
 
-    render(<EnableNotificationsButton />);
-    const btn = screen.getByRole("button", { name: /enable notifications/i });
+    render(<EnableNotificationsModal open={true} onOpenChange={() => {}} />);
+    const btn = screen.getByTestId("enable-notifications-button");
     const user = userEvent.setup();
     await user.click(btn);
 
@@ -162,8 +159,8 @@ describe("EnableNotificationsButton", () => {
     installServiceWorkerReadyMock(subscribe);
     global.fetch = vi.fn() as unknown as typeof global.fetch;
 
-    render(<EnableNotificationsButton />);
-    const btn = screen.getByRole("button", { name: /enable notifications/i });
+    render(<EnableNotificationsModal open={true} onOpenChange={() => {}} />);
+    const btn = screen.getByTestId("enable-notifications-button");
     const user = userEvent.setup();
     await user.click(btn);
 
@@ -186,8 +183,8 @@ describe("EnableNotificationsButton", () => {
       json: async () => ({ publicKey: "SGVsbG8" }),
     }) as unknown as typeof global.fetch;
 
-    render(<EnableNotificationsButton />);
-    const btn = screen.getByRole("button", { name: /enable notifications/i });
+    render(<EnableNotificationsModal open={true} onOpenChange={() => {}} />);
+    const btn = screen.getByTestId("enable-notifications-button");
     const user = userEvent.setup();
     await user.click(btn);
 
@@ -195,18 +192,11 @@ describe("EnableNotificationsButton", () => {
       expect(screen.getByText(/notifications setup failed/i)).toBeTruthy();
     });
 
-    // Button remains clickable — same element still in the DOM as a button
     expect(btn.tagName).toBe("BUTTON");
     expect((btn as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("Case 4 (LOAD-BEARING Pitfall 4): Notification.requestPermission is called synchronously inside onClick — no await boundary before the call", async () => {
-    // The spy fires BEFORE any awaited fetch happens. If a future edit
-    // introduces an `await` before requestPermission, this test will still
-    // pass at runtime (because our onClick eventually calls it), but a
-    // source-level grep in acceptance_criteria catches that regression.
-    // Here we assert the call fires immediately after click dispatches —
-    // in the same microtask, before any other awaited work.
     const notif = installNotificationMock("granted");
     const subscribe = vi.fn().mockResolvedValue(makeFakeSubscription());
     installServiceWorkerReadyMock(subscribe);
@@ -218,15 +208,99 @@ describe("EnableNotificationsButton", () => {
         json: async () => ({ publicKey: "SGVsbG8" }),
       }) as unknown as typeof global.fetch;
 
-    render(<EnableNotificationsButton />);
-    const btn = screen.getByRole("button", { name: /enable notifications/i });
+    render(<EnableNotificationsModal open={true} onOpenChange={() => {}} />);
+    const btn = screen.getByTestId("enable-notifications-button");
 
-    // Manually dispatch a click via low-level API so we can observe the call
-    // count immediately after the synchronous portion of the handler runs.
     btn.click();
     // requestPermission MUST have been invoked by the time click() returns.
-    // If the onClick handler had `await` before requestPermission, the
-    // handler would return before the call, and the count would be 0 here.
+    // If a future edit puts an `await` before the call, the count would be
+    // 0 here because the handler would return before the call.
     expect(notif.requestPermission).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render the modal content when open=false", () => {
+    render(<EnableNotificationsModal open={false} onOpenChange={() => {}} />);
+    expect(screen.queryByTestId("enable-notifications-button")).toBeNull();
+  });
+});
+
+describe("pushNotificationsSupported", () => {
+  let originalNotification: typeof global.Notification | undefined;
+  let originalServiceWorker: PropertyDescriptor | undefined;
+  let originalPushManager: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    originalNotification = (global as { Notification?: typeof Notification }).Notification;
+    originalServiceWorker = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
+    originalPushManager = Object.getOwnPropertyDescriptor(window, "PushManager");
+  });
+
+  afterEach(() => {
+    if (originalNotification) {
+      Object.defineProperty(global, "Notification", {
+        configurable: true,
+        writable: true,
+        value: originalNotification,
+      });
+    } else {
+      delete (global as { Notification?: typeof Notification }).Notification;
+    }
+    if (originalServiceWorker) {
+      Object.defineProperty(navigator, "serviceWorker", originalServiceWorker);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (navigator as any).serviceWorker;
+    }
+    if (originalPushManager) {
+      Object.defineProperty(window, "PushManager", originalPushManager);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (window as any).PushManager;
+    }
+  });
+
+  it("returns true when Notification + serviceWorker + PushManager are all present", () => {
+    installNotificationMock("default");
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      writable: true,
+      value: { ready: Promise.resolve({}), register: vi.fn() },
+    });
+    Object.defineProperty(window, "PushManager", {
+      configurable: true,
+      writable: true,
+      value: function () {},
+    });
+
+    expect(pushNotificationsSupported()).toBe(true);
+  });
+
+  it("returns false when PushManager is missing", () => {
+    installNotificationMock("default");
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      writable: true,
+      value: { ready: Promise.resolve({}), register: vi.fn() },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).PushManager;
+
+    expect(pushNotificationsSupported()).toBe(false);
+  });
+
+  it("returns false when Notification is missing", () => {
+    delete (global as { Notification?: typeof Notification }).Notification;
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      writable: true,
+      value: { ready: Promise.resolve({}), register: vi.fn() },
+    });
+    Object.defineProperty(window, "PushManager", {
+      configurable: true,
+      writable: true,
+      value: function () {},
+    });
+
+    expect(pushNotificationsSupported()).toBe(false);
   });
 });
