@@ -647,8 +647,8 @@ describe("handlePutPreferences: Phase 92-02 pin sentinel fan-out", () => {
 // Before the tolerance change, a single unreachable fleet host (SSH connect
 // timeout on openConnForHost) threw out of the openConns Promise.all, was
 // caught by the outer try, and 500'd the whole PUT — killing pin/unpin for
-// EVERY identity on every host, not just the offline one. Ashley hit this
-// with ZoeyBattlestation offline: pinning Crimson on t1000 (fully reachable)
+// EVERY identity on every host, not just the offline one. The user hit this
+// with a battle-station host offline: pinning an identity on t1000 (fully reachable)
 // failed with "Failed to update user preferences".
 //
 // New shape: openConnForHost failure marks the host as unreachable, its
