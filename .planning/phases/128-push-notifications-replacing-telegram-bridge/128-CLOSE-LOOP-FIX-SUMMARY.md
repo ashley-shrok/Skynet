@@ -147,7 +147,7 @@ None. This is a scoped close-loop fix following the exact success criteria in th
 
 ## Issues Encountered
 
-None specific to this close-loop. The 128-09 SUMMARY's "Issues Encountered" section named the exact files that would need cleanup ("Ashley wants a clean UI teardown, that's a follow-up phase — flagging here so it doesn't slip"). The user's `/close notifications` review then directed that the follow-up land in the same shipping unit as the phase rather than as a separate shape. This SUMMARY closes that loop.
+None specific to this close-loop. The 128-09 SUMMARY's "Issues Encountered" section named the exact files that would need cleanup ("the user wants a clean UI teardown, that's a follow-up phase — flagging here so it doesn't slip"). The user's `/close notifications` review then directed that the follow-up land in the same shipping unit as the phase rather than as a separate shape. This SUMMARY closes that loop.
 
 ## Known Stubs
 

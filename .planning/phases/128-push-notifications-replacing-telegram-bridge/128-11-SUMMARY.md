@@ -172,7 +172,7 @@ The build+test-time verification gate is closed. The orchestrator's deploy motio
 
 **(c) `docker image prune -f`** — sweeps the orphaned `tg-bridge:local` image left behind by the previous shipping unit. Not strictly required for correctness (nothing references it post-Plan-10) but keeps the box's docker state tidy.
 
-**(d) Manual iOS PWA UAT** — the load-bearing surface is the installed PWA on Ashley's phone. Deploy-side verification requires (i) opening the installed PWA, (ii) using the EnableNotificationsButton to grant permission and mint a subscription, (iii) triggering an agent DM message, (iv) confirming the iOS lock-screen shows `<agent display name>: <preview>` and tapping opens the correct DM room. Executor cannot automate this — it is deploy-side by design (per D-06, D-08).
+**(d) Manual iOS PWA UAT** — the load-bearing surface is the installed PWA on the user's phone. Deploy-side verification requires (i) opening the installed PWA, (ii) using the EnableNotificationsButton to grant permission and mint a subscription, (iii) triggering an agent DM message, (iv) confirming the iOS lock-screen shows `<agent display name>: <preview>` and tapping opens the correct DM room. Executor cannot automate this — it is deploy-side by design (per D-06, D-08).
 
 ## Next Phase Readiness
 

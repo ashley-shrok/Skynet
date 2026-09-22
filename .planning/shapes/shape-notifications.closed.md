@@ -5,7 +5,7 @@
 
 ## What this is
 
-Real browser and PWA push notifications delivered by Skynet itself, replacing the Telegram bridge that currently handles this job. When one of Ashley's agents sends a message into the DM room she shares with them, her phone (as an installed PWA) rings — the same way any messaging app rings when someone messages you — without depending on Telegram being installed or on a bridge service running to translate between them.
+Real browser and PWA push notifications delivered by Skynet itself, replacing the Telegram bridge that currently handles this job. When one of the user's agents sends a message into the DM room she shares with them, her phone (as an installed PWA) rings — the same way any messaging app rings when someone messages you — without depending on Telegram being installed or on a bridge service running to translate between them.
 
 ## Shape
 
@@ -27,11 +27,11 @@ Three pieces fit together, and one piece comes out.
 
 **The trigger is the shape, not a stored mark.** No column in the database says "this room is designated as THE DM room." Every incoming message is checked against the shape rule (two members, one is a local agent, the other is you). This is deliberate — it means if an agent ever creates a second DM room by mistake, or the app's idea of a "primary" DM ever drifts, notifications still land. The alternative — cache a designated room per pair — is a small optimization at the cost of a real failure mode (notifications dropped because the app was looking at the wrong room).
 
-**No proactive observability.** No "notifications last delivered at" indicator, no health status page, no self-test button. When the machinery breaks, Ashley will notice ("I haven't been pinged in a while") and complain, and then it gets fixed. That is the intended feedback loop; building status UI upfront would be effort spent on a problem the feedback loop already handles.
+**No proactive observability.** No "notifications last delivered at" indicator, no health status page, no self-test button. When the machinery breaks, the user will notice ("I haven't been pinged in a while") and complain, and then it gets fixed. That is the intended feedback loop; building status UI upfront would be effort spent on a problem the feedback loop already handles.
 
 ## Prior context
 
-Today, when an agent messages Ashley in a 1:1 DM room, a Telegram bridge running as a container service on this box notices the message, matches it against a registry of (agent, human) pairs, and forwards the message text to Ashley's Telegram account via a bot. Ashley then sees a Telegram notification on her phone, taps into Telegram, reads the message, and — separately — opens Skynet if she wants to reply. This works. It has been working reliably. Its cost is that Telegram is a whole second app in the loop, and every human Skynet ever registers needs a Telegram account, needs a bridge bot set up, and needs to keep Telegram installed and current.
+Today, when an agent messages the user in a 1:1 DM room, a Telegram bridge running as a container service on this box notices the message, matches it against a registry of (agent, human) pairs, and forwards the message text to the user's Telegram account via a bot. the user then sees a Telegram notification on her phone, taps into Telegram, reads the message, and — separately — opens Skynet if she wants to reply. This works. It has been working reliably. Its cost is that Telegram is a whole second app in the loop, and every human Skynet ever registers needs a Telegram account, needs a bridge bot set up, and needs to keep Telegram installed and current.
 
 The bridge itself already knows how to identify "the DM room for this (agent, human) pair" — it does the same underlying shape check (find a two-party room shared by both) at registry-write time and stores the room in its config. So the room-identification logic is not new work in concept; only its packaging changes (per-event shape check on the receive side, rather than ahead-of-time discovery on the send side).
 
@@ -39,7 +39,7 @@ Skynet is a PWA-capable web app. iOS supports web push for PWAs installed to the
 
 ## What would make it wrong
 
-- **A message from Ashley's own agent, in her DM room with them, does not push.** If it doesn't, this has missed the point entirely — this is exactly the replacement scope.
+- **A message from the user's own agent, in her DM room with them, does not push.** If it doesn't, this has missed the point entirely — this is exactly the replacement scope.
 - **Non-DM traffic pushes.** A group room she is in, a foreign agent's message, a system event, an edit to a message from an hour ago — none of those should push. If they do, notifications become noise and get muted, which is the same as not having them.
 - **Push works only when the browser tab is already open.** That is in-app notifications, not push. The whole point is her phone wakes from a locked, closed state.
 - **The bridge is still running in production when the ship lands.** Even for a "safety" reason, leaving it running defeats the consolidation goal — she'd get both a Skynet push and a Telegram ping for every message, twice the buzz for the same event.
@@ -62,7 +62,7 @@ Skynet is a PWA-capable web app. iOS supports web push for PWAs installed to the
 - An in-app on/off toggle for notifications. iOS system settings handle this.
 - A notifications health/status UI, a "last delivered" indicator, or a self-test button.
 - Notifications for anything other than fresh DM messages from the agent side.
-- Notifications for messages Ashley herself sends into her own DM rooms.
+- Notifications for messages the user herself sends into her own DM rooms.
 
 **Deferred:**
 - Multi-device smart routing.
@@ -109,7 +109,7 @@ Skynet is a PWA-capable web app. iOS supports web push for PWAs installed to the
 - **Philosophy — the trigger is the shape, not a stored mark** — present · Every event flows through the shape-based classifier; no per-pair designated DM room is cached; a second DM room would still push.
 - **Philosophy — no proactive observability** — present · No last-delivered indicator, no health page, no self-test button; the button carries a status label but no delivery introspection.
 - **Prior context — reuse existing DM classifier** — present · The push trigger calls the same classifier the observation loop uses; DM-shape logic is not re-derived.
-- **What would make it wrong: DM message from Ashley's own agent does not push** — present · That is the exact positive path the pipeline is built around — sender is the local agent, room is two-member harness_dm, event is a fresh m.room.message.
+- **What would make it wrong: DM message from the user's own agent does not push** — present · That is the exact positive path the pipeline is built around — sender is the local agent, room is two-member harness_dm, event is a fresh m.room.message.
 - **What would make it wrong: non-DM traffic pushes** — present · Group rooms materialize (not push); admin rooms, solo rooms, non-member rooms, and rooms whose other member is not in the local agents registry all return a non-harness_dm classifier reason and are skipped.
 - **What would make it wrong: edits, reactions, joins/leaves push** — present · Non-m.room.message events are filtered; edit events (m.replace relation) are explicitly filtered out; only fresh messages reach dispatch.
 - **What would make it wrong: push works only when tab is open** — present · Delivery is via the service worker's push event and self.registration.showNotification with event.waitUntil — wakes the device even with the PWA closed.
@@ -127,7 +127,7 @@ Skynet is a PWA-capable web app. iOS supports web push for PWAs installed to the
 - **Scope Out — in-app on/off toggle for notifications** — present · The button is enable-only; there is no in-app disable path.
 - **Scope Out — notifications health/status UI, last-delivered indicator, self-test button** — present · None of these surfaces exist; only a per-button status label.
 - **Scope Out — notifications for anything other than fresh DM messages from the agent side** — present · Filter pipeline restricts to exactly this.
-- **Scope Out — notifications for messages Ashley herself sends** — present · Self-sent messages are filtered by sender-equality check.
+- **Scope Out — notifications for messages the user herself sends** — present · Self-sent messages are filtered by sender-equality check.
 - **Tempting-but-no — rich notification-preferences settings panel** — present · None was built.
 - **Tempting-but-no — test push during onboarding** — present · None was built.
 - **Tempting-but-no — caching a designated DM room per pair** — present · The loop deliberately re-classifies per event and does not cache a designated room.
@@ -164,7 +164,7 @@ The phase's own 128-09 summary explicitly flagged the untouched UI-side Telegram
 - **Philosophy — the trigger is the shape, not a stored mark** — present · Every event flows through the shape-based classifier; no per-pair designated DM room is cached; a second DM room would still push.
 - **Philosophy — no proactive observability** — present · No last-delivered indicator, no health page, no self-test button; only a local click-outcome status on the enable button.
 - **Prior context — reuse existing DM classifier** — present · The push trigger calls the same classifyRoom the observation loop uses; DM-shape logic is not re-derived.
-- **What would make it wrong: DM message from Ashley's own agent does not push** — present · That is the exact positive path the pipeline is built around — sender is the local agent, room is two-member harness_dm, event is a fresh m.room.message.
+- **What would make it wrong: DM message from the user's own agent does not push** — present · That is the exact positive path the pipeline is built around — sender is the local agent, room is two-member harness_dm, event is a fresh m.room.message.
 - **What would make it wrong: non-DM traffic pushes** — present · Group rooms, admin rooms, solo rooms, non-member rooms, and rooms whose other member is not in the local agents registry all return a non-harness_dm classifier reason and are skipped.
 - **What would make it wrong: edits, reactions, joins/leaves push** — present · Non-m.room.message events are filtered; edit events (m.replace relation) are explicitly filtered out; only fresh messages reach dispatch.
 - **What would make it wrong: push works only when tab is open** — present · Delivery is via the service worker's push event and self.registration.showNotification with event.waitUntil — wakes the device even with the PWA closed.
@@ -182,7 +182,7 @@ The phase's own 128-09 summary explicitly flagged the untouched UI-side Telegram
 - **Scope Out — in-app on/off toggle for notifications** — present · The button is enable-only; there is no in-app disable path.
 - **Scope Out — notifications health/status UI, last-delivered indicator, self-test button** — present · None of these surfaces exist; only a per-click status label on the enable button.
 - **Scope Out — notifications for anything other than fresh DM messages from the agent side** — present · Filter pipeline restricts to exactly this.
-- **Scope Out — notifications for messages Ashley herself sends** — present · Self-sent messages are filtered by sender-equality check.
+- **Scope Out — notifications for messages the user herself sends** — present · Self-sent messages are filtered by sender-equality check.
 - **Tempting-but-no — rich notification-preferences settings panel** — present · None was built.
 - **Tempting-but-no — test push during onboarding** — present · None was built.
 - **Tempting-but-no — caching a designated DM room per pair** — present · The loop deliberately re-classifies per event and does not cache a designated room.

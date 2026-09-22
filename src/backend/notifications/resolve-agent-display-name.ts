@@ -142,7 +142,7 @@ export async function resolveAgentDisplayName(mxid: string): Promise<string> {
     // best-effort local-part directly rather than sending a nonsense
     // identityKey through the disk-read + resolver cascade (which would
     // hit ENOENT + return `capitalizeFirstIdentityKey` — an ambient
-    // "Ashley-Agent-Foo"-shaped title-case that's misleading given the
+    // "Test-Agent-Foo"-shaped title-case that's misleading given the
     // mxid was already malformed).
     if (!MXID_PATTERN.test(mxid)) {
       return fallback;

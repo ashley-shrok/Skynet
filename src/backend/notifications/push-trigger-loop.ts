@@ -466,8 +466,8 @@ export async function runPushTriggerTick(
           continue;
         }
         // ─── Filter Step 2: sender !== userMxid ───────────────────────
-        // D-04 no self-push: Ashley's own outbound (from any device)
-        // never fires a push to her phone.
+        // D-04 no self-push: the user's own outbound (from any device)
+        // never fires a push to their phone.
         if (event.sender === userMxid) {
           continue;
         }

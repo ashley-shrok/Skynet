@@ -47,7 +47,7 @@ vi.mock("../utils/logger.js", () => ({
 const VALID_PUBLIC_KEY =
   "BNbA6uxUqiPMYo1PVUyzYNCP7lYr50iRfBmb2Qmy2Sd0mUkKlyLB6-9uPeeCH1IknEFCwZs4WIPeJv-DVN3ZBIw";
 const VALID_PRIVATE_KEY = "8kFuFwYWk5vY-Y8n5x-Q_kd6TgD1v6mJcQqQm4KtByE";
-const VALID_MAILTO_SUBJECT = "mailto:ashley@t1000.taild9b663.ts.net";
+const VALID_MAILTO_SUBJECT = "mailto:admin@example.com";
 const VALID_HTTPS_SUBJECT = "https://t1000.taild9b663.ts.net/";
 
 function setAllValid(subject = VALID_MAILTO_SUBJECT): void {
@@ -119,7 +119,7 @@ describe("vapid-config", () => {
     });
 
     it("throws when VAPID_SUBJECT is a bare email (no mailto: prefix)", async () => {
-      setAllValid("ashley@t1000.taild9b663.ts.net");
+      setAllValid("admin@example.com");
 
       const { assertVapidConfigAtBoot } = await import("./vapid-config.js");
 

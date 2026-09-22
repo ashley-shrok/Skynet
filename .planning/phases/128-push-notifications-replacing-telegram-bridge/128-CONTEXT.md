@@ -8,9 +8,9 @@
 <domain>
 ## Phase Boundary
 
-Replace the Telegram bridge that today delivers "an agent DMed you" notifications to Ashley's phone with real browser/PWA push notifications delivered by Skynet itself. Same trigger event; different delivery channel; the whole `tg-bridge` container + supporting infra comes out in the same shipping unit.
+Replace the Telegram bridge that today delivers "an agent DMed you" notifications to the user's phone with real browser/PWA push notifications delivered by Skynet itself. Same trigger event; different delivery channel; the whole `tg-bridge` container + supporting infra comes out in the same shipping unit.
 
-The load-bearing surface is the installed PWA on Ashley's phone (iOS). Desktop browsers get push as a natural side effect if they're subscribed, but they are not what makes or breaks this phase.
+The load-bearing surface is the installed PWA on the user's phone (iOS). Desktop browsers get push as a natural side effect if they're subscribed, but they are not what makes or breaks this phase.
 
 </domain>
 
@@ -21,7 +21,7 @@ The load-bearing surface is the installed PWA on Ashley's phone (iOS). Desktop b
 - **D-01:** Trigger is a PER-EVENT shape check on incoming messages, not a stored designation. For each message arriving, ask: is the source room exactly two members, and is one of them a local agent (per agents-registry membership) and the other the human whose device is subscribed? If yes, push. If no, silent.
 - **D-02:** Reuse the existing DM-classification concept — same underlying invariant as the `harness_dm` rule in `src/backend/relay-sessions/observation-loop-classifier.ts` and the `getSharedDMRoom` lookup in `src/backend/matrix/matrix-admin-client.ts`. Do NOT re-derive room-shape logic.
 - **D-03:** Per-event shape check is deliberate over a cached "designated DM room per pair" mapping. If an agent ever creates or uses a second DM room by mistake, notifications must still land. Robustness beats efficiency.
-- **D-04:** Only NEW messages from the agent side fire a push. Not edits, not reactions, not joins, not leaves, not system events. Ashley's own outbound messages (from any device) never push.
+- **D-04:** Only NEW messages from the agent side fire a push. Not edits, not reactions, not joins, not leaves, not system events. the user's own outbound messages (from any device) never push.
 - **D-05:** No push when the app is currently open and displaying the target room. This is a soft signal — best-effort — not a load-bearing correctness invariant.
 
 ### Delivery — how a push reaches the device
@@ -40,14 +40,14 @@ The load-bearing surface is the installed PWA on Ashley's phone (iOS). Desktop b
 - **D-14:** Fire on every subscribed device. No cross-device smart routing ("she's on her laptop, don't buzz her phone"). Smart routing is deferred to a possible v2.
 
 ### Observability — v1 scope
-- **D-15:** No status indicator, no "last delivered at" line, no health page, no self-test button. When the machinery breaks, Ashley will notice ("I haven't been pinged in a while") and complain. That is the intended feedback loop.
+- **D-15:** No status indicator, no "last delivered at" line, no health page, no self-test button. When the machinery breaks, the user will notice ("I haven't been pinged in a while") and complain. That is the intended feedback loop.
 - **D-16:** Standard backend logs still capture per-attempt push results at the log level the rest of Skynet uses. No new observability surface — logs are the diagnostic tool of first resort (per role file standing directive).
 
 ### Tg-bridge teardown — same shipping unit
-- **D-17:** The Telegram bridge and all its supporting infrastructure come out entirely in the same ship. Push landing and bridge leaving are ONE motion, not two ships. Rationale: leaving the bridge running "as a backup" defeats the consolidation goal — Ashley would get both a Skynet push AND a Telegram ping for every message.
+- **D-17:** The Telegram bridge and all its supporting infrastructure come out entirely in the same ship. Push landing and bridge leaving are ONE motion, not two ships. Rationale: leaving the bridge running "as a backup" defeats the consolidation goal — the user would get both a Skynet push AND a Telegram ping for every message.
 - **D-18:** Teardown scope includes: all code under `src/backend/telegram/` (registry writer, bridge config writer, bot-token file writer, human-token writer, reconcilers, getme-proxy, routes, shared-volume, tokens-store, service-token minting), the `tg-bridge` Docker service in the compose file at `docker/docker-compose.yml`, any supporting endpoints on Skynet the bridge depends on, config env vars specific to the bridge (`SKYNET_BASE`, `SKYNET_BRIDGE_TOKEN`, `MATRIX_ROOT` in the bridge config.env — remove production references), the `tg-bridge-state` Docker volume, and any bridge-related columns/tables in Skynet's DB if they exist solely to support the bridge.
 - **D-19:** The `getSharedDMRoom` helper in `src/backend/matrix/matrix-admin-client.ts` — used today by the bridge — is DELETED if no non-bridge caller remains. Planner: check for other callers before removing; if any exist, keep it.
-- **D-20:** Bridge shutdown is destructive. On deploy, existing bridge subscriptions/tokens are dropped. Ashley knows this and accepts it (see shape file § What would make it wrong).
+- **D-20:** Bridge shutdown is destructive. On deploy, existing bridge subscriptions/tokens are dropped. the user knows this and accepts it (see shape file § What would make it wrong).
 
 ### Claude's Discretion
 - Choice of web-push library or hand-rolled `Web Push Protocol` implementation on the backend (both are viable; VAPID key generation + push send is well-understood).
@@ -116,11 +116,11 @@ No ADR or PRD exists for this feature outside the shape file. The shape file plu
 <specifics>
 ## Specific Ideas
 
-- **Ashley's stated motivation:** consolidation, not "Telegram is broken." She wants one fewer app in the loop — no complaint about Telegram's delivery quality.
+- **the user's stated motivation:** consolidation, not "Telegram is broken." She wants one fewer app in the loop — no complaint about Telegram's delivery quality.
 - **iOS PWA constraint is real and named:** notification permission cannot be auto-raised on first launch. The setup flow MUST route through a user tap.
 - **Non-text messages:** whatever the app row renders, verbatim. If the row calls a voice note "Voice message", the notification body says "Voice message". No custom logic per message type — do the easy thing.
 - **Grouping behavior:** iMessage / WhatsApp / Telegram all send one push per message and let iOS group. Same here.
-- **When Ashley is on the target room in the app:** no push. Best-effort skip, not a strict invariant.
+- **When the user is on the target room in the app:** no push. Best-effort skip, not a strict invariant.
 
 </specifics>
 
@@ -130,7 +130,7 @@ No ADR or PRD exists for this feature outside the shape file. The shape file plu
 ### Explicitly deferred to a future phase
 - **Cross-device smart routing.** "She's on her laptop, don't buzz her phone." Nicer UX; requires activity tracking per device + coordination at send time. Not v1.
 - **Per-conversation mute / do-not-disturb / quiet hours.** No preference surface in v1.
-- **Notifications for foreign-Skynet agents' messages or for group rooms.** Silent in v1 by design. If Ashley ever wants group-room pings or foreign-agent pings, that's a separate shape.
+- **Notifications for foreign-Skynet agents' messages or for group rooms.** Silent in v1 by design. If the user ever wants group-room pings or foreign-agent pings, that's a separate shape.
 - **An in-app notifications on/off toggle.** iOS system settings handle this in v1.
 - **A notifications health/status UI, a "last delivered" indicator, or a self-test button.** Reactive feedback loop is the design.
 - **A rich notification-preferences settings panel.** Nothing in v1 requires it.

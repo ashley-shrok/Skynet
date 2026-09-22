@@ -528,7 +528,7 @@ Enumerated cleanly here so the planner can slice teardown tasks:
 **Runtime state (docker/orchestrator concern, out of code scope but flag in SUMMARY.md):**
 - `skynet_tg-bridge-state` docker volume — deploy runbook `docker volume rm` step
 - `tg-bridge:local` dangling image — deploy runbook `docker image prune -f` step
-- Telegram BotFather bot registrations — Ashley's manual concern per D-20
+- Telegram BotFather bot registrations — the user's manual concern per D-20
 
 ---
 

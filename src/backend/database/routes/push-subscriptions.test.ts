@@ -130,7 +130,7 @@ vi.mock("../../utils/logger.js", () => ({
 // VAPID config: default returns a valid tuple. Some tests override to throw
 // (VAP-03) to exercise the defensive 500 branch.
 const getVapidDetailsMock = vi.fn(() => ({
-  subject: "mailto:ashley@t1000.taild9b663.ts.net",
+  subject: "mailto:admin@example.com",
   publicKey: "BJ_test_public_key_base64url_placeholder_00000000000000000000000",
   privateKey: "PRIVATE_KEY_MUST_NEVER_LEAK",
 }));
@@ -208,7 +208,7 @@ beforeEach(() => {
   errorMock.mockClear();
   getVapidDetailsMock.mockClear();
   getVapidDetailsMock.mockImplementation(() => ({
-    subject: "mailto:ashley@t1000.taild9b663.ts.net",
+    subject: "mailto:admin@example.com",
     publicKey: "BJ_test_public_key_base64url_placeholder_00000000000000000000000",
     privateKey: "PRIVATE_KEY_MUST_NEVER_LEAK",
   }));

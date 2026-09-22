@@ -182,7 +182,7 @@ Mitigations from `<threat_model>` implemented as coded:
 - **T-128-28** (group room misclassified as harness_dm → cross-user leak): loop delegates entirely to `classifyRoom` per D-02, zero re-derivation of shape logic. Test "classifyRoom is CALLED (not re-derived)" locks this.
 - **T-128-29** (cold-start push storm): cold-start suppression enforced by "Test 12" — a qualifying event on a fresh cursor MUST NOT fire a push.
 - **T-128-30** (edit re-triggers push): Filter Step 3 rejects `m.relates_to.rel_type === "m.replace"`, enforced by "Test 3".
-- **T-128-31** (self-sent message pushes to Ashley): Filter Step 2 rejects `event.sender === userMxid`, enforced by "Test 2".
+- **T-128-31** (self-sent message pushes to the user): Filter Step 2 rejects `event.sender === userMxid`, enforced by "Test 2".
 - **T-128-32** (fetch failure advances cursor + skips events): cursor advancement gated on `result.ok === true`; enforced by "Cursor does NOT advance when fetchLive fails" test.
 - **T-128-33** (per-user isolation broken): scanTick dispatches per-user runTick WITHOUT await; test "Per-user isolation" holds user A's failure separate from user B's tick.
 - **T-128-34** (VAPID missing → starter still tries): starter's VAPID gate returns {ok:false, reason:'vapid_missing'} + never calls createPushTriggerLoop when getVapidDetails throws. Test 2 confirms.

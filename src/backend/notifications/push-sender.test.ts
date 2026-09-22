@@ -182,7 +182,7 @@ beforeEach(() => {
   sqliteInstance.exec(PUSH_SUBSCRIPTIONS_DDL);
   sqliteInstance
     .prepare("INSERT INTO users (id, username) VALUES (?, ?)")
-    .run(USER, "ashley");
+    .run(USER, "testuser");
   sqliteInstance
     .prepare("INSERT INTO users (id, username) VALUES (?, ?)")
     .run(OTHER_USER, "other");

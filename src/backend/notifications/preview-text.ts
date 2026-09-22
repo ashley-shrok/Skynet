@@ -16,7 +16,7 @@
  *   `src/shared/message-preview.ts`).
  *
  * Why the labels live in a top-of-file `PREVIEW_LABELS` constant:
- *   Assumption A5 in RESEARCH.md — Ashley may want to tweak label copy
+ *   Assumption A5 in RESEARCH.md — the user may want to tweak label copy
  *   (e.g. "Voice message" like Signal instead of "audio 🎤"). Keeping the
  *   four strings in ONE named constant means a future edit is a single-line
  *   diff, and the tests + one place to audit.

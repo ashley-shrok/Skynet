@@ -80,7 +80,7 @@ function readVapidEnv(): VapidDetails {
   }
   if (subject.length === 0) {
     throw new Error(
-      "VAPID_SUBJECT env var is missing or empty. Set to a mailto: URL (e.g. mailto:ashley@t1000.taild9b663.ts.net) or https:// URL before boot — Apple's push service returns 403 on any other subject shape.",
+      "VAPID_SUBJECT env var is missing or empty. Set to a mailto: URL (e.g. mailto:admin@example.com) or https:// URL before boot — Apple's push service returns 403 on any other subject shape.",
     );
   }
   if (!VAPID_SUBJECT_PATTERN.test(subject)) {

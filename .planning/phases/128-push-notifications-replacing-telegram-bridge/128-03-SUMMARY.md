@@ -75,7 +75,7 @@ completed: 2026-09-21
 
 ## Accomplishments
 
-- **Task 1 — derivePreviewText(event) pure utility.** Byte-mirror of the label taxonomy in `substrate/skills/agent-relay/recv.sh:379-381` (`image 🖼️` / `audio 🎤` / `video 🎬` / `file 📎`) — the same strings the agent-side inbound relay bubble already renders today, giving Ashley visual consistency between the app's inbound view and her lock-screen preview (D-07). `m.text` / undefined msgtype passes body through, truncated at `PREVIEW_MAX_BODY_LEN` (100) — the cap serves triple duty (T-126-12 adversarial-body mitigation + iOS lock-screen ergonomics + Web Push ~4KB payload budget). Filename-in-parens appended for `m.image` and `m.file` when the sender provided it. Unknown msgtypes (`m.location`, `m.notice`, custom types) fall back to body, or to the `(message)` sentinel when body is empty — Pitfall 3 defense against iOS's silent-push subscription-revocation heuristic. Labels live in a top-of-file `PREVIEW_LABELS` const object per Assumption A5 (future copy tweak = one-file diff). Zero I/O, zero side effects, deterministic. 12/12 test cases green.
+- **Task 1 — derivePreviewText(event) pure utility.** Byte-mirror of the label taxonomy in `substrate/skills/agent-relay/recv.sh:379-381` (`image 🖼️` / `audio 🎤` / `video 🎬` / `file 📎`) — the same strings the agent-side inbound relay bubble already renders today, giving the user visual consistency between the app's inbound view and her lock-screen preview (D-07). `m.text` / undefined msgtype passes body through, truncated at `PREVIEW_MAX_BODY_LEN` (100) — the cap serves triple duty (T-126-12 adversarial-body mitigation + iOS lock-screen ergonomics + Web Push ~4KB payload budget). Filename-in-parens appended for `m.image` and `m.file` when the sender provided it. Unknown msgtypes (`m.location`, `m.notice`, custom types) fall back to body, or to the `(message)` sentinel when body is empty — Pitfall 3 defense against iOS's silent-push subscription-revocation heuristic. Labels live in a top-of-file `PREVIEW_LABELS` const object per Assumption A5 (future copy tweak = one-file diff). Zero I/O, zero side effects, deterministic. 12/12 test cases green.
 - **Task 2 — resolveAgentDisplayName(mxid) wrapper.** Async never-throws wrapper composing over the existing appearance cascade for D-07's notification title. Extracts the mxid local-part (per `relay-mxid-resolve.ts`'s MXID_REGEX convention), lowercases it to derive the identityKey, does the async disk-read chain (`readIdentityFile` + `extractCosmeticsFromFrontmatter` + `extractRoleFromMarkdown` + optional `readRoleFileByName`), and hands the assembled `{cosmetics, roleCosmetics, role, identityKey, hostId, pinned}` to `resolveIdentityAppearance` (the pure sync merge fn — see divergence-note below). Returns `resolved.displayName` truncated to `DISPLAY_NAME_MAX_LEN` (40) — the ceiling for iOS lock-screen title chrome and part of the Web Push payload budget. All failure modes (malformed mxid via MXID_PATTERN short-circuit, disk-read throw, resolver throw, empty resolved displayName) fall back deterministically to `localPart.slice(0, 40)` with a `.warn` log naming the mxid + failure — T-126-14 mitigation (spoofing via unresolvable identity) via a deterministic + verifiable local-part fallback that a user familiar with the mxid convention can spot. 9/9 test cases green.
 
 ## Task Commits
@@ -137,7 +137,7 @@ _(Metadata commit follows this SUMMARY.)_
 
 **2. [Rule 2 - Missing critical functionality] Added MXID_PATTERN short-circuit for malformed mxids**
 
-- **Found during:** Task 2 GREEN run — two test cases (malformed-no-colon, malformed-no-@) failed initially because the wrapper was flowing malformed mxids through the disk-read cascade, whose ambient default (via `capitalizeFirstIdentityKey`) returned a title-cased ambient string like "Ashley-Agent-Foo" instead of the expected raw local-part.
+- **Found during:** Task 2 GREEN run — two test cases (malformed-no-colon, malformed-no-@) failed initially because the wrapper was flowing malformed mxids through the disk-read cascade, whose ambient default (via `capitalizeFirstIdentityKey`) returned a title-cased ambient string like "the user-Agent-Foo" instead of the expected raw local-part.
 - **Issue:** The plan's behavior spec says "mxid with weird shape returns best-effort local-part." Without a shape gate up front, the wrapper's cascade produces a misleading title-cased ambient — a spoofing/attribution risk if a badly-formatted mxid manages to reach the trigger loop (T-126-14 adjacent — spoofing via unresolvable identity should be visibly wrong, not silently ambient-normalized).
 - **Fix:** Added `MXID_PATTERN /^@([^:]+):(.+)$/` (byte-mirror of client-side `relay-mxid-resolve.ts` MXID_REGEX) short-circuit at the top of the try block — malformed mxid → return `fallback = localPart.slice(0, 40)` without touching the disk or the resolver.
 - **Files modified:** src/backend/notifications/resolve-agent-display-name.ts (added the constant + the two-line guard).
@@ -157,7 +157,7 @@ None. Both modules are fully wired and testable end-to-end (the tests mock exter
 
 ## Deferred Items
 
-None generated during this plan. The pre-existing deferrals from RESEARCH.md (Pitfall 8 — future unification of client + server preview under `src/shared/message-preview.ts`; Assumption A5 — Ashley may want different label copy) remain deferred but are documented in the module doc header of `preview-text.ts` so future maintainers see the follow-up context.
+None generated during this plan. The pre-existing deferrals from RESEARCH.md (Pitfall 8 — future unification of client + server preview under `src/shared/message-preview.ts`; Assumption A5 — the user may want different label copy) remain deferred but are documented in the module doc header of `preview-text.ts` so future maintainers see the follow-up context.
 
 ## Threat Flags
 
@@ -176,7 +176,7 @@ None — no new security surface was introduced beyond what the plan's `<threat_
   - `agentMxid` — the event's sender
   The three utilities (push-sender, preview-text, resolve-agent-display-name) are now all in place — Plan 06 can import them and wire them without further ceremony (per this plan's `<success_criteria>`).
 - **Client-server preview unification** (Pitfall 8): when the pretty-view row renderer gains voice/image/file support, unify `preview-text.ts` + the client renderer's row-labeling logic under a shared `src/shared/message-preview.ts`. Not urgent — the server-side derivation is D-07-correct as long as it stays consistent with the recv.sh taxonomy.
-- **Label copy tweak surface** (Assumption A5): if Ashley wants "Voice message" instead of "audio 🎤", edit `PREVIEW_LABELS` in one file. Test snapshot will need a matching update.
+- **Label copy tweak surface** (Assumption A5): if the user wants "Voice message" instead of "audio 🎤", edit `PREVIEW_LABELS` in one file. Test snapshot will need a matching update.
 
 ## Self-Check: PASSED
 

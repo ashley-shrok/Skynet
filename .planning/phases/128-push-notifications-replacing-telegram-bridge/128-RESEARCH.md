@@ -20,7 +20,7 @@ Standard stack: `web-push` (npm) 3.6.7 for backend VAPID + send; native `PushMan
 - **D-01:** Trigger is a PER-EVENT shape check on incoming messages, not a stored designation. For each message arriving, ask: is the source room exactly two members, and is one of them a local agent (per agents-registry membership) and the other the human whose device is subscribed? If yes, push. If no, silent.
 - **D-02:** Reuse the existing DM-classification concept — same underlying invariant as the `harness_dm` rule in `src/backend/relay-sessions/observation-loop-classifier.ts` and the `getSharedDMRoom` lookup in `src/backend/matrix/matrix-admin-client.ts`. Do NOT re-derive room-shape logic.
 - **D-03:** Per-event shape check is deliberate over a cached "designated DM room per pair" mapping. If an agent ever creates or uses a second DM room by mistake, notifications must still land. Robustness beats efficiency.
-- **D-04:** Only NEW messages from the agent side fire a push. Not edits, not reactions, not joins, not leaves, not system events. Ashley's own outbound messages (from any device) never push.
+- **D-04:** Only NEW messages from the agent side fire a push. Not edits, not reactions, not joins, not leaves, not system events. the user's own outbound messages (from any device) never push.
 - **D-05:** No push when the app is currently open and displaying the target room. This is a soft signal — best-effort — not a load-bearing correctness invariant.
 
 **Delivery — how a push reaches the device**
@@ -46,7 +46,7 @@ Standard stack: `web-push` (npm) 3.6.7 for backend VAPID + send; native `PushMan
 - **D-17:** The Telegram bridge and all its supporting infrastructure come out entirely in the same ship. Push landing and bridge leaving are ONE motion.
 - **D-18:** Teardown scope includes all code under `src/backend/telegram/`, the `tg-bridge` Docker service in `docker/docker-compose.yml`, any supporting endpoints on Skynet the bridge depends on, config env vars specific to the bridge, the `tg-bridge-state` Docker volume, and any bridge-related columns/tables in Skynet's DB if they exist solely to support the bridge.
 - **D-19:** The `getSharedDMRoom` helper in `src/backend/matrix/matrix-admin-client.ts` is DELETED if no non-bridge caller remains. Planner: check for other callers before removing.
-- **D-20:** Bridge shutdown is destructive. On deploy, existing bridge subscriptions/tokens are dropped. Ashley knows this and accepts it.
+- **D-20:** Bridge shutdown is destructive. On deploy, existing bridge subscriptions/tokens are dropped. the user knows this and accepts it.
 
 ### Claude's Discretion
 
@@ -523,7 +523,7 @@ interface PerUserState {
 - **Sending a `push` event that does not result in `showNotification()`** — iOS silently invalidates the subscription after too many silent pushes. Every push MUST render a notification.
 - **Assuming subscriptions live forever** — iOS PWAs rotate them every 1-2 weeks or after ~100 pushes (per Apple forum thread 728796). Handle `pushsubscriptionchange` + prune on 410/404.
 - **Using `getSharedDMRoom` as the trigger** — that's ahead-of-time per-pair discovery; D-03 explicitly rejects it. Use per-event `classifyRoom` reason === `harness_dm`.
-- **Only supporting one active subscription per user** — Ashley may have desktop + phone subscribed (D-14 fires on every subscribed device). Unique index on `(user_id, endpoint)` NOT on `user_id` alone.
+- **Only supporting one active subscription per user** — the user may have desktop + phone subscribed (D-14 fires on every subscribed device). Unique index on `(user_id, endpoint)` NOT on `user_id` alone.
 - **Coalescing / debouncing pushes** — explicitly rejected in D-09. One push per message.
 - **Adding a new nginx block only to `docker/nginx.conf`** — per CLAUDE.md caveat (referenced in `src/backend/database/database.ts:2033-2038, 2071-2073, 2100-2103, 2112-2115, 2123-2125` — repeated all over the codebase because it's caused real production incidents), every new HTTP prefix needs blocks in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`.
 
@@ -548,7 +548,7 @@ This is a rename/teardown phase (teardown of tg-bridge in the same shipping unit
 | Category | Items Found | Action Required |
 |----------|-------------|------------------|
 | **Stored data** | (1) `telegram_bot_tokens` table in Skynet DB (schema.ts:759 + CREATE TABLE at db/index.ts:347) — populated by `/telegram/activate`. Rows are (identityKey, botUsername, humanUserId, telegramChatId). Solely supports the bridge. (2) `tg-bridge-state` Docker volume (compose:231-232) contains `/state/registry.json`, `/state/config.env`, `<human>.token`, `<human>.since`, `<agent>.bottoken`, `<human>.token-dead` sentinels, `<agent>.pending-chat-id` sentinels. | **DROP** `telegram_bot_tokens` table via migration in `db/index.ts` (mirror the `runPinColumnDrop`/`runHiddenColumnDrop` pattern used in Phase 107/Phase 92). Docker: `docker volume rm skynet_tg-bridge-state` in the deploy runbook (orchestrator step, not code). **Data migration:** none — existing bridge subscriptions/tokens are intentionally dropped per D-20. |
-| **Live service config** | (1) Telegram bot registrations at `api.telegram.org` — each activated identity has a real Telegram bot with a token issued by BotFather. Bridge shutdown does NOT revoke those tokens at Telegram's side. (2) Telegram chat IDs — Ashley's Telegram chat with each bot lives in Telegram's cloud; not managed by Skynet. | **No action in code** — Ashley accepts the destructive shutdown (D-20). Bots at Telegram's side are orphaned; she can revoke them at BotFather manually if she wants a clean sweep. Note in phase SUMMARY.md so it's visible to the deploy runbook. |
+| **Live service config** | (1) Telegram bot registrations at `api.telegram.org` — each activated identity has a real Telegram bot with a token issued by BotFather. Bridge shutdown does NOT revoke those tokens at Telegram's side. (2) Telegram chat IDs — the user's Telegram chat with each bot lives in Telegram's cloud; not managed by Skynet. | **No action in code** — the user accepts the destructive shutdown (D-20). Bots at Telegram's side are orphaned; she can revoke them at BotFather manually if she wants a clean sweep. Note in phase SUMMARY.md so it's visible to the deploy runbook. |
 | **OS-registered state** | (1) `tg-bridge` Docker container name (compose:209). (2) `tg-bridge:local` Docker image tag (compose:208) built from `substrate/services/tg-bridge/Dockerfile.tg-bridge`. | Container disappears via `docker compose up` (or an explicit `docker compose stop tg-bridge && docker compose rm tg-bridge`). Image `tg-bridge:local` remains as a dangling image until `docker image prune` — orchestrator concern, not code. |
 | **Secrets and env vars** | (1) `SKYNET_BRIDGE_TOKEN` — Bearer JWT written by `bridge-config-writer.ts` into `/state/config.env`; consumed by `bridge.sh`. Minted by `mintBridgeServiceToken` in `bridge-service-token.ts` — 30-day lifetime; never persisted anywhere except the shared volume. (2) `SKYNET_BASE`, `MATRIX_ROOT` in `/state/config.env` — no secrets, but bridge-scoped. (3) Per-human `.token` files under `/state/<human>.token` — minted by Skynet via `loginAsUser`; expire when the volume is dropped. | Code deletion: `bridge-service-token.ts` is deleted (only caller is `bridge-config-writer.ts`). The `tg-bridge-service` `userId` special case in `src/backend/database/routes/voice.ts:426-435` (`rejectBridgeServiceOnSpeak`) is deleted. **VAPID keys (NEW):** must be generated ONCE and stored. Recommend `matrix_admin_creds` table pattern (`schema.ts:717`) — a new `push_vapid_config` table with (id primary key, public_key, private_key, subject, created_at); planner can also decide env-var storage (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) if simpler for the deploy shape. |
 | **Build artifacts / installed packages** | (1) `substrate/services/tg-bridge/` directory (bridge.sh, Dockerfile.tg-bridge, README.md, cursor-persistence-repro.sh). (2) `tg-bridge:local` Docker image. (3) Compose build stanza at docker-compose.yml:201-207 that builds `tg-bridge:local`. | Delete `substrate/services/tg-bridge/` entirely. Delete build stanza + service stanza in docker-compose.yml. Image `tg-bridge:local` becomes dangling after next deploy; orchestrator's `docker image prune -f` cleanup handles it. |
@@ -557,8 +557,8 @@ This is a rename/teardown phase (teardown of tg-bridge in the same shipping unit
 
 - Deployed Skynet host has the `tg-bridge` running container until `docker compose up` reconciles.
 - Deployed host has the `tg-bridge-state` named volume until `docker volume rm` (must be manual — `docker compose down -v` would sweep it but is not typical).
-- Telegram's BotFather has the bot registrations (external state — Ashley's responsibility if she wants a real revoke).
-- Ashley's phone still has the Telegram app installed (unrelated — outside scope).
+- Telegram's BotFather has the bot registrations (external state — the user's responsibility if she wants a real revoke).
+- the user's phone still has the Telegram app installed (unrelated — outside scope).
 
 ## Common Pitfalls
 
@@ -579,7 +579,7 @@ This is a rename/teardown phase (teardown of tg-bridge in the same shipping unit
 
 **What goes wrong:** Apple's push service returns `403 Forbidden` on every push if VAPID `subject` is anything else (e.g. a bare domain, no scheme, or an application ID).
 
-**How to avoid:** Set `VAPID_SUBJECT` to `mailto:ashley@t1000.taild9b663.ts.net` (or any valid mailto/https). Validate at startup — fail fast if malformed.
+**How to avoid:** Set `VAPID_SUBJECT` to `mailto:admin@example.com` (or any valid mailto/https). Validate at startup — fail fast if malformed.
 
 [CITED: https://webscraft.org/blog/pwa-pushspovischennya-na-ios-u-2026-scho-realno-pratsyuye?lang=en — 2026 empirical PWA push guide]
 
@@ -663,7 +663,7 @@ Included in Architecture Patterns above (Patterns 1-4). All patterns cite their 
 **Deprecated/outdated:**
 - GCM (Google Cloud Messaging) sender IDs — replaced by VAPID. Do not use.
 - `aesgcm` content-encoding (RFC 8188 earlier draft) — replaced by `aes128gcm` (RFC 8291). web-push defaults to `aes128gcm`; leave the default.
-- Firebase Cloud Messaging (FCM) — not needed for standards-based Web Push; adds a Google account dependency Ashley doesn't want.
+- Firebase Cloud Messaging (FCM) — not needed for standards-based Web Push; adds a Google account dependency the user doesn't want.
 - Push notifications via a third-party service (OneSignal, Pusher) — not needed; standards-based Web Push is fully self-hostable.
 
 ## Environment Availability
@@ -728,7 +728,7 @@ Included in Architecture Patterns above (Patterns 1-4). All patterns cite their 
 | Attacker registers a subscription for another user's userId | Elevation of Privilege | POST route reads `userId` from JWT-verified auth (`authReq.userId`), NEVER from request body. `AuthManager.createAuthMiddleware` already handles this. |
 | Attacker discovers subscription endpoint via log leak → sends unauthorized push | Spoofing | (1) Never log full endpoint URL — truncate to prefix. (2) VAPID JWT gate — recipient's push service validates the sender's ES256 signature against the pre-registered VAPID public key. |
 | Malformed subscription body crashes the backend | Denial of Service | Zod validation + `express.json({limit:"8kb"})` cap on body size. |
-| Attacker floods POST /push-subscriptions to fill the DB | Denial of Service | Consider adding per-user rate-limit (mirror `checkRateLimit` in `src/backend/relay-room-stream/relay-room-stream-server.ts:196-256`). Not required for v1 since auth-gated + Ashley is the sole user, but note for future multi-tenant. |
+| Attacker floods POST /push-subscriptions to fill the DB | Denial of Service | Consider adding per-user rate-limit (mirror `checkRateLimit` in `src/backend/relay-room-stream/relay-room-stream-server.ts:196-256`). Not required for v1 since auth-gated + the user is the sole user, but note for future multi-tenant. |
 | Silent push storm to exhaust device battery / iOS revocation | Availability/DoS | D-09 = one push per message enforced by classifier. iOS invalidates over-pushy subs on its own. |
 | VAPID private key leak | Spoofing (any attacker with the key can send push to any subscription registered under it) | Store in DB, never log, never commit. Rotate on suspicion (rotation = generate new VAPID pair + prune ALL existing subscriptions + push re-enrollment). Document rotation runbook. |
 | Bridge JWT leftover from `bridge-service-token.ts` | Spoofing | Deleted in this phase (D-18) — `mintBridgeServiceToken` + the `tg-bridge-service` `userId` special case in `voice.ts:426-435` both go. |
@@ -787,9 +787,9 @@ Included in Architecture Patterns above (Patterns 1-4). All patterns cite their 
 | A2 | `@types/web-push` (v3.6.4) is the canonical DefinitelyTyped types package | Standard Stack | Same as A1. Verify via https://www.npmjs.com/package/@types/web-push showing DefinitelyTyped provenance. |
 | A3 | Reusing admin credentials via `fetchRoomHistory` is acceptable for a per-user always-on live-event pump | Architecture Patterns § Pattern 4 | If Synapse admin credentials have a rate limit or scope issue that surfaces only under sustained per-user polling, the pump degrades. Existing observation loop pattern (10s cadence per user with same admin creds + retry backoff) is proven — degrading to 2s cadence for message events should be fine but is not proven under load. **Mitigation:** re-uses the same backoff ladder (`BACKOFF_LADDER_MS`) if failures accumulate. |
 | A4 | Storing VAPID keys in DB (mirror `matrix_admin_creds`) vs env var is a planner choice; either is acceptable | Standard Stack, Security Domain | If env-var storage is chosen and the deploy pipeline forgets to inject them, backend crashes at startup — which is fine per fail-fast principle. DB storage requires an operator-facing bootstrap route (mirror `/matrix-admin/ingest`) — extra scope. Planner picks. |
-| A5 | The preview-text label taxonomy from `substrate/skills/agent-relay/recv.sh:378-381` ("image 🖼️", "audio 🎤", "video 🎬", "file 📎") is the reasonable server-side mirror for D-07 given the client currently drops non-text msgtypes | Common Pitfalls § Pitfall 8, Sources | If Ashley expects different labels (e.g. plain "Voice message" like Signal), notification body copy differs from her mental model. Low risk — she can complain and we adjust. **Mitigation:** put the label constants in one file (`preview-text.ts`) so a future edit is one-file. |
+| A5 | The preview-text label taxonomy from `substrate/skills/agent-relay/recv.sh:378-381` ("image 🖼️", "audio 🎤", "video 🎬", "file 📎") is the reasonable server-side mirror for D-07 given the client currently drops non-text msgtypes | Common Pitfalls § Pitfall 8, Sources | If the user expects different labels (e.g. plain "Voice message" like Signal), notification body copy differs from her mental model. Low risk — she can complain and we adjust. **Mitigation:** put the label constants in one file (`preview-text.ts`) so a future edit is one-file. |
 | A6 | The `notificationclick` deep-link URL shape `/?openRoom=<roomId>` will be picked up by AppShell / PrettyView on mount to open the specific room | Code Examples § Pattern 3 | Frontend does not currently handle a `openRoom` query param on load — the planner must add a small AppShell hook (or reuse existing `sessionKind: "relay-room"` open-tab mechanism) that reads the param on mount and opens the target room's pane. If not wired, tapping the notification opens the app to its default landing but does NOT jump to the room — D-08 half-broken. Low risk (planner will notice during implementation) but worth flagging. |
-| A7 | Skynet's DM traffic (agent → Ashley) is primarily `m.text` in practice today, with `m.audio` (voice notes) and `m.image` occasionally when tg-bridge forwards Telegram media or an agent uses `agent-relay` to send media | Common Pitfalls § Pitfall 8 | If Ashley's DM stream is heavier on non-text than assumed, the "mirror row rendering" gap (client drops non-text) becomes user-visible faster. Server-side preview-text derivation covers this correctly regardless. |
+| A7 | Skynet's DM traffic (agent → the user) is primarily `m.text` in practice today, with `m.audio` (voice notes) and `m.image` occasionally when tg-bridge forwards Telegram media or an agent uses `agent-relay` to send media | Common Pitfalls § Pitfall 8 | If the user's DM stream is heavier on non-text than assumed, the "mirror row rendering" gap (client drops non-text) becomes user-visible faster. Server-side preview-text derivation covers this correctly regardless. |
 | A8 | iOS PWA push subscription rotation is silent and cannot be reliably caught by `pushsubscriptionchange` in all cases — the inline `410 Gone` pruning path is the load-bearing recovery mechanism | Common Pitfalls § Pitfall 1 | If `pushsubscriptionchange` fires reliably, our belt is redundant; if it doesn't (per Apple forum), the suspenders (410 pruning) is the recovery mechanism. Belt-AND-suspenders wired means both are in place. |
 
 ## Open Questions
@@ -806,7 +806,7 @@ Included in Architecture Patterns above (Patterns 1-4). All patterns cite their 
 
 3. **In-app opt-in surface: welcome-modal / settings-tab / floating banner?**
    - What we know: must be user-gesture-gated; must exist somewhere first-time users encounter it; must be reachable at any time (for re-enable after silent rotation per Pitfall 1).
-   - What's unclear: which UI surface is Ashley's natural first-tap point.
+   - What's unclear: which UI surface is the user's natural first-tap point.
    - Recommendation: Planner picks based on where a first-time PWA user's attention naturally lands. Two shipping-shape options: (a) settings/gear menu item labeled "Enable notifications" that also flips to "Notifications enabled" state (works but requires her to open the gear menu); (b) a soft banner that appears when notification permission is `default` AND no active subscription exists — dismisses on tap-to-enable OR tap-to-dismiss. Both are lightweight; the shape file says "welcome/setup moment inside the app" so a first-launch modal is also fair game.
 
 4. **Does the notification deep-link require handling both cold-launch (`clients.openWindow`) and warm-focus (`clients.matchAll` + `client.focus() + client.navigate()`)?**
@@ -826,7 +826,7 @@ Included in Architecture Patterns above (Patterns 1-4). All patterns cite their 
 - Architecture: HIGH — codebase surfaces read directly; patterns exist and are cited; the only novel infrastructure piece (`push-trigger-loop.ts`) has a clear model in the existing observation loop and relay-room-stream.
 - Pitfalls: HIGH on protocol/library pitfalls (cross-verified with MDN + web.dev + WebKit blog); MEDIUM on iOS-specific subscription-lifetime edge cases (well-documented empirically via Apple forum + 2026 empirical guide, no first-hand evidence).
 - Teardown scope: HIGH — every file / route / config referenced was grepped and confirmed in the working tree.
-- Preview-text derivation: MEDIUM — the label taxonomy from `recv.sh` is defensible but is a real UX decision Ashley may want to weigh in on (see Pitfall 8 + Assumption A5).
+- Preview-text derivation: MEDIUM — the label taxonomy from `recv.sh` is defensible but is a real UX decision the user may want to weigh in on (see Pitfall 8 + Assumption A5).
 
 **Research date:** 2026-09-21
 **Valid until:** 2026-10-21 (30 days) — web-push protocol + iOS 16.4+ push are stable; the only fast-moving surface is iOS PWA push edge cases (re-verify Apple forum threads if UAT surfaces new failure modes).

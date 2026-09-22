@@ -139,7 +139,7 @@ Per the plan's `<output>` section:
 
 1. `docker volume rm skynet_tg-bridge-state` — removes the orphaned named volume on the deploy host (the volume declaration is gone from compose, but any pre-existing volume on the box persists until explicitly removed). Destructive (bridge state files: registry.json, config.env, per-human .token / .since / .token-dead / .bottoken files, offset cursors, work/). Accepted per D-20.
 2. `docker image prune -f` — removes the now-dangling `tg-bridge:local` image (no longer built because the build stanza is gone from compose).
-3. **Operator-side (Ashley's discretion):** revoke BotFather Telegram bots if desired. External to Skynet's control surface, entirely per D-20.
+3. **Operator-side (the user's discretion):** revoke BotFather Telegram bots if desired. External to Skynet's control surface, entirely per D-20.
 
 ## Known Stubs
 

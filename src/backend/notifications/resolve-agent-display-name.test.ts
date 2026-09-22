@@ -78,7 +78,7 @@ describe("resolveAgentDisplayName", () => {
     vi.mocked(extractCosmeticsFromFrontmatter).mockReturnValue({});
     vi.mocked(extractRoleFromMarkdown).mockReturnValue(null);
     vi.mocked(resolveIdentityAppearance).mockReturnValue({
-      displayName: "Ashley-Agent-Foo",
+      displayName: "Test-Agent-Foo",
       title: null,
       colorHue: null,
       voice: null,
@@ -87,16 +87,16 @@ describe("resolveAgentDisplayName", () => {
       coordinator: false,
       role: null,
       roleDefaults: null,
-      avatarUrl: "/identities/ashley-agent-foo/avatar?hostId=0",
+      avatarUrl: "/identities/test-agent-foo/avatar?hostId=0",
       pinned: false,
     });
   });
 
   it("returns the displayName from resolveIdentityAppearance on the happy path", async () => {
     const result = await resolveAgentDisplayName(
-      "@ashley-agent-foo:t1000.taild9b663.ts.net",
+      "@test-agent-foo:t1000.taild9b663.ts.net",
     );
-    expect(result).toBe("Ashley-Agent-Foo");
+    expect(result).toBe("Test-Agent-Foo");
   });
 
   it("falls back to the mxid local-part when appearance resolution returns a whitespace-only / empty displayName", async () => {
@@ -115,9 +115,9 @@ describe("resolveAgentDisplayName", () => {
       pinned: false,
     });
     const result = await resolveAgentDisplayName(
-      "@ashley-agent-foo:t1000.taild9b663.ts.net",
+      "@test-agent-foo:t1000.taild9b663.ts.net",
     );
-    expect(result).toBe("ashley-agent-foo");
+    expect(result).toBe("test-agent-foo");
   });
 
   it("logs .warn and falls back to local-part when readIdentityFile throws", async () => {
@@ -125,13 +125,13 @@ describe("resolveAgentDisplayName", () => {
       new Error("SSH connection dropped"),
     );
     const result = await resolveAgentDisplayName(
-      "@ashley-agent-foo:t1000.taild9b663.ts.net",
+      "@test-agent-foo:t1000.taild9b663.ts.net",
     );
-    expect(result).toBe("ashley-agent-foo");
+    expect(result).toBe("test-agent-foo");
     expect(systemLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining("resolveAgentDisplayName"),
       expect.objectContaining({
-        mxid: "@ashley-agent-foo:t1000.taild9b663.ts.net",
+        mxid: "@test-agent-foo:t1000.taild9b663.ts.net",
       }),
     );
   });
@@ -141,8 +141,8 @@ describe("resolveAgentDisplayName", () => {
       throw new Error("cosmetics merge exploded");
     });
     await expect(
-      resolveAgentDisplayName("@ashley-agent-foo:t1000.taild9b663.ts.net"),
-    ).resolves.toBe("ashley-agent-foo");
+      resolveAgentDisplayName("@test-agent-foo:t1000.taild9b663.ts.net"),
+    ).resolves.toBe("test-agent-foo");
     expect(systemLogger.warn).toHaveBeenCalled();
   });
 
@@ -155,10 +155,10 @@ describe("resolveAgentDisplayName", () => {
 
   it("returns best-effort local-part for a malformed mxid (no @ prefix)", async () => {
     const result = await resolveAgentDisplayName(
-      "ashley-agent-foo:server.example",
+      "test-agent-foo:server.example",
     );
     // No leading @ → strip nothing → split on ":" → first segment.
-    expect(result).toBe("ashley-agent-foo");
+    expect(result).toBe("test-agent-foo");
   });
 
   it("truncates a very long displayName at 40 chars", async () => {
@@ -177,7 +177,7 @@ describe("resolveAgentDisplayName", () => {
       pinned: false,
     });
     const result = await resolveAgentDisplayName(
-      "@ashley-agent-foo:t1000.taild9b663.ts.net",
+      "@test-agent-foo:t1000.taild9b663.ts.net",
     );
     expect(result).toBe("A".repeat(40));
     expect(result.length).toBe(40);
@@ -222,7 +222,7 @@ describe("resolveAgentDisplayName", () => {
     }));
 
     const result = await resolveAgentDisplayName(
-      "@ashley-agent-foo:t1000.taild9b663.ts.net",
+      "@test-agent-foo:t1000.taild9b663.ts.net",
     );
 
     // Verify readRoleFileByName was called with the resolved role name.
