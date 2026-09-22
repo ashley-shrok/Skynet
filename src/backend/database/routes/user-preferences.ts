@@ -227,10 +227,17 @@ export async function handlePutPreferences(
   if (pinnedConversationIds !== undefined) {
     // Per-host conn map — opened ONCE per unique host across the pin fanout.
     const connByHost = new Map<number, import("ssh2").Client | null>();
+    // Hosts whose SSH conn couldn't be opened (offline, timeout, resolver
+    // failure). Identities on these hosts are skipped from every step of the
+    // fanout so one unreachable host doesn't fail the PUT for identities on
+    // healthy hosts. Fail-closed on read (identityFileExists on a REMOTE
+    // host with conn=null throws → per-key try/catch already treats it as
+    // "not pinned") mirrors this at the primitive layer.
+    const unreachableHosts = new Set<number>();
 
     try {
       // -----------------------------------------------------------------------
-      // PIN FANOUT (Phase 92 Plan 92-02) — unchanged behavior
+      // PIN FANOUT (Phase 92 Plan 92-02, per-host tolerant)
       // -----------------------------------------------------------------------
       if (pinnedConversationIds !== undefined) {
         // Type assertion: validation above confirmed pinnedConversationIds is string[].
@@ -259,20 +266,48 @@ export async function handlePutPreferences(
         // .pinned state, and any delta drives a write or a remove.
         // Dedupe hostIds so we open one SSH conn per unique host (T-92-02-05).
         const uniquePinHostIds = [...new Set(Object.values(identityHosts))];
-        // Open conns for any host not yet in the shared connByHost map.
+        // Open conns per-host with tolerance: an openConn failure marks the
+        // host unreachable and does NOT throw out of the fanout. This is the
+        // whole point of unreachableHosts — an offline fleet peer used to
+        // 500 every pin PUT on the whole fleet.
         await Promise.all(
           uniquePinHostIds
             .filter((hostId) => !connByHost.has(hostId))
             .map(async (hostId) => {
-              const { conn } = await openConnForHost(hostId, userId);
-              connByHost.set(hostId, conn);
+              try {
+                const { conn } = await openConnForHost(hostId, userId);
+                connByHost.set(hostId, conn);
+              } catch (openErr) {
+                unreachableHosts.add(hostId);
+                connByHost.set(hostId, null);
+                databaseLogger.warn(
+                  "Pin fanout: host unreachable — skipping",
+                  {
+                    operation: "user_preferences_pin_fanout_host_unreachable",
+                    userId,
+                    hostId,
+                    error:
+                      openErr instanceof Error
+                        ? openErr.message
+                        : String(openErr),
+                  },
+                );
+              }
             }),
         );
 
+        // Reachable-host key filter — every downstream step operates over
+        // this subset only. Identities whose host is unreachable are dropped
+        // from the fanout entirely (no previous probe, no delta, no write,
+        // no post-echo). Their on-disk .pinned state is left untouched.
+        const identityHostsKeys = Object.keys(identityHosts).filter(
+          (k) => !unreachableHosts.has(identityHosts[k]),
+        );
+        const reachableKeySet = new Set(identityHostsKeys);
+
         // --- Step 1: derive previous set from disk ------------------------
-        // For each identityHosts key, probe identityFileExists. Any failure
-        // → false (fail-closed per D-01 — never over-report pinned).
-        const identityHostsKeys = Object.keys(identityHosts);
+        // For each REACHABLE identityHosts key, probe identityFileExists. Any
+        // failure → false (fail-closed per D-01 — never over-report pinned).
         const previousStates = await Promise.all(
           identityHostsKeys.map(async (key) => {
             const hostId = identityHosts[key];
@@ -293,7 +328,13 @@ export async function handlePutPreferences(
         });
 
         // --- Step 2: compute deltas ---------------------------------------
-        const nextSet = new Set<string>(pinnedIds);
+        // nextSet drops any client-requested pin whose host is unreachable —
+        // we can't persist the sentinel, so echoing it back would lie about
+        // disk truth. The client will observe the drop on the next GET
+        // /identities refresh (which fail-closes on unreachable hosts too).
+        const nextSet = new Set<string>(
+          pinnedIds.filter((k) => reachableKeySet.has(k)),
+        );
         const toAdd: string[] = [];
         const toRemove: string[] = [];
         for (const k of nextSet) {

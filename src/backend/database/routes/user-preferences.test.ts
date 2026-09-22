@@ -231,14 +231,11 @@ vi.mock("../../ssh/ssh-one-shot.js", () => ({
     connectOneShotMock(host, timeoutMs),
 }));
 
+const resolveHostByIdMock = vi.fn();
+
 vi.mock("../../ssh/host-resolver.js", () => ({
-  resolveHostById: vi.fn().mockResolvedValue({
-    ip: "10.0.0.5",
-    port: 22,
-    username: "ubuntu",
-    authType: "key",
-    key: "fake-key",
-  }),
+  resolveHostById: (hostId: number, userId: string) =>
+    resolveHostByIdMock(hostId, userId),
 }));
 
 // ---------------------------------------------------------------------------
@@ -299,6 +296,14 @@ beforeEach(() => {
   isLocalHostIdMock.mockReturnValue(true);
   connectOneShotMock.mockClear();
   connectOneShotMock.mockResolvedValue({ __fake: "ssh-conn", end: vi.fn() });
+  resolveHostByIdMock.mockClear();
+  resolveHostByIdMock.mockImplementation(async (hostId: number) => ({
+    ip: `10.0.0.${hostId}`,
+    port: 22,
+    username: "ubuntu",
+    authType: "key",
+    key: "fake-key",
+  }));
 });
 
 // ---------------------------------------------------------------------------
@@ -632,6 +637,126 @@ describe("handlePutPreferences: Phase 92-02 pin sentinel fan-out", () => {
       expect(k).toBe(k.toLowerCase());
     }
     expect([400, 500]).toContain(res._status);
+  });
+});
+
+// ===========================================================================
+// Pin fan-out — per-host tolerance for offline peers
+// ===========================================================================
+//
+// Before the tolerance change, a single unreachable fleet host (SSH connect
+// timeout on openConnForHost) threw out of the openConns Promise.all, was
+// caught by the outer try, and 500'd the whole PUT — killing pin/unpin for
+// EVERY identity on every host, not just the offline one. Ashley hit this
+// with ZoeyBattlestation offline: pinning Crimson on t1000 (fully reachable)
+// failed with "Failed to update user preferences".
+//
+// New shape: openConnForHost failure marks the host as unreachable, its
+// identities are dropped from every downstream step (previous probe, delta,
+// write, echo), and the fanout completes for identities on reachable hosts.
+// PUT-92-05's D-06 synchronous-truth on real write failures is preserved —
+// the tolerance is scoped to the openConn phase only.
+describe("handlePutPreferences: Phase 92-02 pin fan-out — offline host tolerance", () => {
+  it("PUT-92-09a: one unreachable host does NOT fail the PUT — reachable-host pin still writes", async () => {
+    // Two hosts, both REMOTE. Host 1 reachable, host 9 (Zoey stand-in) unreachable.
+    isLocalHostIdMock.mockReturnValue(false);
+    connectOneShotMock.mockImplementation(async (host: { ip: string }) => {
+      if (host.ip === "10.0.0.9") {
+        throw new Error("Connect timeout after 5000ms");
+      }
+      return { __fake: `ssh-${host.ip}`, end: vi.fn() };
+    });
+    identityFileExistsMock.mockResolvedValue(false); // nothing pinned prior
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      {
+        pinnedConversationIds: ["alpha"],
+        identityHosts: { alpha: 1, beta: 9 },
+      },
+      res as unknown as Response,
+    );
+
+    // Success — not a 500.
+    expect(res._status).toBe(200);
+    // alpha's write fires exactly once; beta's host was skipped so no I/O.
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
+    expect(writeIdentityFileMock.mock.calls[0][0]).toBe("alpha");
+    expect(removeIdentityFileMock).not.toHaveBeenCalled();
+    // No probe fires for beta either — the whole key is dropped upstream.
+    for (const call of identityFileExistsMock.mock.calls) {
+      expect(call[0]).not.toBe("beta");
+    }
+  });
+
+  it("PUT-92-09b: pin request targeting only-unreachable host — 200 with empty echo, no writes", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    connectOneShotMock.mockRejectedValue(
+      new Error("Connect timeout after 5000ms"),
+    );
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: ["beta"], identityHosts: { beta: 9 } },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect(writeIdentityFileMock).not.toHaveBeenCalled();
+    expect(removeIdentityFileMock).not.toHaveBeenCalled();
+    const body = res._body as { pinnedConversationIds: string[] };
+    expect(body.pinnedConversationIds).toEqual([]);
+  });
+
+  it("PUT-92-09c: partial reachability — writes fire only to reachable hosts, no probe or write attempted on unreachable-host keys", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    connectOneShotMock.mockImplementation(async (host: { ip: string }) => {
+      if (host.ip === "10.0.0.9") {
+        throw new Error("Connect timeout after 5000ms");
+      }
+      return { __fake: `ssh-${host.ip}`, end: vi.fn() };
+    });
+    identityFileExistsMock.mockResolvedValue(false);
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      {
+        pinnedConversationIds: ["alpha", "beta"],
+        identityHosts: { alpha: 1, beta: 9 },
+      },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    // Alpha wrote; beta never touched at any primitive.
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
+    expect(writeIdentityFileMock.mock.calls[0][0]).toBe("alpha");
+    for (const call of writeIdentityFileMock.mock.calls) expect(call[0]).not.toBe("beta");
+    for (const call of removeIdentityFileMock.mock.calls) expect(call[0]).not.toBe("beta");
+    for (const call of identityFileExistsMock.mock.calls) expect(call[0]).not.toBe("beta");
+  });
+
+  it("PUT-92-09d: write failure on REACHABLE host still surfaces 500 (D-06 preserved) — tolerance is scoped to openConn only", async () => {
+    // Regression trap for the scoping: if the tolerance ever grows to swallow
+    // write-op failures too, this test flips green→broken silently. PUT-92-05
+    // covers the LOCAL-branch shape; this covers the REMOTE-branch shape.
+    isLocalHostIdMock.mockReturnValue(false);
+    connectOneShotMock.mockResolvedValue({ __fake: "ssh-conn", end: vi.fn() });
+    identityFileExistsMock.mockResolvedValue(false);
+    writeIdentityFileMock.mockRejectedValueOnce(new Error("sftp exploded"));
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: ["alpha"], identityHosts: { alpha: 1 } },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBeGreaterThanOrEqual(500);
+    expect(res._body).toHaveProperty("error");
   });
 });
 
