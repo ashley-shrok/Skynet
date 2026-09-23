@@ -70,6 +70,52 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Phase 129 Plan 129-03: systemLogger is used by roles-list-for-host.ts for
+// the two gate-seam structured logs (roles_list_gate_username_missing warn
+// + roles_list_gate_hidden debug). Mock it so Phase 129 tests can assert on
+// the warn call in Test F. vi.hoisted keeps the mock instances reachable
+// from both the vi.mock factory (hoisted above imports) AND per-test
+// assertion code below.
+// ---------------------------------------------------------------------------
+
+const {
+  systemLoggerWarnMock,
+  systemLoggerDebugMock,
+} = vi.hoisted(() => ({
+  systemLoggerWarnMock: vi.fn(),
+  systemLoggerDebugMock: vi.fn(),
+}));
+
+vi.mock("../../utils/logger.js", () => ({
+  sshLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  databaseLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  systemLogger: {
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: systemLoggerWarnMock,
+    debug: systemLoggerDebugMock,
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Phase 129 Plan 129-03: host-user-counter mock (getUsernameForUserId).
+// GREEN implementation of roles-list-for-host.ts will import this to
+// translate the JWT userId into a Skynet username before invoking
+// isIdentityVisibleToUser. vi.hoisted keeps the mock reachable from both
+// the vi.mock factory AND per-test assertion code below.
+// ---------------------------------------------------------------------------
+
+const { getUsernameForUserIdMock } = vi.hoisted(() => ({
+  getUsernameForUserIdMock: vi.fn(),
+}));
+
+vi.mock("../../utils/host-user-counter.js", () => ({
+  isHostMultiUser: vi.fn().mockResolvedValue(false),
+  getUsernameForUserId: (userId: string) => getUsernameForUserIdMock(userId),
+}));
+
+// ---------------------------------------------------------------------------
 // Import mocked modules AFTER vi.mock() declarations
 // ---------------------------------------------------------------------------
 
@@ -159,6 +205,15 @@ beforeEach(() => {
 
   // Default execCommand returns empty ls (no roles). Individual tests override.
   (execCommand as Mock).mockResolvedValue("");
+
+  // Phase 129 Plan 129-03 default — getUsernameForUserId returns null so
+  // pre-129 tests fall through the gate cleanly (null callerUsername short-
+  // circuits isIdentityVisibleToUser to "visible" per Plan 129-01 Task 2
+  // Test 1 — the internal-server / test / admin-bypass semantic). Phase 129
+  // gate tests override with mockResolvedValue / mockImplementation.
+  getUsernameForUserIdMock.mockResolvedValue(null);
+  systemLoggerWarnMock.mockClear();
+  systemLoggerDebugMock.mockClear();
 
   const app = express();
   // Mount router at /roles (mirrors database.ts mount)
@@ -664,5 +719,284 @@ describe("GET /roles?hostId=<n>", () => {
     // Structural check: no `&&` chain between echo-marker and cat that would
     // let a cat failure suppress the trailing newline echo.
     expect(batchedCatCmd).not.toMatch(/cat\s+"\$HOME[^"]*"\s+2>\/dev\/null\s+\|\|\s+true/);
+  });
+});
+
+// ===========================================================================
+// Phase 129 Plan 129-03: per-user visibility gate on GET /roles?hostId=<n>
+// ===========================================================================
+//
+// Deep-gate D-7 seam #3: the role-picker in NewSessionDialog (frontend)
+// hits GET /roles?hostId=<n> to populate its dropdown. Per shape file
+// §"What would make it wrong" bullet 5: "The role picker in the new-agent
+// UI shows roles the user can't see. Whatever gates the sidebar has to
+// gate the picker too."
+//
+// Locks (129-CONTEXT.md § "Locked decisions"):
+//   - D-2 role-side intersection: role is visible iff `users` empty/absent
+//     OR callerUsername ∈ users (D-3 fallback).
+//   - Identity-side gate is NOT applied here — a role-picker is used
+//     BEFORE any identity exists; there is no identity file to gate on.
+//     The call site MUST pass identityCos=null (Option A per PATTERNS.md).
+//   - D-6 wire-shape lock: the RoleCosmetics narrowing must NOT be extended
+//     to include `users:`. The raw cosmetics (with `users`) is preserved
+//     in a parallel Map<name, RawCosmetics> so the gate can consult it
+//     without leaking `users` into the response body.
+//   - D-8 fail-open: null callerUsername (unknown JWT userId) → gate
+//     DISABLED, returns the unfiltered role list, warn-log fires.
+//
+// Fixture strategy: the tests below mock the batched-cat output to include
+// or omit YAML frontmatter with a `users:` list per role. The RED phase
+// asserts the current handler surfaces roles Zoe can't see; the GREEN
+// phase filters them out via isIdentityVisibleToUser(null, roleCos, callerUsername).
+
+describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
+  /**
+   * Mock the DB translation from JWT userId to Skynet username. Gate inside
+   * roles-list-for-host.ts uses this to know who is asking; null return
+   * disables the gate per Plan 129-01 Task 2 Test 1 (null-caller bypass).
+   */
+  function mockGetUsernameForUserId(
+    userId: string,
+    username: string | null,
+  ): void {
+    getUsernameForUserIdMock.mockImplementation((incomingUserId: string) => {
+      if (incomingUserId === userId) return Promise.resolve(username);
+      return Promise.resolve(null);
+    });
+  }
+
+  /**
+   * Build a batched-cat delimited output block for one role. If `users` is
+   * provided it lands in the role's YAML frontmatter; if omitted the
+   * frontmatter has NO `users:` key (D-3 absent-⇒-omit fallback).
+   */
+  function roleBlock(
+    roleName: string,
+    opts: { users?: string[]; description?: string } = {},
+  ): string[] {
+    const fmLines: string[] = [`title: ${roleName}-title`];
+    if (opts.users !== undefined) {
+      fmLines.push(`users: [${opts.users.join(", ")}]`);
+    }
+    return [
+      `===ROLE:${roleName}===`,
+      "---",
+      ...fmLines,
+      "---",
+      `# ${roleName}`,
+      "",
+      "## Role",
+      opts.description ?? `${roleName} role.`,
+    ];
+  }
+
+  /**
+   * Fire GET /roles?hostId=7 as a given Skynet username. Wires the auth
+   * mock to inject a userId AND the getUsernameForUserId mock to translate
+   * that userId back to the username the gate expects.
+   */
+  async function fireGetRolesAs(
+    username: string,
+  ): Promise<{ status: number; body: Array<Record<string, unknown>> }> {
+    // Auth manager stub always injects mockUserId; wire the DB translation.
+    const jwtUserId = `uid-${username}`;
+    mockUserId = jwtUserId;
+    mockGetUsernameForUserId(jwtUserId, username);
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/roles?hostId=7",
+    });
+    return {
+      status: res.status,
+      body: res.body as Array<Record<string, unknown>>,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Test A: single-user host, role untagged → visible. Zero regression.
+  // Also asserts the per-request username lookup runs EXACTLY ONCE.
+  // -------------------------------------------------------------------------
+  it("Test A: single-user host, role has no `users` key → visible + username fetched once", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "muffin-friend";
+      return roleBlock("muffin-friend").join("\n");
+    });
+
+    const { status, body } = await fireGetRolesAs("ashley");
+    expect(status).toBe(200);
+    expect(body).toHaveLength(1);
+    expect(body[0].name).toBe("muffin-friend");
+    // Per-request-cost discipline: the callerUsername lookup runs ONCE.
+    expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(1);
+    expect(getUsernameForUserIdMock).toHaveBeenCalledWith("uid-ashley");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test B: multi-user host, role untagged → visible to both users (D-3
+  // fallback). Two requests fire two lookups (no cross-request cache).
+  // -------------------------------------------------------------------------
+  it("Test B: multi-user host, role has no `users` key → both Ashley and Zoe see it", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "muffin-friend";
+      return roleBlock("muffin-friend").join("\n");
+    });
+
+    const ashley = await fireGetRolesAs("ashley");
+    expect(ashley.status).toBe(200);
+    expect(ashley.body).toHaveLength(1);
+    expect(ashley.body[0].name).toBe("muffin-friend");
+
+    const zoe = await fireGetRolesAs("zoe");
+    expect(zoe.status).toBe(200);
+    expect(zoe.body).toHaveLength(1);
+    expect(zoe.body[0].name).toBe("muffin-friend");
+
+    // Two requests → two username lookups. No cross-request caching.
+    expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test C: multi-user host, role users:[ashley] → visible to Ashley, hidden
+  // from Zoe (D-2 role-side gate). Zoe's response has ZERO rows.
+  // -------------------------------------------------------------------------
+  it("Test C: role users:[ashley] → Ashley sees it, Zoe does NOT (role-side gate)", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "muffin-friend";
+      return roleBlock("muffin-friend", { users: ["ashley"] }).join("\n");
+    });
+
+    const ashley = await fireGetRolesAs("ashley");
+    expect(ashley.status).toBe(200);
+    expect(ashley.body).toHaveLength(1);
+    expect(ashley.body[0].name).toBe("muffin-friend");
+
+    const zoe = await fireGetRolesAs("zoe");
+    expect(zoe.status).toBe(200);
+    // D-7 depth: the role is ABSENT from Zoe's response.
+    expect(zoe.body).toHaveLength(0);
+    expect(zoe.body.find((r) => r.name === "muffin-friend")).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test D: multi-user host, role users:[ashley, zoe] → visible to both.
+  // Shared explicitly via the users list.
+  // -------------------------------------------------------------------------
+  it("Test D: role users:[ashley,zoe] → both Ashley and Zoe see it (shared explicitly)", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "shared-role";
+      return roleBlock("shared-role", { users: ["ashley", "zoe"] }).join("\n");
+    });
+
+    const ashley = await fireGetRolesAs("ashley");
+    expect(ashley.status).toBe(200);
+    expect(ashley.body).toHaveLength(1);
+    expect(ashley.body[0].name).toBe("shared-role");
+
+    const zoe = await fireGetRolesAs("zoe");
+    expect(zoe.status).toBe(200);
+    expect(zoe.body).toHaveLength(1);
+    expect(zoe.body[0].name).toBe("shared-role");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test E: identity-side gate is IGNORED by the role-picker gate. A role
+  // with users:[ashley, zoe] still appears in Zoe's picker even if the
+  // eventual-child-identity would narrow to [ashley] — the role picker is
+  // used BEFORE any identity exists, so identityCos=null passed to the gate.
+  // Also asserts the exact call-shape (identityCos === null) via mock call
+  // audit. This test locks the D-2 "role-side only" contract for the picker.
+  // -------------------------------------------------------------------------
+  it("Test E: identity-side gate is IGNORED — role gate uses identityCos=null (role-side only)", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "role-a\nrole-b";
+      return [
+        ...roleBlock("role-a", { users: ["ashley", "zoe"] }),
+        ...roleBlock("role-b", { users: ["ashley"] }),
+      ].join("\n");
+    });
+
+    // Zoe sees role-a (both users listed) but NOT role-b (ashley only).
+    // If the picker used identityCos incorrectly (e.g. cosBynName instead of
+    // null on the identity slot), the intersection would collapse in ways
+    // that break this expected shape.
+    const zoe = await fireGetRolesAs("zoe");
+    expect(zoe.status).toBe(200);
+    expect(zoe.body).toHaveLength(1);
+    expect(zoe.body[0].name).toBe("role-a");
+    expect(zoe.body.find((r) => r.name === "role-b")).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test F: username lookup returns null → fail-open (gate disabled).
+  // Even a role with users:[ashley] shows up when callerUsername is null,
+  // preserving D-8 (visibility filter, not permission system). A warn log
+  // fires with operation="roles_list_gate_username_missing" so ops can
+  // grep the mismatch.
+  // -------------------------------------------------------------------------
+  it("Test F: getUsernameForUserId returns null → gate disabled (fail-open), warn log fires", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "muffin-friend";
+      // Role tagged users:[ashley] — with null caller the gate is disabled
+      // and the role STILL surfaces.
+      return roleBlock("muffin-friend", { users: ["ashley"] }).join("\n");
+    });
+
+    mockUserId = "orphan-uid";
+    getUsernameForUserIdMock.mockResolvedValue(null);
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/roles?hostId=7",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as Array<Record<string, unknown>>;
+    // Fail-open: role surfaces despite users:[ashley] because callerUsername
+    // is null (short-circuits isIdentityVisibleToUser to true per Plan
+    // 129-01 Task 2 Test 1).
+    expect(body).toHaveLength(1);
+    expect(body[0].name).toBe("muffin-friend");
+
+    // Structured warn log fires with the operation tag so ops can grep.
+    const warnCalls = systemLoggerWarnMock.mock.calls;
+    const hasGateWarn = warnCalls.some((call) => {
+      const payload = call[1] as { operation?: string } | undefined;
+      return payload?.operation === "roles_list_gate_username_missing";
+    });
+    expect(hasGateWarn).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test G: role file read fails mid-loop → row skipped per pre-existing
+  // error path (unchanged behavior). This test is a regression lock — the
+  // gate must NOT convert a role's read failure into a false-positive HIDE
+  // AT the wrong seam. The pre-existing extractor already emits {name,
+  // description:""} for roles whose frontmatter is unparseable; the gate
+  // runs on the extracted cosmetics (which will be {} on parse failure)
+  // and the D-3 fallback keeps such roles VISIBLE.
+  // -------------------------------------------------------------------------
+  it("Test G: role frontmatter unparseable → role stays visible (D-3 fallback preserved)", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "broken-role";
+      // Broken YAML — extractCosmeticsFromFrontmatter returns {}. No users
+      // key → D-3 fallback: role side has no gate → visible.
+      return [
+        "===ROLE:broken-role===",
+        "---",
+        "title: [unclosed",
+        "---",
+        "# broken-role",
+        "",
+        "## Role",
+        "Broken frontmatter.",
+      ].join("\n");
+    });
+
+    const ashley = await fireGetRolesAs("ashley");
+    expect(ashley.status).toBe(200);
+    // Broken frontmatter → cosmetics {} → no users list → D-3 fallback →
+    // visible. Broken doesn't equal "tagged for someone else".
+    expect(ashley.body).toHaveLength(1);
+    expect(ashley.body[0].name).toBe("broken-role");
   });
 });
