@@ -1447,6 +1447,54 @@ export function createSshPollOrchestrator(
     Math.floor(staleSweepIntervalMs / pollIntervalMs),
   );
 
+  // SSH backoff per host — prevents a persistently-broken host from hammering
+  // the pool every pollIntervalMs. Increment on any SSH-level failure
+  // (channel.exec returning null in the legacy path, acquire returning
+  // null / throwing). Reset on any successful poll (batch ok OR legacy ls
+  // returning non-null). At >= THRESHOLD consecutive failures, skip poll ticks
+  // for an exponentially-growing window capped at MAX_MS. Triggered by the
+  // 2026-09-23 fleet_status_host_ssh_unreachable log flood on RDP-only hosts
+  // that had enableSsh=true misconfigured (fixed at the DB layer separately).
+  const SSH_BACKOFF_FAILURE_THRESHOLD = 3;
+  const SSH_BACKOFF_INITIAL_MS = 30_000;
+  const SSH_BACKOFF_MAX_MS = 300_000;
+  type HostSshBackoffState = {
+    consecutiveFailures: number;
+    skipUntilMs: number;
+  };
+  const sshBackoffByHost = new Map<string, HostSshBackoffState>();
+
+  function noteSshFailure(hostId: string): void {
+    const prev = sshBackoffByHost.get(hostId) ?? {
+      consecutiveFailures: 0,
+      skipUntilMs: 0,
+    };
+    const nextFailures = prev.consecutiveFailures + 1;
+    let skipUntilMs = prev.skipUntilMs;
+    if (nextFailures >= SSH_BACKOFF_FAILURE_THRESHOLD) {
+      const overThreshold = nextFailures - SSH_BACKOFF_FAILURE_THRESHOLD;
+      const delayMs = Math.min(
+        SSH_BACKOFF_INITIAL_MS * Math.pow(2, overThreshold),
+        SSH_BACKOFF_MAX_MS,
+      );
+      skipUntilMs = deps.now() + delayMs;
+    }
+    sshBackoffByHost.set(hostId, {
+      consecutiveFailures: nextFailures,
+      skipUntilMs,
+    });
+  }
+
+  function noteSshSuccess(hostId: string): void {
+    sshBackoffByHost.delete(hostId);
+  }
+
+  function isHostInSshBackoff(hostId: string): boolean {
+    const entry = sshBackoffByHost.get(hostId);
+    if (!entry) return false;
+    return deps.now() < entry.skipUntilMs;
+  }
+
   // ---------------------------------------------------------------------------
   // Phase 92 — sweep-first / legacy-fallback dispatch
   //
@@ -1593,6 +1641,7 @@ export function createSshPollOrchestrator(
     ) {
       const result = await pollOneHostBatch(hostState);
       if (result.ok) {
+        noteSshSuccess(host.id);
         // Spawn-request scan is NO LONGER piggybacked here — a dedicated
         // always-on `createSpawnScanOrchestrator` in `../spawn-requests/
         // scan-orchestrator.ts` runs at container boot and owns scanning
@@ -1700,6 +1749,7 @@ export function createSshPollOrchestrator(
     );
 
     if (listing === null) {
+      noteSshFailure(host.id);
       systemLogger.warn(
         "Fleet-status: ls of sessions dir returned null (SSH error)",
         {
@@ -1709,6 +1759,7 @@ export function createSshPollOrchestrator(
       );
       return;
     }
+    noteSshSuccess(host.id);
 
     // Parse PID numbers from filenames like /home/user/.claude/sessions/12345.json
     const pidLines = listing
@@ -3099,6 +3150,9 @@ export function createSshPollOrchestrator(
           // host is re-added later, skipCount must not carry a stale count.
           inFlight.delete(hostId);
           skipCount.delete(hostId);
+          // Same cleanup for SSH backoff — evicted host re-added shouldn't
+          // carry stale backoff state.
+          sshBackoffByHost.delete(hostId);
         }
       } catch (err) {
         systemLogger.warn("Fleet-status: identity-host list refresh failed", {
@@ -3112,6 +3166,11 @@ export function createSshPollOrchestrator(
     // skip hosts whose prior tick's pollOneHost has not yet resolved).
     for (const hostState of perHostState.values()) {
       const hostId = hostState.host.id;
+      // SSH backoff — skip hosts in exponential-backoff after repeated
+      // SSH-level failures (see sshBackoffByHost setup above).
+      if (isHostInSshBackoff(hostId)) {
+        continue;
+      }
       if (inFlight.has(hostId)) {
         const nextSkip = (skipCount.get(hostId) ?? 0) + 1;
         skipCount.set(hostId, nextSkip);
@@ -3156,6 +3215,7 @@ export function createSshPollOrchestrator(
     try {
       const channel = await deps.acquireSshChannel(host);
       if (channel === null) {
+        noteSshFailure(host.id);
         systemLogger.warn("Fleet-status: SSH channel unavailable for host", {
           operation: "fleet_status_host_ssh_unreachable",
           fleetHostId: host.id,
@@ -3163,6 +3223,7 @@ export function createSshPollOrchestrator(
         });
         return;
       }
+      noteSshSuccess(host.id);
 
       perHostState.set(host.id, {
         host,
@@ -3194,6 +3255,7 @@ export function createSshPollOrchestrator(
         lastProbeChannelRef: null,
       });
     } catch (err) {
+      noteSshFailure(host.id);
       systemLogger.warn("Fleet-status: SSH channel acquire threw for host", {
         operation: "fleet_status_host_ssh_unreachable",
         fleetHostId: host.id,
@@ -3345,6 +3407,7 @@ export function createSshPollOrchestrator(
         }
       }
       perHostState.clear();
+      sshBackoffByHost.clear();
 
       systemLogger.info("Fleet-status orchestrator stopped", {
         operation: "fleet_status_orchestrator_stopped",
