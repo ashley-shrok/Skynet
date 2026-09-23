@@ -629,7 +629,9 @@ function shellEscape(s: string): string {
  */
 export async function listProjects(
   conn: SSHClientType | null,
-): Promise<Array<{ slug: string; displayName: string }>> {
+): Promise<
+  Array<{ slug: string; displayName: string; users: string[] | null }>
+> {
   let slugs: string[];
 
   if (conn === null) {
@@ -667,11 +669,18 @@ export async function listProjects(
       .sort();
   }
 
-  // For each slug, best-effort read of project.md to extract displayName.
-  // Any failure falls back to the slug — a bare project dir is still a project.
-  const out: Array<{ slug: string; displayName: string }> = [];
+  // For each slug, best-effort read of project.md to extract displayName and
+  // the `users:` visibility list. Any failure falls back to (slug, null users)
+  // — a bare project dir is still a project, and a missing users list falls
+  // open per the Phase 129 D-3 fallback (matches identity-appearance discipline).
+  const out: Array<{
+    slug: string;
+    displayName: string;
+    users: string[] | null;
+  }> = [];
   for (const slug of slugs) {
     let displayName = slug;
+    let users: string[] | null = null;
     try {
       const { markdown } = await readProjectFile(conn, slug);
       if (markdown.length > 0) {
@@ -687,16 +696,23 @@ export async function listProjects(
               if (typeof dn === "string" && dn.length > 0) {
                 displayName = dn;
               }
+              const rawUsers = (parsed as Record<string, unknown>).users;
+              if (
+                Array.isArray(rawUsers) &&
+                rawUsers.every((u) => typeof u === "string")
+              ) {
+                users = rawUsers as string[];
+              }
             }
           } catch {
-            // parse failure → keep slug fallback
+            // parse failure → keep slug + null users fallback
           }
         }
       }
     } catch {
-      // read failure → keep slug fallback
+      // read failure → keep slug + null users fallback
     }
-    out.push({ slug, displayName });
+    out.push({ slug, displayName, users });
   }
   return out;
 }
@@ -796,6 +812,7 @@ export async function createProject(
   conn: SSHClientType | null,
   slug: string,
   displayName: string,
+  users?: string[] | null,
 ): Promise<void> {
   if (!PROJECT_SLUG_RE.test(slug)) {
     throw new Error("invalid project slug");
@@ -811,15 +828,22 @@ export async function createProject(
   }
 
   // Compose the bare project.md body via canonical yaml.dump options.
-  const yamlBody = yaml.dump(
-    { displayName },
-    {
-      sortKeys: false,
-      lineWidth: -1,
-      noRefs: true,
-      forceQuotes: false,
-    },
-  );
+  // When `users` is a non-empty array of strings, include it in the frontmatter
+  // as the Phase 129/130 per-user visibility gate list (D-3 fallback still
+  // holds: an absent or empty list means "no gate — visible to all users with
+  // host access"). The auto-tag write path in project-list.ts POST populates
+  // this on multi-user hosts; single-user hosts pass no users and the file
+  // stays byte-identical to a pre-130 project.md.
+  const frontmatter: Record<string, unknown> = { displayName };
+  if (Array.isArray(users) && users.length > 0) {
+    frontmatter.users = users;
+  }
+  const yamlBody = yaml.dump(frontmatter, {
+    sortKeys: false,
+    lineWidth: -1,
+    noRefs: true,
+    forceQuotes: false,
+  });
   const body = `---\n${yamlBody}---\n`;
 
   if (conn === null) {

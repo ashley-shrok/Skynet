@@ -489,8 +489,8 @@ describe("listProjects — LOCAL branch", () => {
 
     const result = await listProjects(null);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha One" },
-      { slug: "beta", displayName: "Beta" },
+      { slug: "alpha", displayName: "Alpha One", users: null },
+      { slug: "beta", displayName: "Beta", users: null },
     ]);
     // archive MUST NOT appear anywhere.
     expect(result.some((p) => p.slug === "archive")).toBe(false);
@@ -520,8 +520,8 @@ describe("listProjects — LOCAL branch", () => {
 
     const result = await listProjects(null);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "alpha" },
-      { slug: "beta", displayName: "beta" },
+      { slug: "alpha", displayName: "alpha", users: null },
+      { slug: "beta", displayName: "beta", users: null },
     ]);
   });
 
@@ -561,8 +561,8 @@ describe("listProjects — REMOTE branch", () => {
     expect(findCmdSeen).toContain("! -name archive");
     expect(findCmdSeen).toContain("$HOME/fleet/projects");
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha One" },
-      { slug: "beta", displayName: "Beta" },
+      { slug: "alpha", displayName: "Alpha One", users: null },
+      { slug: "beta", displayName: "Beta", users: null },
     ]);
   });
 
@@ -581,6 +581,120 @@ describe("listProjects — REMOTE branch", () => {
     const result = await listProjects(conn);
     expect(result.map((r) => r.slug)).toEqual(["alpha", "beta"]);
     expect(result.some((r) => r.slug === "BADENTRY!")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 130: users-frontmatter parsing behavior in listProjects
+//
+// Mirrors the Phase 129 D-3 fallback discipline from identity-appearance.ts —
+// an absent or malformed `users:` field surfaces as `users: null` on the
+// listProjects row (falls open at the gate seam). A well-formed array of
+// strings surfaces verbatim (case-preserved).
+// ---------------------------------------------------------------------------
+describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
+  it("Test L6: users present as list of strings — surfaces verbatim (case preserved)", async () => {
+    fsReaddirMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.endsWith("projects")) {
+        return Promise.resolve([makeDirent("alpha", true)]);
+      }
+      return Promise.resolve([]);
+    });
+    fsReadFileMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.includes("/alpha/project.md")) {
+        // js-yaml renders inline flow-style arrays; assert case preservation
+        // by writing mixed-case usernames.
+        return Promise.resolve(
+          "---\ndisplayName: 'Alpha'\nusers:\n  - Ashley\n  - zoey\n---\n",
+        );
+      }
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      return Promise.reject(err);
+    });
+
+    const result = await listProjects(null);
+    expect(result).toEqual([
+      { slug: "alpha", displayName: "Alpha", users: ["Ashley", "zoey"] },
+    ]);
+  });
+
+  it("Test L7: users empty list — surfaces as null (falls open per D-3)", async () => {
+    fsReaddirMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.endsWith("projects")) {
+        return Promise.resolve([makeDirent("alpha", true)]);
+      }
+      return Promise.resolve([]);
+    });
+    fsReadFileMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.includes("/alpha/project.md")) {
+        return Promise.resolve(
+          "---\ndisplayName: 'Alpha'\nusers: []\n---\n",
+        );
+      }
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      return Promise.reject(err);
+    });
+
+    // Empty list is structurally an array-of-strings that .every()-passes
+    // trivially, so it DOES surface as []. The visibility gate itself is the
+    // place that interprets empty-list-as-falls-open (matches
+    // isIdentityVisibleToUser at identity-visibility-gate.ts:65-72). The
+    // parser is intentionally faithful — round-tripping the file's bytes.
+    const result = await listProjects(null);
+    expect(result).toEqual([
+      { slug: "alpha", displayName: "Alpha", users: [] },
+    ]);
+  });
+
+  it("Test L8: users not an array — falls back to null (malformed value)", async () => {
+    fsReaddirMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.endsWith("projects")) {
+        return Promise.resolve([makeDirent("alpha", true)]);
+      }
+      return Promise.resolve([]);
+    });
+    fsReadFileMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.includes("/alpha/project.md")) {
+        // users: as a scalar (bad shape) — must NOT accidentally surface.
+        return Promise.resolve(
+          "---\ndisplayName: 'Alpha'\nusers: ashley\n---\n",
+        );
+      }
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      return Promise.reject(err);
+    });
+
+    const result = await listProjects(null);
+    expect(result).toEqual([
+      { slug: "alpha", displayName: "Alpha", users: null },
+    ]);
+  });
+
+  it("Test L9: users array with non-string entries — falls back to null (mixed-type array)", async () => {
+    fsReaddirMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.endsWith("projects")) {
+        return Promise.resolve([makeDirent("alpha", true)]);
+      }
+      return Promise.resolve([]);
+    });
+    fsReadFileMock.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.includes("/alpha/project.md")) {
+        return Promise.resolve(
+          "---\ndisplayName: 'Alpha'\nusers:\n  - ashley\n  - 42\n---\n",
+        );
+      }
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      return Promise.reject(err);
+    });
+
+    const result = await listProjects(null);
+    expect(result).toEqual([
+      { slug: "alpha", displayName: "Alpha", users: null },
+    ]);
   });
 });
 
@@ -766,6 +880,57 @@ describe("createProject — LOCAL branch", () => {
     ).rejects.toThrow(/displayName/);
     expect(fsMkdirMock).not.toHaveBeenCalled();
     expect(fsWriteFileMock).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 130: users param on createProject
+  //
+  // The optional `users` parameter is populated by the auto-tag path in
+  // project-list.ts POST /projects on multi-user hosts. Verify the write
+  // path preserves it in the emitted frontmatter (non-empty array → written;
+  // empty/absent → omitted, matching Phase 129 discipline for zero-migration
+  // on single-user hosts).
+  // -------------------------------------------------------------------------
+  it("Test C3c: users non-empty — written into frontmatter alongside displayName", async () => {
+    fsMkdirMock.mockImplementation(() => Promise.resolve());
+    await createProject(null, "alpha", "Alpha One", ["ashley"]);
+
+    const written = fsWriteFileMock.mock.calls[0][1] as Buffer;
+    const writtenStr = written.toString("utf-8");
+    // Frontmatter should include both displayName and users.
+    expect(writtenStr).toMatch(/displayName: '?Alpha One'?/);
+    expect(writtenStr).toMatch(/users:/);
+    expect(writtenStr).toMatch(/- ashley/);
+  });
+
+  it("Test C3d: users empty array — OMITTED from frontmatter (byte-identical to no-users case)", async () => {
+    fsMkdirMock.mockImplementation(() => Promise.resolve());
+    await createProject(null, "alpha", "Alpha One", []);
+
+    const written = fsWriteFileMock.mock.calls[0][1] as Buffer;
+    const writtenStr = written.toString("utf-8");
+    // No users key at all — matches Phase 129 "single-user hosts stay silent".
+    expect(writtenStr).not.toMatch(/users:/);
+  });
+
+  it("Test C3e: users null — OMITTED from frontmatter", async () => {
+    fsMkdirMock.mockImplementation(() => Promise.resolve());
+    await createProject(null, "alpha", "Alpha One", null);
+
+    const written = fsWriteFileMock.mock.calls[0][1] as Buffer;
+    const writtenStr = written.toString("utf-8");
+    expect(writtenStr).not.toMatch(/users:/);
+  });
+
+  it("Test C3f: users omitted param — byte-identical to explicit-null case (backward-compat)", async () => {
+    fsMkdirMock.mockImplementation(() => Promise.resolve());
+    await createProject(null, "alpha", "Alpha One");
+
+    const written = fsWriteFileMock.mock.calls[0][1] as Buffer;
+    const writtenStr = written.toString("utf-8");
+    expect(writtenStr).not.toMatch(/users:/);
+    // Pre-130 shape preserved: just displayName in frontmatter.
+    expect(writtenStr).toMatch(/^---\ndisplayName: '?Alpha One'?\n---\n/);
   });
 });
 
