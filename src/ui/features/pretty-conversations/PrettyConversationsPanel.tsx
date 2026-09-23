@@ -57,14 +57,12 @@ import { createPortal } from "react-dom";
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
 // input mounted at the top of the pv-panel-scroll region.
 // Phase 119 Plan 04 (D-02): `AppWindow` glyph added for the new Apps section
-// header — mirrors the Archived section's `Archive` icon at the same
-// `size-3 text-[#5c6070]/85 shrink-0` typography, so the two sections read as
-// a family in the sidebar chrome.
+// header at `size-3 text-[#5c6070]/85 shrink-0` typography.
 // UAT 2026-09-19: `Pin` glyph added for the reinstated Pinned section header
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AppWindow, Archive, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, SquarePen, X } from "lucide-react";
+import { AppWindow, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -92,11 +90,6 @@ import {
   pinConversation,
   unpinConversation,
   hydratePinnedIdsFromServer,
-  // Phase 115 Plan 115-06 (Task 3): archived-rows slice hook. Fed by the
-  // fleet-status feeder from the distinct `identity-archived` wire message
-  // (115-06 wire shape) — NOT from `state.identities` or any live-tier
-  // pool. Consumed by the Archived section below (D-19 lazy-render).
-  useArchivedFleetRows,
   // Phase 117 Plan 117-08 (D-09, D-15, D-39): projects-derived selector output.
   // The panel reads pinnedUnassigned/projectSections/rdp from the same
   // useConversations() snapshot the store now emits (117-07 additive fields).
@@ -206,17 +199,13 @@ import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
-// Phase 115 Plan 115-06 (Task 2 + Task 3): archive API client + inert archived-
-// row component + the store hook that surfaces the archived-rows slice fed by
-// the fleet-status feeder from `identity-archived` wire frames (115-06 wire
-// shape, see wire-protocol.ts / ssh-poll-orchestrator.ts).
+// Phase 115 Plan 115-06 (Task 2): archive API client — invoked by row context
+// menu; archived identities are searchable via the Phase 122 modal.
 import { archiveIdentity } from "@/api/identity-archive-api";
-import { PrettyArchivedRow } from "./PrettyArchivedRow";
 // Phase 119 Plan 04 (D-01/D-02/D-03/D-04/D-05): sidebar Apps section. Consumes
 // the useAppTiles() hook (Plan 119-02, backed by the fleet-status app-frame
 // channel) and renders one <AppTile app={...}/> per entry (Plan 119-03) inside
-// a new .pv-apps-section group. Section chrome mirrors the Archived section
-// verbatim (D-02) EXCEPT it is not gated on `.length > 0` (D-05: always
+// a new .pv-apps-section group. Not gated on `.length > 0` (D-05: always
 // present so the empty-expanded prompt is discoverable).
 import { AppTile } from "./AppTile";
 import { useAppTiles } from "@/state/app-tiles-store";
@@ -928,24 +917,10 @@ export function PrettyConversationsPanel({
     | { roleName: string; runbookName: string; hostId: number }
   >(null);
 
-  // quick-260731-tgg: collapsed by default on every mount per user's design lock.
-  // (Phase 115 Plan 115-02: prior hiddenExpanded state retired per D-21
-  //  alongside the Hidden section render block.)
-  //
-  // Phase 115 Plan 115-06 (D-19): archivedExpanded gates whether archived
-  // rows are in the DOM. `{archivedExpanded && archivedRows.map(...)}` in
-  // the render block below short-circuits when collapsed — rows are NOT
-  // mounted at all until the section is expanded. Do NOT flip to a CSS
-  // `hidden` class or aria-only approach; lazy-render is the invariant
-  // (D-19). Collapsed by default per the design lock.
-  const [archivedExpanded, setArchivedExpanded] = useState(false);
-  const archivedRows = useArchivedFleetRows();
-
   // Phase 119 Plan 04 (D-03): Apps section collapsed by default on every
-  // mount — mirrors the Archived-section discipline directly above. Content
-  // is lazy-rendered via `{appsExpanded && ...}` in the JSX block (D-03
-  // invariant: NO CSS `hidden` class, NO aria-only approach — content is
-  // not in the DOM at all until the user expands).
+  // mount. Content is lazy-rendered via `{appsExpanded && ...}` in the JSX
+  // block (D-03 invariant: NO CSS `hidden` class, NO aria-only approach —
+  // content is not in the DOM at all until the user expands).
   //
   // Phase 119 Plan 04 (D-14 pass-through): `useAppTiles()` subscribes to the
   // module-scoped app-tiles-store (Plan 119-02). Every frame notify from the
@@ -1149,8 +1124,9 @@ export function PrettyConversationsPanel({
     : projectSections;
 
   // (Phase 115 Plan 115-02: prior `hiddenRows` accumulator retired per D-21
-  //  alongside the Hidden section render block. 115-06 introduces an
-  //  `archivedRows` equivalent sourced from the archived-tree sweep.)
+  //  alongside the Hidden section render block. Phase 115 Plan 115-06's
+  //  `archivedRows` counterpart retired in the Phase 122 shape follow-up;
+  //  archived identities surface via the ConversationSearchModal.)
 
   // Current-render row lookup for the idle-deactivate sweep below, which
   // resolves an active-set id back to a row object.
@@ -2716,56 +2692,10 @@ export function PrettyConversationsPanel({
               </div>
             )}
             {/* (Phase 115 Plan 115-02: prior Hidden section render block
-                retired per D-21 alongside the Hide affordance.)
-                Phase 115 Plan 115-06 (D-06, D-19): Archived section — rows
-                sourced from the fleet-status feeder's distinct
-                `identity-archived` wire message pool (via useArchivedFleetRows),
-                NOT from the live-identity middle/pinned/active pools.
-                Lazy-render invariant (D-19): the `{archivedExpanded && ...}`
-                short-circuit means rows are NOT in the DOM until the user
-                expands the section. Do NOT switch to a `hidden` CSS class or
-                `aria-expanded`-only approach.
-                Rows are fully inert (D-06): PrettyArchivedRow attaches no
-                onContextMenu, no onClick, no onSelect handlers. */}
-            {archivedRows.length > 0 && (
-              <div className="pv-panel-group pv-archived-section">
-                <button
-                  type="button"
-                  onClick={() => setArchivedExpanded((v) => !v)}
-                  className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full text-left"
-                  data-testid="pretty-conversations-archived-header"
-                  aria-expanded={archivedExpanded}
-                  aria-controls="pv-archived-section-content"
-                >
-                  <Archive
-                    className="size-3 text-[#5c6070]/85 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
-                    Archived
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
-                  />
-                  <ChevronDown
-                    className={`size-3 text-[#5c6070]/85 shrink-0 transition-transform ${archivedExpanded ? "rotate-180" : ""}`}
-                    aria-hidden="true"
-                  />
-                </button>
-                {archivedExpanded && (
-                  <div id="pv-archived-section-content">
-                    {archivedRows.map((r) => (
-                      <PrettyArchivedRow
-                        key={`${r.hostId}::${r.name}`}
-                        name={r.name}
-                        hostname={r.hostname}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                retired per D-21 alongside the Hide affordance.
+                Phase 115 Plan 115-06 Archived section retired in the
+                Phase 122 shape follow-up — archived identities are now
+                surfaced exclusively via the ConversationSearchModal.) */}
         </>
       </div>
 

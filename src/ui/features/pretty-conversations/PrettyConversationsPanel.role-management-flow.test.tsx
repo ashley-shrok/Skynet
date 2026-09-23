@@ -126,8 +126,6 @@ vi.mock("@/state/conversation-store", () => ({
   fleetRowId: (hostId: number, sessionName: string) =>
     `fleet::${hostId}::${sessionName}`,
   hydratePinnedIdsFromServer: () => {},
-  // Phase 115 Plan 115-06: archived-rows subscription consumed by the panel's Archived section. Empty for these tests.
-  useArchivedFleetRows: () => [],
   // Phase 117 Plan 117-08 — useProjects subscription (empty).
   useProjects: () => [],
 }));

@@ -1186,8 +1186,8 @@ describe("useSessionContextPct hook (Phase 90 Wave 0)", () => {
 //   - New switch case "project-list-changed" invoking the callback
 //   - Structured console.info log with operation:
 //     "fleet_status_client_project_list_changed" and projectCount
-//   - Regression guard on the existing dispatch branches (identity-archived,
-//     snapshot) — Phase 115 wiring must not break.
+//   - Regression guard on the existing snapshot dispatch branch — pre-existing
+//     wiring must not break.
 //   - Malformed frames (projects not an array) MUST NOT invoke the callback
 //     with garbage. This is a Rule-2 correctness guard added to the switch
 //     branch because the browser skips zod (see fleet-status-types.ts).
@@ -1293,38 +1293,22 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
     expect(structuredLogs.length).toBeGreaterThanOrEqual(1);
   });
 
-  // Test P117-06-3 — regression guard: identity-archived + snapshot branches
-  //                  still work.
-  it("Test 3 (regression guard): identity-archived + snapshot dispatch untouched by the extension", () => {
+  // Test P117-06-3 — regression guard: snapshot branch still works.
+  it("Test 3 (regression guard): snapshot dispatch untouched by the extension", () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const onSnapshot = vi.fn();
-    const onIdentityArchived = vi.fn();
     const onProjectListChanged = vi.fn();
     createFleetStatusClient({
       url: "ws://localhost/fleet-status/ws",
       onSnapshot,
       onUpdate: vi.fn(),
       onGone: vi.fn(),
-      onIdentityArchived,
       onProjectListChanged,
     });
     const ws = latestWs();
     ws.onopen?.();
-
-    // identity-archived
-    ws.onmessage?.({
-      data: JSON.stringify({
-        schemaVersion: FRAME_SCHEMA_VERSION,
-        type: "identity-archived",
-        name: "wren",
-        hostId: "1",
-        hostname: "host-a",
-      }),
-    });
-    expect(onIdentityArchived).toHaveBeenCalledTimes(1);
-    expect(onIdentityArchived).toHaveBeenCalledWith("wren", "1", "host-a");
 
     // snapshot
     const states = [

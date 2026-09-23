@@ -551,57 +551,18 @@ const FrontendPongFrameSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Phase 115 Plan 115-06 (D-06, D-18): FrontendIdentityArchivedFrame — DISTINCT
-// wire message for identity rows sourced from ~/fleet/identities-archive/
-// (SweepIdentityLine.archived === true, added by Plan 115-05).
-//
-// Locked wire-shape decision (from 115-06 plan `<action>` block): archived
-// rows are NOT bolted onto the standard identity frame as `archived: true` —
-// they get their OWN frame kind. Rationale:
-//   1. D-06 lock: archived rows are inert. A phantom `archived` boolean on
-//      the standard identity frame would leak that inertness across every
-//      active identity (which is always `archived: false`) — extra state
-//      the frontend must destructure on every frame for no purpose.
-//   2. Frontend routing: archived rows go into a distinct store slice
-//      (conversation-store.archivedFleetRows), NOT state.identities. A
-//      distinct frame kind maps 1:1 onto that routing.
-//   3. Future extension: if archive-tree rows grow additional fields (e.g.
-//      archived-at timestamp), they live on this frame without polluting
-//      the standard identity frame.
-//
-// Shape: { kind: "identity-archived", name, hostId, hostname }
-//   - name: identity name (matches SweepIdentityLine.identity — the same
-//     value the standard identity frame carries as tmuxSession).
-//   - hostId: string (matches SessionState.hostId's string convention).
-//   - hostname: the friendly host name (frontend renders it in the archived
-//     row's parenthetical hostname suffix).
-//
-// FRAME_SCHEMA_VERSION deliberately HELD AT 1 — adding a new discriminated-
-// union entry is additive and does NOT break older clients: they simply
-// drop the frame at the `default` branch of the ws.onmessage switch (see
-// fleet-status-client.ts § "Unknown frame type — drop silently"). Same
-// mitigation invariant every prior appearance/session extension has
-// followed since Phase 41.
+// (Phase 115 Plan 115-06 FrontendIdentityArchivedFrame retired in the Phase 122
+//  shape follow-up alongside the sidebar Archived section + wire pump.)
 // ---------------------------------------------------------------------------
-
-const FrontendIdentityArchivedFrameSchema = z.object({
-  schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
-  type: z.literal("identity-archived"),
-  name: z.string(),
-  hostId: z.string(),
-  hostname: z.string(),
-});
 
 // ---------------------------------------------------------------------------
 // Phase 117 Plan 117-03 (D-37): FrontendProjectListChangedFrame — DISTINCT
 // wire message for the projects pool.
 //
 // Locked wire-shape decision (from 117-03 plan `<action>` block): projects
-// are NOT bolted onto SessionState or the identity-archived frame — they get
-// their OWN frame kind. Rationale:
+// are NOT bolted onto SessionState — they get their OWN frame kind. Rationale:
 //   1. D-37 lock: projects are a distinct pool (host-level, not session-level
-//      or identity-level). Same rationale that separated identity-archived
-//      from SessionState in Phase 115.
+//      or identity-level).
 //   2. Full-array-on-every-emit (RESEARCH § Open Q #4): projects are cheap
 //      (< 20 typical), and a full replace is simpler than a delta. Frontend
 //      snapshotVersion invalidates on every publish which is fine per
@@ -686,12 +647,11 @@ export const FrontendSessionProjectChangedFrameSchema = z.object({
 //     isHealthy is false ("not running — ask an agent to check on it");
 //     null when the app is healthy.
 //
-// Three new frame kinds mirror the session snapshot/update/gone trio and the
-// freshest additive-frame precedent (FrontendIdentityArchivedFrameSchema
-// above from Phase 115). Kebab-case `type` values match "identity-archived".
+// Three new frame kinds mirror the session snapshot/update/gone trio. Kebab-
+// case `type` values.
 //
 // Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1 —
-// TENTH iteration of the T-41-03-05 mitigation. Phase lineage:
+// iterations of the T-41-03-05 mitigation. Phase lineage:
 //   Phase 41 lastMessageAt                       → held at 1
 //   Phase 47 aiTitle                             → held at 1
 //   Phase 52 dormant                             → held at 1
@@ -700,9 +660,9 @@ export const FrontendSessionProjectChangedFrameSchema = z.object({
 //   Phase 62 activityMtime + stoppedMtime        → held at 1
 //   Phase 90 contextPct                          → held at 1
 //   Phase 111 identityAppearance                 → held at 1
-//   Phase 115 identity-archived (new frame kind) → held at 1
 //   Phase 117 project-list-changed (new frame)   → held at 1
 //   Phase 118 app-snapshot/update/gone (this)    → held at 1
+// (Phase 115 identity-archived frame retired in the Phase 122 shape follow-up.)
 // Frontend consumers drop unknown frame kinds at the ws.onmessage default
 // branch (fleet-status-client.ts § "Unknown frame type — drop silently"),
 // so older clients receiving app frames simply ignore them.
@@ -746,7 +706,6 @@ export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendUpdateFrameSchema,
   FrontendGoneFrameSchema,
   FrontendPongFrameSchema,
-  FrontendIdentityArchivedFrameSchema,
   FrontendProjectListChangedFrameSchema,
   FrontendSessionProjectChangedFrameSchema,
   AppSnapshotFrameSchema,
@@ -786,25 +745,6 @@ export function makeGoneFrame(
 
 export function makePongFrame(): FrontendOutboundFrameType {
   return { schemaVersion: FRAME_SCHEMA_VERSION, type: "pong" };
-}
-
-/**
- * Phase 115 Plan 115-06 (D-06, D-18): construct an `identity-archived` frame
- * for a row sourced from the archive tree. Called by ssh-poll-orchestrator's
- * source-B loop when a SweepIdentityLine has `archived === true`.
- */
-export function makeIdentityArchivedFrame(
-  name: string,
-  hostId: string,
-  hostname: string,
-): FrontendOutboundFrameType {
-  return {
-    schemaVersion: FRAME_SCHEMA_VERSION,
-    type: "identity-archived",
-    name,
-    hostId,
-    hostname,
-  };
 }
 
 /**

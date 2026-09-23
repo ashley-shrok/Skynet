@@ -38,8 +38,7 @@ import {
 import type { Host, HostFolder } from "@/types/ui-types";
 // Phase 119 Plan 119-06 (D-18 three-layer testing): AppState type shape used
 // by the new mockAppTiles fixture + vi.mock("@/state/app-tiles-store", ...)
-// below. Mirrors the mockArchivedFleetRows swap pattern established by Phase
-// 115 Plan 115-06 for the Archived section integration tests.
+// below.
 import type { AppState } from "@/api/fleet-status-types";
 
 // ─── Global mocks (BEFORE component import — Vitest hoists vi.mock) ──────────
@@ -242,24 +241,13 @@ const hydratePinnedIdsFromServerSpy = vi.fn();
 //  hydrateHiddenIdsFromServerSpy retired per D-21 alongside the source-code
 //  deletion of the same exports.)
 
-// Phase 115 Plan 115-06 (D-06, D-18): mutable archived-rows fixture. Tests
-// seed this in arrange steps to exercise the panel's Archived section
-// render + lazy-expand invariants. Default empty — pre-115-06 tests observe
-// zero archived rows, no section renders (short-circuit at `.length > 0`).
-let mockArchivedFleetRows: readonly {
-  hostId: number;
-  name: string;
-  hostname: string;
-}[] = [];
-
 // Phase 119 Plan 119-06 (D-18 three-layer testing): mutable app-tiles fixture
 // for the sidebar Apps section (Plan 119-04 integration). Tests seed this in
 // arrange steps to exercise the D-05 always-present invariant, D-03 lazy-
 // render invariant, D-04 empty-state prompt, D-15 sorted-order rendering,
 // RESEARCH.md Pitfall 2 (section survives active search), and D-01 placement
 // above the Pinned group. Default empty — non-119-06 tests observe zero app
-// tiles, which is the collapsed-and-empty D-05 default. beforeEach resets to
-// []. Mirrors the mockArchivedFleetRows pattern above at :244-248.
+// tiles, which is the collapsed-and-empty D-05 default. beforeEach resets to [].
 let mockAppTiles: AppState[] = [];
 
 // quick-260727-gm3: mutable mock active-set so Tests 20A/20C/20D can
@@ -340,11 +328,6 @@ vi.mock("@/state/conversation-store", () => ({
   // (Phase 115 Plan 115-02: prior hideConversation / unhideConversation /
   //  hydrateHiddenIdsFromServer mock entries retired per D-21 alongside
   //  the source-code deletion of the same exports.)
-  // Phase 115 Plan 115-06 (D-06, D-18): useArchivedFleetRows subscription
-  // consumed by the panel's Archived section (D-19 lazy render). Backed by
-  // `mockArchivedFleetRows` so tests can seed the archived-rows pool +
-  // exercise the section header + lazy-expand invariants.
-  useArchivedFleetRows: () => mockArchivedFleetRows,
   // Phase 117 Plan 117-08 — the panel now subscribes to useProjects() to
   // trigger re-renders when the projects list changes via the fleet-status
   // wire event. Existing tests don't seed projects — the derived selector's
@@ -607,11 +590,6 @@ beforeEach(async () => {
   buildIdentityHostsFromFleetSpy.mockReset();
   buildIdentityHostsFromFleetSpy.mockReturnValue({});
   mockFleetSessionsSnapshot = [];
-  // Phase 115 Plan 115-06 (D-06, D-18): reset archived-rows fixture to empty
-  // so pre-115-06 tests observe the section absent (short-circuit on
-  // `.length > 0`). Tests that exercise the Archived section seed this
-  // explicitly.
-  mockArchivedFleetRows = [];
   // Phase 119 Plan 119-06 (D-18): reset app-tiles fixture to empty so non-
   // 119-06 tests observe the Apps section in its collapsed-and-empty
   // default (header present per D-05, zero tiles / no empty prompt in DOM
@@ -2669,115 +2647,9 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
   });
 });
 
-describe("PrettyConversationsPanel: Phase 115 Plan 115-06 Archived section (D-06 / D-19)", () => {
-  // A10: section header renders when archived-rows-slice has ≥1 entry.
-  it("A10: archivedRows non-empty → Archived section header renders with 'Archived' label", () => {
-    mockArchivedFleetRows = [
-      { hostId: 1, name: "wren", hostname: "hostA" },
-    ];
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const header = container.querySelector(
-      '[data-testid="pretty-conversations-archived-header"]',
-    ) as HTMLElement | null;
-    expect(header).toBeTruthy();
-    expect(header!.textContent).toContain("Archived");
-  });
-
-  // A11: lazy render — collapsed section has NO PrettyArchivedRow instances in DOM.
-  it("A11: D-19 lazy — collapsed section renders zero PrettyArchivedRow instances", () => {
-    mockArchivedFleetRows = [
-      { hostId: 1, name: "wren", hostname: "hostA" },
-      { hostId: 1, name: "tabitha", hostname: "hostA" },
-    ];
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // With archivedExpanded=false (default), no PrettyArchivedRow instances
-    // are in the DOM at all — the `{archivedExpanded && ...}` short-circuit
-    // is the whole point of D-19.
-    const archivedRowEls = container.querySelectorAll(
-      '[data-testid="pretty-archived-row"]',
-    );
-    expect(archivedRowEls.length).toBe(0);
-  });
-
-  // A12: click header → section expands → PrettyArchivedRow instances mount.
-  it("A12: click header → section expands → PrettyArchivedRow instances render (D-19 expand)", () => {
-    mockArchivedFleetRows = [
-      { hostId: 1, name: "wren", hostname: "hostA" },
-      { hostId: 1, name: "tabitha", hostname: "hostA" },
-    ];
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const header = container.querySelector(
-      '[data-testid="pretty-conversations-archived-header"]',
-    ) as HTMLElement;
-    fireEvent.click(header);
-
-    const archivedRowEls = container.querySelectorAll(
-      '[data-testid="pretty-archived-row"]',
-    );
-    expect(archivedRowEls.length).toBe(2);
-    // Verify content — the row renders the identity name AND the hostname.
-    const first = archivedRowEls[0] as HTMLElement;
-    expect(first.getAttribute("data-archived-name")).toBe("wren");
-    expect(first.getAttribute("data-archived-hostname")).toBe("hostA");
-  });
-
-  // A13: PrettyArchivedRow is INERT (D-06) — no context menu on right-click.
-  it("A13: D-06 inert — right-click on PrettyArchivedRow does NOT open a context menu", () => {
-    mockArchivedFleetRows = [
-      { hostId: 1, name: "wren", hostname: "hostA" },
-    ];
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    // Expand the section so the row is in the DOM.
-    const header = container.querySelector(
-      '[data-testid="pretty-conversations-archived-header"]',
-    ) as HTMLElement;
-    fireEvent.click(header);
-
-    const archivedRow = container.querySelector(
-      '[data-testid="pretty-archived-row"]',
-    ) as HTMLElement;
-    expect(archivedRow).toBeTruthy();
-    // Right-click MUST NOT open a PrettyConversationContextMenu — the
-    // archived row has no onContextMenu handler at all.
-    fireEvent.contextMenu(archivedRow, { clientX: 100, clientY: 100 });
-    expect(screen.queryByRole("menu")).toBeNull();
-  });
-
-  // A14: section absent when archivedRows is empty (short-circuit at `.length > 0`).
-  it("A14: archivedRows empty → Archived section header NOT rendered", () => {
-    mockArchivedFleetRows = [];
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-
-    const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-
-    const header = container.querySelector(
-      '[data-testid="pretty-conversations-archived-header"]',
-    );
-    expect(header).toBeNull();
-  });
-});
+// (Phase 115 Plan 115-06 Archived-section describe retired in the Phase 122
+//  shape follow-up alongside the sidebar chrome + wire pump — archived
+//  identities now surface via the ConversationSearchModal only.)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 122 Plan 04 (D-17 removal): the Phase 41 Plan 02 describes
@@ -3976,9 +3848,8 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
 //         in DOM order (compareDocumentPosition gate).
 //
 // Mock strategy: `mockAppTiles` module-level swap + `vi.mock("@/state/app-
-// tiles-store", ...)` — mirrors the mockArchivedFleetRows + vi.mock for
-// conversation-store pattern that A10-A14 established. beforeEach resets
-// mockAppTiles to [] (see top-of-file beforeEach block).
+// tiles-store", ...)`. beforeEach resets mockAppTiles to [] (see top-of-file
+// beforeEach block).
 
 describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
   // Small local fixture builder — keep A15-A20 fixture assembly compact.

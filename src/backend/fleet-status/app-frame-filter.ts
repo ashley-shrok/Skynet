@@ -9,7 +9,7 @@
  * language) can wrap identity frames through the same shape.
  *
  * Contract:
- *   - `app-update` / `app-gone` / `gone` / `identity-archived` / `update`  →
+ *   - `app-update` / `app-gone` / `gone` / `update`  →
  *     one checkHostAccess call per frame; return the frame or null.
  *   - `app-snapshot` / `snapshot` / `project-list-changed`  → checkHostAccess
  *     per unique hostId in the frame (Promise.all); return a projected COPY
@@ -210,10 +210,6 @@ export async function filterAppFrame(
   }
 
   if (frame.type === "gone") {
-    return (await canUserSee(frame.hostId)) ? frame : null;
-  }
-
-  if (frame.type === "identity-archived") {
     return (await canUserSee(frame.hostId)) ? frame : null;
   }
 

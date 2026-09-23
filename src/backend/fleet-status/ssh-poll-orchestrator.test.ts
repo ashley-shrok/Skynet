@@ -210,14 +210,6 @@ class MockRegistry implements SubscriptionRegistry {
     tmuxSession: string | null;
     sessionId: string;
   }> = [];
-  // Phase 115 Plan 115-06 (D-06, D-18): captures every publishIdentityArchived
-  // call so batch-path tests can assert that archive-tree rows route through
-  // this method (not publishSessionState).
-  publishedArchived: Array<{
-    name: string;
-    hostId: string;
-    hostname: string;
-  }> = [];
   // Phase 118 Plan 118-04 (D-11, D-13, D-14): captures every publishAppUpdate
   // and publishAppGoneByHostSlug call so batch-path reconciliation tests can
   // assert on the source-C app frame fan-out. Kept as SEPARATE arrays from
@@ -234,14 +226,6 @@ class MockRegistry implements SubscriptionRegistry {
 
   publishSessionState(hostId: string, state: SessionState): void {
     this.publishedStates.push({ hostId, state });
-  }
-
-  publishIdentityArchived(
-    name: string,
-    hostId: string,
-    hostname: string,
-  ): void {
-    this.publishedArchived.push({ name, hostId, hostname });
   }
 
   publishSessionGone(
@@ -8015,34 +7999,23 @@ describe("Phase 92 — batch sweep dispatch", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Phase 115 Plan 115-06 — archive-tree row routing (D-06, D-18)
-  //
-  // Load-bearing invariants:
-  //   (1) An identity line with `archived: true` on the batch path routes
-  //       to `registry.publishIdentityArchived(name, hostId, hostname)`
-  //       and NOT to `publishSessionState`. Enforces the D-06 separation
-  //       (archived rows never enter the interactive session pool).
-  //   (2) An identity line with `archived: false` (or absent) still routes
-  //       to `publishSessionState` on the source-B path — the archived
-  //       branch does NOT change behavior for live-tree rows.
-  //   (3) Strict-boolean check per 115-05 SUMMARY threat note: a
-  //       stringly-typed malicious payload (`archived: "false"` — truthy
-  //       string) must NOT route to the archived pool. The check is
-  //       `line.archived === true`, not truthy.
+  // Phase 115 Plan 115-06 archive-tree-routing describes retired in the Phase 122
+  // shape follow-up. The belt-and-braces `line.archived === true` skip in the
+  // orchestrator is kept to survive rolling-deploy windows where an older sweep
+  // script still emits archive-tree rows; the tests below cover that behavior
+  // (archived rows dropped, NOT routed into publishSessionState).
   // -------------------------------------------------------------------------
-  it("Test P115-06 archive-routing-1: identity line with archived:true → publishIdentityArchived, NOT publishSessionState", async () => {
+  it("archive-tree row skipped: identity line with archived:true is NOT published to publishSessionState", async () => {
     const channel = new MockSshChannel();
     wireBatchProbe(channel, true);
     channel.setResponse(
       "~/.local/bin/fleet-status-sweep 2>/dev/null",
       makeSweepJsonl({
         identities: [
-          // Live-tree identity — routes to publishSessionState as usual.
           { identity: "alpha", archived: false },
-          // Archive-tree identity — routes to publishIdentityArchived.
           { identity: "zombie", archived: true },
         ],
-        pids: [], // No live PIDs — source A silent this tick.
+        pids: [],
       }),
     );
 
@@ -8052,22 +8025,14 @@ describe("Phase 92 — batch sweep dispatch", () => {
     const orchestrator = createSshPollOrchestrator(deps);
     await orchestrator.start();
 
-    // (a) Archive-tree row published via publishIdentityArchived with (name,
-    //     hostId, hostname).
-    expect(deps.registry.publishedArchived).toHaveLength(1);
-    expect(deps.registry.publishedArchived[0]).toMatchObject({
-      name: "zombie",
-    });
-    // (b) Live-tree row published via publishSessionState.
     const publishedLiveNames = deps.registry.publishedStates
       .map((p) => p.state.tmuxSession)
       .sort();
     expect(publishedLiveNames).toEqual(["alpha"]);
-    // (c) Archive-tree row did NOT leak into publishSessionState.
     expect(publishedLiveNames).not.toContain("zombie");
   });
 
-  it("Test P115-06 archive-routing-2: identity line with archived:false → publishSessionState (live-tree unchanged)", async () => {
+  it("live-tree row published: identity line with archived:false → publishSessionState (unchanged)", async () => {
     const channel = new MockSshChannel();
     wireBatchProbe(channel, true);
     channel.setResponse(
@@ -8084,16 +8049,12 @@ describe("Phase 92 — batch sweep dispatch", () => {
     const orchestrator = createSshPollOrchestrator(deps);
     await orchestrator.start();
 
-    expect(deps.registry.publishedArchived).toHaveLength(0);
     expect(deps.registry.publishedStates).toHaveLength(1);
   });
 
-  it("Test P115-06 archive-routing-3: identity line WITHOUT `archived` field (pre-115-05 host) → publishSessionState (fail-open)", async () => {
+  it("legacy row published: identity line WITHOUT `archived` field → publishSessionState (fail-open)", async () => {
     const channel = new MockSshChannel();
     wireBatchProbe(channel, true);
-    // No `archived` supplied → undefined → strict boolean check treats as
-    // live-tree. Old boxes running pre-115-05 sweep script emit lines
-    // without this field.
     channel.setResponse(
       "~/.local/bin/fleet-status-sweep 2>/dev/null",
       makeSweepJsonl({
@@ -8108,7 +8069,6 @@ describe("Phase 92 — batch sweep dispatch", () => {
     const orchestrator = createSshPollOrchestrator(deps);
     await orchestrator.start();
 
-    expect(deps.registry.publishedArchived).toHaveLength(0);
     expect(deps.registry.publishedStates).toHaveLength(1);
   });
 

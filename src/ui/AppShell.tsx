@@ -96,11 +96,6 @@ import {
   readFleetSessionsCache,
   writeFleetSessionsCache,
   useRelayRoomTitles,
-  // Phase 115 Plan 115-06 (D-06, D-18): archived-rows slice mutator.
-  // Called from the fleet-status-client's `onIdentityArchived` callback
-  // (added by 115-06 alongside the distinct wire message shape) to route
-  // archive-tree rows into the frontend's inert archived pool.
-  upsertArchivedFleetRow,
   // Phase 117 Plan 117-07 (D-37 / D-39): projects slice mutator + relay-room
   // and identity project-assignment map setters. Fed by the fleet-status
   // client's onProjectListChanged callback (wire event from 117-03) AND the
@@ -734,40 +729,6 @@ export function AppShell({
       },
       onUpdate: (fleetState) => {
         applyFleetState(fleetState);
-      },
-      // Phase 115 Plan 115-06 (D-06, D-18): archive-tree rows arrive as
-      // distinct `identity-archived` frames (see fleet-status-client.ts
-      // switch case). Route each into the archivedFleetRows store slice
-      // via upsertArchivedFleetRow — keyed on (hostId, name) so re-emits
-      // on WS reconnect are idempotent. hostId is coerced to number here
-      // at the boundary (same one-coercion discipline as onGone below).
-      onIdentityArchived: (name, hostIdRaw, hostname) => {
-        const hostIdNum = parseInt(hostIdRaw, 10);
-        if (!Number.isFinite(hostIdNum)) return;
-        upsertArchivedFleetRow({ hostId: hostIdNum, name, hostname });
-
-        // Close any open tabs pointing at the archived identity. doCloseTab
-        // removes the tab, deletes its server-persisted openTab record (so a
-        // refresh doesn't restore a dead tab that then falls through to the
-        // "tmux session 'X' not found" connection-log fallback), and drops
-        // its leaf from the split tree via removeLeaf. Identity name === tmux
-        // session name (Skynet SSHes to <name> tmux to render the identity's
-        // terminal), so the (host.id, targetTmuxSession) tuple identifies
-        // matching tabs. The identity-archived frame re-emits idempotently
-        // on WS reconnect (see wire-protocol.ts § idempotency), so a refresh
-        // that lands after archive is covered by the same handler on
-        // reconnect. Sidebar row cleanup falls out of the paired `gone`
-        // frame the backend fires from the same archive-detection reconcile
-        // (see onGone below → removeFleetSession).
-        for (const tab of tabsRef.current) {
-          if (
-            tab.host != null &&
-            parseInt(tab.host.id, 10) === hostIdNum &&
-            tab.targetTmuxSession === name
-          ) {
-            doCloseTabRef.current(tab.id);
-          }
-        }
       },
       // Phase 117 Plan 117-07 (D-37): project-list-changed wire frame from
       // 117-03's registry.publishProjectListChanged. Backend fires this on
@@ -2790,14 +2751,6 @@ export function AppShell({
   const doCloseTabRef = useRef(doCloseTab);
   useEffect(() => {
     doCloseTabRef.current = doCloseTab;
-  });
-  // Same rationale as doCloseTabRef above: the fleet-status effect
-  // (~L657) subscribes ONCE at mount, so its identity-archived handler
-  // can't close over React state directly. Refreshed every render so
-  // the handler enumerates the LATEST openTabs.
-  const tabsRef = useRef(tabs);
-  useEffect(() => {
-    tabsRef.current = tabs;
   });
   useEffect(() => {
     const unsub = subscribeToDragAccepts((tabId) => {

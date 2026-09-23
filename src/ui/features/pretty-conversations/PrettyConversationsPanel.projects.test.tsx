@@ -172,7 +172,6 @@ vi.mock("@/state/conversation-store", () => ({
     `fleet::${hostId}::${sessionName}`,
   hydratePinnedIdsFromServer: (ids: string[]) =>
     hydratePinnedIdsFromServerSpy(ids),
-  useArchivedFleetRows: () => [],
 }));
 
 // use-collapsed-project-slugs mock — flexible per-test via mockCollapsed.

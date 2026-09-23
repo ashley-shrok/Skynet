@@ -410,18 +410,6 @@ type State = {
   // the set visually recede) and the ready-for-attention dot render
   // condition (dot renders iff inActiveSet && isWorking===false).
   activeSet: Set<string>;
-  // Phase 115 Plan 115-06 (D-06, D-18): archived-tree row cache. Fed by
-  // the AppShell's fleet-status-client `onIdentityArchived` callback with
-  // rows sourced from the distinct `identity-archived` WS wire message
-  // (backend ssh-poll-orchestrator publishes these when a SweepIdentityLine
-  // has `archived === true`). Separate slice on purpose — archived rows
-  // are inert and never participate in the interactive pools (pinnedIds,
-  // openTabs, fleetSessions, activeSet). Keyed on the composite
-  // `${hostId}::${name}` at the setter so cross-host name collisions do
-  // NOT dedup (per RESEARCH §5 note: shouldn't happen in practice; if it
-  // does, both records survive as distinct rows). Consumed via
-  // useArchivedFleetRows below by the panel's Archived section.
-  archivedFleetRows: ArchivedFleetRow[];
   // ─── Phase 117 Plan 117-07 (D-05, D-37, D-39) — projects slice ────────────
   // Backend-authoritative list of projects, hydrated from two sources:
   //   1. Boot-time HTTP hydration via `listProjects(hostId)` (per-host fetch,
@@ -445,18 +433,6 @@ type State = {
   // (117-07 relay-room-project-tags-list route) — D-05 relay-room carrier is
   // the u.project.<slug> Matrix account_data tag.
   roomProjectAssignments: Map<string, string>;
-};
-
-/**
- * Phase 115 Plan 115-06 (D-06, D-18): shape of an archived-tree row in the
- * frontend. Mirrors the wire message body `{ kind: "identity-archived",
- * name, hostId, hostname }` — the wire's `hostId` is a string (matches
- * SessionState.hostId), coerced to number here at the AppShell adapter.
- */
-export type ArchivedFleetRow = {
-  hostId: number;
-  name: string;
-  hostname: string;
 };
 
 /**
@@ -507,12 +483,6 @@ let state: State = {
   hostsFlat: new Map<number, Host>(),
   identitiesByKey: new Map<string, Identity>(),
   activeSet: hydrateActiveSetFromStorage(),
-  // Phase 115 Plan 115-06 (D-06, D-18): empty archived-rows array on boot.
-  // Populated by the AppShell's fleet-status-client onIdentityArchived callback
-  // in response to the backend's `identity-archived` wire frames. Snapshot
-  // frames on connect re-populate the whole array (the setter is a REPLACE,
-  // not an APPEND — the backend is the authority on the current archive set).
-  archivedFleetRows: [],
   // Phase 117 Plan 117-07 (D-37): projects hydrate from AppShell's boot-time
   // listProjects fetch + wire event. Seeded from localStorage on module load
   // for cold-boot paint; fresh HTTP fetches overwrite via setProjects.
@@ -2332,88 +2302,10 @@ export function usePinnedIds(): ReadonlySet<string> {
 }
 
 // (Phase 115 Plan 115-02: useHiddenIds hook + getHiddenIdsSnapshot retired
-//  per D-21 alongside state.hiddenIds.)
-
-// ─── Phase 115 Plan 115-06 (D-06, D-18): archived-rows slice ────────────────
-// Fed by the AppShell's fleet-status-client onIdentityArchived callback in
-// response to the backend's distinct `identity-archived` wire frames from
-// ssh-poll-orchestrator. Separate from state.identities / activeSet /
-// pinnedIds — archived rows are inert (D-06) and never participate in the
-// interactive pools. See the Archived section render at
-// PrettyConversationsPanel.tsx (uses `useArchivedFleetRows`).
-
-/**
- * Replace the archived-rows array with `rows`. Called from AppShell on the
- * fleet-status `identity-archived` frame — the backend is the authority on
- * the current archive set, and snapshot frames re-hydrate the whole slice
- * on WS reconnect. Empty array is a valid input (means "no archived rows
- * on any host this tick").
- */
-export function setArchivedFleetRows(rows: ArchivedFleetRow[]): void {
-  // Identity-equal skip: if the input is exactly the same reference AND the
-  // same length AND every entry is field-equal to the current slot, no
-  // mutation (defense against churn from a WS snapshot that hasn't changed).
-  const cur = state.archivedFleetRows;
-  if (rows.length === cur.length) {
-    let equal = true;
-    for (let i = 0; i < rows.length; i++) {
-      if (
-        rows[i].hostId !== cur[i].hostId ||
-        rows[i].name !== cur[i].name ||
-        rows[i].hostname !== cur[i].hostname
-      ) {
-        equal = false;
-        break;
-      }
-    }
-    if (equal) return;
-  }
-  state = { ...state, archivedFleetRows: rows.slice() };
-  notify();
-}
-
-/**
- * Append (or replace) a single archived row. Called for individual
- * `identity-archived` update frames — a live-tree identity that just
- * archived shows up as one row here. Keyed on the composite
- * `${hostId}::${name}`: if the row already exists at that key it is
- * replaced (idempotent — a retire that runs again on the same identity
- * doesn't duplicate); otherwise appended.
- */
-export function upsertArchivedFleetRow(row: ArchivedFleetRow): void {
-  const cur = state.archivedFleetRows;
-  const idx = cur.findIndex(
-    (r) => r.hostId === row.hostId && r.name === row.name,
-  );
-  const next = cur.slice();
-  if (idx >= 0) {
-    if (
-      cur[idx].hostname === row.hostname &&
-      cur[idx].name === row.name &&
-      cur[idx].hostId === row.hostId
-    ) {
-      // Identity-equal — no-op.
-      return;
-    }
-    next[idx] = row;
-  } else {
-    next.push(row);
-  }
-  state = { ...state, archivedFleetRows: next };
-  notify();
-}
-
-function getArchivedFleetRowsSnapshot(): readonly ArchivedFleetRow[] {
-  return state.archivedFleetRows;
-}
-
-export function useArchivedFleetRows(): readonly ArchivedFleetRow[] {
-  return useSyncExternalStore(
-    subscribe,
-    getArchivedFleetRowsSnapshot,
-    getArchivedFleetRowsSnapshot,
-  );
-}
+//  per D-21 alongside state.hiddenIds.
+//  Phase 115 Plan 115-06 archived-rows slice / setters / useArchivedFleetRows
+//  hook retired in the Phase 122 shape follow-up alongside the sidebar
+//  Archived section + wire pump.)
 
 // ─── Phase 117 Plan 117-07 (D-05, D-37, D-39): projects slice ────────────────
 // Backend-authoritative project list, fed from two sources through this
@@ -2422,8 +2314,6 @@ export function useArchivedFleetRows(): readonly ArchivedFleetRow[] {
 // `onProjectListChanged` on the fleet-status-client. Both paths hit
 // `setProjects` — identity-equal-skip absorbs no-op re-emissions so an
 // unchanged wire snapshot on reconnect does not churn subscribers.
-//
-// Shape mirrors ArchivedFleetRow's setter byte-for-byte (see :1903-1955).
 
 /**
  * Replace the projects array with `rows`. Identity-equal skip: same length AND

@@ -18,7 +18,6 @@ import {
   makeAppSnapshotFrame,
   makeAppUpdateFrame,
   makeGoneFrame,
-  makeIdentityArchivedFrame,
   makeProjectListChangedFrame,
   makeSessionProjectChangedFrame,
   makeSnapshotFrame,
@@ -142,30 +141,13 @@ export interface SubscriptionRegistry {
   publishSessionState(hostId: string, state: SessionState): void;
 
   /**
-   * Phase 115 Plan 115-06 (D-06, D-18): publish an `identity-archived`
-   * frame for a row sourced from the archive tree. Distinct from
-   * publishSessionState — archived rows are NOT indexed in the session
-   * map (D-06 inert semantics); the registry simply fans the frame out
-   * to all current subscribers. Snapshot-on-subscribe behavior: archived
-   * rows are re-emitted on every subscribe via the archivedIdentities
-   * map maintained here so a reconnecting client sees the current
-   * archive set as part of its initial state.
-   */
-  publishIdentityArchived(
-    name: string,
-    hostId: string,
-    hostname: string,
-  ): void;
-
-  /**
    * Phase 117 Plan 117-03 (D-37): publish a project-list-changed frame
    * carrying the FULL projects array (not a delta — per RESEARCH § Open Q #4,
-   * projects are cheap and full-replace matches the Phase 115 registry-
-   * cache-then-fanout discipline).
+   * projects are cheap and full-replace matches the registry-cache-then-fanout
+   * discipline).
    *
    * Snapshot-on-subscribe: reconnecting clients get the cached array
-   * replayed on subscribe (mirrors the archivedIdentities replay pattern
-   * in the subscribe() body).
+   * replayed on subscribe.
    *
    * Idempotent: byte-identical array replay is a no-op via JSON.stringify
    * canonicalization compare against a single-cell cache. Cache-hit → no
@@ -419,20 +401,9 @@ export function createSubscriptionRegistry(
   // Phase 39 — presence signals for Path C (D-01 / D-02)
   const firstSubCallbacks = new Set<(ctx: { userId: string }) => void>();
   const lastUnsubCallbacks = new Set<() => void>();
-  // Phase 115 Plan 115-06 (D-06, D-18): archived-tree row cache. Keyed on
-  // `${hostId}::${name}` so cross-host name collisions produce distinct
-  // entries (per RESEARCH §5 — should not happen in practice; if it does,
-  // both survive). Snapshot-on-subscribe re-emits every entry so a
-  // reconnecting client sees the current archive set as part of its
-  // initial state. Never removed here — retire-flow's folder-move happens
-  // once and the row lives until the next sweep tick clears it. If a
-  // future phase wants to un-archive, add a `publishIdentityUnarchived`
-  // + corresponding delete + `identity-unarchived` frame; for now (D-05
-  // out of scope) the map only grows.
-  const archivedIdentities = new Map<
-    string,
-    { name: string; hostId: string; hostname: string }
-  >();
+  // (Phase 115 Plan 115-06 archivedIdentities cache retired in the Phase 122
+  //  shape follow-up alongside publishIdentityArchived + wire frame.)
+
   // Phase 117 Plan 117-03 (D-37): single-cell cache for the projects pool.
   // The wire event carries the WHOLE array on every emit (per RESEARCH §
   // Open Q #4 — full-replace, not delta), so a single nullable cell is
@@ -528,33 +499,8 @@ export function createSubscriptionRegistry(
         }
       }
 
-      // Re-emit every archived identity as an `identity-archived` frame so a
-      // reconnecting client re-hydrates its archived-rows store slice from
-      // the registry's cached map. Order is Map insertion order — the
-      // frontend's setArchivedFleetRows is a whole-array replacement (see
-      // conversation-store.ts) so order does not carry meaning here.
-      //
-      // Unfiltered path only: filtered subscribers get the same re-emit
-      // filtered per-frame inside the fire-and-forget block below (moved
-      // there so the queue-window covers both archived + app-snapshot re-
-      // emits AND any real-time publishes arriving during the window).
-      if (appFrameFilter === undefined || ctx?.userId === undefined) {
-        for (const entry of archivedIdentities.values()) {
-          try {
-            sendFrame(
-              makeIdentityArchivedFrame(entry.name, entry.hostId, entry.hostname),
-            );
-          } catch (err) {
-            systemLogger.warn(
-              "Fleet-status archived-identity snapshot delivery failed",
-              {
-                operation: "fleet_status_archived_snapshot_failed",
-                error: err instanceof Error ? err.message : "unknown",
-              },
-            );
-          }
-        }
-      }
+      // (Phase 115 Plan 115-06 archived-identity re-emit retired in the Phase 122
+      //  shape follow-up alongside the wire frame + registry cache.)
 
       // Replay the cached project list on subscribe (unfiltered path only).
       // Filtered subscribers get the projected version inside the fire-and-
@@ -642,36 +588,7 @@ export function createSubscriptionRegistry(
               );
             }
 
-            // Filter + re-emit each archived-identity row inside the queue-
-            // window so real-time publishIdentityArchived arriving during
-            // this block queue behind the snapshot rather than racing past it.
-            // Sequential to preserve Map insertion order (matches the sync
-            // path above). Per-frame try/catch so one send failure doesn't
-            // starve the rest.
-            for (const archived of archivedIdentities.values()) {
-              const archivedFrame = makeIdentityArchivedFrame(
-                archived.name,
-                archived.hostId,
-                archived.hostname,
-              );
-              try {
-                const projectedArchived = await appFrameFilter(
-                  archivedFrame,
-                  userIdForFilter,
-                );
-                if (projectedArchived !== null) {
-                  sendFrame(projectedArchived);
-                }
-              } catch (err) {
-                systemLogger.warn(
-                  "Fleet-status archived-identity snapshot delivery failed",
-                  {
-                    operation: "fleet_status_archived_snapshot_failed",
-                    error: err instanceof Error ? err.message : "unknown",
-                  },
-                );
-              }
-            }
+            // (Phase 115 archived-identity re-emit retired in Phase 122 follow-up.)
 
             // Replay the cached project list, projected per subscriber.
             // Guarded on non-null cache (same reason as the sync path
@@ -812,33 +729,6 @@ export function createSubscriptionRegistry(
       };
       state.set(key, stampedState);
       const frame = makeUpdateFrame(stampedState);
-      if (appFrameFilter !== undefined) {
-        void fanOutApp(subscribers, frame, appFrameFilter);
-      } else {
-        fanOut(subscribers, frame);
-      }
-    },
-
-    publishIdentityArchived(
-      name: string,
-      hostId: string,
-      hostname: string,
-    ): void {
-      const key = `${hostId}::${name}`;
-      const existing = archivedIdentities.get(key);
-      // Idempotent: if the registry already knows this archived identity
-      // with byte-identical fields, no fanout. Prevents per-tick churn on
-      // the WS when the sweep just re-observes the same archive-tree row.
-      if (
-        existing !== undefined &&
-        existing.name === name &&
-        existing.hostId === hostId &&
-        existing.hostname === hostname
-      ) {
-        return;
-      }
-      archivedIdentities.set(key, { name, hostId, hostname });
-      const frame = makeIdentityArchivedFrame(name, hostId, hostname);
       if (appFrameFilter !== undefined) {
         void fanOutApp(subscribers, frame, appFrameFilter);
       } else {

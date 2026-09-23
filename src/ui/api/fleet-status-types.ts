@@ -346,20 +346,8 @@ export interface FrontendPongFrame {
   type: "pong";
 }
 
-// Phase 115 Plan 115-06 (D-06, D-18): identity-archived frame — DISTINCT wire
-// message for rows sourced from the archive tree (SweepIdentityLine.archived
-// === true per 115-05). Consumed by fleet-status-client onmessage dispatch
-// (added by 115-06) → routes into the frontend's archivedFleetRows store slice
-// (conversation-store.setArchivedFleetRows / upsertArchivedFleetRow). Mirrors
-// wire-protocol.ts FrontendIdentityArchivedFrameSchema. MUST stay in
-// lockstep — any wire-protocol change is mirrored here.
-export interface FrontendIdentityArchivedFrame {
-  schemaVersion: typeof FRAME_SCHEMA_VERSION;
-  type: "identity-archived";
-  name: string;
-  hostId: string;
-  hostname: string;
-}
+// (Phase 115 Plan 115-06 FrontendIdentityArchivedFrame retired in the Phase 122
+//  shape follow-up alongside the sidebar Archived section + wire pump.)
 
 // Phase 117 Plan 117-06 (D-37): project-list-changed frame — DISTINCT wire
 // message published by the backend on every project create / archive / session
@@ -428,7 +416,6 @@ export type FrontendOutboundFrame =
   | FrontendUpdateFrame
   | FrontendGoneFrame
   | FrontendPongFrame
-  | FrontendIdentityArchivedFrame
   | FrontendProjectListChangedFrame
   | FrontendSessionProjectChangedFrame
   | FrontendAppSnapshotFrame

@@ -1847,31 +1847,15 @@ export function createSshPollOrchestrator(
       }
     }
 
-    // Source B — dispatch each SweepIdentityLine into the SAME compose helper.
-    // Phase 115 Plan 115-06 (D-06, D-18): rows sourced from the archive tree
-    // (Plan 115-05's `archived === true`) get a DISTINCT wire message
-    // (`identity-archived`), NOT the standard identity frame. Skip the
-    // standard compose path for those — archived rows are inert (D-06) and
-    // never participate in the interactive session pool.
-    //
-    // Strict-boolean check per 115-05 SUMMARY's threat-model note: use
-    // `line.archived === true` (not truthy-check) to defend against a
-    // stringly-typed malicious payload — `archived: "false"` would be
-    // truthy-true but must NOT route to the archived pool. See
-    // sweep-schema.ts T-115-05-04.
+    // Source B — dispatch each SweepIdentityLine into the compose helper.
+    // (Phase 115 Plan 115-06 archived-tree branch retired in the Phase 122
+    //  shape follow-up; the Python sweep no longer walks identities-archive/,
+    //  so `parsed.identityLines` only contains live-tree rows. The strict
+    //  `identityLine.archived === true` skip is kept as a belt-and-braces
+    //  no-op guard in case an older sweep version emits archived rows during
+    //  a rolling deploy window.)
     for (const identityLine of parsed.identityLines) {
-      if (identityLine.archived === true) {
-        // Distinct wire message: `{ kind: "identity-archived", name,
-        // hostId, hostname }`. The registry's publishIdentityArchived is
-        // idempotent per (hostId, name) — a per-tick re-observation of
-        // the same archive-tree row does NOT re-fan-out the frame.
-        deps.registry.publishIdentityArchived(
-          identityLine.identity,
-          host.id,
-          host.name,
-        );
-        continue;
-      }
+      if (identityLine.archived === true) continue;
       const fetched = identityLineToPerIdentityFetched(identityLine, hostState);
       const cached = hostState.identityRecycleState.get(identityLine.identity);
       composeAndPublishPerIdentity(hostState, liveTmuxSet, fetched, cached);
@@ -1890,9 +1874,10 @@ export function createSshPollOrchestrator(
     // flap the sidebar.
     const thisTickLiveTreeIdentities = new Set<string>();
     for (const line of parsed.identityLines) {
-      if (line.archived !== true) {
-        thisTickLiveTreeIdentities.add(line.identity);
-      }
+      // Same belt-and-braces guard as the compose loop above — a rolling-deploy
+      // sweep version may still emit archived: true; treat those as absent.
+      if (line.archived === true) continue;
+      thisTickLiveTreeIdentities.add(line.identity);
     }
     for (const previousName of hostState.lastTickLiveTreeIdentities) {
       if (!thisTickLiveTreeIdentities.has(previousName)) {

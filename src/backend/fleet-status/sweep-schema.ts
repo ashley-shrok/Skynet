@@ -116,22 +116,14 @@ export interface SweepRawCosmetics {
  *   • role_cosmetics    ↔ B7 (Plan 111-01: raw role frontmatter cosmetics,
  *                          resolved via per-tick memo; null when no role)
  *   • pinned            ↔ B8 (Plan 111-01: `.pinned` sentinel present)
- *   • archived          ↔ B9 (Phase 115 Plan 115-05: disk-root axis — the
- *                          identity was enumerated from
- *                          `~/fleet/identities-archive/` rather than
- *                          `~/fleet/identities/`. Not a sentinel-file probe.
- *                          Reuses the B9 wire slot vacated by Phase 115
- *                          Plan 115-02's D-21 retirement.)
- *
- * The `archived` field is a wire-shape building block for the sweep JSONL
- * layer; the ssh-poll-orchestrator (115-06) will transform archived-tree
- * identity rows into a DISTINCT wire message shape published to the frontend
- * (`{ kind: "identity-archived", name, hostId, hostname }`) rather than
- * bolting `archived: true` onto the standard identity frame. Keeping
- * `archived` on `SweepIdentityLine` (Python → TS parser) but NOT on the
- * frontend-facing identity frame is intentional: archived rows are inert
- * historical rows, not identity records that participate in the interactive
- * pool.
+ *   • archived          ↔ B9 (Phase 115 Plan 115-05 disk-root axis. Retired
+ *                          in the Phase 122 shape follow-up alongside the
+ *                          sidebar Archived section + wire pump; the Python
+ *                          sweep no longer walks identities-archive/ so this
+ *                          field is now always undefined on new sweeps. Kept
+ *                          on the TS shape as optional to survive rolling-
+ *                          deploy windows where a peer host still runs a
+ *                          pre-Phase-122 sweep script.)
  */
 export interface SweepIdentityLine {
   line_kind: "identity";
@@ -153,12 +145,11 @@ export interface SweepIdentityLine {
   identity_cosmetics?: SweepRawCosmetics | null;
   role_cosmetics?: SweepRawCosmetics | null;
   pinned?: boolean;
-  // Phase 115 Plan 115-05: disk-root axis. Optional (?:) so mid-distribution
-  // older boxes running the pre-115-05 sweep script (single-tree walk, no
-  // archived emission) still parse without error. Undefined ≡ live-tree row
-  // for the source-B adapter (which treats archived==true as "route this to
-  // the archived-rows pool" and undefined-or-false as "route to the standard
-  // identity pool").
+  // Phase 115 Plan 115-05 archived axis retired in the Phase 122 shape
+  // follow-up. Kept as optional so the orchestrator's belt-and-braces
+  // `line.archived === true` skip still typechecks during rolling-deploy
+  // windows where a peer host runs the older sweep script that still emits
+  // archived rows; on Phase 122+ sweeps the field is always undefined.
   archived?: boolean;
 }
 
@@ -544,11 +535,10 @@ export const SWEEP_FIELD_PARITY: Record<
   B6: { field: "identity_cosmetics" },
   B7: { field: "role_cosmetics" },
   B8: { field: "pinned" },
-  // Phase 115 Plan 115-05: disk-root axis. NOT a sentinel-file probe like
-  // the other B* rows — the field is populated from which root the sweep
-  // walked (identities/ = false, identities-archive/ = true) inside
-  // _enumerate_identities' unified loop. Reuses the wire slot vacated by
-  // Phase 115 Plan 115-02's D-21 retirement.
+  // Phase 115 Plan 115-05 disk-root axis retired in the Phase 122 shape
+  // follow-up. Field stays here for the parity table so B9 keeps its wire slot
+  // documented, but the Python sweep no longer walks identities-archive/, so
+  // Phase 122+ sweeps never emit archived: true.
   B9: { field: "archived" },
 
   // --- Per-host source-C enumeration driver (Phase 118 Plan 118-02, D-20) ---
