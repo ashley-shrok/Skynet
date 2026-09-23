@@ -125,6 +125,21 @@ import { startHarnessOnIdentity } from "./identity-harness-start.js";
 // frontmatter line and the identity inherits from its role).
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
+// Phase 129 LOW-1 fix (2026-09-23): auto-tag creator on identity-clone for
+// multi-user hosts. Mirrors the discipline in identity-birth.ts + roles-
+// create.ts — shape §"When a role or identity is created through the Skynet
+// app on a host that has more than one Skynet user with access to it, the
+// creator's Skynet username is automatically written." Clone is clearly
+// "creating an identity" from a user's perspective; the LOW-1 finding
+// documented that the exclusion of clone from Phase 129's scope was out of
+// step with the shape file. Fail-open discipline (matches identity-birth):
+// isHostMultiUser throws → treat as single-user (skip auto-tag);
+// getUsernameForUserId returns null → skip auto-tag + log warn. A wrong-
+// user auto-tag would be a shape §"would make it wrong" bullet-3 violation.
+import {
+  isHostMultiUser,
+  getUsernameForUserId,
+} from "../../utils/host-user-counter.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -688,7 +703,86 @@ router.post(
         }
         avatarExt = looked;
       }
-      const cloneFrontmatterPairs: Array<[string, string | number]> = [];
+      // Phase 129 LOW-1 fix (2026-09-23): resolve the auto-tag creatorUsername
+      // BEFORE building the frontmatter pairs so the users: pair can be pushed
+      // in the same emit order buildIdentityFileBody uses in identity-birth
+      // (AFTER task, per PATTERNS.md § buildIdentityFileBody insertion point).
+      //
+      // Fail-open discipline (mirrors identity-birth.ts:L510-550):
+      //   - isHostMultiUser throws → treat as single-user (auto-tag skipped),
+      //     log a warn. A transient DB glitch should not fail the clone.
+      //   - getUsernameForUserId returns null on a multi-user host → auto-tag
+      //     SKIPPED, log a warn. A wrong-user auto-tag would be a shape §
+      //     "would make it wrong" bullet-3 violation.
+      //
+      // Single-user hosts stay silent — no users: key is emitted, and the
+      // clone's frontmatter byte-shape is unchanged vs. the pre-129 clone
+      // path (Plan 129-06 "byte-shape unchanged on single-user hosts"
+      // invariant applied to the clone flow too).
+      //
+      // Structured log at the auto-tag decision points (identity_clone_
+      // auto_tagged for the multi-user success path, identity_clone_auto_
+      // tag_skipped_single_user for the majority path) mirrors the shape of
+      // roles-create.ts's roles_create_auto_tagged / identity-birth.ts's
+      // identity_birth_auto_tagged so ops has a single grep target across
+      // all three create flows.
+      let cloneCreatorUsername: string | undefined = undefined;
+      let cloneIsMultiUser = false;
+      try {
+        cloneIsMultiUser = await isHostMultiUser(hostId);
+      } catch (err) {
+        sshLogger.warn(
+          "Phase 129: identity-clone isHostMultiUser threw — treating as single-user (fail-open)",
+          {
+            operation: "identity_clone_multi_user_probe_failed",
+            userId,
+            hostId,
+            newName,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
+      if (cloneIsMultiUser) {
+        const resolvedCreator = await getUsernameForUserId(userId);
+        if (resolvedCreator) {
+          cloneCreatorUsername = resolvedCreator;
+          sshLogger.info(
+            "Phase 129: identity-clone auto-tagged creator on multi-user host",
+            {
+              operation: "identity_clone_auto_tagged",
+              newName,
+              hostId,
+              creatorUsername: cloneCreatorUsername,
+            },
+          );
+        } else {
+          sshLogger.warn(
+            "Phase 129: identity-clone username lookup failed — auto-tag skipped",
+            {
+              operation: "identity_clone_username_lookup_failed",
+              userId,
+              hostId,
+              newName,
+            },
+          );
+        }
+      } else {
+        sshLogger.debug(
+          "Phase 129: identity-clone auto-tag skipped — single-user host",
+          {
+            operation: "identity_clone_auto_tag_skipped_single_user",
+            hostId,
+            newName,
+          },
+        );
+      }
+
+      // Phase 129 LOW-1: widen pair-value union to include string[] so the
+      // auto-tag branch below can push ["users", [creatorUsername]] via the
+      // same pairs.push pattern (matches buildIdentityFileBody in identity-
+      // birth-orchestrator.ts:L571). stringifyColorHueForYaml only inspects
+      // the colorHue key, so widening is byte-shape neutral for pre-129 fields.
+      const cloneFrontmatterPairs: Array<[string, string | number | string[]]> = [];
       cloneFrontmatterPairs.push(["role", sourceRole]);
       cloneFrontmatterPairs.push(["displayName", cloneDisplayName]);
       if (title.length > 0) {
@@ -710,6 +804,17 @@ router.post(
       // not inherited.
       if (parsedTask !== null && parsedTask.length > 0) {
         cloneFrontmatterPairs.push(["task", parsedTask]);
+      }
+      // Phase 129 LOW-1: users: [creator] AFTER task, matching the emit order
+      // in buildIdentityFileBody. Absent-⇒-omit: pushed only when the caller's
+      // username was resolved on a multi-user host; single-user + lookup-
+      // failure paths both leave cloneCreatorUsername undefined, so no users:
+      // key lands in the frontmatter (byte-shape unchanged for majority case).
+      if (
+        typeof cloneCreatorUsername === "string" &&
+        cloneCreatorUsername.length > 0
+      ) {
+        cloneFrontmatterPairs.push(["users", [cloneCreatorUsername]]);
       }
       const cloneYamlBody = yaml.dump(
         stringifyColorHueForYaml(Object.fromEntries(cloneFrontmatterPairs)),

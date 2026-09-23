@@ -119,6 +119,16 @@ vi.mock("./identity-avatar-batch.js", () => ({
   default: express.Router(),
 }));
 
+// Phase 129 LOW-1 fix (2026-09-23): mock the host-user-counter helpers so
+// we can control the auto-tag branch's inputs per-test. Default mocks return
+// false / null so pre-existing tests (which never opt into multi-user
+// semantics) stay on the single-user code path — no users: key ever written
+// to the clone's frontmatter (byte-shape unchanged from pre-129 clone flow).
+vi.mock("../../utils/host-user-counter.js", () => ({
+  isHostMultiUser: vi.fn().mockResolvedValue(false),
+  getUsernameForUserId: vi.fn().mockResolvedValue(null),
+}));
+
 // quick-260806-dwe: mock the extracted harness-start helper so clone tests
 // don't have to simulate the ~25s tmux+sleep dance. Behavioral parity of the
 // actual sequence is covered by identity-harness-start.test.ts.
@@ -173,6 +183,12 @@ import {
   consumeCandidateForBirth,
 } from "./identity-avatar-batch.js";
 import { startHarnessOnIdentity } from "./identity-harness-start.js";
+// Phase 129 LOW-1: mocked auto-tag helpers imported for per-test control.
+import {
+  isHostMultiUser,
+  getUsernameForUserId,
+} from "../../utils/host-user-counter.js";
+import { sshLogger } from "../../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -262,6 +278,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   stubConn.end.mockClear();
   mockStartHarness.mockReset().mockResolvedValue(undefined);
+
+  // Phase 129 LOW-1: reset the auto-tag mocks to single-user defaults so
+  // pre-existing tests (Tests 1-18, task tests, harness tests) never enter
+  // the auto-tag branch — the clone's frontmatter stays byte-identical to
+  // the pre-129 shape unless a specific test opts into multi-user.
+  (isHostMultiUser as Mock).mockResolvedValue(false);
+  (getUsernameForUserId as Mock).mockResolvedValue(null);
 
   // Default: user owns host 5; anything else → null
   (resolveHostById as Mock).mockImplementation((hostId: number) => {
@@ -1128,5 +1151,147 @@ describe("POST /identities/clone", () => {
     // conn.end() still fires in the outer finally — connection cleanup is
     // best-effort and unconditional.
     expect(stubConn.end).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 129 LOW-1 fix: auto-tag creator on clone for multi-user hosts
+// ---------------------------------------------------------------------------
+
+describe("POST /identities/clone — Phase 129 LOW-1 auto-tag creator on multi-user hosts", () => {
+  const AUTO_TAG_BODY = {
+    sourceIdentityKey: "tina",
+    hostId: 5,
+    newName: "tina-2",
+    title: "Cloned Op",
+    voice: null,
+    avatarCandidateId: null,
+    path: "~",
+  };
+
+  it("Test Z-1: single-user host clone → NO users: key in output frontmatter (byte-shape unchanged from pre-129)", async () => {
+    // Default mocks: isHostMultiUser=false, getUsernameForUserId=null.
+    // The auto-tag branch must never run; the emitted frontmatter must have
+    // no users: key anywhere.
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify(AUTO_TAG_BODY),
+    });
+
+    expect(res.status).toBe(201);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    // No users: key emitted anywhere (frontmatter OR body).
+    expect(stubBody).not.toMatch(/users:/);
+    // Auto-tag branch was correctly probed but stayed silent.
+    expect(isHostMultiUser).toHaveBeenCalledWith(5);
+    // getUsernameForUserId must NOT be called on the single-user path.
+    expect(getUsernameForUserId).not.toHaveBeenCalled();
+    // Structured log: single-user skip crumb emitted at debug seam.
+    expect(sshLogger.debug).toHaveBeenCalledWith(
+      expect.stringMatching(/auto-tag skipped — single-user host/i),
+      expect.objectContaining({
+        operation: "identity_clone_auto_tag_skipped_single_user",
+        hostId: 5,
+        newName: "tina-2",
+      }),
+    );
+  });
+
+  it("Test Z-2: multi-user host clone → users: [creator] present, exactly the creator's Skynet username", async () => {
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify(AUTO_TAG_BODY),
+    });
+
+    expect(res.status).toBe(201);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+
+    // The users: pair is emitted exactly once, containing exactly the
+    // creator's Skynet username (case-preserved — no toLowerCase). yaml.dump
+    // serializes ["ashley"] as either flow (`[ashley]`) or block sequence
+    // (`- ashley`); accept either form via a permissive matcher that just
+    // asserts "users:" appears with "ashley" on the same or next line.
+    expect(stubBody).toMatch(/users:\s*(\[ashley\]|\n\s*-\s*ashley)/);
+    // Byte-shape lock: no accidental extra users: keys.
+    expect(stubBody.match(/^users:/gm)?.length ?? 0).toBe(1);
+    // Both helpers called; the successful auto-tag path also emitted an
+    // info-level structured log.
+    expect(isHostMultiUser).toHaveBeenCalledWith(5);
+    expect(getUsernameForUserId).toHaveBeenCalledWith("1");
+    expect(sshLogger.info).toHaveBeenCalledWith(
+      expect.stringMatching(/auto-tagged creator on multi-user host/i),
+      expect.objectContaining({
+        operation: "identity_clone_auto_tagged",
+        newName: "tina-2",
+        hostId: 5,
+        creatorUsername: "ashley",
+      }),
+    );
+  });
+
+  it("Test Z-3: fail-open — getUsernameForUserId returns null on multi-user host → NO users: key, warn log emitted", async () => {
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue(null);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify(AUTO_TAG_BODY),
+    });
+
+    // Fail-open: the clone still succeeds (201), just without the users: key
+    // — a wrong-user auto-tag would be a shape §"would make it wrong"
+    // bullet-3 violation, so skipping is safer than tagging with "" or
+    // failing the whole request.
+    expect(res.status).toBe(201);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    // No users: key emitted anywhere.
+    expect(stubBody).not.toMatch(/users:/);
+    // Loud warn log at the skipped-lookup seam.
+    expect(sshLogger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/username lookup failed — auto-tag skipped/i),
+      expect.objectContaining({
+        operation: "identity_clone_username_lookup_failed",
+        userId: "1",
+        hostId: 5,
+        newName: "tina-2",
+      }),
+    );
+  });
+
+  it("Test Z-4: fail-open — isHostMultiUser throws → treat as single-user, NO users: key, warn log emitted", async () => {
+    (isHostMultiUser as Mock).mockRejectedValue(new Error("transient DB glitch"));
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify(AUTO_TAG_BODY),
+    });
+
+    // Fail-open: a transient DB failure MUST NOT fail the clone.
+    expect(res.status).toBe(201);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(stubBody).not.toMatch(/users:/);
+    // getUsernameForUserId must NOT be called after isHostMultiUser threw.
+    expect(getUsernameForUserId).not.toHaveBeenCalled();
+    // Warn log emitted at the probe-threw seam.
+    expect(sshLogger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/isHostMultiUser threw/i),
+      expect.objectContaining({
+        operation: "identity_clone_multi_user_probe_failed",
+        userId: "1",
+        hostId: 5,
+        newName: "tina-2",
+      }),
+    );
   });
 });
