@@ -56,13 +56,26 @@ vi.mock("../../utils/auth-manager.js", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Logger mock — silent
+// Logger mock — silent. systemLogger added for Phase 129 gate-seam warn/debug
+// assertions (search_gate_read_error / search_gate_hidden /
+// search_gate_username_missing operations).
 // ---------------------------------------------------------------------------
+
+const { systemLoggerWarnMock, systemLoggerDebugMock } = vi.hoisted(() => ({
+  systemLoggerWarnMock: vi.fn(),
+  systemLoggerDebugMock: vi.fn(),
+}));
 
 vi.mock("../../utils/logger.js", () => ({
   sshLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   databaseLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  systemLogger: {
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: systemLoggerWarnMock,
+    debug: systemLoggerDebugMock,
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -140,10 +153,55 @@ const listIdentityKeysOnHostMock = vi.fn();
 const listArchivedIdentityKeysOnHostMock = vi.fn();
 const discoverIdentitySessionFileMock = vi.fn();
 
-vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
-  listIdentityKeysOnHost: (conn: unknown) => listIdentityKeysOnHostMock(conn),
-  IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+// Phase 129 Plan 129-04: readIdentityFile + readRoleFileByName mocks power
+// the per-host batched gate-fetch (unique identityKeys → cosmetics + role).
+// The mocks default to returning empty markdown; individual tests install
+// per-identity frontmatter via mockSearchWithIdentityUsers(). vi.hoisted
+// gives us a call-counter that survives vi.mock's factory hoisting so Test E
+// can assert readIdentityFile is called O(unique keys) not O(hits).
+const { readIdentityFileMock, readRoleFileByNameMock } = vi.hoisted(() => ({
+  readIdentityFileMock: vi.fn(),
+  readRoleFileByNameMock: vi.fn(),
 }));
+
+vi.mock(
+  "../../claude-session/identity-artifact-reader.js",
+  async () => {
+    // Use the REAL extractCosmeticsFromFrontmatter + extractRoleFromMarkdown
+    // pure parsers so the gate machinery reads the same markdown the route
+    // does at runtime. Only the SSH readers are mocked.
+    const actual = await vi.importActual<
+      typeof import("../../claude-session/identity-artifact-reader.js")
+    >("../../claude-session/identity-artifact-reader.js");
+    return {
+      ...actual,
+      listIdentityKeysOnHost: (conn: unknown) => listIdentityKeysOnHostMock(conn),
+      readIdentityFile: (conn: unknown, identityKey: string) =>
+        readIdentityFileMock(conn, identityKey),
+      readRoleFileByName: (conn: unknown, roleName: string) =>
+        readRoleFileByNameMock(conn, roleName),
+      IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+    };
+  },
+);
+
+// Phase 129 Plan 129-04: getUsernameForUserId mock powers the per-request
+// callerUsername resolution. Tests install per-mockUserId maps to route
+// different callers ("ashley" vs "zoe") through the same handler.
+const { getUsernameForUserIdMock } = vi.hoisted(() => ({
+  getUsernameForUserIdMock: vi.fn(),
+}));
+
+vi.mock("../../utils/host-user-counter.js", () => ({
+  getUsernameForUserId: (userId: string) => getUsernameForUserIdMock(userId),
+  isHostMultiUser: vi.fn().mockResolvedValue(false),
+}));
+
+// Phase 129 Plan 129-04: use the REAL isIdentityVisibleToUser gate (Plan
+// 129-01 pure function) rather than mocking — the D-2 intersection matrix
+// is already exhaustively tested there, so tests here exercise the wiring
+// through actual gate semantics. Zero-config: importActual returns the real
+// module; no vi.mock override needed for identity-visibility-gate.js.
 
 vi.mock("../../claude-session/list-archived-identity-keys.js", () => ({
   listArchivedIdentityKeysOnHost: (conn: unknown) =>
@@ -296,6 +354,17 @@ beforeEach(() => {
   listIdentityKeysOnHostMock.mockResolvedValue([]);
   listArchivedIdentityKeysOnHostMock.mockResolvedValue([]);
   discoverIdentitySessionFileMock.mockResolvedValue(null);
+
+  // Phase 129 Plan 129-04 defaults: readIdentityFile returns empty markdown
+  // (no frontmatter → cosmetics {} + role null → gate falls open per D-3).
+  // Tests override to inject users:[...] frontmatter. Same discipline for
+  // readRoleFileByName. getUsernameForUserId defaults to the pre-129
+  // "test-user" so pre-129 tests are unaffected.
+  readIdentityFileMock.mockResolvedValue({ markdown: "" });
+  readRoleFileByNameMock.mockResolvedValue({ markdown: "" });
+  getUsernameForUserIdMock.mockResolvedValue("test-user");
+  systemLoggerWarnMock.mockReset();
+  systemLoggerDebugMock.mockReset();
 
   const app = express();
   app.use("/conversation-search", conversationSearchRoutes);
@@ -732,5 +801,410 @@ describe("POST /conversation-search — query length cap", () => {
       query: q,
     });
     expect(res.status).toBe(200);
+  });
+});
+
+// ===========================================================================
+// Phase 129 Plan 129-04: search-surface visibility gate (D-7 seam #4)
+// ===========================================================================
+//
+// Tests for the D-2 intersection gate applied AFTER runOneHost returns raw
+// hits and BEFORE they flatten into the response. Design constraints:
+//   - Batched frontmatter fetch: O(unique identityKeys in the result page),
+//     bounded by DEFAULT_LIMIT (Pitfall 4). Verified by Test E's read-
+//     count assertion on the readIdentityFile mock.
+//   - FAIL-CLOSED on frontmatter read error (Phase 129 exception per
+//     PATTERNS.md § "Read-path fail-open, write-path fail-closed"). Search
+//     hits are information-disclosure surfaces: a leaked hit for a hidden
+//     identity is more visible than a dropped hit. Verified by Test F.
+//   - FAIL-OPEN on null callerUsername (unknown/orphaned JWT userId). A
+//     null caller is an infra bug, not a gate signal; treating it as "hide
+//     everything" would empty every user's search results. Verified by
+//     Test G.
+//   - Archive branch honors the same gate (Test D).
+
+describe("Phase 129: search-surface visibility gate", () => {
+  // -------------------------------------------------------------------------
+  // Fixture helpers
+  // -------------------------------------------------------------------------
+
+  /**
+   * mockSearchWithIdentityUsers — build a per-identity frontmatter fixture.
+   * Wires readIdentityFileMock + readRoleFileByNameMock so that when the
+   * gate machinery asks for identityKey's markdown, it gets the crafted
+   * users:[...] YAML block. roleName / roleUsers are optional; when
+   * supplied, the identity file's frontmatter carries role: <roleName>
+   * and readRoleFileByNameMock returns a matching role file with its own
+   * users: list.
+   *
+   * Layered: multiple calls before firing a request build a map
+   * (identityKey → frontmatter) so heterogeneous batches work correctly.
+   */
+  const identityFrontmatterMap = new Map<string, string>();
+  const roleFrontmatterMap = new Map<string, string>();
+
+  function mockSearchWithIdentityUsers(
+    identityKey: string,
+    opts: {
+      identityUsers?: string[];
+      roleName?: string;
+      roleUsers?: string[];
+    } = {},
+  ): void {
+    const { identityUsers, roleName, roleUsers } = opts;
+    const identityLines: string[] = ["---"];
+    if (typeof roleName === "string" && roleName.length > 0) {
+      identityLines.push(`role: ${roleName}`);
+    }
+    if (Array.isArray(identityUsers) && identityUsers.length > 0) {
+      identityLines.push(
+        `users: [${identityUsers.map((u) => JSON.stringify(u)).join(", ")}]`,
+      );
+    }
+    identityLines.push("---", "", `# ${identityKey}`, "");
+    identityFrontmatterMap.set(identityKey, identityLines.join("\n"));
+
+    if (typeof roleName === "string" && roleName.length > 0) {
+      const roleLines: string[] = ["---"];
+      if (Array.isArray(roleUsers) && roleUsers.length > 0) {
+        roleLines.push(
+          `users: [${roleUsers.map((u) => JSON.stringify(u)).join(", ")}]`,
+        );
+      }
+      roleLines.push("---", "", `# role: ${roleName}`, "");
+      roleFrontmatterMap.set(roleName, roleLines.join("\n"));
+    }
+
+    readIdentityFileMock.mockImplementation(async (_conn: unknown, key: string) => ({
+      markdown: identityFrontmatterMap.get(key) ?? "",
+    }));
+    readRoleFileByNameMock.mockImplementation(
+      async (_conn: unknown, name: string) => ({
+        markdown: roleFrontmatterMap.get(name) ?? "",
+      }),
+    );
+  }
+
+  /**
+   * mockSearchHits — install exec-command stubs so runOneHost yields the
+   * given (identityKey → hits) map on the single host. Discovery stdout is
+   * assembled from the identityKeys and paths; grep stdout is assembled
+   * from the hits. Assumes ONE host in simpleDbSelectMock.
+   */
+  function mockSearchHits(
+    hits: Array<{ identityKey: string; mtime: number; content: string; isArchived?: boolean }>,
+  ): void {
+    // Discovery records: one per identityKey → deterministic path per key.
+    const seen = new Set<string>();
+    const discoveryRecords: Array<{
+      mtime: number;
+      path: string;
+      firstUserLine: string;
+    }> = [];
+    for (const h of hits) {
+      if (seen.has(h.identityKey)) continue;
+      seen.add(h.identityKey);
+      discoveryRecords.push({
+        mtime: 5000,
+        path: `/x/${h.identityKey}.jsonl`,
+        firstUserLine: makeIdFirstUserLine(h.identityKey),
+      });
+    }
+    const discoveryStdout = makeDiscoveryStdout(discoveryRecords);
+
+    const grepOut = fakeGrepOutput(
+      hits.map((h) => ({
+        mtime: h.mtime,
+        path: `/x/${h.identityKey}.jsonl`,
+        lineno: 1,
+        rawLine: jsonlLine(h.content),
+      })),
+    );
+
+    // Feed listIdentityKeysOnHost (live) + listArchivedIdentityKeysOnHost
+    // per hit.isArchived so pathIndex.isArchived tracks correctly.
+    const liveKeys: string[] = [];
+    const archivedKeys: string[] = [];
+    for (const h of hits) {
+      const arr = h.isArchived === true ? archivedKeys : liveKeys;
+      if (!arr.includes(h.identityKey)) arr.push(h.identityKey);
+    }
+    listIdentityKeysOnHostMock.mockResolvedValue(liveKeys);
+    listArchivedIdentityKeysOnHostMock.mockResolvedValue(archivedKeys);
+
+    execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
+      return grepOut;
+    });
+  }
+
+  /**
+   * mockReadIdentityFileCounter — reset + return a getter for the number
+   * of times readIdentityFileMock was invoked. Test E asserts the gate's
+   * batched-lookup discipline: ≤ 1 read per UNIQUE identityKey (Pitfall 4).
+   */
+  function mockReadIdentityFileCounter(): () => number {
+    // The mock's own call count is the counter; caller reads it after the
+    // request. Wrap to make the intent audit-visible via grep.
+    return () => readIdentityFileMock.mock.calls.length;
+  }
+
+  beforeEach(() => {
+    identityFrontmatterMap.clear();
+    roleFrontmatterMap.clear();
+    // Default: single SSH+autoTmux host so tests can just install hits.
+    simpleDbSelectMock.mockResolvedValue([
+      { id: 1, name: "host-a", enableSsh: true, terminalConfig: null },
+    ]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test A — single-user host, no gate → zero regression
+  // -------------------------------------------------------------------------
+
+  it("Test A: single-user host with no users:[] on any identity — all hits surface for both callers (D-3 fallback preserved)", async () => {
+    mockSearchWithIdentityUsers("muffin"); // no users, no role
+    mockSearchWithIdentityUsers("scone"); // no users, no role
+    mockSearchHits([
+      { identityKey: "muffin", mtime: 200, content: "cheese platter" },
+      { identityKey: "scone", mtime: 100, content: "cheese and crackers" },
+    ]);
+
+    // Caller Ashley
+    mockUserId = "uid-ashley";
+    getUsernameForUserIdMock.mockResolvedValue("ashley");
+
+    const res = await httpPostJson(server, "/conversation-search", {
+      query: "cheese",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { results: Array<Record<string, unknown>>; hasMore: boolean };
+    expect(body.results).toHaveLength(2);
+    const keys = body.results.map((r) => r.identityKey).sort();
+    expect(keys).toEqual(["muffin", "scone"]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test B — multi-user host, identity users:[ashley] → Zoe filtered
+  // -------------------------------------------------------------------------
+
+  it("Test B: identity users:[ashley] — Ashley sees muffin hit; Zoe sees ZERO hits from muffin (D-7 no leak)", async () => {
+    mockSearchWithIdentityUsers("muffin", { identityUsers: ["ashley"] });
+    mockSearchWithIdentityUsers("scone"); // ungated, both see
+    mockSearchHits([
+      { identityKey: "muffin", mtime: 200, content: "cheese platter" },
+      { identityKey: "scone", mtime: 100, content: "cheese and crackers" },
+    ]);
+
+    // Ashley: both muffin + scone
+    mockUserId = "uid-ashley";
+    getUsernameForUserIdMock.mockResolvedValue("ashley");
+    const ashleyRes = await httpPostJson(server, "/conversation-search", {
+      query: "cheese",
+    });
+    expect(ashleyRes.status).toBe(200);
+    const ashleyBody = ashleyRes.body as {
+      results: Array<Record<string, unknown>>;
+    };
+    const ashleyKeys = ashleyBody.results.map((r) => r.identityKey).sort();
+    expect(ashleyKeys).toEqual(["muffin", "scone"]);
+
+    // Zoe: only scone; muffin FILTERED because users:[ashley] excludes her.
+    mockUserId = "uid-zoe";
+    getUsernameForUserIdMock.mockResolvedValue("zoe");
+    const zoeRes = await httpPostJson(server, "/conversation-search", {
+      query: "cheese",
+    });
+    expect(zoeRes.status).toBe(200);
+    const zoeBody = zoeRes.body as {
+      results: Array<Record<string, unknown>>;
+    };
+    const zoeKeys = zoeBody.results.map((r) => r.identityKey);
+    expect(zoeKeys).toEqual(["scone"]);
+    expect(zoeKeys).not.toContain("muffin");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test C — role users:[ashley], identity untagged → Zoe filtered (D-2)
+  // -------------------------------------------------------------------------
+
+  it("Test C: role users:[ashley] (identity untagged) — Zoe sees ZERO hits under that role (D-2 role-side gate closes)", async () => {
+    mockSearchWithIdentityUsers("muffin", {
+      roleName: "coordinator",
+      roleUsers: ["ashley"],
+    });
+    mockSearchHits([
+      { identityKey: "muffin", mtime: 200, content: "cheese platter" },
+    ]);
+
+    // Ashley sees it
+    mockUserId = "uid-ashley";
+    getUsernameForUserIdMock.mockResolvedValue("ashley");
+    const ashleyRes = await httpPostJson(server, "/conversation-search", {
+      query: "cheese",
+    });
+    const ashleyBody = ashleyRes.body as {
+      results: Array<Record<string, unknown>>;
+    };
+    expect(ashleyBody.results.map((r) => r.identityKey)).toEqual(["muffin"]);
+
+    // Zoe does not (role gate closes)
+    mockUserId = "uid-zoe";
+    getUsernameForUserIdMock.mockResolvedValue("zoe");
+    const zoeRes = await httpPostJson(server, "/conversation-search", {
+      query: "cheese",
+    });
+    const zoeBody = zoeRes.body as {
+      results: Array<Record<string, unknown>>;
+    };
+    expect(zoeBody.results).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test D — archive branch also gated
+  // -------------------------------------------------------------------------
+
+  it("Test D: archived identity file with users:[ashley] — Zoe's archive-branch search returns ZERO hits from that identity", async () => {
+    mockSearchWithIdentityUsers("stale-muffin", { identityUsers: ["ashley"] });
+    mockSearchHits([
+      {
+        identityKey: "stale-muffin",
+        mtime: 500,
+        content: "cheese archived",
+        isArchived: true,
+      },
+    ]);
+
+    // Ashley sees the archived hit
+    mockUserId = "uid-ashley";
+    getUsernameForUserIdMock.mockResolvedValue("ashley");
+    const ashleyRes = await httpPostJson(server, "/conversation-search", {
+      query: "cheese",
+    });
+    const ashleyBody = ashleyRes.body as {
+      results: Array<Record<string, unknown>>;
+    };
+    expect(ashleyBody.results).toHaveLength(1);
+    expect(ashleyBody.results[0].identityKey).toBe("stale-muffin");
+    expect(ashleyBody.results[0].isArchived).toBe(true);
+
+    // Zoe does not — archive branch honors the SAME gate as the live branch
+    mockUserId = "uid-zoe";
+    getUsernameForUserIdMock.mockResolvedValue("zoe");
+    const zoeRes = await httpPostJson(server, "/conversation-search", {
+      query: "cheese",
+    });
+    const zoeBody = zoeRes.body as {
+      results: Array<Record<string, unknown>>;
+    };
+    expect(zoeBody.results).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test E — batched-lookup counter (Pitfall 4 O(unique keys) discipline)
+  // -------------------------------------------------------------------------
+
+  it("Test E: 20 hits across 3 unique identityKeys → readIdentityFile called ≤ 3 times (batched O(unique-keys) discipline)", async () => {
+    mockSearchWithIdentityUsers("alpha");
+    mockSearchWithIdentityUsers("beta");
+    mockSearchWithIdentityUsers("gamma");
+    // 20 hits round-robin across the 3 keys — dedup-by-path collapses hits
+    // per-file to one row, so we build 3 discovery records but many grep
+    // hits per file. The gate's UNIQUE-key discipline is what we're
+    // asserting: even before dedup collapses rows, the gate MUST fetch
+    // per-unique-key not per-hit.
+    const hits: Array<{ identityKey: string; mtime: number; content: string }> = [];
+    for (let i = 0; i < 20; i++) {
+      const key = ["alpha", "beta", "gamma"][i % 3];
+      hits.push({ identityKey: key, mtime: 1000 - i, content: `cheese ${i}` });
+    }
+    mockSearchHits(hits);
+
+    mockUserId = "uid-ashley";
+    getUsernameForUserIdMock.mockResolvedValue("ashley");
+
+    const readCount = mockReadIdentityFileCounter();
+    const res = await httpPostJson(server, "/conversation-search", {
+      query: "cheese",
+    });
+    expect(res.status).toBe(200);
+    // The gate MUST have fetched frontmatter per UNIQUE key (≤ 3),
+    // never per hit (which would be 20). Equality is the strict form;
+    // ≤ 3 permits any legitimate deduping.
+    expect(readCount()).toBeLessThanOrEqual(3);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test F — FAIL-CLOSED on read error (Phase 129 exception)
+  // -------------------------------------------------------------------------
+
+  it("Test F: readIdentityFile throws for muffin → muffin hits are DROPPED (fail-CLOSED per PATTERNS.md exception) + search_gate_read_error warn logged", async () => {
+    // scone reads normally; muffin's frontmatter read throws
+    mockSearchWithIdentityUsers("scone");
+    mockSearchHits([
+      { identityKey: "muffin", mtime: 200, content: "cheese platter" },
+      { identityKey: "scone", mtime: 100, content: "cheese and crackers" },
+    ]);
+    readIdentityFileMock.mockImplementation(async (_conn: unknown, key: string) => {
+      if (key === "muffin") {
+        throw new Error("permission denied on identity file read");
+      }
+      return { markdown: identityFrontmatterMap.get(key) ?? "" };
+    });
+
+    mockUserId = "uid-ashley";
+    getUsernameForUserIdMock.mockResolvedValue("ashley");
+
+    const res = await httpPostJson(server, "/conversation-search", {
+      query: "cheese",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { results: Array<Record<string, unknown>> };
+    // muffin was DROPPED (fail-closed) — Ashley sees only scone
+    const keys = body.results.map((r) => r.identityKey);
+    expect(keys).not.toContain("muffin");
+    expect(keys).toContain("scone");
+
+    // structured warn log MUST fire with operation:"search_gate_read_error"
+    const warnCalls = systemLoggerWarnMock.mock.calls;
+    const gateErrorWarn = warnCalls.find((c) => {
+      const meta = c[1] as { operation?: string } | undefined;
+      return meta?.operation === "search_gate_read_error";
+    });
+    expect(gateErrorWarn).toBeTruthy();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test G — FAIL-OPEN on null callerUsername (defensive per-request)
+  // -------------------------------------------------------------------------
+
+  it("Test G: getUsernameForUserId returns null → gate DISABLED (all hits surface) + search_gate_username_missing warn logged", async () => {
+    mockSearchWithIdentityUsers("muffin", { identityUsers: ["ashley"] });
+    mockSearchHits([
+      { identityKey: "muffin", mtime: 200, content: "cheese platter" },
+    ]);
+
+    mockUserId = "uid-orphan";
+    getUsernameForUserIdMock.mockResolvedValue(null); // caller-username lookup failure
+
+    const res = await httpPostJson(server, "/conversation-search", {
+      query: "cheese",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { results: Array<Record<string, unknown>> };
+    // Gate is disabled — muffin surfaces even though its users:[ashley]
+    // would otherwise close for a null caller. This is D-8 fail-open on
+    // the PER-REQUEST side (a null caller is an infra bug, not a gate
+    // signal). Distinct from Test F which is per-HIT fail-closed.
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0].identityKey).toBe("muffin");
+
+    // Structured warn log fires so ops can trace missing-username
+    const warnCalls = systemLoggerWarnMock.mock.calls;
+    const usernameMissingWarn = warnCalls.find((c) => {
+      const meta = c[1] as { operation?: string } | undefined;
+      return meta?.operation === "search_gate_username_missing";
+    });
+    expect(usernameMissingWarn).toBeTruthy();
   });
 });
