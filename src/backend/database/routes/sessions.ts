@@ -6,12 +6,28 @@ import { db } from "../db/index.js";
 import { hosts } from "../db/schema.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { SimpleDBOps } from "../../utils/simple-db-ops.js";
-import { sshLogger, databaseLogger } from "../../utils/logger.js";
+import { sshLogger, databaseLogger, systemLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
-import { resolveRoleForIdentity } from "../../claude-session/identity-artifact-reader.js";
+import {
+  readIdentityFile,
+  readRoleFileByName,
+  extractRoleFromMarkdown,
+  extractCosmeticsFromFrontmatter,
+} from "../../claude-session/identity-artifact-reader.js";
 import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
+// Phase 129 Plan 129-03: per-user visibility gate on GET /sessions/list —
+// D-7 deep-gate seam #2 (identities/ was #1 in Plan 129-02). The gate lives
+// in a companion pure function (identity-visibility-gate.ts) per the Phase
+// 111 T-111-08 one-cascade-authority invariant — call sites hold gate
+// authority so a grep for the gate function name in this file answers
+// "did we gate this call site?". The username-lookup helper translates the
+// JWT-authenticated userId into the Skynet username string the gate
+// compares against on-disk `users:` frontmatter lists (case-sensitive per
+// Pitfall 7 lock; see 129-01 SUMMARY for the design rationale).
+import { isIdentityVisibleToUser } from "../../fleet-status/identity-visibility-gate.js";
+import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 // Phase 85 (D-07): identity-name-keyed send-log store — replaces the
 // byte-parallel `scanTailForNewestMessageAt` call for `/sessions/list`'s
 // `lastMessageAt` seed. AppShell reads `/sessions/list` on page load to
@@ -294,6 +310,34 @@ interface TmuxSessionRow {
 router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
   try {
+    // Phase 129 Plan 129-03: per-request callerUsername lookup for the D-2
+    // visibility gate applied per-session below. Fetched EXACTLY ONCE per
+    // request — not per host, not per session — matching this file's
+    // per-request-cost discipline (see the roleReadCache pattern established
+    // in Plan 129-02 identities.ts L361-386 for the analogous per-host memo
+    // rationale). Runs BEFORE the per-host fanout so every host + session
+    // shares the same resolved caller identity.
+    //
+    // A null result (unknown / orphaned userId) is a shape-violation
+    // defensive branch — we do NOT abort the request. Per D-8 the visibility
+    // gate is NOT a permission system; a defective username lookup must fall
+    // OPEN (return rows the current host-access predicate would allow)
+    // rather than empty out the caller's sidebar. isIdentityVisibleToUser
+    // short-circuits to `true` on a null callerUsername (Plan 129-01
+    // Task 2 Test 1 — the internal-server / test / admin-bypass semantic).
+    // Ops needs a log crumb to trace "why did the gate not run for this
+    // request?" so we emit a structured warn.
+    const callerUsername = await getUsernameForUserId(userId);
+    if (callerUsername === null) {
+      systemLogger.warn(
+        "Phase 129: GET /sessions/list callerUsername lookup failed — gate disabled for this request",
+        {
+          operation: "sessions_gate_username_missing",
+          userId,
+        },
+      );
+    }
+
     // SimpleDBOps decrypts the encrypted columns (terminalConfig, etc.)
     const rows = (await SimpleDBOps.select(
       db.select().from(hosts).where(eq(hosts.userId, userId)),
@@ -366,12 +410,75 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                 };
               });
 
+            // Phase 129 Plan 129-03: per-host role-cosmetics memo. Multiple
+            // sessions of the same role on the same host must read the role
+            // file AT MOST ONCE (T-129-03-03 SSH DoS mitigation; mirrors
+            // identities.ts L399-424 roleReadCache pattern). Storing the
+            // in-flight Promise (not the resolved value) collapses parallel
+            // reads within the same Promise.all fanout — the second caller
+            // awaits the first caller's in-flight readRoleFileByName rather
+            // than kicking off a second SSH exec. Lives inside the per-host
+            // try block so it's fresh per request, not module-global.
+            //
+            // On read error the cache stores `null` — matches the D-8
+            // fail-open contract (visibility filter, not permission system):
+            // a role-file read failure must NOT convert into a false-positive
+            // HIDE via the gate.
+            const roleReadCache = new Map<
+              string,
+              Promise<ReturnType<typeof extractCosmeticsFromFrontmatter> | null>
+            >();
+            const readRoleCosmeticsMemoized = (
+              roleName: string,
+            ): Promise<
+              ReturnType<typeof extractCosmeticsFromFrontmatter> | null
+            > => {
+              const existing = roleReadCache.get(roleName);
+              if (existing !== undefined) return existing;
+              const p = (async () => {
+                try {
+                  const { markdown: roleMd } = await readRoleFileByName(
+                    conn,
+                    roleName,
+                  );
+                  return roleMd
+                    ? extractCosmeticsFromFrontmatter(roleMd)
+                    : {};
+                } catch {
+                  // Silent-swallow: role read failed. Return null so the
+                  // gate has no role-side users list to check — falls open
+                  // per D-8 (D-3 fallback: absent = "no gate on this side").
+                  return null;
+                }
+              })();
+              roleReadCache.set(roleName, p);
+              return p;
+            };
+
+            // Phase 129 Plan 129-03: per-session visibility decisions live
+            // in a parallel Map rather than a transient row field. This
+            // avoids the "did I mutate the wire shape?" audit question:
+            // TmuxSessionRow's compile-time shape stays exactly as-is; the
+            // Map is scoped to this per-host block and consulted at the
+            // return-time filter below.
+            //
+            // Convention: absence-in-map = "not yet decided" = "visible"
+            // (fail-open per D-8 — a row whose gate never ran, e.g. because
+            // the identity-file read threw BEFORE the gate could evaluate,
+            // is treated as visible). The `!== false` filter below preserves
+            // this contract at the return seam.
+            const visibleMap = new Map<string, boolean>();
+
             // Resolve role AND derive recency-signals for each session in
             // parallel. Three independent per-session blocks dispatched
             // concurrently:
             //
             //   1. roleResolveBlock — reads the identity's frontmatter over
-            //      the same already-open SSH conn.
+            //      the same already-open SSH conn (Phase 129 Plan 129-03:
+            //      fused with the visibility gate — the SAME readIdentityFile
+            //      output feeds BOTH extractRoleFromMarkdown AND
+            //      extractCosmeticsFromFrontmatter, so no second SSH round-
+            //      trip per row; Assumption A5 lock; T-129-03-03 mitigation).
             //   2. sendLogLookupBlock — reads the identity-name-keyed send-log
             //      store for `lastMessageAt`. INDEPENDENT of the SSH pathway
             //      (in-process DB lookup) so a slow tail-scan cannot null the
@@ -400,18 +507,62 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
             // `isRealUserTurn` dependency remain.
             await Promise.all(
               rows.map(async (row) => {
-                // Per-session role resolve (unchanged behavior).
+                // Phase 129 Plan 129-03: fused role + cosmetics + gate block.
+                // Single readIdentityFile per session (Assumption A5) whose
+                // markdown output feeds BOTH extractRoleFromMarkdown (for
+                // row.role — unchanged wire contract) AND
+                // extractCosmeticsFromFrontmatter (for the identity-side
+                // gate). A second SSH read here would double the per-row
+                // round-trip cost against the sshd MaxSessions=10 budget
+                // (T-129-03-03).
+                //
+                // Fail-open contract (D-8): if the identity-file read fails
+                // for any reason (SSH timeout, exec error, empty markdown),
+                // row.role stays null AND visibleMap stays UNSET for this
+                // row — the return-time `!== false` filter then keeps the
+                // row visible. Converting a read failure into a HIDE would
+                // be a permission-system behavior forbidden by D-8.
                 const roleResolveBlock = (async () => {
                   try {
-                    row.role = await Promise.race([
-                      resolveRoleForIdentity(conn, row.sessionName),
-                      new Promise<string>((_, reject) =>
+                    const { markdown } = await Promise.race([
+                      readIdentityFile(conn, row.sessionName),
+                      new Promise<{ markdown: string }>((_, reject) =>
                         setTimeout(
                           () => reject(new Error("per-identity role resolve timeout")),
                           PER_HOST_TIMEOUT_MS,
                         ),
                       ),
                     ]);
+                    const role = extractRoleFromMarkdown(markdown);
+                    row.role = role;
+
+                    // Phase 129 Plan 129-03: gate on identity + role users.
+                    // extractCosmeticsFromFrontmatter returns {} for empty
+                    // markdown; identityCos.users is absent → gate falls
+                    // open on the identity side (D-3 fallback).
+                    const identityCos =
+                      extractCosmeticsFromFrontmatter(markdown);
+                    const roleCos =
+                      role !== null
+                        ? await readRoleCosmeticsMemoized(role)
+                        : null;
+                    const visible = isIdentityVisibleToUser(
+                      identityCos,
+                      roleCos,
+                      callerUsername,
+                    );
+                    visibleMap.set(row.sessionName, visible);
+                    if (!visible) {
+                      systemLogger.debug(
+                        "Phase 129: session hidden by visibility gate",
+                        {
+                          operation: "sessions_gate_hidden",
+                          sessionName: row.sessionName,
+                          hostId,
+                          callerUsername,
+                        },
+                      );
+                    }
                   } catch (e) {
                     sshLogger.debug("sessions/list: role resolve skipped for session", {
                       operation: "sessions_list_role_resolve_skip",
@@ -421,6 +572,9 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                       error: e instanceof Error ? e.message : "unknown",
                     });
                     row.role = null;
+                    // Deliberately leave visibleMap UNSET for this row —
+                    // the return-time `!== false` filter treats absent
+                    // entries as visible (fail-open per D-8).
                   }
                 })();
 
@@ -546,7 +700,15 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
               }),
             );
 
-            return rows;
+            // Phase 129 Plan 129-03: D-7 deep-gate filter. `!== false` (not
+            // `=== true`) preserves the D-8 fail-open contract — rows whose
+            // gate never ran (identity-file read threw before
+            // visibleMap.set) stay visible. Only rows where the gate ran
+            // AND returned false are dropped. The row is ABSENT from the
+            // response (no orphan with role=null; no ghost cosmetics).
+            return rows.filter(
+              (r) => visibleMap.get(r.sessionName) !== false,
+            );
           } finally {
             try {
               conn.end();
