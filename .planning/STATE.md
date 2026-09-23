@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-09-21T05:49:11.614Z"
+last_updated: "2026-09-23T03:16:09.633Z"
 last_activity: 2026-09-21
 progress:
-  total_phases: 129
+  total_phases: 130
   completed_phases: 109
   total_plans: 563
   completed_plans: 555
@@ -1045,10 +1045,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-21T05:49:11.529Z
+Last session: 2026-09-23T03:16:09.532Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
-Stopped at: Completed 128-07 (frontend push opt-in + openRoom deep-link)
+Stopped at: Phase 129 context gathered (seeded from shape)
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
 Last session: 2026-09-06T12:17:07.176Z
@@ -1060,7 +1060,7 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: None
+Resume file: .planning/phases/129-multi-user-single-host-support-per-user-visibility-gate-on-r/129-CONTEXT.md
 Resume file: .planning/phases/118-first-class-apps-sweep-registry-shape-2/118-CONTEXT.md
 
 - Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)
