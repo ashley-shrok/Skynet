@@ -2789,3 +2789,13 @@ Plans:
 - [x] 128-09-PLAN.md — Delete src/backend/telegram/ (22 files) + substrate/services/tg-bridge/ (4 files) + voice.ts rejectBridgeServiceOnSpeak guard + schema.ts telegramBotTokens export + D-19 grep-gate confirmed DELETION of getSharedDMRoom (zero non-telegram production callers) + Rule 3 transitive removal of /matrix-admin/migrate-cred-files handler. Wave 4. 2 atomic chore commits (`56d318f5` + `9fa663d1`), 2474/2476 scoped tests green (7 G-* getSharedDMRoom tests + 1 regression + 7 migrate-cred-files tests removed alongside the code they exercised), backend + full frontend build clean.
 - [x] 128-10-PLAN.md — Delete tg-bridge from docker/docker-compose.yml + tg-bridge-state volume + /telegram nginx blocks from BOTH docker/nginx.conf + docker/nginx-https.conf. Wave 4.
 - [x] 128-11-PLAN.md — [BLOCKING] initializeDatabase integration test (7 tests: table presence, UNIQUE constraint, drop-migration hit/miss/idempotency, FK cascade) + phase-wide scoped vitest sweep. Wave 5.
+
+### Phase 129: multi-user-single-host support — per-user visibility gate on roles and identities, backend intersection gate + auto-tag at role/identity creation on multi-user hosts + role-picker filter
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 128
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 129 to break down)
