@@ -44,6 +44,23 @@ export type RawCosmetics = {
    * frontend render time (D-07 graceful degradation).
    */
   project?: string;
+  /**
+   * Phase 129 (D-10 field name locked, D-3 absent-⇒-omit fallback): per-user
+   * visibility gate — YAML list of Skynet usernames. Empty / absent = "no gate
+   * on this side" (falls open — matches the shape file's fallback rule
+   * "visible to everyone with host access"; zero-migration invariant).
+   *
+   * CASE-SENSITIVE comparison against the caller's Skynet username at
+   * gate-apply time — matches DB users.username storage discipline
+   * (`users.ts` L172 uses `eq(users.username, username)`; case is stored
+   * as-typed at register). RESEARCH § Common Pitfall 7 lock.
+   *
+   * Applied by the companion pure function `isIdentityVisibleToUser`
+   * (`identity-visibility-gate.ts`) — NOT inside resolveIdentityAppearance's
+   * cascade (D-8: visibility filter, not permission system; Phase 111 T-111-08
+   * "one cascade authority" invariant preserved).
+   */
+  users?: string[];
 };
 
 // ---------------------------------------------------------------------------

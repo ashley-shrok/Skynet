@@ -3147,6 +3147,15 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
    * fires only at the WRITE path (writeSessionProjectField from 117-01).
    */
   project?: string;
+  /**
+   * Phase 129 Plan 01 (D-10 field name locked): per-user visibility gate —
+   * YAML list of Skynet usernames. Absent-⇒-omit — an empty or missing list
+   * yields a returned object where the `users` key does NOT exist (D-3
+   * fallback: "no gate on this side" / zero-migration invariant). Case-
+   * sensitive strings compared at gate-apply time in
+   * isIdentityVisibleToUser (identity-visibility-gate.ts).
+   */
+  users?: string[];
 } {
   const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
@@ -3178,6 +3187,7 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
     coordinator?: boolean;
     task?: string;
     project?: string;
+    users?: string[];
   } = {};
   if (typeof src.displayName === "string" && src.displayName.length > 0) {
     out.displayName = src.displayName;
@@ -3231,6 +3241,21 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
   // graceful-degradation branch (D-07) instead of being silently dropped.
   if (typeof src.project === "string" && src.project.length > 0) {
     out.project = src.project;
+  }
+  // Phase 129 Plan 01 (D-10): users list narrowing — array-of-non-empty-strings.
+  // Empty array → out.users stays absent (absent-⇒-omit fallback semantic:
+  // caller sees "no gate on this side" via `!Array.isArray(out.users) ||
+  // out.users.length === 0`). Scalars / non-arrays are rejected by the
+  // Array.isArray gate — same discipline as every other narrower in this
+  // function (typed-shape acceptance, silent-drop on wrong-type input).
+  if (Array.isArray(src.users)) {
+    const normalized = src.users
+      .filter((u): u is string => typeof u === "string")
+      .map((u) => u.trim())
+      .filter((u) => u.length > 0);
+    if (normalized.length > 0) {
+      out.users = normalized;
+    }
   }
   return out;
 }
