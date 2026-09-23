@@ -10,7 +10,19 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import yaml from "js-yaml";
 import type { Request, Response } from "express";
-import { databaseLogger } from "../../utils/logger.js";
+import { databaseLogger, systemLogger } from "../../utils/logger.js";
+// Phase 129 Plan 129-02: per-user visibility gate on GET /identities. The
+// gate lives in a companion pure function (identity-visibility-gate.ts) per
+// the Phase 111 T-111-08 one-cascade-authority invariant — call sites hold
+// gate authority so "did we gate this call site?" is answered by grepping
+// for the gate function name in this file (see the single call site below
+// inside identityKeys.map, right before the publicIdentity return). The
+// username-lookup helper translates the JWT-authenticated userId into the
+// Skynet username string the gate compares against on-disk `users:`
+// frontmatter lists (case-sensitive per Pitfall 7 lock; see 129-01 SUMMARY
+// for the design rationale).
+import { isIdentityVisibleToUser } from "../../fleet-status/identity-visibility-gate.js";
+import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -302,6 +314,32 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
       return res.json([]);
     }
 
+    // Phase 129 Plan 129-02: per-request callerUsername lookup for the D-2
+    // visibility gate applied below inside identityKeys.map. Fetched EXACTLY
+    // ONCE per request — not per host, not per identity — matching this
+    // file's per-request-cost discipline (see the roleReadCache comment
+    // further down for the analogous per-host memo rationale).
+    //
+    // A null result (unknown / orphaned userId) is a shape-violation defensive
+    // branch — we do NOT abort the request. Per D-8 the visibility gate is
+    // NOT a permission system; a defective username lookup must fall OPEN
+    // (return rows the current host-access predicate would allow) rather
+    // than empty out the caller's sidebar. isIdentityVisibleToUser
+    // short-circuits to `true` on a null callerUsername (Plan 129-01
+    // Task 2 Test 1 — the internal-server / test / admin-bypass semantic).
+    // Ops needs a log crumb to trace "why did the gate not run for this
+    // request?" so we emit a structured warn.
+    const callerUsername = await getUsernameForUserId(userId);
+    if (callerUsername === null) {
+      systemLogger.warn(
+        "Phase 129: GET /identities callerUsername lookup failed — gate disabled for this request",
+        {
+          operation: "identities_gate_username_missing",
+          userId,
+        },
+      );
+    }
+
     // 3. Collect unique hostIds (Set preserves insertion order on iteration).
     //    Only the VALUES are used — the identity-name keys are ignored, so
     //    `{"zeus":11}` enumerates ALL of host 11, not just zeus. Fine for the
@@ -422,6 +460,38 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                     role !== null
                       ? await readRoleCosmeticsMemoized(role)
                       : null;
+
+                  // Phase 129 Plan 129-02: D-7 deep-gate seam #1. Called
+                  // AFTER cosmetics + roleCosmetics are extracted so both
+                  // `users:` frontmatter lists are available; BEFORE
+                  // publicIdentity so the hidden identity's row is NEVER
+                  // constructed (no stripped-down "something's here"
+                  // ghost — the row simply does not appear in the response).
+                  //
+                  // Return-null collapses onto the existing L450
+                  // `.filter((x): x is ... !== null)` — no new filter, no
+                  // shape change. Same drop channel as the mid-fanout read
+                  // failure above, but the log level and semantic are
+                  // different: read-fail is a warn (unexpected); gate-hide
+                  // is a debug (by-design).
+                  if (
+                    !isIdentityVisibleToUser(
+                      cosmetics,
+                      roleCosmetics,
+                      callerUsername,
+                    )
+                  ) {
+                    systemLogger.debug(
+                      "Phase 129: identity hidden by visibility gate",
+                      {
+                        operation: "identities_gate_hidden",
+                        identityKey,
+                        hostId,
+                        callerUsername,
+                      },
+                    );
+                    return null;
+                  }
 
                   return publicIdentity(
                     identityKey,

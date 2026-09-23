@@ -117,6 +117,22 @@ vi.mock("drizzle-orm", () => ({
   and: (...conds: unknown[]) => ({ __type: "and", conds }),
 }));
 
+// Phase 129 Plan 129-02: identities.ts now imports getUsernameForUserId from
+// host-user-counter.js (which transitively imports drizzle-orm's `inArray`
+// and `isNotNull`, not mocked in this file). Stub both new modules so the
+// PUT disk-write suite stays scoped to what it tests — the D-7 visibility
+// gate applies to GET /, not PUT /, and has its own coverage in
+// identities.get-disk.test.ts's "Phase 129: per-user visibility gate"
+// describe block.
+vi.mock("../../utils/host-user-counter.js", () => ({
+  isHostMultiUser: vi.fn().mockResolvedValue(false),
+  getUsernameForUserId: vi.fn().mockResolvedValue("test-user"),
+}));
+
+vi.mock("../../fleet-status/identity-visibility-gate.js", () => ({
+  isIdentityVisibleToUser: () => true,
+}));
+
 // Phase 66 Plan 04: schema mock narrowed to 5 surviving columns.
 vi.mock("../db/schema.js", () => ({
   identities: {
