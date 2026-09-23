@@ -2806,7 +2806,7 @@ Plans:
 
 **Requirements**: none mapped (requirements captured as D-01..D-10 locked decisions in 129-CONTEXT.md; ROADMAP requirements are patch-#43 specific and this phase is a separate feature — no REQ-IDs needed)
 **Depends on:** Phase 128
-**Plans:** 7/8 plans executed
+**Plans:** 8/8 plans complete
 Plans:
 **Wave 1**
 
@@ -2826,4 +2826,4 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 129-08-PLAN.md — Phase-wide gate: npm run build:backend + npm run build typecheck + phase-scoped vitest sweep across all 13 modified files + no-leak audit grep coverage matrix. Wave 4.
+- [x] 129-08-PLAN.md — Phase-wide gate: npm run build:backend + npm run build typecheck + phase-scoped vitest sweep across all 13 modified files + no-leak audit grep coverage matrix. Wave 4.

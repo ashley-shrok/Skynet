@@ -694,7 +694,7 @@ None yet.
 
 yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY DISCIPLINE — not a blocker, a standing constraint.
 
-- Phase 129 blocked by 129-08 verification gate: 5 TypeScript errors in src/backend/fleet-status/app-frame-filter.ts (Plan 129-05) — LogContext.hostId expects number but frame.hostId is string at 5 new debug log seams (L286, L306, L333, L368, L421). Fix path: coerce with Number(...) at each site. See 129-08-SUMMARY.md for full diagnosis.
+- ~~Phase 129 blocked by 129-08 verification gate: 5 TypeScript errors in src/backend/fleet-status/app-frame-filter.ts (Plan 129-05) — LogContext.hostId expects number but frame.hostId is string at 5 new debug log seams (L286, L306, L333, L368, L421). Fix path: coerce with Number(...) at each site. See 129-08-SUMMARY.md for full diagnosis.~~ **CLEARED 2026-09-23** by commit `3f2af75a fix(129-05): coerce hostId to number in app-frame-filter log seams` (applied the exact `Number(...)` coercion recommended in the diagnosis). Plan 129-08 re-verified GREEN: `npm run build:backend` exit 0, `npm run build` exit 0, phase-scoped vitest sweep 1781/1 skipped/0 failed identical to pre-fix, identity-clone.ts scope lock preserved (empty diff over HEAD~10). Phase 129 is CODE-COMPLETE; ship remains orchestrator-owned.
 
 ### Roadmap Evolution
 

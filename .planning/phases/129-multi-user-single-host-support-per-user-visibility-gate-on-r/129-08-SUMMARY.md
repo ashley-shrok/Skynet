@@ -29,8 +29,26 @@ metrics:
   duration_seconds: ~180
   duration_human: "~3 min executor time (npm run build:backend + vitest sweep + grep matrix)"
   completed_date: 2026-09-23
-  status: BLOCKING
+  status: COMPLETE
+  re_verification_date: 2026-09-23
+  re_verification_result: GREEN
+  unblocked_by: "3f2af75a fix(129-05): coerce hostId to number in app-frame-filter log seams"
 ---
+
+# Phase 129 Plan 08: Phase-wide verification gate Summary — **COMPLETE (unblocked 2026-09-23)**
+
+> **RE-VERIFICATION UPDATE (2026-09-23):** The 5 TS2322 errors documented below
+> were fixed by commit `3f2af75a` in Plan 129-05 (`Number(...)` coercion at each
+> of the 5 log-context call sites, exactly matching the "Recommended fix"
+> in this file's original diagnosis). A full re-run of Task 1 + Task 2 + Task 3
+> was executed 2026-09-23 and all three tasks pass. **Phase 129 is now
+> CODE-COMPLETE.** See the "RE-VERIFICATION (2026-09-23)" section at the bottom
+> of this file for the fresh command outputs and verdicts. The historical
+> BLOCKING content below is preserved verbatim for post-mortem forensics.
+
+---
+
+# Historical BLOCKING record (2026-09-23, pre-fix — preserved for forensics)
 
 # Phase 129 Plan 08: Phase-wide verification gate Summary — **BLOCKING**
 
@@ -357,9 +375,110 @@ Verification commands re-runnable by ops:
 
 | Task | Commit | Type | Files |
 |------|--------|------|-------|
-| Docs | (pending) | docs | 129-08-SUMMARY.md + STATE.md + ROADMAP.md |
+| Docs (initial BLOCKING) | `5bcf6c54` | docs | 129-08-SUMMARY.md + STATE.md (blocker recorded) |
+| Fix landed in owning plan | `3f2af75a` | fix(129-05) | src/backend/fleet-status/app-frame-filter.ts (5 sites coerced with `Number(...)`) |
+| Docs (RE-VERIFICATION GREEN) | (pending, this commit) | docs | 129-08-SUMMARY.md + STATE.md (blocker cleared) + ROADMAP.md |
 
-The verification-only nature of this plan means the executor produces exactly
-ONE docs commit (this SUMMARY + STATE + ROADMAP updates) — no per-task commits
-because no source was edited. Task 1's blocking status is the outcome, not a
-commit target.
+The verification-only nature of this plan means the executor produces docs
+commits only — no per-task source commits because no source was edited from
+inside this plan (the fix landed in Plan 129-05 as required by the plan spec's
+"DO NOT patch source code from inside this plan — this plan is a gate, not an
+editor" contract).
+
+---
+
+# RE-VERIFICATION (2026-09-23)
+
+**Trigger:** Commit `3f2af75a fix(129-05): coerce hostId to number in
+app-frame-filter log seams` landed on the working branch, applying the exact
+5-site `Number(frame.hostId)` / `Number(s.hostId)` coercion recommended in this
+file's original Task 1 diagnosis. This re-verification re-runs every check the
+initial gate performed and confirms the phase is now CODE-COMPLETE.
+
+## RE-VERIFICATION Task 1: Typecheck gate — **PASSED**
+
+### `npm run build:backend` — GREEN
+
+Command: `npm run build:backend`
+
+```
+> skynet@2.3.2 build:backend
+> tsc -p tsconfig.node.json && node -e "require('fs').copyFileSync('src/backend/package.json','dist/backend/package.json')"
+```
+
+Exit code: **0** (no TS diagnostics — the 5 TS2322 errors previously reported
+at L286/306/333/368/421 are all gone; `hostId: Number(...)` now satisfies
+`LogContext.hostId?: number` at every site).
+
+### `npm run build` — GREEN
+
+Command: `npm run build`
+
+Result: exit code **0**, `✓ built in 5.16s`. Full vite bundle + backend tsc
+chain succeeds with zero error/fail lines (verified via
+`npm run build 2>&1 | grep -iE "error|fail"` — the only match was the audio
+asset `error-Bp9G59ts.mp3` filename, not a diagnostic).
+
+## RE-VERIFICATION Task 2: Phase-scoped vitest sweep — **PASSED**
+
+Same 13-file source list as the initial run. Command:
+
+```bash
+npx vitest related --run \
+  src/backend/fleet-status/identity-appearance.ts \
+  src/backend/fleet-status/identity-visibility-gate.ts \
+  src/backend/claude-session/identity-artifact-reader.ts \
+  src/backend/utils/host-user-counter.ts \
+  src/backend/database/routes/identities.ts \
+  src/backend/database/routes/sessions.ts \
+  src/backend/database/routes/roles-list-for-host.ts \
+  src/backend/database/routes/conversation-search.ts \
+  src/backend/fleet-status/app-frame-filter.ts \
+  src/backend/fleet-status/fleet-status-server.ts \
+  src/backend/database/routes/roles-create.ts \
+  src/backend/database/routes/identity-birth-orchestrator.ts \
+  src/backend/database/routes/identity-birth.ts
+```
+
+Result:
+
+```
+Test Files  92 passed (92)
+     Tests  1781 passed | 1 skipped (1782)
+  Duration  106.53s (transform 1.62s, setup 1.43s, import 67.80s, tests 132.47s, environment 850ms)
+```
+
+Identical pass count to the pre-fix run (1781/92) — the `Number(...)` coercion
+is behavior-neutral at runtime (mocked systemLogger already accepted any value
+type; the fix only satisfies the compile-time `LogContext.hostId?: number` slot).
+
+Console-forward transport `ENOENT` noise in stderr is a pre-existing side effect
+of running vitest outside the container (no `/var/log/skynet/console-forward/`
+mount); it's best-effort logging and does not affect any test result.
+
+## RE-VERIFICATION Task 3: identity-clone.ts scope-lock check — **PASSED**
+
+Command: `git diff HEAD~10 -- src/backend/database/routes/identity-clone.ts`
+
+Result: **empty diff.** Confirmed via `git log --oneline -20` on the file — the
+most recent commit touching identity-clone.ts is `3aef7037 fix(frontmatter):
+standardize colorHue writers on MDXEditor's quoted-string shape` from a prior
+non-Phase-129 session; every Phase 129 wave (01-08) is well within the HEAD~10
+window and every single Phase 129 commit left this file untouched. v1 scope
+lock preserved end-to-end.
+
+## RE-VERIFICATION verdict
+
+| Check | Initial Run (pre-fix) | Re-run (post-fix `3f2af75a`) |
+|-------|-----------------------|-------------------------------|
+| Task 1 `npm run build:backend` | FAIL (5 TS2322) | **PASS (exit 0)** |
+| Task 1 `npm run build` | not run | **PASS (exit 0, `✓ built in 5.16s`)** |
+| Task 2 `npx vitest related --run <13 files>` | PASS (1781/1 skipped) | **PASS (1781/1 skipped — identical)** |
+| Task 3 identity-clone.ts scope lock | PASS (0 hits) | **PASS (empty diff over HEAD~10)** |
+
+All 4 verification checks green. **Phase 129 is CODE-COMPLETE.**
+
+Ship remains orchestrator-owned per box-maintainer standing directive — no
+`docker build` / no `docker compose up` / no HTTPS 200 verify / no
+`docker logs` performed from any executor plan, including this re-verification.
+Those steps are downstream orchestrator work.
