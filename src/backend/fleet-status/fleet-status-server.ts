@@ -98,6 +98,18 @@ export interface FleetStatusServerOptions {
     userId: string,
   ) => Promise<boolean>;
   /**
+   * Phase 130: userId → Skynet username resolver for the per-user project
+   * gate inside app-frame-filter's project-list-changed branch. When
+   * present, wired into createAppFrameFilter. Optional — an absent resolver
+   * makes the project user gate a no-op (host-access gate still applies).
+   *
+   * Fail-open on null username or throw (mirrors identity-gate discipline
+   * at starter.ts L685-697): a null callerUsername is an infra bug, not a
+   * gate signal — treating it as "hide everything" would empty every
+   * user's projects sidebar.
+   */
+  resolveCallerUsername?: (userId: string) => Promise<string | null>;
+  /**
    * Phase 118 Plan 118-05: TTL override for the app-frame filter's
    * per-(userId, hostIdStr) access cache. Defaults to 30s in
    * createAppFrameFilter. Tests can pass 0 for deterministic per-call
@@ -226,6 +238,7 @@ export function startFleetStatusServer(
     const appFrameFilter = createAppFrameFilter({
       resolveHostOwnerById: opts.resolveHostOwnerById,
       resolveIdentityGate,
+      resolveCallerUsername: opts.resolveCallerUsername,
       ttlMs: opts.appFrameFilterTtlMs,
       _checkHostAccess: opts._testCheckHostAccessOverride,
     });
@@ -236,6 +249,8 @@ export function startFleetStatusServer(
         operation: "fleet_status_filter_attached",
         ttlMs: opts.appFrameFilterTtlMs ?? "default",
         identityGate: opts.resolveIdentityGate !== undefined ? "wired" : "stubbed",
+        projectUserGate:
+          opts.resolveCallerUsername !== undefined ? "wired" : "stubbed",
       },
     );
   } else {

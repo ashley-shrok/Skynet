@@ -41,6 +41,8 @@ import {
   makeProjectListChangedFrame,
   makeSnapshotFrame,
 } from "./wire-protocol.js";
+// Phase 130: per-project user gate. Pure function; no DB / SSH imports.
+import { isProjectVisibleToUser } from "./project-visibility-gate.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,6 +98,21 @@ export interface AppFrameFilterCtx {
     hostIdStr: string,
     userId: string,
   ) => Promise<boolean>;
+  /**
+   * Phase 130: userId → Skynet username resolver for the project gate.
+   * Consulted ONCE per filter call (per subscriber per frame) inside the
+   * project-list-changed branch. Injected as a closure so this file owns no
+   * DB imports (same discipline as `resolveIdentityGate` above). Returns
+   * `null` when the userId doesn't map to a users row (deleted / renamed
+   * user, or a bare-subscriber code path that shouldn't reach this ctx);
+   * a null username DISABLES the project gate for that frame (fail-open —
+   * matches the wave-2 identity-gate discipline at starter.ts L685-697).
+   *
+   * Optional so pre-Phase-130 tests that construct ctx without this field
+   * degrade gracefully — an absent resolver skips the project user gate
+   * (host-access gate still applies).
+   */
+  resolveCallerUsername?: (userId: string) => Promise<string | null>;
 }
 
 /**
@@ -361,7 +378,16 @@ export async function filterAppFrame(
   }
 
   if (frame.type === "project-list-changed") {
-    const projects = frame.projects;
+    // Phase 130: cast the frame's projects entries to include the optional
+    // `users` gate list. `makeProjectListChangedFrame` accepts users on the
+    // input type (wire-protocol.ts) but the Zod wire schema deliberately has
+    // no users field — the field is gate-only. The cast is safe because the
+    // producer (publishProjectListChanged callers) pass entries carrying
+    // users; the filter reads them for gating, then STRIPS them below.
+    type GateEntry = (typeof frame.projects)[number] & {
+      users?: string[] | null;
+    };
+    const projects = frame.projects as GateEntry[];
     if (projects.length === 0) {
       return frame;
     }
@@ -374,7 +400,46 @@ export async function filterAppFrame(
       visibility.filter(([, ok]) => ok).map(([hid]) => hid),
     );
 
-    const projectedProjects = projects.filter((p) => visible.has(p.hostId));
+    // Phase 130: per-project user gate. Resolve callerUsername ONCE per
+    // filter call (per subscriber per frame). Null resolver (pre-130 tests
+    // constructing ctx without this field) OR null username (deleted /
+    // renamed user; bare-subscriber path) DISABLES the project gate for
+    // this frame — the host-access gate above still applies. Matches the
+    // wave-2 identity-gate fail-open discipline at starter.ts L685-697:
+    // a null caller is an infra bug, not a gate signal.
+    let callerUsername: string | null = null;
+    if (ctx.resolveCallerUsername) {
+      try {
+        callerUsername = await ctx.resolveCallerUsername(userId);
+      } catch (err) {
+        // Fail-OPEN on resolver error (username lookup is not the primary
+        // gate; the host gate is authoritative). Log so the failure is
+        // visible; matches identity-gate-username-missing at
+        // starter.ts:687-694.
+        systemLogger.warn(
+          "Fleet-status project gate: caller username lookup threw — gate disabled for this frame",
+          {
+            operation: "app_frame_filter_project_username_error",
+            userId,
+            error: err instanceof Error ? err.message : "unknown",
+          },
+        );
+        callerUsername = null;
+      }
+    }
+
+    // Filter: host gate + user gate. Strip `users` from every survivor
+    // before emit — Phase 129 HIGH-1 mirror. The field is gate-only.
+    const projectedProjects = projects
+      .filter((p) => {
+        if (!visible.has(p.hostId)) return false;
+        return isProjectVisibleToUser(p.users ?? null, callerUsername);
+      })
+      .map((p) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { users: _users, ...rest } = p;
+        return rest;
+      });
     return makeProjectListChangedFrame(projectedProjects);
   }
 
@@ -446,6 +511,14 @@ export interface CreateAppFrameFilterDeps {
    * JSDoc above for contract (fail-closed on throw; no cache in v1).
    */
   resolveIdentityGate: AppFrameFilterCtx["resolveIdentityGate"];
+  /**
+   * Phase 130: userId → Skynet username resolver for the project gate.
+   * Injected from starter.ts / fleet-status-server.ts. See
+   * `AppFrameFilterCtx.resolveCallerUsername` JSDoc for contract (fail-open
+   * on null username or throw; no cache in v1 — DB round-trip only).
+   * Optional so existing tests without the wiring degrade gracefully.
+   */
+  resolveCallerUsername?: AppFrameFilterCtx["resolveCallerUsername"];
   ttlMs?: number;
   /**
    * Test seam — inject a mock checkHostAccess without vi.mock. Production
@@ -468,11 +541,17 @@ export function createAppFrameFilter(
   const check = deps._checkHostAccess ?? defaultCheckHostAccess;
   const resolveHostOwnerById = deps.resolveHostOwnerById;
   const resolveIdentityGate = deps.resolveIdentityGate;
+  const resolveCallerUsername = deps.resolveCallerUsername;
 
   return async (frame, userId) => {
     return filterAppFrame(
       frame,
-      { userId, resolveHostOwnerById, resolveIdentityGate },
+      {
+        userId,
+        resolveHostOwnerById,
+        resolveIdentityGate,
+        resolveCallerUsername,
+      },
       cache,
       check,
     );

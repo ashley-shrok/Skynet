@@ -69,6 +69,9 @@ import {
   isHostMultiUser,
   getUsernameForUserId,
 } from "../../utils/host-user-counter.js";
+// Phase 130: per-user READ-side gate. Pure function; consumes the users list
+// parsed from project.md frontmatter and returns visible/hidden per caller.
+import { isProjectVisibleToUser } from "../../fleet-status/project-visibility-gate.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -140,9 +143,20 @@ function parseHostId(raw: unknown): ParsedHost {
  * resolved SSH host record), and archived:false (listProjects already
  * excludes the archive/ subdir per D-30). Non-archived only — v1 does
  * not surface archived projects on the wire.
+ *
+ * Phase 130: carries `users` on the internal ProjectListEntry so the
+ * app-frame-filter's project-list-changed branch can apply the per-user
+ * visibility gate against each subscriber before emit. The wire schema
+ * `FrontendProjectListChangedFrameSchema` (wire-protocol.ts) deliberately
+ * has NO users field — the filter STRIPS users before calling
+ * makeProjectListChangedFrame, so the gate list never reaches subscribers.
  */
 function enrichForWire(
-  projects: Array<{ slug: string; displayName: string }>,
+  projects: Array<{
+    slug: string;
+    displayName: string;
+    users: string[] | null;
+  }>,
   hostId: number,
   hostname: string,
 ): Array<{
@@ -151,6 +165,7 @@ function enrichForWire(
   hostId: string;
   hostname: string;
   archived: boolean;
+  users: string[] | null;
 }> {
   return projects.map((p) => ({
     slug: p.slug,
@@ -158,6 +173,7 @@ function enrichForWire(
     hostId: String(hostId),
     hostname,
     archived: false,
+    users: p.users,
   }));
 }
 
@@ -202,13 +218,33 @@ router.get(
 
     try {
       const raw = await listProjects(conn);
-      // Enrich with archived:false — listProjects already excludes archive/
-      // per D-30, so every returned entry is non-archived by construction.
-      const projects = raw.map((p) => ({
-        slug: p.slug,
-        displayName: p.displayName,
-        archived: false,
-      }));
+
+      // Phase 130: per-user READ-side gate. Resolve caller's Skynet username
+      // and drop any project the caller isn't gated to see. Fail-OPEN on
+      // username-lookup failure (matches wave-2 identity-gate discipline at
+      // starter.ts L685-697) — a null callerUsername is an infra bug, not
+      // a gate signal; treating it as "hide everything" would empty every
+      // user's projects sidebar on the affected code path.
+      //
+      // The `users` field is STRIPPED from the response body per Phase 129
+      // HIGH-1 mirror: it's gate-only, MUST NOT leak to the client (no
+      // evidence of cohabitants in a network trace).
+      let callerUsername: string | null = null;
+      try {
+        callerUsername = await getUsernameForUserId(userId);
+      } catch (usernameErr) {
+        databaseLogger.warn(
+          `projects-list: caller username lookup threw — gate disabled userId=${userId} hostId=${hostId}: ${usernameErr instanceof Error ? usernameErr.message : String(usernameErr)}`,
+        );
+      }
+
+      const projects = raw
+        .filter((p) => isProjectVisibleToUser(p.users, callerUsername))
+        .map((p) => ({
+          slug: p.slug,
+          displayName: p.displayName,
+          archived: false,
+        }));
       res.json({ projects });
       return;
     } catch (err) {

@@ -618,6 +618,191 @@ describe("app-frame-filter", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Phase 130: per-user project gate + users-strip on project-list-changed
+  // -------------------------------------------------------------------------
+  it("Test 22a (Phase 130): project-list-changed with per-project users → filtered by caller username", async () => {
+    // Two hosts both host-accessible to caller "ashley". Filter differs
+    // per-project by the users list.
+    const frame = makeProjectListChangedFrame([
+      {
+        slug: "alpha",
+        displayName: "Alpha",
+        hostId: "h1",
+        hostname: "one",
+        archived: false,
+        users: ["ashley"], // visible
+      },
+      {
+        slug: "beta",
+        displayName: "Beta",
+        hostId: "h1",
+        hostname: "one",
+        archived: false,
+        users: ["zoey"], // hidden
+      },
+      {
+        slug: "gamma",
+        displayName: "Gamma",
+        hostId: "h1",
+        hostname: "one",
+        archived: false,
+        users: null, // falls open (D-3)
+      },
+    ]);
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
+      resolveIdentityGate: async () => true,
+      resolveCallerUsername: async () => "ashley",
+    };
+    const result = await filterAppFrame(
+      frame,
+      ctx,
+      undefined,
+      async () => true,
+    );
+
+    expect(result).not.toBeNull();
+    if (result && result.type === "project-list-changed") {
+      expect(result.projects.map((p) => p.slug).sort()).toEqual([
+        "alpha",
+        "gamma",
+      ]);
+      // Users field MUST be stripped from EVERY survivor (Phase 129 HIGH-1
+      // mirror — gate-only, never on wire).
+      for (const p of result.projects) {
+        expect(p).not.toHaveProperty("users");
+      }
+    } else {
+      throw new Error("expected project-list-changed frame");
+    }
+  });
+
+  it("Test 22b (Phase 130): resolveCallerUsername returns null → project user gate disabled (fail-open)", async () => {
+    const frame = makeProjectListChangedFrame([
+      {
+        slug: "alpha",
+        displayName: "Alpha",
+        hostId: "h1",
+        hostname: "one",
+        archived: false,
+        users: ["zoey"], // caller should NOT match, but null username disables gate
+      },
+    ]);
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
+      resolveIdentityGate: async () => true,
+      resolveCallerUsername: async () => null,
+    };
+    const result = await filterAppFrame(
+      frame,
+      ctx,
+      undefined,
+      async () => true,
+    );
+
+    expect(result).not.toBeNull();
+    if (result && result.type === "project-list-changed") {
+      // Null caller = gate disabled = project passes through even with
+      // non-matching users list.
+      expect(result.projects.map((p) => p.slug)).toEqual(["alpha"]);
+      for (const p of result.projects) {
+        expect(p).not.toHaveProperty("users");
+      }
+    } else {
+      throw new Error("expected project-list-changed frame");
+    }
+  });
+
+  it("Test 22c (Phase 130): resolveCallerUsername throws → gate disabled + warn logged (fail-open)", async () => {
+    const frame = makeProjectListChangedFrame([
+      {
+        slug: "alpha",
+        displayName: "Alpha",
+        hostId: "h1",
+        hostname: "one",
+        archived: false,
+        users: ["zoey"],
+      },
+    ]);
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
+      resolveIdentityGate: async () => true,
+      resolveCallerUsername: async () => {
+        throw new Error("db unreachable");
+      },
+    };
+    const result = await filterAppFrame(
+      frame,
+      ctx,
+      undefined,
+      async () => true,
+    );
+
+    expect(result).not.toBeNull();
+    if (result && result.type === "project-list-changed") {
+      // Fail-open on throw: gate disabled, project passes.
+      expect(result.projects.map((p) => p.slug)).toEqual(["alpha"]);
+    } else {
+      throw new Error("expected project-list-changed frame");
+    }
+  });
+
+  it("Test 22d (Phase 130): absent resolveCallerUsername ctx field → project user gate skipped (host gate still applies)", async () => {
+    // Backward-compat: pre-130 ctx without resolveCallerUsername should
+    // degrade to host-gate-only behavior for project-list-changed frames.
+    const frame = makeProjectListChangedFrame([
+      {
+        slug: "alpha",
+        displayName: "Alpha",
+        hostId: "h1",
+        hostname: "one",
+        archived: false,
+        users: ["zoey"], // caller shouldn't match, but no resolver → gate skipped
+      },
+      {
+        slug: "beta",
+        displayName: "Beta",
+        hostId: "h2",
+        hostname: "two",
+        archived: false,
+        users: ["ashley"],
+      },
+    ]);
+
+    // h1 accessible, h2 not.
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async (hid) =>
+        hid === "h1"
+          ? { hostIdNum: 1, hostUserId: "U" }
+          : { hostIdNum: 2, hostUserId: "OTHER" },
+      resolveIdentityGate: async () => true,
+      // resolveCallerUsername INTENTIONALLY absent
+    };
+    const result = await filterAppFrame(
+      frame,
+      ctx,
+      undefined,
+      async (_hostIdNum, userId, hostUserId) => userId === hostUserId,
+    );
+
+    expect(result).not.toBeNull();
+    if (result && result.type === "project-list-changed") {
+      // Only h1's alpha survives — host gate drops h2's beta; user gate is
+      // no-op because no resolver was provided.
+      expect(result.projects.map((p) => p.slug)).toEqual(["alpha"]);
+    } else {
+      throw new Error("expected project-list-changed frame");
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // Sanity tests for the factory + non-app frame passthrough
   // -------------------------------------------------------------------------
 

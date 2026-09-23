@@ -760,6 +760,16 @@ export function makeProjectListChangedFrame(
     hostId: string;
     hostname: string;
     archived: boolean;
+    /**
+     * Phase 130: accepts `users` on the input type so the internal
+     * publish→filter path can carry the gate list; the app-frame-filter
+     * project-list-changed branch STRIPS this field before emit so it
+     * never reaches the wire (Phase 129 HIGH-1 mirror: `users` is
+     * gate-only). The Zod schema at L586-598 deliberately has no `users`
+     * key, so client-side parse strips it as a defense-in-depth belt if
+     * a caller ever forgets to strip server-side.
+     */
+    users?: string[] | null;
   }>,
 ): FrontendOutboundFrameType {
   return {

@@ -815,6 +815,10 @@ if (process.env.VITEST !== "true") {
         resolveHostRecordByName,
         resolveHostOwnerById,
         resolveIdentityGate,
+        // Phase 130: wire per-user project gate. Reuse the same
+        // getUsernameForUserIdForGate closure the identity gate uses;
+        // it's a pure userId → username DB lookup with no side effects.
+        resolveCallerUsername: getUsernameForUserIdForGate,
       });
       // Registry is now server-owned — pull it back for the orchestrator
       // lifecycle wiring (onFirstSubscriber / onLastUnsubscriber below).

@@ -376,6 +376,85 @@ describe("GET /projects", () => {
     expect(listProjects).not.toHaveBeenCalled();
     expect(resolveHostById).not.toHaveBeenCalled();
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 130: per-user READ-side gate on GET /projects
+  // ---------------------------------------------------------------------------
+  it("Test 7a (Phase 130): projects with users → filtered to caller's visible set; response strips users field", async () => {
+    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "alpha", displayName: "Alpha", users: ["ashley"] }, // visible
+      { slug: "beta", displayName: "Beta", users: ["zoey"] }, // hidden
+      { slug: "gamma", displayName: "Gamma", users: null }, // falls open
+      { slug: "delta", displayName: "Delta", users: [] }, // falls open (empty)
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/projects?hostId=5",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      projects: [
+        { slug: "alpha", displayName: "Alpha", archived: false },
+        { slug: "gamma", displayName: "Gamma", archived: false },
+        { slug: "delta", displayName: "Delta", archived: false },
+      ],
+    });
+    // Response body MUST NOT leak the users field (Phase 129 HIGH-1 mirror).
+    const projects = (res.body as { projects: Array<Record<string, unknown>> })
+      .projects;
+    for (const p of projects) {
+      expect(p).not.toHaveProperty("users");
+    }
+  });
+
+  it("Test 7b (Phase 130): username lookup returns null → gate disabled, all projects visible (fail-open)", async () => {
+    (getUsernameForUserId as Mock).mockResolvedValue(null);
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "alpha", displayName: "Alpha", users: ["ashley"] },
+      { slug: "beta", displayName: "Beta", users: ["zoey"] },
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/projects?hostId=5",
+    });
+
+    expect(res.status).toBe(200);
+    // Null caller = gate disabled = every project falls through.
+    expect(res.body).toEqual({
+      projects: [
+        { slug: "alpha", displayName: "Alpha", archived: false },
+        { slug: "beta", displayName: "Beta", archived: false },
+      ],
+    });
+  });
+
+  it("Test 7c (Phase 130): username lookup throws → gate disabled + warn logged (fail-open)", async () => {
+    (getUsernameForUserId as Mock).mockRejectedValue(
+      new Error("db unreachable"),
+    );
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "alpha", displayName: "Alpha", users: ["ashley"] },
+      { slug: "beta", displayName: "Beta", users: ["zoey"] },
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/projects?hostId=5",
+    });
+
+    expect(res.status).toBe(200);
+    // Fail-open: BOTH visible even though caller shouldn't match either.
+    expect((res.body as { projects: unknown[] }).projects).toHaveLength(2);
+    expect(databaseLogger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /caller username lookup threw.*gate disabled.*db unreachable/,
+      ),
+    );
+  });
 });
 
 // ===========================================================================

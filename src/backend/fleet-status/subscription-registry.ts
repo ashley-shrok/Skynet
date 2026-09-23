@@ -47,6 +47,25 @@ export type ProjectListEntry = {
   hostId: string;
   hostname: string;
   archived: boolean;
+  /**
+   * Phase 130: per-user visibility gate list from the project.md's
+   * `users:` frontmatter. Consumed by `isProjectVisibleToUser` inside
+   * `filterAppFrame`'s project-list-changed branch (see app-frame-filter.ts).
+   *
+   * D-3 fallback: `null` = "no gate on this project" (falls open — every
+   * caller with host access sees it). A non-empty array is the whitelist of
+   * Skynet usernames who see this project.
+   *
+   * Phase 130 HIGH-parity discipline (Phase 129 HIGH-1 mirror): the users
+   * field is GATE-ONLY. `makeProjectListChangedFrame` accepts it on the
+   * input type but the per-subscriber filter (app-frame-filter's
+   * project-list-changed branch) STRIPS it before the frame reaches the
+   * wire — never leaked to the frontend. The wire schema
+   * `FrontendProjectListChangedFrameSchema` in wire-protocol.ts deliberately
+   * has NO `users` field, so any accidental pass-through gets stripped by
+   * Zod pass-through-strip on the client-side parse anyway (defense in depth).
+   */
+  users?: string[] | null;
 };
 
 /**
