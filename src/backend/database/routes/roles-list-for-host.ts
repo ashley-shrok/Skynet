@@ -41,7 +41,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
-import { sshLogger } from "../../utils/logger.js";
+import { sshLogger, systemLogger } from "../../utils/logger.js";
 // Phase 90 Plan 90-01 (D-08.1 — planner picks extend-existing over companion):
 // reuse the identity-side cosmetic frontmatter extractor to attach role-level
 // cosmetics (title/displayName/colorHue/voice/avatar) to each response entry.
@@ -52,6 +52,17 @@ import { extractCosmeticsFromFrontmatter } from "../../claude-session/identity-a
 // `src/backend/utils/role-name-pattern.ts`. Was previously cloned locally here
 // and in roles.ts. Import from shared location to prevent regex-divergence.
 import { ROLE_NAME_PATTERN } from "../../utils/role-name-pattern.js";
+// Phase 129 Plan 129-03: per-user visibility gate on GET /roles?hostId=<n>
+// (role-picker gate). This is D-7 deep-gate seam #3 — the "+ New Session"
+// flow's role dropdown MUST filter out roles the caller can't see (shape
+// file §"What would make it wrong" bullet 5). The gate uses the ROLE side
+// only (identityCos=null) because the picker is invoked BEFORE any
+// identity exists — the identity-side gate has nothing to compare against
+// yet. Raw cosmetics (including `users:`) are preserved in a parallel
+// Map<name, RawCosmetics> so the gate can consult `users` without leaking
+// it into the response body (D-6 wire-shape lock: no new UI affordance).
+import { isIdentityVisibleToUser } from "../../fleet-status/identity-visibility-gate.js";
+import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -125,6 +136,34 @@ router.get(
     const host = await resolveHostById(hostId, userId);
     if (!host) {
       return res.status(404).json({ error: "Host not found" });
+    }
+
+    // Phase 129 Plan 129-03: per-request callerUsername lookup for the D-2
+    // role-side gate applied per-role below. Fetched EXACTLY ONCE per
+    // request (matches identities.ts / sessions.ts per-request-cost
+    // discipline). Runs AFTER host-access check so unauthorized callers
+    // never trigger the DB lookup.
+    //
+    // Null result (unknown / orphaned userId) is a shape-violation
+    // defensive branch — we do NOT abort the request. Per D-8 the
+    // visibility gate is NOT a permission system; a defective username
+    // lookup must fall OPEN (return the unfiltered role list the current
+    // host-access predicate would allow) rather than empty the picker.
+    // isIdentityVisibleToUser short-circuits to `true` on a null
+    // callerUsername (Plan 129-01 Task 2 Test 1 — the internal-server /
+    // test / admin-bypass semantic). Ops needs a log crumb to trace
+    // "why did the gate not run for this request?" so we emit a
+    // structured warn.
+    const callerUsername = await getUsernameForUserId(userId);
+    if (callerUsername === null) {
+      systemLogger.warn(
+        "Phase 129: GET /roles?hostId=<n> callerUsername lookup failed — gate disabled for this request",
+        {
+          operation: "roles_list_gate_username_missing",
+          userId,
+          hostId,
+        },
+      );
     }
 
     // 3. Open SSH connection (try/finally guarantees end() on every exit).
@@ -235,6 +274,18 @@ router.get(
         avatar?: string;
       };
       const cosByName = new Map<string, RoleCosmetics>();
+      // Phase 129 Plan 129-03: parallel map of RAW cosmetics (including
+      // `users?: string[]`) preserved separately from the response-facing
+      // RoleCosmetics narrowing. Option A per PATTERNS.md § "roles-list-
+      // for-host.ts": keep the RoleCosmetics wire-shape UNCHANGED (D-6
+      // lock: NO new UI affordance; the frontend never sees `users:`) but
+      // preserve the raw extraction so the gate below can consult it.
+      // Extending the narrowing to include `users:` would leak the field
+      // into the response body — forbidden by D-6.
+      const rawCosByName = new Map<
+        string,
+        ReturnType<typeof extractCosmeticsFromFrontmatter>
+      >();
       for (let i = 1; i < blocks.length; i += 2) {
         const name = blocks[i];
         const body = blocks[i + 1] ?? "";
@@ -247,7 +298,12 @@ router.get(
           // preserves body content otherwise.
           const trimmedBody = body.replace(/^\s*\r?\n/, "");
           const raw = extractCosmeticsFromFrontmatter(trimmedBody);
-          // Narrow to the 5 role-facing fields; omit coordinator/task.
+          // Phase 129 Plan 129-03: stash the raw extraction so the gate
+          // filter below sees the `users?: string[]` field. cosByName gets
+          // the narrowed 5-field version that lands in the response.
+          rawCosByName.set(name, raw);
+          // Narrow to the 5 role-facing fields; omit coordinator/task AND
+          // users (D-6 wire-shape lock: NO new UI affordance).
           const narrowed: RoleCosmetics = {};
           if (raw.title !== undefined) narrowed.title = raw.title;
           if (raw.displayName !== undefined) narrowed.displayName = raw.displayName;
@@ -258,10 +314,43 @@ router.get(
         }
       }
 
-      const result = validRoles.map((name) => ({
+      // Phase 129 Plan 129-03: D-7 deep-gate seam #3 — role-picker gate.
+      // Filter validRoles against the role-side D-2 gate BEFORE building
+      // the response. Identity-side gate is IGNORED (`null` first arg)
+      // because the picker is invoked BEFORE any identity exists; the
+      // identity-side users list has nothing to compare against yet
+      // (locked by 129-CONTEXT.md § "Locked decisions" bullet 6 + shape
+      // file §"What would make it wrong" bullet 5).
+      //
+      // Roles whose frontmatter has no `users:` key (D-3 fallback) fall
+      // open on the role side; roles whose `users:` list excludes the
+      // caller are filtered out. If callerUsername is null (unknown JWT
+      // userId), isIdentityVisibleToUser short-circuits to true and every
+      // role surfaces (fail-open per D-8).
+      const gatedRoles = validRoles.filter((name) => {
+        const raw = rawCosByName.get(name) ?? null;
+        const visible = isIdentityVisibleToUser(null, raw, callerUsername);
+        if (!visible) {
+          systemLogger.debug(
+            "Phase 129: role hidden by picker gate",
+            {
+              operation: "roles_list_gate_hidden",
+              role: name,
+              hostId,
+              callerUsername,
+            },
+          );
+        }
+        return visible;
+      });
+
+      const result = gatedRoles.map((name) => ({
         name,
         description: descByName.get(name) ?? "",
         // Spread cosmetics last — only present keys land on the entry.
+        // NB: this is `cosByName` (the narrowed RoleCosmetics), NOT
+        // `rawCosByName` — the raw map is gate-only and never leaks
+        // `users:` into the response (D-6 wire-shape lock).
         ...(cosByName.get(name) ?? {}),
       }));
 
