@@ -301,6 +301,210 @@ describe("subscription-registry", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Multi-tenant fleet-status orchestrator (2026-09-23) — per-user lifecycle
+  // ---------------------------------------------------------------------------
+
+  it("Test 15: onFirstUserSubscriber fires with ctx.userId when a NEW user subscribes", () => {
+    const registry = createSubscriptionRegistry();
+    const cb = vi.fn();
+    registry.onFirstUserSubscriber(cb);
+
+    registry.subscribe(() => {}, { userId: "u1" });
+
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith({ userId: "u1" });
+  });
+
+  it("Test 16: onFirstUserSubscriber does NOT re-fire when the SAME user subscribes a second time (tabs 2..N)", () => {
+    const registry = createSubscriptionRegistry();
+    const cb = vi.fn();
+    registry.onFirstUserSubscriber(cb);
+
+    registry.subscribe(() => {}, { userId: "u1" }); // first tab
+    registry.subscribe(() => {}, { userId: "u1" }); // second tab, same user
+
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith({ userId: "u1" });
+  });
+
+  it("Test 17: onFirstUserSubscriber fires again after that user's full teardown-and-resubscribe cycle", () => {
+    const registry = createSubscriptionRegistry();
+    const cb = vi.fn();
+    registry.onFirstUserSubscriber(cb);
+
+    const dispose = registry.subscribe(() => {}, { userId: "u1" });
+    dispose();
+    // u1 count is now 0 — a fresh subscribe re-enters the per-user 0→1 edge.
+    registry.subscribe(() => {}, { userId: "u1" });
+
+    expect(cb).toHaveBeenCalledTimes(2);
+    expect(cb).toHaveBeenNthCalledWith(1, { userId: "u1" });
+    expect(cb).toHaveBeenNthCalledWith(2, { userId: "u1" });
+  });
+
+  it("Test 18: onLastUserUnsubscriber fires exactly when that user's LAST disposer runs (multi-tab case)", () => {
+    const registry = createSubscriptionRegistry();
+    const cb = vi.fn();
+    registry.onLastUserUnsubscriber(cb);
+
+    const disposeTab1 = registry.subscribe(() => {}, { userId: "u1" });
+    const disposeTab2 = registry.subscribe(() => {}, { userId: "u1" });
+
+    disposeTab1();
+    expect(cb).toHaveBeenCalledTimes(0); // still has tab 2
+
+    disposeTab2();
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith({ userId: "u1" });
+  });
+
+  it("Test 19: Per-user lifecycle for different users is independent (each user's 0→1 fires separately)", () => {
+    const registry = createSubscriptionRegistry();
+    const cb = vi.fn();
+    registry.onFirstUserSubscriber(cb);
+
+    registry.subscribe(() => {}, { userId: "u1" });
+    registry.subscribe(() => {}, { userId: "u2" });
+    registry.subscribe(() => {}, { userId: "u3" });
+
+    expect(cb).toHaveBeenCalledTimes(3);
+    expect(cb).toHaveBeenNthCalledWith(1, { userId: "u1" });
+    expect(cb).toHaveBeenNthCalledWith(2, { userId: "u2" });
+    expect(cb).toHaveBeenNthCalledWith(3, { userId: "u3" });
+  });
+
+  it("Test 20: onLastUserUnsubscriber for user A does NOT fire while user B is still subscribed", () => {
+    const registry = createSubscriptionRegistry();
+    const cb = vi.fn();
+    registry.onLastUserUnsubscriber(cb);
+
+    const disposeA = registry.subscribe(() => {}, { userId: "userA" });
+    registry.subscribe(() => {}, { userId: "userB" }); // still subscribed
+
+    disposeA();
+
+    // A's per-user 1→0 fires immediately — does NOT wait for B to also leave.
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith({ userId: "userA" });
+  });
+
+  it("Test 21: bare subscribe() without ctx does NOT fire onFirstUserSubscriber (matches global-callback backward-compat)", () => {
+    const registry = createSubscriptionRegistry();
+    const cb = vi.fn();
+    registry.onFirstUserSubscriber(cb);
+
+    registry.subscribe(() => {});
+
+    expect(cb).toHaveBeenCalledTimes(0);
+  });
+
+  it("Test 22: onFirstUserSubscriber callback throws are caught and logged; subscribe returns normally", () => {
+    const registry = createSubscriptionRegistry();
+    const warnSpy = vi.mocked(systemLogger.warn);
+    warnSpy.mockClear();
+
+    const throwingCb = vi.fn(() => {
+      throw new Error("boom");
+    });
+    registry.onFirstUserSubscriber(throwingCb);
+
+    expect(() =>
+      registry.subscribe(() => {}, { userId: "u1" }),
+    ).not.toThrow();
+
+    expect(throwingCb).toHaveBeenCalledTimes(1);
+
+    const lifecycleWarns = warnSpy.mock.calls.filter(
+      ([, ctx]: [string, Record<string, unknown> | undefined]) =>
+        ctx?.operation === "fleet_status_lifecycle_cb_failed",
+    );
+    expect(lifecycleWarns.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("Test 23: onFirstUserSubscriber is independent of onFirstSubscriber (per-user fires for each new userId while global stays quiet after the first)", () => {
+    const registry = createSubscriptionRegistry();
+    const globalCb = vi.fn();
+    const perUserCb = vi.fn();
+    registry.onFirstSubscriber(globalCb);
+    registry.onFirstUserSubscriber(perUserCb);
+
+    registry.subscribe(() => {}, { userId: "u1" });
+    // Both fire on the very first subscribe (global 0→1 AND user u1's 0→1).
+    expect(globalCb).toHaveBeenCalledTimes(1);
+    expect(perUserCb).toHaveBeenCalledTimes(1);
+
+    registry.subscribe(() => {}, { userId: "u2" });
+    // Global does NOT re-fire (still non-empty). Per-user fires for u2's 0→1.
+    expect(globalCb).toHaveBeenCalledTimes(1);
+    expect(perUserCb).toHaveBeenCalledTimes(2);
+    expect(perUserCb).toHaveBeenNthCalledWith(2, { userId: "u2" });
+  });
+
+  it("Test 24: Disposer returned by onFirstUserSubscriber unregisters the callback", () => {
+    const registry = createSubscriptionRegistry();
+    const cb = vi.fn();
+    const unregister = registry.onFirstUserSubscriber(cb);
+    unregister();
+
+    registry.subscribe(() => {}, { userId: "u1" });
+
+    expect(cb).toHaveBeenCalledTimes(0);
+  });
+
+  it("Test 25: Disposer returned by onLastUserUnsubscriber unregisters the callback", () => {
+    const registry = createSubscriptionRegistry();
+    const cb = vi.fn();
+    const unregister = registry.onLastUserUnsubscriber(cb);
+    unregister();
+
+    const dispose = registry.subscribe(() => {}, { userId: "u1" });
+    dispose();
+
+    expect(cb).toHaveBeenCalledTimes(0);
+  });
+
+  it("Test 26: Per-user callback throw for user A does NOT block per-user callback for user B (failure isolation across users)", () => {
+    const registry = createSubscriptionRegistry();
+    const warnSpy = vi.mocked(systemLogger.warn);
+    warnSpy.mockClear();
+
+    // Consumer registers ONE callback that throws only for userA.
+    // In the multi-tenant starter.ts wiring this represents the watcher-
+    // factory call: if factory-for-A throws, factory-for-B must still run
+    // when B subscribes next.
+    const cb = vi.fn((ctx: { userId: string }) => {
+      if (ctx.userId === "userA") {
+        throw new Error("watcher factory boom for A");
+      }
+    });
+    registry.onFirstUserSubscriber(cb);
+
+    // userA subscribes — callback throws internally, but subscribe MUST
+    // return normally (subscribers.size incremented, no error surfaced).
+    expect(() =>
+      registry.subscribe(() => {}, { userId: "userA" }),
+    ).not.toThrow();
+
+    // userB subscribes — callback MUST fire (isolation): A's throw didn't
+    // corrupt the per-user callback state.
+    expect(() =>
+      registry.subscribe(() => {}, { userId: "userB" }),
+    ).not.toThrow();
+
+    expect(cb).toHaveBeenCalledTimes(2);
+    expect(cb).toHaveBeenNthCalledWith(1, { userId: "userA" });
+    expect(cb).toHaveBeenNthCalledWith(2, { userId: "userB" });
+
+    // A's throw was logged.
+    const lifecycleWarns = warnSpy.mock.calls.filter(
+      ([, ctx]: [string, Record<string, unknown> | undefined]) =>
+        ctx?.operation === "fleet_status_lifecycle_cb_failed" &&
+        ctx?.userId === "userA",
+    );
+    expect(lifecycleWarns.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ---------------------------------------------------------------------------
   // Phase 90 Plan 00 Wave 0 — contextPct promotion (behaviors 9-10 per plan)
   // ---------------------------------------------------------------------------
 
