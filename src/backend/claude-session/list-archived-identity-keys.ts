@@ -153,3 +153,108 @@ export async function listArchivedIdentityKeysOnHost(
     .filter((name) => name.length > 0 && IDENTITY_KEY_RE.test(name))
     .sort();
 }
+
+/**
+ * Entry returned by `listArchivedIdentityEntriesOnHost`.
+ *
+ * `mtimeMs` is the archive folder's modification time in milliseconds since
+ * epoch. Per Phase 128 § "The retire process's implicit 'when did I move this?'
+ * is already the canonical signal", the folder mtime IS the retire-time —
+ * archived folders are never touched post-retirement, so nothing else can shift
+ * it. Used by the tiered pool ranker (rank-pool-candidates.ts) to sort recycled
+ * names LRU-oldest-first.
+ */
+export interface ArchivedIdentityEntry {
+  name: string;
+  mtimeMs: number;
+}
+
+/**
+ * List archived-identity folders with their mtimes — same shape/semantics as
+ * `listArchivedIdentityKeysOnHost`, but each returned entry carries the archive
+ * folder's mtime for LRU ranking (Phase 128 tiered pool selection).
+ *
+ * LOCAL branch (conn === null):
+ *   - Reads getLocalArchivedIdentitiesRoot() via fs.readdir({withFileTypes:true}).
+ *   - For each dir entry that matches IDENTITY_KEY_RE, fs.stat() to get mtime.
+ *   - A stat failure on one folder skips that entry (does NOT fail the whole
+ *     call) — matches the "graceful degrade on partial trouble" idiom.
+ *   - ENOENT on the root dir returns [] (host has never archived anyone).
+ *
+ * REMOTE branch (conn !== null):
+ *   - `find "$HOME/fleet/identities-archive" -mindepth 1 -maxdepth 1 -type d
+ *      -printf '%f\t%T@\n' 2>/dev/null || true` — GNU find's %T@ is epoch
+ *      seconds as a float, converted to milliseconds here.
+ *   - `|| true` handles missing dir as empty stdout.
+ *   - Any line that fails to parse (missing tab, non-numeric mtime, name that
+ *      doesn't match IDENTITY_KEY_RE) is skipped — never fails the call.
+ *
+ * Errors on unexpected filesystem/SSH conditions propagate — callers wrap
+ * per-host calls in try/catch for silent-swallow degradation.
+ */
+export async function listArchivedIdentityEntriesOnHost(
+  conn: SSHClientType | null,
+): Promise<ArchivedIdentityEntry[]> {
+  if (conn === null) {
+    const root = getLocalArchivedIdentitiesRoot();
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await fs.readdir(root, { withFileTypes: true });
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return [];
+      }
+      throw err;
+    }
+    const results: ArchivedIdentityEntry[] = [];
+    for (const e of entries) {
+      if (!e.isDirectory() || !IDENTITY_KEY_RE.test(e.name)) continue;
+      try {
+        const st = await fs.stat(path.join(root, e.name));
+        results.push({ name: e.name, mtimeMs: st.mtimeMs });
+      } catch {
+        // Skip entries whose stat fails (permissions, race with removal).
+        // A missing mtime is better handled as "not present" than as a hard
+        // failure of the whole enumeration.
+      }
+    }
+    return results.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // REMOTE — %T@ is GNU find's "epoch seconds with fractional part" (e.g.
+  // 1737600000.1234567). Split on TAB, parse the float, multiply by 1000.
+  const cmd =
+    `find "$HOME/fleet/identities-archive" -mindepth 1 -maxdepth 1 -type d -printf '%f\\t%T@\\n' 2>/dev/null || true`;
+  const stdout = await Promise.race([
+    execCommand(conn, cmd),
+    new Promise<string>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `listArchivedIdentityEntriesOnHost: remote exec timeout after ${REMOTE_LIST_TIMEOUT_MS}ms`,
+            ),
+          ),
+        REMOTE_LIST_TIMEOUT_MS,
+      ),
+    ),
+  ]);
+  const results: ArchivedIdentityEntry[] = [];
+  for (const raw of stdout.split("\n")) {
+    const line = raw.trim();
+    if (line.length === 0) continue;
+    const tab = line.indexOf("\t");
+    if (tab < 0) continue;
+    const name = line.slice(0, tab);
+    const mtimeStr = line.slice(tab + 1);
+    if (!IDENTITY_KEY_RE.test(name)) continue;
+    const mtimeSec = Number(mtimeStr);
+    if (!Number.isFinite(mtimeSec)) continue;
+    results.push({ name, mtimeMs: mtimeSec * 1000 });
+  }
+  return results.sort((a, b) => a.name.localeCompare(b.name));
+}

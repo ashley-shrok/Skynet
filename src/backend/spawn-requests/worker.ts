@@ -20,7 +20,15 @@
 import { systemLogger } from "../utils/logger.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { execCommand } from "../ssh/tmux-helper.js";
-import { isLocalHostId, writeMarkdownFileAtomic } from "../claude-session/identity-artifact-reader.js";
+import {
+  isLocalHostId,
+  listIdentityKeysOnHost,
+  writeMarkdownFileAtomic,
+} from "../claude-session/identity-artifact-reader.js";
+import {
+  listArchivedIdentityEntriesOnHost,
+  type ArchivedIdentityEntry,
+} from "../claude-session/list-archived-identity-keys.js";
 import { discoverIdentitySessionFile } from "../claude-session/discover-identity-session-file.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { birthIdentity, ROLE_NAME_PATTERN, SSH_CONNECT_TIMEOUT_MS, type BirthEvent, type BirthDeps, type BirthOptions } from "../database/routes/identity-birth-orchestrator.js";
@@ -33,6 +41,7 @@ import {
 } from "../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
 import { getVettedPool } from "../pool/pool-loader.js";
+import { rankPoolCandidates } from "../pool/rank-pool-candidates.js";
 import { getDb } from "../database/db/index.js";
 import { hosts } from "../database/db/schema.js";
 import { eq } from "drizzle-orm";
@@ -143,6 +152,10 @@ export interface WorkerDeps {
   birthIdentity: typeof birthIdentity;
   resolveHostById: typeof resolveHostById;
   now: () => Date; // injectable for test determinism
+  // Phase 128 — tiered pool selection. Both enumerators injectable so tests
+  // can override without a real SSH round-trip.
+  listActiveIdentityKeys: typeof listIdentityKeysOnHost;
+  listArchivedIdentityEntries: typeof listArchivedIdentityEntriesOnHost;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +176,8 @@ export function buildProductionDeps(): WorkerDeps {
     birthIdentity,
     resolveHostById,
     now: () => new Date(),
+    listActiveIdentityKeys: listIdentityKeysOnHost,
+    listArchivedIdentityEntries: listArchivedIdentityEntriesOnHost,
   };
 }
 
@@ -455,17 +470,92 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   // a failure — for logging).
   let lastPickedName: string | undefined;
 
+  // Phase 128 — enumerate the target host's active + archived identities so
+  // the tiered ranker can prefer never-used → oldest-archived. One connection,
+  // both dirs in parallel, both sides soft-degrading independently on
+  // enumeration failure (partial info still beats none). Wrapped in outer
+  // try/catch so a total connect failure falls through to an empty
+  // enumeration + tier-3 (full-pool-shuffled) ranker output — preserving the
+  // pre-Phase-128 "never fail birth over pool-picker unreachability" behavior.
+  let activeNames = new Set<string>();
+  let archivedEntries: readonly ArchivedIdentityEntry[] = [];
+  let enumConn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+  try {
+    if (!isLocalHostId(item.hostIdNum)) {
+      const hostForConn = await deps.resolveHostById(item.hostIdNum, currentUserId);
+      if (hostForConn) {
+        enumConn = await deps.connectOneShot(
+          hostForConn as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      }
+    }
+    const [activeList, archivedList] = await Promise.all([
+      deps.listActiveIdentityKeys(enumConn).catch((err: unknown) => {
+        systemLogger.warn(
+          "spawn-request worker: active-identity enumeration failed — soft-degrading to empty",
+          {
+            operation: "spawn_request_enum_active_failed",
+            uuid: item.uuid,
+            errorName: err instanceof Error ? err.name : "unknown",
+          },
+        );
+        return [] as string[];
+      }),
+      deps.listArchivedIdentityEntries(enumConn).catch((err: unknown) => {
+        systemLogger.warn(
+          "spawn-request worker: archived-identity enumeration failed — soft-degrading to empty",
+          {
+            operation: "spawn_request_enum_archive_failed",
+            uuid: item.uuid,
+            errorName: err instanceof Error ? err.name : "unknown",
+          },
+        );
+        return [] as ArchivedIdentityEntry[];
+      }),
+    ]);
+    activeNames = new Set(activeList);
+    archivedEntries = archivedList;
+  } catch (err) {
+    // Total-failure swallow (connect refused / timeout / auth). Ranker
+    // degrades to a shuffled full-pool pick — same as the pre-Phase-128
+    // random behavior, so this preserves backward compat.
+    systemLogger.warn(
+      "spawn-request worker: host enumeration failed entirely — using tier-3 fallback",
+      {
+        operation: "spawn_request_enum_total_failed",
+        uuid: item.uuid,
+        errorName: err instanceof Error ? err.name : "unknown",
+      },
+    );
+  } finally {
+    if (enumConn) {
+      try {
+        enumConn.end();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  // Rank the pool once — the ranking does not depend on retry state; the
+  // retry loop just walks the ranked list, skipping locally-collided names.
+  const ranked = rankPoolCandidates({
+    pool,
+    activeNames,
+    archivedEntries,
+  });
+
   for (let attempt = 0; attempt < MAX_POOL_PICK_ATTEMPTS; attempt++) {
-    const candidates = pool.filter((n) => !excluded.has(n.toLowerCase()));
-    if (candidates.length === 0) {
-      // Every name we've tried collided AND the pool has no other names —
-      // real pool exhaustion. Different from "pool.length === 0" earlier
+    const pickedName = ranked.find((n) => !excluded.has(n));
+    if (pickedName === undefined) {
+      // Every ranked candidate has already collided — pool is effectively
+      // exhausted for this birth. Different from "pool.length === 0" earlier
       // (that's a fresh pool with zero names; this is a locally-drained
       // effective pool after N collided picks).
       poolExhaustedLocally = true;
       break;
     }
-    const pickedName = candidates[Math.floor(Math.random() * candidates.length)];
     lastPickedName = pickedName;
     const opts: BirthOptions = {
       userId: currentUserId,

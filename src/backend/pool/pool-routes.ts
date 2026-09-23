@@ -77,6 +77,11 @@ import {
   isLocalHostId,
   listIdentityKeysOnHost,
 } from "../claude-session/identity-artifact-reader.js";
+import {
+  listArchivedIdentityEntriesOnHost,
+  type ArchivedIdentityEntry,
+} from "../claude-session/list-archived-identity-keys.js";
+import { rankPoolCandidates } from "./rank-pool-candidates.js";
 import { ROLE_NAME_PATTERN } from "../utils/role-name-pattern.js";
 
 const router = express.Router();
@@ -171,55 +176,42 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     }
 
     // -----------------------------------------------------------------------
-    // 5. Shuffle the pool.
+    // 5. Enumerate ACTIVE and ARCHIVED identity folders on the target host,
+    //    then hand both to the tiered ranker.
     //
-    //    Shuffle a copy so the pool order isn't a covert stability signal.
-    //    Fisher-Yates — `sort(() => Math.random() - 0.5)` is a biased shuffle
-    //    (compare function violates transitivity; V8 TimSort skews
-    //    permutations), which would cluster picks against the shape's
-    //    "recycle the pool evenly" goal. See RESEARCH §Landmine 8 (pool
-    //    exhaustion) — a biased shuffle would exhaust some names dramatically
-    //    faster than others.
-    // -----------------------------------------------------------------------
-    const shuffled = [...pool];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-
-    // Defense-in-depth normalization: pool.json entries are PascalCase by
-    // convention (Plan 80-01 seed shape) but any casing drift is corrected
-    // here so both the comparison and the returned name are canonical
-    // lowercase (IDENTITY_KEY_RE shape, and identity folders are lowercase
-    // on disk per the H3 invariant).
-    const candidates = shuffled.map((c) => c.toLowerCase());
-
-    // -----------------------------------------------------------------------
-    // 6. Enumerate identity names already present on the target host — ONE
-    //    round-trip, then an in-memory set difference against the pool.
+    //    LOCAL branch (conn === null): both enumerators read the bind-mounted
+    //    host dirs directly (getLocalIdentitiesRoot / getLocalArchivedIdentitiesRoot).
+    //    REMOTE branch: one connect, TWO exec channels fired in parallel
+    //    (ssh2 supports concurrent channels; the enumerators are independent
+    //    so serialization would be pure wall-clock waste).
     //
-    //    LOCAL branch (conn === null): reads getLocalIdentitiesRoot(), which
-    //    honors the IDENTITIES_HOST_DIR bind-mount.
-    //    REMOTE branch: one-shot SSH + `find $HOME/fleet/identities -maxdepth 1`.
+    //    Degradation — both dimensions independently:
+    //      * If BOTH enumerations fail (SSH timeout, unreachable host, etc.),
+    //        active + archived are treated as empty and the ranker degrades
+    //        to a shuffled full-pool pick — matches the pre-Phase-128
+    //        never-5xx contract.
+    //      * If ONE succeeds and the other fails, we soft-degrade the failed
+    //        side (log + empty) while KEEPING the good side. Partial info
+    //        beats no info: active-only lets us still avoid handing back a
+    //        currently-held name; archive-only lets us still de-prioritize
+    //        recently-retired names. The wrapping try/catch handles the
+    //        total-failure case; per-enumerator .catch() handles the partial.
     //
-    //    Degradation (see header §Degradation contract): ANY failure here —
-    //    unreachable host, SSH timeout, permission error — is swallowed and
-    //    treated as "no information about taken names". The request still
-    //    returns a name. A stalled or 5xx-ing suggestion box is worse UX than
-    //    an unverified suggestion, and birth-time folder-existence checks plus
+    //    A stalled or 5xx-ing suggestion box is worse UX than an unverified
+    //    suggestion; birth-time folder-existence checks plus
     //    deriveMxidWithOrdinal remain the actual correctness gates.
     // -----------------------------------------------------------------------
-    let takenNames = new Set<string>();
+    let activeNames = new Set<string>();
+    let archivedEntries: readonly ArchivedIdentityEntry[] = [];
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     try {
       // Bound the WHOLE enumeration, not just the connect. connectOneShot's
-      // timeout covers the handshake only, and listIdentityKeysOnHost's REMOTE
-      // branch carries its own 15s exec timer — so connect + exec worst-case is
-      // ~18s on a box that accepts TCP but has a wedged shell. This route only
-      // produces a name SUGGESTION, and the degradation path below already
-      // handles "no answer", so waiting that long is strictly worse than giving
-      // up early: the user stares at an empty Name field either way.
-      takenNames = await Promise.race([
+      // timeout covers the handshake only, and each enumerator's REMOTE branch
+      // carries its own 15s exec timer — so worst-case is ~18s on a box that
+      // accepts TCP but has a wedged shell. This route only produces a name
+      // SUGGESTION and the degradation path below handles "no answer", so
+      // failing fast beats making the user wait.
+      const result = await Promise.race([
         (async () => {
           if (!isLocalHostId(hostId)) {
             conn = await connectOneShot(
@@ -227,7 +219,32 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
               SSH_CONNECT_TIMEOUT_MS,
             );
           }
-          return new Set(await listIdentityKeysOnHost(conn));
+          const [activeList, archivedList] = await Promise.all([
+            listIdentityKeysOnHost(conn).catch((err: unknown) => {
+              sshLogger.warn(
+                "pool pick: active-identity enumeration failed — soft-degrading to empty",
+                {
+                  hostId,
+                  errorName: err instanceof Error ? err.name : "unknown",
+                },
+              );
+              return [] as string[];
+            }),
+            listArchivedIdentityEntriesOnHost(conn).catch((err: unknown) => {
+              sshLogger.warn(
+                "pool pick: archived-identity enumeration failed — soft-degrading to empty",
+                {
+                  hostId,
+                  errorName: err instanceof Error ? err.name : "unknown",
+                },
+              );
+              return [] as ArchivedIdentityEntry[];
+            }),
+          ]);
+          return {
+            active: new Set(activeList),
+            archived: archivedList,
+          };
         })(),
         new Promise<never>((_, reject) =>
           setTimeout(
@@ -236,18 +253,15 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
           ),
         ),
       ]);
+      activeNames = result.active;
+      archivedEntries = result.archived;
     } catch (err) {
-      // Swallow per the degradation contract. Log for forensics — the name
-      // returned below is unverified, and that fact should be diagnosable
-      // from the log rather than inferred from a user's confusion later.
-      //
-      // Log a COARSE classification, never the raw error message. ssh2 failures
-      // embed the target address (`connect ETIMEDOUT 10.0.0.7:22`) and can carry
-      // key-material hints on auth failures, and Logger.sanitizeContext masks by
-      // KEY NAME — an `error` key is not in its sensitive list, so a raw message
-      // would land verbatim in the shared console-forward log.
+      // Total-failure swallow (budget exceeded, connect failure). Log a COARSE
+      // classification only — ssh2 error messages embed target IPs and can
+      // carry key-material hints, and sshLogger.sanitizeContext masks by key
+      // name (`error` is not in its sensitive list).
       sshLogger.warn(
-        "pool pick: host identity enumeration failed — returning unverified suggestion",
+        "pool pick: host enumeration failed entirely — returning unverified suggestion",
         {
           hostId,
           reason:
@@ -268,23 +282,29 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     }
 
     // -----------------------------------------------------------------------
-    // 7. First candidate with no identity folder on the host wins.
+    // 6. Rank candidates by tier and return the head.
     //
-    //    If EVERY pool name is occupied on this host, fall back to the first
-    //    shuffled candidate rather than failing the request (RESEARCH §Landmine
-    //    8 — never 5xx a suggestion endpoint over pool exhaustion). Note what
-    //    that fallback does and does not buy: the returned name is genuinely
-    //    taken, and birth's Step-1 folder probe will reject it. Only the MXID
-    //    gets an ordinal suffix (deriveMxidWithOrdinal); the identity NAME is
-    //    suffix-retried solely on the spawn-request worker path, not the modal's.
-    //    So true exhaustion surfaces as a failed birth, which is acceptable at
-    //    221 occupied names on one host but is NOT a graceful recovery.
+    //    Ranker guarantees a non-empty output when the pool is non-empty
+    //    (tier-3 is the full pool shuffled), so `ranked[0]` is always defined
+    //    at this point. Tier ordering:
+    //      1. Fresh (in pool, not active, not archived) — random.
+    //      2. Recycled — archived AND in pool AND not active, oldest-mtime
+    //         first. LRU semantics; the name gone longest returns first.
+    //      3. Full pool shuffled — used only when tiers 1+2 are empty AND/OR
+    //         everything is active (last-resort; birth-time gate catches it).
     //
-    //    When enumeration failed, takenNames is empty, so the first candidate is
-    //    returned unverified — the intended degradation, logged above.
+    //    Determinism-in-tier-2 is safe: birth is globally serialized via the
+    //    identity-birth throttle (concurrency=1 default), so two racing
+    //    pool-picks cannot materialize as two concurrent births under the
+    //    same name — the second birth waits for the first to commit and
+    //    then hits the folder-exists gate.
     // -----------------------------------------------------------------------
-    const free = candidates.find((c) => !takenNames.has(c));
-    res.json({ name: free ?? candidates[0] });
+    const ranked = rankPoolCandidates({
+      pool,
+      activeNames,
+      archivedEntries,
+    });
+    res.json({ name: ranked[0] });
   },
 );
 

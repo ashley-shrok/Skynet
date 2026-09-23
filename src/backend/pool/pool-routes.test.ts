@@ -101,6 +101,12 @@ vi.mock("../claude-session/identity-artifact-reader.js", () => ({
   listIdentityKeysOnHost: vi.fn(),
 }));
 
+// Phase 128: the router now also enumerates the target host's archive
+// directory for LRU-oldest-first tier-2 ranking.
+vi.mock("../claude-session/list-archived-identity-keys.js", () => ({
+  listArchivedIdentityEntriesOnHost: vi.fn(),
+}));
+
 vi.mock("../ssh/ssh-one-shot.js", () => ({
   connectOneShot: vi.fn(),
 }));
@@ -124,6 +130,7 @@ import {
   isLocalHostId,
   listIdentityKeysOnHost,
 } from "../claude-session/identity-artifact-reader.js";
+import { listArchivedIdentityEntriesOnHost } from "../claude-session/list-archived-identity-keys.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 
 // ---------------------------------------------------------------------------
@@ -219,6 +226,7 @@ beforeEach(() => {
   (isLocalHostId as Mock).mockReturnValue(false);
   (connectOneShot as Mock).mockResolvedValue(stubConn);
   (listIdentityKeysOnHost as Mock).mockResolvedValue([]);
+  (listArchivedIdentityEntriesOnHost as Mock).mockResolvedValue([]);
 
   const app = express();
   // Mount router at /identities/pool (mirrors database.ts mount).
@@ -545,5 +553,106 @@ describe("POST /identities/pool/pick", () => {
     expect(res.status).toBe(200);
     // "Willow" (pool) matched "willow" (disk) → skipped, despite the casing gap.
     expect((res.body as { name: string }).name).toBe("aster");
+  });
+
+  // --------------------------------------------------------------------------
+  // Phase 128 — tiered pool selection tests
+  // --------------------------------------------------------------------------
+
+  it("Test 15: tier-1 fresh name preferred over tier-2 archived name", async () => {
+    // Cedar has been archived (was in circulation, retired 30 days ago); Willow
+    // has never been used on this host. Even though Cedar is a valid candidate,
+    // Willow (fresh) must come first — the whole point of the tiered ranker.
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow", "Cedar"]);
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce([]);
+    (listArchivedIdentityEntriesOnHost as Mock).mockResolvedValueOnce([
+      { name: "cedar", mtimeMs: Date.now() - 30 * 86_400_000 },
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    expect((res.body as { name: string }).name).toBe("willow");
+  });
+
+  it("Test 16: no fresh names — tier-2 returns the oldest-archived name first", async () => {
+    // Every pool name has been archived. Ranker must pick the one archived
+    // longest ago (Pine at t=1000ms epoch, older than Cedar at t=5000ms).
+    (getVettedPool as Mock).mockReturnValueOnce(["Cedar", "Pine"]);
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce([]);
+    (listArchivedIdentityEntriesOnHost as Mock).mockResolvedValueOnce([
+      { name: "cedar", mtimeMs: 5000 }, // newer
+      { name: "pine", mtimeMs: 1000 }, // older → wins
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    expect((res.body as { name: string }).name).toBe("pine");
+  });
+
+  it("Test 17: partial degradation — archive enumeration fails, active succeeds → still tier-1 pick", async () => {
+    // The whole point of the parallel/independent soft-degrade: an archive
+    // read failure MUST NOT cause active-set info to be discarded. The name
+    // returned should still avoid actively-held names.
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow", "Aster"]);
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce(["willow"]);
+    (listArchivedIdentityEntriesOnHost as Mock).mockRejectedValueOnce(
+      new Error("archive enumeration timed out"),
+    );
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    // Willow is active → skipped; Aster is the only non-active option.
+    expect((res.body as { name: string }).name).toBe("aster");
+  });
+
+  it("Test 18: archive dir missing (fresh host) — enumerator returns [] → every name is tier-1 fresh", async () => {
+    // A brand-new host that has never archived anyone returns [] from the
+    // archive enumerator (ENOENT swallowed). All pool names are tier-1
+    // candidates; result is one of them, verified via set membership.
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow", "Aster", "Cedar"]);
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce([]);
+    (listArchivedIdentityEntriesOnHost as Mock).mockResolvedValueOnce([]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    expect(["willow", "aster", "cedar"]).toContain(
+      (res.body as { name: string }).name,
+    );
+  });
+
+  it("Test 19: archive contains a name no longer in the pool — silently ignored", async () => {
+    // Simulates the Dagda-was-dropped case: a name that once was in the pool
+    // has since been removed, but the host's archive still contains the
+    // folder. Ranker must intersect archive with the CURRENT pool.
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow"]);
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce([]);
+    (listArchivedIdentityEntriesOnHost as Mock).mockResolvedValueOnce([
+      { name: "dagda", mtimeMs: 100 }, // NOT in pool
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    // Willow is fresh → tier 1; Dagda never surfaces.
+    expect((res.body as { name: string }).name).toBe("willow");
   });
 });

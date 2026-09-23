@@ -163,6 +163,11 @@ function buildTestDeps(overrides?: Partial<WorkerDeps>): WorkerDeps {
       password: "secret",
     }),
     now: vi.fn().mockReturnValue(new Date("2026-09-10T12:00:00Z")),
+    // Phase 128 — tiered pool selection enumerators. Default: host has no
+    // active identities and no archives (fresh host); every pool name is a
+    // tier-1 candidate.
+    listActiveIdentityKeys: vi.fn().mockResolvedValue([]),
+    listArchivedIdentityEntries: vi.fn().mockResolvedValue([]),
   };
 
   return { ...deps, ...overrides };
@@ -932,6 +937,103 @@ describe("spawn-request worker", () => {
       const failureBody = JSON.parse(failureWrite![2] as string);
       expect(failureBody.reason).toBe("birth_failed");
     });
+
+    // ---------------------------------------------------------------------
+    // Phase 128 — tiered pool selection tests
+    // ---------------------------------------------------------------------
+
+    it("R4: tier-1 fresh name is picked before tier-2 archived name (LRU-avoidance)", async () => {
+      // Pool has two names: cedar (recently archived) and willow (fresh).
+      // The worker must pick willow first — the whole point of the tiered
+      // ranker is to keep freshly-archived names out of rotation.
+      const namesTried: string[] = [];
+      const mockBirthIdentity = vi.fn().mockImplementation(
+        async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          namesTried.push(opts.name);
+          emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+        },
+      );
+      const deps = buildTestDeps({
+        getVettedPool: vi.fn().mockReturnValue(["willow", "cedar"]),
+        listActiveIdentityKeys: vi.fn().mockResolvedValue([]),
+        listArchivedIdentityEntries: vi.fn().mockResolvedValue([
+          { name: "cedar", mtimeMs: Date.now() - 86_400_000 }, // 1 day old
+        ]),
+        birthIdentity: mockBirthIdentity,
+      });
+      const item = makePendingBirth();
+
+      await processBirth(item, deps);
+
+      expect(namesTried).toEqual(["willow"]);
+    });
+
+    it("R5: enumeration failure degrades to shuffled full pool (backward compat)", async () => {
+      // Both enumerators throw — the worker must NOT fail; it should degrade
+      // to tier-3 (full pool shuffled) which mirrors the pre-Phase-128 random
+      // pick behavior. Any pool name is acceptable here.
+      const namesTried: string[] = [];
+      const mockBirthIdentity = vi.fn().mockImplementation(
+        async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          namesTried.push(opts.name);
+          emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+        },
+      );
+      const deps = buildTestDeps({
+        getVettedPool: vi.fn().mockReturnValue(["ada", "byron", "curie"]),
+        listActiveIdentityKeys: vi
+          .fn()
+          .mockRejectedValue(new Error("ssh timeout")),
+        listArchivedIdentityEntries: vi
+          .fn()
+          .mockRejectedValue(new Error("ssh timeout")),
+        birthIdentity: mockBirthIdentity,
+      });
+      const item = makePendingBirth();
+
+      await processBirth(item, deps);
+
+      // Exactly one attempt (succeeds), and the name is one of the pool
+      // entries — proving the ranker returned a usable name despite the
+      // enumeration failure.
+      expect(mockBirthIdentity).toHaveBeenCalledTimes(1);
+      expect(["ada", "byron", "curie"]).toContain(namesTried[0]);
+    });
+
+    it("R6: tier-2 collision retry advances to next-oldest, not a fresh randomization", async () => {
+      // No fresh names; pool has three archived names with distinct mtimes.
+      // The first pick collides. The retry must pick the NEXT-oldest — not
+      // re-roll randomly — because the ranker returned a stable-order tier-2
+      // list once, and the retry loop just steps through it.
+      const namesTried: string[] = [];
+      const mockBirthIdentity = vi.fn().mockImplementation(
+        async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          namesTried.push(opts.name);
+          if (namesTried.length === 1) {
+            emit({ type: "step", n: 1, phase: "failed", reason: "identity already exists on this host" });
+            emit({ type: "ended", ok: false, failedStep: 1, reason: "identity already exists on this host" });
+          } else {
+            emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+          }
+        },
+      );
+      const deps = buildTestDeps({
+        getVettedPool: vi.fn().mockReturnValue(["ada", "byron", "curie"]),
+        listActiveIdentityKeys: vi.fn().mockResolvedValue([]),
+        listArchivedIdentityEntries: vi.fn().mockResolvedValue([
+          { name: "curie", mtimeMs: 1000 }, // oldest → picked first
+          { name: "byron", mtimeMs: 2000 }, // next → picked after first collides
+          { name: "ada", mtimeMs: 3000 }, // newest → only if the others collide too
+        ]),
+        birthIdentity: mockBirthIdentity,
+      });
+      const item = makePendingBirth();
+
+      await processBirth(item, deps);
+
+      // Retry landed on next-oldest (byron), not a random re-pick.
+      expect(namesTried).toEqual(["curie", "byron"]);
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -986,13 +1088,13 @@ describe("spawn-request worker", () => {
       const promiseA = processBirth(itemA, depsA);
       const promiseB = processBirth(itemB, depsB);
 
-      // Flush several microtask ticks so A can acquire + reach the deferred await
+      // Flush all pending microtasks so A can acquire + reach the deferred await
       // inside birthIdentity. B will attempt to acquire and find the slot busy
       // (active === maxConcurrent === 1), so it enqueues and waits.
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      // (Phase 128: drain-to-macrotask replaces the previous fixed 4-tick flush
+      // — pre-birthIdentity async work now includes enumerator setup, so
+      // counted-tick flushes are fragile.)
+      await new Promise<void>((r) => setTimeout(r, 0));
 
       // A-birth-start must be present; B-birth-start must NOT be present yet.
       expect(callOrder).toContain("A-birth-start");
