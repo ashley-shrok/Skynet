@@ -66,17 +66,16 @@ services:
       # this block breaks the drift-lock mechanism at the compose boundary
       # — the OCI label alone (see `labels:` below) doesn't propagate into
       # container env.
-      args:
-        SKYNET_BUILD_SHA: "${SKYNET_BUILD_SHA:-}"
-      labels:
-        org.skynet.commit: "${SKYNET_BUILD_SHA:-}"
       # Per-deployment TTS playback-rate override. Threaded into the Dockerfile
       # `frontend-builder` stage's ARG so Vite substitutes it into the built
       # bundle at `npm run build`. Empty/unset falls back to 1.0 in
       # webAudioStreamPlayer. Set in the deployment's env file (e.g.
       # /opt/skynet/.env) — t1000 uses 1.25; T800 leaves unset.
       args:
+        SKYNET_BUILD_SHA: "${SKYNET_BUILD_SHA:-}"
         VITE_TTS_PLAYBACK_RATE: "${VITE_TTS_PLAYBACK_RATE:-}"
+      labels:
+        org.skynet.commit: "${SKYNET_BUILD_SHA:-}"
     expose:
       - "8080"
     volumes:
