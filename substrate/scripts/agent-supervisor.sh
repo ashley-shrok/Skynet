@@ -1295,25 +1295,98 @@ redrive_claude() {
 PROJECTS_DIR="${AGENT_PROJECTS_DIR:-$HOME/.claude/projects}"
 _lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 # identity a session belongs to = args of its first real /id load (ignore save/reset/blank).
-# grep -m5 early-exits near the top of the file, so this stays fast even on huge session logs.
+# Bounded to the first 4KB — the /id load is always the FIRST user message in the session
+# (verified across 100 sampled transcripts: max offset seen was 529 bytes). Bounding the
+# read means files that DON'T contain a /id load (bounty-scratch sessions, ad-hoc claude
+# invocations — ~90% of what's under $PROJECTS_DIR) cost 4KB of I/O each instead of the
+# entire file, which for multi-MB transcripts is the difference between milliseconds
+# and near-nothing per file.
 session_owner() {
-  grep -F -m5 '<command-name>/id</command-name>' "$1" 2>/dev/null \
+  head -c 4096 "$1" 2>/dev/null \
+    | grep -F -m5 '<command-name>/id</command-name>' \
     | grep -oE '<command-args>[^<]*</command-args>' \
     | sed -E 's/<command-args>([^<]*)<\/command-args>/\1/' \
     | grep -vixE 'save|reset' | grep -v '^[[:space:]]*$' | head -1
 }
 session_cwd() { grep -m1 -o '"cwd":"[^"]*"' "$1" 2>/dev/null | sed 's/"cwd":"//;s/"$//'; }
+# Expected project dir for an identity: Claude Code stores sessions at
+# ~/.claude/projects/<mangled-cwd>/, where mangling replaces every "/" with "-". The
+# supervisor always launches an identity's claude in ~/fleet/identities/<name>/workspace/
+# (see launch()), so that identity's sessions land under a predictable directory. Same
+# mangling rule as submit_id() uses at agent-supervisor.sh:1138.
+_expected_project_dir() {
+  local name="$1"
+  local mangled
+  mangled=$(printf '%s' "$IDENTITIES_DIR/$name/workspace" | sed 's|/|-|g')
+  printf '%s/%s' "$PROJECTS_DIR" "$mangled"
+}
+# Scan ONE directory's *.jsonl files mtime-desc, return newest OWNED by $1 on stdout,
+# empty if none. Bounded to sub-second even on a corpus of tens of files because there's
+# no fork per file — one `find -printf`, one sort, then a bounded head-c-4096 per file
+# until the first identity match. Used by resolve_session and _newest_jsonl_for as the
+# expected-project-dir fast path.
+_scan_dir_newest_owned() {
+  local want_lower="$1" project_dir="$2" mtime file owner best=""
+  [ -d "$project_dir" ] || { printf ''; return 0; }
+  while IFS=$'\t' read -r mtime file; do
+    [ -f "$file" ] || continue
+    owner="$(session_owner "$file")"
+    [ -n "$owner" ] || continue
+    if [ "$(_lower "$owner")" = "$want_lower" ]; then
+      best="$file"
+      break
+    fi
+  done < <(find "$project_dir" -maxdepth 1 -type f -name '*.jsonl' -printf '%T@\t%p\n' 2>/dev/null | sort -rn)
+  printf '%s' "$best"
+}
 # prints "<cwd>\t<sessionId>" for the newest session OWNED by $1; returns 1 if the identity has none.
+#
+# TWO-STAGE STRATEGY (fast path + safety-net slow path):
+#
+#   Stage 1 (fast): Look ONLY in the identity's expected project dir. Because the
+#   supervisor always launches an identity's claude in ~/fleet/identities/<name>/workspace/,
+#   Claude Code stores that identity's sessions under a deterministic mangled dir name.
+#   Scanning that one dir (typically 1-50 files) mtime-desc + break-on-first-match is
+#   sub-second even on a busy box. This handles ~100% of identities on this box today.
+#
+#   Stage 2 (slow, safety net): If stage 1 finds nothing (identity never ran in its
+#   workspace, or the expected dir is empty), fall back to a full scan across all
+#   project dirs. Birth-time cutoff shrinks the corpus — a transcript created before the
+#   identity folder was born cannot contain this identity's /id load. `mv` within the
+#   same filesystem preserves inode + birth time, so archive → unarchive round-trips
+#   preserve the cutoff too. `stat -c %W` returns 0 on filesystems without birth-time
+#   support; filter is skipped in that case with no correctness impact.
+#
+#   The full scan uses `find -printf` (one kernel walk, no per-file stat fork), sorts
+#   mtime-desc, and breaks on first match — same primitives as stage 1. In the pathological
+#   case (identity that hasn't run in a long time, expected dir empty), this can still
+#   walk thousands of files at ~4KB per read, so stage 1 is the load-bearing win.
+#
+#   Replaces the prior naive "iterate every file, keep the max" that couldn't break early
+#   and forked stat+grep+sed per file — measured at ~47s per identity on a 4000-file box.
 resolve_session() {
-  local name="$1" want best="" bestt=0 f o t
+  local name="$1" want project_dir best="" mtime file owner cutoff
+  local -a find_filter=()
   want="$(_lower "$name")"
-  for f in "$PROJECTS_DIR"/*/*.jsonl; do
-    [ -f "$f" ] || continue
-    o="$(session_owner "$f")"; [ -n "$o" ] || continue
-    [ "$(_lower "$o")" = "$want" ] || continue
-    t="$(stat -c %Y "$f" 2>/dev/null)" || continue
-    [ "$t" -gt "$bestt" ] && { bestt="$t"; best="$f"; }
-  done
+  # Stage 1: expected project dir fast path.
+  project_dir="$(_expected_project_dir "$name")"
+  best="$(_scan_dir_newest_owned "$want" "$project_dir")"
+  if [ -z "$best" ]; then
+    # Stage 2: broader scan, birth-time filtered.
+    cutoff="$(stat -c %W "$IDENTITIES_DIR/$name" 2>/dev/null || echo 0)"
+    if [ "${cutoff:-0}" -gt 0 ]; then
+      find_filter=(-newermt "@$cutoff")
+    fi
+    while IFS=$'\t' read -r mtime file; do
+      [ -f "$file" ] || continue
+      owner="$(session_owner "$file")"
+      [ -n "$owner" ] || continue
+      if [ "$(_lower "$owner")" = "$want" ]; then
+        best="$file"
+        break
+      fi
+    done < <(find "$PROJECTS_DIR/" -maxdepth 2 -type f -name '*.jsonl' "${find_filter[@]}" -printf '%T@\t%p\n' 2>/dev/null | sort -rn)
+  fi
   [ -n "$best" ] || return 1
   printf '%s\t%s\n' "$(session_cwd "$best")" "$(basename "$best" .jsonl)"
 }
@@ -1640,30 +1713,68 @@ metric() {
   printf '{%s}\n' "$kv" >> "$METRICS_LOG"
 }
 
-# find the most-recent .jsonl transcript owned by this identity (uses existing session_owner helper).
-# Returns full path via stdout, empty if none.
+# find the most-recent .jsonl transcript owned by this identity, considering subagent
+# transcripts under <parent-file>/subagents/ too. Returns full path via stdout, empty if
+# none. Used by idle_check to see how long since this identity did anything.
+#
+# TWO-STAGE STRATEGY mirrors resolve_session (see the comment there for full rationale):
+#
+#   Stage 1: scan the identity's expected project dir for owned parents (fast: single
+#   directory, typically 1-50 files). For each owned parent, also consider its subagent
+#   dir — a foregrounded Agent tool call writes there and its mtime can outrun the
+#   parent's own (2026-08-10 Tiffany fix: killed 0.4s after subagent's last write during
+#   a valid gsd-executor run). Return the max mtime file across owned-parents and their
+#   subagents.
+#
+#   Stage 2: only if stage 1 found nothing owned. Broader birth-time-filtered scan
+#   across all project dirs — same primitives as resolve_session's slow path.
 _newest_jsonl_for() {
-  local name="$1" f owner m best="" best_m=0 sub_dir sf
-  for f in "$PROJECTS_DIR"/*/*.jsonl; do
-    [ -f "$f" ] || continue
-    owner="$(session_owner "$f")"
-    [ "$(_lower "$owner")" = "$(_lower "$name")" ] || continue
-    m=$(stat -c %Y "$f" 2>/dev/null || echo 0)
-    [ "$m" -gt "$best_m" ] && { best_m=$m; best=$f; }
-    # Also consider subagent transcripts under <parent-uuid>/subagents/ — a foregrounded
-    # Agent tool call writes there, and without this the parent's mtime looks stale while
-    # a subagent is actively working, so idle_check whiffs and the supervisor kills mid-run.
-    # (2026-08-10 fix, Tanya-reported: Tiffany killed 0.4s after subagent's last write during
-    # a valid gsd-executor run.)
-    sub_dir="${f%.jsonl}/subagents"
-    if [ -d "$sub_dir" ]; then
-      for sf in "$sub_dir"/*.jsonl; do
-        [ -f "$sf" ] || continue
-        m=$(stat -c %Y "$sf" 2>/dev/null || echo 0)
-        [ "$m" -gt "$best_m" ] && { best_m=$m; best=$sf; }
-      done
+  local name="$1" want project_dir mtime file owner best="" best_m=0 sub_dir sf m cutoff
+  local -a find_filter=()
+  want="$(_lower "$name")"
+  # Stage 1: expected project dir fast path.
+  project_dir="$(_expected_project_dir "$name")"
+  if [ -d "$project_dir" ]; then
+    while IFS=$'\t' read -r mtime file; do
+      [ -f "$file" ] || continue
+      owner="$(session_owner "$file")"
+      [ -n "$owner" ] || continue
+      [ "$(_lower "$owner")" = "$want" ] || continue
+      m=${mtime%.*}
+      [ "$m" -gt "$best_m" ] && { best_m=$m; best=$file; }
+      sub_dir="${file%.jsonl}/subagents"
+      if [ -d "$sub_dir" ]; then
+        for sf in "$sub_dir"/*.jsonl; do
+          [ -f "$sf" ] || continue
+          m=$(stat -c %Y "$sf" 2>/dev/null || echo 0)
+          [ "$m" -gt "$best_m" ] && { best_m=$m; best=$sf; }
+        done
+      fi
+    done < <(find "$project_dir" -maxdepth 1 -type f -name '*.jsonl' -printf '%T@\t%p\n' 2>/dev/null | sort -rn)
+  fi
+  if [ -z "$best" ]; then
+    # Stage 2: broader scan, birth-time filtered.
+    cutoff="$(stat -c %W "$IDENTITIES_DIR/$name" 2>/dev/null || echo 0)"
+    if [ "${cutoff:-0}" -gt 0 ]; then
+      find_filter=(-newermt "@$cutoff")
     fi
-  done
+    while IFS=$'\t' read -r mtime file; do
+      [ -f "$file" ] || continue
+      owner="$(session_owner "$file")"
+      [ -n "$owner" ] || continue
+      [ "$(_lower "$owner")" = "$want" ] || continue
+      m=${mtime%.*}
+      [ "$m" -gt "$best_m" ] && { best_m=$m; best=$file; }
+      sub_dir="${file%.jsonl}/subagents"
+      if [ -d "$sub_dir" ]; then
+        for sf in "$sub_dir"/*.jsonl; do
+          [ -f "$sf" ] || continue
+          m=$(stat -c %Y "$sf" 2>/dev/null || echo 0)
+          [ "$m" -gt "$best_m" ] && { best_m=$m; best=$sf; }
+        done
+      fi
+    done < <(find "$PROJECTS_DIR/" -maxdepth 2 -type f -name '*.jsonl' "${find_filter[@]}" -printf '%T@\t%p\n' 2>/dev/null | sort -rn)
+  fi
   printf '%s' "$best"
 }
 
