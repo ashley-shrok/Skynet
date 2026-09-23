@@ -36,6 +36,13 @@ import {
   act,
 } from "@testing-library/react";
 
+// Per-test override handle for useIsTouchDevice — flip to `true` to arm
+// touch handlers, `false` to leave them unwired (desktop path).
+let currentIsTouchDevice = false;
+vi.mock("@/hooks/use-is-touch-device", () => ({
+  useIsTouchDevice: () => currentIsTouchDevice,
+}));
+
 import { PrettyProjectSectionHeader } from "./PrettyProjectSectionHeader";
 
 // Helper: build a stub DataTransfer with a Map-backed store. Mirrors the shape
@@ -110,6 +117,7 @@ let originalGetBoundingClientRect: () => DOMRect;
 
 beforeEach(() => {
   cleanup();
+  currentIsTouchDevice = false;
   originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
   HTMLElement.prototype.getBoundingClientRect = function () {
     return KNOWN_RECT;
@@ -559,5 +567,116 @@ describe("PrettyProjectSectionHeader — isolation invariant", () => {
     const section = getByTestId("pv-project-section-alpha");
     const styleAttr = section.getAttribute("style") ?? "";
     expect(styleAttr).toContain("isolation: isolate");
+  });
+});
+
+describe("PrettyProjectSectionHeader — mobile long-press context menu", () => {
+  it("500ms touch hold on the header fires onContextMenu with captured coords", () => {
+    vi.useFakeTimers();
+    currentIsTouchDevice = true;
+    const onContextMenu = vi.fn();
+    const onToggleCollapse = vi.fn();
+    const { getByTestId } = render(
+      <PrettyProjectSectionHeader
+        slug="alpha"
+        displayName="Alpha"
+        collapsed={false}
+        onToggleCollapse={onToggleCollapse}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        onContextMenu={onContextMenu}
+        rows={null}
+      />,
+    );
+    const header = getByTestId("pv-project-section-header-alpha");
+    fireEvent.touchStart(header, { touches: [{ clientX: 42, clientY: 84 }] });
+    expect(onContextMenu).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(onContextMenu).toHaveBeenCalledTimes(1);
+    expect(onContextMenu).toHaveBeenCalledWith("alpha", "Alpha", 42, 84);
+    // The synthesized click that follows a long-press must NOT toggle collapse.
+    fireEvent.click(header);
+    expect(onToggleCollapse).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("touchend before 500ms cancels the timer — no menu, tap falls through to collapse toggle", () => {
+    vi.useFakeTimers();
+    currentIsTouchDevice = true;
+    const onContextMenu = vi.fn();
+    const onToggleCollapse = vi.fn();
+    const { getByTestId } = render(
+      <PrettyProjectSectionHeader
+        slug="alpha"
+        displayName="Alpha"
+        collapsed={false}
+        onToggleCollapse={onToggleCollapse}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        onContextMenu={onContextMenu}
+        rows={null}
+      />,
+    );
+    const header = getByTestId("pv-project-section-header-alpha");
+    fireEvent.touchStart(header, { touches: [{ clientX: 10, clientY: 20 }] });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    fireEvent.touchEnd(header, { touches: [] });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(onContextMenu).not.toHaveBeenCalled();
+    fireEvent.click(header);
+    expect(onToggleCollapse).toHaveBeenCalledWith("alpha");
+    vi.useRealTimers();
+  });
+
+  it("touch movement >10px cancels the pending long-press timer", () => {
+    vi.useFakeTimers();
+    currentIsTouchDevice = true;
+    const onContextMenu = vi.fn();
+    const { getByTestId } = render(
+      <PrettyProjectSectionHeader
+        slug="alpha"
+        displayName="Alpha"
+        collapsed={false}
+        onToggleCollapse={vi.fn()}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        onContextMenu={onContextMenu}
+        rows={null}
+      />,
+    );
+    const header = getByTestId("pv-project-section-header-alpha");
+    fireEvent.touchStart(header, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(header, { touches: [{ clientX: 100, clientY: 140 }] });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(onContextMenu).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("desktop right-click still opens the menu (regression control) with coord args", () => {
+    currentIsTouchDevice = false;
+    const onContextMenu = vi.fn();
+    const { getByTestId } = render(
+      <PrettyProjectSectionHeader
+        slug="alpha"
+        displayName="Alpha"
+        collapsed={false}
+        onToggleCollapse={vi.fn()}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        onContextMenu={onContextMenu}
+        rows={null}
+      />,
+    );
+    const header = getByTestId("pv-project-section-header-alpha");
+    fireEvent.contextMenu(header, { clientX: 200, clientY: 300 });
+    expect(onContextMenu).toHaveBeenCalledWith("alpha", "Alpha", 200, 300);
   });
 });

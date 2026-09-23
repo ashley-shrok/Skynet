@@ -2268,10 +2268,11 @@ export function PrettyConversationsPanel({
   // Phase 117 Plan 117-09 Task 2 (D-14) — right-click / long-press handler
   // on the project section header. Opens the shared context menu with
   // "Edit project file" + "Archive project" items at the pointer coords.
+  // Header calls `e.preventDefault()` itself and passes coords, so the same
+  // handler serves both desktop right-click and mobile long-press paths.
   const handleSectionContextMenu = useCallback(
-    (slug: string, displayName: string, e: React.MouseEvent) => {
-      e.preventDefault();
-      setProjectContextMenu({ x: e.clientX, y: e.clientY, slug, displayName });
+    (slug: string, displayName: string, x: number, y: number) => {
+      setProjectContextMenu({ x, y, slug, displayName });
     },
     [],
   );

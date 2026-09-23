@@ -39,8 +39,17 @@
 //     budget so it can't escape past outer stacking contexts (mirrors
 //     CollapsedPanelCloseLane.tsx:40 discipline).
 
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type TouchEvent,
+} from "react";
 import { FolderOpen, SquarePen, ChevronDown } from "lucide-react";
+
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 
 /**
  * Row payload extracted from the DnD dataTransfer's `application/x-skynet-row`
@@ -81,9 +90,19 @@ export interface PrettyProjectSectionHeaderProps {
    * Phase 117 Plan 117-09 Task 2 (D-14) — right-click / long-press handler
    * on the header. The panel opens a shared context menu at the pointer
    * coords with "Edit project file" + "Archive project" items. When
-   * omitted, right-clicking falls through to browser default (no menu).
+   * omitted, right-clicking / long-press falls through to browser default.
+   *
+   * Coord-based signature (not MouseEvent) so BOTH the desktop right-click
+   * path AND the mobile long-press touch-timer path can call it uniformly.
+   * The header calls `e.preventDefault()` itself before invoking; the panel
+   * consumer only needs `(x, y, slug, displayName)`.
    */
-  onContextMenu?: (slug: string, displayName: string, e: React.MouseEvent) => void;
+  onContextMenu?: (
+    slug: string,
+    displayName: string,
+    x: number,
+    y: number,
+  ) => void;
 }
 
 const ROW_MIME = "application/x-skynet-row";
@@ -106,6 +125,38 @@ export function PrettyProjectSectionHeader({
 }: PrettyProjectSectionHeaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // Mobile long-press → context menu. Mirrors the pattern established in
+  // PrettyConversationRow.tsx:466-497,623-664 (quick-260802-pq2): iOS Safari
+  // never fires `contextmenu` on long-press (it triggers the OS callout
+  // instead), and Chrome/Firefox Android are inconsistent, so a manual
+  // 500ms touch timer is required. `useIsTouchDevice()` reads
+  // `(pointer: coarse) and (hover: none)` via matchMedia — same discipline
+  // as the row so touchscreen tablets (iPad) also get the wire.
+  const isTouchDevice = useIsTouchDevice();
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Set true by the long-press timer body so the synthesized click that
+  // follows a long-press touch does NOT also fire the collapse toggle.
+  const suppressNextClickRef = useRef<boolean>(false);
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  // Cleanup any pending timer on unmount — a late fire on an unmounted
+  // component would call the callback with stale closure state.
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // Window-level dragend for Escape-cancel path — a drag cancelled via
   // Escape does NOT fire dragleave on the section (cursor did not move),
   // so the overlay would stay lit forever without this listener. Mirrors
@@ -115,6 +166,46 @@ export function PrettyProjectSectionHeader({
     window.addEventListener("dragend", onDragEnd);
     return () => window.removeEventListener("dragend", onDragEnd);
   }, []);
+
+  const onTouchStart = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      if (!onContextMenu) return;
+      const t = e.touches[0];
+      if (!t) return;
+      const x = t.clientX;
+      const y = t.clientY;
+      longPressStartRef.current = { x, y };
+      clearLongPressTimer();
+      longPressTimerRef.current = window.setTimeout(() => {
+        onContextMenu(slug, displayName, x, y);
+        navigator.vibrate?.(10);
+        suppressNextClickRef.current = true;
+        longPressTimerRef.current = null;
+      }, 500);
+    },
+    [onContextMenu, slug, displayName, clearLongPressTimer],
+  );
+
+  const onTouchMove = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      if (longPressTimerRef.current === null) return;
+      if (longPressStartRef.current === null) return;
+      const t = e.touches[0];
+      if (!t) return;
+      const dx = t.clientX - longPressStartRef.current.x;
+      const dy = t.clientY - longPressStartRef.current.y;
+      if (Math.hypot(dx, dy) > 10) {
+        clearLongPressTimer();
+        longPressStartRef.current = null;
+      }
+    },
+    [clearLongPressTimer],
+  );
+
+  const onTouchEnd = useCallback(() => {
+    clearLongPressTimer();
+    longPressStartRef.current = null;
+  }, [clearLongPressTimer]);
 
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     // Type-gate FIRST — ONLY row drags activate the coral overlay. Badge
@@ -207,7 +298,16 @@ export function PrettyProjectSectionHeader({
       <div
         role="button"
         tabIndex={0}
-        onClick={() => onToggleCollapse(slug)}
+        onClick={() => {
+          // Suppress the synthesized click that fires after a mobile
+          // long-press so the collapse toggle does NOT double-fire alongside
+          // the context menu open.
+          if (suppressNextClickRef.current) {
+            suppressNextClickRef.current = false;
+            return;
+          }
+          onToggleCollapse(slug);
+        }}
         onKeyDown={(e) => {
           // WAI-ARIA button pattern: Enter and Space both fire the
           // collapse toggle. preventDefault on Space avoids page scroll.
@@ -217,12 +317,17 @@ export function PrettyProjectSectionHeader({
           }
         }}
         onContextMenu={(e) => {
-          // Phase 117 Plan 117-09 Task 2 (D-14) — right-click / long-press
-          // opens the shared context menu (Edit project file + Archive
-          // project). Panel binds the callback; browser default is
-          // suppressed inside the callback (`e.preventDefault()`).
-          if (onContextMenu) onContextMenu(slug, displayName, e);
+          // Phase 117 Plan 117-09 Task 2 (D-14) — desktop right-click opens
+          // the shared context menu (Edit project file + Archive project).
+          // Mobile long-press flows through the touch-timer path below.
+          if (!onContextMenu) return;
+          e.preventDefault();
+          onContextMenu(slug, displayName, e.clientX, e.clientY);
         }}
+        onTouchStart={isTouchDevice ? onTouchStart : undefined}
+        onTouchMove={isTouchDevice ? onTouchMove : undefined}
+        onTouchEnd={isTouchDevice ? onTouchEnd : undefined}
+        onTouchCancel={isTouchDevice ? onTouchEnd : undefined}
         className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full text-left cursor-pointer"
         data-testid={`pv-project-section-header-${slug}`}
         aria-expanded={!collapsed}
