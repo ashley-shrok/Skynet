@@ -85,7 +85,7 @@ import { db } from "../db/index.js";
 import { hosts } from "../db/schema.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { SimpleDBOps } from "../../utils/simple-db-ops.js";
-import { sshLogger } from "../../utils/logger.js";
+import { sshLogger, systemLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
@@ -96,9 +96,18 @@ import {
   parseDiscoveryStdout,
 } from "../../claude-session/discover-identity-session-file.js";
 import { extractText } from "../../claude-session/session-file-parser.js";
-import { listIdentityKeysOnHost } from "../../claude-session/identity-artifact-reader.js";
+import {
+  extractCosmeticsFromFrontmatter,
+  extractRoleFromMarkdown,
+  listIdentityKeysOnHost,
+  readIdentityFile,
+  readRoleFileByName,
+} from "../../claude-session/identity-artifact-reader.js";
 import { listArchivedIdentityKeysOnHost } from "../../claude-session/list-archived-identity-keys.js";
 import { snippetForHit } from "../../claude-session/session-search-snippet.js";
+import { isIdentityVisibleToUser } from "../../fleet-status/identity-visibility-gate.js";
+import type { RawCosmetics } from "../../fleet-status/identity-appearance.js";
+import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -406,6 +415,132 @@ async function resolveIdentityPaths(
   return [...resolved.values()];
 }
 
+/**
+ * Phase 129 Plan 129-04: gate a host's search hits by the D-2 intersection
+ * visibility rule.
+ *
+ * Batched per-unique-identityKey frontmatter fetch (Pitfall 4): O(unique
+ * keys in this host's result page) — NOT O(hits). The result page is
+ * bounded by DEFAULT_LIMIT (20), so the SSH read cost stays predictable
+ * even on very large hosts. Storing the identity read as a Promise (not
+ * the resolved value) collapses parallel duplicate keys within the same
+ * Promise.all wave (mirrors identities.ts roleReadCache pattern).
+ *
+ * FAIL-CLOSED on frontmatter read error — Phase 129 exception documented
+ * in PATTERNS.md § Shared Patterns "Read-path fail-open, write-path
+ * fail-closed". Rationale: search returns hits DELIBERATELY targeted by a
+ * query, so leaking a hit for a hidden identity is more visible than
+ * dropping an inaccessible identity. The D-7 depth invariant ("if the
+ * gate hides you, the gate hides you everywhere") wins over the D-8
+ * fail-open default in the search context.
+ *
+ * The `gateMap.get(r.identityKey) === true` filter shape (NOT `!== false`)
+ * is the fail-closed semantic: unresolved keys stay hidden. This
+ * intentional inversion of the sessions.ts / identities.ts fail-open
+ * shape must NOT drift back to `!== false` — that would silently flip
+ * search's fail-closed discipline to fail-open. See Test F in
+ * conversation-search.test.ts for the regression lock.
+ *
+ * Applies to BOTH live and archive identityKeys — the gate scans unique
+ * keys across the whole `rows` array, so archive hits (Test D) share the
+ * same gateMap as live hits with no additional plumbing.
+ *
+ * `callerUsername === null` short-circuits: no gate applied, all rows
+ * pass through (D-8 fail-open on the per-REQUEST side — a null caller is
+ * an infra bug, not a gate signal). Distinct from the per-HIT fail-closed
+ * behavior above.
+ */
+async function gateHostRows(
+  conn: Parameters<typeof discoverIdentitySessionFile>[0],
+  hostId: number,
+  callerUsername: string | null,
+  rows: ConversationSearchResult[],
+): Promise<ConversationSearchResult[]> {
+  if (callerUsername === null || rows.length === 0) return rows;
+
+  const uniqueKeys = Array.from(new Set(rows.map((r) => r.identityKey)));
+  const gateMap = new Map<string, boolean>();
+  // Per-host role-cosmetics memo (mirror identities.ts L399-424 roleReadCache
+  // pattern). Multiple identityKeys of the same role read the role file
+  // AT MOST ONCE per gate pass. Storing the in-flight Promise (not the
+  // resolved value) collapses parallel duplicate role reads.
+  const roleReadCache = new Map<string, Promise<RawCosmetics | null>>();
+  const readRoleCosmeticsMemoized = (
+    roleName: string,
+  ): Promise<RawCosmetics | null> => {
+    const existing = roleReadCache.get(roleName);
+    if (existing !== undefined) return existing;
+    const p = (async (): Promise<RawCosmetics | null> => {
+      try {
+        const { markdown: roleMd } = await readRoleFileByName(
+          conn as Parameters<typeof readRoleFileByName>[0],
+          roleName,
+        );
+        return roleMd ? extractCosmeticsFromFrontmatter(roleMd) : null;
+      } catch {
+        // Role read fail → null cosmetics. The identity-side gate call
+        // still decides; a null role side means "no gate on that side"
+        // per D-3 fallback, which is intentional here because a role file
+        // read fail is transient infra, not a gate signal. The identity-
+        // side read fail is the fail-closed signal (handled below).
+        return null;
+      }
+    })();
+    roleReadCache.set(roleName, p);
+    return p;
+  };
+
+  await Promise.all(
+    uniqueKeys.map(async (key) => {
+      try {
+        const { markdown } = await readIdentityFile(
+          conn as Parameters<typeof readIdentityFile>[0],
+          key,
+        );
+        const identityCos = extractCosmeticsFromFrontmatter(markdown);
+        const role = extractRoleFromMarkdown(markdown);
+        const roleCos =
+          role !== null ? await readRoleCosmeticsMemoized(role) : null;
+        gateMap.set(
+          key,
+          isIdentityVisibleToUser(identityCos, roleCos, callerUsername),
+        );
+      } catch (err) {
+        // FAIL-CLOSED: search hit for an identity we could not verify
+        // visibility on MUST NOT be surfaced (Phase 129 exception per
+        // PATTERNS.md). Warn-log the drop so ops can trace the discrepancy.
+        gateMap.set(key, false);
+        systemLogger.warn(
+          "Phase 129: search gate frontmatter read error — hit dropped (fail-closed)",
+          {
+            operation: "search_gate_read_error",
+            hostId,
+            identityKey: key,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
+    }),
+  );
+
+  const visibleRows: ConversationSearchResult[] = [];
+  for (const row of rows) {
+    // === true (not !== false) is the fail-closed shape — unresolved keys
+    // stay hidden. Do NOT drift to !== false; see gateHostRows docblock.
+    if (gateMap.get(row.identityKey) === true) {
+      visibleRows.push(row);
+    } else {
+      systemLogger.debug("Phase 129: search hit hidden by visibility gate", {
+        operation: "search_gate_hidden",
+        hostId,
+        identityKey: row.identityKey,
+        callerUsername,
+      });
+    }
+  }
+  return visibleRows;
+}
+
 async function runOneHost(
   conn: Parameters<typeof discoverIdentitySessionFile>[0],
   hostId: number,
@@ -539,6 +674,29 @@ router.post(
       return res.status(400).json({ error: "query_too_long" });
     }
 
+    // Phase 129 Plan 129-04: per-request callerUsername lookup for the D-2
+    // visibility gate applied per-host inside the fanout below. Fetched
+    // EXACTLY ONCE per request (before the per-host fanout) — matches this
+    // file's per-request-cost discipline.
+    //
+    // A null result (unknown / orphaned userId) is a shape-violation
+    // defensive branch — we do NOT abort the request. Per D-8 fail-open
+    // on the PER-REQUEST side: a null callerUsername is an infra bug, not
+    // a gate signal; treating it as "hide everything" would empty search
+    // results for every user on the affected code path. gateHostRows()
+    // short-circuits on null (see its docblock). Distinct from the per-HIT
+    // fail-closed behavior for individual frontmatter read errors.
+    const callerUsername = await getUsernameForUserId(userId);
+    if (callerUsername === null) {
+      systemLogger.warn(
+        "Phase 129: POST /conversation-search callerUsername lookup failed — gate disabled for this request",
+        {
+          operation: "search_gate_username_missing",
+          userId,
+        },
+      );
+    }
+
     // --- Host projection (T-122-02 scoped to caller) ----------------------
     let candidates: Array<Record<string, unknown>>;
     try {
@@ -601,7 +759,20 @@ router.post(
                 ),
               ),
             ]);
-            return rows;
+            // Phase 129 Plan 129-04: D-7 deep-gate seam #4 — batched
+            // per-unique-identityKey frontmatter fetch, fail-CLOSED filter.
+            // Applied AFTER runOneHost returns hits so both live and
+            // archived paths share the same gateMap; BEFORE flatten so
+            // hidden hits never enter the aggregated response. See
+            // gateHostRows docblock for the fail-closed rationale (opposite
+            // of list-endpoint fail-open discipline).
+            const gatedRows = await gateHostRows(
+              conn as unknown as Parameters<typeof discoverIdentitySessionFile>[0],
+              hostId,
+              callerUsername,
+              rows,
+            );
+            return gatedRows;
           } finally {
             try {
               (conn as { end?: () => void }).end?.();
