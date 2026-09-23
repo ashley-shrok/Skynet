@@ -2612,6 +2612,7 @@ Plans:
 **Plans:** 5/4 plans complete
 
 Plans:
+
 - [x] 116-01-PLAN.md — Wave 1 backend leaves: types.ts + parse-request-body.ts (D-06 unknown-field explicit-reject) + token-bucket.ts (D-21 hand-rolled RPM × 5s capacity) + adapter.ts (D-25/D-26 raw fetch to gpt-image-1 with AbortController + D-27 status-code → reason mapping) + tests
 - [x] 116-02-PLAN.md — Wave 1 caller side: substrate/skills/image-gen/SKILL.md (D-17 PHI directive top + D-18 inline echo + D-27 failure table) + substrate/scripts/image-gen bash helper (D-13 flag shape + D-14 stdout/stderr split + D-16 5-min timeout + Pitfall 3 ref-before-json write order) + two distributor catalog rows
 - [x] 116-03-PLAN.md — Wave 2 backend wire-up: export writeBinaryFileAtomic from identity-artifact-reader.ts + queue.ts (D-20 5-worker pool + FIFO waiter list) + worker.ts (Pitfall 5 TTL-at-dequeue + adapter call + response file drops) + scan-orchestrator.ts (always-on tick per RESEARCH.md Q2 correction + companion .ref.* fetch per D-07) + starter.ts boot block (token bucket singleton + queue.startPool + orchestrator wire) + tests
@@ -2625,6 +2626,7 @@ Plans:
 **Plans:** 10 plans
 
 Plans:
+
 - [x] 117-01-PLAN.md — Backend: identity-artifact-reader project primitives (PROJECT_SLUG_RE + 7 exports for read/write of session `project:` field + list/read/create/archive project + LOCAL/REMOTE branch discipline + full-frontmatter-round-trip preserving unknown keys per Pitfall 5)
 - [x] 117-02-PLAN.md — Backend: matrix-room-tag-client for m.tag account_data read-modify-write per D-05a (getRoomTags + setRoomProjectTag, uses ensureUserToken per-user cache from matrix-admin-client, preserves non-project tags, strips existing u.project.*, encodeURIComponent path safety)
 - [x] 117-03-PLAN.md — Backend: wire-protocol project-list-changed frame (byte-shape parallel to Phase 115 identity-archived) + subscription-registry publishProjectListChanged with idempotent-skip + snapshot-on-subscribe replay
@@ -2654,6 +2656,7 @@ Plans:
 **Plans:** 6/6 plans complete
 
 Plans:
+
 - [x] 119-01-PLAN.md — Frontend WS type mirror + client dispatch extension (fleet-status-types.ts + fleet-status-client.ts)
 - [x] 119-02-PLAN.md — app-tiles-store slice + useAppTiles hook + AppShell wiring
 - [x] 119-03-PLAN.md — AppTile component + .pv-app-* CSS selectors + component tests
@@ -2669,6 +2672,7 @@ Plans:
 **Plans:** 8/8 plans complete
 
 Plans:
+
 - [x] 120-01-PLAN.md — Backend leaves: `app-proxy-csrf-check` pure helper + `base-tag-injector` HTML transform + unit tests (wave 1)
 - [x] 120-02-PLAN.md — Backend leaves: `app-pane-proxy-factory` sibling factory + `pane-target-resolver` + unit tests (wave 2, depends on 120-01)
 - [x] 120-03-PLAN.md — SQL schema extension: `app_slug` column on `user_open_tabs` + POST/PUT/GET open-tabs handlers (wave 1)
@@ -2686,6 +2690,7 @@ Plans:
 **Plans:** 4/5 plans executed
 
 Plans:
+
 - [x] 121-01-PLAN.md — Backend workspace-routes.ts (9 SFTP-backed endpoints under /workspace) + vitest + database.ts mount + matching nginx blocks in BOTH configs
 - [x] 121-02-PLAN.md — Frontend workspace-api.ts (9 client helpers, error-class preserving) + workspace-error-copy.ts (consumer-user register for every backend error class)
 - [x] 121-03-PLAN.md — WorkspaceTab.tsx component (list-mode + viewer-mode inline swap, sortable columns, breadcrumb, drag-drop, host chip, MarkdownEditor/GlobalFileTab inline mounts — no modal stacking)
@@ -2700,6 +2705,7 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
+
 - [ ] 122-01-PLAN.md — Wave 0 empirical checkpoint: verify Assumption A1 (archived-identity JSONL survival) before writing any endpoint code; produces GO/NO-GO verdict for the archived corpus branch
 - [ ] 122-02-PLAN.md — Backend POST /conversation-search endpoint with cross-host fan-out (reusing sessions.ts:319 pattern), archive-tree enumerator, JSON-aware snippet extractor, and nginx location parity
 - [ ] 122-03-PLAN.md — Frontend: search-store (useSyncExternalStore for D-05 persistence), API client, ConversationSearchModal + Row components, header button wiring, AppShell click handler
@@ -2737,6 +2743,7 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
+
 - [ ] 125-01-PLAN.md — Modify ChatMessage.tsx: layout swap + below-bubble action strip + thumbs-up/thumbs-down affordance + pressed-state + `useFeedbackEnabled` leaf subscription + new `onThumbsUp`/`onThumbsDown` callback props + colocated `ChatMessage.feedback-thumbs.test.tsx` covering D-53 cases 1-7 (nine test cases). Wave 1, autonomous.
 - [ ] 125-02-PLAN.md — Modify PrettyView.tsx: wire `handleThumbsUp`/`handleThumbsDown` handlers with `exchangeText` computation (prior-user-turn lookup, no-prior-turn edge case) + local `feedbackModalContext` atom + PrettyView-mounted `<FeedbackModal variant="thumbs_down">` + colocated `PrettyView.feedback-thumbs.test.tsx` covering D-53 cases 8-11 + T-124-05 relay-frame-skip test (nine test cases). Wave 2 (depends on 125-01), autonomous.
 
@@ -2748,6 +2755,7 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
+
 - [ ] 126-01-PLAN.md — Create audio subsystem module `src/ui/audio/ready-cue.ts` (playTink + initReadyCueAudioUnlock + isReadyCueUnlocked + __resetForTest) + tink.mp3 asset at `src/ui/assets/sounds/ready-cue/tink.mp3` + colocated vitest suite (six tests covering D-18/D-19/D-20/D-21/D-27 unlock-guard + playback API). Wave 1, autonomous. Zero consumers wired.
 - [ ] 126-02-PLAN.md — Latch state + WIP-transition observer + visibility gate + unlock-installer wire-up. New store `src/ui/state/ready-cue-latch-store.ts` (armRow/disarmRow/isRowArmed/__resetForTest) + PrettyView.tsx arm-on-assistant-MessageEvent effect + PrettyView.tsx fire-on-WIP-true→false effect (gated on isRowArmed && isVisible) + AppShell.tsx mount-only initReadyCueAudioUnlock() call + two colocated vitest suites (six + seven tests covering D-25 latch state machine + D-26 visibility gate + D-04 flicker collapse). Wave 2 (depends on 126-01), autonomous.
 
@@ -2762,6 +2770,7 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
+
 - [x] 127-01-PLAN.md — TS spawn-requests schema extension: `SpawnRequestBody`+`PendingBirth` gain `roles: string[]` / `skills?: string[]` / `prompt: string`; `parseRequestBody` validates extended shape (per-element ROLE_NAME_PATTERN); `worker.ts` bridges `roles[0]` with D-13 multi-role TODO; `queue.ts` + `ssh-poll-orchestrator.ts` updated; 13 `parseRequestBody` tests (7 rewritten + 6 new). Wave 1, autonomous. 622 tests pass.
 - [x] 127-02-PLAN.md — Python scheduler global mode: `wakeup-scheduler.py` gains `argparse --mode global`; `_load_specs_global` reads `<wakeups_root>/*/wakeup.json` nested layout; `_drop_spawn_request` writes `~/fleet/spawn-requests/<uuid>.json`; orphan-monitor guard bypassed in global mode; per-identity mode byte-identical; new hermetic `substrate/scripts/tests/wakeup-scheduler.test.sh` (5 tests). Wave 1, autonomous. 5/5 tests pass.
 - [x] 127-03-PLAN.md — agent-supervisor + ambient-monitor: `substrate/scripts/agent-supervisor.sh` gains 13-line global-scheduler spawn block after `resolve_memory_wrapper` (setsid+nohup+disown pattern mirroring `start_ambient_monitor`); `substrate/scripts/ambient-monitor.py` per-role `wakeup-scheduler-role` spawn removed (lines 326-355) — IS_COORDINATOR + per-identity spawn preserved verbatim. Wave 2, autonomous.
@@ -2778,6 +2787,7 @@ Plans:
 **Plans:** 12/11 plans complete
 
 Plans:
+
 - [x] 128-01-PLAN.md — pushSubscriptions Drizzle schema + runTelegramBotTokensTableDrop() drop-migration wired at boot. Wave 1, autonomous. 5 atomic commits (TDD), 2533 tests green, build clean.
 - [x] 128-02-PLAN.md — web-push@3.6.7 install (blocking-human legitimacy checkpoint approved 2026-09-21) + vapid-config.ts fail-fast boot loader + push-sender.ts wrapper with 410/404 inline pruning + forceSave discipline. Wave 1, checkpoint-gated. 5 atomic commits (TDD), 20/20 scoped tests, build clean.
 - [x] 128-03-PLAN.md — preview-text.ts + resolve-agent-display-name.ts pure utilities mirroring recv.sh label taxonomy. Wave 1, autonomous. 5 atomic commits (TDD), 21/21 tests, build clean.
@@ -2797,13 +2807,23 @@ Plans:
 **Requirements**: none mapped (requirements captured as D-01..D-10 locked decisions in 129-CONTEXT.md; ROADMAP requirements are patch-#43 specific and this phase is a separate feature — no REQ-IDs needed)
 **Depends on:** Phase 128
 **Plans:** 8 plans
-
 Plans:
+**Wave 1**
+
 - [ ] 129-01-PLAN.md — Foundations: extend RawCosmetics with users?: string[], extend extractCosmeticsFromFrontmatter with users narrowing, create identity-visibility-gate.ts (pure intersection gate), create host-user-counter.ts (isHostMultiUser with RBAC-role expansion + getUsernameForUserId). Wave 1.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 129-02-PLAN.md — Deep gate at GET /identities: per-request callerUsername + per-identity isIdentityVisibleToUser inside fanout; 7 cross-user integration tests. Wave 2.
 - [ ] 129-03-PLAN.md — Deep gate at GET /sessions/list (Pitfall 3: read identity file once for role+cosmetics per Assumption A5) + GET /roles?hostId=<n> (role-picker gate with identityCos=null). 14 tests total. Wave 2.
 - [ ] 129-04-PLAN.md — Deep gate at POST /conversation-search with batched O(unique-keys) frontmatter fetch + fail-CLOSED post-filter (Phase 129 exception per PATTERNS.md). 7 tests. Wave 2.
 - [ ] 129-05-PLAN.md — WS AppFrameFilter identity-gate extension: 5 frame types (update/snapshot/gone/identity-archived/session-project-changed) + resolveIdentityGate closure injected from fleet-status-server.ts (preserves 'no DB imports' file discipline). 11 tests. Wave 2.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 129-06-PLAN.md — Auto-tag at POST /roles on multi-user hosts (D-4): pre-yaml.dump cosmetics.users = [creator] branch + write-side fail-open on username lookup fail. 7 tests. Wave 3.
 - [ ] 129-07-PLAN.md — Auto-tag at POST /identities/birth: BirthOptions.creatorUsername thread from route handler → buildIdentityFileBody pairs.push (byte-shape preserved); identity-clone.ts EXPLICITLY excluded from v1. 14 tests. Wave 3.
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 129-08-PLAN.md — Phase-wide gate: npm run build:backend + npm run build typecheck + phase-scoped vitest sweep across all 13 modified files + no-leak audit grep coverage matrix. Wave 4.

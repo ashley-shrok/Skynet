@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-09-23T03:16:09.633Z"
-last_activity: 2026-09-21
+status: executing
+last_updated: "2026-09-23T04:02:35.828Z"
+last_activity: 2026-09-23 -- Phase 129 planning complete
 progress:
   total_phases: 130
   completed_phases: 109
-  total_plans: 563
+  total_plans: 571
   completed_plans: 555
   percent: 84
 ---
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 Phase: 128 (Push notifications replacing Telegram bridge) — EXECUTING
 Plan: 11 of 11 (Wave 4 — Plan 09 completed 2026-09-21T04:02:42Z; Plan 10 (docker/nginx teardown) is the parallel Wave-4 sibling and shares Plan-08 dependency, so it is next unblocked. Plan 11 (verification sweep) is Wave 5, blocked on 09 + 10 both landing.)
 
-Last activity: 2026-09-21
+Last activity: 2026-09-23 -- Phase 129 planning complete
 
 Last activity (prior): 2026-09-21 -- Completed Phase 128 Plan 09 (source-file teardown). Deleted src/backend/telegram/ (22 files) + substrate/services/tg-bridge/ (4 files); removed voice.ts rejectBridgeServiceOnSpeak middleware + its 2 mount references; removed schema.ts telegramBotTokens Drizzle export; D-19 grep gate confirmed zero non-telegram production callers of getSharedDMRoom (only test-file references, which follow the function) so it was DELETED along with its 7 G-* tests + 1 extraction-regression test. Rule 3 transitive removal of /matrix-admin/migrate-cred-files handler (Phase 79 Plan 08 one-shot) + tests — it was the sole surviving importer of ../telegram/human-token-writer.js + ../telegram/shared-volume.js outside src/backend/telegram/. Two atomic chore commits: `56d318f5` (Task 1 — directory deletions + Rule 3 fix) + `9fa663d1` (Task 2 — voice/schema/getSharedDMRoom). Post-teardown greps: zero live source references to telegram/ modules; substrate/services/tg-bridge/ confirmed absent; only narrative comments remain (all deletion-notice or historical breadcrumbs). Backend + full frontend build both exit 0. Scoped vitest sweep (npx vitest related --run on database.ts, starter.ts, schema.ts, matrix-admin-routes.ts, voice.ts, matrix-admin-client.ts) 2474 passed / 2 skipped across 138 test files. Flagged in SUMMARY as out-of-scope for Plan 09: src/ui/api/telegram-api.ts + src/ui/features/pretty-view/TelegramTab.tsx + 5 frontend mocks still exist — no Phase 128 plan tears them down; runtime post-Phase-128 those UI calls 404 (routes unmounted in Plan 128-08). Also flagged: field-crypto.ts:55 telegram_bot_tokens entry is dead-weight (harmless string-literal lookup no code hits post-teardown; not in Plan 09 scope). SUMMARY at `.planning/phases/128-push-notifications-replacing-telegram-bridge/128-09-SUMMARY.md`. Ready for Plan 128-10 (docker/nginx teardown, disjoint scope, parallel Wave 4) and downstream Plan 128-11 (verification sweep, Wave 5).
 
@@ -99,7 +99,7 @@ Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bo
 
 Phase: 44 (frontend-skill-editing-editor-surface-for-skill-folders-on-a) — EXECUTING
 Plan: 3 of 3
-Status: Phase complete — ready for verification
+Status: Ready to execute
 
 Last activity: 2026-08-19
 
