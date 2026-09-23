@@ -94,6 +94,9 @@ WORKDIR /app
 # a mismatch → phase-wide reload-loop. See threat T-111-01.
 ARG SKYNET_BUILD_SHA
 
+ENV DATA_DIR=/app/data \
+    PORT=8080 \
+    NODE_ENV=production \
     # Phase 117 M-K (2026-09-19): safe container default so every fleet
     # subpath reader (getLocalIdentitiesRoot / getLocalRolesRoot /
     # getLocalProjectsRoot) writes into the /host-home bind mount by
