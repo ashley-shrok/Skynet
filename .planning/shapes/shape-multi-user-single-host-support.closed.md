@@ -16,7 +16,7 @@ A logged-in user sees an identity if, and only if, both gates pass for them:
 - The role gate passes if the role's `users` list is empty, or the logged-in user's name is on it.
 - The identity gate passes if the identity's `users` list is empty, or the logged-in user's name is on it.
 
-Both must pass — this is an intersection. So a shared role (say, `users: [ashley, zoe]`) can still contain identities that only one of them sees, because each identity's own `users` list narrows further within that role.
+Both must pass — this is an intersection. So a shared role (say, `users: [user, zoe]`) can still contain identities that only one of them sees, because each identity's own `users` list narrows further within that role.
 
 When a role or identity is created through the Skynet app on a host that has more than one Skynet user with access to it, the creator's Skynet username is automatically written to the new file's `users` list. When it's created on a host that has only one user, nothing is written — the field stays absent, the file looks exactly like a file made before this feature ever existed. This keeps the feature invisible in the majority case and self-managing in the shared case.
 
@@ -42,7 +42,7 @@ Visibility today is host-level only. A Skynet user owns a set of hosts and sees 
 
 The identity-creation UI is a picker of existing roles on the target host — the user cannot type a new role name at identity-creation time. Roles are created through a separate "+ New role" flow launched from the sidebar header. Both flows already know the Skynet username of the caller at creation time (from the login session), so auto-tagging is reachable from either without new plumbing.
 
-The concrete driver: most Skynet users are one-to-one with a single host, but Ashley has one host shared with Zoe today, and the sidebar clutter from seeing each other's roles and identities is the day-to-day pain that motivated this.
+The concrete driver: most Skynet users are one-to-one with a single host, but the user has one host shared with Zoe today, and the sidebar clutter from seeing each other's roles and identities is the day-to-day pain that motivated this.
 
 ## What would make it wrong
 
@@ -69,7 +69,7 @@ The concrete driver: most Skynet users are one-to-one with a single host, but As
 - Handling of role or identity files created outside the Skynet UI (agent-driven, hand-edited on disk). Those come in untagged; the fallback rule keeps them visible.
 
 **Deferred:**
-- Post-implementation, Ashley will manually clean up the existing shared-host content by hand-editing frontmatter. Whether any tooling helps with that is a separate conversation after the code lands.
+- Post-implementation, the user will manually clean up the existing shared-host content by hand-editing frontmatter. Whether any tooling helps with that is a separate conversation after the code lands.
 
 **Tempting but no:**
 - Auto-adding new users to a role's `users` list when they gain host access.
@@ -80,7 +80,7 @@ The concrete driver: most Skynet users are one-to-one with a single host, but As
 
 ## Vehicle notes
 
-GSD phase because the change spans backend (frontmatter parsing, gate logic in the read path, session-list filtering, both create endpoints, tests) and frontend (role picker filter). Ashley's standing directive against skipping phase setup for phase-sized work applies here.
+GSD phase because the change spans backend (frontmatter parsing, gate logic in the read path, session-list filtering, both create endpoints, tests) and frontend (role picker filter). the user's standing directive against skipping phase setup for phase-sized work applies here.
 
 The identity doing the work is `pixel-box-maintainer-2` on the `feat/tab-title-from-tmux` branch. Next step is `/gsd:phase` to slot this shape into a phase, followed by `/gsd:plan-phase` → `/gsd:execute-phase` (auto-proceeding per GSD's standard rule). Deploy stays orchestrator-only per box-maintainer standing directives — no ship steps in executor plans. `/close multi-user-single-host-support` runs at the end against this file.
 

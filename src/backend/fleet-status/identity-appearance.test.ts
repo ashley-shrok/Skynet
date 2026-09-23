@@ -291,7 +291,7 @@ describe("roleDefaults — three-valued semantics", () => {
       title: "Skynet",
       colorHue: 324,
       avatar: "box-maintainer.webp",
-      users: ["ashley", "zoe"],
+      users: ["user", "zoe"],
     };
     const result = resolveIdentityAppearance(makeArgs({
       roleCosmetics: rc,
@@ -310,7 +310,7 @@ describe("roleDefaults — three-valued semantics", () => {
   });
 
   it("roleCosmetics with ONLY `users` list → roleDefaults becomes {} (users stripped, no other fields)", () => {
-    const rc: RawCosmetics = { users: ["ashley"] };
+    const rc: RawCosmetics = { users: ["user"] };
     const result = resolveIdentityAppearance(makeArgs({
       roleCosmetics: rc,
     }));

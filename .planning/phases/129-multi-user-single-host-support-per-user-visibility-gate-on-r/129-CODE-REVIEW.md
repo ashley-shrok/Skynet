@@ -28,7 +28,7 @@ Phase 129 lands a well-shaped visibility gate with a clean pure-function core, d
 const roleDefaults = roleCosmetics;
 ```
 
-`publicIdentity()` then re-emits it under `roleDefaults` in the response body (identities.ts:258). Because `extractCosmeticsFromFrontmatter` now includes `users` on the returned shape (identity-artifact-reader.ts:3245-3258), every visible identity whose role frontmatter has `users: [ashley, zoe]` will send `{"roleDefaults": {"users": ["ashley", "zoe"], ...}}` to any authenticated caller that can see the identity — including the caller themselves, who then knows exactly which cohabitants share that role. This tells Ashley on a shared host "role X is scoped to me + Zoe" purely from a network trace, and it makes the gate discoverable to any curious user via DevTools even without a UI affordance.
+`publicIdentity()` then re-emits it under `roleDefaults` in the response body (identities.ts:258). Because `extractCosmeticsFromFrontmatter` now includes `users` on the returned shape (identity-artifact-reader.ts:3245-3258), every visible identity whose role frontmatter has `users: [user, zoe]` will send `{"roleDefaults": {"users": ["user", "zoe"], ...}}` to any authenticated caller that can see the identity — including the caller themselves, who then knows exactly which cohabitants share that role. This tells the user on a shared host "role X is scoped to me + Zoe" purely from a network trace, and it makes the gate discoverable to any curious user via DevTools even without a UI affordance.
 
 The close-out explicitly asserts under scope-out and D-6 that "users key never leaks into response body" for `roles-list-for-host` (verified true there via the raw/narrowed split). The same discipline was NOT applied for `GET /identities` — the `roleDefaults` pass-through is silently permissive.
 
@@ -64,7 +64,7 @@ The closure is invoked from `app-frame-filter.ts` per subscriber per frame that 
 - `snapshot` (once per subscriber connect, one gate call per state in the snapshot)
 - `gone`, `identity-archived`, `session-project-changed` (per emit)
 
-For a subscriber connecting to a host with N identities, the initial `snapshot` frame triggers **N parallel SSH connects** (via `Promise.all` in app-frame-filter.ts:356-376). With Ashley's driver scenario ("host shared with Zoe") plus, say, 20 identities across two subscribers, that's 40 concurrent SSH connects at subscribe time — right at the sshd default `MaxSessions=10` limit that the rest of the codebase carefully rations via `getHostSemaphore` (identities.ts:380-384, cap 8) and CONVERSATION_SEARCH's `DISCOVERY_CONCURRENCY = 6` (conversation-search.ts:145).
+For a subscriber connecting to a host with N identities, the initial `snapshot` frame triggers **N parallel SSH connects** (via `Promise.all` in app-frame-filter.ts:356-376). With the user's driver scenario ("host shared with Zoe") plus, say, 20 identities across two subscribers, that's 40 concurrent SSH connects at subscribe time — right at the sshd default `MaxSessions=10` limit that the rest of the codebase carefully rations via `getHostSemaphore` (identities.ts:380-384, cap 8) and CONVERSATION_SEARCH's `DISCOVERY_CONCURRENCY = 6` (conversation-search.ts:145).
 
 The WS gate:
 - does NOT go through the per-host semaphore (`starter.ts:660-785` has no `getHostSemaphore` call);
@@ -135,7 +135,7 @@ This makes 409 race-safe at the syscall level rather than the probe level.
 **Severity:** MEDIUM — performance regression; per-request lookup on identities/sessions/roles-list-for-host/conversation-search that runs on every sidebar poll.
 **File:** `src/backend/utils/host-user-counter.ts:140-149` (implementation) + all four Wave-2 call sites (`identities.ts:332`, `sessions.ts:330`, `roles-list-for-host.ts:157`, `conversation-search.ts:689`).
 
-**Evidence.** `getUsernameForUserId` is a `SELECT username FROM users WHERE id = ?` per REST request. Ashley's frontend polls `GET /sessions/list` and `GET /identities` on page load and (based on typical Skynet frontend patterns) refreshes them frequently. A username DB lookup on every request is unnecessary overhead — the caller's userId → username mapping is effectively immutable for the lifetime of a JWT.
+**Evidence.** `getUsernameForUserId` is a `SELECT username FROM users WHERE id = ?` per REST request. the user's frontend polls `GET /sessions/list` and `GET /identities` on page load and (based on typical Skynet frontend patterns) refreshes them frequently. A username DB lookup on every request is unnecessary overhead — the caller's userId → username mapping is effectively immutable for the lifetime of a JWT.
 
 The JWT itself carries the userId (auth-manager.ts). Nothing in the JWT carries the username, hence the lookup — but the mapping could be cached (Map<userId, username> with a modest TTL, or even a per-process AsyncLocalStorage cache, or attached to the AuthenticatedRequest object at the auth-middleware level).
 
@@ -196,7 +196,7 @@ Additionally, on hosts that never gain shares (the vast majority of Skynet's tar
 
 **Evidence.** The clone flow writes a fresh identity file with `role`, `displayName`, `title`, `colorHue`, `voice`, `avatar`, `task` — no `users` list. Cloning an identity on a multi-user host creates an untagged identity, which under the D-3 fallback is visible to every cohabitant. The shape's mental model is "creating an identity" = "author it in the UI," and clone is clearly that from a user's perspective.
 
-The task briefing calls this "v1 exclusion — verify NOT touched." Recording as LOW because the exclusion is documented in Phase 129's own scope but is out of step with the shape file. Ashley may want to close the loop with a small follow-up.
+The task briefing calls this "v1 exclusion — verify NOT touched." Recording as LOW because the exclusion is documented in Phase 129's own scope but is out of step with the shape file. the user may want to close the loop with a small follow-up.
 
 **Fix.** Add the same isHostMultiUser + getUsernameForUserId branch that identity-birth.ts and roles-create.ts use, and append `users: [creatorUsername]` to `cloneFrontmatterPairs` at identity-clone.ts:713 when the host is multi-user. Test coverage should include one shared-host clone → users:[creator] and one single-user clone → no users key.
 
@@ -240,7 +240,7 @@ The task briefing calls this "v1 exclusion — verify NOT touched." Recording as
 **Severity:** NIT — actual test asserts the OPPOSITE of what the title says.
 **File:** `src/backend/claude-session/identity-artifact-reader.users.test.ts:71-77`.
 
-**Evidence.** The test title says "whitespace-only + trim preserves inner whitespace-flanked names" but the assertion is `expect(result.users).toEqual(["ashley"])` — the value `'  ashley  '` is being trimmed. That's correct behavior; the title is just wrong ("preserves inner whitespace" implies internal spaces would survive, but the test doesn't cover interior spaces at all — it covers boundary trim).
+**Evidence.** The test title says "whitespace-only + trim preserves inner whitespace-flanked names" but the assertion is `expect(result.users).toEqual(["user"])` — the value `'  user  '` is being trimmed. That's correct behavior; the title is just wrong ("preserves inner whitespace" implies internal spaces would survive, but the test doesn't cover interior spaces at all — it covers boundary trim).
 
 **Fix.** Rename the test to "trims boundary whitespace on entries; interior whitespace is not exercised."
 
@@ -261,7 +261,7 @@ The task briefing calls this "v1 exclusion — verify NOT touched." Recording as
 
 ## Overall verdict
 
-**needs-fixes-before-deploy** — HIGH-1 (`roleDefaults.users` wire leak) directly contradicts the shape's core "no evidence of it survives anywhere in that user's view" promise and lands on every REST response body today. HIGH-2 (WS SSH DoS) is a first-request smoke-test away from a visible production regression on Ashley's own driver host and needs at least the semaphore fix before this is safe to run under normal load.
+**needs-fixes-before-deploy** — HIGH-1 (`roleDefaults.users` wire leak) directly contradicts the shape's core "no evidence of it survives anywhere in that user's view" promise and lands on every REST response body today. HIGH-2 (WS SSH DoS) is a first-request smoke-test away from a visible production regression on the user's own driver host and needs at least the semaphore fix before this is safe to run under normal load.
 
 Ship order recommendation:
 1. Fix HIGH-1 (5-line change in `identity-appearance.ts` + test update).

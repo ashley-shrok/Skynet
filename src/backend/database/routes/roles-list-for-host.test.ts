@@ -823,29 +823,29 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
       return roleBlock("muffin-friend").join("\n");
     });
 
-    const { status, body } = await fireGetRolesAs("ashley");
+    const { status, body } = await fireGetRolesAs("user");
     expect(status).toBe(200);
     expect(body).toHaveLength(1);
     expect(body[0].name).toBe("muffin-friend");
     // Per-request-cost discipline: the callerUsername lookup runs ONCE.
     expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(1);
-    expect(getUsernameForUserIdMock).toHaveBeenCalledWith("uid-ashley");
+    expect(getUsernameForUserIdMock).toHaveBeenCalledWith("uid-user");
   });
 
   // -------------------------------------------------------------------------
   // Test B: multi-user host, role untagged → visible to both users (D-3
   // fallback). Two requests fire two lookups (no cross-request cache).
   // -------------------------------------------------------------------------
-  it("Test B: multi-user host, role has no `users` key → both Ashley and Zoe see it", async () => {
+  it("Test B: multi-user host, role has no `users` key → both User and Zoe see it", async () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "muffin-friend";
       return roleBlock("muffin-friend").join("\n");
     });
 
-    const ashley = await fireGetRolesAs("ashley");
-    expect(ashley.status).toBe(200);
-    expect(ashley.body).toHaveLength(1);
-    expect(ashley.body[0].name).toBe("muffin-friend");
+    const user = await fireGetRolesAs("user");
+    expect(user.status).toBe(200);
+    expect(user.body).toHaveLength(1);
+    expect(user.body[0].name).toBe("muffin-friend");
 
     const zoe = await fireGetRolesAs("zoe");
     expect(zoe.status).toBe(200);
@@ -857,19 +857,19 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test C: multi-user host, role users:[ashley] → visible to Ashley, hidden
+  // Test C: multi-user host, role users:[user] → visible to User, hidden
   // from Zoe (D-2 role-side gate). Zoe's response has ZERO rows.
   // -------------------------------------------------------------------------
-  it("Test C: role users:[ashley] → Ashley sees it, Zoe does NOT (role-side gate)", async () => {
+  it("Test C: role users:[user] → User sees it, Zoe does NOT (role-side gate)", async () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "muffin-friend";
-      return roleBlock("muffin-friend", { users: ["ashley"] }).join("\n");
+      return roleBlock("muffin-friend", { users: ["user"] }).join("\n");
     });
 
-    const ashley = await fireGetRolesAs("ashley");
-    expect(ashley.status).toBe(200);
-    expect(ashley.body).toHaveLength(1);
-    expect(ashley.body[0].name).toBe("muffin-friend");
+    const user = await fireGetRolesAs("user");
+    expect(user.status).toBe(200);
+    expect(user.body).toHaveLength(1);
+    expect(user.body[0].name).toBe("muffin-friend");
 
     const zoe = await fireGetRolesAs("zoe");
     expect(zoe.status).toBe(200);
@@ -879,19 +879,19 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test D: multi-user host, role users:[ashley, zoe] → visible to both.
+  // Test D: multi-user host, role users:[user, zoe] → visible to both.
   // Shared explicitly via the users list.
   // -------------------------------------------------------------------------
-  it("Test D: role users:[ashley,zoe] → both Ashley and Zoe see it (shared explicitly)", async () => {
+  it("Test D: role users:[user,zoe] → both User and Zoe see it (shared explicitly)", async () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "shared-role";
-      return roleBlock("shared-role", { users: ["ashley", "zoe"] }).join("\n");
+      return roleBlock("shared-role", { users: ["user", "zoe"] }).join("\n");
     });
 
-    const ashley = await fireGetRolesAs("ashley");
-    expect(ashley.status).toBe(200);
-    expect(ashley.body).toHaveLength(1);
-    expect(ashley.body[0].name).toBe("shared-role");
+    const user = await fireGetRolesAs("user");
+    expect(user.status).toBe(200);
+    expect(user.body).toHaveLength(1);
+    expect(user.body[0].name).toBe("shared-role");
 
     const zoe = await fireGetRolesAs("zoe");
     expect(zoe.status).toBe(200);
@@ -901,8 +901,8 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
 
   // -------------------------------------------------------------------------
   // Test E: identity-side gate is IGNORED by the role-picker gate. A role
-  // with users:[ashley, zoe] still appears in Zoe's picker even if the
-  // eventual-child-identity would narrow to [ashley] — the role picker is
+  // with users:[user, zoe] still appears in Zoe's picker even if the
+  // eventual-child-identity would narrow to [user] — the role picker is
   // used BEFORE any identity exists, so identityCos=null passed to the gate.
   // Also asserts the exact call-shape (identityCos === null) via mock call
   // audit. This test locks the D-2 "role-side only" contract for the picker.
@@ -911,12 +911,12 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "role-a\nrole-b";
       return [
-        ...roleBlock("role-a", { users: ["ashley", "zoe"] }),
-        ...roleBlock("role-b", { users: ["ashley"] }),
+        ...roleBlock("role-a", { users: ["user", "zoe"] }),
+        ...roleBlock("role-b", { users: ["user"] }),
       ].join("\n");
     });
 
-    // Zoe sees role-a (both users listed) but NOT role-b (ashley only).
+    // Zoe sees role-a (both users listed) but NOT role-b (user only).
     // If the picker used identityCos incorrectly (e.g. cosBynName instead of
     // null on the identity slot), the intersection would collapse in ways
     // that break this expected shape.
@@ -929,7 +929,7 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
 
   // -------------------------------------------------------------------------
   // Test F: username lookup returns null → fail-open (gate disabled).
-  // Even a role with users:[ashley] shows up when callerUsername is null,
+  // Even a role with users:[user] shows up when callerUsername is null,
   // preserving D-8 (visibility filter, not permission system). A warn log
   // fires with operation="roles_list_gate_username_missing" so ops can
   // grep the mismatch.
@@ -937,9 +937,9 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
   it("Test F: getUsernameForUserId returns null → gate disabled (fail-open), warn log fires", async () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "muffin-friend";
-      // Role tagged users:[ashley] — with null caller the gate is disabled
+      // Role tagged users:[user] — with null caller the gate is disabled
       // and the role STILL surfaces.
-      return roleBlock("muffin-friend", { users: ["ashley"] }).join("\n");
+      return roleBlock("muffin-friend", { users: ["user"] }).join("\n");
     });
 
     mockUserId = "orphan-uid";
@@ -951,7 +951,7 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
     });
     expect(res.status).toBe(200);
     const body = res.body as Array<Record<string, unknown>>;
-    // Fail-open: role surfaces despite users:[ashley] because callerUsername
+    // Fail-open: role surfaces despite users:[user] because callerUsername
     // is null (short-circuits isIdentityVisibleToUser to true per Plan
     // 129-01 Task 2 Test 1).
     expect(body).toHaveLength(1);
@@ -992,11 +992,11 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
       ].join("\n");
     });
 
-    const ashley = await fireGetRolesAs("ashley");
-    expect(ashley.status).toBe(200);
+    const user = await fireGetRolesAs("user");
+    expect(user.status).toBe(200);
     // Broken frontmatter → cosmetics {} → no users list → D-3 fallback →
     // visible. Broken doesn't equal "tagged for someone else".
-    expect(ashley.body).toHaveLength(1);
-    expect(ashley.body[0].name).toBe("broken-role");
+    expect(user.body).toHaveLength(1);
+    expect(user.body[0].name).toBe("broken-role");
   });
 });

@@ -146,10 +146,10 @@ import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 |---|------|----------|-----|-------|
 | A | Single-user host, no `users` key | Zero regression + per-request-cost lock (getUsernameForUserId called EXACTLY once with the caller's uid) | fail | pass |
 | B | Multi-user host, no `users` key | D-3 fallback = both users see it + no cross-request caching (each request re-fetches its callerUsername) | fail | pass |
-| C | Identity `users:[ashley]` | D-2 identity-side gate: Ashley sees it, Zoe gets ZERO rows (D-7 no ghost) | fail | pass |
-| D | Role `users:[ashley]` (identity untagged) | D-2 role-side gate: Zoe gets zero rows even though her host access is fine | fail | pass |
-| E | Role `users:[ashley,zoe]` + identity `users:[ashley]` | D-2 intersection: identity is narrower, Zoe loses | fail | pass |
-| F | `getUsernameForUserId` returns null | D-8 fail-open: gate is DISABLED (identity still surfaces despite `users:[ashley]`) + `identities_gate_username_missing` warn fires | fail | pass |
+| C | Identity `users:[user]` | D-2 identity-side gate: the user sees it, Zoe gets ZERO rows (D-7 no ghost) | fail | pass |
+| D | Role `users:[user]` (identity untagged) | D-2 role-side gate: Zoe gets zero rows even though her host access is fine | fail | pass |
+| E | Role `users:[user,zoe]` + identity `users:[user]` | D-2 intersection: identity is narrower, Zoe loses | fail | pass |
+| F | `getUsernameForUserId` returns null | D-8 fail-open: gate is DISABLED (identity still surfaces despite `users:[user]`) + `identities_gate_username_missing` warn fires | fail | pass |
 | G | Identity file read throws mid-fanout | Existing pre-129 null-drop contract preserved: broken row is dropped by the pre-existing warn+null-return path, NOT converted to false-positive visibility | fail | pass |
 
 **Verification commands:**
@@ -238,7 +238,7 @@ tests would PASS on RED because the pre-129 code path — with no gate wired
 — already surfaces both muffin identities. To satisfy the plan's stated
 acceptance criterion "All 7 new tests currently FAIL (RED phase)", Test A
 was extended with an `expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(1)`
-+ `HaveBeenCalledWith("uid-ashley")` assertion (the per-request-cost lock),
++ `HaveBeenCalledWith("uid-user")` assertion (the per-request-cost lock),
 and Test B was extended with `HaveBeenNthCalledWith` per-request assertions
 (the no-cross-request-cache lock). Both fail on RED because
 identities.ts does not call `getUsernameForUserId` at all pre-Task-2. Both

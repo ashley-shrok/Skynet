@@ -31,7 +31,7 @@ key-files:
     - src/backend/claude-session/identity-artifact-reader.ts
 decisions:
   - "Gate lives in a companion pure function (isIdentityVisibleToUser) — NOT inside resolveIdentityAppearance's signature. Preserves Phase 111 T-111-08 one-cascade authority AND makes 'did we gate this call site?' an audit-visible grep. Wave 2/3 plans will call the gate alongside the resolver."
-  - "isHostMultiUser expands hostAccess.roleId via userRoles (Assumption A6) to match permission-manager.canAccessHost's authoritative shape. Skipping expansion would leave Ashley + Zoe's shared t1000 silent on auto-tag when they share via an RBAC role."
+  - "isHostMultiUser expands hostAccess.roleId via userRoles (Assumption A6) to match permission-manager.canAccessHost's authoritative shape. Skipping expansion would leave the user + Zoe's shared t1000 silent on auto-tag when they share via an RBAC role."
   - "Share-expiry deliberately NOT filtered in isHostMultiUser per shape §'Auto-tag scope' — auto-tag is a snapshot-at-creation decision, captures a moment not a lifecycle."
   - "Case-sensitive username comparison locked (Pitfall 7) — matches DB users.username storage discipline (users.ts L172 stores as-typed). Operator responsibility to match case of registered Skynet username."
   - "Structured debug logs at isHostMultiUser entry AND exit with hostId + distinctUsers + isMultiUser — box-maintainer directive for gate-seam decisions so failed auto-tags in prod are traceable in systemLogger output."

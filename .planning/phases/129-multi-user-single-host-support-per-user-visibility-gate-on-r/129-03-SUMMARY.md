@@ -189,9 +189,9 @@ still visible) pass on RED — same "regression lock" role.
 |---|------|----------|-----|-------|
 | A | Single-user host, no `users` key | Zero regression + per-request-cost lock (getUsernameForUserId called EXACTLY once) | fail | pass |
 | B | Multi-user host, no `users` key | D-3 fallback: both users see it + no cross-request caching (each request re-fetches) | fail | pass |
-| C | Identity `users:[ashley]` | D-2 identity-side gate: Ashley sees, Zoe gets ZERO rows (D-7 no orphan session) | fail | pass |
-| D | Role `users:[ashley]` (identity untagged) | D-2 role-side gate: Zoe gets zero rows | fail | pass |
-| E | Role `users:[ashley,zoe]` + identity `users:[ashley]` | D-2 intersection: identity narrows, Zoe loses | fail | pass |
+| C | Identity `users:[user]` | D-2 identity-side gate: the user sees, Zoe gets ZERO rows (D-7 no orphan session) | fail | pass |
+| D | Role `users:[user]` (identity untagged) | D-2 role-side gate: Zoe gets zero rows | fail | pass |
+| E | Role `users:[user,zoe]` + identity `users:[user]` | D-2 intersection: identity narrows, Zoe loses | fail | pass |
 | F | Identity file read throws mid-fanout | D-8 fail-open: row surfaces with role=null; hidden-because-unreadable would be a permission-system behavior forbidden by D-8 | pass | pass |
 | G | Single SSH round-trip verified | Assumption A5 lock: identity file read count == 1 per session row | pass | pass |
 
@@ -201,9 +201,9 @@ still visible) pass on RED — same "regression lock" role.
 |---|------|----------|-----|-------|
 | A | Single-user host, role untagged | Zero regression + per-request-cost lock | fail | pass |
 | B | Multi-user host, role untagged | D-3 fallback: both users see it | fail | pass |
-| C | Role `users:[ashley]` | D-2 role-side gate: Zoe gets zero roles | fail | pass |
-| D | Role `users:[ashley,zoe]` | Shared explicitly: both see | pass | pass |
-| E | Identity-side gate IGNORED | Zoe sees role-a (both listed) but not role-b (ashley only) — locks role-side-only contract | fail | pass |
+| C | Role `users:[user]` | D-2 role-side gate: Zoe gets zero roles | fail | pass |
+| D | Role `users:[user,zoe]` | Shared explicitly: both see | pass | pass |
+| E | Identity-side gate IGNORED | Zoe sees role-a (both listed) but not role-b (user only) — locks role-side-only contract | fail | pass |
 | F | `getUsernameForUserId` returns null | D-8 fail-open: gate disabled; warn log fires with operation="roles_list_gate_username_missing" | fail | pass |
 | G | Broken frontmatter | D-3 fallback preserved: cosmetics {} → no users list → visible | pass | pass |
 

@@ -1075,7 +1075,7 @@ describe("GET /identities/:key/avatar — Phase 85 role-folder fallback", () => 
 //   - role-side `users` frontmatter (via mockIdentityWithUsers)
 //
 // The HTTP fire helper wires mockUserId and getUsernameForUserIdMock in one
-// call so tests read as "Ashley fires GET /identities" rather than a manual
+// call so tests read as "User fires GET /identities" rather than a manual
 // two-step mock-fiddle preamble.
 
 /**
@@ -1162,7 +1162,7 @@ describe("Phase 129: per-user visibility gate", () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
     mockIdentityWithUsers("muffin", 1, "box-maintainer"); // no users on either side
 
-    const res = await fireGetIdentitiesAs("ashley", { muffin: 1 });
+    const res = await fireGetIdentitiesAs("user", { muffin: 1 });
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
@@ -1171,7 +1171,7 @@ describe("Phase 129: per-user visibility gate", () => {
     // per request, not per-host or per-identity (matches identities.ts's
     // roleReadCache memo pattern for the analogous per-host DoS mitigation).
     expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(1);
-    expect(getUsernameForUserIdMock).toHaveBeenCalledWith("uid-ashley");
+    expect(getUsernameForUserIdMock).toHaveBeenCalledWith("uid-user");
   });
 
   // -------------------------------------------------------------------------
@@ -1183,14 +1183,14 @@ describe("Phase 129: per-user visibility gate", () => {
   // is per-request, not memoized module-globally. On RED the lookup is
   // never called at all, so this fails until Task 2 wires it.
   // -------------------------------------------------------------------------
-  it("Test B: multi-user host, identity has no `users` key → both Ashley and Zoe see it (each request re-fetches username)", async () => {
+  it("Test B: multi-user host, identity has no `users` key → both User and Zoe see it (each request re-fetches username)", async () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
     mockIdentityWithUsers("muffin", 1, "box-maintainer"); // no users on either side
 
-    const ashley = await fireGetIdentitiesAs("ashley", { muffin: 1 });
-    expect(ashley.status).toBe(200);
-    expect(ashley.body).toHaveLength(1);
-    expect(ashley.body[0].identityKey).toBe("muffin");
+    const user = await fireGetIdentitiesAs("user", { muffin: 1 });
+    expect(user.status).toBe(200);
+    expect(user.body).toHaveLength(1);
+    expect(user.body[0].identityKey).toBe("muffin");
 
     const zoe = await fireGetIdentitiesAs("zoe", { muffin: 1 });
     expect(zoe.status).toBe(200);
@@ -1201,23 +1201,23 @@ describe("Phase 129: per-user visibility gate", () => {
     // caching of caller identity (would be a critical bug — user A's
     // cached username used to gate user B's request).
     expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(2);
-    expect(getUsernameForUserIdMock).toHaveBeenNthCalledWith(1, "uid-ashley");
+    expect(getUsernameForUserIdMock).toHaveBeenNthCalledWith(1, "uid-user");
     expect(getUsernameForUserIdMock).toHaveBeenNthCalledWith(2, "uid-zoe");
   });
 
   // -------------------------------------------------------------------------
-  // Test C: multi-user host, identity tagged users:[ashley] → visible to
-  // Ashley, hidden from Zoe (D-2). Zoe's response has ZERO rows — the
+  // Test C: multi-user host, identity tagged users:[user] → visible to
+  // User, hidden from Zoe (D-2). Zoe's response has ZERO rows — the
   // hidden identity does not appear as a stripped ghost (D-7 deep gate).
   // -------------------------------------------------------------------------
-  it("Test C: identity tagged users:[ashley] → Ashley sees it, Zoe does NOT (no ghost row)", async () => {
+  it("Test C: identity tagged users:[user] → User sees it, Zoe does NOT (no ghost row)", async () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
-    mockIdentityWithUsers("muffin", 1, "box-maintainer", ["ashley"]);
+    mockIdentityWithUsers("muffin", 1, "box-maintainer", ["user"]);
 
-    const ashley = await fireGetIdentitiesAs("ashley", { muffin: 1 });
-    expect(ashley.status).toBe(200);
-    expect(ashley.body).toHaveLength(1);
-    expect(ashley.body[0].identityKey).toBe("muffin");
+    const user = await fireGetIdentitiesAs("user", { muffin: 1 });
+    expect(user.status).toBe(200);
+    expect(user.body).toHaveLength(1);
+    expect(user.body[0].identityKey).toBe("muffin");
 
     const zoe = await fireGetIdentitiesAs("zoe", { muffin: 1 });
     expect(zoe.status).toBe(200);
@@ -1228,24 +1228,24 @@ describe("Phase 129: per-user visibility gate", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test D: multi-user host, role tagged users:[ashley] → identity in that
+  // Test D: multi-user host, role tagged users:[user] → identity in that
   // role is hidden from Zoe (D-2 intersection). Identity has NO users key,
   // so the role-side gate is what closes the door on Zoe.
   // -------------------------------------------------------------------------
-  it("Test D: role tagged users:[ashley] (identity untagged) → Ashley sees identity, Zoe does not", async () => {
+  it("Test D: role tagged users:[user] (identity untagged) → User sees identity, Zoe does not", async () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
     mockIdentityWithUsers(
       "muffin",
       1,
       "box-maintainer",
       undefined, // identity has no users
-      ["ashley"], // role has users:[ashley]
+      ["user"], // role has users:[user]
     );
 
-    const ashley = await fireGetIdentitiesAs("ashley", { muffin: 1 });
-    expect(ashley.status).toBe(200);
-    expect(ashley.body).toHaveLength(1);
-    expect(ashley.body[0].identityKey).toBe("muffin");
+    const user = await fireGetIdentitiesAs("user", { muffin: 1 });
+    expect(user.status).toBe(200);
+    expect(user.body).toHaveLength(1);
+    expect(user.body[0].identityKey).toBe("muffin");
 
     const zoe = await fireGetIdentitiesAs("zoe", { muffin: 1 });
     expect(zoe.status).toBe(200);
@@ -1256,27 +1256,27 @@ describe("Phase 129: per-user visibility gate", () => {
 
   // -------------------------------------------------------------------------
   // Test E: both sides tagged with overlapping-but-not-identical lists.
-  // role users:[ashley, zoe], identity users:[ashley] → the identity is
+  // role users:[user, zoe], identity users:[user] → the identity is
   // the narrower side and closes the gate for Zoe (D-2 intersection).
   // -------------------------------------------------------------------------
-  it("Test E: role users:[ashley,zoe] + identity users:[ashley] → Ashley sees it, Zoe does not (intersection)", async () => {
+  it("Test E: role users:[user,zoe] + identity users:[user] → User sees it, Zoe does not (intersection)", async () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
     mockIdentityWithUsers(
       "muffin",
       1,
       "box-maintainer",
-      ["ashley"], // identity narrows to Ashley
-      ["ashley", "zoe"], // role allows both
+      ["user"], // identity narrows to User
+      ["user", "zoe"], // role allows both
     );
 
-    const ashley = await fireGetIdentitiesAs("ashley", { muffin: 1 });
-    expect(ashley.status).toBe(200);
-    expect(ashley.body).toHaveLength(1);
-    expect(ashley.body[0].identityKey).toBe("muffin");
+    const user = await fireGetIdentitiesAs("user", { muffin: 1 });
+    expect(user.status).toBe(200);
+    expect(user.body).toHaveLength(1);
+    expect(user.body[0].identityKey).toBe("muffin");
 
     const zoe = await fireGetIdentitiesAs("zoe", { muffin: 1 });
     expect(zoe.status).toBe(200);
-    // Intersection: identity-side narrows to Ashley → Zoe sees nothing.
+    // Intersection: identity-side narrows to User → Zoe sees nothing.
     expect(zoe.body).toHaveLength(0);
   });
 
@@ -1296,7 +1296,7 @@ describe("Phase 129: per-user visibility gate", () => {
       "muffin",
       1,
       "box-maintainer",
-      ["ashley"], // even Ashley-only identity — with null caller username the gate is bypassed
+      ["user"], // even User-only identity — with null caller username the gate is bypassed
     );
 
     // JWT userId is set but the username lookup returns null (row missing).
@@ -1329,8 +1329,8 @@ describe("Phase 129: per-user visibility gate", () => {
   // into a false-positive visibility. The pre-129 behavior (drop the row,
   // log a warn) must be preserved.
   //
-  // Two identities: one reads OK and is tagged users:[ashley]; the other
-  // throws on read. Ashley must see ONLY the first (readable) identity.
+  // Two identities: one reads OK and is tagged users:[user]; the other
+  // throws on read. User must see ONLY the first (readable) identity.
   // -------------------------------------------------------------------------
   it("Test G: identity file read throws mid-fanout → dropped (existing contract), other identity still gates correctly", async () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
@@ -1339,7 +1339,7 @@ describe("Phase 129: per-user visibility gate", () => {
       if (key === "muffin") {
         return Promise.resolve({
           markdown:
-            "---\nrole: box-maintainer\ndisplayName: Muffin\nusers: [ashley]\n---\n",
+            "---\nrole: box-maintainer\ndisplayName: Muffin\nusers: [user]\n---\n",
         });
       }
       // "broken" read throws — pre-129 contract drops it via the L445
@@ -1350,15 +1350,15 @@ describe("Phase 129: per-user visibility gate", () => {
       markdown: "---\ntitle: role-title\n---\n",
     });
 
-    const ashley = await fireGetIdentitiesAs("ashley", {
+    const user = await fireGetIdentitiesAs("user", {
       muffin: 1,
       broken: 1,
     });
-    expect(ashley.status).toBe(200);
-    // muffin surfaces (Ashley is in identity.users). "broken" is dropped
+    expect(user.status).toBe(200);
+    // muffin surfaces (User is in identity.users). "broken" is dropped
     // by the pre-existing read-fail contract, NOT by the gate.
-    expect(ashley.body).toHaveLength(1);
-    expect(ashley.body[0].identityKey).toBe("muffin");
+    expect(user.body).toHaveLength(1);
+    expect(user.body[0].identityKey).toBe("muffin");
     // Confirm the drop was not a stealth-visibility bypass: Zoe still
     // does NOT see muffin even in the presence of a sibling read failure.
     const zoe = await fireGetIdentitiesAs("zoe", { muffin: 1, broken: 1 });

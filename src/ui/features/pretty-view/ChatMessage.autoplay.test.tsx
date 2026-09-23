@@ -310,7 +310,7 @@ describe("ChatMessage autoplay effect", () => {
 // Armed-ring visual tests (TINT1-TINT2)
 //
 // Previously the armed state applied an inline background/border color tint
-// (hsla(var(--pv-id-hue),60%,70%,0.28)). Ashley 2026-09-23: replaced with an
+// (hsla(var(--pv-id-hue),60%,70%,0.28)). User 2026-09-23: replaced with an
 // MMO auto-cast style rotating conic-gradient ring implemented via the
 // .autospeak-armed CSS class in src/ui/index.css. These tests now assert the
 // class-based toggle rather than inline style.

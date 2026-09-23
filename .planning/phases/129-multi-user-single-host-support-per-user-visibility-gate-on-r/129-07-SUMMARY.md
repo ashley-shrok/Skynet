@@ -39,7 +39,7 @@ decisions:
   - "pairs[] value-union widened from `string | number` to `string | number | string[]` so the users pair type-checks cleanly. stringifyColorHueForYaml (only inspects colorHue key downstream) is byte-shape neutral under the widening — Test F golden-file assertion locks the pre-129 shape unchanged."
   - "Fail-open on getUsernameForUserId returning null on a multi-user host — chose over fail-closed (matching Plan 129-06 discipline) because a wrong-user auto-tag would be a shape §'would make it wrong' violation bullet-3. File still written, loud warn log at `identity_birth_username_lookup_failed`. Test D locks the shape."
   - "Added defensive fail-open branch for isHostMultiUser THROWING (not spec'd in the plan but added per D-8 defensive fail-open + box-maintainer role file 'structured logs at seams' directive). A transient DB glitch during the probe should not abort an in-flight birth — treat as single-user, emit `identity_birth_multi_user_probe_failed` warn log, proceed. This is Rule 2 (auto-add missing critical functionality) — the plan's threat model line T-129-07-04 warns against DB-import leaks; the mirror concern is a DB-error leak that could destabilize the birth path. Documented as a minor deviation below."
-  - "Case-preserved username (Pitfall 7 lock) — no toLowerCase / toUpperCase anywhere in the write-side branch. Matches Plan 01 gate discipline + Plan 129-06 write-side discipline. Test D asserts 'Ashley' echoes verbatim."
+  - "Case-preserved username (Pitfall 7 lock) — no toLowerCase / toUpperCase anywhere in the write-side branch. Matches Plan 01 gate discipline + Plan 129-06 write-side discipline. Test D asserts 'the user' echoes verbatim."
   - "identity-clone.ts is EXPLICITLY UNMODIFIED — v1 scope lock per RESEARCH § no-leak audit table (T-129-07-03 accepted). git diff HEAD~4 confirms zero-byte-change; grep for phase-129 primitives in the file returns 0 hits."
 metrics:
   duration_seconds: 600
@@ -108,8 +108,8 @@ Three surgical edits to `POST /`:
 |------|-------------|-----------|
 | A | creatorUsername absent → NO users: key emitted | Absent-⇒-omit per D-3 |
 | B | creatorUsername empty-string → NO users: key emitted | Normalization matches `.length > 0` guard |
-| C | creatorUsername "ashley" → users: [ashley] emitted | yaml.load round-trip |
-| D | creatorUsername case preserved verbatim ("Ashley" stays Ashley) | Pitfall 7 lock |
+| C | creatorUsername "user" → users: [user] emitted | yaml.load round-trip |
+| D | creatorUsername case preserved verbatim ("the user" stays the user) | Pitfall 7 lock |
 | E | Key insertion order — users: appears AFTER task | sortKeys:false + pairs[] insertion order |
 | F | Byte-shape preservation — pre-129 shape unchanged when creatorUsername absent | Golden-file assertion |
 | G | BirthOptions.creatorUsername is a valid optional field | TypeScript compile-time |
@@ -119,7 +119,7 @@ Three surgical edits to `POST /`:
 | Test | Description | Assertion |
 |------|-------------|-----------|
 | A | Single-user host → creatorUsername undefined; getUsernameForUserId NOT called | Efficiency invariant + shape §"invisible in majority case" |
-| B | Multi-user host + valid lookup → creatorUsername=ashley passed to birthIdentity | Base auto-tag flow |
+| B | Multi-user host + valid lookup → creatorUsername=user passed to birthIdentity | Base auto-tag flow |
 | C | Multi-user host via RBAC-role → creatorUsername=zoe threaded | Assumption A6 write-side lock |
 | D | Multi-user host + lookup=null → auto-tag SKIPPED, warn log, identity still created | Fail-open per PATTERNS.md write-side exception |
 | E | 400 validation fail short-circuits BEFORE isHostMultiUser call | Ordering lock (validation → DB lookups → orchestrator) |

@@ -333,7 +333,7 @@ None. This plan behaved exactly as designed:
 Two "DEFERRED" rows in the no-leak audit table were noted by RESEARCH and
 remain unimplemented in this phase (both intentional per RESEARCH scope):
 
-1. **identity-clone.ts auto-tag** — v1 scope lock per Plan 129-07 decision. `POST /identities/clone` on shared hosts currently produces un-tagged identities. Ashley may hand-tag or a follow-up phase can add auto-tag symmetry.
+1. **identity-clone.ts auto-tag** — v1 scope lock per Plan 129-07 decision. `POST /identities/clone` on shared hosts currently produces un-tagged identities. the user may hand-tag or a follow-up phase can add auto-tag symmetry.
 
 2. **`POST /agent-reset` visibility gate** — flagged for consideration but not implemented. A hidden identity's `/id reset` dispatch is theoretically reachable via known-URL from a user who shouldn't see it. Not a sidebar leak, but a defensive gap.
 

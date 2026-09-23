@@ -2778,10 +2778,10 @@ describe("Phase 129: buildIdentityFileBody creatorUsername handling", () => {
     expect("users" in parsed).toBe(false);
   });
 
-  // Test C: opts.creatorUsername = "ashley" → users: [ashley] emitted.
-  it("Test C: creatorUsername 'ashley' → users: [ashley] emitted", () => {
+  // Test C: opts.creatorUsername = "user" → users: [user] emitted.
+  it("Test C: creatorUsername 'user' → users: [user] emitted", () => {
     const body = buildIdentityFileBody(
-      baseOpts({ creatorUsername: "ashley" }),
+      baseOpts({ creatorUsername: "user" }),
       displayName,
       avatarFilename,
     );
@@ -2790,14 +2790,14 @@ describe("Phase 129: buildIdentityFileBody creatorUsername handling", () => {
     expect(match).not.toBeNull();
     const parsed = yaml.load(match![1]) as Record<string, unknown>;
 
-    expect(parsed.users).toEqual(["ashley"]);
+    expect(parsed.users).toEqual(["user"]);
   });
 
-  // Test D: opts.creatorUsername = "Ashley" case preservation lock
+  // Test D: opts.creatorUsername = "User" case preservation lock
   // (Pitfall 7 — DB stores as-typed; auto-tag echoes verbatim).
-  it("Test D: creatorUsername case preserved verbatim ('Ashley' stays Ashley)", () => {
+  it("Test D: creatorUsername case preserved verbatim ('User' stays User)", () => {
     const body = buildIdentityFileBody(
-      baseOpts({ creatorUsername: "Ashley" }),
+      baseOpts({ creatorUsername: "User" }),
       displayName,
       avatarFilename,
     );
@@ -2806,10 +2806,10 @@ describe("Phase 129: buildIdentityFileBody creatorUsername handling", () => {
     expect(match).not.toBeNull();
     const parsed = yaml.load(match![1]) as Record<string, unknown>;
 
-    expect(parsed.users).toEqual(["Ashley"]);
+    expect(parsed.users).toEqual(["User"]);
     // Belt-and-braces: no case-mangling anywhere in the output.
-    expect(body).toContain("Ashley");
-    expect(body).not.toContain("- ashley");
+    expect(body).toContain("User");
+    expect(body).not.toContain("- user");
   });
 
   // Test E: byte-shape preservation — key insertion order.
@@ -2819,7 +2819,7 @@ describe("Phase 129: buildIdentityFileBody creatorUsername handling", () => {
   // the L583-585 task block per PATTERNS.md instruction).
   it("Test E: key insertion order — users appears AFTER task", () => {
     const body = buildIdentityFileBody(
-      baseOpts({ creatorUsername: "ashley" }),
+      baseOpts({ creatorUsername: "user" }),
       displayName,
       avatarFilename,
     );
@@ -2880,7 +2880,7 @@ task: coordinate the fleet
   });
 
   // Test G: BirthOptions type extension is source-visible — a TS compile
-  // of `const opts: BirthOptions = { ...required, creatorUsername: "ashley" }`
+  // of `const opts: BirthOptions = { ...required, creatorUsername: "user" }`
   // must succeed. This test compiles at test-parse time; the assertion
   // just proves the shape at runtime.
   it("Test G: BirthOptions.creatorUsername is a valid optional field", () => {
@@ -2895,7 +2895,7 @@ task: coordinate the fleet
       voice: "Joanna",
       avatarCandidateId: "cand-abc",
       role: "coordinator",
-      creatorUsername: "ashley",
+      creatorUsername: "user",
     };
 
     // Round-trip through the builder to prove the field flows through.
@@ -2903,6 +2903,6 @@ task: coordinate the fleet
     const match = body.match(/^---\n([\s\S]*?)\n---/);
     expect(match).not.toBeNull();
     const parsed = yaml.load(match![1]) as Record<string, unknown>;
-    expect(parsed.users).toEqual(["ashley"]);
+    expect(parsed.users).toEqual(["user"]);
   });
 });

@@ -1061,7 +1061,7 @@ export function PrettyView({
         // Disarm: clear target and play the off-cue. The button handlers now
         // skip startSpeak when currentlyArmed so hold-to-disarm no longer also
         // starts playback of the pressed bubble (was the "tap turns off + also
-        // plays" bug Ashley reported 2026-09-23).
+        // plays" bug User reported 2026-09-23).
         setAutoplayTargetEventId(null);
         playAutoSpeakOff();
         return false;

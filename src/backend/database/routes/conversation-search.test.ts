@@ -187,7 +187,7 @@ vi.mock(
 
 // Phase 129 Plan 129-04: getUsernameForUserId mock powers the per-request
 // callerUsername resolution. Tests install per-mockUserId maps to route
-// different callers ("ashley" vs "zoe") through the same handler.
+// different callers ("user" vs "zoe") through the same handler.
 const { getUsernameForUserIdMock } = vi.hoisted(() => ({
   getUsernameForUserIdMock: vi.fn(),
 }));
@@ -970,9 +970,9 @@ describe("Phase 129: search-surface visibility gate", () => {
       { identityKey: "scone", mtime: 100, content: "cheese and crackers" },
     ]);
 
-    // Caller Ashley
-    mockUserId = "uid-ashley";
-    getUsernameForUserIdMock.mockResolvedValue("ashley");
+    // Caller User
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
 
     const res = await httpPostJson(server, "/conversation-search", {
       query: "cheese",
@@ -985,31 +985,31 @@ describe("Phase 129: search-surface visibility gate", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test B — multi-user host, identity users:[ashley] → Zoe filtered
+  // Test B — multi-user host, identity users:[user] → Zoe filtered
   // -------------------------------------------------------------------------
 
-  it("Test B: identity users:[ashley] — Ashley sees muffin hit; Zoe sees ZERO hits from muffin (D-7 no leak)", async () => {
-    mockSearchWithIdentityUsers("muffin", { identityUsers: ["ashley"] });
+  it("Test B: identity users:[user] — User sees muffin hit; Zoe sees ZERO hits from muffin (D-7 no leak)", async () => {
+    mockSearchWithIdentityUsers("muffin", { identityUsers: ["user"] });
     mockSearchWithIdentityUsers("scone"); // ungated, both see
     mockSearchHits([
       { identityKey: "muffin", mtime: 200, content: "cheese platter" },
       { identityKey: "scone", mtime: 100, content: "cheese and crackers" },
     ]);
 
-    // Ashley: both muffin + scone
-    mockUserId = "uid-ashley";
-    getUsernameForUserIdMock.mockResolvedValue("ashley");
-    const ashleyRes = await httpPostJson(server, "/conversation-search", {
+    // User: both muffin + scone
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
+    const userRes = await httpPostJson(server, "/conversation-search", {
       query: "cheese",
     });
-    expect(ashleyRes.status).toBe(200);
-    const ashleyBody = ashleyRes.body as {
+    expect(userRes.status).toBe(200);
+    const userBody = userRes.body as {
       results: Array<Record<string, unknown>>;
     };
-    const ashleyKeys = ashleyBody.results.map((r) => r.identityKey).sort();
-    expect(ashleyKeys).toEqual(["muffin", "scone"]);
+    const userKeys = userBody.results.map((r) => r.identityKey).sort();
+    expect(userKeys).toEqual(["muffin", "scone"]);
 
-    // Zoe: only scone; muffin FILTERED because users:[ashley] excludes her.
+    // Zoe: only scone; muffin FILTERED because users:[user] excludes her.
     mockUserId = "uid-zoe";
     getUsernameForUserIdMock.mockResolvedValue("zoe");
     const zoeRes = await httpPostJson(server, "/conversation-search", {
@@ -1025,28 +1025,28 @@ describe("Phase 129: search-surface visibility gate", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test C — role users:[ashley], identity untagged → Zoe filtered (D-2)
+  // Test C — role users:[user], identity untagged → Zoe filtered (D-2)
   // -------------------------------------------------------------------------
 
-  it("Test C: role users:[ashley] (identity untagged) — Zoe sees ZERO hits under that role (D-2 role-side gate closes)", async () => {
+  it("Test C: role users:[user] (identity untagged) — Zoe sees ZERO hits under that role (D-2 role-side gate closes)", async () => {
     mockSearchWithIdentityUsers("muffin", {
       roleName: "coordinator",
-      roleUsers: ["ashley"],
+      roleUsers: ["user"],
     });
     mockSearchHits([
       { identityKey: "muffin", mtime: 200, content: "cheese platter" },
     ]);
 
-    // Ashley sees it
-    mockUserId = "uid-ashley";
-    getUsernameForUserIdMock.mockResolvedValue("ashley");
-    const ashleyRes = await httpPostJson(server, "/conversation-search", {
+    // User sees it
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
+    const userRes = await httpPostJson(server, "/conversation-search", {
       query: "cheese",
     });
-    const ashleyBody = ashleyRes.body as {
+    const userBody = userRes.body as {
       results: Array<Record<string, unknown>>;
     };
-    expect(ashleyBody.results.map((r) => r.identityKey)).toEqual(["muffin"]);
+    expect(userBody.results.map((r) => r.identityKey)).toEqual(["muffin"]);
 
     // Zoe does not (role gate closes)
     mockUserId = "uid-zoe";
@@ -1064,8 +1064,8 @@ describe("Phase 129: search-surface visibility gate", () => {
   // Test D — archive branch also gated
   // -------------------------------------------------------------------------
 
-  it("Test D: archived identity file with users:[ashley] — Zoe's archive-branch search returns ZERO hits from that identity", async () => {
-    mockSearchWithIdentityUsers("stale-muffin", { identityUsers: ["ashley"] });
+  it("Test D: archived identity file with users:[user] — Zoe's archive-branch search returns ZERO hits from that identity", async () => {
+    mockSearchWithIdentityUsers("stale-muffin", { identityUsers: ["user"] });
     mockSearchHits([
       {
         identityKey: "stale-muffin",
@@ -1075,18 +1075,18 @@ describe("Phase 129: search-surface visibility gate", () => {
       },
     ]);
 
-    // Ashley sees the archived hit
-    mockUserId = "uid-ashley";
-    getUsernameForUserIdMock.mockResolvedValue("ashley");
-    const ashleyRes = await httpPostJson(server, "/conversation-search", {
+    // User sees the archived hit
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
+    const userRes = await httpPostJson(server, "/conversation-search", {
       query: "cheese",
     });
-    const ashleyBody = ashleyRes.body as {
+    const userBody = userRes.body as {
       results: Array<Record<string, unknown>>;
     };
-    expect(ashleyBody.results).toHaveLength(1);
-    expect(ashleyBody.results[0].identityKey).toBe("stale-muffin");
-    expect(ashleyBody.results[0].isArchived).toBe(true);
+    expect(userBody.results).toHaveLength(1);
+    expect(userBody.results[0].identityKey).toBe("stale-muffin");
+    expect(userBody.results[0].isArchived).toBe(true);
 
     // Zoe does not — archive branch honors the SAME gate as the live branch
     mockUserId = "uid-zoe";
@@ -1120,8 +1120,8 @@ describe("Phase 129: search-surface visibility gate", () => {
     }
     mockSearchHits(hits);
 
-    mockUserId = "uid-ashley";
-    getUsernameForUserIdMock.mockResolvedValue("ashley");
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
 
     const readCount = mockReadIdentityFileCounter();
     const res = await httpPostJson(server, "/conversation-search", {
@@ -1152,15 +1152,15 @@ describe("Phase 129: search-surface visibility gate", () => {
       return { markdown: identityFrontmatterMap.get(key) ?? "" };
     });
 
-    mockUserId = "uid-ashley";
-    getUsernameForUserIdMock.mockResolvedValue("ashley");
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
 
     const res = await httpPostJson(server, "/conversation-search", {
       query: "cheese",
     });
     expect(res.status).toBe(200);
     const body = res.body as { results: Array<Record<string, unknown>> };
-    // muffin was DROPPED (fail-closed) — Ashley sees only scone
+    // muffin was DROPPED (fail-closed) — User sees only scone
     const keys = body.results.map((r) => r.identityKey);
     expect(keys).not.toContain("muffin");
     expect(keys).toContain("scone");
@@ -1179,7 +1179,7 @@ describe("Phase 129: search-surface visibility gate", () => {
   // -------------------------------------------------------------------------
 
   it("Test G: getUsernameForUserId returns null → gate DISABLED (all hits surface) + search_gate_username_missing warn logged", async () => {
-    mockSearchWithIdentityUsers("muffin", { identityUsers: ["ashley"] });
+    mockSearchWithIdentityUsers("muffin", { identityUsers: ["user"] });
     mockSearchHits([
       { identityKey: "muffin", mtime: 200, content: "cheese platter" },
     ]);
@@ -1192,7 +1192,7 @@ describe("Phase 129: search-surface visibility gate", () => {
     });
     expect(res.status).toBe(200);
     const body = res.body as { results: Array<Record<string, unknown>> };
-    // Gate is disabled — muffin surfaces even though its users:[ashley]
+    // Gate is disabled — muffin surfaces even though its users:[user]
     // would otherwise close for a null caller. This is D-8 fail-open on
     // the PER-REQUEST side (a null caller is an infra bug, not a gate
     // signal). Distinct from Test F which is per-HIT fail-closed.

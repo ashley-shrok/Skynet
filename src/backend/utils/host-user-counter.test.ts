@@ -249,10 +249,10 @@ describe("isHostMultiUser — Phase 129 multi-user host detection", () => {
 
 describe("getUsernameForUserId — Phase 129 username lookup", () => {
   it("Test 9: known user returns case-preserved username", async () => {
-    enqueue([{ username: "Ashley" }]);
+    enqueue([{ username: "User" }]);
     const result = await getUsernameForUserId("some-user-id");
     // Case preserved verbatim — Pitfall 7 lock (no toLowerCase on the read side).
-    expect(result).toBe("Ashley");
+    expect(result).toBe("User");
   });
 
   it("Test 10: unknown userId returns null (defensive path)", async () => {

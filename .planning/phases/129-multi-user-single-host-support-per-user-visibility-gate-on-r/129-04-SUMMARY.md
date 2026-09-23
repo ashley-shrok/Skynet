@@ -167,9 +167,9 @@ plan Test G was passing on RED 'by accident'".
 | # | Test | Coverage | RED | GREEN |
 |---|------|----------|-----|-------|
 | A | Single-user host, no `users` key | Zero regression preserved | pass (regression lock) | pass |
-| B | Identity `users:[ashley]` | D-7 no-leak: Zoe sees ZERO hits from muffin | fail | pass |
-| C | Role `users:[ashley]` (identity untagged) | D-2 role-side gate closes for Zoe | fail | pass |
-| D | Archived identity `users:[ashley]` | Archive branch honors the same gate | fail | pass |
+| B | Identity `users:[user]` | D-7 no-leak: Zoe sees ZERO hits from muffin | fail | pass |
+| C | Role `users:[user]` (identity untagged) | D-2 role-side gate closes for Zoe | fail | pass |
+| D | Archived identity `users:[user]` | Archive branch honors the same gate | fail | pass |
 | E | 20 hits × 3 unique keys | Batched O(unique) discipline: ≤ 3 readIdentityFile calls | pass (0 calls → trivially ≤ 3) | pass (exactly 3) |
 | F | readIdentityFile throws mid-fetch | FAIL-CLOSED (Phase 129 exception): hit DROPPED + warn log | fail | pass |
 | G | getUsernameForUserId returns null | FAIL-OPEN per-request (defensive): gate DISABLED + warn log | fail | pass |

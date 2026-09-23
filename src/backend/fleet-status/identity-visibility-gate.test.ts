@@ -6,8 +6,8 @@
  * logger imports; three-arg pure function, so no fixture builder needed.
  *
  * The 10-case matrix covers:
- *   [nullCaller × emptyLists × ashleyOnBoth × ashleyOnRoleOnly
- *    × ashleyOnIdOnly × zoeOnBoth-ashleyEmpty × case-sensitivity
+ *   [nullCaller × emptyLists × userOnBoth × userOnRoleOnly
+ *    × userOnIdOnly × zoeOnBoth-userEmpty × case-sensitivity
  *    × nullCosmetics × sharedRoleNarrowIdentity]
  *
  * Design locks under test:
@@ -25,7 +25,7 @@ describe("isIdentityVisibleToUser — Phase 129 per-user visibility gate", () =>
     expect(isIdentityVisibleToUser({}, {}, null)).toBe(true);
     expect(
       isIdentityVisibleToUser(
-        { users: ["ashley"] },
+        { users: ["user"] },
         { users: ["zoe"] },
         null,
       ),
@@ -33,56 +33,56 @@ describe("isIdentityVisibleToUser — Phase 129 per-user visibility gate", () =>
   });
 
   it("Test 2: both sides empty/absent → open per D-3 fallback", () => {
-    expect(isIdentityVisibleToUser({}, {}, "ashley")).toBe(true);
-    expect(isIdentityVisibleToUser(null, null, "ashley")).toBe(true);
+    expect(isIdentityVisibleToUser({}, {}, "user")).toBe(true);
+    expect(isIdentityVisibleToUser(null, null, "user")).toBe(true);
     expect(
-      isIdentityVisibleToUser({ users: [] }, { users: [] }, "ashley"),
+      isIdentityVisibleToUser({ users: [] }, { users: [] }, "user"),
     ).toBe(true);
   });
 
-  it("Test 3: both sides list Ashley → open for Ashley", () => {
+  it("Test 3: both sides list User → open for User", () => {
     expect(
       isIdentityVisibleToUser(
-        { users: ["ashley"] },
-        { users: ["ashley"] },
-        "ashley",
+        { users: ["user"] },
+        { users: ["user"] },
+        "user",
       ),
     ).toBe(true);
   });
 
-  it("Test 4: both sides list Ashley → CLOSED for Zoe (D-2 intersection)", () => {
+  it("Test 4: both sides list User → CLOSED for Zoe (D-2 intersection)", () => {
     expect(
       isIdentityVisibleToUser(
-        { users: ["ashley"] },
-        { users: ["ashley"] },
+        { users: ["user"] },
+        { users: ["user"] },
         "zoe",
       ),
     ).toBe(false);
   });
 
   it("Test 5: role open + identity narrow → CLOSED for non-matching user", () => {
-    // Identity side lists ashley; role side is empty (open). Zoe fails
+    // Identity side lists user; role side is empty (open). Zoe fails
     // identity gate → hidden.
     expect(
-      isIdentityVisibleToUser({ users: ["ashley"] }, {}, "zoe"),
+      isIdentityVisibleToUser({ users: ["user"] }, {}, "zoe"),
     ).toBe(false);
   });
 
   it("Test 6: role narrow + identity open → CLOSED for non-matching user", () => {
-    // Role side lists ashley; identity side is empty (open). Zoe fails
+    // Role side lists user; identity side is empty (open). Zoe fails
     // role gate → hidden.
     expect(
-      isIdentityVisibleToUser({}, { users: ["ashley"] }, "zoe"),
+      isIdentityVisibleToUser({}, { users: ["user"] }, "zoe"),
     ).toBe(false);
   });
 
-  it("Test 7: shared role, identity-side narrow to Ashley → CLOSED for Zoe", () => {
-    // The intersection-semantics headliner: a role shared by ashley+zoe can
+  it("Test 7: shared role, identity-side narrow to User → CLOSED for Zoe", () => {
+    // The intersection-semantics headliner: a role shared by user+zoe can
     // still contain identities each narrowed further via identity.users.
     expect(
       isIdentityVisibleToUser(
-        { users: ["ashley"] },
-        { users: ["ashley", "zoe"] },
+        { users: ["user"] },
+        { users: ["user", "zoe"] },
         "zoe",
       ),
     ).toBe(false);
@@ -91,40 +91,40 @@ describe("isIdentityVisibleToUser — Phase 129 per-user visibility gate", () =>
   it("Test 8: shared role AND shared identity → open for both users", () => {
     expect(
       isIdentityVisibleToUser(
-        { users: ["ashley", "zoe"] },
-        { users: ["ashley", "zoe"] },
-        "ashley",
+        { users: ["user", "zoe"] },
+        { users: ["user", "zoe"] },
+        "user",
       ),
     ).toBe(true);
     expect(
       isIdentityVisibleToUser(
-        { users: ["ashley", "zoe"] },
-        { users: ["ashley", "zoe"] },
+        { users: ["user", "zoe"] },
+        { users: ["user", "zoe"] },
         "zoe",
       ),
     ).toBe(true);
   });
 
-  it("Test 9: case-sensitive comparison — 'Ashley' does NOT match 'ashley' (Pitfall 7 lock)", () => {
+  it("Test 9: case-sensitive comparison — 'User' does NOT match 'user' (Pitfall 7 lock)", () => {
     expect(
       isIdentityVisibleToUser(
-        { users: ["Ashley"] },
-        { users: ["Ashley"] },
-        "ashley",
+        { users: ["User"] },
+        { users: ["User"] },
+        "user",
       ),
     ).toBe(false);
   });
 
   it("Test 10: null cosmetics on either side → treated as 'no gate'", () => {
     // null identityCos treated as "no gate on identity side".
-    // Role side lists ashley → open for ashley.
+    // Role side lists user → open for user.
     expect(
-      isIdentityVisibleToUser(null, { users: ["ashley"] }, "ashley"),
+      isIdentityVisibleToUser(null, { users: ["user"] }, "user"),
     ).toBe(true);
     // null roleCos treated as "no gate on role side".
-    // Identity side lists ashley → closed for zoe.
+    // Identity side lists user → closed for zoe.
     expect(
-      isIdentityVisibleToUser({ users: ["ashley"] }, null, "zoe"),
+      isIdentityVisibleToUser({ users: ["user"] }, null, "zoe"),
     ).toBe(false);
   });
 });

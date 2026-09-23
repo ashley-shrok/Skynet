@@ -1330,7 +1330,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
   // is passed through as-typed from DB.
   it("Test B: multi-user host + valid lookup → creatorUsername passed to birthIdentity", async () => {
     mockIsHostMultiUser.mockResolvedValue(true);
-    mockGetUsernameForUserId.mockResolvedValue("ashley");
+    mockGetUsernameForUserId.mockResolvedValue("user");
 
     let capturedOpts: unknown;
     mockBirthIdentity.mockImplementation(
@@ -1346,7 +1346,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     expect(mockGetUsernameForUserId).toHaveBeenCalledWith("1"); // mockUserId
 
     const o = capturedOpts as Record<string, unknown>;
-    expect(o.creatorUsername).toBe("ashley");
+    expect(o.creatorUsername).toBe("user");
   });
 
   // Test C: multi-user host via RBAC-role expansion — isHostMultiUser
@@ -1442,7 +1442,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
   // survives the throw.
   it("Test F: orchestrator throw preserves ended emit; auto-tag adds no new error path", async () => {
     mockIsHostMultiUser.mockResolvedValue(true);
-    mockGetUsernameForUserId.mockResolvedValue("ashley");
+    mockGetUsernameForUserId.mockResolvedValue("user");
     mockBirthIdentity.mockRejectedValue(new Error("mock orchestrator failure"));
 
     const result = await httpPost(port, "/identities/birth", VALID_BODY, {
@@ -1471,7 +1471,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
   // from Plan 129-06 for cross-endpoint ops parity.
   it("Test G: info log at auto-tag success — identity_birth_auto_tagged operation", async () => {
     mockIsHostMultiUser.mockResolvedValue(true);
-    mockGetUsernameForUserId.mockResolvedValue("ashley");
+    mockGetUsernameForUserId.mockResolvedValue("user");
 
     mockBirthIdentity.mockImplementation(
       async (_opts: unknown, _emit: unknown, _deps: unknown) => {
@@ -1491,6 +1491,6 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     const payload = infoCall![1] as Record<string, unknown>;
     expect(payload.name).toBe(VALID_BODY.name);
     expect(payload.hostId).toBe(VALID_BODY.hostId);
-    expect(payload.creatorUsername).toBe("ashley");
+    expect(payload.creatorUsername).toBe("user");
   });
 });

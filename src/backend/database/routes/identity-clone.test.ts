@@ -1201,7 +1201,7 @@ describe("POST /identities/clone — Phase 129 LOW-1 auto-tag creator on multi-u
 
   it("Test Z-2: multi-user host clone → users: [creator] present, exactly the creator's Skynet username", async () => {
     (isHostMultiUser as Mock).mockResolvedValue(true);
-    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+    (getUsernameForUserId as Mock).mockResolvedValue("user");
 
     const res = await httpRequest(server, {
       method: "POST",
@@ -1215,10 +1215,10 @@ describe("POST /identities/clone — Phase 129 LOW-1 auto-tag creator on multi-u
 
     // The users: pair is emitted exactly once, containing exactly the
     // creator's Skynet username (case-preserved — no toLowerCase). yaml.dump
-    // serializes ["ashley"] as either flow (`[ashley]`) or block sequence
-    // (`- ashley`); accept either form via a permissive matcher that just
-    // asserts "users:" appears with "ashley" on the same or next line.
-    expect(stubBody).toMatch(/users:\s*(\[ashley\]|\n\s*-\s*ashley)/);
+    // serializes ["user"] as either flow (`[user]`) or block sequence
+    // (`- user`); accept either form via a permissive matcher that just
+    // asserts "users:" appears with "user" on the same or next line.
+    expect(stubBody).toMatch(/users:\s*(\[user\]|\n\s*-\s*user)/);
     // Byte-shape lock: no accidental extra users: keys.
     expect(stubBody.match(/^users:/gm)?.length ?? 0).toBe(1);
     // Both helpers called; the successful auto-tag path also emitted an
@@ -1231,7 +1231,7 @@ describe("POST /identities/clone — Phase 129 LOW-1 auto-tag creator on multi-u
         operation: "identity_clone_auto_tagged",
         newName: "tina-2",
         hostId: 5,
-        creatorUsername: "ashley",
+        creatorUsername: "user",
       }),
     );
   });

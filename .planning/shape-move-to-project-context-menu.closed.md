@@ -198,7 +198,7 @@ Code map (from session-carry, confirmed with the identity file):
   setters in session-project-api.ts.
 - Fleet project list: useProjects() from conversation-store.ts L2461.
 
-Ashley is aware this is inline and has explicitly asked me to take the time
+the user is aware this is inline and has explicitly asked me to take the time
 to do it carefully. Test discipline follows the standing role directive:
 scoped tests during development, full suite only at the deploy gate.
 
@@ -251,4 +251,4 @@ None.
 
 ### Notes
 
-The shape's inheritance language ("the outer menu's max-width", "the outer menu's height constraint") read as though those bounds already existed; in fact they were newly introduced here. Ashley endorsed applying them uniformly at the outer level rather than gating on drill state — cleaner invariant, and the pre-existing menu items have labels well under 260px and never grew tall enough to scroll, so no observable behaviour shift on the pre-existing menu path. The menu-path handler (handleRowMoveToProject) is a near-mirror of handleProjectDrop with two shape-driven deltas: (1) it accepts slug=null for the "Remove from project" leaf, and (2) it reads row.roomId directly rather than reading it out of a serialised DnD payload — same carrier, different plumbing. RDP defense-in-depth is layered: panel returns undefined for onMoveToProject on RDP; RDP row-render site also omits the prop entirely; row-side items[] gate hides on undefined; and handleRowMoveToProject itself early-returns on rdpHostRow. Any single one of those layers would suffice; all four are present.
+The shape's inheritance language ("the outer menu's max-width", "the outer menu's height constraint") read as though those bounds already existed; in fact they were newly introduced here. the user endorsed applying them uniformly at the outer level rather than gating on drill state — cleaner invariant, and the pre-existing menu items have labels well under 260px and never grew tall enough to scroll, so no observable behaviour shift on the pre-existing menu path. The menu-path handler (handleRowMoveToProject) is a near-mirror of handleProjectDrop with two shape-driven deltas: (1) it accepts slug=null for the "Remove from project" leaf, and (2) it reads row.roomId directly rather than reading it out of a serialised DnD payload — same carrier, different plumbing. RDP defense-in-depth is layered: panel returns undefined for onMoveToProject on RDP; RDP row-render site also omits the prop entirely; row-side items[] gate hides on undefined; and handleRowMoveToProject itself early-returns on rdpHostRow. Any single one of those layers would suffice; all four are present.

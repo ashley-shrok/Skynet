@@ -149,7 +149,7 @@ import { eq } from "drizzle-orm";
  * via hostAccess.
  *
  * Assumption A1/A6 lock (RESEARCH): naive query counts hostAccess.userId only.
- * If Ashley+Zoe share via a Skynet RBAC role (hostAccess.roleId non-null,
+ * If the user+Zoe share via a Skynet RBAC role (hostAccess.roleId non-null,
  * userId null), this query underreports and auto-tag stays silent. Verify at
  * plan-time by reading `permission-manager.ts canAccessHost` — the primitive
  * that Skynet uses as the authoritative host-access check.
@@ -595,9 +595,9 @@ export interface AppFrameFilterCtx {
 
 **Analog:** `identity-appearance.test.ts` (pure-fn tests with `makeArgs` fixture builder) + `identities.get-disk.test.ts` (bare-Express + `vi.mock` scaffold at L47-77 auth-manager mock, L100-145 drizzle+db mocks, L147-150 logger mock).
 
-**NEW `identity-visibility-gate.test.ts`** — pure-fn matrix of `[nullCaller, emptyLists, ashleyOnBoth, ashleyOnRoleOnly, ashleyOnIdOnly, ashleyOnNeither, zoeOnBothAshleyEmpty]`. Copy the `makeArgs` fixture builder shape from identity-appearance.test.ts L25-41 and adapt.
+**NEW `identity-visibility-gate.test.ts`** — pure-fn matrix of `[nullCaller, emptyLists, userOnBoth, userOnRoleOnly, userOnIdOnly, userOnNeither, zoeOnBothUserEmpty]`. Copy the `makeArgs` fixture builder shape from identity-appearance.test.ts L25-41 and adapt.
 
-**MODIFY `identities.get-disk.test.ts`** — add cross-user tests. Mock `getUsernameForUserId` to return "ashley" or "zoe" per test; assert identity A (`users:[ashley]`) shows for Ashley's request, absent from Zoe's response. Fixture pattern from L47-77 (mockUserId variable + auth middleware mock).
+**MODIFY `identities.get-disk.test.ts`** — add cross-user tests. Mock `getUsernameForUserId` to return "user" or "zoe" per test; assert identity A (`users:[user]`) shows for the user's request, absent from Zoe's response. Fixture pattern from L47-77 (mockUserId variable + auth middleware mock).
 
 **MODIFY `identity-birth-orchestrator.test.ts`** — add test cases for `opts.creatorUsername` present/absent → frontmatter contains/omits `users:` key. Assert against the yaml.dump output byte-shape.
 

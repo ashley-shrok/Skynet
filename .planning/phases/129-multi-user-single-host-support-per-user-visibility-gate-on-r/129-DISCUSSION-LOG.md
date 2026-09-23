@@ -40,7 +40,7 @@ User's initial pitch (paraphrased from her own words): allow multiple Skynet use
 | 2 | Auto-tag: touches role file, identity file, or both? | Touches only the file being created. Role creation tags role file; identity creation tags identity file. |
 | 3 | Cascade or intersection for role vs identity `users` lists? | Initially said "cascade" (option 2), then reversed to intersection after grilling the shared-role scenario. User must pass BOTH gates. |
 | 4 | Role visibility & the "can I create an identity of a role I can't see" corner? | The role-picker filters by role.users gate; users can't pick roles they can't see, so the corner doesn't arise through the intended path. On-disk bypass acknowledged but out of scope. |
-| 5 | Shared roles: separate ashley-role/zoe-role or add each other to one role file? | Add each other to one role file. Lifecycle: creator auto-tags role; other users get added manually later when they need access. |
+| 5 | Shared roles: separate user-role/zoe-role or add each other to one role file? | Add each other to one role file. Lifecycle: creator auto-tags role; other users get added manually later when they need access. |
 | 6 | Depth of gate — orphan rows OK? | No. Truly invisible. Hidden identities leave no evidence anywhere. |
 | 7 | Existing shared-host content migration? | Deferred to manual post-implementation discussion. Not in scope for v1 code. |
 | 8 | Field name and format? | `users:` (YAML list of Skynet usernames). |
@@ -51,8 +51,8 @@ GSD phase (per fleet standing directive against skipping phase setup for phase-s
 
 ## Deferred ideas (Noted for later)
 
-- Migration tooling to bulk-tag existing shared-host content — Ashley will hand-tag; separate discussion after this phase lands.
-- UI affordance to view/edit `users` lists on roles/identities — not needed for v1; user's concrete case (Ashley + Zoe on shared host) works with file editing.
+- Migration tooling to bulk-tag existing shared-host content — the user will hand-tag; separate discussion after this phase lands.
+- UI affordance to view/edit `users` lists on roles/identities — not needed for v1; user's concrete case (the user + Zoe on shared host) works with file editing.
 - Auto-add of new users to a role's `users` list when they gain host access — explicitly rejected. Manual.
 - Auto-scrub of removed users from `users` lists when host access removed — explicitly rejected. Manual.
 - Picker/search over "who else has this role/identity" — not v1.

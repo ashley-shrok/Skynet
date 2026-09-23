@@ -808,7 +808,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
 
   it("Test B: multi-user host (direct-user share) → auto-tag with creator username in users: list", async () => {
     (isHostMultiUser as Mock).mockResolvedValue(true);
-    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+    (getUsernameForUserId as Mock).mockResolvedValue("user");
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: { name: "shared-role", description: "shared t1000 role", hostId: 5 },
@@ -824,12 +824,12 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     expect(stubBody.startsWith("---\n")).toBe(true);
 
     // Format-agnostic: parse the YAML frontmatter block and assert users
-    // deep-equals ["ashley"]. Either `users: [ashley]` or `users:\n  - ashley\n`
+    // deep-equals ["user"]. Either `users: [user]` or `users:\n  - user\n`
     // is valid yaml.dump output; the parse-then-compare approach works for both.
     const fmMatch = stubBody.match(/^---\n([\s\S]*?)---\n/);
     expect(fmMatch).not.toBeNull();
     const parsed = yaml.load(fmMatch![1]) as Record<string, unknown>;
-    expect(parsed.users).toEqual(["ashley"]);
+    expect(parsed.users).toEqual(["user"]);
 
     // Structured info log at successful auto-tag seam (box-maintainer directive).
     expect(sshLogger.info).toHaveBeenCalledWith(
@@ -838,7 +838,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
         operation: "roles_create_auto_tagged",
         role: "shared-role",
         hostId: 5,
-        creatorUsername: "ashley",
+        creatorUsername: "user",
       }),
     );
   });
@@ -849,7 +849,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     // identical to Test B — this test locks that the write side doesn't
     // introduce its own second gate that could silently drop RBAC-role cases.
     (isHostMultiUser as Mock).mockResolvedValue(true);
-    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+    (getUsernameForUserId as Mock).mockResolvedValue("user");
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: { name: "rbac-role-shared", description: "shared via RBAC role", hostId: 5 },
@@ -860,7 +860,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     const fmMatch = stubBody.match(/^---\n([\s\S]*?)---\n/);
     expect(fmMatch).not.toBeNull();
     const parsed = yaml.load(fmMatch![1]) as Record<string, unknown>;
-    expect(parsed.users).toEqual(["ashley"]);
+    expect(parsed.users).toEqual(["user"]);
   });
 
   it("Test D: multi-user host + getUsernameForUserId returns null → auto-tag SKIPPED, warn log fires, file still written", async () => {
@@ -905,7 +905,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     });
     // Even if we WOULD have been on a multi-user host, the branch must skip.
     (isHostMultiUser as Mock).mockResolvedValue(true);
-    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+    (getUsernameForUserId as Mock).mockResolvedValue("user");
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: { name: "pre-existing-role", description: "already there", hostId: 5 },
@@ -920,7 +920,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
 
   it("Test F: yaml.dump byte-shape preserved — canonical options honored (sortKeys:false key order, lineWidth:-1 no wrap)", async () => {
     (isHostMultiUser as Mock).mockResolvedValue(true);
-    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+    (getUsernameForUserId as Mock).mockResolvedValue("user");
 
     // Pass cosmetics in a specific insertion order to lock sortKeys:false —
     // yaml.dump must preserve title before colorHue before voice before users.
@@ -955,10 +955,10 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     }
   });
 
-  it("Test G: case-preservation on username lock (Pitfall 7) — getUsernameForUserId returns 'Ashley' → users: [Ashley] NOT [ashley]", async () => {
+  it("Test G: case-preservation on username lock (Pitfall 7) — getUsernameForUserId returns 'User' → users: [User] NOT [user]", async () => {
     (isHostMultiUser as Mock).mockResolvedValue(true);
     // Case-preserved as registered (users.ts L172 stores as-typed).
-    (getUsernameForUserId as Mock).mockResolvedValue("Ashley");
+    (getUsernameForUserId as Mock).mockResolvedValue("User");
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: { name: "case-pres", description: "case check", hostId: 5 },
@@ -969,14 +969,14 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     const fmMatch = stubBody.match(/^---\n([\s\S]*?)---\n/);
     expect(fmMatch).not.toBeNull();
     const parsed = yaml.load(fmMatch![1]) as Record<string, unknown>;
-    // Case-sensitive: exact "Ashley", NOT "ashley".
-    expect(parsed.users).toEqual(["Ashley"]);
+    // Case-sensitive: exact "User", NOT "user".
+    expect(parsed.users).toEqual(["User"]);
     // And the info log echoes the case-preserved username.
     expect(sshLogger.info).toHaveBeenCalledWith(
       expect.stringMatching(/auto-tag/i),
       expect.objectContaining({
         operation: "roles_create_auto_tagged",
-        creatorUsername: "Ashley",
+        creatorUsername: "User",
       }),
     );
   });

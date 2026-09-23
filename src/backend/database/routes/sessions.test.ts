@@ -2175,7 +2175,7 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
       { "box-maintainer": roleMarkdown() }, // no users key
     );
 
-    const { status, body } = await fireGetSessionsAs("ashley");
+    const { status, body } = await fireGetSessionsAs("user");
     expect(status).toBe(200);
     const harnessRows = body.filter((r) => r.kind === "harness");
     expect(harnessRows).toHaveLength(1);
@@ -2191,7 +2191,7 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
   // Test B: multi-user host, identity untagged → visible to both users
   // (D-3 fallback = "no gate on this side").
   // -------------------------------------------------------------------------
-  it("Test B: multi-user host, identity has no `users` key → both Ashley and Zoe see the session row", async () => {
+  it("Test B: multi-user host, identity has no `users` key → both User and Zoe see the session row", async () => {
     const fakeConn = { end: vi.fn(), exec: vi.fn() };
     (connectOneShot as Mock).mockResolvedValue(fakeConn);
     wireExecCommand(
@@ -2200,10 +2200,10 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
       { "box-maintainer": roleMarkdown() }, // no users key
     );
 
-    const ashley = await fireGetSessionsAs("ashley");
-    expect(ashley.status).toBe(200);
+    const user = await fireGetSessionsAs("user");
+    expect(user.status).toBe(200);
     expect(
-      ashley.body.filter((r) => r.kind === "harness"),
+      user.body.filter((r) => r.kind === "harness"),
     ).toHaveLength(1);
 
     const zoe = await fireGetSessionsAs("zoe");
@@ -2217,23 +2217,23 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test C: multi-user host, identity users:[ashley] → row hidden from Zoe.
+  // Test C: multi-user host, identity users:[user] → row hidden from Zoe.
   // D-7 depth: Zoe's response has ZERO session rows for that identity.
   // -------------------------------------------------------------------------
-  it("Test C: identity users:[ashley] → Ashley sees row, Zoe does NOT (no orphan row)", async () => {
+  it("Test C: identity users:[user] → User sees row, Zoe does NOT (no orphan row)", async () => {
     const fakeConn = { end: vi.fn(), exec: vi.fn() };
     (connectOneShot as Mock).mockResolvedValue(fakeConn);
     wireExecCommand(
       "muffin|1000",
-      { muffin: identityMarkdown("box-maintainer", ["ashley"]) },
+      { muffin: identityMarkdown("box-maintainer", ["user"]) },
       { "box-maintainer": roleMarkdown() },
     );
 
-    const ashley = await fireGetSessionsAs("ashley");
-    expect(ashley.status).toBe(200);
-    const ashleyHarness = ashley.body.filter((r) => r.kind === "harness");
-    expect(ashleyHarness).toHaveLength(1);
-    expect(ashleyHarness[0].sessionName).toBe("muffin");
+    const user = await fireGetSessionsAs("user");
+    expect(user.status).toBe(200);
+    const userHarness = user.body.filter((r) => r.kind === "harness");
+    expect(userHarness).toHaveLength(1);
+    expect(userHarness[0].sessionName).toBe("muffin");
 
     const zoe = await fireGetSessionsAs("zoe");
     expect(zoe.status).toBe(200);
@@ -2247,22 +2247,22 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test D: multi-user host, role users:[ashley] (identity untagged) →
+  // Test D: multi-user host, role users:[user] (identity untagged) →
   // identity in that role hidden from Zoe (D-2 role-side gate).
   // -------------------------------------------------------------------------
-  it("Test D: role users:[ashley] (identity untagged) → Ashley sees row, Zoe does not", async () => {
+  it("Test D: role users:[user] (identity untagged) → User sees row, Zoe does not", async () => {
     const fakeConn = { end: vi.fn(), exec: vi.fn() };
     (connectOneShot as Mock).mockResolvedValue(fakeConn);
     wireExecCommand(
       "muffin|1000",
       { muffin: identityMarkdown("box-maintainer") }, // no identity users
-      { "box-maintainer": roleMarkdown(["ashley"]) }, // role has users:[ashley]
+      { "box-maintainer": roleMarkdown(["user"]) }, // role has users:[user]
     );
 
-    const ashley = await fireGetSessionsAs("ashley");
-    expect(ashley.status).toBe(200);
+    const user = await fireGetSessionsAs("user");
+    expect(user.status).toBe(200);
     expect(
-      ashley.body.filter((r) => r.kind === "harness"),
+      user.body.filter((r) => r.kind === "harness"),
     ).toHaveLength(1);
 
     const zoe = await fireGetSessionsAs("zoe");
@@ -2274,22 +2274,22 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
 
   // -------------------------------------------------------------------------
   // Test E: both sides tagged, non-overlapping intersection.
-  // role users:[ashley, zoe], identity users:[ashley] → identity narrows the
-  // intersection to Ashley only.
+  // role users:[user, zoe], identity users:[user] → identity narrows the
+  // intersection to User only.
   // -------------------------------------------------------------------------
-  it("Test E: role users:[ashley,zoe] + identity users:[ashley] → Ashley sees row, Zoe does not (intersection)", async () => {
+  it("Test E: role users:[user,zoe] + identity users:[user] → User sees row, Zoe does not (intersection)", async () => {
     const fakeConn = { end: vi.fn(), exec: vi.fn() };
     (connectOneShot as Mock).mockResolvedValue(fakeConn);
     wireExecCommand(
       "muffin|1000",
-      { muffin: identityMarkdown("box-maintainer", ["ashley"]) },
-      { "box-maintainer": roleMarkdown(["ashley", "zoe"]) },
+      { muffin: identityMarkdown("box-maintainer", ["user"]) },
+      { "box-maintainer": roleMarkdown(["user", "zoe"]) },
     );
 
-    const ashley = await fireGetSessionsAs("ashley");
-    expect(ashley.status).toBe(200);
+    const user = await fireGetSessionsAs("user");
+    expect(user.status).toBe(200);
     expect(
-      ashley.body.filter((r) => r.kind === "harness"),
+      user.body.filter((r) => r.kind === "harness"),
     ).toHaveLength(1);
 
     const zoe = await fireGetSessionsAs("zoe");
@@ -2326,7 +2326,7 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
       },
     );
 
-    const { status, body } = await fireGetSessionsAs("ashley");
+    const { status, body } = await fireGetSessionsAs("user");
     expect(status).toBe(200);
     const harness = body.filter((r) => r.kind === "harness");
     // Both rows present — muffin fell open with role=null (fail-open per
@@ -2363,7 +2363,7 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
         }
         if (cmd.includes("identities/muffin/muffin.md")) {
           identityReads.push(cmd);
-          return Promise.resolve(identityMarkdown("box-maintainer", ["ashley"]));
+          return Promise.resolve(identityMarkdown("box-maintainer", ["user"]));
         }
         if (cmd.includes("roles/box-maintainer/box-maintainer.md")) {
           return Promise.resolve(roleMarkdown());
@@ -2372,7 +2372,7 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
       },
     );
 
-    const { status, body } = await fireGetSessionsAs("ashley");
+    const { status, body } = await fireGetSessionsAs("user");
     expect(status).toBe(200);
     expect(body.filter((r) => r.kind === "harness")).toHaveLength(1);
 

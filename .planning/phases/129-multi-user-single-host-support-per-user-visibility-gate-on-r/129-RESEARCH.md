@@ -219,7 +219,7 @@ export function resolveIdentityAppearance(args: {
 }
 ```
 
-**Decision to lock:** Should the gate use case-insensitive comparison? Skynet's `users.username` column is stored as-typed (no normalization at register — see `users.ts` L172 `eq(users.username, username)`). Frontmatter is authored manually. Recommend **case-sensitive** comparison to match how the DB compares — Ashley + Zoe can agree on lowercase and both editing surfaces (frontmatter + Skynet register) will match. Document this in CONTEXT if it becomes a footgun.
+**Decision to lock:** Should the gate use case-insensitive comparison? Skynet's `users.username` column is stored as-typed (no normalization at register — see `users.ts` L172 `eq(users.username, username)`). Frontmatter is authored manually. Recommend **case-sensitive** comparison to match how the DB compares — the user + Zoe can agree on lowercase and both editing surfaces (frontmatter + Skynet register) will match. Document this in CONTEXT if it becomes a footgun.
 
 ### Pattern 3: Per-subscriber WS filter (leveraging the existing AppFrameFilter machinery)
 
@@ -314,7 +314,7 @@ Nothing else changes at runtime.
 
 ### Pitfall 3: `sessions.ts /list` uses `resolveRoleForIdentity`, not `readIdentityFile` — the identity's own `users` list is NOT in scope
 
-**What goes wrong:** The gate is applied only at the role level for session-list rows, because `sessions.ts` L407 reads only the role name (`resolveRoleForIdentity`), not the identity's full frontmatter. Identity-level `users:` narrowing (e.g., a role `[ashley, zoe]` containing identities each scoped to just one of them) silently doesn't work in the session list.
+**What goes wrong:** The gate is applied only at the role level for session-list rows, because `sessions.ts` L407 reads only the role name (`resolveRoleForIdentity`), not the identity's full frontmatter. Identity-level `users:` narrowing (e.g., a role `[user, zoe]` containing identities each scoped to just one of them) silently doesn't work in the session list.
 
 **Why it happens:** `sessions.ts` was written before this phase and only needed the role name for row grouping. It reads the identity file just enough to extract `role:`.
 
@@ -354,13 +354,13 @@ Nothing else changes at runtime.
 
 ### Pitfall 7: Case-sensitivity of username comparison — Skynet does NOT normalize on register
 
-**What goes wrong:** Ashley registers her Skynet account as "ashley"; Zoe hand-edits a role's frontmatter as `users: [ashley, Zoe]`. Zoe registered as "zoe" — she doesn't see the shared role.
+**What goes wrong:** the user registers her Skynet account as "user"; Zoe hand-edits a role's frontmatter as `users: [user, Zoe]`. Zoe registered as "zoe" — she doesn't see the shared role.
 
 **Why it happens:** `users.ts` L172 registers with `eq(users.username, username)` — case is stored as-typed. Frontmatter is authored manually. There is no ANY normalization layer between the two.
 
 **How to avoid:** Lock the comparison as case-sensitive AND document it visibly (in the shape's follow-up, in a code comment on the intersection gate, and ideally in the frontmatter linter if one exists). This matches how Skynet already treats usernames elsewhere. The operator responsibility is: match the case of the target's registered Skynet username.
 
-**Alternative:** Lowercase both sides at comparison time. Downside — a lowercase gate then wouldn't visibly show "which username is being tagged" (Ashley registered as Ashley but her name is now `ashley` in every autotagged file). **Recommend case-sensitive** for symmetry with the existing DB shape.
+**Alternative:** Lowercase both sides at comparison time. Downside — a lowercase gate then wouldn't visibly show "which username is being tagged" (the user registered as the user but her name is now `user` in every autotagged file). **Recommend case-sensitive** for symmetry with the existing DB shape.
 
 **Warning signs:** Users report "I added them to the users list and it doesn't work" and the diff is only case.
 
@@ -586,7 +586,7 @@ return res.json(visible);
 | A3 | 30s cache on the WS filter would over-stale the "picks up on next read" promise; skip cache | Pattern 3 | If SSH cost of reading frontmatter every 2s per identity per subscriber is prohibitive under load, a shorter cache (e.g. 5s aligned with 2s poll cadence) is a reasonable compromise |
 | A4 | `sessions.ts` `/list` needs a NEW per-row identity-cosmetics read to apply the identity-side of the gate (not just the role side) | Common Pitfall 3 | If a partial fix (role-side only) is acceptable, we could ship narrower. Shape file bullet 2 ("If the gate hides you, the gate hides you everywhere") strongly suggests full gate. |
 | A5 | Reusing the identity file's markdown read across role-name-extract AND cosmetics-extract for the sessions.ts branch (not two SSH round-trips) | Common Pitfall 3 recommendation | Verified: `resolveRoleForIdentity` internally calls `readIdentityFile` and only uses the `role:` field. If we call `readIdentityFile` directly and derive both, we avoid the duplicate read. |
-| A6 | No `hostAccess.roleId`-based grant needs to be expanded into member users for the count | Multi-user detection | Depends on whether Skynet uses RBAC-role-scoped host sharing in Ashley+Zoe's environment. The shape file describes Ashley + Zoe directly sharing t1000 → almost certainly a direct-user hostAccess row, but plan should sanity-check by running the query on a real dataset. |
+| A6 | No `hostAccess.roleId`-based grant needs to be expanded into member users for the count | Multi-user detection | Depends on whether Skynet uses RBAC-role-scoped host sharing in the user+Zoe's environment. The shape file describes the user + Zoe directly sharing t1000 → almost certainly a direct-user hostAccess row, but plan should sanity-check by running the query on a real dataset. |
 
 ## Open Questions
 
@@ -596,7 +596,7 @@ return res.json(visible);
    - Recommendation: Companion pure function (§ Common Pitfall 2 alternative). Signal to planner: this is a stylistic call, not a correctness call.
 
 2. **Does `hostAccess.roleId` need to expand into member users for multi-user detection?**
-   - What we know: `hostAccess` can grant to `userId` OR `roleId` (Skynet RBAC role, `schema.ts` L506-509). If Ashley + Zoe share t1000 via a Skynet role that both belong to, the naive `SELECT DISTINCT userId FROM hostAccess WHERE hostId=?` query misses them.
+   - What we know: `hostAccess` can grant to `userId` OR `roleId` (Skynet RBAC role, `schema.ts` L506-509). If the user + Zoe share t1000 via a Skynet role that both belong to, the naive `SELECT DISTINCT userId FROM hostAccess WHERE hostId=?` query misses them.
    - What's unclear: Whether operators in practice use `roleId`-based sharing.
    - Recommendation: Plan should either (a) use the same authoritative primitive `permission-manager.ts canAccessHost` uses, or (b) explicitly document that only direct-user shares count for auto-tag detection.
 
@@ -607,8 +607,8 @@ return res.json(visible);
 
 4. **Should the auto-tag include the creator on a role file when only the identity file will have `users:` narrowing (or vice versa)?**
    - What we know: Both files independently gate. Shape says both files auto-tag on multi-user hosts.
-   - What's unclear: Is there a scenario where auto-tagging both makes the identity un-shareable without the operator remembering to widen BOTH? (Yes — that's the intersection semantics. Ashley creates role "quiet-ops" on shared t1000, becomes `role.users: [ashley]`; then creates identity "muffin" under it, becomes `identity.users: [ashley]`. To share muffin with Zoe, Ashley must edit both the role frontmatter AND the identity frontmatter.)
-   - Recommendation: Document this consequence in a short note in the phase EXECUTE summary — Ashley should know that a shared identity requires widening both the role's `users` and the identity's `users`. This isn't a bug, it's the intersection semantics landing in practice.
+   - What's unclear: Is there a scenario where auto-tagging both makes the identity un-shareable without the operator remembering to widen BOTH? (Yes — that's the intersection semantics. the user creates role "quiet-ops" on shared t1000, becomes `role.users: [user]`; then creates identity "muffin" under it, becomes `identity.users: [user]`. To share muffin with Zoe, the user must edit both the role frontmatter AND the identity frontmatter.)
+   - Recommendation: Document this consequence in a short note in the phase EXECUTE summary — the user should know that a shared identity requires widening both the role's `users` and the identity's `users`. This isn't a bug, it's the intersection semantics landing in practice.
 
 5. **Frontend `conversation-store.ts` — does the sidebar composition need any change?**
    - What we know: The store joins `/identities` + `/sessions/list` into rows (L849-918 fleetSyntheticRows). If both API responses are pre-filtered, the join naturally shrinks. `state.identitiesByKey` (used for lookups) also naturally shrinks.
@@ -688,10 +688,10 @@ return res.json(visible);
 ## Test Patterns (existing fixtures to mirror)
 
 - **`identity-appearance.test.ts`** (`src/backend/fleet-status/`) — pure-function unit tests with `makeArgs` fixture builder. Add tests for the intersection gate: role-empty/id-empty/both-populated cross-matrix (6-8 assertions).
-- **`identities.get-disk.test.ts`** (`src/backend/database/routes/`) — bare Express + Node http.request scaffold, `vi.mock` on artifact-reader/ssh/host-resolver. Add cross-user tests: identity A is on shared host, users list includes only Ashley; test that Ashley's request sees it and Zoe's request does not.
+- **`identities.get-disk.test.ts`** (`src/backend/database/routes/`) — bare Express + Node http.request scaffold, `vi.mock` on artifact-reader/ssh/host-resolver. Add cross-user tests: identity A is on shared host, users list includes only the user; test that the user's request sees it and Zoe's request does not.
 - **`identity-birth-orchestrator.test.ts`** (`src/backend/database/routes/`) — pure orchestrator with injected deps. Add tests for the auto-tag branch: `creatorUsername` present + `isMultiUser=true` → frontmatter contains `users:`; `isMultiUser=false` → no `users:` key; already-present `users:` on an existing file is never rewritten (though this last one is unreachable given the collision probe — assert as an invariant).
 - **`ssh-poll-orchestrator.test.ts`** — heavy fixture. If the resolver returns null for hidden identities, verify the sweep path produces no session state for that identity.
-- **NEW: `identity-visibility-gate.test.ts`** — pure unit tests for `isIdentityVisibleToUser` (matrix of `[nullCaller, emptyLists, ashleyOnBoth, ashleyOnRoleOnly, ashleyOnIdOnly, ashleyOnNeither, zoeOnBothAshleyEmpty]`).
+- **NEW: `identity-visibility-gate.test.ts`** — pure unit tests for `isIdentityVisibleToUser` (matrix of `[nullCaller, emptyLists, userOnBoth, userOnRoleOnly, userOnIdOnly, userOnNeither, zoeOnBothUserEmpty]`).
 - **NEW: fixture for multi-user host detection** — mock the `hosts` + `hostAccess` tables. Assert `isHostMultiUser` returns true when owner + share, false when only owner.
 
 ## Sources

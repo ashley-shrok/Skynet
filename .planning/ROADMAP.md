@@ -2802,7 +2802,7 @@ Plans:
 
 ### Phase 129: multi-user-single-host support — per-user visibility gate on roles and identities, backend intersection gate + auto-tag at role/identity creation on multi-user hosts + role-picker filter
 
-**Goal:** Add a per-user visibility gate to Skynet's role + identity read path so that on hosts shared by multiple Skynet users, each user's sidebar (identities list, session list, role picker, search hits, WS live frames) shows only the roles/identities whose frontmatter users: list is empty (fallback: visible to everyone with host access) or intersects the caller's Skynet username. Ashley + Zoe's shared t1000 becomes uncluttered; single-user hosts see zero evidence of the feature; new roles + identities created on multi-user hosts auto-tag creator's username at write time.
+**Goal:** Add a per-user visibility gate to Skynet's role + identity read path so that on hosts shared by multiple Skynet users, each user's sidebar (identities list, session list, role picker, search hits, WS live frames) shows only the roles/identities whose frontmatter users: list is empty (fallback: visible to everyone with host access) or intersects the caller's Skynet username. the user + Zoe's shared t1000 becomes uncluttered; single-user hosts see zero evidence of the feature; new roles + identities created on multi-user hosts auto-tag creator's username at write time.
 
 **Requirements**: none mapped (requirements captured as D-01..D-10 locked decisions in 129-CONTEXT.md; ROADMAP requirements are patch-#43 specific and this phase is a separate feature — no REQ-IDs needed)
 **Depends on:** Phase 128

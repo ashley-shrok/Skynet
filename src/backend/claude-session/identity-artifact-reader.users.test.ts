@@ -27,13 +27,13 @@ function md(frontmatter: string): string {
 
 describe("extractCosmeticsFromFrontmatter — users narrowing (Phase 129)", () => {
   it("Test 1: parses a single-entry users list", () => {
-    const result = extractCosmeticsFromFrontmatter(md("users:\n  - ashley"));
-    expect(result.users).toEqual(["ashley"]);
+    const result = extractCosmeticsFromFrontmatter(md("users:\n  - user"));
+    expect(result.users).toEqual(["user"]);
   });
 
   it("Test 2: preserves order for a multi-entry users list", () => {
-    const result = extractCosmeticsFromFrontmatter(md("users:\n  - ashley\n  - zoe"));
-    expect(result.users).toEqual(["ashley", "zoe"]);
+    const result = extractCosmeticsFromFrontmatter(md("users:\n  - user\n  - zoe"));
+    expect(result.users).toEqual(["user", "zoe"]);
   });
 
   it("Test 3: absent users key yields no `users` property on the returned object", () => {
@@ -50,13 +50,13 @@ describe("extractCosmeticsFromFrontmatter — users narrowing (Phase 129)", () =
 
   it("Test 5: mixed junk normalizes to strings-only, trimmed, non-empty preserved", () => {
     const result = extractCosmeticsFromFrontmatter(
-      md('users:\n  - ashley\n  - ""\n  - "   "\n  - 42\n  - null'),
+      md('users:\n  - user\n  - ""\n  - "   "\n  - 42\n  - null'),
     );
-    expect(result.users).toEqual(["ashley"]);
+    expect(result.users).toEqual(["user"]);
   });
 
   it("Test 6: scalar (non-array) users value yields absent — Array.isArray gate rejects", () => {
-    const result = extractCosmeticsFromFrontmatter(md("users: ashley"));
+    const result = extractCosmeticsFromFrontmatter(md("users: user"));
     expect("users" in result).toBe(false);
   });
 
@@ -64,15 +64,15 @@ describe("extractCosmeticsFromFrontmatter — users narrowing (Phase 129)", () =
     // This test is asserting the TYPE extension. If RawCosmetics does not
     // carry `users?: string[]`, this file fails typecheck and the test
     // suite never boots.
-    const c: RawCosmetics = { users: ["ashley"] };
-    expect(c.users).toEqual(["ashley"]);
+    const c: RawCosmetics = { users: ["user"] };
+    expect(c.users).toEqual(["user"]);
   });
 
   it("Test 8 (bonus): whitespace-only + trim preserves inner whitespace-flanked names", () => {
     // Guards against overzealous "trim" that would eat interior spaces.
     // usernames don't contain spaces in practice, but we should not
     // silently mangle strings we accept.
-    const result = extractCosmeticsFromFrontmatter(md("users:\n  - '  ashley  '"));
-    expect(result.users).toEqual(["ashley"]);
+    const result = extractCosmeticsFromFrontmatter(md("users:\n  - '  user  '"));
+    expect(result.users).toEqual(["user"]);
   });
 });

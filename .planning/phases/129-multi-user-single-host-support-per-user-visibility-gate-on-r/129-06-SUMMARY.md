@@ -80,12 +80,12 @@ New `describe("Phase 129: auto-tag on multi-user hosts", ...)` block with 7 beha
 | Test | Description | Assertion |
 |------|-------------|-----------|
 | A | Single-user host → NO users: key; getUsernameForUserId NOT called | Efficiency invariant + shape §"invisible in majority case" |
-| B | Multi-user host, direct-user share → users: [ashley] | Format-agnostic yaml.load parse; info log seam echoed |
+| B | Multi-user host, direct-user share → users: [user] | Format-agnostic yaml.load parse; info log seam echoed |
 | C | Multi-user host via RBAC-role share → auto-tag fires | Assumption A6 lock at the write side |
 | D | Multi-user host + getUsernameForUserId returns null → auto-tag SKIPPED, warn log fires, file still written | Fail-open per PATTERNS.md write-side exception |
 | E | Existing file → 409 short-circuits; isHostMultiUser + getUsernameForUserId + writeMarkdownFileAtomic all NOT called | Pitfall 5 lock via absence-of-call assertion |
 | F | yaml.dump byte-shape preserved (sortKeys:false key order title→colorHue→voice→users; lineWidth:-1 no wrap under 500 chars) | Canonical options preserved |
-| G | Case-preservation (Ashley, not ashley) | Pitfall 7 lock; info log echoes case-preserved creatorUsername |
+| G | Case-preservation (the user, not user) | Pitfall 7 lock; info log echoes case-preserved creatorUsername |
 
 Also added `vi.mock("../../utils/host-user-counter.js", ...)` with default `isHostMultiUser → false` and `getUsernameForUserId → null` so the 22 pre-existing tests stay on the single-user code path (zero regression).
 
