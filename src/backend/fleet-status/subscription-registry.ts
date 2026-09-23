@@ -295,6 +295,55 @@ export interface SubscriptionRegistry {
    * Phase 39 D-02 (GATE2-02): wired by starter.ts to stop the SSH-poll orchestrator.
    */
   onLastUnsubscriber(cb: () => void): () => void;
+
+  /**
+   * Register a callback fired on the PER-USER 0 → 1 subscribers transition
+   * (i.e. the first subscribe() from that userId — the same user's
+   * subsequent tabs do NOT re-fire until they've all disposed and a fresh
+   * subscribe() comes in).
+   *
+   * Returns a disposer that unregisters the callback.
+   *
+   * Semantics:
+   *   - Fires only when ctx.userId is provided to subscribe(); bare
+   *     subscribes without a userId are ignored (matches the global
+   *     onFirstSubscriber behavior).
+   *   - Independent of the GLOBAL onFirstSubscriber — both fire on the very
+   *     first subscribe of a fresh registry, and per-user fires on each
+   *     subsequent NEW userId's first subscribe even when the global count
+   *     is already non-zero.
+   *   - Re-fires on subsequent 0 → 1 cycles for the SAME userId
+   *     (subscribe → dispose → subscribe by that user).
+   *   - Callback exceptions are caught + logged; they never bubble to
+   *     subscribe().
+   *
+   * Multi-tenant fleet-status orchestrator shape (2026-09-23): wired by
+   * starter.ts to spawn a per-user watcher instance for every user that
+   * has an active subscription.
+   */
+  onFirstUserSubscriber(cb: (ctx: { userId: string }) => void): () => void;
+
+  /**
+   * Register a callback fired on the PER-USER 1 → 0 subscribers transition
+   * (i.e. that user's last remaining tab closed — they now have zero active
+   * subscriptions).
+   *
+   * Returns a disposer that unregisters the callback.
+   *
+   * Semantics:
+   *   - Fires only for users that were tracked (had at least one subscribe()
+   *     with ctx.userId provided).
+   *   - Independent of the GLOBAL onLastUnsubscriber — per-user fires on
+   *     each user's exit even while other users remain subscribed; global
+   *     fires only when the last subscriber overall leaves.
+   *   - Re-fires on subsequent 1 → 0 cycles for the SAME userId.
+   *   - Callback exceptions are caught + logged; they never bubble to
+   *     the disposer.
+   *
+   * Multi-tenant fleet-status orchestrator shape (2026-09-23): wired by
+   * starter.ts to tear down that user's watcher when they disconnect.
+   */
+  onLastUserUnsubscriber(cb: (ctx: { userId: string }) => void): () => void;
 }
 
 function makeKey(hostId: string, tmuxSession: string | null): string {
@@ -420,6 +469,17 @@ export function createSubscriptionRegistry(
   // Phase 39 — presence signals for Path C (D-01 / D-02)
   const firstSubCallbacks = new Set<(ctx: { userId: string }) => void>();
   const lastUnsubCallbacks = new Set<() => void>();
+
+  // Multi-tenant fleet-status orchestrator shape (2026-09-23) — per-user
+  // presence signals. `subscriberCountByUser` is the source of truth for
+  // per-user 0→1 and 1→0 transitions; keys are userIds and values are the
+  // count of that user's active subscriptions. Bare subscribes (no
+  // ctx.userId) are NOT tracked here — they don't fire per-user callbacks.
+  // Keys are deleted when the count reaches zero so the Map stays bounded
+  // to currently-active users.
+  const subscriberCountByUser = new Map<string, number>();
+  const firstUserSubCallbacks = new Set<(ctx: { userId: string }) => void>();
+  const lastUserUnsubCallbacks = new Set<(ctx: { userId: string }) => void>();
   // (Phase 115 Plan 115-06 archivedIdentities cache retired in the Phase 122
   //  shape follow-up alongside publishIdentityArchived + wire frame.)
 
@@ -703,6 +763,35 @@ export function createSubscriptionRegistry(
         }
       }
 
+      // Multi-tenant fleet-status orchestrator shape (2026-09-23): fire
+      // PER-USER onFirstUserSubscriber callbacks on the per-user 0 → 1
+      // transition. Bare subscribes (no ctx.userId) are not tracked.
+      // Independent of the global firstSubCallbacks above — both may fire
+      // on the same subscribe when a fresh registry gets its very first
+      // subscriber; per-user fires on each subsequent NEW userId's first
+      // subscribe even while global count is already non-zero. Same
+      // try/catch isolation as the global path.
+      if (ctx) {
+        const prev = subscriberCountByUser.get(ctx.userId) ?? 0;
+        subscriberCountByUser.set(ctx.userId, prev + 1);
+        if (prev === 0) {
+          for (const cb of firstUserSubCallbacks) {
+            try {
+              cb(ctx);
+            } catch (err) {
+              systemLogger.warn(
+                "Fleet-status onFirstUserSubscriber callback threw",
+                {
+                  operation: "fleet_status_lifecycle_cb_failed",
+                  userId: ctx.userId,
+                  error: err instanceof Error ? err.message : "unknown",
+                },
+              );
+            }
+          }
+        }
+      }
+
       // Return disposer
       return () => {
         subscribers.delete(subscriberEntry);
@@ -711,6 +800,38 @@ export function createSubscriptionRegistry(
         // AFTER disposal, the drain sees an empty queue and (via the
         // `subscribers.has` guard) also skips delivery. Belt-and-braces.
         subscriberEntry.pendingFrames = null;
+
+        // Multi-tenant fleet-status orchestrator shape (2026-09-23): fire
+        // PER-USER onLastUserUnsubscriber callbacks on the per-user 1 → 0
+        // transition. Only fires for entries whose subscribe() provided a
+        // userId. Delete the Map key at 0 to keep the Map bounded to
+        // currently-active users. Runs BEFORE the global 1→0 path so
+        // per-user teardown observers can act while the global registry is
+        // still considered active from another user's perspective (though
+        // in practice the global path only fires when ALL users have left).
+        const disposedUserId = subscriberEntry.userId;
+        if (disposedUserId !== undefined) {
+          const prev = subscriberCountByUser.get(disposedUserId) ?? 0;
+          if (prev > 1) {
+            subscriberCountByUser.set(disposedUserId, prev - 1);
+          } else {
+            subscriberCountByUser.delete(disposedUserId);
+            for (const cb of lastUserUnsubCallbacks) {
+              try {
+                cb({ userId: disposedUserId });
+              } catch (err) {
+                systemLogger.warn(
+                  "Fleet-status onLastUserUnsubscriber callback threw",
+                  {
+                    operation: "fleet_status_lifecycle_cb_failed",
+                    userId: disposedUserId,
+                    error: err instanceof Error ? err.message : "unknown",
+                  },
+                );
+              }
+            }
+          }
+        }
 
         // Phase 39 — fire onLastUnsubscriber callbacks on 1 → 0 transition.
         // Same try/catch isolation pattern as onFirstSubscriber.
@@ -905,6 +1026,24 @@ export function createSubscriptionRegistry(
       lastUnsubCallbacks.add(cb);
       return () => {
         lastUnsubCallbacks.delete(cb);
+      };
+    },
+
+    onFirstUserSubscriber(
+      cb: (ctx: { userId: string }) => void,
+    ): () => void {
+      firstUserSubCallbacks.add(cb);
+      return () => {
+        firstUserSubCallbacks.delete(cb);
+      };
+    },
+
+    onLastUserUnsubscriber(
+      cb: (ctx: { userId: string }) => void,
+    ): () => void {
+      lastUserUnsubCallbacks.add(cb);
+      return () => {
+        lastUserUnsubCallbacks.delete(cb);
       };
     },
   };
