@@ -41,9 +41,18 @@
  * request via HTML content-negotiation fallback, and the fresh tab landed
  * on the app-shell instead of the running app. This route resolves the
  * (hostId, slug) pair to the app's tailscale-hostname + port and issues a
- * 302 to `https://<hostname>-<port>.serve.<SKYNET_COOKIE_DOMAIN>` — the
- * standard serve-URL convention used everywhere else in the codebase
- * (see src/backend/serve-url/subdomain-dispatch.ts, editable-file-whitelist.ts).
+ * 302 to `https://<hostname>-<port>.serve.<request-host>` — the standard
+ * serve-URL convention used everywhere else in the codebase (see
+ * src/backend/serve-url/subdomain-dispatch.ts, editable-file-whitelist.ts).
+ *
+ * Serve-URL parent = the incoming request's own Host header, NOT
+ * SKYNET_COOKIE_DOMAIN. On multi-parent deployments (e.g. an instance
+ * reachable via BOTH ai.example.com AND skynet.example.com) the cookie
+ * domain has to be the eTLD+1 umbrella so login cookies span both — but
+ * that umbrella isn't a served subdomain, so using it as the parent
+ * produced dead URLs. Deriving the parent from the click's origin keeps
+ * users on whichever domain they arrived from, both of which are already
+ * served by the edge.
  *
  * Discipline mirrors the icon route above:
  *   - authenticateJWT gate (401 without token)
@@ -55,8 +64,9 @@
  *     getAppSnapshot() (see fleet-status/registry-holder.ts for the
  *     module-scope accessor). Not-found → 404 ("app no longer present"),
  *     port null → 404 (never got its port populated by the sweep).
- *   - SKYNET_COOKIE_DOMAIN read from env (fail-loud 500 on missing — the
- *     same discipline serve-route.ts uses at module-load).
+ *   - req.hostname must be non-empty → 500 on the (unreachable in practice,
+ *     HTTP/1.1 requires Host) empty case; matches the fail-loud shape the
+ *     env-guard used to have.
  *   - No SSH connection opened — this route is DB + in-memory-map only.
  * ═══════════════════════════════════════════════════════════════════════════
  */
@@ -230,14 +240,17 @@ router.get(
         .json({ error: "hostId must be a positive integer" });
     }
 
-    // SKYNET_COOKIE_DOMAIN — the serve-URL parent. Fail-loud 500 on missing:
-    // matches src/backend/serve-url/serve-route.ts's module-load discipline
-    // (W4 / D-23) but per-request rather than per-module because this route
-    // has zero mount-order dependency on the env being present at boot.
-    const cookieDomain = process.env.SKYNET_COOKIE_DOMAIN;
-    if (!cookieDomain) {
-      sshLogger.warn("app redirect: SKYNET_COOKIE_DOMAIN not set", {
-        operation: "apps_redirect_env_missing",
+    // Serve-URL parent = the incoming request's own host. On multi-parent
+    // deployments the cookie domain has to be the eTLD+1 umbrella (so
+    // cookies span every parent) and that umbrella isn't a served
+    // subdomain; deriving the parent from the click's origin keeps users
+    // on whichever domain they arrived from. req.hostname strips the
+    // port from the Host header. Empty is unreachable in practice (HTTP/1.1
+    // requires Host) but we fail loud rather than emit a broken URL.
+    const requestHost = req.hostname;
+    if (!requestHost) {
+      sshLogger.warn("app redirect: request Host header missing", {
+        operation: "apps_redirect_request_host_missing",
         hostId: hostIdNum,
         slug,
       });
@@ -324,11 +337,11 @@ router.get(
         .json({ error: "app is not currently serving on a port" });
     }
 
-    // Compose the serve URL: `https://<hostname>-<port>.serve.<domain>`.
+    // Compose the serve URL: `https://<hostname>-<port>.serve.<request-host>`.
     // See src/ui/features/pretty-view/editable-file-whitelist.ts:147 for
     // the grammar this must match — the D-13 last-dash split works
     // unambiguously because port is all-digits (no dashes possible).
-    const target = `https://${hostname}-${app.port}.serve.${cookieDomain}`;
+    const target = `https://${hostname}-${app.port}.serve.${requestHost}`;
 
     // 302 (temporary): the redirect target can change if the app's port
     // rotates or the host is renamed. Semantics match a session-scoped
