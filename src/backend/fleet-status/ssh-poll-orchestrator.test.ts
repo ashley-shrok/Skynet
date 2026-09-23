@@ -1292,59 +1292,36 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
     });
   }
 
-  // Helper: build the RECORD_SEPARATOR-delimited stdout blob that
-  // parseDiscoveryStdout expects, containing exactly ONE record — a single
-  // `<mtime>\t<discoveredPath>\n<first-user-line>\n---GSDR-32---\n`. The
-  // first-user-line is shaped to match __matchesIdentityFirstTurnForTests
-  // for `identityName`: contains `"type":"user"`, does NOT contain
-  // `"tool_result"`, contains `<command-name>/id</command-name>`, and
-  // contains `<command-args>${identityName}</command-args>` (the closing
-  // `<` after the identity name satisfies the delimiter guard in
-  // src/backend/claude-session/discover-identity-session-file.ts
-  // DELIMITER_SET). RECORD_SEPARATOR value is `---GSDR-32---` per the
-  // discovery module (Phase 32).
+  // Helper: build the discovery shell script's stdout. The script emits ONE
+  // line — the absolute path of the mtime-latest JSONL whose first user-role
+  // line matches the target identity — or empty stdout if no file matches.
   //
-  // If `matchesIdentity` is false, emits a first-user-line that satisfies
-  // the outer-shape checks but uses a DIFFERENT `<command-args>` payload —
-  // used by Test I to simulate a discovery pass that returns records but
-  // NONE match the target identity → discoverIdentityJsonlPathViaChannel
-  // returns null.
+  // The match, mtime tiebreak, and delimiter guard all execute IN THE SHELL
+  // now (grep -F on `<command-args>${IDENTITY}<`), so JS-side is a passthrough.
+  // The `identityName` parameter is retained for readability; only
+  // `discoveredPath` and `matchesIdentity` shape the stdout.
+  //
+  // If `matchesIdentity` is false, emits empty stdout — used by Test I to
+  // simulate a discovery pass that scanned the tree and found no match →
+  // discoverIdentityJsonlPathViaChannel returns null.
   function buildDiscoveryFixture(
-    identityName: string,
+    _identityName: string,
     discoveredPath: string,
     matchesIdentity = true,
   ): string {
-    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
-    // Build a JSONL-shaped user-role line with `/id` command whose args
-    // payload EITHER matches the identity (default) or intentionally
-    // differs (Test I fallback). Using JSON.stringify guarantees the
-    // literal substrings `"type":"user"`, `<command-name>/id</command-name>`,
-    // and `<command-args>${argsPayload}</command-args>` all appear in the
-    // rendered string. The angle-bracket-close after argsPayload satisfies
-    // the DELIMITER_SET guard.
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    return matchesIdentity ? `${discoveredPath}\n` : "";
   }
 
   // Helper: default channel wiring for the discovery-based JSONL path
   // derivation (Phase 44 Plan 02 swap). Two responses matter beyond the
   // baseline PID + tmux fixtures:
   //   1. `IDENTITY=` substring routes the discovery script (opens with
-  //      `IDENTITY=<escaped-identity>;`; see buildDiscoveryScript at
-  //      src/backend/claude-session/discover-identity-session-file.ts:170)
+  //      `IDENTITY=<escaped-identity>;`; see buildIdentityMatchScript in
+  //      src/backend/claude-session/discover-identity-session-file.ts)
   //      to `buildDiscoveryFixture("tina", "…/discovered.jsonl")`. The
-  //      fixture emits a valid record whose first-user-line matches
-  //      __matchesIdentityFirstTurnForTests for identity `tina` → discovery
-  //      returns `~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl`.
+  //      fixture emits the mtime-latest matching JSONL path (or empty for
+  //      the no-match case) — the shell script does the match + tiebreak
+  //      + delimiter guard directly, so JS is a passthrough.
   //   2. `discovered.jsonl` substring routes the tail command to the JSONL
   //      fixture the caller passed in.
   // The MockSshChannel iterates responses in insertion order and takes the
@@ -1492,18 +1469,10 @@ describe("isRealUserTurn — user 2026-08-23 lock predicate matrix", () => {
     discoveredPath: string,
     matchesIdentity = true,
   ): string {
-    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path (or empty).
+    return matchesIdentity ? `${discoveredPath}
+` : "";
   }
 
   // Local wireBaseResponses — wires the standard per-poll responses plus the
@@ -1842,18 +1811,10 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     discoveredPath: string,
     matchesIdentity = true,
   ): string {
-    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path (or empty).
+    return matchesIdentity ? `${discoveredPath}
+` : "";
   }
 
   // Local wireBaseResponses — same shape as the Phase 41 Plan 03 helper.
@@ -2228,18 +2189,10 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
     discoveredPath: string,
     matchesIdentity = true,
   ): string {
-    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path (or empty).
+    return matchesIdentity ? `${discoveredPath}
+` : "";
   }
 
   // Local wireBaseResponses — same shape as Phase 44 Plan 02 describe.
@@ -2593,18 +2546,10 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
     discoveredPath: string,
     matchesIdentity = true,
   ): string {
-    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path (or empty).
+    return matchesIdentity ? `${discoveredPath}
+` : "";
   }
 
   function wireBaseResponses(
@@ -2856,18 +2801,10 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     discoveredPath: string,
     matchesIdentity = true,
   ): string {
-    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path (or empty).
+    return matchesIdentity ? `${discoveredPath}
+` : "";
   }
 
   // wireBaseResponses default: NO live PIDs (empty sessions listing). Source
@@ -4083,18 +4020,10 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     discoveredPath: string,
     matchesIdentity = true,
   ): string {
-    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path (or empty).
+    return matchesIdentity ? `${discoveredPath}
+` : "";
   }
 
   // wireBaseResponses — mirrors the Phase 52 Plan 01 Task 2 sibling exactly,
@@ -4534,18 +4463,10 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     discoveredPath: string,
     matchesIdentity = true,
   ): string {
-    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path (or empty).
+    return matchesIdentity ? `${discoveredPath}
+` : "";
   }
 
   // wireBaseResponses — same shape as the Phase 53 Plan 01 sibling, extended to
@@ -4964,17 +4885,10 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     identityName: string,
     discoveredPath: string,
   ): string {
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${identityName}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path.
+    return `${discoveredPath}
+`;
   }
 
   // quick-260823-73o migration: source A no longer stamps the recycling axis;
@@ -5174,17 +5088,10 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
     identityName: string,
     discoveredPath: string,
   ): string {
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${identityName}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path.
+    return `${discoveredPath}
+`;
   }
 
   /**
@@ -5616,18 +5523,10 @@ describe("Phase 55: session-file cache writes", () => {
     discoveredPath: string,
     matchesIdentity = true,
   ): string {
-    const argsPayload = matchesIdentity ? identityName : `different-${identityName}`;
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>${argsPayload}</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-55-${identityName}`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path (or empty).
+    return matchesIdentity ? `${discoveredPath}
+` : "";
   }
 
   // Wire channel responses for the happy-path fixture (source A only — no source B identities).
@@ -7189,17 +7088,10 @@ describe("Phase 85 lastMessageAt source swap — send-log store", () => {
   // Build discovery + tail responses for identity "ivy" — mirrors the Phase
   // 41 Plan 03 helpers but keyed on the ivy identity name.
   function buildIvyDiscoveryFixture(discoveredPath: string): string {
-    const firstUserLine = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: `<command-name>/id</command-name><command-args>ivy</command-args>`,
-      },
-      timestamp: new Date(1000).toISOString(),
-      uuid: `uuid-discovery-ivy`,
-    });
-    const mtime = "1755000000.0";
-    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+    // Phase 32 refactor: shell script now does match+early-exit,
+    // stdout is just the mtime-latest matching path.
+    return `${discoveredPath}
+`;
   }
 
   function wireIvyResponses(

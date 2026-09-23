@@ -131,40 +131,15 @@ function toolResultUserTurnLine(): string {
 
 // ── Mock helper: shell-script dispatch ─────────────────────────────────────
 //
-// The helper issues ONE execCommand call whose stdout is a stream of records:
-//   <mtime>\t<absolute-path>\n<first-user-role-line>\n<RECORD-SEP>\n
-// where <RECORD-SEP> is a distinctive delimiter chosen by the implementation.
+// The helper issues ONE execCommand call whose stdout is the absolute path of
+// the first matching JSONL, or empty if none matched. The match, mtime-desc
+// tiebreak, and partial-name refusal all execute IN THE SHELL now (grep -F
+// with the `<command-args>NAME<` closing delimiter), so JS-side is just a
+// trim.
 //
-// Tests declare the file set (path, mtime, first-user-role line) and the mock
-// synthesizes the exact stdout the production shell script would emit. This
-// couples the test to the OUTPUT CONTRACT of the shell script (not its exact
-// wording) so the executor can refine the script without breaking these tests.
-//
-// The record format is documented as: for each JSONL candidate (in mtime-desc
-// order), the shell emits three lines: `MTIME\tPATH`, then the first user-role
-// line's raw bytes, then a fixed sentinel `---GSDR-32---` on its own line.
-//
-// If the shell finds no candidates, stdout is empty.
-
-const RECORD_SEP = "---GSDR-32---";
-
-type Candidate = { mtime: number; path: string; firstUserLine: string | null };
-
-function synthesizeExecStdout(candidates: Candidate[]): string {
-  // Emit in mtime-descending order — that's what `sort -rn` produces.
-  const sorted = [...candidates].sort((a, b) => b.mtime - a.mtime);
-  const parts: string[] = [];
-  for (const c of sorted) {
-    if (c.firstUserLine === null) {
-      // No user-role line found in the head of this file — emit an empty
-      // placeholder so the record structure stays consistent.
-      parts.push(`${c.mtime}\t${c.path}\n\n${RECORD_SEP}`);
-    } else {
-      parts.push(`${c.mtime}\t${c.path}\n${c.firstUserLine}\n${RECORD_SEP}`);
-    }
-  }
-  return parts.join("\n");
-}
+// This is the OUTPUT CONTRACT the test suite couples to — not the shell
+// script's exact wording, so the executor can refine the script without
+// breaking these tests.
 
 function mockExecReturning(stdoutOrThrow: string | (() => Promise<string>)) {
   vi.mocked(execCommand).mockImplementation(
@@ -293,14 +268,9 @@ describe("discoverIdentitySessionFile", () => {
   });
 
   it("CASE-H1: happy-path single match returns the absolute path", async () => {
+    // Shell short-circuits at the first matching file and prints its path.
     mockExecReturning(
-      synthesizeExecStdout([
-        {
-          mtime: 1_000_000,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/16da4efa-abc.jsonl",
-          firstUserLine: firstUserTurnLine("tanya"),
-        },
-      ]),
+      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/16da4efa-abc.jsonl\n",
     );
     const result = await discoverIdentitySessionFile(fakeConn, "tanya");
     expect(result).toBe(
@@ -308,25 +278,12 @@ describe("discoverIdentitySessionFile", () => {
     );
   });
 
-  it("CASE-H2: multi-match returns the mtime-latest path (D-03 tiebreak)", async () => {
+  it("CASE-H2: mtime-latest tiebreak is a shell-side guarantee (D-03) — JS trusts the emitted path", async () => {
+    // D-03 tiebreak moved into the shell: `sort -rn` orders newest-first and
+    // the outer `while | head -1` stops at the first match, so the emitted
+    // path is by construction the mtime-latest match. JS-side is a passthrough.
     mockExecReturning(
-      synthesizeExecStdout([
-        {
-          mtime: 1000,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/old.jsonl",
-          firstUserLine: firstUserTurnLine("tanya"),
-        },
-        {
-          mtime: 2000,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/newest.jsonl",
-          firstUserLine: firstUserTurnLine("tanya"),
-        },
-        {
-          mtime: 1500,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/middle.jsonl",
-          firstUserLine: firstUserTurnLine("tanya"),
-        },
-      ]),
+      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/newest.jsonl\n",
     );
     const result = await discoverIdentitySessionFile(fakeConn, "tanya");
     expect(result).toBe(
@@ -335,41 +292,18 @@ describe("discoverIdentitySessionFile", () => {
   });
 
   it("CASE-H3: no matches → returns null, no throw (D-05 fallback)", async () => {
-    mockExecReturning(
-      synthesizeExecStdout([
-        {
-          mtime: 1000,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-nelly/a.jsonl",
-          firstUserLine: firstUserTurnLine("nelly"),
-        },
-        {
-          mtime: 900,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-throwaway/b.jsonl",
-          firstUserLine: plainUserTurnLine("hello there"),
-        },
-        {
-          mtime: 800,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-throwaway/c.jsonl",
-          firstUserLine: plainUserTurnLine("another plain message"),
-        },
-      ]),
-    );
+    // Shell walked every candidate, found no match — empty stdout.
+    mockExecReturning("");
     const result = await discoverIdentitySessionFile(fakeConn, "tanya");
     expect(result).toBe(null);
   });
 
-  it("CASE-H4a: file whose first user-role line matches → matches (throwaway assistant bootstrap tolerated)", async () => {
-    // The shell script's `grep -m 1 '\"role\":\"user\"'` naturally SKIPS any leading
-    // assistant/system lines and lands on the first user-role line. This test
-    // verifies the helper matches when that first user-role line IS the /id turn.
+  it("CASE-H4a: shell reports a match → passthrough", async () => {
+    // The shell's `head -c 4096 | grep -Fm 1 "<command-args>NAME<"` naturally
+    // skips leading assistant/system lines and matches the first user-role
+    // line containing the identity signature.
     mockExecReturning(
-      synthesizeExecStdout([
-        {
-          mtime: 1000,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/e.jsonl",
-          firstUserLine: firstUserTurnLine("tanya"),
-        },
-      ]),
+      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/e.jsonl\n",
     );
     const result = await discoverIdentitySessionFile(fakeConn, "tanya");
     expect(result).toBe(
@@ -377,34 +311,17 @@ describe("discoverIdentitySessionFile", () => {
     );
   });
 
-  it("CASE-H4b: file whose first user-role line is a plain user turn (no /id) → no match (D-04 throwaway excluded by construction)", async () => {
-    mockExecReturning(
-      synthesizeExecStdout([
-        {
-          mtime: 1000,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-throwaway/f.jsonl",
-          firstUserLine: plainUserTurnLine("just a normal message"),
-        },
-      ]),
-    );
+  it("CASE-H4b: shell reports no match (plain user turn, no /id) → null", async () => {
+    mockExecReturning("");
     const result = await discoverIdentitySessionFile(fakeConn, "tanya");
     expect(result).toBe(null);
   });
 
-  it("CASE-H5: later-in-file /id mention NOT matched — only the first user-role line is inspected (D-02)", async () => {
-    // The shell script emits ONLY the first user-role line per file. Simulate
-    // that by having the mock emit a plain user line as the first-user-line
-    // for a file whose actual JSONL has a later /id turn — the helper cannot
-    // see the later turn because it never leaves the shell.
-    mockExecReturning(
-      synthesizeExecStdout([
-        {
-          mtime: 1000,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/g.jsonl",
-          firstUserLine: plainUserTurnLine("hello"),
-        },
-      ]),
-    );
+  it("CASE-H5: first-4-KB window is a shell-side guarantee (D-02) — later-file /id mentions never reach JS", async () => {
+    // The shell's `head -c 4096` bounds the read window; a `/id` turn buried
+    // past the first 4 KB is never seen by grep and never emitted. If the
+    // shell found no match in-window, stdout is empty.
+    mockExecReturning("");
     const result = await discoverIdentitySessionFile(fakeConn, "tanya");
     expect(result).toBe(null);
   });
@@ -423,18 +340,21 @@ describe("discoverIdentitySessionFile", () => {
     expect(result).toBe(null);
   });
 
-  it("CASE-H8: partial-name refusal end-to-end (D-01 delegation) — identity `tiffany` does not match a JSONL whose first user line is `<command-args>tiff<`", async () => {
-    mockExecReturning(
-      synthesizeExecStdout([
-        {
-          mtime: 1000,
-          path: "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tiff/h.jsonl",
-          firstUserLine: firstUserTurnLine("tiff"),
-        },
-      ]),
-    );
-    const result = await discoverIdentitySessionFile(fakeConn, "tiffany");
-    expect(result).toBe(null);
+  it("CASE-H8: partial-name refusal is a shell-side guarantee (D-01) — the match pattern includes the trailing `<` delimiter", async () => {
+    // The load-bearing property of D-01: identity `tiffany` MUST NOT match a
+    // JSONL line whose only signature is `<command-args>tiff<`. Enforced now
+    // by grep -F on the full `<command-args>tiffany<` literal — `tiff<` is
+    // not a substring of `tiffany<`.
+    //
+    // Assert the shell script contains the delimiter-anchored pattern for
+    // the requested identity name (couples the test to the D-01 contract,
+    // not to the exact shell wording).
+    mockExecReturning("");
+    await discoverIdentitySessionFile(fakeConn, "tiffany");
+    const cmd = vi.mocked(execCommand).mock.calls[0][1];
+    expect(cmd).toContain("<command-args>");
+    // Pattern uses grep -F (fixed string) so partial-name substrings can't match.
+    expect(cmd).toMatch(/grep\s+[^|]*-F/);
   });
 
   it("issues an execCommand whose command string references `~/.claude/projects/` and uses `find` with `.jsonl` — loosely couples test to the enumeration primitive", async () => {
@@ -451,15 +371,35 @@ describe("discoverIdentitySessionFile", () => {
     mockExecReturning("");
     await discoverIdentitySessionFile(fakeConn, "tanya");
     const cmd = vi.mocked(execCommand).mock.calls[0][1];
-    // The identity name — even though not used in a grep pattern (byte-pattern
-    // match happens in JS) — must still be single-quote-wrapped when interpolated
-    // into the shell script for defense-in-depth per T-32-01.
-    // The exact interpolation site depends on the shell script's shape; the
-    // load-bearing assertion is that if the identity name appears in the script
-    // AT ALL, it is wrapped in single quotes.
+    // The identity name is single-quote-wrapped when interpolated into the
+    // shell script for defense-in-depth per T-32-01. Even though grep -F now
+    // treats the pattern as a fixed string (no regex interpretation), the
+    // quote-wrap layer stays as belt-and-suspenders against a name that
+    // slips past upstream validation.
     if (cmd.includes("tanya")) {
       expect(cmd).toMatch(/'tanya'/);
     }
+  });
+
+  it("short-circuits at the first matching file — stdout is a single path, not a records blob", async () => {
+    // Contract: shell emits ONE path (mtime-latest match) and stops. If
+    // stdout contained multiple lines, the passthrough would leak the trailing
+    // ones. Verify the trim-then-return logic collapses to the single path.
+    mockExecReturning(
+      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/first.jsonl\n",
+    );
+    const result = await discoverIdentitySessionFile(fakeConn, "tanya");
+    expect(result).toBe(
+      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/first.jsonl",
+    );
+    // A stray trailing whitespace line must not corrupt the returned path.
+    mockExecReturning(
+      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/first.jsonl\n\n",
+    );
+    const result2 = await discoverIdentitySessionFile(fakeConn, "tanya");
+    expect(result2).toBe(
+      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/first.jsonl",
+    );
   });
 });
 

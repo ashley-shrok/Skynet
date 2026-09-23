@@ -43,10 +43,8 @@ import { resolvePidToTmuxSession } from "./pid-to-tmux.js";
 import { filterAmbientTasks } from "./ambient-filter.js";
 import { detectIdReset } from "../claude-session/session-file-parser.js";
 import {
-  buildDiscoveryScript,
+  buildIdentityMatchScript,
   shellSingleQuote,
-  parseDiscoveryStdout,
-  __matchesIdentityFirstTurnForTests,
   DISCOVERY_EXEC_TIMEOUT_MS,
 } from "../claude-session/discover-identity-session-file.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
@@ -974,7 +972,7 @@ async function discoverIdentityJsonlPathViaChannel(
   channel: SshChannel,
   identityName: string,
 ): Promise<string | null> {
-  const script = buildDiscoveryScript(shellSingleQuote(identityName));
+  const script = buildIdentityMatchScript(shellSingleQuote(identityName));
   let stdout: string | null;
   try {
     stdout = await Promise.race([
@@ -994,17 +992,10 @@ async function discoverIdentityJsonlPathViaChannel(
   } catch {
     return null;
   }
-  if (stdout === null || stdout.length === 0) return null;
-  const records = parseDiscoveryStdout(stdout);
-  // Records already mtime-desc from the shell's `sort -rn`; belt-and-suspenders
-  // resort in case shell locale ever deviates from strict numeric-descending.
-  records.sort((a, b) => b.mtime - a.mtime);
-  for (const rec of records) {
-    if (__matchesIdentityFirstTurnForTests(rec.firstUserLine, identityName)) {
-      return rec.path;
-    }
-  }
-  return null;
+  // Shell emits: the absolute path of the first matching file, or empty.
+  if (stdout === null) return null;
+  const trimmed = stdout.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 // ---------------------------------------------------------------------------

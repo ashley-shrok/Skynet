@@ -202,28 +202,16 @@ export function __matchesIdentityFirstTurnForTests(
  * pattern — the byte-pattern match happens in JS after parsing stdout.
  */
 export function buildDiscoveryScript(escapedIdentityName: string): string {
-  // Note on escapedIdentityName: single-quote wrapping is applied at the
-  // call site (identity name is validated to a safe subset upstream at the
-  // WS-attach layer; this is defense-in-depth per T-32-01). The name is
-  // interpolated as a shell literal ONLY — never into a grep pattern.
+  // ENUMERATION variant: emits every JSONL's first user-role line so the
+  // caller can post-hoc match multiple identities in one round-trip.
   //
-  // Shell strategy per statement:
-  //   1. `find` enumerates JSONLs under ~/.claude/projects/*/, emits
-  //      "mtime path" pairs (space-separated; mtime is float-valued).
-  //   2. `sort -rn` orders them mtime-descending.
-  //   3. `while read` iterates each pair; for each file:
-  //        a. print "MTIME\tPATH"
-  //        b. print the first user-role line (or empty if none in 4096B)
-  //        c. print the RECORD_SEPARATOR sentinel
-  //   4. All emitted via `printf` so the byte layout is exact.
+  // Used by conversation-search's batched resolver (one shell exec resolves
+  // N identity keys). For the SINGLE-identity lookup case, use
+  // `buildIdentityMatchScript` instead — it short-circuits at the shell
+  // level and returns O(matched-file-position) instead of O(all-files).
   //
-  // The identity name is embedded as a shell comment for grep-ability of
-  // audit logs (`ps aux | grep <name>` would find the exec) but NOT used
-  // inside any shell primitive that would treat it as a pattern.
-  //
-  // LOAD-BEARING (matches session-file-discovery.ts:100 pattern): JS `+`
-  // joins these strings on ONE line — every shell statement MUST be
-  // terminated with `;`. Do not remove any `;` below.
+  // LOAD-BEARING: JS `+` joins these strings on ONE line — every shell
+  // statement MUST be terminated with `;`. Do not remove any `;` below.
   return (
     // Purely documentary — the identity name appears in the script for
     // audit-log grep-ability but is not consumed by any shell primitive.
@@ -235,6 +223,48 @@ export function buildDiscoveryScript(escapedIdentityName: string): string {
     `  head -c 4096 "$path" 2>/dev/null | grep -m 1 '"role":"user"' || printf '\\n'; ` +
     `  printf '%s\\n' '${RECORD_SEPARATOR}'; ` +
     `done`
+  );
+}
+
+/**
+ * Early-exit shell script for the SINGLE-identity lookup case. Does the
+ * byte-pattern match IN the shell (grep -F, fixed-string) so the walk stops
+ * at the first matching file instead of reading every JSONL in the tree.
+ *
+ * Emits: the absolute path of the first matching file (mtime-desc order),
+ * or empty stdout if no file matches. That's the whole output — no records,
+ * no separators, no first-user-lines to re-parse. JS-side just trims.
+ *
+ * Match shape: `<command-args>${IDENTITY}<`. Real Claude Code JSONLs always
+ * close with `</command-args>`, so the `<` delimiter covers 100 % of
+ * observed data. The 4-delimiter matrix in __matchesIdentityFirstTurnForTests
+ * (space, `\r`, EOL) is a hypothetical-variants belt kept for the LOCAL
+ * branch's JS predicate.
+ *
+ * Safety: grep -F treats the pattern as fixed string (no regex). Combined
+ * with the upstream WS-attach identity-name validation (alnum + `-`/`_`)
+ * and the single-quote wrap at the call site, the identity name cannot
+ * escape into shell or regex space.
+ *
+ * tool_result exclusion: a chained `grep -qvF '"tool_result"'` after the
+ * match rejects any line whose surrounding JSONL is a tool_result payload
+ * (parity with the JS predicate's `line.includes('"tool_result"')` guard).
+ *
+ * `| head -1` at the end guarantees the outer pipeline closes cleanly after
+ * the first emitted path — works around the "break in a piped `while`
+ * subshell doesn't kill the outer script" bash idiom.
+ */
+export function buildIdentityMatchScript(escapedIdentityName: string): string {
+  return (
+    `IDENTITY=${escapedIdentityName}; ` +
+    `PATTERN="<command-args>\${IDENTITY}<"; ` +
+    `find ~/.claude/projects/ -maxdepth 2 -type f -name '*.jsonl' -printf '%T@ %p\\n' 2>/dev/null ` +
+    `| sort -rn ` +
+    `| while IFS=' ' read -r mtime path; do ` +
+    `  if head -c 4096 "$path" 2>/dev/null | grep -m 1 -F "$PATTERN" | grep -qvF '"tool_result"'; then ` +
+    `    printf '%s\\n' "$path"; break; ` +
+    `  fi; ` +
+    `done | head -1`
   );
 }
 
@@ -335,7 +365,7 @@ export async function discoverIdentitySessionFile(
     return discoverIdentitySessionFileLocal(identityName);
   }
   const escaped = shellSingleQuote(identityName);
-  const script = buildDiscoveryScript(escaped);
+  const script = buildIdentityMatchScript(escaped);
 
   let stdout: string;
   try {
@@ -358,19 +388,9 @@ export async function discoverIdentitySessionFile(
     return null;
   }
 
-  const records = parseDiscoveryStdout(stdout);
-  // Records are already mtime-desc from the shell's `sort -rn`. Belt-and-
-  // suspenders: sort again defensively in case the shell's sort locale ever
-  // deviates from strict numeric-descending. This is O(n log n) on a set
-  // bounded by D-07 (~dozens of JSONLs) — negligible.
-  records.sort((a, b) => b.mtime - a.mtime);
-
-  for (const rec of records) {
-    if (__matchesIdentityFirstTurnForTests(rec.firstUserLine, identityName)) {
-      return rec.path;
-    }
-  }
-  return null;
+  // Shell emits: the absolute path of the first matching file, or empty.
+  const trimmed = stdout.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 /**
