@@ -283,7 +283,7 @@ export async function filterAppFrame(
         {
           operation: "app_frame_filter_gone_hidden",
           userId,
-          hostId: frame.hostId,
+          hostId: Number(frame.hostId),
           tmuxSession: frame.tmuxSession,
         },
       );
@@ -310,7 +310,7 @@ export async function filterAppFrame(
         {
           operation: "app_frame_filter_update_hidden",
           userId,
-          hostId: frame.state.hostId,
+          hostId: Number(frame.state.hostId),
           tmuxSession: frame.state.tmuxSession,
         },
       );
@@ -345,7 +345,7 @@ export async function filterAppFrame(
             {
               operation: "app_frame_filter_snapshot_hidden",
               userId,
-              hostId: s.hostId,
+              hostId: Number(s.hostId),
               tmuxSession: s.tmuxSession,
             },
           );
@@ -398,7 +398,7 @@ export async function filterAppFrame(
         {
           operation: "app_frame_filter_session_project_changed_hidden",
           userId,
-          hostId: hostIdStr,
+          hostId: Number(hostIdStr),
           identityKey: frame.identityKey,
         },
       );
