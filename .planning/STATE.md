@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-23T05:07:54.283Z"
+last_updated: "2026-09-23T05:17:58.638Z"
 last_activity: 2026-09-23
 progress:
   total_phases: 130
   completed_phases: 109
   total_plans: 571
-  completed_plans: 558
+  completed_plans: 559
   percent: 84
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 129 (multi-user-single-host-support-per-user-visibility-gate-on-r) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 
 Last activity: 2026-09-23
 
@@ -233,7 +233,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — user can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 Progress: [██████████] 100%
 Progress: [██████████] 100%
 
@@ -411,6 +411,7 @@ Progress: [██████████] 100%
 | Phase 128 Pclose-loop-fix | 41min | 4 tasks | 12 files |
 | Phase 129 P02 | ~6 min | 2 tasks | 5 files |
 | Phase 129 P03 | 1020 | 2 tasks | 4 files |
+| Phase 129 P129-04 | 450 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -675,6 +676,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 129-03: sessions.ts fuses readIdentityFile for BOTH role AND cosmetics (Assumption A5) — single SSH round-trip per session
 - [Phase ?]: 129-03: roles-list-for-host.ts uses Option A (parallel rawCosByName Map) — RoleCosmetics wire-shape unchanged; D-6 lock preserved
 - [Phase ?]: 129-03: role-picker gate calls isIdentityVisibleToUser(null, raw, callerUsername) — role-side-only lock (identity-side has nothing to compare against yet)
+- [Phase ?]: Search surface (POST /conversation-search) uses fail-CLOSED read-error discipline — Phase 129 exception per PATTERNS.md § Shared Patterns. Filter shape locked as gateMap.get(r.identityKey) === true (NOT !== false). Batched O(unique-identityKeys) frontmatter fetch closes Pitfall 4.
 
 ### Pending Todos
 
@@ -1055,7 +1057,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-23T05:07:21.211Z
+Last session: 2026-09-23T05:17:50.894Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed Phase 129 Plan 01 (foundations shipped, 28 new tests + 33 regression = 61/61 pass; three atomic commits e41d5bc5 + ec5df06a + 8b90f6b5). Wave 2/3/4 plans (129-02..129-08) awaiting.
