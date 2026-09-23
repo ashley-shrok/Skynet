@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-23T04:41:14.032Z"
+last_updated: "2026-09-23T05:07:54.283Z"
 last_activity: 2026-09-23
 progress:
   total_phases: 130
   completed_phases: 109
   total_plans: 571
-  completed_plans: 557
+  completed_plans: 558
   percent: 84
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 129 (multi-user-single-host-support-per-user-visibility-gate-on-r) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 
 Last activity: 2026-09-23
 
@@ -410,6 +410,7 @@ Progress: [██████████] 100%
 | Phase 128 P11 | 12min | 2 tasks | 1 files |
 | Phase 128 Pclose-loop-fix | 41min | 4 tasks | 12 files |
 | Phase 129 P02 | ~6 min | 2 tasks | 5 files |
+| Phase 129 P03 | 1020 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -671,6 +672,9 @@ Recent decisions affecting current work:
 - [Phase 129]: Plan 129-02: Gate placed AFTER cosmetics/roleCosmetics extraction but BEFORE publicIdentity — hidden row is never constructed (D-7 deep-gate). Return-null collapses onto existing L450 null-filter with zero shape change.
 - [Phase 129]: Plan 129-02: callerUsername lookup runs EXACTLY ONCE per request via getUsernameForUserId (not per-host, not per-identity) — matches identities.ts per-request-cost discipline. Locked at the wire by Test A + Test B call-count assertions.
 - [Phase 129]: Plan 129-02: Sibling test files (channel-cap, disk-read, put-disk) stub host-user-counter + identity-visibility-gate directly rather than extending drizzle-orm mocks — the gate has scoped coverage in identities.get-disk.test.ts; sibling suites stay scoped to what they test.
+- [Phase ?]: 129-03: sessions.ts fuses readIdentityFile for BOTH role AND cosmetics (Assumption A5) — single SSH round-trip per session
+- [Phase ?]: 129-03: roles-list-for-host.ts uses Option A (parallel rawCosByName Map) — RoleCosmetics wire-shape unchanged; D-6 lock preserved
+- [Phase ?]: 129-03: role-picker gate calls isIdentityVisibleToUser(null, raw, callerUsername) — role-side-only lock (identity-side has nothing to compare against yet)
 
 ### Pending Todos
 
@@ -1051,7 +1055,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-23T04:40:17.741Z
+Last session: 2026-09-23T05:07:21.211Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed Phase 129 Plan 01 (foundations shipped, 28 new tests + 33 regression = 61/61 pass; three atomic commits e41d5bc5 + ec5df06a + 8b90f6b5). Wave 2/3/4 plans (129-02..129-08) awaiting.
