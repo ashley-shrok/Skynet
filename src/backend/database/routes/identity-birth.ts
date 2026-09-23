@@ -18,7 +18,26 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import * as fsp from "node:fs/promises";
 import { AuthManager } from "../../utils/auth-manager.js";
-import { databaseLogger } from "../../utils/logger.js";
+import { databaseLogger, sshLogger } from "../../utils/logger.js";
+// Phase 129 Plan 07 Task 2: host-user-counter primitives from Plan 01.
+// Used pre-orchestrator to gate the D-4 auto-tag branch: on multi-user hosts
+// we resolve the caller's Skynet username and thread it as
+// BirthOptions.creatorUsername so buildIdentityFileBody emits the users:
+// pair. On single-user hosts both lookups are skipped and creatorUsername
+// stays undefined — the identity file carries no users: key (absent-⇒-omit
+// fallback per D-3; shape §"invisible in majority case").
+//
+// Write-side fail-open EXCEPTION per PATTERNS.md § "Read-path fail-open,
+// write-path fail-closed": if getUsernameForUserId returns null on a
+// multi-user host, we SKIP the auto-tag (creatorUsername stays undefined)
+// and log a warn — a wrong-user auto-tag is a shape file §"would make it
+// wrong" bullet-3 violation, so the safe choice is to write the file
+// WITHOUT the users: key rather than tag with an empty string or fail the
+// birth entirely. See PATTERNS.md § shared patterns for the full rationale.
+import {
+  isHostMultiUser,
+  getUsernameForUserId,
+} from "../../utils/host-user-counter.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 // Phase 106 (D-05/D-06): the wait-for-supervisor sensor wired into the
@@ -461,6 +480,76 @@ router.post(
     };
 
     // -----------------------------------------------------------------------
+    // Phase 129 Plan 07 D-4 auto-tag: check if the target host is multi-user;
+    // if so, resolve the caller's Skynet username so the orchestrator can
+    // auto-tag the new identity file's frontmatter with `users: [creator]`.
+    // On single-user hosts, both queries are skipped (creatorUsername stays
+    // undefined; buildIdentityFileBody omits the users: key per D-3
+    // absent-⇒-omit fallback). Ordering: this runs AFTER the pre-existing
+    // body validation, matrix-creds 503 gate, and throttle-slot acquire, so
+    // a bad request never reaches the DB lookups. It runs BEFORE the
+    // birthIdentity call so creatorUsername can be threaded into
+    // BirthOptions.
+    //
+    // Write-side fail-open per PATTERNS.md § "Read-path fail-open, write-
+    // path fail-closed" EXCEPTION:
+    //   - isHostMultiUser throws → treat as single-user (auto-tag skipped),
+    //     log a warn. Doing this defensively rather than propagating the
+    //     throw preserves the identity-birth code path in the face of a
+    //     transient DB glitch (D-8 defensive fail-open).
+    //   - getUsernameForUserId returns null on a multi-user host → auto-tag
+    //     is SKIPPED, sshLogger.warn fires. A wrong-user auto-tag would be
+    //     a shape §"would make it wrong" bullet-3 violation, so we write
+    //     the file WITHOUT the users: key rather than tag with an empty
+    //     string.
+    //
+    // Structured log at successful auto-tag path (sshLogger.info with
+    // operation:"identity_birth_auto_tagged") mirrors the roles-create.ts
+    // shape from Plan 129-06 so ops has a single grep target for D-4
+    // auto-tag decisions across both endpoints.
+    // -----------------------------------------------------------------------
+    let creatorUsername: string | undefined = undefined;
+    let isMultiUser = false;
+    try {
+      isMultiUser = await isHostMultiUser(hostId);
+    } catch (err) {
+      sshLogger.warn(
+        "Phase 129: identity-birth isHostMultiUser threw — treating as single-user (fail-open)",
+        {
+          operation: "identity_birth_multi_user_probe_failed",
+          userId,
+          hostId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+    }
+    if (isMultiUser) {
+      const resolved = await getUsernameForUserId(userId);
+      if (resolved) {
+        creatorUsername = resolved;
+        sshLogger.info(
+          "Phase 129: identity-birth auto-tagged creator on multi-user host",
+          {
+            operation: "identity_birth_auto_tagged",
+            name: name.trim(),
+            hostId,
+            creatorUsername,
+          },
+        );
+      } else {
+        sshLogger.warn(
+          "Phase 129: identity-birth username lookup failed — auto-tag skipped",
+          {
+            operation: "identity_birth_username_lookup_failed",
+            userId,
+            hostId,
+            name: name.trim(),
+          },
+        );
+      }
+    }
+
+    // -----------------------------------------------------------------------
     // Invoke orchestrator — catch errors and surface in SSE stream
     // -----------------------------------------------------------------------
     try {
@@ -496,6 +585,11 @@ router.post(
           // the orchestrator so the wait-for-supervisor loop breaks early on
           // browser navigation / tab close instead of pinning an SSH conn.
           abortSignal: abortController.signal,
+          // Phase 129 Plan 07 D-4 auto-tag: resolved above from
+          // isHostMultiUser + getUsernameForUserId. undefined on single-user
+          // hosts OR on lookup failure — orchestrator's buildIdentityFileBody
+          // omits the users: key in either case (absent-⇒-omit fallback).
+          creatorUsername,
         },
         emit,
         deps,
