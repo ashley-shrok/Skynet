@@ -120,11 +120,45 @@ vi.mock("../../utils/simple-db-ops.js", () => ({
   },
 }));
 
+// Phase 129 Plan 129-03: systemLogger is used by sessions.ts for the two
+// gate-seam structured logs (sessions_gate_username_missing warn +
+// sessions_gate_hidden debug). Must be mocked so tests can assert on the
+// warn call in Test F. vi.hoisted keeps the mock instances reachable from
+// both the vi.mock factory (hoisted above imports) AND the per-test
+// assertion code below.
+const {
+  systemLoggerWarnMock,
+  systemLoggerDebugMock,
+} = vi.hoisted(() => ({
+  systemLoggerWarnMock: vi.fn(),
+  systemLoggerDebugMock: vi.fn(),
+}));
+
 // Mock logger to suppress noise
 vi.mock("../../utils/logger.js", () => ({
   sshLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   databaseLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  systemLogger: {
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: systemLoggerWarnMock,
+    debug: systemLoggerDebugMock,
+  },
+}));
+
+// Phase 129 Plan 129-03: host-user-counter mock (getUsernameForUserId).
+// GREEN implementation of sessions.ts will import this to translate the JWT
+// userId into a Skynet username before invoking isIdentityVisibleToUser.
+// vi.hoisted keeps the mock reachable from both the vi.mock factory
+// (hoisted above imports) AND per-test assertion code below.
+const { getUsernameForUserIdMock } = vi.hoisted(() => ({
+  getUsernameForUserIdMock: vi.fn(),
+}));
+
+vi.mock("../../utils/host-user-counter.js", () => ({
+  isHostMultiUser: vi.fn().mockResolvedValue(false),
+  getUsernameForUserId: (userId: string) => getUsernameForUserIdMock(userId),
 }));
 
 // ---------------------------------------------------------------------------
@@ -292,6 +326,15 @@ beforeEach(() => {
   // (no active relay-room rows — matches the pre-Phase-89 behavior). Same
   // vi.clearAllMocks re-establishment requirement as getIdentityLastSend.
   mockedListActiveRelayRoomSessions.mockResolvedValue([]);
+
+  // Phase 129 Plan 129-03 default — getUsernameForUserId returns null so
+  // pre-129 tests fall through the gate cleanly (null callerUsername short-
+  // circuits isIdentityVisibleToUser to "visible" per Plan 129-01 Task 2
+  // Test 1 — the internal-server / test / admin-bypass semantic).
+  // Phase 129 gate tests override with mockResolvedValue / mockImplementation.
+  getUsernameForUserIdMock.mockResolvedValue(null);
+  systemLoggerWarnMock.mockClear();
+  systemLoggerDebugMock.mockClear();
 });
 
 afterEach(() => {
@@ -1985,5 +2028,359 @@ describe("GET /sessions/list — Phase 89 Plan 04 merge (D-15)", () => {
     for (const key of Object.keys(poppy)) {
       expect(expectedKeys.has(key)).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 129 Plan 129-03: per-user visibility gate on GET /sessions/list
+// ---------------------------------------------------------------------------
+//
+// Deep-gate D-7 seam #2 (see 129-CONTEXT.md § "Locked decisions"; Pitfall 3
+// per 129-RESEARCH.md):
+//   - D-2 intersection: session row is visible iff BOTH the identity's
+//     `users` gate AND the role's `users` gate pass for the caller.
+//   - D-3 fallback: empty/absent `users` list = "no gate on this side"
+//     (falls open — preserves zero-migration invariant across the fleet).
+//   - D-7 depth: hidden session leaves NO evidence in the /sessions/list
+//     response — no orphan row with role=null; the row is simply absent
+//     from the array.
+//   - D-8 not a permission system: identity file read failure fails OPEN
+//     (row stays visible with role=null) — a hidden-because-unreadable
+//     row would be a permission-system behavior forbidden by D-8.
+//   - Assumption A5 lock: sessions.ts must issue AT MOST ONE readIdentityFile
+//     per session row (reuse the same markdown for role extraction AND
+//     cosmetics extraction). Doubling the SSH round-trips would blow the
+//     existing per-host semaphore budget (RESEARCH T-129-03-03).
+//
+// Fixture strategy: this describe block mocks `readIdentityFile` +
+// `readRoleFileByName` + `extractRoleFromMarkdown` + `extractCosmeticsFromFrontmatter`
+// via `vi.doMock` INSIDE the block so the earlier tests (which exercise the
+// real resolveRoleForIdentity via execCommand) are unaffected. The mocks are
+// scoped with `vi.doMock` + a dynamic re-import of the router at the top of
+// each test's makeApp so the fixture reads return the exact markdown the
+// test wants (with or without `users:` frontmatter).
+
+describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
+  // Test fixture builders that mirror the identities.get-disk.test.ts pattern.
+
+  /**
+   * Mock the DB translation from JWT userId to Skynet username. Gate inside
+   * sessions.ts uses this to know who is asking; null return disables the
+   * gate per Plan 129-01 Task 2 Test 1 (null-caller bypass).
+   */
+  function mockGetUsernameForUserId(
+    userId: string,
+    username: string | null,
+  ): void {
+    getUsernameForUserIdMock.mockImplementation((incomingUserId: string) => {
+      if (incomingUserId === userId) return Promise.resolve(username);
+      return Promise.resolve(null);
+    });
+  }
+
+  /**
+   * Build an identity-file markdown with optional users: frontmatter.
+   */
+  function identityMarkdown(
+    role: string,
+    identityUsers?: string[],
+  ): string {
+    const lines: string[] = [`role: ${role}`];
+    if (identityUsers !== undefined) {
+      lines.push(`users: [${identityUsers.join(", ")}]`);
+    }
+    return `---\n${lines.join("\n")}\n---\n`;
+  }
+
+  /**
+   * Build a role-file markdown with optional users: frontmatter.
+   */
+  function roleMarkdown(roleUsers?: string[]): string {
+    const lines: string[] = [`title: role-title`];
+    if (roleUsers !== undefined) {
+      lines.push(`users: [${roleUsers.join(", ")}]`);
+    }
+    return `---\n${lines.join("\n")}\n---\n`;
+  }
+
+  /**
+   * Configure the sessions.ts execCommand mock so:
+   *   - tmux list-sessions returns the given `sessionName|created` lines
+   *   - identity file reads (via readIdentityFile inside sessions.ts) return
+   *     the given per-identity markdown
+   *   - role file reads (via readRoleFileByName) return the given per-role
+   *     markdown
+   *   - discoverIdentitySessionFile returns null (no JSONL discovery — keeps
+   *     the ai-title path a no-op so the test focuses on the gate)
+   */
+  function wireExecCommand(
+    tmuxList: string,
+    identityMd: Record<string, string>,
+    roleMd: Record<string, string>,
+  ): void {
+    (execCommand as Mock).mockImplementation(
+      (_conn: unknown, cmd: string): Promise<string> => {
+        if (cmd.includes("tmux list-sessions")) {
+          return Promise.resolve(tmuxList);
+        }
+        // Identity file reads: `cat "$HOME/fleet/identities/<name>/<name>.md" ...`
+        for (const [name, md] of Object.entries(identityMd)) {
+          if (cmd.includes(`identities/${name}/${name}.md`)) {
+            return Promise.resolve(md);
+          }
+        }
+        // Role file reads: `cat "$HOME/fleet/roles/<role>/<role>.md" ...`
+        for (const [role, md] of Object.entries(roleMd)) {
+          if (cmd.includes(`roles/${role}/${role}.md`)) {
+            return Promise.resolve(md);
+          }
+        }
+        return Promise.resolve("");
+      },
+    );
+  }
+
+  /**
+   * Fire GET /sessions/list as a given Skynet username. Assigns req.userId
+   * via the auth manager mock's canned "1", AND wires getUsernameForUserId
+   * to translate "1" back to the username the gate expects.
+   */
+  async function fireGetSessionsAs(
+    username: string,
+  ): Promise<{ status: number; body: Array<Record<string, unknown>> }> {
+    // Auth manager stub always injects userId = "1"; wire the DB translation.
+    mockGetUsernameForUserId("1", username);
+    makeApp();
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/sessions/list",
+    });
+    return {
+      status: res.status,
+      body: res.body as Array<Record<string, unknown>>,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Test A: single-user host — no evidence of the feature (D-4 + shape file
+  // §"What would make it wrong" bullet 1). A session-row identity with NO
+  // users: key must still surface exactly as it did pre-129.
+  // -------------------------------------------------------------------------
+  it("Test A: single-user host, identity has no `users` key → session row surfaces", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+    wireExecCommand(
+      "muffin|1000",
+      { muffin: identityMarkdown("box-maintainer") }, // no users key
+      { "box-maintainer": roleMarkdown() }, // no users key
+    );
+
+    const { status, body } = await fireGetSessionsAs("ashley");
+    expect(status).toBe(200);
+    const harnessRows = body.filter((r) => r.kind === "harness");
+    expect(harnessRows).toHaveLength(1);
+    expect(harnessRows[0].sessionName).toBe("muffin");
+    // Per-request-cost discipline: the callerUsername lookup runs ONCE
+    // per request, not per-host or per-session (matches the identities.ts
+    // per-request-cost discipline established in Plan 129-02).
+    expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(1);
+    expect(getUsernameForUserIdMock).toHaveBeenCalledWith("1");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test B: multi-user host, identity untagged → visible to both users
+  // (D-3 fallback = "no gate on this side").
+  // -------------------------------------------------------------------------
+  it("Test B: multi-user host, identity has no `users` key → both Ashley and Zoe see the session row", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+    wireExecCommand(
+      "muffin|1000",
+      { muffin: identityMarkdown("box-maintainer") }, // no users key
+      { "box-maintainer": roleMarkdown() }, // no users key
+    );
+
+    const ashley = await fireGetSessionsAs("ashley");
+    expect(ashley.status).toBe(200);
+    expect(
+      ashley.body.filter((r) => r.kind === "harness"),
+    ).toHaveLength(1);
+
+    const zoe = await fireGetSessionsAs("zoe");
+    expect(zoe.status).toBe(200);
+    expect(zoe.body.filter((r) => r.kind === "harness")).toHaveLength(1);
+
+    // Two requests → two username lookups. No cross-request caching of
+    // caller identity (would be a critical bug — user A's cached username
+    // used to gate user B's request).
+    expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test C: multi-user host, identity users:[ashley] → row hidden from Zoe.
+  // D-7 depth: Zoe's response has ZERO session rows for that identity.
+  // -------------------------------------------------------------------------
+  it("Test C: identity users:[ashley] → Ashley sees row, Zoe does NOT (no orphan row)", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+    wireExecCommand(
+      "muffin|1000",
+      { muffin: identityMarkdown("box-maintainer", ["ashley"]) },
+      { "box-maintainer": roleMarkdown() },
+    );
+
+    const ashley = await fireGetSessionsAs("ashley");
+    expect(ashley.status).toBe(200);
+    const ashleyHarness = ashley.body.filter((r) => r.kind === "harness");
+    expect(ashleyHarness).toHaveLength(1);
+    expect(ashleyHarness[0].sessionName).toBe("muffin");
+
+    const zoe = await fireGetSessionsAs("zoe");
+    expect(zoe.status).toBe(200);
+    const zoeHarness = zoe.body.filter((r) => r.kind === "harness");
+    // D-7 deep gate: the row is ABSENT from the response. No orphan row
+    // with role=null; the identity is invisible from Zoe's seat.
+    expect(zoeHarness).toHaveLength(0);
+    expect(
+      zoeHarness.find((r) => r.sessionName === "muffin"),
+    ).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test D: multi-user host, role users:[ashley] (identity untagged) →
+  // identity in that role hidden from Zoe (D-2 role-side gate).
+  // -------------------------------------------------------------------------
+  it("Test D: role users:[ashley] (identity untagged) → Ashley sees row, Zoe does not", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+    wireExecCommand(
+      "muffin|1000",
+      { muffin: identityMarkdown("box-maintainer") }, // no identity users
+      { "box-maintainer": roleMarkdown(["ashley"]) }, // role has users:[ashley]
+    );
+
+    const ashley = await fireGetSessionsAs("ashley");
+    expect(ashley.status).toBe(200);
+    expect(
+      ashley.body.filter((r) => r.kind === "harness"),
+    ).toHaveLength(1);
+
+    const zoe = await fireGetSessionsAs("zoe");
+    expect(zoe.status).toBe(200);
+    // Role-side gate closes for Zoe → the row vanishes even though her
+    // host access is fine.
+    expect(zoe.body.filter((r) => r.kind === "harness")).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test E: both sides tagged, non-overlapping intersection.
+  // role users:[ashley, zoe], identity users:[ashley] → identity narrows the
+  // intersection to Ashley only.
+  // -------------------------------------------------------------------------
+  it("Test E: role users:[ashley,zoe] + identity users:[ashley] → Ashley sees row, Zoe does not (intersection)", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+    wireExecCommand(
+      "muffin|1000",
+      { muffin: identityMarkdown("box-maintainer", ["ashley"]) },
+      { "box-maintainer": roleMarkdown(["ashley", "zoe"]) },
+    );
+
+    const ashley = await fireGetSessionsAs("ashley");
+    expect(ashley.status).toBe(200);
+    expect(
+      ashley.body.filter((r) => r.kind === "harness"),
+    ).toHaveLength(1);
+
+    const zoe = await fireGetSessionsAs("zoe");
+    expect(zoe.status).toBe(200);
+    expect(zoe.body.filter((r) => r.kind === "harness")).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test F: identity file read fails mid-fanout → fail-open (row surfaces
+  // with role=null; the gate MUST NOT convert a read failure into a false-
+  // positive HIDE — that would be a permission-system behavior forbidden
+  // by D-8).
+  // -------------------------------------------------------------------------
+  it("Test F: identity file read fails mid-fanout → row stays visible (fail-open, D-8 preserved)", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    (execCommand as Mock).mockImplementation(
+      (_conn: unknown, cmd: string): Promise<string> => {
+        if (cmd.includes("tmux list-sessions")) {
+          return Promise.resolve("muffin|1000\npoppy|2000");
+        }
+        if (cmd.includes("identities/muffin/muffin.md")) {
+          // Simulate a mid-fanout read failure (SSH timeout / exec error).
+          return Promise.reject(new Error("simulated identity read failure"));
+        }
+        if (cmd.includes("identities/poppy/poppy.md")) {
+          return Promise.resolve(identityMarkdown("box-maintainer"));
+        }
+        if (cmd.includes("roles/box-maintainer/box-maintainer.md")) {
+          return Promise.resolve(roleMarkdown());
+        }
+        return Promise.resolve("");
+      },
+    );
+
+    const { status, body } = await fireGetSessionsAs("ashley");
+    expect(status).toBe(200);
+    const harness = body.filter((r) => r.kind === "harness");
+    // Both rows present — muffin fell open with role=null (fail-open per
+    // D-8); poppy succeeded normally. A hidden-because-unreadable row
+    // would be a permission-system behavior forbidden by D-8.
+    expect(harness).toHaveLength(2);
+    const muffin = harness.find((r) => r.sessionName === "muffin");
+    const poppy = harness.find((r) => r.sessionName === "poppy");
+    expect(muffin).toBeDefined();
+    expect(muffin?.role).toBeNull();
+    expect(poppy).toBeDefined();
+    expect(poppy?.role).toBe("box-maintainer");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test G: single SSH round-trip verified (Assumption A5 lock). sessions.ts
+  // must issue EXACTLY ONE identity-file read per session row. Doubling the
+  // reads would double the SSH round-trips per row and threaten the per-host
+  // semaphore budget (RESEARCH T-129-03-03).
+  //
+  // Verified via: (a) resolveRoleForIdentity is NOT called anymore in the
+  // /list handler body; (b) the on-the-wire count of `cat identities/...`
+  // execCommand calls is exactly 1 per session row.
+  // -------------------------------------------------------------------------
+  it("Test G: single SSH round-trip per session — identity file read exactly once (Assumption A5)", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    const identityReads: string[] = [];
+    (execCommand as Mock).mockImplementation(
+      (_conn: unknown, cmd: string): Promise<string> => {
+        if (cmd.includes("tmux list-sessions")) {
+          return Promise.resolve("muffin|1000");
+        }
+        if (cmd.includes("identities/muffin/muffin.md")) {
+          identityReads.push(cmd);
+          return Promise.resolve(identityMarkdown("box-maintainer", ["ashley"]));
+        }
+        if (cmd.includes("roles/box-maintainer/box-maintainer.md")) {
+          return Promise.resolve(roleMarkdown());
+        }
+        return Promise.resolve("");
+      },
+    );
+
+    const { status, body } = await fireGetSessionsAs("ashley");
+    expect(status).toBe(200);
+    expect(body.filter((r) => r.kind === "harness")).toHaveLength(1);
+
+    // Assumption A5 lock: EXACTLY ONE identity-file read per session row.
+    // If the handler still calls resolveRoleForIdentity (which internally
+    // reads the identity file) AND ALSO calls readIdentityFile for the gate,
+    // this count would be 2. GREEN implementation must fuse the two into
+    // a single readIdentityFile + extractRoleFromMarkdown + extractCosmeticsFromFrontmatter.
+    expect(identityReads).toHaveLength(1);
   });
 });
