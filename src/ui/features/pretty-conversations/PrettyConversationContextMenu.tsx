@@ -220,6 +220,10 @@ export function PrettyConversationContextMenu({
     pendingTimeoutRef.current = t;
   };
 
+  // No inline `background` here — the .pv-context-menu-item CSS class owns
+  // the idle-transparent + :hover + :active backgrounds. An inline
+  // `background: "transparent"` would beat the pseudo-class rules on
+  // specificity and silently kill the desktop hover highlight.
   const itemButtonStyle = (danger: boolean | undefined): React.CSSProperties => ({
     display: "flex",
     alignItems: "center",
@@ -230,7 +234,6 @@ export function PrettyConversationContextMenu({
     lineHeight: "18px",
     borderRadius: 8,
     border: "none",
-    background: "transparent",
     color: danger ? "#ff9a8a" : "#e8e4d8",
     cursor: "pointer",
   });
