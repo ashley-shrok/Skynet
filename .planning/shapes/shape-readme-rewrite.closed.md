@@ -107,3 +107,39 @@ Apache 2.0. See `LICENSE`.
 
 Skynet originated as a fork of [Termix](https://github.com/LukeGus/Termix). It has since diverged extensively and is no longer meaningfully compatible with, endorsed by, or affiliated with the upstream project.
 ```
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-23
+**Vehicle used:** inline
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · README replaced with the locked content verbatim — old 'personal app / Termix fork' framing gone, new framing is a self-hosted Claude Code-native agent chat app.
+- **Shape** — present · Tagline, functional description, differentiators (Claude Code-native, fleet, real terminal sessions, agents-can-build-apps, RDP secondary), tech stack paragraph, honest short 'Running it' paragraph, license, Termix-origin footer — all present. Cleanup pass done: readme/ deleted, four side docs deleted, TESTING.md kept.
+- **Philosophy** — present · Plain functional register; no personal-instance URL; no workplace naming; no hype; no pointer at missing docs or gitignored CLAUDE.md.
+- **Failure mode — reads like marketing copy** — present · Register is plain and functional throughout.
+- **Failure mode — invites traffic to personal instance** — present · No URL or hostname appears.
+- **Failure mode — names Ashley's workplace** — present · No workplace reference, direct or identifiable.
+- **Failure mode — points at documentation that isn't there** — present · No deploy-tutorial pointer, no CLAUDE.md reference; 'Running it' is honest about the absence of a paved path.
+- **Failure mode — residual Termix-era content in adjacent files** — present · readme/ folder (14 files) deleted; CONTRIBUTING, CODE_OF_CONDUCT, RELEASE_NOTES, SECURITY deleted; TESTING.md retained and is current Skynet-native content, not Termix drift.
+- **Failure mode — reads as if only for coding agents** — present · Framed as an agent chat app / workspace for a fleet of AI agents; coding is not the headline.
+- **Scope edges — in-scope items** — present · Full README replacement done; readme/ deleted; per-file decisions taken on all five named side docs (four deleted, TESTING.md kept).
+- **Scope edges — out-of-scope items** — present · No screenshots added; CLAUDE.md untouched; no deploy tutorial; tech stack kept to one paragraph; LICENSE untouched.
+- **Scope edges — tempting-but-no** — present · No workplace/scale naming; no 'agent OS' framing; no badge row.
+- **Vehicle notes — atomic commits per motion** — present · Four atomic commits landed: README rewrite, readme/ deletion, side-docs deletion, .github/ deletion.
+
+### Additions (in the result, not in the shape)
+
+- The entire .github/ directory was deleted — ISSUE_TEMPLATE/config.yml, pull_request_template.md, dependabot.yml, and four workflow files (electron.yml, openapi.yml, pr-check.yml, release.yml). The shape's scope edges named five specific side docs for per-file decisions but did not mention .github/ at all. — endorsed-as-drift
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The shape's locked README content contains a small typographic slip ('projects.Agents' — missing space after the period); the material reproduces it exactly, which is conformance to the letter of the shape rather than a divergence, but worth carrying forward as a future micro-fix. The mid-execution greenlight on .github/ is a pattern worth noting — a cleanup pass tends to surface adjacent stale scaffolding the shape didn't anticipate; keeping the shape open enough to absorb a drift like this (rather than blocking) worked well here.
