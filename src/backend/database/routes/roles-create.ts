@@ -109,6 +109,16 @@ import { sshLogger } from "../../utils/logger.js";
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
+// Phase 129 Plan 06 D-4: per-user visibility gate write side. isHostMultiUser
+// gates whether the auto-tag branch fires at all (single-user hosts stay
+// silent per shape §"invisible in the majority case"); getUsernameForUserId
+// resolves the JWT userId to a case-preserved Skynet username so the
+// frontmatter `users:` list gets the human-readable name, not the opaque
+// nanoid subject.
+import {
+  isHostMultiUser,
+  getUsernameForUserId,
+} from "../../utils/host-user-counter.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -537,6 +547,60 @@ router.post(
         });
         res.status(502).json({ error: "SSH exec failed" });
         return;
+      }
+
+      // ---------------------------------------------------------------------
+      // Phase 129 Plan 06 D-4: auto-tag creator on multi-user hosts.
+      //
+      // On multi-user hosts (>1 distinct Skynet user with access), write the
+      // creator's Skynet username to the new role file's `users:` frontmatter
+      // list. Single-user hosts stay silent — the file is byte-identical to
+      // a pre-129 role file per shape §"What would make it wrong" bullet 1
+      // ("A user on a single-user host sees any evidence of this feature").
+      //
+      // Ordering invariants (Pitfall 5 + D-5 lock):
+      //   - This branch runs AFTER the collision probe above (L472-496) —
+      //     an existing role file 409s before this branch is reached, so
+      //     auto-tag never rewrites live values in a shared-role file that
+      //     was already hand-widened by a cohabitant.
+      //   - This branch runs BEFORE the hasCosmetics check + yaml.dump below,
+      //     so the dump picks up the mutated cosmetics dict naturally without
+      //     touching the dump call itself (canonical options preserved).
+      //   - Auto-tag lives INLINE in the initial-write path only — never
+      //     extracted into a "add username to existing frontmatter" helper
+      //     that could accidentally be called on a live file (Pitfall 5).
+      //
+      // Fail-open on username-lookup failure (PATTERNS.md write-side
+      // exception): if getUsernameForUserId returns null on a multi-user
+      // host, we skip auto-tag and log loudly. A wrong-user auto-tag would
+      // be a shape §"would make it wrong" violation bullet 3 ("auto-tagged
+      // with the wrong user's name"), so we prefer to leave the file
+      // untagged and surface the failure in logs.
+      //
+      // Case preservation (Pitfall 7): getUsernameForUserId returns the
+      // case-preserved username as stored in the DB — we do NOT normalize.
+      // ---------------------------------------------------------------------
+      const isMultiUser = await isHostMultiUser(hostId);
+      if (isMultiUser) {
+        const creatorUsername = await getUsernameForUserId(userId);
+        if (creatorUsername) {
+          (cosmetics as Record<string, unknown>).users = [creatorUsername];
+          sshLogger.info("roles-create: auto-tagged creator on multi-user host", {
+            operation: "roles_create_auto_tagged",
+            role: name,
+            hostId,
+            creatorUsername,
+          });
+        } else {
+          sshLogger.warn(
+            "roles-create: username lookup failed — auto-tag skipped",
+            {
+              operation: "roles_create_username_lookup_failed",
+              userId,
+              hostId,
+            },
+          );
+        }
       }
 
       // ---------------------------------------------------------------------
