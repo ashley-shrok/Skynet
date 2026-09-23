@@ -2806,7 +2806,7 @@ Plans:
 
 **Requirements**: none mapped (requirements captured as D-01..D-10 locked decisions in 129-CONTEXT.md; ROADMAP requirements are patch-#43 specific and this phase is a separate feature — no REQ-IDs needed)
 **Depends on:** Phase 128
-**Plans:** 4/8 plans executed
+**Plans:** 5/8 plans executed
 Plans:
 **Wave 1**
 
@@ -2817,7 +2817,7 @@ Plans:
 - [x] 129-02-PLAN.md — Deep gate at GET /identities: per-request callerUsername + per-identity isIdentityVisibleToUser inside fanout; 7 cross-user integration tests. Wave 2.
 - [x] 129-03-PLAN.md — Deep gate at GET /sessions/list (Pitfall 3: read identity file once for role+cosmetics per Assumption A5) + GET /roles?hostId=<n> (role-picker gate with identityCos=null). 14 tests total. Wave 2.
 - [x] 129-04-PLAN.md — Deep gate at POST /conversation-search with batched O(unique-keys) frontmatter fetch + fail-CLOSED post-filter (Phase 129 exception per PATTERNS.md). 7 tests. Wave 2.
-- [ ] 129-05-PLAN.md — WS AppFrameFilter identity-gate extension: 5 frame types (update/snapshot/gone/identity-archived/session-project-changed) + resolveIdentityGate closure injected from fleet-status-server.ts (preserves 'no DB imports' file discipline). 11 tests. Wave 2.
+- [x] 129-05-PLAN.md — WS AppFrameFilter identity-gate extension: 5 frame types (update/snapshot/gone/identity-archived/session-project-changed) + resolveIdentityGate closure injected from fleet-status-server.ts (preserves 'no DB imports' file discipline). 11 tests. Wave 2.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
