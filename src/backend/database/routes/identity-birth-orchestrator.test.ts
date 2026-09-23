@@ -164,6 +164,7 @@ vi.mock("../../utils/logger.js", () => ({
 
 import {
   birthIdentity,
+  buildIdentityFileBody,
   ENTER_TRAIN_COUNT,
   ENTER_TRAIN_SPACING_MS,
   SETTLE_SECONDS,
@@ -175,6 +176,7 @@ import {
   WAIT_FOR_SUPERVISOR_POLL_MS,
   WAIT_FOR_SUPERVISOR_TIMEOUT_MS,
 } from "./identity-birth-orchestrator.js";
+import yaml from "js-yaml";
 
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
@@ -2694,4 +2696,213 @@ describe("Quick 260918-52n: identity folder name derived from mxid localpart", (
     //     agent-supervisor race Q2 was written to prevent.
     assertNoRmRfInExecCalls(mockExecCommand);
   }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 129 Plan 07 Task 1: buildIdentityFileBody creatorUsername handling
+//
+// Auto-tag write-side half of D-4 for identity creation. On multi-user hosts
+// the route handler resolves the creator's Skynet username and threads it
+// through as opts.creatorUsername; buildIdentityFileBody emits a users: pair
+// via the existing pairs.push([...]) pattern. On single-user hosts (or when
+// the DB lookup fails on a multi-user host) opts.creatorUsername is absent
+// and the users: key stays out of the file (absent-⇒-omit fallback per D-3).
+//
+// Byte-shape preservation: canonical yaml.dump options
+// {sortKeys:false, lineWidth:-1, noRefs:true, forceQuotes:false} are locked;
+// only the pairs[] array gains ONE optional entry. Existing pre-129 identity
+// files stay byte-identical when opts.creatorUsername is absent (Test F
+// golden-file assertion).
+//
+// Case preservation (Pitfall 7): username case comes through the pipe from
+// the DB (users.username stored as-typed); buildIdentityFileBody echoes
+// verbatim — no .toLowerCase()/.toUpperCase().
+//
+// The orchestrator stays PURE at this seam: buildIdentityFileBody receives
+// creatorUsername as an opaque string from the route handler. No DB imports,
+// no getUsernameForUserId call — those live in identity-birth.ts (Task 2).
+// ---------------------------------------------------------------------------
+
+describe("Phase 129: buildIdentityFileBody creatorUsername handling", () => {
+  // Baseline opts fixture — every test overrides opts.creatorUsername.
+  // Task/voice/title stay populated so key-order tests can assert insertion
+  // position (users: appended AFTER task per PATTERNS.md Pitfall 5 pattern).
+  function baseOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
+    return {
+      userId: "user-1",
+      hostId: 7,
+      name: "aster",
+      title: "Coordinator",
+      path: "/workspace/aster",
+      colorHue: 210,
+      voice: "Joanna",
+      avatarCandidateId: "cand-abc",
+      role: "coordinator",
+      task: "coordinate the fleet",
+      ...overrides,
+    };
+  }
+
+  const displayName = "Aster";
+  const avatarFilename = "aster.png";
+
+  // Test A: opts.creatorUsername absent → NO users: key in output
+  // (absent-⇒-omit fallback per D-3).
+  it("Test A: creatorUsername absent → NO users: key emitted", () => {
+    const body = buildIdentityFileBody(baseOpts(), displayName, avatarFilename);
+
+    // Extract YAML frontmatter (between --- markers) and parse.
+    const match = body.match(/^---\n([\s\S]*?)\n---/);
+    expect(match).not.toBeNull();
+    const parsed = yaml.load(match![1]) as Record<string, unknown>;
+
+    expect(parsed.users).toBeUndefined();
+    // Defensive: verify users: was not written as null / [] either.
+    expect("users" in parsed).toBe(false);
+  });
+
+  // Test B: opts.creatorUsername = "" (empty string) → NO users: key.
+  // Normalization matches the guard `opts.creatorUsername.length > 0`.
+  it("Test B: creatorUsername empty-string → NO users: key emitted", () => {
+    const body = buildIdentityFileBody(
+      baseOpts({ creatorUsername: "" }),
+      displayName,
+      avatarFilename,
+    );
+
+    const match = body.match(/^---\n([\s\S]*?)\n---/);
+    expect(match).not.toBeNull();
+    const parsed = yaml.load(match![1]) as Record<string, unknown>;
+
+    expect(parsed.users).toBeUndefined();
+    expect("users" in parsed).toBe(false);
+  });
+
+  // Test C: opts.creatorUsername = "ashley" → users: [ashley] emitted.
+  it("Test C: creatorUsername 'ashley' → users: [ashley] emitted", () => {
+    const body = buildIdentityFileBody(
+      baseOpts({ creatorUsername: "ashley" }),
+      displayName,
+      avatarFilename,
+    );
+
+    const match = body.match(/^---\n([\s\S]*?)\n---/);
+    expect(match).not.toBeNull();
+    const parsed = yaml.load(match![1]) as Record<string, unknown>;
+
+    expect(parsed.users).toEqual(["ashley"]);
+  });
+
+  // Test D: opts.creatorUsername = "Ashley" case preservation lock
+  // (Pitfall 7 — DB stores as-typed; auto-tag echoes verbatim).
+  it("Test D: creatorUsername case preserved verbatim ('Ashley' stays Ashley)", () => {
+    const body = buildIdentityFileBody(
+      baseOpts({ creatorUsername: "Ashley" }),
+      displayName,
+      avatarFilename,
+    );
+
+    const match = body.match(/^---\n([\s\S]*?)\n---/);
+    expect(match).not.toBeNull();
+    const parsed = yaml.load(match![1]) as Record<string, unknown>;
+
+    expect(parsed.users).toEqual(["Ashley"]);
+    // Belt-and-braces: no case-mangling anywhere in the output.
+    expect(body).toContain("Ashley");
+    expect(body).not.toContain("- ashley");
+  });
+
+  // Test E: byte-shape preservation — key insertion order.
+  // sortKeys:false guarantees emission follows pairs[] push order:
+  //   role → displayName → title → colorHue → voice → avatar → task → users
+  // The users key MUST appear AFTER task (creatorUsername appended AFTER
+  // the L583-585 task block per PATTERNS.md instruction).
+  it("Test E: key insertion order — users appears AFTER task", () => {
+    const body = buildIdentityFileBody(
+      baseOpts({ creatorUsername: "ashley" }),
+      displayName,
+      avatarFilename,
+    );
+
+    const match = body.match(/^---\n([\s\S]*?)\n---/);
+    expect(match).not.toBeNull();
+    const frontmatter = match![1];
+
+    // Extract line-starting key names in order (top-level YAML keys).
+    const keyLines = frontmatter
+      .split("\n")
+      .map((line) => {
+        const m = line.match(/^([a-zA-Z][a-zA-Z0-9_-]*):/);
+        return m ? m[1] : null;
+      })
+      .filter((k): k is string => k !== null);
+
+    // Expected canonical order: role, displayName, title, colorHue, voice, avatar, task, users.
+    expect(keyLines).toEqual([
+      "role",
+      "displayName",
+      "title",
+      "colorHue",
+      "voice",
+      "avatar",
+      "task",
+      "users",
+    ]);
+  });
+
+  // Test F: byte-shape preservation — WITHOUT creatorUsername the emitted
+  // string is exactly what pre-Phase-129 code would have produced. Golden-
+  // file assertion locks the pre-129 shape verbatim.
+  it("Test F: byte-shape preservation — pre-129 shape unchanged when creatorUsername absent", () => {
+    const body = buildIdentityFileBody(baseOpts(), displayName, avatarFilename);
+
+    // Golden expected output — matches the pre-Phase-129 canonical shape
+    // for baseOpts (role/displayName/title/colorHue/voice/avatar/task all
+    // populated, no users). stringifyColorHueForYaml wraps colorHue as a
+    // string in the test mock (see L45), so the frontmatter shows
+    // "colorHue: '210'" — that's the mock's behavior, not the production
+    // yaml.dump. The point of this test is byte-shape lock UNDER THE SAME
+    // MOCKING — any regression that changes buildIdentityFileBody's output
+    // beyond a users: key addition would break this assertion.
+    const expected = `---
+role: coordinator
+displayName: Aster
+title: Coordinator
+colorHue: '210'
+voice: Joanna
+avatar: aster.png
+task: coordinate the fleet
+---
+
+# aster
+`;
+    expect(body).toBe(expected);
+  });
+
+  // Test G: BirthOptions type extension is source-visible — a TS compile
+  // of `const opts: BirthOptions = { ...required, creatorUsername: "ashley" }`
+  // must succeed. This test compiles at test-parse time; the assertion
+  // just proves the shape at runtime.
+  it("Test G: BirthOptions.creatorUsername is a valid optional field", () => {
+    // TS-level: this assignment must type-check without an `as unknown` cast.
+    const opts: BirthOptions = {
+      userId: "user-1",
+      hostId: 7,
+      name: "aster",
+      title: "Coordinator",
+      path: "/workspace/aster",
+      colorHue: 210,
+      voice: "Joanna",
+      avatarCandidateId: "cand-abc",
+      role: "coordinator",
+      creatorUsername: "ashley",
+    };
+
+    // Round-trip through the builder to prove the field flows through.
+    const body = buildIdentityFileBody(opts, "Aster", "aster.png");
+    const match = body.match(/^---\n([\s\S]*?)\n---/);
+    expect(match).not.toBeNull();
+    const parsed = yaml.load(match![1]) as Record<string, unknown>;
+    expect(parsed.users).toEqual(["ashley"]);
+  });
 });
