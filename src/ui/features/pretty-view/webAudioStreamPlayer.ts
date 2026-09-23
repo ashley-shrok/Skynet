@@ -53,6 +53,22 @@ const TTS_PLAYBACK_RATE: number = (() => {
 // window shrinks → Polly slows down).
 const SCHEDULE_HORIZON_SECONDS = 15;
 
+// the operator 2026-09-23 — the horizon fix above bounds schedule-ahead
+// across sources, but a SINGLE source whose audible playback extends
+// far past the playhead still hits Chrome's silent-drop zone: log from
+// the incident showed one 65.5s AudioBuffer scheduled with a safe 5s
+// lead but a 52s tail, and its middle went silent while onended fired
+// on schedule at expectedEnd. Reader saw a clean stream; user heard
+// audio cut mid-message then resume near the end (perceived as
+// "jumped to the last paragraph"). Cap the per-source AUDIBLE duration
+// so worst-case source-end-ahead-of-playhead = horizon(15) + cap(10)
+// = 25s, comfortably under the ~30s low edge of the drop zone. Applied
+// by sub-splitting oversized reader.read() PCM chunks in the play()
+// loop before scheduling; each sub-chunk goes through the same
+// backpressure gate so ahead-of-playhead stays bounded across the
+// sub-source sequence too.
+const MAX_BUFFER_AUDIBLE_SECONDS = 10;
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export interface WebAudioStreamPlayerOptions {
@@ -347,34 +363,59 @@ export function createWebAudioStreamPlayer(
 
         if (pcmChunk.byteLength === 0) continue;
 
-        // Backpressure: hold off scheduling if the next source would start
-        // more than SCHEDULE_HORIZON_SECONDS ahead of the playhead. Wake
-        // when a source ends (playhead advances) or teardown fires. See
-        // SCHEDULE_HORIZON_SECONDS rationale at top of file for why this
-        // exists (Chrome silently drops far-future scheduled buffer output).
-        while (
-          !stopped &&
-          audioContext !== null &&
-          nextStartTimeRef.value - audioContext.currentTime >= SCHEDULE_HORIZON_SECONDS
-        ) {
-          console.info(
-            `[tts-player] backpressure-wait aheadSec=${(nextStartTimeRef.value - audioContext.currentTime).toFixed(3)} horizon=${SCHEDULE_HORIZON_SECONDS} pending=${sources.length - endedSources} ctxTime=${audioContext.currentTime.toFixed(3)} ctxState=${audioContext.state}`,
-          );
-          await new Promise<void>((resolve) => {
-            scheduleWakeup = resolve;
-          });
-        }
-        // audioContext may have been nulled by teardown() while we were parked
-        // (external stop, resume-closed error). Bail cleanly rather than
-        // dereferencing null below.
-        if (stopped || audioContext === null) return;
+        // Sub-split oversized chunks so no single AudioBuffer's audible
+        // playback extends far enough past the playhead to hit Chrome's
+        // silent-drop zone. See MAX_BUFFER_AUDIBLE_SECONDS at top of file
+        // for the drop mechanism. Cap is expressed in audible (ctx-time)
+        // seconds, so byte budget scales with the current playback rate:
+        //   bytesPerAudibleSecond = sampleRate * frameBytes * playbackRate
+        // Frame-align maxBytes so every sub-chunk stays sample-aligned
+        // (pcmRemainder guarantee holds across sub-splits since the outer
+        // chunk was already frame-aligned above).
+        const bytesPerAudibleSecond =
+          header.sampleRate * frameBytes * TTS_PLAYBACK_RATE;
+        const maxBytesPerSubChunk = Math.max(
+          frameBytes,
+          Math.floor(
+            (MAX_BUFFER_AUDIBLE_SECONDS * bytesPerAudibleSecond) / frameBytes,
+          ) * frameBytes,
+        );
 
-        scheduleChunk(pcmChunk, header, audioContext, nextStartTimeRef);
-        // Fire onCanPlay on the first successfully scheduled chunk — analogous
-        // to HTMLAudioElement's canplay event (enough data to start playback).
-        if (!firstChunkScheduled) {
-          firstChunkScheduled = true;
-          opts.onCanPlay?.();
+        let subOffset = 0;
+        while (subOffset < pcmChunk.byteLength) {
+          // Backpressure: hold off scheduling if the next source would start
+          // more than SCHEDULE_HORIZON_SECONDS ahead of the playhead. Wake
+          // when a source ends (playhead advances) or teardown fires. See
+          // SCHEDULE_HORIZON_SECONDS rationale at top of file for why this
+          // exists (Chrome silently drops far-future scheduled buffer output).
+          while (
+            !stopped &&
+            audioContext !== null &&
+            nextStartTimeRef.value - audioContext.currentTime >= SCHEDULE_HORIZON_SECONDS
+          ) {
+            console.info(
+              `[tts-player] backpressure-wait aheadSec=${(nextStartTimeRef.value - audioContext.currentTime).toFixed(3)} horizon=${SCHEDULE_HORIZON_SECONDS} pending=${sources.length - endedSources} ctxTime=${audioContext.currentTime.toFixed(3)} ctxState=${audioContext.state}`,
+            );
+            await new Promise<void>((resolve) => {
+              scheduleWakeup = resolve;
+            });
+          }
+          // audioContext may have been nulled by teardown() while we were parked
+          // (external stop, resume-closed error). Bail cleanly rather than
+          // dereferencing null below.
+          if (stopped || audioContext === null) return;
+
+          const subEnd = Math.min(subOffset + maxBytesPerSubChunk, pcmChunk.byteLength);
+          const subChunk = pcmChunk.subarray(subOffset, subEnd);
+          subOffset = subEnd;
+
+          scheduleChunk(subChunk, header, audioContext, nextStartTimeRef);
+          // Fire onCanPlay on the first successfully scheduled chunk — analogous
+          // to HTMLAudioElement's canplay event (enough data to start playback).
+          if (!firstChunkScheduled) {
+            firstChunkScheduled = true;
+            opts.onCanPlay?.();
+          }
         }
       }
     } catch (err) {

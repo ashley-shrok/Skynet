@@ -557,14 +557,16 @@ describe("createWebAudioStreamPlayer", () => {
     // a 60s AudioBuffer, then the next 7 large buffers piled up 100+ seconds
     // of scheduled audio ahead of the playhead — right back in Chrome's
     // silent-drop zone. The time-based horizon must park the reader after
-    // scheduling ONE fat buffer, and only unblock once the playhead catches
-    // up (nextStart - currentTime < horizon).
+    // scheduling ENOUGH sources to hit the horizon, then only unblock once
+    // the playhead catches up (nextStart - currentTime < horizon).
     //
     // Fat buffer: 20000 frames @ 1000Hz sample rate = 20s buffer duration.
-    // audible = 20 / TTS_PLAYBACK_RATE (default 1.0) = 20s.
-    // That's > SCHEDULE_HORIZON_SECONDS (15) at the 1.0 default and remains
-    // > 15 for any deployment override ≤ 1.33x.
-    // A low sample rate keeps byte-count small while producing a long buffer.
+    // audible = 20 / TTS_PLAYBACK_RATE (default 1.0) = 20s. > horizon (15).
+    // Post-2026-09-23 sub-split (MAX_BUFFER_AUDIBLE_SECONDS = 10 at rate 1.0),
+    // the fat chunk splits into 2 sub-sources of 10s each: sub-1 schedules
+    // at [0.02, 10.02] (ahead=10 < horizon, continues), sub-2 schedules at
+    // [10.02, 20.02] (ahead=20 >= horizon, PARKS). Reader must not gulp any
+    // of the small chunks that follow until the playhead advances.
     const frames = 20000;
     const sampleRate = 1000;
     const fatPcm = new Uint8Array(frames * 2); // mono 16-bit
@@ -575,29 +577,84 @@ describe("createWebAudioStreamPlayer", () => {
     const response = makeMockResponse([fatChunk, smallPcm, smallPcm]);
 
     // Kick off play WITHOUT awaiting — reader will park at the backpressure
-    // gate after scheduling the fat buffer, so play() cannot resolve until
-    // we advance currentTime and fire the fat buffer's onended.
+    // gate after scheduling both sub-splits of the fat buffer, so play()
+    // cannot resolve until we advance currentTime and fire onended.
     const playPromise = player.play(response);
 
-    // Yield enough microtasks for the reader loop to consume the fat chunk
-    // and hit the backpressure gate.
+    // Yield enough microtasks for the reader loop to consume the fat chunk,
+    // sub-split it, schedule both sub-sources, and hit the backpressure gate.
     for (let i = 0; i < 20; i++) await Promise.resolve();
 
     const ctx = ctxInstances[0];
-    // Exactly one source scheduled — reader is parked, not gulping ahead.
-    expect(ctx.sources).toHaveLength(1);
+    // Exactly two sub-sources scheduled — reader is parked, not gulping ahead.
+    expect(ctx.sources).toHaveLength(2);
 
-    // Advance the playhead past the fat buffer's audible end, THEN fire its
-    // onended. Order matters: the reader re-checks the horizon on wake, so
-    // if currentTime is still 0 it would just re-block.
+    // Advance the playhead past both sub-sources' audible end, THEN fire
+    // their onended callbacks in order. Order matters: the reader re-checks
+    // the horizon on wake, so if currentTime is still 0 it would just re-block.
     ctx.currentTime = 20;
     ctx.sources[0].onended?.();
+    ctx.sources[1].onended?.();
 
     // Yield microtasks so the reader wakes, schedules the two remaining
     // small chunks, and hits done.
     for (let i = 0; i < 20; i++) await Promise.resolve();
 
-    expect(ctx.sources).toHaveLength(3);
+    expect(ctx.sources).toHaveLength(4);
+    await playPromise;
+  });
+
+  it("Test 17 — sub-split: a single fat reader chunk decodes into multiple sources of ≤ MAX_BUFFER_AUDIBLE_SECONDS each", async () => {
+    // Regression for the 2026-09-23 bug: a single ~2MB reader.read() chunk
+    // decoded to one 65s AudioBuffer scheduled with a safe 5s start-lead,
+    // but its 52s audible tail extended into Chrome's silent-drop zone
+    // (~30-60s past playhead). Middle went silent; onended fired on schedule.
+    // The fix sub-splits oversized PCM chunks so no single source's audible
+    // playback overshoots the drop threshold.
+    //
+    // Fat buffer: 50000 frames @ 1000Hz = 50s audible at rate 1.0.
+    // Post-fix (MAX_BUFFER_AUDIBLE_SECONDS = 10), this must produce
+    // ceil(50 / 10) = 5 sub-sources, each ≤ 10s audible. Every source's
+    // buffer.duration must be ≤ MAX_BUFFER_AUDIBLE_SECONDS * TTS_PLAYBACK_RATE.
+    // A low sample rate keeps byte-count small while forcing the split.
+    const frames = 50000;
+    const sampleRate = 1000;
+    const fatPcm = new Uint8Array(frames * 2); // mono 16-bit
+    const fatChunk = makeWavChunk(fatPcm, { channels: 1, sampleRate, bitDepth: 16 });
+
+    const player = createWebAudioStreamPlayer({});
+    const response = makeMockResponse([fatChunk]);
+
+    const playPromise = player.play(response);
+
+    // Yield microtasks so the reader schedules the first two sub-sources
+    // then parks on the horizon (2 x 10s = 20s ahead ≥ 15s horizon).
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    const ctx = ctxInstances[0];
+    expect(ctx.sources).toHaveLength(2);
+
+    // Drain the horizon three times: each iteration advances the playhead
+    // past one more sub-source, fires its onended, and lets the reader wake
+    // + schedule the next sub-source before re-parking.
+    for (let subIdx = 0; subIdx < 3; subIdx++) {
+      ctx.currentTime = (subIdx + 1) * 10;
+      ctx.sources[subIdx].onended?.();
+      for (let j = 0; j < 20; j++) await Promise.resolve();
+    }
+
+    // All 5 sub-sources scheduled (reader saw done() after subOffset reached
+    // the end of the fat pcm chunk on the last iteration).
+    expect(ctx.sources).toHaveLength(5);
+
+    // Every source's AudioBuffer must be capped so its audible playback
+    // stays inside the safe schedule window. buffer.duration is in ctx-time
+    // seconds; audible = buffer.duration / TTS_PLAYBACK_RATE. At the 1.0
+    // default they're equal, so buffer.duration ≤ MAX_BUFFER_AUDIBLE_SECONDS.
+    for (const buf of ctx.buffers) {
+      expect(buf.duration).toBeLessThanOrEqual(10.0001);
+    }
+
     await playPromise;
   });
 });
