@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-23T04:02:35.828Z"
-last_activity: 2026-09-23 -- Phase 129 planning complete
+last_updated: "2026-09-23T04:24:49Z"
+last_activity: 2026-09-23 -- Completed Phase 129 Plan 01 (foundations)
 progress:
   total_phases: 130
   completed_phases: 109
   total_plans: 571
-  completed_plans: 555
+  completed_plans: 556
   percent: 84
 ---
 
@@ -20,14 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** user never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 128 — Push notifications replacing Telegram bridge
+**Current focus:** Phase 129 — multi-user-single-host-support-per-user-visibility-gate-on-r
 
 ## Current Position
 
-Phase: 128 (Push notifications replacing Telegram bridge) — EXECUTING
-Plan: 11 of 11 (Wave 4 — Plan 09 completed 2026-09-21T04:02:42Z; Plan 10 (docker/nginx teardown) is the parallel Wave-4 sibling and shares Plan-08 dependency, so it is next unblocked. Plan 11 (verification sweep) is Wave 5, blocked on 09 + 10 both landing.)
+Phase: 129 (multi-user-single-host-support-per-user-visibility-gate-on-r) — EXECUTING
+Plan: 2 of 8
 
-Last activity: 2026-09-23 -- Phase 129 planning complete
+Last activity: 2026-09-23 -- Completed Phase 129 Plan 01 (foundations — RawCosmetics.users? + extractCosmeticsFromFrontmatter narrower + identity-visibility-gate pure module + host-user-counter DB helpers). Ships four dependency-free primitives every Wave 2 read-path plan and every Wave 3 write-path plan needs. Three atomic commits on `feat/tab-title-from-tmux`: `e41d5bc5 feat(129-01)` (RawCosmetics.users?: string[] + absent-⇒-omit narrower in extractCosmeticsFromFrontmatter + 8 users-narrowing tests) + `ec5df06a feat(129-01)` (identity-visibility-gate.ts pure module — zero DB/express/logger imports, only imports RawCosmetics type; 10-case matrix test locks D-2 intersection + D-3 fallback + Pitfall 7 case-sensitive) + `8b90f6b5 feat(129-01)` (host-user-counter.ts with isHostMultiUser doing 4-query owner+direct+role+userRoles-expansion mirroring permission-manager.canAccessHost's Assumption A6 shape, plus getUsernameForUserId case-preserved lookup; structured systemLogger.debug entries at gate seam per box-maintainer directive; 10 tests using thenable+chainable queue-based select-chain mock). Design lock landed: gate lives in companion pure function (isIdentityVisibleToUser), NOT inside resolveIdentityAppearance's signature — preserves Phase 111 T-111-08 one-cascade authority AND makes "did we gate this call site?" an audit-visible grep for Wave 2/3 plans. Verification: `npx vitest related --run` across all three new test files + identity-appearance regression = **61/61 pass** (28 net-new tests, 33 existing regression on the extended RawCosmetics type). Zero touches to routes/orchestrators/WS filter — those are Wave 2/3 work. NOT deployed / NOT built for docker per box-maintainer standing directive; scoped-tests-only fleet rule honored. All acceptance-criteria greps green (RawCosmetics.users?: string[] present, resolveIdentityAppearance signature stable, no callerUsername in appearance file, gate module 1-import discipline, no .toLowerCase in gate, userRoles reference in counter, systemLogger.debug in counter, expiresAt deliberately-excluded 0 hits). One-time cost: `npm install` (~9 min) hydrated node_modules that were absent at plan start; not a plan-level deviation. SUMMARY at .planning/phases/129-multi-user-single-host-support-per-user-visibility-gate-on-r/129-01-SUMMARY.md.
+
+Last activity (prior): 2026-09-23 -- Phase 129 execution started
 
 Last activity (prior): 2026-09-21 -- Completed Phase 128 Plan 09 (source-file teardown). Deleted src/backend/telegram/ (22 files) + substrate/services/tg-bridge/ (4 files); removed voice.ts rejectBridgeServiceOnSpeak middleware + its 2 mount references; removed schema.ts telegramBotTokens Drizzle export; D-19 grep gate confirmed zero non-telegram production callers of getSharedDMRoom (only test-file references, which follow the function) so it was DELETED along with its 7 G-* tests + 1 extraction-regression test. Rule 3 transitive removal of /matrix-admin/migrate-cred-files handler (Phase 79 Plan 08 one-shot) + tests — it was the sole surviving importer of ../telegram/human-token-writer.js + ../telegram/shared-volume.js outside src/backend/telegram/. Two atomic chore commits: `56d318f5` (Task 1 — directory deletions + Rule 3 fix) + `9fa663d1` (Task 2 — voice/schema/getSharedDMRoom). Post-teardown greps: zero live source references to telegram/ modules; substrate/services/tg-bridge/ confirmed absent; only narrative comments remain (all deletion-notice or historical breadcrumbs). Backend + full frontend build both exit 0. Scoped vitest sweep (npx vitest related --run on database.ts, starter.ts, schema.ts, matrix-admin-routes.ts, voice.ts, matrix-admin-client.ts) 2474 passed / 2 skipped across 138 test files. Flagged in SUMMARY as out-of-scope for Plan 09: src/ui/api/telegram-api.ts + src/ui/features/pretty-view/TelegramTab.tsx + 5 frontend mocks still exist — no Phase 128 plan tears them down; runtime post-Phase-128 those UI calls 404 (routes unmounted in Plan 128-08). Also flagged: field-crypto.ts:55 telegram_bot_tokens entry is dead-weight (harmless string-literal lookup no code hits post-teardown; not in Plan 09 scope). SUMMARY at `.planning/phases/128-push-notifications-replacing-telegram-bridge/128-09-SUMMARY.md`. Ready for Plan 128-10 (docker/nginx teardown, disjoint scope, parallel Wave 4) and downstream Plan 128-11 (verification sweep, Wave 5).
 
@@ -99,7 +101,7 @@ Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bo
 
 Phase: 44 (frontend-skill-editing-editor-surface-for-skill-folders-on-a) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Executing Phase 129
 
 Last activity: 2026-08-19
 
@@ -1048,7 +1050,8 @@ Items acknowledged and carried forward from previous milestone close:
 Last session: 2026-09-23T03:16:09.532Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
-Stopped at: Phase 129 context gathered (seeded from shape)
+Stopped at: Completed Phase 129 Plan 01 (foundations shipped, 28 new tests + 33 regression = 61/61 pass; three atomic commits e41d5bc5 + ec5df06a + 8b90f6b5). Wave 2/3/4 plans (129-02..129-08) awaiting.
+Stopped at (prior): Phase 129 context gathered (seeded from shape)
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
 Last session: 2026-09-06T12:17:07.176Z

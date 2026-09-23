@@ -2810,7 +2810,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 129-01-PLAN.md — Foundations: extend RawCosmetics with users?: string[], extend extractCosmeticsFromFrontmatter with users narrowing, create identity-visibility-gate.ts (pure intersection gate), create host-user-counter.ts (isHostMultiUser with RBAC-role expansion + getUsernameForUserId). Wave 1.
+- [x] 129-01-PLAN.md — Foundations: extend RawCosmetics with users?: string[], extend extractCosmeticsFromFrontmatter with users narrowing, create identity-visibility-gate.ts (pure intersection gate), create host-user-counter.ts (isHostMultiUser with RBAC-role expansion + getUsernameForUserId). Wave 1. **Completed 2026-09-23** — 3 atomic commits (e41d5bc5 + ec5df06a + 8b90f6b5), 28 new tests all passing (8 users-narrowing + 10 gate-matrix + 10 host-user-counter), 61/61 in scoped verification.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
