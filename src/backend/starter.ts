@@ -1168,51 +1168,106 @@ if (process.env.VITEST !== "true") {
       setSpawnRequestProcessBirth((item) => processSpawnRequestBirth(item, spawnRequestWorkerDeps));
 
       // ---------------------------------------------------------------------
-      // Phase 39 Path C — presence-driven orchestrator lifecycle
-      // (user LOCKED 2026-08-13: "nobody needs to know if something is idle
-      // or not, or anything else that's going on here, if no user is present
-      // to want to know the information")
+      // Multi-tenant fleet-status orchestrator (2026-09-23) — per-user watcher
+      // lifecycle. Every user with at least one active browser tab gets their
+      // OWN watcher instance: it opens their SSH channels, runs their poll
+      // loop, and publishes results scoped to that user via the per-frame
+      // access filter (which stays as belt-and-suspenders).
       //
-      // D-01 (GATE2-01): first fleet-status browser subscriber → start poller
-      // D-02 (GATE2-02): last unsubscriber → stop poller + close ssh2 Clients
-      // D-03 (GATE2-03): capture that subscriber's userId as the decrypt
-      //                  subject via createUserFleetStatusWatcher's parameter
+      // Failure isolation is load-bearing: each watcher runs independently.
+      // One user's SSH failure, credential problem, or network hiccup has no
+      // effect on any other user's watcher.
       //
-      // 2026-09-23 refactor (multi-tenant-fleet-status-orchestrator shape,
-      // chunk A of 4): factory extracted. Still gated on GLOBAL first/last
-      // subscriber — one watcher at a time, scoped to whichever user
-      // subscribes first. A follow-up commit adds per-user lifecycle events
-      // to the registry; a further commit switches this wiring so every
-      // subscribed user gets their own watcher.
+      // Lifecycle inherits from Phase 39 Path C (user LOCKED 2026-08-13:
+      // "nobody needs to know if something is idle or not, or anything else
+      // that's going on here, if no user is present to want to know the
+      // information") — applied per-user instead of globally:
+      //   D-01: first subscribe by userId U → spawn U's watcher
+      //   D-02: last unsubscribe by userId U → tear down U's watcher (close
+      //         ssh2 Clients, clear per-user hook-install cache)
+      //   D-03: userId U IS the decrypt subject for U's listIdentityHostingHosts
       // ---------------------------------------------------------------------
-      let currentWatcher: ReturnType<typeof createUserFleetStatusWatcher> | null = null;
+      const watchersByUser = new Map<
+        string,
+        ReturnType<typeof createUserFleetStatusWatcher>
+      >();
 
-      registry.onFirstSubscriber(({ userId }) => {
+      registry.onFirstUserSubscriber(({ userId }) => {
         systemLogger.info(
-          "Fleet-status orchestrator starting on first subscriber",
+          "Fleet-status per-user watcher starting on first subscribe",
           {
             operation: "fleet_status_orchestrator_lifecycle",
             userId,
+            activeUserCount: watchersByUser.size + 1,
           },
         );
-        currentWatcher = createUserFleetStatusWatcher(userId);
-        currentWatcher.start().catch((err) => {
-          systemLogger.warn("Fleet-status orchestrator start failed", {
+        // Defence-in-depth: should never happen per registry's per-user
+        // 0→1 semantics, but a stale entry left by an errored stop() would
+        // leak SSH clients. Stop it first to be safe.
+        const existing = watchersByUser.get(userId);
+        if (existing) {
+          systemLogger.warn(
+            "Fleet-status per-user watcher: pre-existing entry on first-subscribe — stopping stale watcher",
+            {
+              operation: "fleet_status_orchestrator_stale_entry",
+              userId,
+            },
+          );
+          try {
+            existing.stop();
+          } catch (err) {
+            systemLogger.warn(
+              "Fleet-status per-user watcher: stale watcher stop threw",
+              {
+                operation: "fleet_status_orchestrator_stale_stop_failed",
+                userId,
+                error: err instanceof Error ? err.message : "unknown",
+              },
+            );
+          }
+        }
+        const watcher = createUserFleetStatusWatcher(userId);
+        watchersByUser.set(userId, watcher);
+        watcher.start().catch((err) => {
+          systemLogger.warn("Fleet-status per-user watcher start failed", {
             operation: "fleet_status_orchestrator_start_failed",
+            userId,
             error: err instanceof Error ? err.message : "unknown",
           });
         });
       });
 
-      registry.onLastUnsubscriber(() => {
+      registry.onLastUserUnsubscriber(({ userId }) => {
+        const watcher = watchersByUser.get(userId);
+        if (!watcher) {
+          // No-op: never had a watcher (shouldn't happen given per-user
+          // 0→1 fired first, but harmless if it does).
+          return;
+        }
         systemLogger.info(
-          "Fleet-status orchestrator stopping on last unsubscriber",
+          "Fleet-status per-user watcher stopping on last unsubscribe",
           {
             operation: "fleet_status_orchestrator_lifecycle",
+            userId,
+            activeUserCount: watchersByUser.size - 1,
           },
         );
-        currentWatcher?.stop();
-        currentWatcher = null;
+        watchersByUser.delete(userId);
+        try {
+          watcher.stop();
+        } catch (err) {
+          // Failure isolation: log and move on. A failed stop() may leak
+          // SSH clients for this user's watcher, but must not affect any
+          // other user's watcher.
+          systemLogger.warn(
+            "Fleet-status per-user watcher stop threw",
+            {
+              operation: "fleet_status_orchestrator_stop_failed",
+              userId,
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
+        }
       });
 
       systemLogger.info(
