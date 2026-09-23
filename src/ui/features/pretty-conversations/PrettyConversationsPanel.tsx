@@ -1964,12 +1964,29 @@ export function PrettyConversationsPanel({
       };
       if (typeof p.id !== "string" || p.id.length === 0) return;
       if (p.rdpHostRow === true) return; // D-08 defense
-      // Only fire clear if the row IS currently in a project. Consult the
-      // rowIdToProjectSlug lookup built from the derived selector.
+      // Drop on Other = "neither pinned nor in a project". Two actions may
+      // fire; either is optional but at least one must apply or this is a
+      // no-op (fall through so outer badge machinery can still catch other
+      // MIMEs). Order: unpin first (pure store write, no async), then clear
+      // project (network round-trip).
       const currentSlug = rowIdToProjectSlug.get(p.id);
-      if (currentSlug === undefined) return; // no-op — not in any project
+      const inProject = currentSlug !== undefined;
+      const shadowFleetId =
+        p.host && typeof p.host.id === "string" && p.targetTmuxSession
+          ? fleetRowId(parseInt(p.host.id, 10), p.targetTmuxSession)
+          : null;
+      const openTabPinned = pinnedIds.has(p.id);
+      const shadowPinned = shadowFleetId !== null && pinnedIds.has(shadowFleetId);
+      const isPinned = openTabPinned || shadowPinned;
+      if (!inProject && !isPinned) return; // no-op — nothing to change
       e.preventDefault();
       e.stopPropagation();
+      if (isPinned) {
+        console.info(`[pin-drop] unpin from Other id=${p.id} openTab=${openTabPinned} shadow=${shadowPinned}`);
+        if (openTabPinned) unpinConversation(p.id);
+        if (shadowPinned && shadowFleetId !== null) unpinConversation(shadowFleetId);
+      }
+      if (!inProject) return;
       // Route the clear the same way handleProjectDrop routes an assign,
       // but with slug=null.
       if (typeof p.matrixRoomId === "string" && p.matrixRoomId.length > 0) {
@@ -2001,7 +2018,82 @@ export function PrettyConversationsPanel({
         console.error(`[project-drop] setSessionProject(null) failed: ${msg}`);
       });
     },
-    [rowIdToProjectSlug, viewingUserMxid],
+    [rowIdToProjectSlug, viewingUserMxid, pinnedIds],
+  );
+
+  // Pinned-zone drop lane — mirror of the flat-middle machinery. Drop a row
+  // onto the Pinned wrapper to pin it (if not already pinned). Uses the same
+  // dual-shape write pattern as handleTogglePin: prefer the fleet-synthetic
+  // shadow id when host+targetTmuxSession are available so the pin survives
+  // openTab id churn across URL-restores.
+  const [isPinnedZoneDragOver, setIsPinnedZoneDragOver] = useState(false);
+
+  useEffect(() => {
+    const onDragEnd = () => setIsPinnedZoneDragOver(false);
+    window.addEventListener("dragend", onDragEnd);
+    return () => window.removeEventListener("dragend", onDragEnd);
+  }, []);
+
+  const handlePinnedZoneDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      const types = e.dataTransfer?.types;
+      if (!(types && Array.from(types).includes("application/x-skynet-row"))) return;
+      e.preventDefault();
+      setIsPinnedZoneDragOver(true);
+    },
+    [],
+  );
+
+  const handlePinnedZoneDragLeave = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      const types = e.dataTransfer?.types;
+      if (!(types && Array.from(types).includes("application/x-skynet-row"))) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const stillInside =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (stillInside) return;
+      setIsPinnedZoneDragOver(false);
+    },
+    [],
+  );
+
+  const handlePinnedZoneDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      setIsPinnedZoneDragOver(false);
+      const raw = e.dataTransfer?.getData("application/x-skynet-row") ?? "";
+      if (raw === "") return;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      if (parsed === null || typeof parsed !== "object") return;
+      const p = parsed as {
+        id?: string;
+        host?: { id: string } | null;
+        targetTmuxSession?: string | null;
+        rdpHostRow?: boolean;
+      };
+      if (typeof p.id !== "string" || p.id.length === 0) return;
+      if (p.rdpHostRow === true) return; // D-08 defense
+      const shadowFleetId =
+        p.host && typeof p.host.id === "string" && p.targetTmuxSession
+          ? fleetRowId(parseInt(p.host.id, 10), p.targetTmuxSession)
+          : null;
+      const openTabPinned = pinnedIds.has(p.id);
+      const shadowPinned = shadowFleetId !== null && pinnedIds.has(shadowFleetId);
+      if (openTabPinned || shadowPinned) return; // already pinned — no-op
+      e.preventDefault();
+      e.stopPropagation();
+      const targetId = shadowFleetId ?? p.id;
+      console.info(`[pin-drop] pin id=${targetId} (from rowId=${p.id})`);
+      pinConversation(targetId);
+    },
+    [pinnedIds],
   );
 
   // Phase 117 M-F follow-up (2026-09-18): the section's SquarePen opens the
@@ -2552,9 +2644,34 @@ export function PrettyConversationsPanel({
                 chrome mirrors the Apps + Archived sections' typography
                 verbatim (Pin icon at size-3 + uppercase label + rule-line
                 gradient), MINUS the ChevronDown — Pinned is not
-                collapsible. Rendered only when `displayedPinned.length > 0`
-                so an empty Pinned label never appears. */}
-            {displayedPinned.length > 0 && (
+                collapsible.
+
+                UAT 2026-09-23: header + drop lane are now ALWAYS rendered
+                (previously gated on `displayedPinned.length > 0`) so the
+                Pinned zone is a discoverable drag-drop target for the pin
+                gesture — parity with project sections and the flat-middle
+                unpin gesture. Empty state gets a "Drag a conversation here
+                to pin" italic muted line mirroring the empty-project
+                pattern. */}
+            <div
+              className="pv-panel-group relative"
+              data-pinned-group="true"
+              style={{ isolation: "isolate" }}
+              onDragOver={handlePinnedZoneDragOver}
+              onDragLeave={handlePinnedZoneDragLeave}
+              onDrop={handlePinnedZoneDrop}
+            >
+              {isPinnedZoneDragOver && (
+                <div
+                  data-testid="pv-pinned-zone-drop-overlay"
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background: "rgba(255, 184, 150, 0.22)",
+                    border: "2px solid rgba(255, 184, 150, 0.60)",
+                    zIndex: 30,
+                  }}
+                />
+              )}
               <div
                 className="flex items-center gap-2 px-4 pt-1 pb-1.5"
                 data-testid="pretty-conversations-pinned-header"
@@ -2571,32 +2688,39 @@ export function PrettyConversationsPanel({
                   className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
                 />
               </div>
-            )}
-            <div className="pv-panel-group" data-pinned-group="true">
-              {displayedPinned.map((row) => (
-                <PrettyConversationRowLive
-                  key={row.id}
-                  row={row}
-                  selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
-                  pinned={true}
-                  variant={variant}
-                  onSelect={() => handleRowSelect(row)}
-                  onTogglePin={() => handleTogglePin(row)}
-                  onDeactivate={() => handleRowDeactivate(row)}
-                  onKill={() => handleRowKill(row)}
-                  onArchive={
-                    canonicalArchiveIdForRow(row) !== null
-                      ? () => handleArchive(row)
-                      : undefined
-                  }
-                  onMoveToProject={rowMoveToProjectCallback(row)}
-                  projects={submenuProjects}
-                  currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
-                  inActiveSet={activeSet.has(row.id)}
-                  sessionKey={sessionWorkingKey(row)}
-                  subtitleMode="identityTitle"
-                />
-              ))}
+              {displayedPinned.length === 0 ? (
+                <div
+                  className="pv-pinned-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85"
+                  data-testid="pretty-conversations-pinned-empty"
+                >
+                  Drag a conversation here to pin.
+                </div>
+              ) : (
+                displayedPinned.map((row) => (
+                  <PrettyConversationRowLive
+                    key={row.id}
+                    row={row}
+                    selected={row.id === selectedId || visibleInSplitTree.has(row.id)}
+                    pinned={true}
+                    variant={variant}
+                    onSelect={() => handleRowSelect(row)}
+                    onTogglePin={() => handleTogglePin(row)}
+                    onDeactivate={() => handleRowDeactivate(row)}
+                    onKill={() => handleRowKill(row)}
+                    onArchive={
+                      canonicalArchiveIdForRow(row) !== null
+                        ? () => handleArchive(row)
+                        : undefined
+                    }
+                    onMoveToProject={rowMoveToProjectCallback(row)}
+                    projects={submenuProjects}
+                    currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
+                    inActiveSet={activeSet.has(row.id)}
+                    sessionKey={sessionWorkingKey(row)}
+                    subtitleMode="identityTitle"
+                  />
+                ))
+              )}
             </div>
             {/* Phase 117 Plan 117-08 (D-09, D-10, D-11) — projects zone.
                 Inserted BETWEEN the pinned zone (above) and the flat middle

@@ -977,6 +977,318 @@ describe("PrettyConversationsPanel: CreateProjectModal wire (117-09 Task 1)", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Pin-drop parity tests (2026-09-23) — Pinned zone is a drop target for the
+// pin gesture, flat middle also unpins on drop. Mirrors the project-drop
+// gesture pair (drop on section = assign; drop on flat middle = clear).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel: pin-drop on Pinned zone", () => {
+  it("PinDrop-1: drop unpinned row on Pinned zone fires pinConversation with shadowFleetId", () => {
+    const hostA = makeHost("1", "hostA");
+    const middleRow = makeRow({
+      id: "wren-row",
+      host: hostA,
+      targetTmuxSession: "wren-session",
+    });
+    setSnapshot({
+      middle: [middleRow],
+      pinnedIds: new Set(),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const pinnedZone = container.querySelector('[data-pinned-group="true"]') as HTMLElement;
+    expect(pinnedZone).not.toBeNull();
+
+    const payload = {
+      id: "wren-row",
+      host: { id: "1" },
+      targetTmuxSession: "wren-session",
+      identityKey: "wren",
+      rdpHostRow: false,
+    };
+    const dt = makeDataTransferStub({
+      "application/x-skynet-row": JSON.stringify(payload),
+    });
+    dispatchDragOverAt(pinnedZone, 100, 20, dt);
+    dispatchDrop(pinnedZone, dt);
+
+    expect(pinConversationSpy).toHaveBeenCalledTimes(1);
+    // The mocked fleetRowId returns `fleet::${hostId}::${sessionName}`.
+    expect(pinConversationSpy).toHaveBeenCalledWith("fleet::1::wren-session");
+    expect(unpinConversationSpy).not.toHaveBeenCalled();
+  });
+
+  it("PinDrop-2: drop already-pinned row (via shadow id) on Pinned zone is a no-op", () => {
+    const hostA = makeHost("1", "hostA");
+    const pinnedRow = makeRow({
+      id: "wren-row",
+      host: hostA,
+      targetTmuxSession: "wren-session",
+    });
+    setSnapshot({
+      pinned: [pinnedRow],
+      pinnedUnassigned: [pinnedRow],
+      pinnedIds: new Set(["fleet::1::wren-session"]),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const pinnedZone = container.querySelector('[data-pinned-group="true"]') as HTMLElement;
+    const payload = {
+      id: "wren-row",
+      host: { id: "1" },
+      targetTmuxSession: "wren-session",
+      identityKey: "wren",
+      rdpHostRow: false,
+    };
+    const dt = makeDataTransferStub({
+      "application/x-skynet-row": JSON.stringify(payload),
+    });
+    dispatchDragOverAt(pinnedZone, 100, 20, dt);
+    dispatchDrop(pinnedZone, dt);
+
+    expect(pinConversationSpy).not.toHaveBeenCalled();
+    expect(unpinConversationSpy).not.toHaveBeenCalled();
+  });
+
+  it("PinDrop-3: drop of RDP row (rdpHostRow=true) on Pinned zone is refused (D-08)", () => {
+    setSnapshot({});
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const pinnedZone = container.querySelector('[data-pinned-group="true"]') as HTMLElement;
+    const payload = { id: "rdp-1", rdpHostRow: true };
+    const dt = makeDataTransferStub({
+      "application/x-skynet-row": JSON.stringify(payload),
+    });
+    dispatchDragOverAt(pinnedZone, 100, 20, dt);
+    dispatchDrop(pinnedZone, dt);
+
+    expect(pinConversationSpy).not.toHaveBeenCalled();
+  });
+
+  it("PinDrop-4: Pinned zone renders empty-state placeholder when nothing is pinned", () => {
+    setSnapshot({});
+    const { container, getByTestId } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    // Header + empty-state placeholder both render even when displayedPinned is empty.
+    expect(container.querySelector('[data-testid="pretty-conversations-pinned-header"]')).not.toBeNull();
+    const emptyLine = getByTestId("pretty-conversations-pinned-empty");
+    expect(emptyLine.textContent).toContain("Drag a conversation here to pin");
+  });
+});
+
+describe("PrettyConversationsPanel: unpin-drop on flat middle", () => {
+  it("UnpinDrop-1: drop pinned-via-shadow row on flat middle fires unpinConversation on shadow id", () => {
+    const hostA = makeHost("1", "hostA");
+    const pinnedRow = makeRow({
+      id: "wren-row",
+      host: hostA,
+      targetTmuxSession: "wren-session",
+    });
+    const middleRow = makeRow({
+      id: "other-row",
+      host: hostA,
+      targetTmuxSession: "other-session",
+    });
+    setSnapshot({
+      pinned: [pinnedRow],
+      pinnedUnassigned: [pinnedRow],
+      middle: [middleRow],
+      pinnedIds: new Set(["fleet::1::wren-session"]),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const flatMiddle = container.querySelector('[data-middle-group="true"]') as HTMLElement;
+    expect(flatMiddle).not.toBeNull();
+
+    const payload = {
+      id: "wren-row",
+      host: { id: "1" },
+      targetTmuxSession: "wren-session",
+      identityKey: "wren",
+      rdpHostRow: false,
+    };
+    const dt = makeDataTransferStub({
+      "application/x-skynet-row": JSON.stringify(payload),
+    });
+    dispatchDragOverAt(flatMiddle, 100, 100, dt);
+    dispatchDrop(flatMiddle, dt);
+
+    expect(unpinConversationSpy).toHaveBeenCalledTimes(1);
+    expect(unpinConversationSpy).toHaveBeenCalledWith("fleet::1::wren-session");
+    // Row was not in any project → project clear is a no-op branch.
+    expect(setSessionProjectSpy).not.toHaveBeenCalled();
+  });
+
+  it("UnpinDrop-2: drop pinned-via-openTab row on flat middle fires unpinConversation on openTab id", () => {
+    const hostA = makeHost("1", "hostA");
+    const pinnedRow = makeRow({
+      id: "wren-row",
+      host: hostA,
+      targetTmuxSession: "wren-session",
+    });
+    const filler = makeRow({
+      id: "filler-row",
+      host: hostA,
+      targetTmuxSession: "filler-session",
+    });
+    setSnapshot({
+      pinned: [pinnedRow],
+      pinnedUnassigned: [pinnedRow],
+      middle: [filler], // flat-middle wrapper only renders when non-empty
+      pinnedIds: new Set(["wren-row"]), // pinned via openTab id, not shadow
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const flatMiddle = container.querySelector('[data-middle-group="true"]') as HTMLElement;
+    const payload = {
+      id: "wren-row",
+      host: { id: "1" },
+      targetTmuxSession: "wren-session",
+      identityKey: "wren",
+      rdpHostRow: false,
+    };
+    const dt = makeDataTransferStub({
+      "application/x-skynet-row": JSON.stringify(payload),
+    });
+    dispatchDragOverAt(flatMiddle, 100, 100, dt);
+    dispatchDrop(flatMiddle, dt);
+
+    expect(unpinConversationSpy).toHaveBeenCalledTimes(1);
+    expect(unpinConversationSpy).toHaveBeenCalledWith("wren-row");
+  });
+
+  it("UnpinDrop-3: drop pinned row that is ALSO in a project on flat middle fires BOTH unpin and clear-project", () => {
+    const hostA = makeHost("1", "hostA");
+    const alphaPinnedRow = makeRow({
+      id: "wren-row",
+      host: hostA,
+      targetTmuxSession: "wren-session",
+    });
+    setSnapshot({
+      pinned: [alphaPinnedRow],
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [alphaPinnedRow] }],
+      middle: [],
+      pinnedIds: new Set(["fleet::1::wren-session"]),
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const flatMiddle = container.querySelector('[data-middle-group="true"]') as HTMLElement;
+    const payload = {
+      id: "wren-row",
+      host: { id: "1" },
+      targetTmuxSession: "wren-session",
+      identityKey: "wren",
+      rdpHostRow: false,
+    };
+    const dt = makeDataTransferStub({
+      "application/x-skynet-row": JSON.stringify(payload),
+    });
+    dispatchDragOverAt(flatMiddle, 100, 100, dt);
+    dispatchDrop(flatMiddle, dt);
+
+    expect(unpinConversationSpy).toHaveBeenCalledWith("fleet::1::wren-session");
+    expect(setSessionProjectSpy).toHaveBeenCalledWith(1, "wren", null);
+  });
+
+  it("UnpinDrop-4: drop of unpinned non-project row on flat middle remains a no-op (regression guard)", () => {
+    const hostA = makeHost("1", "hostA");
+    const middleRow = makeRow({
+      id: "other-row",
+      host: hostA,
+      targetTmuxSession: "other-session",
+    });
+    setSnapshot({
+      middle: [middleRow],
+      pinnedIds: new Set(),
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const flatMiddle = container.querySelector('[data-middle-group="true"]') as HTMLElement;
+    const payload = {
+      id: "other-row",
+      host: { id: "1" },
+      targetTmuxSession: "other-session",
+      identityKey: "other",
+      rdpHostRow: false,
+    };
+    const dt = makeDataTransferStub({
+      "application/x-skynet-row": JSON.stringify(payload),
+    });
+    dispatchDragOverAt(flatMiddle, 100, 100, dt);
+    dispatchDrop(flatMiddle, dt);
+
+    expect(unpinConversationSpy).not.toHaveBeenCalled();
+    expect(setSessionProjectSpy).not.toHaveBeenCalled();
+    expect(setRelayRoomProjectSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 117-09 Task 2 — archive-project cascade + section context menu + new-conv wire
 // ─────────────────────────────────────────────────────────────────────────────
 
