@@ -86,12 +86,26 @@ export function PrettyConversationContextMenu({
     left: x,
     top: y,
   });
-  // Drill-in state. `null` = outer view. Non-null = submenu items being
-  // shown; the "‹ Back" row swaps back to null. Tap-outside always fires
+  // Drill-in state. `null` = outer view. Non-null = the LABEL of the
+  // submenu-parent that was drilled into; the submenu itself is derived
+  // from the current `items` prop each render, so a re-render while
+  // drilled reflects the up-to-date submenu content (e.g. a new project
+  // added, or a project renamed, or the row's currently-assigned project
+  // changing under it). If the parent with that label disappears from
+  // items (e.g. fleet drops to zero projects mid-open), the drilled view
+  // naturally falls back to the outer view since currentSubmenu resolves
+  // to null. The "‹ Back" row swaps back to null. Tap-outside always fires
   // onClose regardless of drill state (one-level dismiss per shape).
-  const [drilled, setDrilled] = useState<
-    readonly PrettyContextMenuSubmenuItem[] | null
-  >(null);
+  const [drilledLabel, setDrilledLabel] = useState<string | null>(null);
+  const currentSubmenu: readonly PrettyContextMenuSubmenuItem[] | null =
+    drilledLabel !== null
+      ? (items.find(
+          (it): it is Extract<
+            PrettyContextMenuItem,
+            { submenu: readonly PrettyContextMenuSubmenuItem[] }
+          > => it.label === drilledLabel && "submenu" in it,
+        )?.submenu ?? null)
+      : null;
 
   // quick-260807-igo: mounted-ref guards the deferred onClose (see
   // FLASH_DISMISS_MS above). React 18+ StrictMode double-invokes effects, but
@@ -113,8 +127,14 @@ export function PrettyConversationContextMenu({
   }, []);
 
   // Clamp menu into viewport once we know its measured size. Re-runs when
-  // drill state changes (submenu content may differ in height, and the
-  // clamp reflows if the new content would now overflow the viewport).
+  // drill state changes AND when the visible item count changes (outer
+  // items growing or a submenu of different length being drilled into),
+  // so a menu that grows past the viewport edge mid-open (e.g. Kill/Archive
+  // items becoming available after mount) still gets re-clamped. Item
+  // counts are primitives — using the arrays themselves as deps would
+  // re-run every render (fresh references), potentially loopy.
+  const outerItemCount = items.length;
+  const drilledItemCount = currentSubmenu?.length ?? 0;
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!el) return;
@@ -130,7 +150,7 @@ export function PrettyConversationContextMenu({
       top = Math.max(VIEWPORT_MARGIN, vh - rect.height - VIEWPORT_MARGIN);
     }
     setPos({ left, top });
-  }, [x, y, drilled]);
+  }, [x, y, drilledLabel, outerItemCount, drilledItemCount]);
 
   // Dismiss on Escape or outside click.
   //
@@ -263,19 +283,19 @@ export function PrettyConversationContextMenu({
         ...hueVarStyle,
       }}
     >
-      {drilled === null
-        ? items.map((item, i) => {
+      {currentSubmenu === null
+        ? items.map((item) => {
             if (isSubmenuParent(item)) {
               return (
                 <button
-                  key={i}
+                  key={item.label}
                   type="button"
                   role="menuitem"
                   aria-haspopup="menu"
                   aria-expanded="false"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setDrilled(item.submenu);
+                    setDrilledLabel(item.label);
                   }}
                   className="pv-context-menu-item py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
                   style={itemButtonStyle(item.danger)}
@@ -291,7 +311,7 @@ export function PrettyConversationContextMenu({
             }
             return (
               <button
-                key={i}
+                key={item.label}
                 type="button"
                 role="menuitem"
                 onClick={(e) => {
@@ -313,7 +333,7 @@ export function PrettyConversationContextMenu({
                 role="menuitem"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setDrilled(null);
+                  setDrilledLabel(null);
                 }}
                 className="pv-context-menu-item py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
                 style={{
@@ -323,9 +343,9 @@ export function PrettyConversationContextMenu({
               >
                 <span style={labelSpanStyle}>{"‹ Back"}</span>
               </button>
-              {drilled.map((sub, i) => (
+              {currentSubmenu.map((sub) => (
                 <button
-                  key={i}
+                  key={sub.label}
                   type="button"
                   role={sub.checked !== undefined ? "menuitemradio" : "menuitem"}
                   aria-checked={sub.checked === true ? true : undefined}

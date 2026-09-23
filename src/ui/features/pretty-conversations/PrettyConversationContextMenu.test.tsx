@@ -695,3 +695,154 @@ describe("PrettyConversationContextMenu: submenu-parent has aria-haspopup", () =
     expect(pin.getAttribute("aria-haspopup")).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drill-in state tracks the parent's LABEL, not the array reference — so a
+// parent re-render while drilled reflects the up-to-date submenu contents.
+// Regression guard for the correctness pothole that would otherwise let the
+// menu act on stale data (e.g. stale checkmark, stale current-project no-op
+// guard) if the row's `currentProjectSlug` or `projects` mutated during the
+// window between menu-open and menu-pick.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationContextMenu: drill-in submenu — live-updates on re-render", () => {
+  it("when the parent re-renders with a mutated submenu (a new item added), the drilled view shows the updated contents — not the snapshot from drill-in time", () => {
+    const firstFoo = vi.fn();
+    const firstBar = vi.fn();
+    const secondFoo = vi.fn();
+    const secondBar = vi.fn();
+    const secondBaz = vi.fn();
+    const { rerender } = render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={[
+          {
+            label: "Move to project",
+            submenu: [
+              { label: "Foo", onClick: firstFoo },
+              { label: "Bar", onClick: firstBar },
+            ],
+          },
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /move to project/i }));
+    // Drilled — Foo + Bar visible, no Baz.
+    expect(screen.getByRole("menuitem", { name: /^foo$/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^bar$/i })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /^baz$/i })).toBeNull();
+
+    // Rerender with a submenu that gained Baz.
+    rerender(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={[
+          {
+            label: "Move to project",
+            submenu: [
+              { label: "Foo", onClick: secondFoo },
+              { label: "Bar", onClick: secondBar },
+              { label: "Baz", onClick: secondBaz },
+            ],
+          },
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+    // Baz is now visible in the drilled view — proves the drill state is
+    // derived from live items, not held as a captured array.
+    expect(screen.getByRole("menuitem", { name: /^baz$/i })).toBeTruthy();
+  });
+
+  it("when the parent re-renders and the drilled submenu-parent is REMOVED from items, the drilled view falls back to outer (naturally, no stale drilled render)", () => {
+    const { rerender } = render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={[
+          { label: "Pin", onClick: vi.fn() },
+          {
+            label: "Move to project",
+            submenu: [{ label: "Foo", onClick: vi.fn() }],
+          },
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /move to project/i }));
+    // Drilled.
+    expect(screen.getByRole("menuitem", { name: /^foo$/i })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /^pin$/i })).toBeNull();
+
+    // Rerender without the submenu-parent (e.g. fleet dropped to zero projects
+    // while the menu was open, and the panel now passes items without "Move
+    // to project").
+    rerender(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={[{ label: "Pin", onClick: vi.fn() }]}
+        onClose={vi.fn()}
+      />,
+    );
+    // Outer view is back — no stale drilled render, no "‹ Back" row.
+    expect(screen.getByRole("menuitem", { name: /^pin$/i })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /^foo$/i })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /back/i })).toBeNull();
+  });
+
+  it("when a submenu item's `checked` flips mid-drill (e.g. currentProjectSlug changed underneath), the checkmark reflects the current value — not the snapshot", () => {
+    const { rerender } = render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={[
+          {
+            label: "Move to project",
+            submenu: [
+              { label: "Foo", onClick: vi.fn(), checked: true },
+              { label: "Bar", onClick: vi.fn(), checked: false },
+            ],
+          },
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /move to project/i }));
+    // At drill-in time, Foo is checked.
+    expect(
+      screen.getByRole("menuitemradio", { name: /^foo$/i }).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("menuitemradio", { name: /^bar$/i }).getAttribute("aria-checked"),
+    ).not.toBe("true");
+
+    // Rerender with the check moved to Bar (underlying state changed).
+    rerender(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={[
+          {
+            label: "Move to project",
+            submenu: [
+              { label: "Foo", onClick: vi.fn(), checked: false },
+              { label: "Bar", onClick: vi.fn(), checked: true },
+            ],
+          },
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+    // The check moved live — Bar is now checked, Foo is not.
+    expect(
+      screen.getByRole("menuitemradio", { name: /^foo$/i }).getAttribute("aria-checked"),
+    ).not.toBe("true");
+    expect(
+      screen.getByRole("menuitemradio", { name: /^bar$/i }).getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+});
