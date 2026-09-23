@@ -489,7 +489,10 @@ async function connectAsUser(
   port: number,
   token: string,
 ): Promise<ConnectedClient> {
-  const url = `ws://localhost:${port}/fleet-status/ws`;
+  // Phase 111 SKEW-07: frontend path requires ?build= param matching
+  // getServerBuildId(). In test/CI env this falls back to "dev-unknown"
+  // (see server-build-id.ts). Matches the pattern used by Test 2/3/7 above.
+  const url = `ws://localhost:${port}/fleet-status/ws?build=dev-unknown`;
   const ws = new WebSocket(url, { headers: { Cookie: `jwt=${token}` } });
   const frames: FrontendOutboundFrameType[] = [];
 
