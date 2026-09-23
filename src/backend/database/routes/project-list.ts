@@ -59,6 +59,16 @@ import {
   writeProjectFile,
 } from "../../claude-session/identity-artifact-reader.js";
 import { getSubscriptionRegistry } from "../../fleet-status/subscription-registry.js";
+// Phase 130: per-user visibility gate write side for projects. isHostMultiUser
+// gates whether the auto-tag branch fires at all (single-user hosts stay silent
+// per shape §"invisible in the majority case"); getUsernameForUserId resolves
+// the JWT userId to a case-preserved Skynet username so the frontmatter
+// `users:` list gets the human-readable name, not the opaque nanoid subject.
+// Mirrors the Phase 129 roles-create.ts + identity-birth.ts pattern.
+import {
+  isHostMultiUser,
+  getUsernameForUserId,
+} from "../../utils/host-user-counter.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -290,9 +300,60 @@ router.post(
       }
     }
 
+    // -----------------------------------------------------------------------
+    // Phase 130: auto-tag creator on multi-user hosts.
+    //
+    // On multi-user hosts (>1 distinct Skynet user with access), write the
+    // creator's Skynet username to the new project.md's `users:` frontmatter
+    // list. Single-user hosts stay silent — the file is byte-identical to a
+    // pre-130 project.md.
+    //
+    // Ordering invariants (mirror roles-create.ts L580-604):
+    //   - This branch runs BEFORE createProject so the auto-tag is baked into
+    //     the FIRST write (no separate rewrite pass, no live-file mutation).
+    //   - createProject itself is atomic + collision-safe (Phase 117 M2 fix
+    //     at identity-artifact-reader.ts:830-870): a race-loser sees EEXIST
+    //     and 409s without touching the winner's file. So no auto-tag can
+    //     ever overwrite an existing cohabitant's tag list.
+    //
+    // Fail-open on username-lookup failure (matches roles-create discipline):
+    // if getUsernameForUserId returns null on a multi-user host, we skip
+    // auto-tag and log loudly. A wrong-user auto-tag would be a shape §"would
+    // make it wrong" violation ("auto-tagged with the wrong user's name"), so
+    // we prefer to leave the file untagged and surface the failure in logs.
+    //
+    // Case preservation (Phase 129 Pitfall 7): getUsernameForUserId returns
+    // the case-preserved username as stored in the DB — we do NOT normalize.
+    // -----------------------------------------------------------------------
+    let autoTagUsers: string[] | null = null;
+    try {
+      const isMultiUser = await isHostMultiUser(hostId);
+      if (isMultiUser) {
+        const creatorUsername = await getUsernameForUserId(userId);
+        if (creatorUsername) {
+          autoTagUsers = [creatorUsername];
+          databaseLogger.info(
+            `projects-create: auto-tagged creator on multi-user host userId=${userId} hostId=${hostId} slug=${slug} creatorUsername=${creatorUsername}`,
+          );
+        } else {
+          databaseLogger.warn(
+            `projects-create: username lookup failed — auto-tag skipped userId=${userId} hostId=${hostId} slug=${slug}`,
+          );
+        }
+      }
+    } catch (autoTagErr) {
+      // Multi-user probe failure MUST NOT block the create — fall through
+      // without auto-tag. This matches Phase 129 fail-open discipline for
+      // write-side gate failures (a wrongly-open project is recoverable via
+      // a manual edit; a wrongly-BLOCKED create is not).
+      databaseLogger.warn(
+        `projects-create: isHostMultiUser probe failed — auto-tag skipped userId=${userId} hostId=${hostId} slug=${slug}: ${autoTagErr instanceof Error ? autoTagErr.message : String(autoTagErr)}`,
+      );
+    }
+
     try {
       try {
-        await createProject(conn, slug, trimmed);
+        await createProject(conn, slug, trimmed, autoTagUsers);
       } catch (err) {
         // Duplicate slug distinguisher — EEXIST or message contains "exists".
         const code = (err as NodeJS.ErrnoException).code;

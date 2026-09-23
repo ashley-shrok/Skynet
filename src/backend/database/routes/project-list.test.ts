@@ -87,6 +87,15 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   writeProjectFile: vi.fn(),
 }));
 
+// Phase 130: host-user-counter mock — auto-tag path in POST /projects consults
+// isHostMultiUser + getUsernameForUserId. Default is single-user + no
+// username, so auto-tag stays quiet across every pre-130 test unless a
+// specific test overrides.
+vi.mock("../../utils/host-user-counter.js", () => ({
+  isHostMultiUser: vi.fn().mockResolvedValue(false),
+  getUsernameForUserId: vi.fn().mockResolvedValue(null),
+}));
+
 // subscription-registry singleton accessor — Wave 2 route relies on this
 // to reach the WS registry that starter.ts creates. See getSubscriptionRegistry
 // export added in Phase 117 Plan 04.
@@ -122,6 +131,11 @@ import {
 // Phase 117 M8 fix (2026-09-18): import the mocked databaseLogger so
 // null-registry tests can assert the warning is logged.
 import { databaseLogger } from "../../utils/logger.js";
+// Phase 130: auto-tag path helpers.
+import {
+  isHostMultiUser,
+  getUsernameForUserId,
+} from "../../utils/host-user-counter.js";
 
 // ---------------------------------------------------------------------------
 // HTTP request helper
@@ -234,6 +248,11 @@ beforeEach(() => {
   (archiveProject as Mock).mockResolvedValue(undefined);
   (readProjectFile as Mock).mockResolvedValue({ markdown: "" });
   (writeProjectFile as Mock).mockResolvedValue({ markdown: "" });
+  // Phase 130: reset auto-tag helpers each test — vi.clearAllMocks() clears
+  // call history but preserves implementation, so a prior test's override
+  // would leak into a later test's assertions.
+  (isHostMultiUser as Mock).mockResolvedValue(false);
+  (getUsernameForUserId as Mock).mockResolvedValue(null);
 
   // Rebuild app per test.
   const app = express();
@@ -378,7 +397,15 @@ describe("POST /projects", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, slug: "my-project" });
     expect(createProject).toHaveBeenCalledTimes(1);
-    expect(createProject).toHaveBeenCalledWith(null, "my-project", "My Project");
+    // Phase 130: 4th arg is autoTagUsers — null on single-user hosts (the
+    // default mock state) so this is byte-identical to the pre-130 shape at
+    // the createProject write.
+    expect(createProject).toHaveBeenCalledWith(
+      null,
+      "my-project",
+      "My Project",
+      null,
+    );
     // publishProjectListChanged should fire exactly once after successful write.
     expect(mockPublishProjectListChanged).toHaveBeenCalledTimes(1);
     // The published array reflects the just-created projects with wire-event
@@ -504,6 +531,122 @@ describe("POST /projects", () => {
     expect(res.status).toBe(404);
     expect((res.body as { error: string }).error).toMatch(/Host not found/);
     expect(createProject).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 130: auto-tag creator on multi-user hosts
+  //
+  // Mirror of Phase 129 roles-create auto-tag tests. Single-user hosts stay
+  // silent (byte-identical to pre-130 write); multi-user hosts get the
+  // creator's Skynet username written into the frontmatter users list. Fail-
+  // open on lookup failure — never a wrong-user tag.
+  // ---------------------------------------------------------------------------
+  it("Test 12a (Phase 130): multi-user host + username resolvable → users=[creator] passed to createProject", async () => {
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "my-project", displayName: "My Project" },
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects",
+      body: { hostId: 5, displayName: "My Project" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(createProject).toHaveBeenCalledWith(
+      null,
+      "my-project",
+      "My Project",
+      ["ashley"],
+    );
+    // Auto-tag success log should have fired.
+    expect(databaseLogger.info).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /auto-tagged creator on multi-user host.*hostId=5.*slug=my-project.*creatorUsername=ashley/,
+      ),
+    );
+  });
+
+  it("Test 12b (Phase 130): single-user host → users=null passed (byte-identical to pre-130)", async () => {
+    // Default mock is single-user + null username — assert the explicit null.
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "my-project", displayName: "My Project" },
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects",
+      body: { hostId: 5, displayName: "My Project" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(createProject).toHaveBeenCalledWith(
+      null,
+      "my-project",
+      "My Project",
+      null,
+    );
+    // getUsernameForUserId MUST NOT be called on a single-user host (avoid
+    // the DB round-trip when auto-tag can't apply).
+    expect(getUsernameForUserId).not.toHaveBeenCalled();
+  });
+
+  it("Test 12c (Phase 130): multi-user host + username lookup returns null → users=null + warn logged (fail-open, no wrong-user tag)", async () => {
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue(null);
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "my-project", displayName: "My Project" },
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects",
+      body: { hostId: 5, displayName: "My Project" },
+    });
+
+    expect(res.status).toBe(200);
+    // Create still succeeds, but with no auto-tag — file falls open per D-3.
+    expect(createProject).toHaveBeenCalledWith(
+      null,
+      "my-project",
+      "My Project",
+      null,
+    );
+    expect(databaseLogger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /username lookup failed.*auto-tag skipped.*hostId=5.*slug=my-project/,
+      ),
+    );
+  });
+
+  it("Test 12d (Phase 130): isHostMultiUser throws → users=null + warn logged (fail-open on probe error)", async () => {
+    (isHostMultiUser as Mock).mockRejectedValue(new Error("db probe failed"));
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "my-project", displayName: "My Project" },
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects",
+      body: { hostId: 5, displayName: "My Project" },
+    });
+
+    // Create MUST succeed — a multi-user probe failure MUST NOT block the
+    // create (a wrongly-blocked create is worse than a wrongly-open project).
+    expect(res.status).toBe(200);
+    expect(createProject).toHaveBeenCalledWith(
+      null,
+      "my-project",
+      "My Project",
+      null,
+    );
+    expect(databaseLogger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /isHostMultiUser probe failed.*auto-tag skipped.*hostId=5.*slug=my-project.*db probe failed/,
+      ),
+    );
   });
 });
 
