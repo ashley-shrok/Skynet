@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Check, ChevronRight } from "lucide-react";
 
 // ─── PrettyConversationContextMenu ────────────────────────────────────────
 // Pretty-view-styled right-click menu for conversation rows on desktop
@@ -18,23 +19,50 @@ import { createPortal } from "react-dom";
 // - Glass styling borrows from the pretty-view palette (#141520 base,
 //   #e8e4d8 text) and accepts a hue token so the border/glow can inherit
 //   the row's identity hue when the caller has one.
+//
+// Drill-in submenu (shape-move-to-project-context-menu, 2026-09-23): an
+// item may carry a `submenu` field of child items instead of a direct
+// `onClick`. When such a parent is picked, the menu swaps its content in
+// place — a drill-in transition — showing a "‹ Back" row followed by the
+// child items. Same interaction model on desktop and mobile (click/tap to
+// enter, no hover-to-open). Tap-outside dismisses the entire menu, not
+// just the drilled level (one-level dismiss). Instant swap, no animation.
+// Submenu items may carry `checked?: true` to render a check on the left
+// (used for the currently-assigned project in the "Move to project"
+// picker).
 // ─────────────────────────────────────────────────────────────────────────
 
-export interface PrettyContextMenuItem {
+export type PrettyContextMenuSubmenuItem = {
   label: string;
   onClick: () => void;
+  checked?: boolean;
   danger?: boolean;
+};
+
+export type PrettyContextMenuItem =
+  | { label: string; onClick: () => void; danger?: boolean }
+  | {
+      label: string;
+      submenu: readonly PrettyContextMenuSubmenuItem[];
+      danger?: boolean;
+    };
+
+function isSubmenuParent(
+  item: PrettyContextMenuItem,
+): item is Extract<PrettyContextMenuItem, { submenu: readonly unknown[] }> {
+  return "submenu" in item;
 }
 
 export interface PrettyConversationContextMenuProps {
   x: number;
   y: number;
-  items: PrettyContextMenuItem[];
+  items: readonly PrettyContextMenuItem[];
   hue?: number | null;
   onClose: () => void;
 }
 
 const MENU_MIN_WIDTH = 168;
+const MENU_MAX_WIDTH = 260;
 const VIEWPORT_MARGIN = 8;
 
 // quick-260807-igo: delay between an item's onClick firing and the parent's
@@ -58,6 +86,12 @@ export function PrettyConversationContextMenu({
     left: x,
     top: y,
   });
+  // Drill-in state. `null` = outer view. Non-null = submenu items being
+  // shown; the "‹ Back" row swaps back to null. Tap-outside always fires
+  // onClose regardless of drill state (one-level dismiss per shape).
+  const [drilled, setDrilled] = useState<
+    readonly PrettyContextMenuSubmenuItem[] | null
+  >(null);
 
   // quick-260807-igo: mounted-ref guards the deferred onClose (see
   // FLASH_DISMISS_MS above). React 18+ StrictMode double-invokes effects, but
@@ -78,7 +112,9 @@ export function PrettyConversationContextMenu({
     };
   }, []);
 
-  // Clamp menu into viewport once we know its measured size.
+  // Clamp menu into viewport once we know its measured size. Re-runs when
+  // drill state changes (submenu content may differ in height, and the
+  // clamp reflows if the new content would now overflow the viewport).
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!el) return;
@@ -94,7 +130,7 @@ export function PrettyConversationContextMenu({
       top = Math.max(VIEWPORT_MARGIN, vh - rect.height - VIEWPORT_MARGIN);
     }
     setPos({ left, top });
-  }, [x, y]);
+  }, [x, y, drilled]);
 
   // Dismiss on Escape or outside click.
   //
@@ -118,6 +154,11 @@ export function PrettyConversationContextMenu({
   // (see the div below), so a click inside the menu does not reach this
   // window listener and does not fire onClose. Keydown is unaffected —
   // iOS has no key-synth mechanism, so capture-phase keydown is fine.
+  //
+  // Drill-in note: one-level dismiss per shape — tap-outside ALWAYS
+  // dismisses the whole menu (fires onClose), never just drops the drill
+  // back to the outer level. The back-row inside the submenu is the ONLY
+  // affordance for going back a level.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -142,6 +183,45 @@ export function PrettyConversationContextMenu({
       ? ({ ["--pv-id-hue" as string]: String(hue) } as React.CSSProperties)
       : undefined;
 
+  // quick-260807-igo: firePickAndDismiss encapsulates the invoke-then-
+  // deferred-onClose pattern shared by terminal items in both the outer
+  // and drilled views. Calling code fires the item's action synchronously
+  // so parent state updates happen right away; onClose is DEFERRED by
+  // FLASH_DISMISS_MS so the CSS :active tap-flash on .pv-context-menu-item
+  // paints at least one frame before the portal tears down. Guarded by
+  // the mounted-ref so a parent that unmounts mid-delay never receives a
+  // stale onClose.
+  const firePickAndDismiss = (action: () => void) => {
+    action();
+    const t = setTimeout(() => {
+      pendingTimeoutRef.current = null;
+      if (mountedRef.current) onClose();
+    }, FLASH_DISMISS_MS);
+    pendingTimeoutRef.current = t;
+  };
+
+  const itemButtonStyle = (danger: boolean | undefined): React.CSSProperties => ({
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+    textAlign: "left",
+    fontSize: 14,
+    lineHeight: "18px",
+    borderRadius: 8,
+    border: "none",
+    background: "transparent",
+    color: danger ? "#ff9a8a" : "#e8e4d8",
+    cursor: "pointer",
+  });
+
+  const labelSpanStyle: React.CSSProperties = {
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+
   return createPortal(
     <div
       ref={menuRef}
@@ -163,6 +243,9 @@ export function PrettyConversationContextMenu({
         left: pos.left,
         top: pos.top,
         minWidth: MENU_MIN_WIDTH,
+        maxWidth: MENU_MAX_WIDTH,
+        maxHeight: `calc(100vh - ${VIEWPORT_MARGIN * 2}px)`,
+        overflowY: "auto",
         zIndex: 200,
         padding: 4,
         borderRadius: 12,
@@ -180,42 +263,96 @@ export function PrettyConversationContextMenu({
         ...hueVarStyle,
       }}
     >
-      {items.map((item, i) => (
-        <button
-          key={i}
-          type="button"
-          role="menuitem"
-          onClick={(e) => {
-            e.stopPropagation();
-            // Fire the action synchronously so parent state updates happen
-            // right away. onClose is DEFERRED by FLASH_DISMISS_MS so the CSS
-            // :active tap-flash on .pv-context-menu-item paints at least one
-            // frame before the portal tears down. Deferred call is guarded by
-            // the mounted-ref (see the mount/unmount effect above) so a
-            // parent that unmounts mid-delay never receives a stale onClose.
-            item.onClick();
-            const t = setTimeout(() => {
-              pendingTimeoutRef.current = null;
-              if (mountedRef.current) onClose();
-            }, FLASH_DISMISS_MS);
-            pendingTimeoutRef.current = t;
-          }}
-          className="pv-context-menu-item py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
-          style={{
-            display: "block",
-            width: "100%",
-            textAlign: "left",
-            fontSize: 14,
-            lineHeight: "18px",
-            borderRadius: 8,
-            border: "none",
-            color: item.danger ? "#ff9a8a" : "#e8e4d8",
-            cursor: "pointer",
-          }}
-        >
-          {item.label}
-        </button>
-      ))}
+      {drilled === null
+        ? items.map((item, i) => {
+            if (isSubmenuParent(item)) {
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDrilled(item.submenu);
+                  }}
+                  className="pv-context-menu-item py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
+                  style={itemButtonStyle(item.danger)}
+                >
+                  <span style={labelSpanStyle}>{item.label}</span>
+                  <ChevronRight
+                    size={14}
+                    aria-hidden="true"
+                    style={{ opacity: 0.7, flexShrink: 0 }}
+                  />
+                </button>
+              );
+            }
+            return (
+              <button
+                key={i}
+                type="button"
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  firePickAndDismiss(item.onClick);
+                }}
+                className="pv-context-menu-item py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
+                style={itemButtonStyle(item.danger)}
+              >
+                <span style={labelSpanStyle}>{item.label}</span>
+              </button>
+            );
+          })
+        : (
+            <>
+              <button
+                key="__back"
+                type="button"
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDrilled(null);
+                }}
+                className="pv-context-menu-item py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
+                style={{
+                  ...itemButtonStyle(undefined),
+                  opacity: 0.85,
+                }}
+              >
+                <span style={labelSpanStyle}>{"‹ Back"}</span>
+              </button>
+              {drilled.map((sub, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  role={sub.checked !== undefined ? "menuitemradio" : "menuitem"}
+                  aria-checked={sub.checked === true ? true : undefined}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    firePickAndDismiss(sub.onClick);
+                  }}
+                  className="pv-context-menu-item py-[8px] px-[12px] max-md:py-[18px] max-md:px-[14px]"
+                  style={itemButtonStyle(sub.danger)}
+                >
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 14,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {sub.checked === true ? <Check size={14} /> : null}
+                  </span>
+                  <span style={labelSpanStyle}>{sub.label}</span>
+                </button>
+              ))}
+            </>
+          )}
     </div>,
     document.body,
   );

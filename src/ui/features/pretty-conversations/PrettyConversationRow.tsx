@@ -151,6 +151,7 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import {
   PrettyConversationContextMenu,
   type PrettyContextMenuItem,
+  type PrettyContextMenuSubmenuItem,
 } from "./PrettyConversationContextMenu";
 
 // ─── Context-menu singleton (quick-260809-94y) ───────────────────────────────
@@ -214,6 +215,9 @@ export function PrettyConversationRow({
   onDeactivate,
   onArchive,
   onKill,
+  onMoveToProject,
+  projects = [],
+  currentProjectSlug = null,
   isWorking = null,
   isRecycling = false,
   hasQueuePending = false,
@@ -255,6 +259,35 @@ export function PrettyConversationRow({
    * ONLY on confirm=true. See PrettyConversationsPanel.handleRowKill.
    */
   onKill?: () => void;
+  /**
+   * shape-move-to-project-context-menu (2026-09-23): fired when the user
+   * picks a project (or "Remove from project") from the row's context-menu
+   * drill-in submenu. Called with the target project slug, or `null` to
+   * clear the assignment (null-clears semantic, matching setSessionProject
+   * / setRelayRoomProject). The panel wires this to the same routing
+   * handleProjectDrop uses (identity vs relay-room based on the row's own
+   * data). The panel gates this prop on !isRdp AND projects.length > 0, so
+   * absence at the row is the row's signal to omit the "Move to project"
+   * parent item entirely (hidden-not-greyed per shape).
+   */
+  onMoveToProject?: (slug: string | null) => void;
+  /**
+   * shape-move-to-project-context-menu (2026-09-23): the project list shown
+   * inside the "Move to project" submenu, in the same order the sidebar
+   * renders its project sections. Empty array is the "zero projects"
+   * signal — combined with `onMoveToProject` being provided/absent, the
+   * row's items[] gate handles hiding the parent item.
+   */
+  projects?: readonly { slug: string; displayName: string }[];
+  /**
+   * shape-move-to-project-context-menu (2026-09-23): the slug of the
+   * project this row currently belongs to, or `null` if unassigned. Drives
+   * the checkmark on the currently-assigned project inside the submenu,
+   * the "Remove from project" visibility (only shown when non-null), and
+   * the silent-no-op behavior when tapping the currently-assigned project
+   * (fires no setter, just closes the menu).
+   */
+  currentProjectSlug?: string | null;
   // Patch #137: WS-published working state for the row's (host, tmux)
   // pair. `true` = agent busy, `false` = idle, `null` = unknown
   // (backend hasn't published yet). Only `false` allows the ready-dot
@@ -1437,6 +1470,42 @@ export function PrettyConversationRow({
             // panel-level handleRowDeactivate composition (removeFromActiveSet
             // + onDeactivateRow) is untouched. The `onDeactivate` prop still
             // threads through so swipe-LEFT can call it.
+            // shape-move-to-project-context-menu (2026-09-23): "Move to project"
+            // parent item with drill-in submenu. Positioned between "Open in
+            // new window" and the destructive group (Kill / Archive). The
+            // parent item is hidden entirely (not greyed) on RDP rows and on
+            // zero-project fleets — the panel enforces both by only providing
+            // `onMoveToProject` when !isRdp AND projects.length > 0, so the
+            // gate below is single-condition. Submenu contents: project list
+            // in sidebar order with a checkmark on the currently-assigned
+            // project, followed by "Remove from project" iff the row is
+            // currently in a project (hidden otherwise). Silent no-op when
+            // tapping the row's currently-assigned project — the onClick
+            // returns without invoking the setter; the deferred onClose in
+            // PrettyConversationContextMenu still fires so the menu closes.
+            if (onMoveToProject && projects.length > 0) {
+              const submenu: PrettyContextMenuSubmenuItem[] = [];
+              for (const p of projects) {
+                const isCurrent = p.slug === currentProjectSlug;
+                submenu.push({
+                  label: p.displayName,
+                  checked: isCurrent,
+                  onClick: () => {
+                    if (!isCurrent) onMoveToProject(p.slug);
+                  },
+                });
+              }
+              if (currentProjectSlug !== null) {
+                submenu.push({
+                  label: "Remove from project",
+                  onClick: () => onMoveToProject(null),
+                });
+              }
+              items.push({
+                label: "Move to project",
+                submenu,
+              });
+            }
             // quick-260810-n3a: Kill — hard-terminates the underlying tmux
             // session on the host via POST /host/:hostId/session/kill.
             // Gated: onKill provided AND !isRdp AND no identity resolved

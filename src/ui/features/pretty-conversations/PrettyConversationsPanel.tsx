@@ -363,6 +363,17 @@ function PrettyConversationRowLive(props: {
   // context-menu item. The row's items[] builder gates on !isRdp && !identity
   // && row.targetTmuxSession so the item only appears for valid targets.
   onKill?: () => void;
+  // shape-move-to-project-context-menu (2026-09-23): three props for the
+  // context-menu drill-in that lets a user assign a row's project without
+  // dragging. Forwarded verbatim to PrettyConversationRow via {...rowProps}.
+  // onMoveToProject is UNDEFINED for RDP rows AND for zero-project fleets —
+  // the row's items[] builder gates on its presence to hide the parent item
+  // entirely (hidden-not-grey). projects + currentProjectSlug drive the
+  // submenu's rendering (list order, checkmark, "Remove from project"
+  // visibility).
+  onMoveToProject?: (slug: string | null) => void;
+  projects?: readonly { slug: string; displayName: string }[];
+  currentProjectSlug?: string | null;
   // quick-260802-pq2: onSwipeOpenChange / forceClosed removed — the row's
   // swipe machinery was retired; mobile now uses long-press → context menu.
   inActiveSet: boolean;
@@ -1798,6 +1809,102 @@ export function PrettyConversationsPanel({
     [viewingUserMxid],
   );
 
+  // shape-move-to-project-context-menu (2026-09-23): sidebar-order project
+  // list piped into every non-RDP row's "Move to project" submenu. Same
+  // ordering the sidebar renders its project sections in (projectSections
+  // is the authoritative order from the derived selector) — the menu's
+  // mental map matches the sidebar's. Displayed even for the currently-
+  // assigned project (checkmarked in place), so the ordering does not
+  // change based on which row opened the menu.
+  const submenuProjects = useMemo(
+    () =>
+      projectSections.map((s) => ({
+        slug: s.slug,
+        displayName: s.displayName,
+      })),
+    [projectSections],
+  );
+
+  // shape-move-to-project-context-menu (2026-09-23): context-menu path for
+  // setting a row's project assignment. Mirrors handleProjectDrop's routing
+  // (relay-room vs identity; RDP refusal; identityKey fallback via
+  // sessionMatchKey) but also accepts a null slug for the "Remove from
+  // project" leaf. Same-project taps arrive here filtered out — the row
+  // pre-guards the currently-assigned project as a silent no-op before
+  // firing the callback (see PrettyConversationRow.tsx items[] gate).
+  const handleRowMoveToProject = useCallback(
+    (row: ConversationRowShape, slug: string | null) => {
+      if (row.rdpHostRow === true) return; // defense-in-depth
+      // Relay-room path — roomId is the carrier (matches DnD payload's
+      // `matrixRoomId` field).
+      const roomId = row.roomId;
+      if (typeof roomId === "string" && roomId.length > 0) {
+        if (!viewingUserMxid) {
+          console.warn(
+            `[project-menu] skipping relay-room move — viewing user mxid not yet resolved (roomId=${roomId})`,
+          );
+          return;
+        }
+        console.info(
+          `[project-menu] slug=${slug ?? "(null)"} kind=relay-room roomId=${roomId}`,
+        );
+        setRelayRoomProject(roomId, viewingUserMxid, slug).catch(
+          (err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[project-menu] setRelayRoomProject failed: ${msg}`);
+          },
+        );
+        return;
+      }
+      // Identity path — need host + identityKey. identityKey resolution
+      // prefers the identities-store lookup (real identityKey from the
+      // Identity object) and falls back to sessionMatchKey(targetTmuxSession)
+      // ?? targetTmuxSession, matching handleProjectDrop / handleFlatMiddleDrop
+      // when their DnD payload didn't carry a real identityKey.
+      if (!row.host) return;
+      const hostIdNum = parseInt(row.host.id, 10);
+      if (!Number.isFinite(hostIdNum) || hostIdNum <= 0) return;
+      const sessionKey =
+        (row.targetTmuxSession
+          ? sessionMatchKey(row.targetTmuxSession) ?? row.targetTmuxSession
+          : null) ?? null;
+      const scopedId =
+        sessionKey !== null
+          ? identitiesByHostKey.get(`${hostIdNum}::${sessionKey}`)
+          : undefined;
+      const globalId =
+        sessionKey !== null ? identitiesByKey.get(sessionKey) : undefined;
+      const identityKey =
+        scopedId?.identityKey ?? globalId?.identityKey ?? sessionKey;
+      if (!identityKey) {
+        console.warn(
+          `[project-menu] identity row missing identityKey (rowId=${row.id})`,
+        );
+        return;
+      }
+      console.info(
+        `[project-menu] slug=${slug ?? "(null)"} kind=identity hostId=${hostIdNum} key=${identityKey}`,
+      );
+      setSessionProject(hostIdNum, identityKey, slug).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[project-menu] setSessionProject failed: ${msg}`);
+      });
+    },
+    [viewingUserMxid, identitiesByHostKey, identitiesByKey],
+  );
+
+  // Returns the row-scoped onMoveToProject callback, or undefined to hide
+  // the "Move to project" affordance entirely (RDP row OR zero projects —
+  // both are hide-not-grey per shape). Called at each row render site.
+  const rowMoveToProjectCallback = useCallback(
+    (row: ConversationRowShape): ((slug: string | null) => void) | undefined => {
+      if (row.rdpHostRow === true) return undefined;
+      if (submenuProjects.length === 0) return undefined;
+      return (slug: string | null) => handleRowMoveToProject(row, slug);
+    },
+    [submenuProjects.length, handleRowMoveToProject],
+  );
+
   const [isFlatMiddleDragOver, setIsFlatMiddleDragOver] = useState(false);
 
   useEffect(() => {
@@ -2482,6 +2589,9 @@ export function PrettyConversationsPanel({
                       ? () => handleArchive(row)
                       : undefined
                   }
+                  onMoveToProject={rowMoveToProjectCallback(row)}
+                  projects={submenuProjects}
+                  currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                   inActiveSet={activeSet.has(row.id)}
                   sessionKey={sessionWorkingKey(row)}
                   subtitleMode="identityTitle"
@@ -2536,6 +2646,9 @@ export function PrettyConversationsPanel({
                             ? () => handleArchive(row)
                             : undefined
                         }
+                        onMoveToProject={rowMoveToProjectCallback(row)}
+                        projects={submenuProjects}
+                        currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                         inActiveSet={activeSet.has(row.id)}
                         sessionKey={sessionWorkingKey(row)}
                         subtitleMode="identityTitle"
@@ -2626,6 +2739,9 @@ export function PrettyConversationsPanel({
                         ? () => handleArchive(row)
                         : undefined
                     }
+                    onMoveToProject={rowMoveToProjectCallback(row)}
+                    projects={submenuProjects}
+                    currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                     inActiveSet={activeSet.has(row.id)}
                     sessionKey={sessionWorkingKey(row)}
                     subtitleMode="identityTitle"

@@ -3643,3 +3643,330 @@ describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Pl
   // Phase 104 Plan 03 alongside the bounty-count wire. The trapped-work
   // indicator is now the sole avatar-corner affordance.
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// "Move to project" menu item (shape-move-to-project-context-menu, 2026-09-23)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Row's items[] builder gates the "Move to project" parent on
+//   onMoveToProject !== undefined  &&  projects.length > 0
+// The panel enforces both — passes onMoveToProject as UNDEFINED for RDP rows
+// AND when the fleet has zero projects — so a single-condition gate at the
+// row is enough. When present, the item is a submenu-parent that carries
+// projects as menuitemradio children (checkmark on the currently-assigned
+// project) plus a terminal "Remove from project" only when the row IS
+// currently in a project.
+
+describe("PrettyConversationRow: Move to project menu item (shape-move-to-project-context-menu)", () => {
+  it("desktop non-RDP row, onMoveToProject provided, projects non-empty → context menu contains 'Move to project' as a submenu parent (aria-haspopup=menu)", () => {
+    currentIdentity = null;
+    const onMoveToProject = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onMoveToProject={onMoveToProject}
+        projects={[
+          { slug: "foo", displayName: "Foo" },
+          { slug: "bar", displayName: "Bar" },
+        ]}
+        currentProjectSlug={null}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const item = within(menu).getByRole("menuitem", {
+      name: /move to project/i,
+    });
+    expect(item).toBeTruthy();
+    expect(item.getAttribute("aria-haspopup")).toBe("menu");
+  });
+
+  it("onMoveToProject undefined → 'Move to project' NOT in menu (panel enforces RDP/zero-projects gate by omitting the prop)", () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        projects={[{ slug: "foo", displayName: "Foo" }]}
+        currentProjectSlug={null}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(
+      within(menu).queryByRole("menuitem", { name: /move to project/i }),
+    ).toBeNull();
+  });
+
+  it("projects empty → 'Move to project' NOT in menu (defense-in-depth against panel forgetting the gate)", () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onMoveToProject={vi.fn()}
+        projects={[]}
+        currentProjectSlug={null}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    expect(
+      within(menu).queryByRole("menuitem", { name: /move to project/i }),
+    ).toBeNull();
+  });
+
+  it("submenu lists projects in the provided order with the currently-assigned project marked (menuitemradio + aria-checked=true)", () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onMoveToProject={vi.fn()}
+        projects={[
+          { slug: "foo", displayName: "Foo" },
+          { slug: "bar", displayName: "Bar" },
+          { slug: "baz", displayName: "Baz" },
+        ]}
+        currentProjectSlug="bar"
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: /move to project/i }),
+    );
+    const foo = screen.getByRole("menuitemradio", { name: /^foo$/i });
+    const bar = screen.getByRole("menuitemradio", { name: /^bar$/i });
+    const baz = screen.getByRole("menuitemradio", { name: /^baz$/i });
+    expect(bar.getAttribute("aria-checked")).toBe("true");
+    expect(foo.getAttribute("aria-checked")).not.toBe("true");
+    expect(baz.getAttribute("aria-checked")).not.toBe("true");
+  });
+
+  it("Remove from project appears when currentProjectSlug is non-null", () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onMoveToProject={vi.fn()}
+        projects={[{ slug: "foo", displayName: "Foo" }]}
+        currentProjectSlug="foo"
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: /move to project/i }),
+    );
+    expect(
+      screen.getByRole("menuitem", { name: /remove from project/i }),
+    ).toBeTruthy();
+  });
+
+  it("Remove from project is HIDDEN when currentProjectSlug is null (hidden-not-greyed)", () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onMoveToProject={vi.fn()}
+        projects={[{ slug: "foo", displayName: "Foo" }]}
+        currentProjectSlug={null}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: /move to project/i }),
+    );
+    expect(
+      screen.queryByRole("menuitem", { name: /remove from project/i }),
+    ).toBeNull();
+  });
+
+  it("picking a non-current project fires onMoveToProject with that slug", () => {
+    currentIdentity = null;
+    const onMoveToProject = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onMoveToProject={onMoveToProject}
+        projects={[
+          { slug: "foo", displayName: "Foo" },
+          { slug: "bar", displayName: "Bar" },
+        ]}
+        currentProjectSlug={null}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: /move to project/i }),
+    );
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^bar$/i }));
+    expect(onMoveToProject).toHaveBeenCalledTimes(1);
+    expect(onMoveToProject).toHaveBeenCalledWith("bar");
+  });
+
+  it("picking the currently-assigned project is a silent no-op (no setter fires)", () => {
+    currentIdentity = null;
+    const onMoveToProject = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onMoveToProject={onMoveToProject}
+        projects={[
+          { slug: "foo", displayName: "Foo" },
+          { slug: "bar", displayName: "Bar" },
+        ]}
+        currentProjectSlug="foo"
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: /move to project/i }),
+    );
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^foo$/i }));
+    expect(onMoveToProject).not.toHaveBeenCalled();
+  });
+
+  it("picking Remove from project fires onMoveToProject with null (null-clears semantic)", () => {
+    currentIdentity = null;
+    const onMoveToProject = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onMoveToProject={onMoveToProject}
+        projects={[{ slug: "foo", displayName: "Foo" }]}
+        currentProjectSlug="foo"
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: /move to project/i }),
+    );
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /remove from project/i }),
+    );
+    expect(onMoveToProject).toHaveBeenCalledTimes(1);
+    expect(onMoveToProject).toHaveBeenCalledWith(null);
+  });
+
+  it("'Move to project' sits between 'Open in new window' and 'Kill' in menu order", () => {
+    currentIdentity = null;
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: "claude-abc" })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        onKill={vi.fn()}
+        onArchive={vi.fn()}
+        onMoveToProject={vi.fn()}
+        projects={[{ slug: "foo", displayName: "Foo" }]}
+        currentProjectSlug={null}
+      />,
+    );
+    const wrapper = container.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const menuitems = within(menu).getAllByRole("menuitem");
+    const labels = menuitems.map((m) => (m.textContent ?? "").trim());
+    const iOpen = labels.findIndex((l) => /open in new window/i.test(l));
+    const iMove = labels.findIndex((l) => /move to project/i.test(l));
+    const iKill = labels.findIndex((l) => /^kill$/i.test(l));
+    const iArchive = labels.findIndex((l) => /^archive$/i.test(l));
+    expect(iOpen).toBeGreaterThan(-1);
+    expect(iMove).toBeGreaterThan(-1);
+    expect(iKill).toBeGreaterThan(-1);
+    expect(iArchive).toBeGreaterThan(-1);
+    expect(iMove).toBeGreaterThan(iOpen);
+    expect(iMove).toBeLessThan(iKill);
+    expect(iKill).toBeLessThan(iArchive);
+  });
+});

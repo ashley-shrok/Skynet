@@ -444,3 +444,254 @@ describe("PrettyConversationContextMenu: unmount during flash-delay", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests 12+ — Drill-in submenu machinery (shape-move-to-project-context-menu)
+// ─────────────────────────────────────────────────────────────────────────────
+// A menu item may carry a `submenu` field instead of a direct `onClick`. When
+// picked, it swaps the menu content in place — the outer items disappear,
+// replaced by a "‹ Back" row followed by the child items. Same interaction
+// model on desktop and mobile: click/tap to enter, no hover-to-open. The back
+// row is the ONLY way to return to the outer view; tap-outside dismisses the
+// whole menu (one-level dismiss). Submenu items may set `checked: true` to
+// render a check icon on the left (used for the currently-assigned project).
+
+describe("PrettyConversationContextMenu: drill-in submenu — swap + back", () => {
+  it("clicking a submenu-parent swaps the menu content to show the child items and hides the outer items", () => {
+    const items: PrettyContextMenuItem[] = [
+      { label: "Pin", onClick: vi.fn() },
+      {
+        label: "Move to project",
+        submenu: [
+          { label: "Foo", onClick: vi.fn() },
+          { label: "Bar", onClick: vi.fn() },
+        ],
+      },
+      { label: "Archive", onClick: vi.fn(), danger: true },
+    ];
+    render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={items}
+        onClose={vi.fn()}
+      />,
+    );
+    // Outer state: Pin + Move to project + Archive present, no back row.
+    expect(screen.getByRole("menuitem", { name: /^pin$/i })).toBeTruthy();
+    expect(
+      screen.getByRole("menuitem", { name: /move to project/i }),
+    ).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /archive/i })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /back/i })).toBeNull();
+
+    // Drill in.
+    fireEvent.click(screen.getByRole("menuitem", { name: /move to project/i }));
+
+    // Outer items gone; submenu items + back row present.
+    expect(screen.queryByRole("menuitem", { name: /^pin$/i })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /archive/i })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: /back/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /foo/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /bar/i })).toBeTruthy();
+  });
+
+  it("clicking the back-row returns to the outer view (does NOT fire onClose)", () => {
+    const onClose = vi.fn();
+    const items: PrettyContextMenuItem[] = [
+      { label: "Pin", onClick: vi.fn() },
+      {
+        label: "Move to project",
+        submenu: [{ label: "Foo", onClick: vi.fn() }],
+      },
+    ];
+    render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={items}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /move to project/i }));
+    // In drilled view. Click back.
+    fireEvent.click(screen.getByRole("menuitem", { name: /back/i }));
+    // Outer items are back; back row is gone; onClose was NOT called.
+    expect(screen.getByRole("menuitem", { name: /^pin$/i })).toBeTruthy();
+    expect(
+      screen.getByRole("menuitem", { name: /move to project/i }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /back/i })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("submenu-parent item does NOT fire its own onClick (submenu-parent has no onClick)", () => {
+    // Regression guard: the discriminated union means a submenu-parent has no
+    // `onClick` at all. Clicking it should only swap the content — never
+    // attempt to invoke a non-existent action, and never dismiss the menu.
+    const onClose = vi.fn();
+    const childClick = vi.fn();
+    const items: PrettyContextMenuItem[] = [
+      {
+        label: "Move to project",
+        submenu: [{ label: "Foo", onClick: childClick }],
+      },
+    ];
+    render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={items}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /move to project/i }));
+    expect(childClick).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("PrettyConversationContextMenu: drill-in submenu — dismiss semantics", () => {
+  it("outside-click while drilled dismisses the whole menu (one-level dismiss, not just back to outer)", () => {
+    const onClose = vi.fn();
+    const items: PrettyContextMenuItem[] = [
+      {
+        label: "Move to project",
+        submenu: [{ label: "Foo", onClick: vi.fn() }],
+      },
+    ];
+    render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={items}
+        onClose={onClose}
+      />,
+    );
+    // Drill in first.
+    fireEvent.click(screen.getByRole("menuitem", { name: /move to project/i }));
+    // Outside-click.
+    fireEvent.click(document.body);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape while drilled dismisses the whole menu (Escape is not a back affordance)", () => {
+    const onClose = vi.fn();
+    const items: PrettyContextMenuItem[] = [
+      {
+        label: "Move to project",
+        submenu: [{ label: "Foo", onClick: vi.fn() }],
+      },
+    ];
+    render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={items}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /move to project/i }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PrettyConversationContextMenu: drill-in submenu — item pick", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("clicking a submenu item fires its onClick synchronously and onClose after the flash delay", () => {
+    const fooClick = vi.fn();
+    const barClick = vi.fn();
+    const onClose = vi.fn();
+    const items: PrettyContextMenuItem[] = [
+      {
+        label: "Move to project",
+        submenu: [
+          { label: "Foo", onClick: fooClick },
+          { label: "Bar", onClick: barClick },
+        ],
+      },
+    ];
+    render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={items}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /move to project/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /foo/i }));
+    // onClick synchronous; sibling not called.
+    expect(fooClick).toHaveBeenCalledTimes(1);
+    expect(barClick).not.toHaveBeenCalled();
+    // onClose deferred by 120ms flash.
+    expect(onClose).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(120);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PrettyConversationContextMenu: drill-in submenu — checked rendering", () => {
+  it("a submenu item with checked=true renders as menuitemradio with aria-checked=true; unchecked items are plain menuitem", () => {
+    const items: PrettyContextMenuItem[] = [
+      {
+        label: "Move to project",
+        submenu: [
+          { label: "Foo", onClick: vi.fn(), checked: false },
+          { label: "Bar", onClick: vi.fn(), checked: true },
+          { label: "Baz", onClick: vi.fn() }, // no checked field → plain menuitem
+        ],
+      },
+    ];
+    render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={items}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /move to project/i }));
+    // Foo: menuitemradio with aria-checked absent-or-false (checked=false).
+    const foo = screen.getByRole("menuitemradio", { name: /foo/i });
+    expect(foo.getAttribute("aria-checked")).not.toBe("true");
+    // Bar: menuitemradio with aria-checked=true.
+    const bar = screen.getByRole("menuitemradio", { name: /bar/i, checked: true });
+    expect(bar).toBeTruthy();
+    // Baz: plain menuitem (checked field absent).
+    const baz = screen.getByRole("menuitem", { name: /baz/i });
+    expect(baz.getAttribute("aria-checked")).toBeNull();
+  });
+});
+
+describe("PrettyConversationContextMenu: submenu-parent has aria-haspopup", () => {
+  it("submenu-parent item carries aria-haspopup=menu (accessibility affordance for the drill-in)", () => {
+    const items: PrettyContextMenuItem[] = [
+      { label: "Pin", onClick: vi.fn() },
+      {
+        label: "Move to project",
+        submenu: [{ label: "Foo", onClick: vi.fn() }],
+      },
+    ];
+    render(
+      <PrettyConversationContextMenu
+        x={100}
+        y={100}
+        items={items}
+        onClose={vi.fn()}
+      />,
+    );
+    const parent = screen.getByRole("menuitem", { name: /move to project/i });
+    expect(parent.getAttribute("aria-haspopup")).toBe("menu");
+    // Non-submenu items should NOT carry the attribute.
+    const pin = screen.getByRole("menuitem", { name: /^pin$/i });
+    expect(pin.getAttribute("aria-haspopup")).toBeNull();
+  });
+});
