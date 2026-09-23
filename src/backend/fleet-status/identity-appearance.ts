@@ -214,11 +214,29 @@ export function resolveIdentityAppearance(args: {
   const coordinator =
     typeof cosmetics.coordinator === "boolean" ? cosmetics.coordinator : false;
 
-  // --- roleDefaults: pass roleCosmetics through verbatim ---
+  // --- roleDefaults: pass roleCosmetics through, MINUS the `users:` gate list ---
   // null  → no role resolvable (identity has no role: frontmatter, or role read failed)
   // {}    → role exists but has no cosmetics
   // {...} → role's raw cosmetic values (frontend uses for inherit-vs-override display)
-  const roleDefaults = roleCosmetics;
+  //
+  // Phase 129 HIGH-1 fix (2026-09-23): strip `users:` gate list from the wire
+  // projection — the field is gate-only, MUST NOT surface in response body.
+  // Shape §"no evidence in the UI" promise for cohabitants: role membership
+  // in the `users:` list is not something a caller should be able to discover
+  // via a network trace. Parallel to the raw/narrowed split in
+  // `roles-list-for-host.ts` (rawCosByName gate-only vs. cosByName wire-only).
+  //
+  // Consumed by `publicIdentity()` in `database/routes/identities.ts` under
+  // the `roleDefaults` key of the GET /identities response body — including
+  // that field's `users:` list here would leak "which cohabitants share this
+  // role" to any caller who can see the identity.
+  const roleDefaults =
+    roleCosmetics === null
+      ? null
+      : (() => {
+          const { users: _users, ...rest } = roleCosmetics;
+          return rest;
+        })();
 
   // --- avatarUrl: deterministic from (identityKey, hostId) ---
   const avatarUrl = `/identities/${identityKey}/avatar?hostId=${hostId}`;

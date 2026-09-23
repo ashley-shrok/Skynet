@@ -279,6 +279,44 @@ describe("roleDefaults — three-valued semantics", () => {
     }));
     expect(result.roleDefaults).toEqual(rc);
   });
+
+  // Phase 129 HIGH-1 fix (2026-09-23): the `users:` gate list on the role
+  // side MUST be stripped from roleDefaults before it lands on the wire.
+  // Leaking role membership through `GET /identities` would violate the
+  // shape §"no evidence in the UI" promise for cohabitants (any caller with
+  // DevTools could see "role X is scoped to me + Zoe" purely from the JSON
+  // body). Parallel to the raw/narrowed split in roles-list-for-host.ts.
+  it("roleCosmetics with `users` list → roleDefaults strips `users` from wire projection (HIGH-1)", () => {
+    const rc: RawCosmetics = {
+      title: "Skynet",
+      colorHue: 324,
+      avatar: "box-maintainer.webp",
+      users: ["ashley", "zoe"],
+    };
+    const result = resolveIdentityAppearance(makeArgs({
+      roleCosmetics: rc,
+    }));
+    // roleDefaults MUST NOT expose the `users:` gate list.
+    expect(result.roleDefaults).not.toHaveProperty("users");
+    // All other cosmetic fields still pass through verbatim.
+    expect(result.roleDefaults).toEqual({
+      title: "Skynet",
+      colorHue: 324,
+      avatar: "box-maintainer.webp",
+    });
+    // Also verify the resolved appearance itself does not echo `users`
+    // anywhere else on the returned shape (spot-check for future drift).
+    expect(result as unknown as Record<string, unknown>).not.toHaveProperty("users");
+  });
+
+  it("roleCosmetics with ONLY `users` list → roleDefaults becomes {} (users stripped, no other fields)", () => {
+    const rc: RawCosmetics = { users: ["ashley"] };
+    const result = resolveIdentityAppearance(makeArgs({
+      roleCosmetics: rc,
+    }));
+    expect(result.roleDefaults).toEqual({});
+    expect(result.roleDefaults).not.toHaveProperty("users");
+  });
 });
 
 // ---------------------------------------------------------------------------
