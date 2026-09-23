@@ -855,298 +855,317 @@ if (process.env.VITEST !== "true") {
       // --- Phase 34-04: SSH-poll orchestrator ---
 
       /**
-       * Query the DB for identity-hosting hosts — hosts that have SSH enabled.
+       * Factory: build a fleet-status watcher scoped to one Skynet user.
        *
-       * Phase 39 D-03 (GATE2-03): decrypts each host's credentials via the
-       * canonical resolveHostById(id, userId) path so ssh2 receives PLAINTEXT
-       * key/password material. Previously this function read raw drizzle
-       * selects on hostsTable.key/password/keyPassword — Skynet's per-record
-       * ciphertext, which ssh2 rejects as invalid key (the "all hosts
-       * unreachable" pattern in the logs). See 39-CONTEXT §Root cause.
+       * Each call returns an independent { start, stop } handle over its own
+       * hostClients Map, hookInstallAttempted Set, and orchestrator instance.
+       * The `userId` closure parameter is the decrypt subject for the
+       * identity-hosting host list — the watcher only sees hosts this user
+       * can decrypt (owns directly, or has a shared credential for).
        *
-       * The subject userId is the currently-subscribing user — captured into
-       * `currentSubscriberUserId` by the registry.onFirstSubscriber callback
-       * below. orchestrator.start() only runs inside that callback, so at the
-       * time this function is called `currentSubscriberUserId` is always set.
+       * 2026-09-23 refactor (multi-tenant-fleet-status-orchestrator shape,
+       * chunk A of 4): factory extracted. Currently still called ONCE per
+       * global first-subscriber (behavior byte-identical to pre-refactor).
+       * A follow-up commit adds per-user lifecycle events to the registry;
+       * a further commit switches this wiring to per-user so N concurrent
+       * subscribers each get their own watcher instance.
        */
-      async function listIdentityHostingHosts() {
-        // Defence-in-depth: should never happen because start() lives behind
-        // onFirstSubscriber which assigns currentSubscriberUserId first.
-        if (!currentSubscriberUserId) {
-          systemLogger.warn(
-            "Fleet-status: listIdentityHostingHosts called with no active subscriber userId",
-            {
-              operation: "fleet_status_host_list_no_user",
-            },
-          );
-          return [];
+      function createUserFleetStatusWatcher(userId: string): {
+        start: () => Promise<void>;
+        stop: () => void;
+      } {
+        // Long-lived ssh2 Client connections keyed by hostId — per-user pool.
+        const hostClients = new Map<string, import("ssh2").Client>();
+        // Phase 39 D-05 (GATE2-05): host.id strings that have already had
+        // installStopHook invoked during THIS watcher's lifecycle. Cleared
+        // on stop() so a subsequent watcher re-attempts install (idempotent
+        // per RESEARCH §Q5). Per-user scope — two concurrent watchers on
+        // the same host will each attempt install once.
+        const hookInstallAttempted = new Set<string>();
+
+        /**
+         * Query the DB for identity-hosting hosts — hosts that have SSH enabled.
+         *
+         * Phase 39 D-03 (GATE2-03): decrypts each host's credentials via the
+         * canonical resolveHostById(id, userId) path so ssh2 receives PLAINTEXT
+         * key/password material. The subject userId is the factory's closure
+         * param, captured at watcher construction — no shared mutable state.
+         */
+        async function listIdentityHostingHosts() {
+          try {
+            const db = getDb();
+            const rows = await db
+              .select({
+                id: hostsTable.id,
+                name: hostsTable.name,
+                // Phase 72 Plan 05 — project the runs_fleet_substrate opt-in
+                // column added by Plan 02 so the sweep hook in
+                // ssh-poll-orchestrator.ts sees the operator's flag on each
+                // returned record. Normalized to strict boolean by
+                // projectRunsFleetSubstrate in the rows.map below.
+                runsFleetSubstrate: hostsTable.runsFleetSubstrate,
+              })
+              .from(hostsTable)
+              .where(eq(hostsTable.enableSsh, true));
+
+            const resolved = await Promise.all(
+              rows.map(async (row) => {
+                const host = await resolveHostById(row.id, userId);
+                if (!host) return null;
+                return {
+                  id: String(row.id),
+                  name: row.name ?? String(row.id),
+                  // Phase 72 Plan 05 — fail-closed normalization via the
+                  // module-scope helper (drizzle boolean mode normally hands
+                  // back true/false but the helper accepts the wider union
+                  // to survive legacy NULL rows + raw-SQL escape hatches).
+                  runsFleetSubstrate: projectRunsFleetSubstrate(row),
+                  // Decrypted SSHHost record — connectOneShot consumes this directly
+                  // (matches the canonical sessions.ts:70-75 pattern).
+                  _connDetails: host as unknown as Record<string, unknown>,
+                };
+              }),
+            );
+            return resolved.filter(
+              (
+                h,
+              ): h is {
+                id: string;
+                name: string;
+                runsFleetSubstrate: boolean;
+                _connDetails: Record<string, unknown>;
+              } => h !== null,
+            );
+          } catch (err) {
+            systemLogger.warn("Fleet-status: identity-host list query failed", {
+              operation: "fleet_status_host_list_failed",
+              error: err instanceof Error ? err.message : "unknown",
+            });
+            return [];
+          }
         }
-        const userId = currentSubscriberUserId;
 
-        try {
-          const db = getDb();
-          const rows = await db
-            .select({
-              id: hostsTable.id,
-              name: hostsTable.name,
-              // Phase 72 Plan 05 — project the runs_fleet_substrate opt-in
-              // column added by Plan 02 so the sweep hook in
-              // ssh-poll-orchestrator.ts sees the operator's flag on each
-              // returned record. Normalized to strict boolean by
-              // projectRunsFleetSubstrate in the rows.map below.
-              runsFleetSubstrate: hostsTable.runsFleetSubstrate,
-            })
-            .from(hostsTable)
-            .where(eq(hostsTable.enableSsh, true));
-
-          const resolved = await Promise.all(
-            rows.map(async (row) => {
-              const host = await resolveHostById(row.id, userId);
-              if (!host) return null;
-              return {
-                id: String(row.id),
-                name: row.name ?? String(row.id),
-                // Phase 72 Plan 05 — fail-closed normalization via the
-                // module-scope helper (drizzle boolean mode normally hands
-                // back true/false but the helper accepts the wider union
-                // to survive legacy NULL rows + raw-SQL escape hatches).
-                runsFleetSubstrate: projectRunsFleetSubstrate(row),
-                // Decrypted SSHHost record — connectOneShot consumes this directly
-                // (matches the canonical sessions.ts:70-75 pattern).
-                _connDetails: host as unknown as Record<string, unknown>,
-              };
-            }),
-          );
-          return resolved.filter(
-            (
-              h,
-            ): h is {
-              id: string;
-              name: string;
-              runsFleetSubstrate: boolean;
-              _connDetails: Record<string, unknown>;
-            } => h !== null,
-          );
-        } catch (err) {
-          systemLogger.warn("Fleet-status: identity-host list query failed", {
-            operation: "fleet_status_host_list_failed",
-            error: err instanceof Error ? err.message : "unknown",
-          });
-          return [];
-        }
-      }
-
-      // Long-lived ssh2 Client connections keyed by hostId
-      const hostClients = new Map<string, import("ssh2").Client>();
-      // Phase 39 D-01/D-03: the userId of the currently-subscribed browser
-      // session. Set by registry.onFirstSubscriber; cleared by
-      // registry.onLastUnsubscriber. Used as the subject for per-host
-      // resolveHostById decrypt inside listIdentityHostingHosts.
-      let currentSubscriberUserId: string | null = null;
-      // Phase 39 D-05 (GATE2-05): host.id strings that have already had
-      // installStopHook invoked during THIS lifecycle. Cleared on
-      // registry.onLastUnsubscriber alongside hostClients.clear() so a
-      // subsequent poller session re-attempts install (idempotent per
-      // RESEARCH §Q5).
-      const hookInstallAttempted = new Set<string>();
-
-      async function acquireSshChannel(host: {
-        id: string;
-        name: string;
-        _connDetails?: Record<string, unknown>;
-      }) {
-        // Local-host fast path — bypass SSH entirely. See acquireLocalChannel
-        // docblock. Returns a fresh child_process-backed adapter each call
-        // (no persistent connection to cache, and spawning bash is cheap).
-        // Stop-hook install (maybeInstallStopHook) is intentionally skipped
-        // here — it writes into ~/.claude/ via the channel and would end up
-        // creating root-owned files under the host's home via the bind-mount
-        // (container runs as uid 0). Local hosts' stop-hook lifecycle is
-        // out of scope for this fix; if it's needed later, wire it through
-        // the substrate distributor's local-fleet-install pipeline instead.
-        if (isLocalHostId(Number(host.id))) {
-          return acquireLocalChannel();
-        }
-        try {
-          // Return existing live client if available
-          const existing = hostClients.get(host.id);
-          if (existing) {
-            // Health-check: try a simple command
-            try {
-              // Bounty b31a5c8e (Phase 101): per-host semaphore now shared via
-              // registry — fleet-status + substrate + route producers running on
-              // the same host now share a single 8-slot pool. Wilma-incident
-              // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
-              const sem = getHostSemaphore(host.id);
-              const channel = {
-                exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
-                  try {
-                    return await sem.run(async () =>
-                      stdinBody === undefined
-                        ? execCommand(existing, command)
-                        : execCommandWithStdin(existing, command, stdinBody),
-                    );
-                  } catch {
-                    return null;
-                  }
-                },
-              };
-              // Quick health probe — routed through the SAME semaphore so
-              // it cannot bypass the cap on a saturated connection.
-              await sem.run(async () => execCommand(existing, "echo ok"));
-              return channel;
-            } catch {
-              // Connection dead — remove and reconnect
-              hostClients.delete(host.id);
+        async function acquireSshChannel(host: {
+          id: string;
+          name: string;
+          _connDetails?: Record<string, unknown>;
+        }) {
+          // Local-host fast path — bypass SSH entirely. See acquireLocalChannel
+          // docblock. Returns a fresh child_process-backed adapter each call
+          // (no persistent connection to cache, and spawning bash is cheap).
+          // Stop-hook install (maybeInstallStopHook) is intentionally skipped
+          // here — it writes into ~/.claude/ via the channel and would end up
+          // creating root-owned files under the host's home via the bind-mount
+          // (container runs as uid 0). Local hosts' stop-hook lifecycle is
+          // out of scope for this fix; if it's needed later, wire it through
+          // the substrate distributor's local-fleet-install pipeline instead.
+          if (isLocalHostId(Number(host.id))) {
+            return acquireLocalChannel();
+          }
+          try {
+            // Return existing live client if available
+            const existing = hostClients.get(host.id);
+            if (existing) {
+              // Health-check: try a simple command
               try {
-                existing.end();
+                // Bounty b31a5c8e (Phase 101): per-host semaphore now shared via
+                // registry — fleet-status + substrate + route producers running on
+                // the same host now share a single 8-slot pool. Wilma-incident
+                // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
+                const sem = getHostSemaphore(host.id);
+                const channel = {
+                  exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
+                    try {
+                      return await sem.run(async () =>
+                        stdinBody === undefined
+                          ? execCommand(existing, command)
+                          : execCommandWithStdin(existing, command, stdinBody),
+                      );
+                    } catch {
+                      return null;
+                    }
+                  },
+                };
+                // Quick health probe — routed through the SAME semaphore so
+                // it cannot bypass the cap on a saturated connection.
+                await sem.run(async () => execCommand(existing, "echo ok"));
+                return channel;
               } catch {
-                // ignore
+                // Connection dead — remove and reconnect
+                hostClients.delete(host.id);
+                try {
+                  existing.end();
+                } catch {
+                  // ignore
+                }
               }
             }
-          }
 
-          // Open a new long-lived connection
-          const connDetails = (
-            host as unknown as { _connDetails: Record<string, unknown> }
-          )._connDetails;
-          if (!connDetails) {
+            // Open a new long-lived connection
+            const connDetails = (
+              host as unknown as { _connDetails: Record<string, unknown> }
+            )._connDetails;
+            if (!connDetails) {
+              return null;
+            }
+
+            const client = await connectOneShot(
+              connDetails as Parameters<typeof connectOneShot>[0],
+              10000,
+            );
+            hostClients.set(host.id, client);
+
+            // Auto-remove on disconnect
+            client.on("end", () => hostClients.delete(host.id));
+            client.on("close", () => hostClients.delete(host.id));
+            client.on("error", () => hostClients.delete(host.id));
+
+            // Bounty b31a5c8e (Phase 101): per-host semaphore now shared via
+            // registry — fleet-status + substrate + route producers running on
+            // the same host now share a single 8-slot pool. Wilma-incident
+            // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
+            const sem = getHostSemaphore(host.id);
+            const channelAdapter: SshChannel = {
+              exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
+                try {
+                  return await sem.run(async () =>
+                    stdinBody === undefined
+                      ? execCommand(client, command)
+                      : execCommandWithStdin(client, command, stdinBody),
+                  );
+                } catch {
+                  return null;
+                }
+              },
+            };
+
+            // Phase 39 D-05 (GATE2-05): fire-and-forget blind Stop-hook
+            // install on FIRST successful new-client acquire per host per
+            // lifecycle. Fires the SAME channelAdapter that we're about to
+            // return to the orchestrator — installStopHook uses it for the
+            // heredoc-quoted script drop + settings.json merge. Install
+            // failures are logged (warn) but never block acquire — the
+            // SshChannel is still returned so the poll cycle proceeds.
+            maybeInstallStopHook(
+              host.id,
+              channelAdapter,
+              hookInstallAttempted,
+              { installStopHook, systemLogger },
+            );
+
+            return channelAdapter;
+          } catch (err) {
+            systemLogger.warn("Fleet-status: SSH channel acquire failed", {
+              operation: "fleet_status_host_ssh_unreachable",
+              fleetHostId: host.id,
+              error: err instanceof Error ? err.message : "unknown",
+            });
             return null;
           }
-
-          const client = await connectOneShot(
-            connDetails as Parameters<typeof connectOneShot>[0],
-            10000,
-          );
-          hostClients.set(host.id, client);
-
-          // Auto-remove on disconnect
-          client.on("end", () => hostClients.delete(host.id));
-          client.on("close", () => hostClients.delete(host.id));
-          client.on("error", () => hostClients.delete(host.id));
-
-          // Bounty b31a5c8e (Phase 101): per-host semaphore now shared via
-          // registry — fleet-status + substrate + route producers running on
-          // the same host now share a single 8-slot pool. Wilma-incident
-          // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
-          const sem = getHostSemaphore(host.id);
-          const channelAdapter: SshChannel = {
-            exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
-              try {
-                return await sem.run(async () =>
-                  stdinBody === undefined
-                    ? execCommand(client, command)
-                    : execCommandWithStdin(client, command, stdinBody),
-                );
-              } catch {
-                return null;
-              }
-            },
-          };
-
-          // Phase 39 D-05 (GATE2-05): fire-and-forget blind Stop-hook
-          // install on FIRST successful new-client acquire per host per
-          // lifecycle. Fires the SAME channelAdapter that we're about to
-          // return to the orchestrator — installStopHook uses it for the
-          // heredoc-quoted script drop + settings.json merge. Install
-          // failures are logged (warn) but never block acquire — the
-          // SshChannel is still returned so the poll cycle proceeds.
-          maybeInstallStopHook(
-            host.id,
-            channelAdapter,
-            hookInstallAttempted,
-            { installStopHook, systemLogger },
-          );
-
-          return channelAdapter;
-        } catch (err) {
-          systemLogger.warn("Fleet-status: SSH channel acquire failed", {
-            operation: "fleet_status_host_ssh_unreachable",
-            fleetHostId: host.id,
-            error: err instanceof Error ? err.message : "unknown",
-          });
-          return null;
         }
-      }
 
-      function releaseSshChannel(
-        host: { id: string },
-        _channel: unknown,
-      ): void {
-        // quick-260820-tm0 — eviction path: called by the orchestrator when a
-        // host is pruned from the identity-host list (e.g. admin-disabled
-        // `enable_ssh=false`). Closes the underlying ssh2 Client and removes
-        // it from hostClients so the connection is actually reclaimed —
-        // previously this was a no-op, which meant an admin-disabled host
-        // leaked its long-lived Client indefinitely (the 2026-08-20 wilma
-        // incident secondary bug).
-        //
-        // `_channel` is unused by design: the orchestrator's SshChannel
-        // abstraction is a thin exec wrapper with no independent lifecycle;
-        // the real handle is the ssh2 Client stored in hostClients.
-        //
-        // Also clear hookInstallAttempted so a subsequent re-enable of the
-        // same host re-attempts installStopHook on the fresh acquire
-        // (matches the hookInstallAttempted.clear() on onLastUnsubscriber).
-        //
-        // The `.on("end") | .on("close") | .on("error")` handlers registered
-        // in acquireSshChannel will also fire on client.end() and delete the
-        // hostClients entry; the explicit delete here is belt-and-suspenders
-        // in case a synchronous eviction races the event-loop-async 'end'.
-        // Map.delete on a missing key is a no-op, so double-delete is safe.
-        const client = hostClients.get(host.id);
-        if (client) {
-          try {
-            client.end();
-          } catch {
-            // best-effort — client may already be dead
+        function releaseSshChannel(
+          host: { id: string },
+          _channel: unknown,
+        ): void {
+          // quick-260820-tm0 — eviction path: called by the orchestrator when a
+          // host is pruned from the identity-host list (e.g. admin-disabled
+          // `enable_ssh=false`). Closes the underlying ssh2 Client and removes
+          // it from hostClients so the connection is actually reclaimed —
+          // previously this was a no-op, which meant an admin-disabled host
+          // leaked its long-lived Client indefinitely (the 2026-08-20 wilma
+          // incident secondary bug).
+          //
+          // `_channel` is unused by design: the orchestrator's SshChannel
+          // abstraction is a thin exec wrapper with no independent lifecycle;
+          // the real handle is the ssh2 Client stored in hostClients.
+          //
+          // Also clear hookInstallAttempted so a subsequent re-enable of the
+          // same host re-attempts installStopHook on the fresh acquire
+          // (matches the hookInstallAttempted.clear() on stop() below).
+          //
+          // The `.on("end") | .on("close") | .on("error")` handlers registered
+          // in acquireSshChannel will also fire on client.end() and delete the
+          // hostClients entry; the explicit delete here is belt-and-suspenders
+          // in case a synchronous eviction races the event-loop-async 'end'.
+          // Map.delete on a missing key is a no-op, so double-delete is safe.
+          const client = hostClients.get(host.id);
+          if (client) {
+            try {
+              client.end();
+            } catch {
+              // best-effort — client may already be dead
+            }
+            hostClients.delete(host.id);
+            hookInstallAttempted.delete(host.id);
           }
-          hostClients.delete(host.id);
-          hookInstallAttempted.delete(host.id);
         }
+
+        const orchestrator = createSshPollOrchestrator({
+          // Phase 72 Plan 05 — tightened cast: the projected records now carry
+          // runsFleetSubstrate + _connDetails, matching IdentityHostingHostRecord.
+          // The compiler catches any future shape drift between starter.ts's
+          // returned records and the OrchestratorDeps contract.
+          listIdentityHostingHosts: listIdentityHostingHosts as unknown as () => Promise<
+            Array<import("./fleet-status/ssh-poll-orchestrator.js").IdentityHostingHostRecord>
+          >,
+          acquireSshChannel: acquireSshChannel as unknown as (
+            host: { id: string; name: string },
+          ) => Promise<import("./fleet-status/ssh-poll-orchestrator.js").SshChannel | null>,
+          releaseSshChannel: releaseSshChannel as unknown as (
+            host: { id: string; name: string },
+            channel: import("./fleet-status/ssh-poll-orchestrator.js").SshChannel,
+          ) => void,
+          registry,
+          setInterval,
+          clearInterval,
+          now: () => Date.now(),
+          pollIntervalMs: 2000,
+          staleSweepIntervalMs: 30000,
+          hookPayloadPath: "~/.claude/fleet-status/last-stop-payload.json",
+          hookPayloadWarnCooldownMs: 60000,
+          // Spawn-request scan is NO LONGER bundled into this orchestrator.
+          // See bounty fleet-status-orchestrator-coupling-with-spawn-request-
+          // scanning: the fleet-status orchestrator is gated on WS subscribers
+          // (start on first, stop on last), which meant scanning stopped when
+          // no browser was subscribed and coord-dropped requests sat unclaimed.
+          // A dedicated always-on `createSpawnScanOrchestrator` runs at
+          // container boot (wired below, alongside the substrate orchestrator)
+          // and owns spawn-request scanning independently of browser presence.
+        });
+
+        return {
+          start: () => orchestrator.start(),
+          stop: () => {
+            orchestrator.stop();
+            // Close the long-lived ssh2 Clients so we don't leak the very TCP
+            // connections we said "no user watching = no work" — orchestrator.stop()
+            // only clears perHostState (channel wrappers), not the underlying
+            // ssh2 Clients held in hostClients. See 39-RESEARCH §Pitfall 3.
+            for (const [, client] of hostClients) {
+              try {
+                client.end();
+              } catch {
+                // best-effort — client may already be dead
+              }
+            }
+            hostClients.clear();
+            hookInstallAttempted.clear();
+          },
+        };
       }
 
       // Phase 99: wire the spawn-request birth-worker into the queue module.
-      // Runs before the orchestrator starts polling, so any request claimed on
-      // the first tick has a processBirth callback ready to drain it.
+      // Runs once at server boot (independent of per-user watcher lifecycle)
+      // so any request claimed on the first tick has a processBirth callback
+      // ready to drain it. Moved above the per-user watcher factory in the
+      // multi-tenant refactor (2026-09-23) because it registers a process-
+      // wide callback, not per-user state.
       // (D-06 in-memory queue + D-07 serialized worker + D-14 host-owner userId
       // + D-20 no changes to identity-birth-orchestrator.ts — the worker is a
       // new caller of the existing birthIdentity export.)
       const spawnRequestWorkerDeps = buildSpawnRequestWorkerDeps();
       setSpawnRequestProcessBirth((item) => processSpawnRequestBirth(item, spawnRequestWorkerDeps));
-
-      const orchestrator = createSshPollOrchestrator({
-        // Phase 72 Plan 05 — tightened cast: the projected records now carry
-        // runsFleetSubstrate + _connDetails, matching IdentityHostingHostRecord.
-        // The compiler catches any future shape drift between starter.ts's
-        // returned records and the OrchestratorDeps contract.
-        listIdentityHostingHosts: listIdentityHostingHosts as unknown as () => Promise<
-          Array<import("./fleet-status/ssh-poll-orchestrator.js").IdentityHostingHostRecord>
-        >,
-        acquireSshChannel: acquireSshChannel as unknown as (
-          host: { id: string; name: string },
-        ) => Promise<import("./fleet-status/ssh-poll-orchestrator.js").SshChannel | null>,
-        releaseSshChannel: releaseSshChannel as unknown as (
-          host: { id: string; name: string },
-          channel: import("./fleet-status/ssh-poll-orchestrator.js").SshChannel,
-        ) => void,
-        registry,
-        setInterval,
-        clearInterval,
-        now: () => Date.now(),
-        pollIntervalMs: 2000,
-        staleSweepIntervalMs: 30000,
-        hookPayloadPath: "~/.claude/fleet-status/last-stop-payload.json",
-        hookPayloadWarnCooldownMs: 60000,
-        // Spawn-request scan is NO LONGER bundled into this orchestrator.
-        // See bounty fleet-status-orchestrator-coupling-with-spawn-request-
-        // scanning: the fleet-status orchestrator is gated on WS subscribers
-        // (start on first, stop on last), which meant scanning stopped when
-        // no browser was subscribed and coord-dropped requests sat unclaimed.
-        // A dedicated always-on `createSpawnScanOrchestrator` runs at
-        // container boot (wired below, alongside the substrate orchestrator)
-        // and owns spawn-request scanning independently of browser presence.
-      });
 
       // ---------------------------------------------------------------------
       // Phase 39 Path C — presence-driven orchestrator lifecycle
@@ -1157,10 +1176,18 @@ if (process.env.VITEST !== "true") {
       // D-01 (GATE2-01): first fleet-status browser subscriber → start poller
       // D-02 (GATE2-02): last unsubscriber → stop poller + close ssh2 Clients
       // D-03 (GATE2-03): capture that subscriber's userId as the decrypt
-      //                  subject for listIdentityHostingHosts / resolveHostById
+      //                  subject via createUserFleetStatusWatcher's parameter
+      //
+      // 2026-09-23 refactor (multi-tenant-fleet-status-orchestrator shape,
+      // chunk A of 4): factory extracted. Still gated on GLOBAL first/last
+      // subscriber — one watcher at a time, scoped to whichever user
+      // subscribes first. A follow-up commit adds per-user lifecycle events
+      // to the registry; a further commit switches this wiring so every
+      // subscribed user gets their own watcher.
       // ---------------------------------------------------------------------
+      let currentWatcher: ReturnType<typeof createUserFleetStatusWatcher> | null = null;
+
       registry.onFirstSubscriber(({ userId }) => {
-        currentSubscriberUserId = userId;
         systemLogger.info(
           "Fleet-status orchestrator starting on first subscriber",
           {
@@ -1168,7 +1195,8 @@ if (process.env.VITEST !== "true") {
             userId,
           },
         );
-        orchestrator.start().catch((err) => {
+        currentWatcher = createUserFleetStatusWatcher(userId);
+        currentWatcher.start().catch((err) => {
           systemLogger.warn("Fleet-status orchestrator start failed", {
             operation: "fleet_status_orchestrator_start_failed",
             error: err instanceof Error ? err.message : "unknown",
@@ -1183,25 +1211,8 @@ if (process.env.VITEST !== "true") {
             operation: "fleet_status_orchestrator_lifecycle",
           },
         );
-        orchestrator.stop();
-        // Close the long-lived ssh2 Clients so we don't leak the very TCP
-        // connections we said "no user watching = no work" — orchestrator.stop()
-        // only clears perHostState (channel wrappers), not the underlying
-        // ssh2 Clients held in hostClients. See 39-RESEARCH §Pitfall 3.
-        for (const [, client] of hostClients) {
-          try {
-            client.end();
-          } catch {
-            // best-effort — client may already be dead
-          }
-        }
-        hostClients.clear();
-        // Phase 39 D-05 (GATE2-05): reset install-once tracking so the
-        // next lifecycle (next fleet-status subscriber) re-attempts install
-        // per host. installStopHook is idempotent (RESEARCH §Q5) so
-        // re-attempts are safe and cheap when already installed.
-        hookInstallAttempted.clear();
-        currentSubscriberUserId = null;
+        currentWatcher?.stop();
+        currentWatcher = null;
       });
 
       systemLogger.info(
