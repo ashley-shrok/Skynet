@@ -4120,6 +4120,7 @@ export function PrettyView({
             status={loadOlderState}
             error={loadOlderError}
             onClick={handleLoadOlder}
+            className="mt-10"
           />
           {/* Phase 43 (plan 43-07a): plain-DOM message rendering. Every entry
               in messages[] is a real in-flow child of the outer scroll
