@@ -21,13 +21,24 @@ Your job with this skill is to build one such app when the user asks —
 "give me a dashboard for Z", "log every W" — or to edit an existing app
 when she asks for changes to something you or another agent made before.
 
-**The sidebar tile IS the handoff.** When you finish, do NOT hand the user
-a URL, a serve-URL, a link, or a "you can open it at …" pointer. The
-sidebar sweep publishes the app to her client automatically as soon as
-you complete the publish step below (§ Making a new app step 8). The tile
-is how she opens it. Handing her a URL is redundant and often broken
-(the URL depends on which client she's on). Just tell her it's ready and
-name the tile.
+**The sidebar tile IS the access path.** Users open apps through their
+tile in the sidebar — click to open, drag into a split to open as a
+leaf, right-click for "open in new tab". URLs to apps DO work (the
+tile's "open in new tab" affordance is exactly a link to the app's
+URL, and that's a valid path), but do NOT hand the URL out yourself.
+On some clients — notably the iOS PWA — an app opened by URL renders
+incorrectly, whereas opening through the tile works everywhere. When
+you finish, tell the user the app is ready and name the tile; that's
+the handoff.
+
+**Publishing (§ Making a new app step 8) is what makes the tile appear
+and is deferred until the app is verified end-to-end** — otherwise a
+half-built app flashes onto her sidebar and invites a click that hits
+a broken page. If she needs to see a work-in-progress version before
+it's done, publish it anyway (rename `app.json.pending` → `app.json`)
+so it reaches her as a tile — do NOT fall back to handing her a URL
+as the WIP-access mechanism. The rule "tile, not URL" holds for
+finished apps AND for WIP the user needs to poke at early.
 
 ## The stack — one canonical shape, not a menu
 
@@ -390,10 +401,13 @@ what you're doing — surprises here are worse than a moment of confirmation.
   Everything else has a natural home elsewhere.
 - About to build a portal-like page that lists apps → **stop.** The
   front-end client's sidebar is the portal now.
-- About to hand the user a URL, serve-URL, or "open it at …" link when
-  the app is ready → **stop.** Publishing (§ Making a new app step 8)
-  puts the tile on her sidebar automatically; the tile IS the entry
-  point. Name the tile in your handoff, not a URL.
+- About to hand the user a URL, serve-URL, or "open it at …" link
+  → **stop.** URLs work, but the tile is the entry point users are
+  meant to use — on some clients (iOS PWA) opening by URL renders
+  incorrectly, whereas the tile works everywhere. Name the tile in
+  your handoff, not a URL. Same rule if you're forced to show a WIP
+  version before it's finished: publish early so it reaches her as a
+  tile — don't fall back to a URL.
 - About to `mv app.json.pending app.json` for a new app before it
   actually works end-to-end → **stop.** Publishing early flashes a
   broken app onto her sidebar. Verify step 7 first.
