@@ -83,6 +83,7 @@ function makeAppLine(overrides: Partial<SweepAppLine> = {}): SweepAppLine {
     created_at_ms: 1_700_000_000_000,
     is_healthy: true,
     health_message: null,
+    users: null,
     ...overrides,
   };
 }
@@ -296,13 +297,14 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
   //   B0                       — per-host source-B enumeration driver
   //   B1..B9                   — per-identity source-B exec sites
   //   C0                       — per-host source-C enumeration driver (Phase 118)
-  //   C1..C8                   — per-app source-C fields (D-05 + D-03 carve-out)
-  // Total: 2 + 12 + 9 + 1 + 8 = 32 keys.
+  //   C1..C9                   — per-app source-C fields (D-05 + D-03 carve-out + Phase 130 users)
+  // Total: 2 + 12 + 9 + 1 + 9 = 33 keys.
   // (B6..B8 added by Plan 111-01/111-02: appearance fields on SweepIdentityLine.
   //  Plan 111-02 also added B9 for `.hidden`; Phase 115 Plan 115-02 retired
   //  the `.hidden` code path per D-21 (freeing the B9 slot); Phase 115 Plan
   //  115-05 reused the freed B9 slot for the `archived` axis. Phase 118 Plan
-  //  118-02 added C0..C8 for the source-C app enumeration wire fields.)
+  //  118-02 added C0..C8 for the source-C app enumeration wire fields.
+  //  Phase 130 added C9 for the per-user visibility gate list on app.json.)
   const EXPECTED_KEYS: readonly string[] = [
     "A0",
     "A1",
@@ -336,6 +338,7 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
     "C6",
     "C7",
     "C8",
+    "C9",
   ];
 
   it("covers every RESEARCH.md source-A / source-B / source-C row", () => {
@@ -379,6 +382,7 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
     ]);
     // Phase 118 Plan 118-02: source-C app enumeration fields (D-05 seven fields
     // + D-03 carve-out). Byte-name parity with Python `_build_app_line`.
+    // Phase 130 added `users` for the per-user visibility gate list on app.json.
     const appFields = new Set<string>([
       "line_kind",
       "schema_version",
@@ -390,6 +394,7 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
       "created_at_ms",
       "is_healthy",
       "health_message",
+      "users",
     ]);
     const allFields = new Set<string>([
       ...identityFields,
@@ -726,6 +731,56 @@ describe("Phase 118 Plan 118-02: SweepAppLine dispatch", () => {
     expect(result.schemaMismatch).toBe(false);
   });
 
+  it("Phase 130: app line with users list is parsed lenient — value surfaces on SweepAppLine.users", () => {
+    // Well-formed app line carrying the Phase 130 users gate list. Parser is
+    // lenient — the exact value is not runtime-validated, but the field
+    // survives the JSON round-trip and is accessible on the typed SweepAppLine.
+    const wire = {
+      line_kind: "app",
+      schema_version: 1,
+      slug: "gated-app",
+      title: "Gated",
+      description: "Only ashley + zoey see this",
+      port: 9591,
+      has_icon: false,
+      created_at_ms: 0,
+      is_healthy: true,
+      health_message: null,
+      users: ["ashley", "zoey"],
+    };
+
+    const result = parseSweepJsonl(JSON.stringify(wire));
+    expect(result.appLines).toHaveLength(1);
+    expect(result.appLines[0].users).toEqual(["ashley", "zoey"]);
+  });
+
+  it("Phase 130: app line missing users field is lenient — surfaces as undefined (downstream adapter coerces to null)", () => {
+    // Older Python emitters (pre-130) don't send `users`. New TS parser
+    // reads the wire as-is; the field lands as undefined on the parsed
+    // object. Downstream (adaptAppLineToState in ssh-poll-orchestrator)
+    // coerces undefined → null so the AppState always carries a consistent
+    // `string[] | null` shape. This test pins the parser's leniency
+    // (does not throw, does not fabricate) for the rolling-deploy window
+    // where a NEW container reads OLD peer sweep output.
+    const wire = {
+      line_kind: "app",
+      schema_version: 1,
+      slug: "pre-130-app",
+      title: "Pre-130",
+      description: "No users field on wire",
+      port: 9591,
+      has_icon: false,
+      created_at_ms: 0,
+      is_healthy: true,
+      health_message: null,
+      // users deliberately absent
+    };
+
+    const result = parseSweepJsonl(JSON.stringify(wire));
+    expect(result.appLines).toHaveLength(1);
+    expect(result.appLines[0].users).toBeUndefined();
+  });
+
   it("app line dispatch is lenient — an app line missing `slug` still parses (does not throw)", () => {
     // Plan 118-02 action (e): the app dispatch matches the identity + pid
     // lenience discipline — cast, no runtime validation. A malformed app
@@ -788,7 +843,7 @@ describe("Phase 118 Plan 118-02: SWEEP_FIELD_PARITY C-row coverage", () => {
     expect(parity.C0.skipped_reason).toMatch(/enumeration/i);
   });
 
-  it("C1..C8 map to real SweepAppLine fields (byte-name parity with Python emit)", () => {
+  it("C1..C9 map to real SweepAppLine fields (byte-name parity with Python emit)", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const parity = SWEEP_FIELD_PARITY as any;
     const expected: Record<string, string> = {
@@ -800,6 +855,8 @@ describe("Phase 118 Plan 118-02: SWEEP_FIELD_PARITY C-row coverage", () => {
       C6: "created_at_ms",
       C7: "is_healthy",
       C8: "health_message",
+      // Phase 130: per-user visibility gate list on app.json.
+      C9: "users",
     };
     for (const [key, field] of Object.entries(expected)) {
       expect(parity[key], `parity row ${key} missing`).toBeDefined();

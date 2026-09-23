@@ -264,6 +264,24 @@ export interface SweepAppLine {
   created_at_ms: number;
   is_healthy: boolean;
   health_message: string | null;
+  /**
+   * Phase 130: per-user visibility gate list from app.json's optional
+   * `users` field. Read by `_build_app_line` in
+   * substrate/scripts/fleet-status-sweep.py; well-formed list of strings →
+   * verbatim, everything else → null (D-3 fallback, falls open at the gate
+   * seam — mirrors identity/role/project discipline).
+   *
+   * Rolling-deploy safety: this field is ADDITIVE (Pitfall 6). Older TS
+   * parsers pre-130 simply drop the unknown key when destructuring
+   * SweepAppLine; older Python emitters pre-130 don't send the key, so
+   * the field is `undefined` on the parsed object and downstream code
+   * coerces to `null` via `?? null` at the adapter seam (Plan 118-04's
+   * adaptAppLineToState in ssh-poll-orchestrator.ts).
+   *
+   * Field is on the wire snake_case — the frontend-facing AppState uses
+   * camelCase `users` (same word — no rename needed).
+   */
+  users: string[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -477,7 +495,8 @@ export const SWEEP_FIELD_PARITY: Record<
   | "C5"
   | "C6"
   | "C7"
-  | "C8",
+  | "C8"
+  | "C9",
   SweepFieldParityEntry
 > = {
   // --- Per-host source-A / source-B enumeration drivers ---
@@ -562,4 +581,10 @@ export const SWEEP_FIELD_PARITY: Record<
   // when is_healthy=false. Still a wire slot — the field always exists on the
   // interface (nullable). Python emits null when is_healthy=true.
   C8: { field: "health_message" },
+  // C9 (Phase 130): per-user visibility gate list from app.json's optional
+  // `users` field. Nullable — Python emits null when the field is absent /
+  // malformed / empty. Downstream consumer (Plan 118-04 adapter →
+  // isAppVisibleToUser gate) reads the list; empty/null falls open per D-3
+  // (matches identity + project discipline).
+  C9: { field: "users" },
 };

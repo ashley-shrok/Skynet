@@ -1232,6 +1232,21 @@ def _build_app_line(slug, folder_path, home):
         _log("app_json_bad_shape", slug=slug[:APP_SLUG_MAX_LEN])
         return None
 
+    # Phase 130: users list for the per-user visibility gate. Optional key on
+    # app.json; the substrate/skills/app-development README (added Phase 130)
+    # tells agents on multi-user boxes (thenasty, ZoeyBattlestation) to add
+    # this list when creating an app. Missing / non-list / mixed-type values
+    # fall back to None (falls open per D-3 — every user with host access
+    # sees the app; zero-migration invariant for existing app.json files
+    # across the fleet).
+    raw_users = metadata.get("users") if isinstance(metadata, dict) else None
+    if isinstance(raw_users, list) and all(
+        isinstance(u, str) for u in raw_users
+    ):
+        users = raw_users
+    else:
+        users = None
+
     # (b) unit file exists on disk. Reading the file directly replaces the
     # pre-2026-09-19 `systemctl --user show LoadState` check — see the
     # module docblock above _read_app_unit_file for why.
@@ -1297,6 +1312,11 @@ def _build_app_line(slug, folder_path, home):
     # D-05 emit shape — exactly these keys, in this order. Byte-name parity
     # with the TS SweepAppLine interface (snake_case on the wire; the wire-
     # protocol frontend-facing shape does camelCase remapping).
+    #
+    # Phase 130: `users` added as an OPTIONAL emit field. Older TS parsers
+    # (pre-130) simply ignore unknown fields on the incoming object — the
+    # SweepAppLine widening is additive per RESEARCH.md § Pitfall 6 (same
+    # discipline that added `has_icon` etc.). Rolling-deploy safe.
     return {
         "line_kind": "app",
         "schema_version": SCHEMA_VERSION,
@@ -1308,6 +1328,7 @@ def _build_app_line(slug, folder_path, home):
         "created_at_ms": folder_mtime_ms,
         "is_healthy": is_healthy,
         "health_message": health_message,
+        "users": users,
     }
 
 
