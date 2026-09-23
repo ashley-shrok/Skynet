@@ -666,6 +666,15 @@ def main():
         if runbooks_watched:
             watched_args.append(runbooks_dir)
         inotify_events = "close_write,move_self,delete_self,moved_to,delete,create,moved_from"
+        # Exponential backoff between failed inotifywait starts (reset on any
+        # successful event). Guards against a hot fork/exec loop when e.g.
+        # fs.inotify.max_user_instances is saturated — inotifywait dies
+        # instantly, python sees EOF, and without a backoff we chew CPU
+        # forever while silently deaf.
+        inotify_backoff_sec = 0
+        INOTIFY_BACKOFF_MIN = 1
+        INOTIFY_BACKOFF_MAX = 60
+        failure_emitted = False
         while True:
             # Orphan check
             if harness_pid is not None:
@@ -673,6 +682,9 @@ def main():
                     os.kill(harness_pid, 0)
                 except OSError:
                     sys.exit(0)
+
+            if inotify_backoff_sec > 0:
+                time.sleep(inotify_backoff_sec)
 
             try:
                 _inotify_proc = subprocess.Popen(
@@ -683,10 +695,20 @@ def main():
                         "--format", "%w|%f|%e",
                     ] + watched_args,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
                     text=True,
                 )
                 for event_line in _inotify_proc.stdout:
+                    # Any event = healthy inotifywait. Reset backoff and emit
+                    # a recovery event if the previous cycle surfaced a failure.
+                    if failure_emitted:
+                        print(
+                            "📝 [role-file-watch] inotifywait recovered — watching resumed",
+                            flush=True,
+                        )
+                        failure_emitted = False
+                    inotify_backoff_sec = 0
+
                     # Orphan check inside inner loop
                     if harness_pid is not None:
                         try:
@@ -760,6 +782,43 @@ def main():
 
                     # Anything else is companion churn or events on an
                     # unrelated path — ignore.
+
+                # for-loop exited: either _inotify_proc is None (controlled
+                # respawn via MOVE_SELF/DELETE_SELF above) or inotifywait died
+                # on its own (EOF on stdout). In the death case, capture exit
+                # code + stderr so a saturated inotify limit surfaces to the
+                # agent instead of hot-looping deaf.
+                if _inotify_proc is not None:
+                    try:
+                        exit_code = _inotify_proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            _inotify_proc.terminate()
+                        except Exception:
+                            pass
+                        exit_code = -1
+                    if exit_code != 0:
+                        stderr_text = ""
+                        try:
+                            if _inotify_proc.stderr is not None:
+                                stderr_text = _inotify_proc.stderr.read() or ""
+                        except Exception:
+                            pass
+                        stderr_snippet = stderr_text.strip().replace("\n", " ⏎ ")[:200]
+                        if not failure_emitted:
+                            print(
+                                "⚠️ [role-file-watch] inotifywait exited %d — "
+                                "watcher deaf until this resolves. stderr: %s"
+                                % (exit_code, stderr_snippet or "(empty)"),
+                                flush=True,
+                            )
+                            failure_emitted = True
+                        if inotify_backoff_sec == 0:
+                            inotify_backoff_sec = INOTIFY_BACKOFF_MIN
+                        else:
+                            inotify_backoff_sec = min(
+                                INOTIFY_BACKOFF_MAX, inotify_backoff_sec * 2
+                            )
 
             except Exception:
                 traceback.print_exc(file=sys.stderr)
