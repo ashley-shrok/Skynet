@@ -114,6 +114,26 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   },
 }));
 
+// Phase 129 Plan 06: mock the host-user-counter helpers so we can control the
+// auto-tag branch's inputs per-test. Default mocks return false / null so pre-
+// existing tests (which never opt into multi-user semantics) stay on the
+// single-user code path (no `users:` key ever written).
+vi.mock("../../utils/host-user-counter.js", () => ({
+  isHostMultiUser: vi.fn().mockResolvedValue(false),
+  getUsernameForUserId: vi.fn().mockResolvedValue(null),
+}));
+
+// Phase 129 Plan 06: capture the sshLogger warn/info seams so Tests D + B/C/G
+// can assert the auto-tag structured-log payloads.
+vi.mock("../../utils/logger.js", () => ({
+  sshLogger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
+
 // ROLE_NAME_PATTERN loaded via the real module (not mocked).
 
 // ---------------------------------------------------------------------------
@@ -124,6 +144,9 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { writeMarkdownFileAtomic } from "../../claude-session/identity-artifact-reader.js";
+import { isHostMultiUser, getUsernameForUserId } from "../../utils/host-user-counter.js";
+import { sshLogger } from "../../utils/logger.js";
+import yaml from "js-yaml";
 
 // ---------------------------------------------------------------------------
 // Multipart helper — mirrors identities.put-disk.test.ts buildMultipartBody
@@ -283,6 +306,12 @@ let stubConn: ReturnType<typeof makeStubConn>;
 beforeEach(() => {
   vi.clearAllMocks();
   capturedSftpWrites.length = 0;
+
+  // Phase 129 Plan 06: reset the auto-tag mocks to single-user defaults so
+  // pre-existing tests never enter the auto-tag branch. Individual tests in
+  // the Phase-129 describe block override these.
+  (isHostMultiUser as Mock).mockResolvedValue(false);
+  (getUsernameForUserId as Mock).mockResolvedValue(null);
 
   stubConn = makeStubConn();
 
@@ -699,5 +728,220 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
       expect(cmd).not.toContain("rm -rf");
       expect(cmd).not.toContain("pwned");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 129 Plan 06 <behavior> tests — auto-tag on multi-user hosts
+//
+// Feature: On multi-user hosts (isHostMultiUser=true), POST /roles auto-tags
+// the creator's Skynet username in the new role file's `users:` frontmatter
+// list. On single-user hosts (isHostMultiUser=false), NO users: key is
+// written — the file looks exactly like a pre-129 role file (shape §
+// "invisible in the majority case").
+//
+// Auto-tag branch invariants:
+//   - Runs AFTER the collision probe (L472-496) — never touches an existing
+//     file (Pitfall 5 lock via Test E absence-of-call assertion).
+//   - Fail-open on username-lookup failure (Test D) — file still written but
+//     without users: key; loud warn log fires (PATTERNS.md write-side
+//     exception per the shape's "would make it wrong" bullet 3).
+//   - yaml.dump byte-shape (canonical options) preserved (Test F).
+//   - Case-preserved username (Test G) — Pitfall 7 lock.
+// ---------------------------------------------------------------------------
+
+describe("Phase 129: auto-tag on multi-user hosts", () => {
+  it("Test A: single-user host → NO users: key; getUsernameForUserId NOT called (efficiency)", async () => {
+    // Default beforeEach state already sets isHostMultiUser -> false. Explicit
+    // for readability at the test site.
+    (isHostMultiUser as Mock).mockResolvedValue(false);
+
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { name: "muffin-friend", description: "solo host role", hostId: 5 },
+    }));
+
+    expect(res.status).toBe(201);
+    // isHostMultiUser was queried with the target hostId
+    expect(isHostMultiUser).toHaveBeenCalledWith(5);
+    // Efficiency invariant: no need to resolve username if we're not tagging.
+    expect(getUsernameForUserId).not.toHaveBeenCalled();
+
+    // Written stubMarkdown has NO users: line and NO frontmatter block at all
+    // (no cosmetics + no auto-tag = pre-129 file shape verbatim).
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(stubBody).not.toMatch(/^---\n/);
+    expect(stubBody).not.toMatch(/users:/);
+  });
+
+  it("Test B: multi-user host (direct-user share) → auto-tag with creator username in users: list", async () => {
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { name: "shared-role", description: "shared t1000 role", hostId: 5 },
+    }));
+
+    expect(res.status).toBe(201);
+    expect(isHostMultiUser).toHaveBeenCalledWith(5);
+    expect(getUsernameForUserId).toHaveBeenCalledWith("1"); // mockUserId
+
+    // Written stubMarkdown begins with a frontmatter block containing users:
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(stubBody.startsWith("---\n")).toBe(true);
+
+    // Format-agnostic: parse the YAML frontmatter block and assert users
+    // deep-equals ["ashley"]. Either `users: [ashley]` or `users:\n  - ashley\n`
+    // is valid yaml.dump output; the parse-then-compare approach works for both.
+    const fmMatch = stubBody.match(/^---\n([\s\S]*?)---\n/);
+    expect(fmMatch).not.toBeNull();
+    const parsed = yaml.load(fmMatch![1]) as Record<string, unknown>;
+    expect(parsed.users).toEqual(["ashley"]);
+
+    // Structured info log at successful auto-tag seam (box-maintainer directive).
+    expect(sshLogger.info).toHaveBeenCalledWith(
+      expect.stringMatching(/auto-tag/i),
+      expect.objectContaining({
+        operation: "roles_create_auto_tagged",
+        role: "shared-role",
+        hostId: 5,
+        creatorUsername: "ashley",
+      }),
+    );
+  });
+
+  it("Test C: multi-user host via RBAC-role share → auto-tag fires (Assumption A6 lock at the write side)", async () => {
+    // isHostMultiUser correctly returns true for RBAC-role-shared hosts per
+    // Plan 01 Task 3 Test 5. From this route's perspective, the branch is
+    // identical to Test B — this test locks that the write side doesn't
+    // introduce its own second gate that could silently drop RBAC-role cases.
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { name: "rbac-role-shared", description: "shared via RBAC role", hostId: 5 },
+    }));
+
+    expect(res.status).toBe(201);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    const fmMatch = stubBody.match(/^---\n([\s\S]*?)---\n/);
+    expect(fmMatch).not.toBeNull();
+    const parsed = yaml.load(fmMatch![1]) as Record<string, unknown>;
+    expect(parsed.users).toEqual(["ashley"]);
+  });
+
+  it("Test D: multi-user host + getUsernameForUserId returns null → auto-tag SKIPPED, warn log fires, file still written", async () => {
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue(null);
+
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { name: "orphaned-user-role", description: "user has no username row", hostId: 5 },
+    }));
+
+    // Fail-open: file still gets written (201), just without the users: key.
+    expect(res.status).toBe(201);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    // No users: key emitted anywhere in the file (frontmatter or body).
+    expect(stubBody).not.toMatch(/users:/);
+    // Since no other cosmetics either, no frontmatter block at all.
+    expect(stubBody).not.toMatch(/^---\n/);
+
+    // Loud warn log at skipped-lookup seam.
+    expect(sshLogger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/username lookup failed/i),
+      expect.objectContaining({
+        operation: "roles_create_username_lookup_failed",
+        userId: "1",
+        hostId: 5,
+      }),
+    );
+  });
+
+  it("Test E: existing file → 409 short-circuits BEFORE auto-tag; isHostMultiUser NOT called (Pitfall 5 lock via absence-of-call)", async () => {
+    // Force the collision probe to report exists — the auto-tag branch must
+    // never be reached for pre-existing roles.
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("if [ -d")) return "exists";
+      if (cmd.includes("echo $HOME")) return "/home/ubuntu";
+      return "";
+    });
+    // Even if we WOULD have been on a multi-user host, the branch must skip.
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { name: "pre-existing-role", description: "already there", hostId: 5 },
+    }));
+
+    expect(res.status).toBe(409);
+    // Pitfall 5 lock: auto-tag branch never runs for pre-existing files.
+    expect(isHostMultiUser).not.toHaveBeenCalled();
+    expect(getUsernameForUserId).not.toHaveBeenCalled();
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("Test F: yaml.dump byte-shape preserved — canonical options honored (sortKeys:false key order, lineWidth:-1 no wrap)", async () => {
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+
+    // Pass cosmetics in a specific insertion order to lock sortKeys:false —
+    // yaml.dump must preserve title before colorHue before voice before users.
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: {
+        name: "byte-shape-role",
+        description: "x",
+        hostId: 5,
+        cosmetics: { title: "Long title kept unwrapped for the line-width assertion below", colorHue: 190, voice: "Joanna" },
+      },
+    }));
+
+    expect(res.status).toBe(201);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    const fmMatch = stubBody.match(/^---\n([\s\S]*?)---\n/);
+    expect(fmMatch).not.toBeNull();
+    const fmBlock = fmMatch![1];
+
+    // Key ORDER preservation (sortKeys:false): title, colorHue, voice, (avatar not present), users.
+    const titleIdx = fmBlock.indexOf("title:");
+    const colorHueIdx = fmBlock.indexOf("colorHue:");
+    const voiceIdx = fmBlock.indexOf("voice:");
+    const usersIdx = fmBlock.indexOf("users:");
+    expect(titleIdx).toBeGreaterThanOrEqual(0);
+    expect(colorHueIdx).toBeGreaterThan(titleIdx);
+    expect(voiceIdx).toBeGreaterThan(colorHueIdx);
+    expect(usersIdx).toBeGreaterThan(voiceIdx);
+
+    // lineWidth:-1 no-wrap: no line inside the frontmatter block exceeds 500 chars.
+    for (const line of fmBlock.split("\n")) {
+      expect(line.length).toBeLessThan(500);
+    }
+  });
+
+  it("Test G: case-preservation on username lock (Pitfall 7) — getUsernameForUserId returns 'Ashley' → users: [Ashley] NOT [ashley]", async () => {
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    // Case-preserved as registered (users.ts L172 stores as-typed).
+    (getUsernameForUserId as Mock).mockResolvedValue("Ashley");
+
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { name: "case-pres", description: "case check", hostId: 5 },
+    }));
+
+    expect(res.status).toBe(201);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    const fmMatch = stubBody.match(/^---\n([\s\S]*?)---\n/);
+    expect(fmMatch).not.toBeNull();
+    const parsed = yaml.load(fmMatch![1]) as Record<string, unknown>;
+    // Case-sensitive: exact "Ashley", NOT "ashley".
+    expect(parsed.users).toEqual(["Ashley"]);
+    // And the info log echoes the case-preserved username.
+    expect(sshLogger.info).toHaveBeenCalledWith(
+      expect.stringMatching(/auto-tag/i),
+      expect.objectContaining({
+        operation: "roles_create_auto_tagged",
+        creatorUsername: "Ashley",
+      }),
+    );
   });
 });
