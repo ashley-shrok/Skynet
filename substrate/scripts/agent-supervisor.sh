@@ -1775,17 +1775,31 @@ _matrix_peek_one() {
     fi
     return 1                                # skip this cycle; next cycle uses fresh token
   fi
-  # Count wake signals: new MESSAGE events (m.room.message / m.room.encrypted) in JOINED
-  # rooms from senders != self. State events (m.room.member, m.room.name, m.room.topic,
-  # etc.) do NOT wake — e.g. registry-room membership churn from other identity mints is
-  # background noise, not a message for me (user 2026-09-12). Invites also do NOT wake:
-  # recv.sh auto-accepts them silently on the next real wake, which comes from the first
-  # actual message in the room, not the bare invite (see recv.sh L236 comment block).
+  # Count wake signals: (1) new MESSAGE events (m.room.message / m.room.encrypted) in JOINED
+  # rooms from senders != self; (2) any pending entry in .rooms.invite. State events
+  # (m.room.member, m.room.name, m.room.topic, etc.) do NOT wake — e.g. registry-room
+  # membership churn from other identity mints is background noise, not a message for me
+  # (user 2026-09-12).
+  # Why invites DO wake now (was: they didn't): the previous comment justified skipping
+  # invites with "recv.sh auto-accepts them silently on the next real wake" — true for LIVE
+  # identities, but recv.sh isn't running while the identity is dormant. So a fresh DM room
+  # (peer creates room + invite + opener in one motion) sat in .rooms.invite indefinitely
+  # for a dormant target because the opener never lands in .rooms.join (target isn't a
+  # member) and the invite itself was ignored — a black-hole for first-contact DMs to
+  # dormant agents. Fix: treat presence of ANY invite as a wake signal. On wake, recv.sh's
+  # existing invite-handling (join + /rooms/.../messages?dir=b&limit=10 backfill + surface
+  # opener) fires normally — supervisor doesn't touch the invite itself, so recv.sh's
+  # backfill path (which catches the pre-join opener) still runs on the woken session.
+  # Registry-room false-wake is not a concern here: a dormant identity was live at its own
+  # mint and its recv.sh accepted the one registry invite then, so registry re-invites
+  # never appear in .rooms.invite of a dormant identity. Empty-invite false-wake (peer
+  # invites and never messages) is theoretically possible but ~never happens in practice.
   local ec
   ec=$(echo "$resp" | jq --arg self "$self" \
-    '[.rooms.join // {} | to_entries[] | .value.timeline.events[]?
-      | select(.sender != $self and (.type == "m.room.message" or .type == "m.room.encrypted"))
-     ] | length' 2>/dev/null)
+    '([.rooms.join // {} | to_entries[] | .value.timeline.events[]?
+       | select(.sender != $self and (.type == "m.room.message" or .type == "m.room.encrypted"))
+      ] | length)
+     + (.rooms.invite // {} | length)' 2>/dev/null)
   if [ "${ec:-0}" -gt 0 ]; then
     metric event=matrix-peek identity="$name" account="$account" result=wake events="${ec:-0}"
     return 0
