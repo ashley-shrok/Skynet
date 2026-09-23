@@ -2792,10 +2792,18 @@ Plans:
 
 ### Phase 129: multi-user-single-host support — per-user visibility gate on roles and identities, backend intersection gate + auto-tag at role/identity creation on multi-user hosts + role-picker filter
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Add a per-user visibility gate to Skynet's role + identity read path so that on hosts shared by multiple Skynet users, each user's sidebar (identities list, session list, role picker, search hits, WS live frames) shows only the roles/identities whose frontmatter users: list is empty (fallback: visible to everyone with host access) or intersects the caller's Skynet username. Ashley + Zoe's shared t1000 becomes uncluttered; single-user hosts see zero evidence of the feature; new roles + identities created on multi-user hosts auto-tag creator's username at write time.
+
+**Requirements**: none mapped (requirements captured as D-01..D-10 locked decisions in 129-CONTEXT.md; ROADMAP requirements are patch-#43 specific and this phase is a separate feature — no REQ-IDs needed)
 **Depends on:** Phase 128
-**Plans:** 0 plans
+**Plans:** 8 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 129 to break down)
+- [ ] 129-01-PLAN.md — Foundations: extend RawCosmetics with users?: string[], extend extractCosmeticsFromFrontmatter with users narrowing, create identity-visibility-gate.ts (pure intersection gate), create host-user-counter.ts (isHostMultiUser with RBAC-role expansion + getUsernameForUserId). Wave 1.
+- [ ] 129-02-PLAN.md — Deep gate at GET /identities: per-request callerUsername + per-identity isIdentityVisibleToUser inside fanout; 7 cross-user integration tests. Wave 2.
+- [ ] 129-03-PLAN.md — Deep gate at GET /sessions/list (Pitfall 3: read identity file once for role+cosmetics per Assumption A5) + GET /roles?hostId=<n> (role-picker gate with identityCos=null). 14 tests total. Wave 2.
+- [ ] 129-04-PLAN.md — Deep gate at POST /conversation-search with batched O(unique-keys) frontmatter fetch + fail-CLOSED post-filter (Phase 129 exception per PATTERNS.md). 7 tests. Wave 2.
+- [ ] 129-05-PLAN.md — WS AppFrameFilter identity-gate extension: 5 frame types (update/snapshot/gone/identity-archived/session-project-changed) + resolveIdentityGate closure injected from fleet-status-server.ts (preserves 'no DB imports' file discipline). 11 tests. Wave 2.
+- [ ] 129-06-PLAN.md — Auto-tag at POST /roles on multi-user hosts (D-4): pre-yaml.dump cosmetics.users = [creator] branch + write-side fail-open on username lookup fail. 7 tests. Wave 3.
+- [ ] 129-07-PLAN.md — Auto-tag at POST /identities/birth: BirthOptions.creatorUsername thread from route handler → buildIdentityFileBody pairs.push (byte-shape preserved); identity-clone.ts EXPLICITLY excluded from v1. 14 tests. Wave 3.
+- [ ] 129-08-PLAN.md — Phase-wide gate: npm run build:backend + npm run build typecheck + phase-scoped vitest sweep across all 13 modified files + no-leak audit grep coverage matrix. Wave 4.
