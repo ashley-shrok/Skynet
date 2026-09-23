@@ -479,46 +479,69 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 7. Collision probe: 409 if the role folder already exists.
-      //    name is pre-validated by ROLE_NAME_PATTERN so the interpolation
-      //    into the double-quoted path is shell-safe.
+      // 7. Atomic collision-safe provision (Phase 129 MEDIUM-1 fix — port of
+      //    Phase 117 createProject pattern at
+      //    identity-artifact-reader.ts:830-870).
+      //
+      //    Pre-fix: probe → `mkdir -p` → write was TOCTOU-vulnerable — two
+      //    concurrent shared-slug creates from different users both saw
+      //    "missing", both `mkdir -p` succeeded (idempotent), and both wrote.
+      //    Whichever wrote second silently clobbered the first user's auto-tag.
+      //    Now that the `users:` tag is visibility-load-bearing (not just a
+      //    display color), a race-loser's file getting the race-winner's tag
+      //    matches shape §"what would make it wrong" bullet 3 ("A brand-new
+      //    identity or role created on a shared host is auto-tagged with the
+      //    wrong user's name").
+      //
+      //    Fix: ensure the parent `~/fleet/roles/` dir exists via `mkdir -p`,
+      //    then use plain (non-`-p`) `mkdir` on the target dir which is atomic
+      //    at the syscall level and fails with "File exists" if the directory
+      //    already exists. Race-loser hits the EEXIST branch → 409 without
+      //    touching the winner's file. The nested `bounties/` subdir is added
+      //    in the same exec so the winner still gets the full folder layout.
+      //
+      //    `name` is pre-validated by ROLE_NAME_PATTERN so interpolation into
+      //    the double-quoted path is shell-safe.
       // ---------------------------------------------------------------------
-      let existsStdout: string;
       try {
-        existsStdout = await execWithTimeout(
+        await execWithTimeout(
           conn,
-          `if [ -d "$HOME/fleet/roles/${name}" ]; then echo exists; else echo missing; fi`,
+          `mkdir -p "$HOME/fleet/roles" && mkdir "$HOME/fleet/roles/${name}" && mkdir "$HOME/fleet/roles/${name}/bounties"`,
         );
       } catch (err) {
-        sshLogger.warn("roles-create: existence probe exec failed", {
-          operation: "roles_create_exists_probe",
+        const msg = err instanceof Error ? err.message : String(err);
+        if (
+          msg.includes("File exists") ||
+          msg.toLowerCase().includes("already exists")
+        ) {
+          // Race-loser (or plain pre-existing role) — 409 without touching the
+          // winner's file. Matches the pre-fix response body for the R-5
+          // regression test in roles-create.test.ts.
+          res.status(409).json({ error: "role exists on host" });
+          return;
+        }
+        sshLogger.warn("roles-create: atomic mkdir exec failed", {
+          operation: "roles_create_atomic_mkdir",
           hostId,
           name,
-          error: err instanceof Error ? err.message : "Unknown",
+          error: msg,
         });
         res.status(502).json({ error: "SSH exec failed" });
         return;
       }
 
-      if (existsStdout.trim() === "exists") {
-        res.status(409).json({ error: "role exists on host" });
-        return;
-      }
-
       // ---------------------------------------------------------------------
-      // 8. Provision: mkdir -p (idempotent, race-tolerant) + touch history.md.
+      // 8. Touch history.md — separated from the atomic mkdir above so a
+      //    transient touch failure doesn't leave callers unable to distinguish
+      //    a race-loser 409 from a provisioning glitch.
       // ---------------------------------------------------------------------
       try {
-        await execWithTimeout(
-          conn,
-          `mkdir -p "$HOME/fleet/roles/${name}/bounties"`,
-        );
         await execWithTimeout(
           conn,
           `touch "$HOME/fleet/roles/${name}/history.md"`,
         );
       } catch (err) {
-        sshLogger.warn("roles-create: provision exec failed", {
+        sshLogger.warn("roles-create: history.md touch failed", {
           operation: "roles_create_provision",
           hostId,
           name,

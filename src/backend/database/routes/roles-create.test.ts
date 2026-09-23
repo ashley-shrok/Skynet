@@ -323,12 +323,15 @@ beforeEach(() => {
 
   (connectOneShot as Mock).mockResolvedValue(stubConn);
 
-  // Default execCommand: existence probe → "missing"; echo $HOME →
-  // "/home/ubuntu"; mkdir + touch → empty string.
+  // Default execCommand: (Phase 129 MEDIUM-1) the atomic-mkdir chain
+  // succeeds silently; echo $HOME → "/home/ubuntu"; touch → empty string.
+  // Legacy `if [ -d` probe branch is retained for backward-compat with any
+  // per-test overrides that pre-dated the atomic mkdir port — new tests
+  // simulate collisions by throwing "File exists" from the mkdir chain.
   (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
     if (cmd.includes("if [ -d")) return "missing";
     if (cmd.includes("echo $HOME")) return "/home/ubuntu";
-    if (cmd.includes("mkdir -p") || cmd.includes("touch ")) return "";
+    if (cmd.includes("mkdir") || cmd.includes("touch ")) return "";
     return "";
   });
 
@@ -398,9 +401,17 @@ describe("POST /roles — regression guards (multipart form)", () => {
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
-  it("R-5: role folder already exists on host → 409", async () => {
+  it("R-5: role folder already exists on host → 409 (atomic-mkdir EEXIST branch — Phase 129 MEDIUM-1)", async () => {
+    // Phase 129 MEDIUM-1 fix: the probe → mkdir -p → write shape is gone.
+    // The race-safe atomic mkdir chain (`mkdir -p PARENT && mkdir CHILD &&
+    // mkdir CHILD/bounties`) throws "File exists" when CHILD already
+    // exists — that's the syscall-level guarantee that both concurrent
+    // creates cannot both succeed. Mock the exec to throw that error and
+    // assert the 409 branch fires without touching writeMarkdownFileAtomic.
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
-      if (cmd.includes("if [ -d")) return "exists";
+      if (cmd.includes("mkdir") && cmd.includes("fleet/roles")) {
+        throw new Error("mkdir: cannot create directory '/home/ubuntu/fleet/roles/box-maintainer': File exists");
+      }
       if (cmd.includes("echo $HOME")) return "/home/ubuntu";
       return "";
     });
@@ -409,6 +420,27 @@ describe("POST /roles — regression guards (multipart form)", () => {
     }));
     expect(res.status).toBe(409);
     expect((res.body as { error: string }).error).toMatch(/role exists on host/i);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+    expect(stubConn.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("R-5b: atomic mkdir throws non-EEXIST error → 502 (Phase 129 MEDIUM-1 defensive path)", async () => {
+    // Any mkdir failure that ISN'T a race-loser EEXIST should surface as
+    // 502 SSH exec failed — not silently swallowed as a 409. This locks
+    // the two-branch split (EEXIST → 409, everything else → 502) so a
+    // future edit can't collapse them.
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("mkdir") && cmd.includes("fleet/roles")) {
+        throw new Error("mkdir: cannot create directory: Permission denied");
+      }
+      if (cmd.includes("echo $HOME")) return "/home/ubuntu";
+      return "";
+    });
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { name: "box-maintainer", description: "x", hostId: 5 },
+    }));
+    expect(res.status).toBe(502);
+    expect((res.body as { error: string }).error).toMatch(/SSH exec failed/i);
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
     expect(stubConn.end).toHaveBeenCalledTimes(1);
   });
@@ -860,10 +892,14 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
   });
 
   it("Test E: existing file → 409 short-circuits BEFORE auto-tag; isHostMultiUser NOT called (Pitfall 5 lock via absence-of-call)", async () => {
-    // Force the collision probe to report exists — the auto-tag branch must
-    // never be reached for pre-existing roles.
+    // Phase 129 MEDIUM-1 fix: the probe → mkdir -p shape is gone; the
+    // atomic mkdir chain throws "File exists" when the target dir already
+    // exists. Simulate that here — the auto-tag branch must never be
+    // reached for pre-existing roles.
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
-      if (cmd.includes("if [ -d")) return "exists";
+      if (cmd.includes("mkdir") && cmd.includes("fleet/roles")) {
+        throw new Error("mkdir: cannot create directory '/home/ubuntu/fleet/roles/pre-existing-role': File exists");
+      }
       if (cmd.includes("echo $HOME")) return "/home/ubuntu";
       return "";
     });
