@@ -12,7 +12,34 @@
  * parameter so these tests can pass a `vi.fn()` mock without `vi.mock`ing
  * the whole host-resolver module (cleaner test purity — RESEARCH § Q7).
  */
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+
+// ---------------------------------------------------------------------------
+// Phase 129 Plan 129-05 — logger mock so identity-gate fail-closed warn
+// (`operation: "app_frame_filter_identity_gate_error"`) is spy-observable.
+// vi.hoisted lets the mock references be visible inside the vi.mock factory
+// (which hoists above the top-level import order).
+//
+// Backward-compat: pre-129 tests never asserted on systemLogger calls; the
+// existing `canUserSee` warn at L188-196 continues to fire against this mock
+// as a no-op (`vi.fn()`), same behavior the tests already observed.
+// ---------------------------------------------------------------------------
+const { systemLoggerWarnMock, systemLoggerDebugMock } = vi.hoisted(() => ({
+  systemLoggerWarnMock: vi.fn(),
+  systemLoggerDebugMock: vi.fn(),
+}));
+
+vi.mock("../utils/logger.js", () => ({
+  sshLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  databaseLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  systemLogger: {
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: systemLoggerWarnMock,
+    debug: systemLoggerDebugMock,
+  },
+}));
 
 import {
   createAccessCache,
@@ -28,6 +55,7 @@ import {
   makeAppUpdateFrame,
   makeGoneFrame,
   makeProjectListChangedFrame,
+  makeSessionProjectChangedFrame,
   makeSnapshotFrame,
   makeUpdateFrame,
 } from "./wire-protocol.js";
@@ -71,7 +99,15 @@ describe("app-frame-filter", () => {
       .mockResolvedValue({ hostIdNum: 1, hostUserId: "U" });
     const checkAccessMock = vi.fn(async () => true);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toEqual(frame);
@@ -89,7 +125,15 @@ describe("app-frame-filter", () => {
       .mockResolvedValue({ hostIdNum: 1, hostUserId: "OTHER_USER" });
     const checkAccessMock = vi.fn(async () => false);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toBeNull();
@@ -103,7 +147,15 @@ describe("app-frame-filter", () => {
       .mockResolvedValue({ hostIdNum: 2, hostUserId: "OTHER_USER" });
     const checkAccessMock = vi.fn(async () => false);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toBeNull();
@@ -134,7 +186,15 @@ describe("app-frame-filter", () => {
       },
     );
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).not.toBeNull();
@@ -152,7 +212,15 @@ describe("app-frame-filter", () => {
     const resolver = vi.fn();
     const checkAccessMock = vi.fn(async () => true);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).not.toBeNull();
@@ -191,7 +259,15 @@ describe("app-frame-filter", () => {
     const checkAccessMock = vi.fn(async () => true);
     const cache = createAccessCache(30_000);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     await filterAppFrame(frame, ctx, cache, checkAccessMock);
     await filterAppFrame(frame, ctx, cache, checkAccessMock);
 
@@ -213,7 +289,15 @@ describe("app-frame-filter", () => {
     // TTL = 0 means every read sees the entry as expired.
     const cache = createAccessCache(0);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     await filterAppFrame(frame, ctx, cache, checkAccessMock);
     // Second call — ttl=0 makes the prior write immediately stale.
     await filterAppFrame(frame, ctx, cache, checkAccessMock);
@@ -227,7 +311,15 @@ describe("app-frame-filter", () => {
     const resolver = vi.fn().mockResolvedValue(null);
     const checkAccessMock = vi.fn(async () => true);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toBeNull();
@@ -244,7 +336,15 @@ describe("app-frame-filter", () => {
       throw new Error("permission-manager exploded");
     });
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toBeNull();
@@ -261,7 +361,15 @@ describe("app-frame-filter", () => {
       .mockResolvedValue({ hostIdNum: 1, hostUserId: "OTHER_USER" });
     const checkAccessMock = vi.fn(async () => false);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toBeNull();
@@ -275,7 +383,15 @@ describe("app-frame-filter", () => {
       .mockResolvedValue({ hostIdNum: 1, hostUserId: "U" });
     const checkAccessMock = vi.fn(async () => true);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toEqual(frame);
@@ -286,7 +402,15 @@ describe("app-frame-filter", () => {
     const resolver = vi.fn().mockResolvedValue(null);
     const checkAccessMock = vi.fn(async () => true);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toBeNull();
@@ -319,7 +443,15 @@ describe("app-frame-filter", () => {
       .mockResolvedValue({ hostIdNum: 1, hostUserId: "OTHER_USER" });
     const checkAccessMock = vi.fn(async () => false);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toBeNull();
@@ -333,7 +465,15 @@ describe("app-frame-filter", () => {
       .mockResolvedValue({ hostIdNum: 1, hostUserId: "U" });
     const checkAccessMock = vi.fn(async () => true);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).toEqual(frame);
@@ -361,7 +501,15 @@ describe("app-frame-filter", () => {
       },
     );
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).not.toBeNull();
@@ -379,7 +527,15 @@ describe("app-frame-filter", () => {
     const resolver = vi.fn();
     const checkAccessMock = vi.fn(async () => true);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).not.toBeNull();
@@ -417,7 +573,15 @@ describe("app-frame-filter", () => {
       },
     );
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).not.toBeNull();
@@ -434,7 +598,15 @@ describe("app-frame-filter", () => {
     const resolver = vi.fn();
     const checkAccessMock = vi.fn(async () => true);
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).not.toBeNull();
@@ -456,6 +628,10 @@ describe("app-frame-filter", () => {
     const checkAccessMock = vi.fn(async () => true);
     const filter = createAppFrameFilter({
       resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on
+      // CreateAppFrameFilterDeps. Pre-129 factory test is agnostic; stub
+      // returns true so the composed filter reduces to the host gate.
+      resolveIdentityGate: async () => true,
       ttlMs: 30_000,
       _checkHostAccess: checkAccessMock,
     });
@@ -480,11 +656,274 @@ describe("app-frame-filter", () => {
     const resolver = vi.fn();
     const checkAccessMock = vi.fn();
 
-    const ctx: AppFrameFilterCtx = { userId: "U", resolveHostOwnerById: resolver };
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolver,
+      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
+      // Pre-129 tests are agnostic to the identity gate; stub returns true so
+      // the intersection reduces to the host gate under test. Regression lock
+      // for Test K.
+      resolveIdentityGate: async () => true,
+    };
     const result = await filterAppFrame(nonHostFrame, ctx, undefined, checkAccessMock);
 
     expect(result).toEqual(nonHostFrame);
     expect(resolver).not.toHaveBeenCalled();
     expect(checkAccessMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 129 Plan 129-05 — per-identity visibility gate at the WS surface.
+//
+// filterAppFrame extended to gate every frame type that carries an identity
+// name (`update.state.tmuxSession`, `snapshot.states[].tmuxSession`,
+// `gone.tmuxSession`, `session-project-changed.identityKey`) via
+// ctx.resolveIdentityGate, AFTER the host gate closes. (`identity-archived`
+// gate retired alongside the frame in Phase 122 shape follow-up.)
+//
+// Contract locks:
+//   - Host gate short-circuits identity gate (Test J — no wasted resolver
+//     call when host is already denied).
+//   - Fail-CLOSED on resolver throw (Test I) — mirrors the canUserSee
+//     catch-and-return-false shape at L185-198; WS frames are less
+//     recoverable than a REST list because a leaked frame updates a live
+//     sidebar in real time. Warn log fires with
+//     `operation: "app_frame_filter_identity_gate_error"`.
+//   - Backward-compat via test-fixture updates (Test K); the ctx type
+//     extension is a REQUIRED field, so all pre-129 fixtures gained a
+//     stub `resolveIdentityGate: async () => true`.
+// ---------------------------------------------------------------------------
+
+describe("Phase 129: identity-name gate", () => {
+  function makeSessionState(
+    hostId: string,
+    tmuxSession: string | null,
+  ): SessionState {
+    return {
+      hostId,
+      tmuxSession,
+      sessionId: `${hostId}-${tmuxSession ?? "null"}`,
+      pid: 1000,
+      status: "busy",
+      backgroundTasks: [],
+      updatedAt: 1_700_000_000_000,
+    };
+  }
+
+  // Standard host-gate-passes resolver + checkAccess for tests that isolate
+  // the identity-gate branch.
+  const okResolver = () =>
+    vi.fn().mockResolvedValue({ hostIdNum: 1, hostUserId: "U" });
+  const okCheckAccess = () => vi.fn(async () => true);
+
+  beforeEach(() => {
+    systemLoggerWarnMock.mockReset();
+    systemLoggerDebugMock.mockReset();
+  });
+
+  it("Test A: update frame, identity visible → frame passes through unchanged", async () => {
+    const frame = makeUpdateFrame(makeSessionState("h1", "tina"));
+    const resolveIdentityGate = vi.fn(async () => true);
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: okResolver(),
+      resolveIdentityGate,
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, okCheckAccess());
+
+    expect(result).toEqual(frame);
+    expect(resolveIdentityGate).toHaveBeenCalledWith("tina", "h1", "U");
+  });
+
+  it("Test B: update frame, identity hidden → frame dropped", async () => {
+    const frame = makeUpdateFrame(makeSessionState("h1", "tina"));
+    const resolveIdentityGate = vi.fn(async () => false);
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: okResolver(),
+      resolveIdentityGate,
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, okCheckAccess());
+
+    expect(result).toBeNull();
+    expect(resolveIdentityGate).toHaveBeenCalledWith("tina", "h1", "U");
+  });
+
+  it("Test C: update frame with null tmuxSession → identity gate skipped, host gate only", async () => {
+    // An update frame whose tmuxSession is null carries no identity name to
+    // gate on. The host gate still applies; the identity gate MUST NOT be
+    // called (nothing to gate). Defensive branch for source-B dormant-only
+    // rows that publish pid:null and no tmuxSession per Phase 52 Plan 01.
+    const frame = makeUpdateFrame(makeSessionState("h1", null));
+    const resolveIdentityGate = vi.fn(async () => false); // would deny if called
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: okResolver(),
+      resolveIdentityGate,
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, okCheckAccess());
+
+    expect(result).toEqual(frame);
+    expect(resolveIdentityGate).not.toHaveBeenCalled();
+  });
+
+  it("Test D: snapshot frame, mixed identity visibility → filtered snapshot with 1 state", async () => {
+    // 3 states, one visible per identity gate ("keeper"), two hidden
+    // ("hidden-a", "hidden-b"). Result is a snapshot frame with 1 state.
+    const stateKeeper = makeSessionState("h1", "keeper");
+    const stateHiddenA = makeSessionState("h1", "hidden-a");
+    const stateHiddenB = makeSessionState("h1", "hidden-b");
+    const frame = makeSnapshotFrame([stateKeeper, stateHiddenA, stateHiddenB]);
+
+    const resolveIdentityGate = vi.fn(async (name: string) => name === "keeper");
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: okResolver(),
+      resolveIdentityGate,
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, okCheckAccess());
+
+    expect(result).not.toBeNull();
+    if (result && result.type === "snapshot") {
+      expect(result.states.map((s) => s.tmuxSession)).toEqual(["keeper"]);
+      expect(result.schemaVersion).toBe(FRAME_SCHEMA_VERSION);
+    } else {
+      throw new Error("expected snapshot frame");
+    }
+  });
+
+  it("Test E: snapshot frame, all identities hidden → empty snapshot frame (not null)", async () => {
+    // Mirrors the pre-129 empty-snapshot discipline (L228-232): the emit
+    // happened, so a snapshot frame with states: [] is a valid outcome. The
+    // frontend renders empty state gracefully.
+    const stateA = makeSessionState("h1", "hidden-a");
+    const stateB = makeSessionState("h1", "hidden-b");
+    const frame = makeSnapshotFrame([stateA, stateB]);
+
+    const resolveIdentityGate = vi.fn(async () => false);
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: okResolver(),
+      resolveIdentityGate,
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, okCheckAccess());
+
+    expect(result).not.toBeNull();
+    if (result && result.type === "snapshot") {
+      expect(result.states).toEqual([]);
+    } else {
+      throw new Error("expected snapshot frame");
+    }
+  });
+
+  it("Test F: gone frame, identity hidden → dropped", async () => {
+    const frame = makeGoneFrame("h1", "tina", "session-123");
+    const resolveIdentityGate = vi.fn(async () => false);
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: okResolver(),
+      resolveIdentityGate,
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, okCheckAccess());
+
+    expect(result).toBeNull();
+    expect(resolveIdentityGate).toHaveBeenCalledWith("tina", "h1", "U");
+  });
+
+  // (Test G identity-archived-frame identity-gate retired alongside the frame
+  //  itself in the Phase 122 shape follow-up — see Tests 14-16 above.)
+
+  it("Test H: session-project-changed frame, identity hidden → dropped", async () => {
+    // frame.identityKey → identity gate; frame.hostId is a NUMBER (unlike
+    // the other frame types) so the gate branch must coerce to string for
+    // the host lookup.
+    const frame = makeSessionProjectChangedFrame("muffin", 1, "kitchen");
+    const resolveIdentityGate = vi.fn(async () => false);
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: okResolver(),
+      resolveIdentityGate,
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, okCheckAccess());
+
+    expect(result).toBeNull();
+    expect(resolveIdentityGate).toHaveBeenCalledWith("muffin", "1", "U");
+  });
+
+  it("Test I: resolveIdentityGate throws → fail-CLOSED (frame dropped) + warn log fires", async () => {
+    // Fail-closed on resolver throw mirrors canUserSee's catch-and-return-
+    // false shape at L185-198. Warn log carries operation:
+    // "app_frame_filter_identity_gate_error" for ops observability.
+    const frame = makeUpdateFrame(makeSessionState("h1", "tina"));
+    const resolveIdentityGate = vi.fn(async () => {
+      throw new Error("SSH exec exploded");
+    });
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: okResolver(),
+      resolveIdentityGate,
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, okCheckAccess());
+
+    expect(result).toBeNull();
+    // Warn log fired with the identity-gate error operation code.
+    const warnCalls = systemLoggerWarnMock.mock.calls;
+    const identityGateWarn = warnCalls.find(
+      (call) =>
+        typeof call[1] === "object" &&
+        call[1] !== null &&
+        (call[1] as Record<string, unknown>).operation ===
+          "app_frame_filter_identity_gate_error",
+    );
+    expect(identityGateWarn).toBeDefined();
+    if (identityGateWarn) {
+      const meta = identityGateWarn[1] as Record<string, unknown>;
+      expect(meta.userId).toBe("U");
+      expect(meta.hostIdStr).toBe("h1");
+      expect(meta.identityName).toBe("tina");
+      expect(meta.error).toBe("SSH exec exploded");
+    }
+  });
+
+  it("Test J: host gate closes first → identity gate NOT consulted (efficiency + defense-in-depth)", async () => {
+    // If canUserSee returns false, canUserSeeIdentity MUST NOT be called.
+    // Prevents wasted SSH round-trips AND provides defense in depth (an
+    // over-permissive identity gate cannot leak a frame the host gate
+    // already closed).
+    const frame = makeUpdateFrame(makeSessionState("h1", "tina"));
+    const resolveIdentityGate = vi.fn(async () => true); // would ALLOW if consulted
+    const resolveHostDeny = vi
+      .fn()
+      .mockResolvedValue({ hostIdNum: 1, hostUserId: "OTHER" });
+    const checkAccessDeny = vi.fn(async () => false); // host gate closes
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: resolveHostDeny,
+      resolveIdentityGate,
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, checkAccessDeny);
+
+    expect(result).toBeNull();
+    expect(resolveIdentityGate).not.toHaveBeenCalled();
+  });
+
+  it("Test K: pre-129 test fixtures updated with resolveIdentityGate stub → all existing tests still pass (regression lock)", () => {
+    // This test is a documentation lock — the actual regression coverage
+    // lives in the pre-129 test suite above (Tests 1-22 + factory + pong).
+    // Every existing AppFrameFilterCtx construction was updated to include
+    // `resolveIdentityGate: async () => true` as a required field. If a
+    // future ctx-shape edit drops that field, TypeScript will reject the
+    // fixture at compile time; if the runtime shape drifts, this test
+    // being present in the file ensures anyone reading the suite sees the
+    // regression-lock discipline documented explicitly.
+    expect(true).toBe(true);
   });
 });

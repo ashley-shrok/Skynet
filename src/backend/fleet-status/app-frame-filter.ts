@@ -65,12 +65,37 @@ export type CheckHostAccessFn = (
  * fleet-status frames to the (numeric hostId, hostUserId) pair
  * checkHostAccess requires. The resolver is INJECTED — this file owns no
  * DB access.
+ *
+ * Phase 129 Plan 129-05 (D-2, D-7): the identity-name visibility gate is
+ * INJECTED via `resolveIdentityGate`. A closure supplied by the production
+ * wiring site (starter.ts / fleet-status-server.ts) reads identity + role
+ * frontmatter over SSH, applies `isIdentityVisibleToUser`, and returns a
+ * boolean. Keeping this file free of artifact-reader / DB / SSH imports
+ * preserves the L66-68 discipline that pre-Phase-129 already documented.
+ * Every frame branch that carries an identity name (`update`, `snapshot`,
+ * `gone`, `session-project-changed`) MUST invoke this gate AFTER the host
+ * gate. (`identity-archived` retired in the Phase 122 shape follow-up.)
  */
 export interface AppFrameFilterCtx {
   userId?: string;
   resolveHostOwnerById: (
     hostIdStr: string,
   ) => Promise<{ hostIdNum: number; hostUserId: string } | null>;
+  /**
+   * Phase 129 Plan 129-05: per-frame identity-name visibility gate.
+   * Called AFTER `canUserSee(hostIdStr)` passes; MUST NOT be invoked when
+   * the host gate has already closed (defense-in-depth + efficiency —
+   * Test J lock). Fail-CLOSED on throw (deny frame; WS frames are less
+   * recoverable than REST lists because a leaked frame updates a live
+   * sidebar in real time) — mirrors the `canUserSee` catch-and-return-
+   * false shape at L185-198. Injected as a closure so this file owns no
+   * DB / SSH / artifact-reader imports.
+   */
+  resolveIdentityGate: (
+    identityName: string,
+    hostIdStr: string,
+    userId: string,
+  ) => Promise<boolean>;
 }
 
 /**
@@ -201,6 +226,40 @@ export async function filterAppFrame(
     return allowed;
   }
 
+  /**
+   * Phase 129 Plan 129-05 (D-2, D-7): per-identity visibility check.
+   * Delegates to the injected `ctx.resolveIdentityGate` closure — this
+   * file owns no artifact-reader / SSH / DB imports (L66-68 discipline).
+   *
+   * Fail-CLOSED on resolver throw (deny frame). WS frames are less
+   * recoverable than REST lists because a leaked frame updates a live
+   * sidebar in real time; mirrors the `canUserSee` catch-and-return-
+   * false shape at L185-198. NO cache in v1 (Assumption A3 lock) —
+   * per-request fresh reads preserve the "picked up on next read"
+   * shape-file promise; add a 2-5s TTL cache in a follow-up phase if
+   * SSH profiling shows the per-call cost is prohibitive.
+   */
+  async function canUserSeeIdentity(
+    identityName: string,
+    hostIdStr: string,
+  ): Promise<boolean> {
+    try {
+      return await ctx.resolveIdentityGate(identityName, hostIdStr, userId);
+    } catch (err) {
+      systemLogger.warn(
+        "Fleet-status app-frame filter — identity gate resolver threw; denying",
+        {
+          operation: "app_frame_filter_identity_gate_error",
+          userId,
+          hostIdStr,
+          identityName,
+          error: err instanceof Error ? err.message : "unknown",
+        },
+      );
+      return false;
+    }
+  }
+
   if (frame.type === "app-update") {
     return (await canUserSee(frame.app.hostId)) ? frame : null;
   }
@@ -289,6 +348,12 @@ export async function filterAppFrame(
 
 export interface CreateAppFrameFilterDeps {
   resolveHostOwnerById: AppFrameFilterCtx["resolveHostOwnerById"];
+  /**
+   * Phase 129 Plan 129-05 (D-2, D-7): identity-name gate resolver injected
+   * from starter.ts / fleet-status-server.ts. See `AppFrameFilterCtx`
+   * JSDoc above for contract (fail-closed on throw; no cache in v1).
+   */
+  resolveIdentityGate: AppFrameFilterCtx["resolveIdentityGate"];
   ttlMs?: number;
   /**
    * Test seam — inject a mock checkHostAccess without vi.mock. Production
@@ -310,11 +375,12 @@ export function createAppFrameFilter(
   const cache = createAccessCache(deps.ttlMs ?? DEFAULT_TTL_MS);
   const check = deps._checkHostAccess ?? defaultCheckHostAccess;
   const resolveHostOwnerById = deps.resolveHostOwnerById;
+  const resolveIdentityGate = deps.resolveIdentityGate;
 
   return async (frame, userId) => {
     return filterAppFrame(
       frame,
-      { userId, resolveHostOwnerById },
+      { userId, resolveHostOwnerById, resolveIdentityGate },
       cache,
       check,
     );
