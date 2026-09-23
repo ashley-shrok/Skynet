@@ -111,7 +111,6 @@ export interface AuthResponse {
   data_unlocked?: boolean;
   requires_totp?: boolean;
   temp_token?: string;
-  rememberMe?: boolean;
   token?: string;
 }
 
@@ -426,11 +425,6 @@ export function createApiInstance(
     }
 
     if (isElectron()) {
-      if (config.headers.set) {
-        config.headers.set("X-Electron-App", "true");
-      } else {
-        config.headers["X-Electron-App"] = "true";
-      }
       const jwt = localStorage.getItem("jwt");
       if (jwt) {
         if (config.headers.set) {
@@ -464,7 +458,7 @@ export function createApiInstance(
       }
     }
 
-    // Phase 111 SKEW-04: airtight-by-construction client stamping. All 8
+    // Phase 132 SKEW-04: airtight-by-construction client stamping. All 8
     // axios instances derive from this factory; a single header set here
     // covers every UI-initiated HTTP call. Parallel discipline lives in
     // src/ui/lib/stamped-fetch.ts for the raw-fetch lane. The two-branch
@@ -1186,7 +1180,7 @@ export function handleApiError(error: unknown, operation: string): never {
           errorContext,
         );
         throw new ApiError(
-          "No server configured. Please configure a Skynet server first.",
+          "No server configured. Please configure a server first.",
           0,
           "NO_SERVER_CONFIGURED",
         );
@@ -1734,13 +1728,11 @@ export async function registerUser(
 export async function loginUser(
   username: string,
   password: string,
-  rememberMe: boolean = false,
 ): Promise<AuthResponse> {
   try {
     const response = await authApi.post("/users/login", {
       username,
       password,
-      rememberMe,
     });
 
     const isInIframe =
@@ -1776,7 +1768,6 @@ export async function loginUser(
       username: response.data.username,
       requires_totp: response.data.requires_totp,
       temp_token: response.data.temp_token,
-      rememberMe: response.data.rememberMe,
       is_oidc: response.data.is_oidc,
       totp_enabled: response.data.totp_enabled,
       data_unlocked: response.data.data_unlocked,

@@ -32,7 +32,14 @@ import {
   FrontendInboundFrame,
   makePongFrame,
 } from "./wire-protocol.js";
-import type { SubscriptionRegistry } from "./subscription-registry.js";
+import {
+  createSubscriptionRegistry,
+  type SubscriptionRegistry,
+} from "./subscription-registry.js";
+import {
+  createAppFrameFilter,
+  type CheckHostAccessFn,
+} from "./app-frame-filter.js";
 import type { HostRecord } from "./host-id-resolver.js";
 
 const SERVER_BUILD_ID = getServerBuildId();
@@ -54,13 +61,99 @@ interface AuthManagerLike {
 export interface FleetStatusServerOptions {
   port?: number;
   authManager: AuthManagerLike;
-  registry: SubscriptionRegistry;
+  /**
+   * Optional pre-built registry. When omitted, the server constructs one
+   * via `createSubscriptionRegistry` and (if `resolveHostOwnerById` is
+   * present) wires the Phase 118 Plan 118-05 per-user host-visibility
+   * filter into it. When provided, the server uses the passed registry
+   * as-is — the caller owns filter wiring in that case. This dual shape
+   * preserves backward-compat for pre-118-05 callers (starter.ts today
+   * passes a pre-built registry; starter.ts wiring update is deferred to
+   * the deploy motion per fleet directive #10).
+   */
+  registry?: SubscriptionRegistry;
   resolveHostRecordByName: (name: string) => Promise<HostRecord | null>;
+  /**
+   * Phase 118 Plan 118-05 (D-15): resolver mapping the wire-shaped
+   * hostId string (used inside fleet-status frames) to the numeric
+   * hostId + owner userId pair that `checkHostAccess` requires. When
+   * present, the server constructs the app-frame filter via
+   * `createAppFrameFilter({ resolveHostOwnerById })` and passes it to
+   * the internal registry factory. When absent, the registry runs
+   * unfiltered — production wiring in starter.ts MUST pass this at
+   * deploy time to close T-118-05-IL / T-118-03-IL info-disclosure gap.
+   */
+  resolveHostOwnerById?: (
+    hostIdStr: string,
+  ) => Promise<{ hostIdNum: number; hostUserId: string } | null>;
+  /**
+   * Phase 129 Plan 129-05 (D-2, D-7): per-frame identity-name visibility
+   * resolver injected as a closure from starter.ts. Reads identity + role
+   * frontmatter over SSH, applies isIdentityVisibleToUser against the
+   * caller's Skynet username, and returns a boolean. When present, wired
+   * into createAppFrameFilter alongside resolveHostOwnerById. Must be
+   * paired with resolveHostOwnerById; if only one is provided, the filter
+   * still runs but the identity gate is skipped (stub returns true).
+   *
+   * Fail-CLOSED on throw (deny frame) — the shim inside app-frame-filter
+   * owns the catch (mirrors the checkHostAccess catch-and-return-false
+   * discipline at L185-198). No cache in v1 per Assumption A3 — the shape
+   * file requires that a `users:` frontmatter edit propagates on next
+   * read; a stale cache would visibly regress that promise.
+   */
+  resolveIdentityGate?: (
+    identityName: string,
+    hostIdStr: string,
+    userId: string,
+  ) => Promise<boolean>;
+  /**
+   * Phase 130: userId → Skynet username resolver for the per-user project
+   * gate inside app-frame-filter's project-list-changed branch. When
+   * present, wired into createAppFrameFilter. Optional — an absent resolver
+   * makes the project user gate a no-op (host-access gate still applies).
+   *
+   * Fail-open on null username or throw (mirrors identity-gate discipline
+   * at starter.ts L685-697): a null callerUsername is an infra bug, not a
+   * gate signal — treating it as "hide everything" would empty every
+   * user's projects sidebar.
+   */
+  resolveCallerUsername?: (userId: string) => Promise<string | null>;
+  /**
+   * Phase 118 Plan 118-05: TTL override for the app-frame filter's
+   * per-(userId, hostIdStr) access cache. Defaults to 30s in
+   * createAppFrameFilter. Tests can pass 0 for deterministic per-call
+   * behavior.
+   */
+  appFrameFilterTtlMs?: number;
+  /**
+   * Phase 118 Plan 118-05: test seam — override the checkHostAccess
+   * dependency used inside the filter. Production callers omit this
+   * and get the real host-resolver.checkHostAccess.
+   */
+  _testCheckHostAccessOverride?: CheckHostAccessFn;
+  /**
+   * Phase 118 code-review HIGH-1b (fix pass 2026-09-18): explicit opt-out
+   * for the loud `fleet_status_unfiltered_mode` warn in branch 1 (pre-built
+   * registry, no resolveHostOwnerById). Defense-in-depth on top of the
+   * starter.ts wiring (HIGH-1a) — if a future regression drops the resolver
+   * dep, the log path fires so the state is grep-able. Tests + intentional
+   * unfiltered callers (session-only tests using
+   * `createSubscriptionRegistry()` with no deps) can pass `true` to
+   * suppress the warn. Default undefined → warn fires.
+   */
+  acknowledgeUnfilteredMode?: boolean;
 }
 
 export interface FleetStatusServer {
   close: () => void;
   wss: WebSocketServer;
+  /**
+   * Phase 118 Plan 118-05: exposes the registry so callers that let the
+   * server construct one internally can still call publish* methods on
+   * it (tests + potential future in-process publishers). When `registry`
+   * was passed via options, this is that same reference.
+   */
+  registry: SubscriptionRegistry;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,13 +184,100 @@ function extractJwtToken(req: IncomingMessage): string | undefined {
 export function startFleetStatusServer(
   opts: FleetStatusServerOptions,
 ): FleetStatusServer {
-  const { authManager, registry, resolveHostRecordByName } = opts;
+  const { authManager, resolveHostRecordByName } = opts;
   const port = opts.port ?? 30012;
+
+  // Phase 118 Plan 118-05: build the per-user host-visibility filter when
+  // a resolver dep is provided AND no pre-built registry was passed in.
+  // The filter's TTL cache is scoped to this server instance's lifetime
+  // and dies when the WSS closes.
+  //
+  // When `opts.registry` is provided (starter.ts's current shape), the
+  // caller owns filter wiring — we do NOT construct one here to avoid
+  // double-filtering. starter.ts update to pass resolveHostOwnerById +
+  // let the server own registry construction is deferred to the deploy
+  // motion per fleet directive #10.
+  let registry: SubscriptionRegistry;
+  if (opts.registry !== undefined) {
+    registry = opts.registry;
+    if (opts.resolveHostOwnerById !== undefined) {
+      systemLogger.warn(
+        "Fleet-status: resolveHostOwnerById passed alongside pre-built registry — filter NOT wired (caller owns wiring)",
+        {
+          operation: "fleet_status_filter_wiring_skipped",
+          reason: "external_registry",
+        },
+      );
+    } else if (opts.acknowledgeUnfilteredMode !== true) {
+      // Phase 118 code-review HIGH-1b (fix pass 2026-09-18): defense in
+      // depth. Branch 1 (pre-built registry, no resolver) is the SILENT
+      // unfiltered path — the regression HIGH-1a fixed lived here. Emit
+      // the same loud warn the fully-default branch 3 emits so if a
+      // future caller drops resolveHostOwnerById the state is grep-able
+      // via `operation: "fleet_status_unfiltered_mode"`. Callers that
+      // WANT the unfiltered shape (session-only tests + backward-compat
+      // harnesses) pass acknowledgeUnfilteredMode: true.
+      systemLogger.warn(
+        "Fleet-status: pre-built registry provided without resolveHostOwnerById — running UNFILTERED (T-118-05-BF risk)",
+        {
+          operation: "fleet_status_unfiltered_mode",
+          source: "external_registry",
+        },
+      );
+    }
+  } else if (opts.resolveHostOwnerById !== undefined) {
+    // Phase 129 Plan 129-05 (D-2, D-7): the identity-gate resolver is
+    // REQUIRED on CreateAppFrameFilterDeps. If the caller did not supply
+    // one (backward-compat with pre-129 callers, or intentional bypass
+    // for local-dev / test harnesses), fall back to a stub that always
+    // returns true — the intersection reduces to the host gate alone.
+    // Loud warn fires so a regression is grep-able via
+    // operation: "fleet_status_identity_gate_missing".
+    let resolveIdentityGate = opts.resolveIdentityGate;
+    if (resolveIdentityGate === undefined) {
+      systemLogger.warn(
+        "Fleet-status: resolveIdentityGate missing — identity gate disabled (host-gate-only mode)",
+        {
+          operation: "fleet_status_identity_gate_missing",
+          impact: "identity-name visibility gate skipped; per-user shared-host filtering inactive at WS surface",
+        },
+      );
+      resolveIdentityGate = async () => true;
+    }
+    const appFrameFilter = createAppFrameFilter({
+      resolveHostOwnerById: opts.resolveHostOwnerById,
+      resolveIdentityGate,
+      resolveCallerUsername: opts.resolveCallerUsername,
+      ttlMs: opts.appFrameFilterTtlMs,
+      _checkHostAccess: opts._testCheckHostAccessOverride,
+    });
+    registry = createSubscriptionRegistry({ appFrameFilter });
+    systemLogger.info(
+      "Fleet-status: app-frame filter attached to internal registry",
+      {
+        operation: "fleet_status_filter_attached",
+        ttlMs: opts.appFrameFilterTtlMs ?? "default",
+        identityGate: opts.resolveIdentityGate !== undefined ? "wired" : "stubbed",
+        projectUserGate:
+          opts.resolveCallerUsername !== undefined ? "wired" : "stubbed",
+      },
+    );
+  } else {
+    // Backward-compat: neither a registry nor a resolver was provided.
+    // Build an unfiltered registry (matches pre-118-05 default behavior).
+    registry = createSubscriptionRegistry();
+    systemLogger.warn(
+      "Fleet-status: no registry + no resolveHostOwnerById — running UNFILTERED (T-118-05-BF risk)",
+      {
+        operation: "fleet_status_unfiltered_mode",
+      },
+    );
+  }
 
   // Use path: undefined so we can dispatch manually per req.url
   const wss = new WebSocketServer({
     port,
-    // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins
+    // Phase 103 D-08: reject WS upgrades from *.serve.<domain> origins
     // at the handshake layer — WS complement to Plan 02's CORS reject.
     verifyClient: (info, done) => {
       if (rejectServeSubdomain(info.req)) {
@@ -163,6 +343,7 @@ export function startFleetStatusServer(
       });
     },
     wss,
+    registry,
   };
 }
 
@@ -243,7 +424,34 @@ async function handleFrontendConnection(
   let subscribeHandled = false;
   let disposer: (() => void) | undefined;
 
-  // Phase 111 SKEW-08: sendFrame wraps ws.send with build-id piggyback.
+  // Heartbeat — 30s ws.ping() with pong-timeout terminate. Mirrors
+  // terminal.ts:234-257 and claude-session-server.ts:5594-5615. Keeps
+  // NAT entries warm on cellular paths (idle-drop is ~30-90s) and lets
+  // the server detect zombie connections whose TCP silently died.
+  let wsAlive = true;
+  ws.on("pong", () => {
+    wsAlive = true;
+  });
+  const wsPingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      if (!wsAlive) {
+        systemLogger.warn(
+          "Fleet-status frontend WS pong timeout — terminating zombie connection",
+          {
+            operation: "fleet_status_pong_timeout",
+            userId,
+            sessionId,
+          },
+        );
+        ws.terminate();
+        return;
+      }
+      wsAlive = false;
+      ws.ping();
+    }
+  }, 30000);
+
+  // Phase 132 SKEW-08: sendFrame wraps ws.send with build-id piggyback.
   // D-09: every outbound message from server → client carries `build:<sha>`.
   // Client's onmessage handler checks parsed.build vs its baked-in
   // CLIENT_BUILD_ID and fires lockSkewedSession on mismatch.
@@ -302,6 +510,7 @@ async function handleFrontendConnection(
   });
 
   ws.on("close", (code, reason) => {
+    clearInterval(wsPingInterval);
     if (disposer) disposer();
     systemLogger.info("Fleet-status frontend disconnected", {
       operation: "fleet_status_disconnect",
@@ -337,6 +546,34 @@ async function handleWatcherConnection(
   // Wait for the first 'hello' frame to identify the watcher's hostId
   let hostId: string | undefined;
   let helloReceived = false;
+
+  // Heartbeat — 30s ws.ping() with pong-timeout terminate. Mirrors the
+  // frontend handler above and terminal.ts:234-257. Cellular-NAT idle
+  // drop doesn't apply here (watcher runs over Tailscale) but zombie
+  // detection does — a crashed/partitioned watcher box otherwise leaks
+  // a dead subscriber on the server side until the OS notices.
+  let wsAlive = true;
+  ws.on("pong", () => {
+    wsAlive = true;
+  });
+  const wsPingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      if (!wsAlive) {
+        systemLogger.warn(
+          "Fleet-status watcher WS pong timeout — terminating zombie connection",
+          {
+            operation: "fleet_status_pong_timeout",
+            fleetHostId: hostId,
+            remoteIp,
+          },
+        );
+        ws.terminate();
+        return;
+      }
+      wsAlive = false;
+      ws.ping();
+    }
+  }, 30000);
 
   ws.on("message", async (raw) => {
     let parsed: unknown;
@@ -428,6 +665,7 @@ async function handleWatcherConnection(
   });
 
   ws.on("close", (code, reason) => {
+    clearInterval(wsPingInterval);
     systemLogger.info("Fleet-status watcher disconnected", {
       operation: "fleet_status_disconnect",
       fleetHostId: hostId,

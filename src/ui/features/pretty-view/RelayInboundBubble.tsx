@@ -547,9 +547,13 @@ export function RelayInboundBubble({
               longPressTimerRef.current = window.setTimeout(() => {
                 longPressFiredRef.current = true;
                 longPressTimerRef.current = null;
+                // Capture BEFORE toggling: onLongPressSpeak flips autoplayArmed
+                // upstream. On disarm we skip startSpeak — hold-to-turn-off
+                // should not also start playing the pressed bubble.
+                const wasArmed = autoplayArmed;
                 if (eventId && onLongPressSpeak) onLongPressSpeak(eventId);
-                void startSpeak("long-press");
-              }, 500);
+                if (!wasArmed) void startSpeak("long-press");
+              }, 800);
             }}
             onPointerMove={(e) => {
               const start = pointerStartRef.current;
@@ -599,20 +603,16 @@ export function RelayInboundBubble({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: autoplayArmed
-                ? "hsla(var(--pv-id-hue),60%,70%,0.28)"
-                : "rgba(0,0,0,0.28)",
+              background: "rgba(0,0,0,0.28)",
               borderWidth: 1,
               borderStyle: "solid",
-              borderColor: autoplayArmed
-                ? "hsla(var(--pv-id-hue),70%,70%,0.35)"
-                : "rgba(255,255,255,0.10)",
+              borderColor: "rgba(255,255,255,0.10)",
               color: "rgba(255,220,170,0.72)",
               opacity: 0.62,
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className="pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+            className={`pv-speak-btn ${autoplayArmed ? "autospeak-armed" : ""} hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />

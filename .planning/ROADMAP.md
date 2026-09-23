@@ -2850,7 +2850,6 @@ Wave structure:
 - Wave 2 (single): 132-07 — codification comments + assertion test + end-to-end playwright spec, depends on 03-06 being present.
 
 Threat model highlights (STRIDE registers per plan):
-- T-132-SPOOF (hostile client suppresses X-Skynet-Client-Build to evade refusal): accepted per D-06 design (mismatch-only server enforcement; client-side interceptor guarantees the header on legitimate browsers; hostile clients are outside the trust boundary).
-- T-132-DoS reload-loop (Pitfall 4): mitigated by reload-loop sentinel in Plan 02 Task 2 (fatal-mode modal after 4 reloads within 60s).
+- T-111-SPOOF (hostile client suppresses X-Skynet-Client-Build to evade refusal): accepted per D-06 design (mismatch-only server enforcement; client-side interceptor guarantees the header on legitimate browsers; hostile clients are outside the trust boundary).
+- T-111-DoS reload-loop (Pitfall 4): mitigated by reload-loop sentinel in Plan 02 Task 2 (fatal-mode modal after 4 reloads within 60s).
 - Package-legitimacy gate: N/A this phase — zero new npm/pip/cargo packages.
-

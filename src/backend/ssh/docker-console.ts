@@ -36,7 +36,7 @@ const activeSessions = new Map<string, SSHSession>();
 const wss = new WebSocketServer({
   host: "0.0.0.0",
   port: 30009,
-  // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins at
+  // Phase 103 D-08: reject WS upgrades from *.serve.<domain> origins at
   // the handshake layer — WS complement to Plan 02's CORS reject.
   verifyClient: (info, done) => {
     if (rejectServeSubdomain(info.req)) {

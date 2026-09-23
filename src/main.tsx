@@ -55,9 +55,9 @@ console.info(`[pwa] boot ts=${Date.now()} ua="${navigator.userAgent.slice(0, 80)
 // Removable in ~5 min when the mitigation shape is chosen.
 startDiagEmitter();
 
-// Preserve ?tab=<spec> across the auth flow. Auth.tsx / LoginPage.tsx call
-// replaceState in several branches that would otherwise strip the query
-// string before AppShell mounts.
+// Preserve ?tab=<spec> across the auth flow. Auth.tsx calls replaceState in
+// several branches that would otherwise strip the query string before
+// AppShell mounts.
 snapshotPendingTab();
 console.info(`[pwa] snapshot-tab-restore result=no-pending`);
 

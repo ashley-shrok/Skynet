@@ -1182,7 +1182,7 @@ function startWebSocketServer(): void {
 
   const wss = new WebSocketServer({
     port: RELAY_ROOM_STREAM_PORT,
-    // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins
+    // Phase 103 D-08: reject WS upgrades from *.serve.<domain> origins
     // at the handshake layer — WS complement to Plan 02's CORS reject.
     verifyClient: (info, done) => {
       if (rejectServeSubdomain(info.req)) {

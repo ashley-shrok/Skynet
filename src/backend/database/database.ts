@@ -17,12 +17,49 @@ import networkTopologyRoutes from "./routes/network-topology.js";
 import rbacRoutes from "./routes/rbac.js";
 import openTabsRoutes from "./routes/open-tabs.js";
 import identitiesRoutes from "./routes/identities.js";
+import appsRoutes from "./routes/apps.js";
+// Phase 120 Plan 05 (D-08): the /apps/:hostId/:slug/pane/* reverse-proxy
+// route. Named export (not default) to disambiguate from Phase 119's
+// default-exported apps router at the mount site below.
+import {
+  appPaneRouter,
+  handleAppPaneUpgrade,
+} from "../apps/app-pane-router.js";
+// @types/node types http.Server's `upgrade` callback socket as `Duplex`,
+// but the runtime object is a `net.Socket` and downstream (proxy-middleware,
+// ws) is typed against `Socket`. Import the type here purely to cast at the
+// call site below — mirrors the sibling pattern in
+// src/backend/apps/tests/app-pane-router.integration.test.ts:200.
+import type { Socket as NetSocket } from "node:net";
 import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
+// Phase 115 Plan 115-03 (D-17): user-initiated archive — POST
+// /identities/:key/archive drops the `.archive-requested` sentinel on the
+// identity's host. Mounted BEFORE the generic /identities router so the
+// :key/archive sub-route isn't intercepted by the generic /:identityKey handler.
+import identityArchiveRoutes from "./routes/identity-archive.js";
+// Phase 122 Plan 122-02: POST /conversation-search — content-grep across the
+// caller's SSH+autoTmux hosts (live + archive identity trees), snippet-windowed
+// results sorted mtime-desc, offset/limit paginated. Backing route file:
+// ./routes/conversation-search.ts. Mount is a standalone base path (no
+// overlap with /identities or /sessions).
+import conversationSearchRoutes from "./routes/conversation-search.js";
+// Phase 117 Plan 117-05 (D-05, D-31, D-36a, D-37): user-initiated project
+// membership write — POST /identities/:key/project writes (or clears)
+// the `project:` frontmatter field on the identity's markdown file via
+// writeSessionProjectField (117-01). Mounted alongside the sibling
+// /:key/archive sub-route BEFORE the generic /identities router.
+import sessionProjectWriteRoutes from "./routes/session-project-write.js";
 import identityBirthRoutes from "./routes/identity-birth.js";
 import matrixAdminRoutes from "../matrix/matrix-admin-routes.js";
-import telegramRoutes from "../telegram/routes.js";
+// Phase 128 Plan 08 — /push-subscriptions router: POST register (auth-gated)
+// + GET /vapid-public-key (public). Backing route file: ./routes/push-subscriptions.ts.
+// Mount added alongside the sibling matrix-admin mount (the /telegram mount that
+// used to live at this position is DELETED in the same commit — bridge teardown).
+// Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf
+// land in Plan 128-09 per CLAUDE.md dual-conf caveat.
+import pushSubscriptionsRoutes from "./routes/push-subscriptions.js";
 // Phase 22 (SRIC-03): identity clone endpoint — mounted alongside birth/exists
 // with the same match-precedence discipline (specific paths BEFORE /identities).
 import identityCloneRoutes from "./routes/identity-clone.js";
@@ -48,6 +85,26 @@ import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
 import skillsEditorRoutes from "./routes/skills-editor.js";
 // Phase 89 Plan 02: /runbooks-editor router — 7 endpoints (list-runbooks / list-files / read / write / create / delete-file / delete-runbook) for editing role-scoped runbook folders on managed hosts. Mount + nginx block sit alongside the /skills-editor pair.
 import runbooksEditorRoutes from "./routes/runbooks-editor.js";
+// Phase 118 Plan 118-01 (D-04, D-16, D-17, D-19, D-20, D-21, D-22): /workspace CRUD router — 9 endpoints (list, read-file, write-file, delete, rename, mkdir, create-file, upload, download) for browsing the identity workspace on any user-accessible host via SFTP. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat (missing in HTTPS conf → /workspace returns index.html and crashes the frontend).
+import workspaceRoutes from "./routes/workspace-routes.js";
+// Phase 117 Plan 04 (D-25, D-30, D-36a, D-37): /projects router — GET list
+// + POST create + POST :slug/archive. JSON body per D-36a. Backend is
+// authoritative for slug derivation per Pitfall 1.
+import projectListRoutes from "./routes/project-list.js";
+// Phase 117 Plan 117-05 (D-05, D-05a, D-06, D-36a, D-37): /relay-rooms
+// router — POST /:roomId/project performs the read-modify-write on the
+// Matrix room's m.tag account_data via setRoomProjectTag (117-02).
+// Mounted at plural /relay-rooms to avoid collision with existing
+// /relay-room/create + /relay-room/:roomId/participants under the
+// singular /relay-room base.
+import relayRoomProjectTagRoutes from "./routes/relay-room-project-tag.js";
+// Phase 117 Plan 117-07 (Fix 1 gate / D-05 relay-room carrier): GET
+// /relay-rooms/project-tags — boot-time enumerator that walks the acting
+// user's Matrix rooms and returns every room whose account_data has a
+// `u.project.<slug>` tag. Frontend hydrates roomProjectAssignments at
+// AppShell mount from this endpoint (partial hydration on per-room errors).
+// Mounted at plural /relay-rooms alongside 117-05's project-tag write route.
+import relayRoomProjectTagsListRoutes from "./routes/relay-room-project-tags-list.js";
 // Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
 // POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook (Plan 40-02)
 // and editor open path (Plan 40-03) both consume this. Threat model
@@ -92,6 +149,11 @@ import relayPointerRoutes from "./routes/relay-pointer.js";
 // nginx location blocks land in plan 70-02 (BOTH docker/nginx.conf AND
 // docker/nginx-https.conf per CLAUDE.md nginx caveat).
 import brandingRoutes from "../branding/branding-routes.js";
+// Phase 121 (feedback-pipeline): auth-gated feedback intake + enabled-check.
+// Mounts /api/feedback/enabled (GET) and /feedback (POST). Matching nginx
+// location blocks land in plan 121-03 Task 6 (BOTH docker/nginx.conf AND
+// docker/nginx-https.conf per CLAUDE.md nginx caveat).
+import feedbackRoutes from "../feedback/feedback-routes.js";
 import { getBrandedIndexHtml } from "../branding/branding-template.js";
 // WEEKLY-METER-02: usage collector proxy (plan 260729-1vd).
 // Matching location /api/usage blocks in BOTH nginx configs per CLAUDE.md constraint.
@@ -166,6 +228,44 @@ app.set("trust proxy", true);
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 const requireAdmin = authManager.createAdminMiddleware();
+
+// Phase 103 D-24 mount order: cookieParser + subdomain-dispatch + serveUrlHandler
+// MUST run BEFORE express.json/bodyParser/bodyParser.raw. http-proxy-middleware v4
+// streams the raw request body to the upstream target, so any middleware that
+// consumes the request stream (bodyParser.*) upstream of the proxy truncates
+// POST bodies to zero bytes. cookieParser runs first because it reads
+// req.headers.cookie (header-only, no body consumption) and subdomain-dispatch
+// needs req.cookies to run the JWT check for *.serve.<domain> traffic.
+//
+// These ALSO run before createCorsMiddleware: the D-07 deny in cors-config.ts
+// rejects every *.serve.<domain> origin as the primary domain's CSRF
+// defense, which would otherwise judge tunnel-bound traffic that never touches
+// the primary API. Browsers attach Origin to ES-module script fetches even
+// same-origin, so with CORS first every module request from a dev server behind
+// a serve URL 500s while the HTML shell (no Origin on subresources) loads fine.
+// Serve traffic terminates in serveUrlHandler, so it never reaches the deny;
+// primary-domain traffic falls through both and is judged by CORS unchanged.
+app.use(cookieParser());
+app.use(createSubdomainDispatchMiddleware());
+app.use(serveUrlHandler);
+
+// Phase 120 D-08 pane proxy — MUST run BEFORE bodyParser.* for the SAME
+// reason serveUrlHandler above does: http-proxy-middleware v4 streams the
+// raw request body to the upstream target, so any prior middleware that
+// consumes the request stream (bodyParser.urlencoded is the load-bearing
+// one for SvelteKit form actions) truncates POST bodies to zero bytes
+// while leaving the original Content-Length header intact, and the
+// upstream then waits forever for bytes that never arrive → browser
+// hangs until edge timeout. Cookie parser stays above because
+// authenticateJWT inside the router reads req.cookies.jwt (header-only,
+// no body consumption). Non-matching /apps sub-paths fall through via
+// next() to reach the /apps/:hostId/:slug/icon router mounted later.
+// WebSocket upgrades on this same path shape are handled at the
+// http.Server level via httpServer.on("upgrade", ...) below because
+// router.all catches HTTP methods only, not upgrade events (BLOCKER 6
+// fix, T-120-32).
+app.use("/apps", appPaneRouter);
+
 app.use(createCorsMiddleware());
 
 const uploadsDir = path.join(process.env.DATA_DIR || "./db/data", "uploads");
@@ -307,26 +407,14 @@ async function fetchGitHubAPI<T>(
   }
 }
 
-// Phase 103 D-24 mount order: cookieParser + subdomain-dispatch + serveUrlHandler
-// MUST run BEFORE express.json/bodyParser/bodyParser.raw. http-proxy-middleware v4
-// streams the raw request body to the upstream target, so any middleware that
-// consumes the request stream (bodyParser.*) upstream of the proxy truncates
-// POST bodies to zero bytes. cookieParser runs first because it reads
-// req.headers.cookie (header-only, no body consumption) and subdomain-dispatch
-// needs req.cookies to run the JWT check for *.serve.term.<domain> traffic.
-app.use(cookieParser());
-app.use(createSubdomainDispatchMiddleware());
-app.use(serveUrlHandler);
-// Phase 111 SKEW-05: server-side skew-lock middleware — stamps every response
+// Phase 132 SKEW-05: server-side skew-lock middleware — stamps every response
 // with X-Skynet-Server-Build and refuses mismatched-tag requests with 409
-// stale_client. MUST be AFTER serveUrlHandler (Pitfall 7 — Phase 103
-// *.serve.term.<domain> traffic must bypass; that traffic proxies to
+// stale_client. Placed AFTER serveUrlHandler (installed above at line 250 —
+// Phase 103 *.serve.<domain> traffic must bypass; that traffic proxies to
 // arbitrary backend targets that don't know about Skynet's build tag) and
 // BEFORE bodyParser.* (header-only check runs cheap — no body parse needed).
-// Dev-mode escape hatch (SKEW-13) skips refusal when NODE_ENV !== "production"
-// so `npm run dev` workflows aren't 409'd into a corner. D-06 mismatch-only:
-// requests WITHOUT the client-build header pass through unchanged
-// (preserves substrate distributor, curl testing, agent scripting).
+// D-06 mismatch-only: requests WITHOUT the client-build header pass through
+// unchanged (preserves substrate distributor, curl testing, agent scripting).
 app.use(createSkewLockMiddleware());
 app.use(bodyParser.json({ limit: "1gb" }));
 app.use(bodyParser.urlencoded({ limit: "1gb", extended: true }));
@@ -748,10 +836,7 @@ app.post("/database/export", authenticateJWT, async (req, res) => {
 
     if (!DataCrypto.getUserDataKey(userId)) {
       if (isOidcUser) {
-        const oidcUnlocked = await authManager.authenticateOIDCUser(
-          userId,
-          deviceInfo.type,
-        );
+        const oidcUnlocked = await authManager.authenticateOIDCUser(userId);
         if (!oidcUnlocked) {
           return res.status(403).json({
             error: "Failed to unlock user data with SSO credentials",
@@ -1316,10 +1401,7 @@ app.post(
 
       if (!DataCrypto.getUserDataKey(userId)) {
         if (isOidcUser) {
-          const oidcUnlocked = await authManager.authenticateOIDCUser(
-            userId,
-            deviceInfo.type,
-          );
+          const oidcUnlocked = await authManager.authenticateOIDCUser(userId);
           if (!oidcUnlocked) {
             return res.status(403).json({
               error: "Failed to unlock user data with SSO credentials",
@@ -1900,11 +1982,13 @@ app.use("/users", userRoutes);
 // (authenticateJWT + requireAdmin middleware). Same endpoint serves the one-shot
 // bootstrap AND future rotation calls (returns rotation:true when overwriting).
 app.use("/matrix-admin", matrixAdminRoutes);
-// Phase 79 Plan 03 — Telegram bridge routes (validate, activate, disconnect, status).
-// Auth-gated via authManager.createAuthMiddleware() inside routes.ts.
-// activate + disconnect handlers fire Plan 04's file writers + registry
-// rewrite as a side-effect (blockers B-1 + B-2 fix).
-app.use("/telegram", telegramRoutes);
+// Phase 128 Plan 08 — /push-subscriptions router (POST register + GET
+// /vapid-public-key). Mounted alongside matrix-admin for structural
+// symmetry with the /telegram mount it displaces (bridge teardown per
+// D-17/D-18). Route-level auth for POST lives inside push-subscriptions.ts
+// (authManager.createAuthMiddleware()); GET /vapid-public-key is public by
+// design (VAPID public key IS meant to be shared with clients).
+app.use("/push-subscriptions", pushSubscriptionsRoutes);
 app.use("/host", hostRoutes);
 app.use("/alerts", alertRoutes);
 app.use("/credentials", credentialsRoutes);
@@ -1940,6 +2024,27 @@ app.use("/identities", identityExistsOnHostRoutes);
 // the generic /identities router so /:key/no-dormancy resolves here and does
 // not fall through to identitiesRoutes's /:id routes.
 app.use("/identities", identityNoDormancyRoutes);
+// Phase 115 Plan 115-03 (D-17): user-initiated archive endpoint — POST
+// /identities/:key/archive drops `.archive-requested` on the identity's host
+// via the per-identity-file primitive. Mounted alongside the sibling
+// no-dormancy sub-route BEFORE the generic /identities router so the
+// :key/archive sub-route isn't intercepted by identitiesRoutes's /:identityKey
+// handlers. Same discipline as the exists-on-host + no-dormancy mounts above.
+app.use("/identities", identityArchiveRoutes);
+// Phase 122 Plan 122-02: POST /conversation-search — cross-host content-grep
+// endpoint. Mounted as a standalone base path so it does not overlap with
+// /identities/* or /sessions/*. Frontend (Wave 2) calls
+// authApi.post("/conversation-search", { query, offset, limit }).
+app.use("/conversation-search", conversationSearchRoutes);
+// Phase 117 Plan 117-05 (D-05, D-31, D-36a, D-37): POST /identities/:key/project —
+// writes the `project:` frontmatter field on the identity file via the 117-01
+// writer. Mounted alongside identity-archive; the two /:key/<action> sub-routes
+// are non-overlapping (:key/archive vs :key/project) and BOTH mount BEFORE
+// the generic /identities router so /:key/project isn't shadowed by
+// identitiesRoutes's /:identityKey handlers. Every successful write triggers
+// subscription-registry.publishProjectListChanged so connected WS clients
+// re-hydrate the sidebar's projects zone.
+app.use("/identities", sessionProjectWriteRoutes);
 // Phase 22 (SRIC-02): /roles?hostId=<n> — target-host-side role directory
 // enumeration. Standalone mount; kept ABOVE /identities to preserve match
 // precedence should a future /roles subpath ever collide.
@@ -1971,6 +2076,14 @@ app.use("/global-files", globalFilesReadWriteRoutes);
 app.use("/skills-editor", skillsEditorRoutes);
 // Phase 89 Plan 02: /runbooks-editor router — mounted alongside /skills-editor. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf (parity load-bearing per patch #446 arc).
 app.use("/runbooks-editor", runbooksEditorRoutes);
+// Phase 118 Plan 118-01 (D-04, D-16, D-17, D-19, D-20, D-21, D-22): /workspace CRUD router — 9 endpoints (list, read-file, write-file, delete, rename, mkdir, create-file, upload, download). Matching nginx location blocks land in BOTH docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat (missing in HTTPS conf → /workspace returns index.html and crashes the frontend).
+app.use("/workspace", workspaceRoutes);
+// Phase 117 Plan 04 (D-25, D-30, D-36a, D-37): /projects router — GET list
+// + POST create + POST :slug/archive. JSON body per D-36a. Mounted alongside
+// /runbooks-editor BEFORE any late catch-alls. Every successful write path
+// triggers subscription-registry.publishProjectListChanged so connected WS
+// clients re-hydrate the sidebar's projects zone.
+app.use("/projects", projectListRoutes);
 // Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
 // POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook + editor
 // open path both consume this. Threat model T-40-01/T-40-02 mitigations
@@ -1986,6 +2099,11 @@ app.use("/pretty-view", prettyViewFetchTailnetUrlRoutes);
 app.use("/pretty-view", prettyViewFetchHostFileRoutes);
 app.use("/", fileUrlRoutes);
 app.use("/identities", identitiesRoutes);
+// Phase 119 Plan 05 (D-06): GET /apps/:hostId/:slug/icon — serves
+// ~/fleet/apps/<slug>/icon.webp from the target host via SSH. Mirrors
+// /identities/:identityKey/avatar (identities.ts:849). See
+// src/backend/database/routes/apps.ts for the route body.
+app.use("/apps", appsRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
 app.use("/identity-send-log", identitySendLogRoutes);
@@ -2006,6 +2124,19 @@ app.use("/relay-room", relayRoomCreateRoutes);
 // (WS route bound by relay-room-stream-server on port 30015) AND this REST
 // prefix — both blocks land in BOTH docker/nginx.conf AND docker/nginx-https.conf.
 app.use("/relay-room", relayRoomParticipantsRoutes);
+// Phase 117 Plan 117-05 (D-05, D-05a, D-36a): POST /relay-rooms/:roomId/project —
+// read-modify-write on the Matrix room's m.tag account_data via
+// setRoomProjectTag (117-02). Preserves non-project tags, strips any
+// existing u.project.*, adds the new u.project.<slug> (or clears when
+// project=null). Mounted at plural /relay-rooms to avoid collision with
+// the /relay-room mounts above; nginx location block already covers
+// the prefix by inclusion.
+app.use("/relay-rooms", relayRoomProjectTagRoutes);
+// Phase 117 Plan 117-07 (Fix 1 / D-05 relay-room carrier): GET
+// /relay-rooms/project-tags?hostId=<n> — enumerator that returns rooms
+// with u.project.<slug> account_data tags. Chains cleanly with the
+// /:roomId/project write route above (non-overlapping sub-paths).
+app.use("/relay-rooms", relayRoomProjectTagsListRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote
@@ -2024,6 +2155,16 @@ app.use("/voice", voiceRoutes);
 // docker/nginx-https.conf — the /manifest.webmanifest block REPLACES the
 // prior static-serve block. Nginx plumbing lands in plan 70-02.
 app.use(brandingRoutes);
+// Phase 121 (feedback-pipeline): auth-gated feedback intake + enabled-check.
+// Unprefixed mount because the router registers TWO distinct path prefixes
+// (/api/feedback/enabled AND /feedback) — `app.use("/feedback", ...)` would
+// clobber the /api/feedback/enabled route. Mounted AFTER bodyParser.json
+// (L350) so req.body is populated (Pitfall 5), plus the POST handler
+// applies its own inline express.json({limit:"512kb"}) for the T-121-11
+// size cap. Per CLAUDE.md nginx caveat, matching location blocks for
+// /api/feedback/enabled AND /feedback MUST exist in BOTH docker/nginx.conf
+// AND docker/nginx-https.conf. Nginx plumbing lands in plan 121-03 Task 6.
+app.use(feedbackRoutes);
 
 const frontendDistPaths = [
   // Phase 73 branding-nginx fix: the docker image copies the frontend build
@@ -2311,6 +2452,23 @@ app.get(
 );
 
 const httpServer = http.createServer(app);
+
+// Phase 120 D-08 (T-120-32, BLOCKER 6) — WebSocket upgrade dispatcher
+// for /apps/:hostId/:slug/pane/*. router.all catches HTTP methods only;
+// upgrade events fire on the http.Server BEFORE any Express dispatch.
+// The dispatcher path-shape-tests the URL and returns without touching
+// the socket if it does NOT match the pane path — other upgrade
+// consumers on this server (serve-url subdomain dispatch, terminal WS,
+// future mounts) fire normally. On matching paths it repeats the SAME
+// auth + validation + access + CSRF + port + target chain as the HTTP
+// route before calling proxyMiddleware.upgrade(req, socket, head).
+httpServer.on("upgrade", (req, socket, head) => {
+  // Path-shape guard: handleAppPaneUpgrade matches /apps/:hostId/:slug/pane/*
+  // internally (via APP_SLUG_RE-shaped regex) and returns without touching
+  // the socket on non-matching URLs, so this binding does NOT blindly hijack
+  // every upgrade event — only /apps/*/pane requests are dispatched.
+  void handleAppPaneUpgrade(req, socket as NetSocket, head);
+});
 
 httpServer.on("error", (err: NodeJS.ErrnoException) => {
   if (err.code === "EADDRINUSE") {

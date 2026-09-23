@@ -6,9 +6,29 @@
  * them to session-working-store + session-waiting-store via callbacks.
  *
  * Reconnect pattern: mirrors the patch #148 backoff from PrettyView.tsx
- * (proven in production). Backoff schedule: 2s, 4s, 6s, 8s, 8s (≈28s total).
- * After MAX_RECONNECT_ATTEMPTS closes without a successful open, gives up and
- * logs `operation: 'fleet_status_client_gave_up'`.
+ * (proven in production). Backoff schedule: 2s, 4s, 6s, 8s, 8s (≈28s total),
+ * then settles into an indefinite slow retry at SLOW_RETRY_MS (~30s) rather
+ * than going permanently deaf (D-11). Full-jitter draw preserved on every cap
+ * so a multi-tab restore does not re-clump the herd (D-13).
+ *
+ * Phase 111 Plan 06 (D-11, D-12, D-13):
+ *   - After the backoff ladder is exhausted the client never gives up — it
+ *     settles into a ~30s steady retry indefinitely. A phone in a pocket is
+ *     the normal case; permanent deafness is the failure case.
+ *   - Becoming visible reconnects immediately rather than waiting for the next
+ *     slow retry (D-12). This is cross-platform (not iOS-PWA only — see the
+ *     comment inside handleVisibilityChange).
+ *   - The transition to slow-retry emits `fleet_status_client_slow_retry` ONCE.
+ *     Any dashboard matching the retired gave-up operation string
+ *     ("fleet_status_client_" + "gave_up") should be re-pointed at this new
+ *     operation string.
+ *   - No sequence-reconciliation, no gap-fill, no missed-event recovery (D-13).
+ *     The reconnect sends a `subscribe` frame; the server answers with its held
+ *     Map as a full snapshot. That snapshot IS the current picture and IS the
+ *     backstop.
+ *   - Budget owners: `reconnectAttempts` is reset in exactly two places —
+ *     `ws.onopen` (successful connection) and the visible branch of the
+ *     visibilitychange handler (user intent). No other site may reset it.
  *
  * Structured logging: console.info / console.warn with the same structured-fields
  * shape as the backend's systemLogger, grep-discoverable by `operation:` key.
@@ -23,7 +43,9 @@
 
 import { useSyncExternalStore } from "react";
 import type {
+  AppState,
   FrontendOutboundFrame,
+  ProjectListEntry,
   SessionState,
 } from "./fleet-status-types.js";
 import { FRAME_SCHEMA_VERSION } from "./fleet-status-types.js";
@@ -37,8 +59,12 @@ import {
 // Constants — mirror patch #148 backoff schedule verbatim
 // ---------------------------------------------------------------------------
 
-const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_RECONNECT_ATTEMPTS = 5; // ladder length; no longer gates a terminal give-up (D-11)
 const BACKOFF_SCHEDULE_MS = [2000, 4000, 6000, 8000, 8000] as const;
+
+// D-11: after the ladder is exhausted the client settles into this slow steady
+// retry indefinitely — cheap when nothing is listening; never unrecoverably deaf.
+const SLOW_RETRY_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -49,6 +75,44 @@ export interface FleetStatusClientOptions {
   onSnapshot: (states: SessionState[]) => void;
   onUpdate: (state: SessionState) => void;
   onGone: (hostId: string, tmuxSession: string | null, sessionId: string) => void;
+  /**
+   * Phase 117 Plan 117-06 (D-37): fired on every `project-list-changed`
+   * frame from the backend (published by
+   * subscription-registry.publishProjectListChanged after every project
+   * create / archive / session project assignment; also re-emitted on WS
+   * reconnect via the registry snapshot replay). AppShell routes these into
+   * conversation-store's projects slice (setProjects) so the sidebar
+   * re-derives its per-project buckets. Optional for backward-compat with
+   * tests that don't need the callback.
+   */
+  onProjectListChanged?: (projects: ProjectListEntry[]) => void;
+  /**
+   * Fired on every `session-project-changed` frame — a per-identity delta
+   * emitted by the backend when an identity's `project:` frontmatter is
+   * written (sidebar drag-drop onto a project, or clear). Distinct from
+   * `onProjectListChanged`: the projects[] array is unchanged; only which
+   * identity belongs to which project has moved. AppShell routes this into
+   * the identities store's `setIdentityProject` to patch the affected row
+   * in place without a full /identities refetch.
+   *
+   * `project` is nullable: string = assigned to slug; null = cleared.
+   */
+  onSessionProjectChanged?: (
+    identityKey: string,
+    hostId: number,
+    project: string | null,
+  ) => void;
+  // Phase 119 Plan 119-01 (D-14, D-16): fired on every `app-snapshot` /
+  // `app-update` / `app-gone` frame from the Phase 118 app-registry
+  // channel. Later 117-* plans wire these to the new app-tiles store
+  // slice's publish fns (`publishAppSnapshot` / `publishAppUpdate` /
+  // `publishAppGone`) in AppShell. Optional because this task adds the
+  // dispatch primitive standalone — the store slice + AppShell wiring
+  // land in follow-up plans. Omitting all three MUST NOT throw when app
+  // frames arrive (regression-tested in fleet-status-client.test.ts).
+  onAppSnapshot?: (apps: AppState[]) => void;
+  onAppUpdate?: (app: AppState) => void;
+  onAppGone?: (hostId: string, slug: string) => void;
 }
 
 export interface FleetStatusClient {
@@ -67,7 +131,17 @@ export interface FleetStatusClient {
 export function createFleetStatusClient(
   opts: FleetStatusClientOptions,
 ): FleetStatusClient {
-  const { url, onSnapshot, onUpdate, onGone } = opts;
+  const {
+    url,
+    onSnapshot,
+    onUpdate,
+    onGone,
+    onProjectListChanged,
+    onSessionProjectChanged,
+    onAppSnapshot,
+    onAppUpdate,
+    onAppGone,
+  } = opts;
 
   // Phase 111 SKEW-09 (D-08): append `?build=<CLIENT_BUILD_ID>` to the WS URL
   // so the backend handshake gate (Plan 05 Task 3 on fleet-status-server.ts's
@@ -106,7 +180,9 @@ export function createFleetStatusClient(
         operation: "fleet_status_client_open",
         url,
       });
-      // Reset attempt counter on successful open — fresh budget for next drop.
+      // Budget owner 1 of 2: reset on successful connection. The two budget
+      // owners are ws.onopen (success) and the visible branch of the
+      // visibilitychange handler (user intent). No other site resets this.
       reconnectAttempts = 0;
       // Send subscribe frame per wire protocol
       try {
@@ -207,6 +283,93 @@ export function createFleetStatusClient(
         case "pong":
           // No-op — keepalive reply
           break;
+        case "project-list-changed":
+          // Phase 117 Plan 117-06 (D-37): distinct wire message published by
+          // subscription-registry.publishProjectListChanged after every
+          // project create / archive / session-project assignment (117-04 +
+          // 117-05). Routes into the frontend's projects store slice via
+          // the AppShell-provided onProjectListChanged callback
+          // (setProjects on conversation-store — sidebar re-derives buckets).
+          //
+          // Rule-2 correctness guard (Phase 117 Plan 117-06): the browser
+          // skips zod validation on inbound frames per fleet-status-types.ts,
+          // so a malformed frame with `projects` set to a non-array would
+          // reach here after JSON.parse. Short-circuit before invoking the
+          // callback so consumers cannot observe garbage payloads.
+          if (!Array.isArray(parsed.projects)) {
+            console.warn({
+              operation: "fleet_status_client_project_list_changed_malformed",
+              url,
+              projectsType: typeof parsed.projects,
+            });
+            break;
+          }
+          console.info({
+            operation: "fleet_status_client_project_list_changed",
+            url,
+            projectCount: parsed.projects.length,
+          });
+          onProjectListChanged?.(parsed.projects);
+          break;
+        case "session-project-changed":
+          // Per-identity delta from backend session-project-write. The frame
+          // carries { identityKey, hostId, project } — no array to
+          // shape-validate beyond what JSON.parse guarantees. Log for
+          // observability and hand to AppShell's patch-in-place callback.
+          console.info({
+            operation: "fleet_status_client_session_project_changed",
+            url,
+            identityKey: parsed.identityKey,
+            hostId: parsed.hostId,
+            project: parsed.project,
+          });
+          onSessionProjectChanged?.(
+            parsed.identityKey,
+            parsed.hostId,
+            parsed.project,
+          );
+          break;
+        case "app-snapshot":
+          // Phase 119 Plan 119-01 (D-14, D-16): Phase 118 app-registry
+          // snapshot on subscribe (also re-emitted on WS reconnect). Later
+          // 117-* plans wire the callback to publishAppSnapshot on the new
+          // app-tiles store slice, which clears-and-repopulates the store
+          // atomically (D-14 no partial states). Callback is optional so
+          // this task can land standalone ahead of the store slice.
+          console.info({
+            operation: "fleet_status_client_app_snapshot",
+            url,
+            appCount: parsed.apps.length,
+          });
+          onAppSnapshot?.(parsed.apps);
+          break;
+        case "app-update":
+          // Phase 119 Plan 119-01 (D-14): one app-state add / mutate on
+          // the Phase 118 channel. Health-flips (same slug, isHealthy
+          // changed) always emit — backend does NOT deduplicate — so
+          // consumers can rely on the callback firing whenever the tile's
+          // rendered state should update.
+          console.info({
+            operation: "fleet_status_client_app_update",
+            url,
+            hostId: parsed.app.hostId,
+            slug: parsed.app.slug,
+            isHealthy: parsed.app.isHealthy,
+          });
+          onAppUpdate?.(parsed.app);
+          break;
+        case "app-gone":
+          // Phase 119 Plan 119-01 (D-14): the app dropped out of the sweep
+          // (unit removed OR host lost visibility). Store slice deletes by
+          // `${hostId}:${slug}` compound key on receipt.
+          console.info({
+            operation: "fleet_status_client_app_gone",
+            url,
+            hostId: parsed.hostId,
+            slug: parsed.slug,
+          });
+          onAppGone?.(parsed.hostId, parsed.slug);
+          break;
         default:
           // Unknown frame type — drop silently (forward-compatible)
           break;
@@ -227,7 +390,20 @@ export function createFleetStatusClient(
 
     ws.onclose = (evt: CloseEvent) => {
       if (disposed) return;
+      // Bounty t800-frontend-websocket-leak-on-container-recreate:
+      // detach handler property refs on the just-closed WS BEFORE nulling the
+      // module ref + scheduling replacement connect(). Without this, the dead
+      // WS instance retains its own handlers (which close over `ws.send`) and
+      // stays pinned across reconnect ladders — container-recreate storms then
+      // compound the count against nginx worker_connections.
+      const deadWs = ws;
       ws = null;
+      if (deadWs !== null) {
+        deadWs.onopen = null;
+        deadWs.onmessage = null;
+        deadWs.onerror = null;
+        deadWs.onclose = null;
+      }
 
       // Phase 111 SKEW-09 (D-08): distinguishable close code = version drift.
       // Structured field extraction — NEVER JSON.stringify(evt) on DOM
@@ -260,19 +436,35 @@ export function createFleetStatusClient(
         attempt: reconnectAttempts,
       });
 
-      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      // D-11: never give up permanently. After the ladder is exhausted the
+      // client settles into a slow steady retry at SLOW_RETRY_MS indefinitely.
+      // The `reconnectAttempts >= MAX_RECONNECT_ATTEMPTS` early-return that
+      // previously lived here (emitting the give-up log operation and
+      // returning with no timer) is intentionally removed. The `Math.min`
+      // clamp that followed it is also removed — it is now unreachable.
+      //
+      // Log the transition ONCE (not every slow retry — that would be a 30s
+      // heartbeat of warnings). Subsequent slow retries use the existing
+      // fleet_status_client_retry_scheduled info line.
+      if (reconnectAttempts === MAX_RECONNECT_ATTEMPTS) {
         console.warn({
-          operation: "fleet_status_client_gave_up",
+          operation: "fleet_status_client_slow_retry",
           url,
           totalAttempts: reconnectAttempts,
+          slowRetryMs: SLOW_RETRY_MS,
         });
-        return;
       }
 
+      // Cap selection: ladder for the first MAX_RECONNECT_ATTEMPTS closes,
+      // then SLOW_RETRY_MS indefinitely. The existing full-jitter draw
+      // (`Math.floor(Math.random() * capMs)`) applies to SLOW_RETRY_MS too —
+      // D-13 multi-tab restore herd prevention applies at all caps.
+      const capMs =
+        reconnectAttempts < BACKOFF_SCHEDULE_MS.length
+          ? BACKOFF_SCHEDULE_MS[reconnectAttempts]
+          : SLOW_RETRY_MS;
+
       // R-54-07: full-jitter — uniform random draw in [0, capMs) prevents 10-tab restore from re-clumping the herd on the reconnect ladder.
-      const capMs = BACKOFF_SCHEDULE_MS[
-        Math.min(reconnectAttempts, BACKOFF_SCHEDULE_MS.length - 1)
-      ];
       const delayMs = Math.floor(Math.random() * capMs);
       reconnectAttempts += 1;
 
@@ -290,12 +482,71 @@ export function createFleetStatusClient(
     };
   }
 
+  // D-12: wake-on-visible — cross-platform, NOT iOS-PWA only.
+  //
+  // PrettyView.tsx and Terminal.tsx open their analogous handlers with
+  // the iOS-PWA-only gate found in PrettyView.tsx. That gate exists because on Chrome desktop /
+  // Android / non-PWA Safari, force-reconnecting a session-attachment WS
+  // creates a race (the old WS's detachWs fires AFTER the new one attaches,
+  // destroying the session). fleet-status is READ-ONLY FANOUT with no
+  // attachment semantics, so that race cannot occur. D-12 explicitly wants
+  // wake-on-visible on every platform. Copying the gate would silently
+  // deliver nothing on desktop.
+  //
+  // Guard set taken from PrettyView.tsx's hardened handler (NOT the iOS gate):
+  //   1. disposed check (every handler in this file)
+  //   2. hidden: clear retryTimer without resetting reconnectAttempts
+  //      (a hide during retry must not drop the accumulated count)
+  //   3. visible + ws !== null: double-fire guard (iOS PWA fires spuriously)
+  //   4. visible + ws === null: clear any pending timer, fresh budget, connect
+  //
+  // D-13 note: there is NO sequence-reconciliation here. The reconnect's
+  // `subscribe` frame causes the server to answer from its held Map with a
+  // full snapshot; that snapshot IS the current picture and IS the backstop.
+  // A future reader looking at a reconnect will be tempted to add gap-fill
+  // or missed-event recovery — resist it. D-13 explicitly forbids it.
+  const handleVisibilityChange = () => {
+    if (disposed) return;
+
+    if (document.visibilityState !== "visible") {
+      // Tab hidden: cancel any pending retry timer. Do NOT reset
+      // reconnectAttempts — a hide during a retry sequence must not drop
+      // the accumulated count (PrettyView.tsx comment at ~:2964-2967).
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      return;
+    }
+
+    // Tab visible: reconnect if needed.
+    // Double-fire guard: iOS PWA fires visibilitychange spuriously; connecting
+    // over a live socket would create two sockets and potentially two subscriptions.
+    if (ws !== null) return;
+
+    // Clear any pending scheduled retry — an immediate connect supersedes it.
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+
+    // Budget owner 2 of 2: fresh budget for this foreground event (user intent).
+    // The two budget owners are ws.onopen (success) and here (visible). No other
+    // site resets reconnectAttempts.
+    reconnectAttempts = 0;
+
+    connect();
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
   // Open immediately
   connect();
 
-  return {
+  const client: FleetStatusClient = {
     dispose(): void {
       disposed = true;
+      _activeClients.delete(client);
 
       if (retryTimer !== null) {
         clearTimeout(retryTimer);
@@ -303,6 +554,13 @@ export function createFleetStatusClient(
       }
 
       if (ws !== null) {
+        // Bounty t800-frontend-websocket-leak-on-container-recreate: detach
+        // handler property refs before close so the disposed WS is not
+        // retained by its own handler closures beyond this call.
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
         try {
           ws.close();
         } catch {
@@ -311,12 +569,45 @@ export function createFleetStatusClient(
         ws = null;
       }
 
+      // Remove the visibilitychange listener — unlike console-forwarder.ts (a
+      // process-lifetime forwarder that intentionally never removes its listener),
+      // this client has a dispose() contract that must fully clean up.
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+
       console.info({
         operation: "fleet_status_client_disposed",
         url,
       });
     },
   };
+
+  _activeClients.add(client);
+  return client;
+}
+
+// ---------------------------------------------------------------------------
+// TEST ONLY — module-level registry for test isolation.
+//
+// Tests that create clients via createFleetStatusClient and don't dispose them
+// (intentionally, e.g. jitter tests that verify a single close) leave their
+// visibilitychange listeners registered on document. This registry allows a
+// test's beforeEach to dispose all previously-created clients before adding
+// its own, ensuring visibility events don't trigger stale handlers.
+// ---------------------------------------------------------------------------
+
+/** @internal TEST ONLY — not part of the public API. */
+const _activeClients = new Set<FleetStatusClient>();
+
+/**
+ * TEST ONLY — dispose every client currently in the module-level registry
+ * and clear it. Call from a describe's beforeEach before creating new clients
+ * to ensure visibilitychange listeners from prior tests don't fire.
+ */
+export function __disposeAllClientsForTest(): void {
+  for (const client of _activeClients) {
+    client.dispose();
+  }
+  _activeClients.clear();
 }
 
 // ---------------------------------------------------------------------------

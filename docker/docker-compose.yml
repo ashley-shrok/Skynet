@@ -23,16 +23,38 @@ services:
     image: skynet-patched:local
     container_name: skynet
     restart: unless-stopped
-    # Build block added 2026-09-10 (bounty compose-tg-bridge-buildpath-cleanup)
-    # so `docker compose build` from a maintainer's worktree rebuilds both
-    # skynet-patched:local AND tg-bridge:local in one command. Previously
-    # skynet was built out-of-band with `docker build -t skynet-patched:local
-    # -f docker/Dockerfile .` and only tg-bridge lived in the compose file's
-    # build set — a mental-model gap that caused Phase 98's tg-bridge to
-    # ship half-way (silent-deaf incident 2026-09-10). Context `..` resolves
-    # to the repo root from docker/docker-compose.yml; matches the historical
-    # standalone command. SKYNET_BUILD_SHA is set by the ship runbook so the
-    # commit sha lands as an OCI label on the built image (drift-detection).
+    # Share the host's PID namespace so the fleet-status sweep (invoked
+    # locally via acquireLocalChannel for the self-poll) can resolve
+    # ~/.claude/sessions/*.json PIDs via /proc/<pid>/environ. The bind-mounted
+    # HOME gets the sweep the session files; the host PID namespace gets it
+    # the /proc lookups needed to fold each PID into its identity. Without
+    # this, every self-hosted session's pid line is dropped and no WIP
+    # indicators light up for identities on the Skynet host itself. Matches
+    # the practical process-visibility the container already has when it
+    # SSHes as `ubuntu` to any other fleet host.
+    pid: host
+    # /proc/<pid>/environ is mode 0400, readable only by the process owner
+    # (or a process with CAP_SYS_PTRACE). The container runs as root inside
+    # but session PIDs are owned by the host's ubuntu user, so the read
+    # fails EPERM without this capability. Docker drops SYS_PTRACE by
+    # default; adding it here lets the sweep resolve each PID's identity
+    # via its tmux environment. Same practical power the container already
+    # has when it SSHes to any fleet host as ubuntu.
+    cap_add:
+      - SYS_PTRACE
+    # Docker's default AppArmor profile (docker-default) denies the ptrace
+    # syscall regardless of CAP_SYS_PTRACE — profile-level deny sits above
+    # capability grants. Unconfined disables that profile for THIS container
+    # only. Combined with pid: host + SYS_PTRACE this gives the container
+    # the same read visibility into host processes it would have if it
+    # SSHed in as ubuntu. No other containers on the daemon are affected.
+    security_opt:
+      - apparmor:unconfined
+    # Build block: `docker compose build` from a maintainer's worktree
+    # rebuilds skynet-patched:local. Context `..` resolves to the repo
+    # root from docker/docker-compose.yml. SKYNET_BUILD_SHA is set by the
+    # ship runbook so the commit sha lands as an OCI label on the built
+    # image (drift-detection).
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -48,6 +70,13 @@ services:
         SKYNET_BUILD_SHA: "${SKYNET_BUILD_SHA:-}"
       labels:
         org.skynet.commit: "${SKYNET_BUILD_SHA:-}"
+      # Per-deployment TTS playback-rate override. Threaded into the Dockerfile
+      # `frontend-builder` stage's ARG so Vite substitutes it into the built
+      # bundle at `npm run build`. Empty/unset falls back to 1.0 in
+      # webAudioStreamPlayer. Set in the deployment's env file (e.g.
+      # /opt/skynet/.env) — t1000 uses 1.25; T800 leaves unset.
+      args:
+        VITE_TTS_PLAYBACK_RATE: "${VITE_TTS_PLAYBACK_RATE:-}"
     expose:
       - "8080"
     volumes:
@@ -68,28 +97,33 @@ services:
         read_only: true
         bind:
           create_host_path: true
-      # Phase 79 Plan 06 — shared named volume with tg-bridge service.
-      # Skynet writes config.env (Plan 04) + registry.json + <human>.token
-      # + <identityKey>.bottoken files here. Bridge (tg-bridge service,
-      # defined below) reads them + writes per-human .since cursors +
-      # .token-dead sentinels back.
-      # NOT read_only — Skynet writes from the container.
-      - tg-bridge-state:/state
-      # LOCAL-branch bind mount for co-located deployments (opt-in).  When
-      # a deployment's own box is registered as a Skynet host AND wants
-      # identity-artifact-reader / identity-birth / spawn-request-worker to
-      # skip SSH for that host, exposing the host's fleet dir here lets
-      # Skynet read AND write directly from disk.
-      # Opt-in shape: set SKYNET_FLEET_MOUNT_SRC in shell env at compose
+      # LOCAL-branch bind mount for co-located deployments (opt-in). When a
+      # deployment's own box is registered as a Skynet host AND wants
+      # identity-artifact-reader / identity-birth / spawn-request-worker /
+      # distributor to skip SSH for that host, exposing the host's user-home
+      # dir here lets Skynet read AND write directly from disk.
+      #
+      # Widened 2026-09-18 (bug: distributor local-FS install landed
+      # ~/.local/bin/* and ~/.claude/skills/* at /home/ubuntu/fleet/.local/*
+      # instead of /home/ubuntu/.local/* because the mount only covered
+      # ~/fleet, not all of ~/). Fix: mount full user-home at /host-home so
+      # every catalog `~/*` install path resolves correctly. Blast surface
+      # widened accordingly — the container can now read/write anything
+      # under the mounted user-home (including ~/.ssh, ~/.aws, etc.). This
+      # is a conscious tradeoff for co-located deployments only.
+      #
+      # Opt-in shape: set SKYNET_HOME_MOUNT_SRC in shell env at compose
       # invocation (typically via .env file at /opt/skynet/.env),
       # AND set IDENTITIES_LOCAL_HOST_IDS + IDENTITIES_HOST_DIR +
-      # ROLES_HOST_DIR in skynet.env.
-      # Mounted RW (2026-09-11): LOCAL-branch identity-birth writes
-      # <name>.md / avatar / relay.json here, and spawn-request worker
-      # writes the response file here. Read-only defeats those paths.
+      # ROLES_HOST_DIR + HOME_HOST_DIR in skynet.env.
+      # Mounted RW: LOCAL-branch identity-birth writes <name>.md / avatar /
+      # relay.json under /host-home/fleet/, spawn-request worker writes
+      # response files under /host-home/fleet/, and the fleet-substrate
+      # distributor writes to /host-home/.claude/skills/ + /host-home/.local/bin/
+      # + /host-home/.config/systemd/user/. Read-only defeats all of them.
       #
-      # HARD-FAIL if SKYNET_FLEET_MOUNT_SRC is unset (2026-09-12 user):
-      # the prior `:-/tmp` fallback silently mounted /tmp into /fleet when
+      # HARD-FAIL if SKYNET_HOME_MOUNT_SRC is unset (2026-09-12 user):
+      # the prior `:-/tmp` fallback silently mounted /tmp into the bind when
       # the env var didn't reach compose interpolation (sudo-env-strip
       # issue with `--env-file`), producing invisible-scanner + lost
       # spawn-requests. Fail-loud beats fail-quiet. If this errors on
@@ -97,32 +131,23 @@ services:
       # `--env-file /opt/skynet/.env` (or your deployment's equivalent
       # canonical env file) — required for BOTH steps because compose
       # interpolates volume paths at config-parse time, not just at up.
-      - ${SKYNET_FLEET_MOUNT_SRC:?SKYNET_FLEET_MOUNT_SRC must be set — pass --env-file /opt/skynet/.env to docker compose (required for BOTH build and up; see docker/docker-compose.yml note above)}:/fleet
-      # LOCAL-branch bind for the birth-flow supervisor-wait's discovery
-      # sensor. Exposes the host's `~/.claude/projects/` (where Claude Code
-      # writes per-session transcripts) into the container read-only, so
-      # discoverIdentitySessionFile's LOCAL branch can walk it via node fs
-      # when a birth targets the Skynet host itself (isLocalHostId=true).
-      # Without this mount, local births time out the 120s supervisor-wait
-      # (fail-safe: identity folder + Matrix account still on disk per Q2
-      # no-rollback lock; supervisor's next 15s tick still brings it up).
-      # Consumed via CLAUDE_PROJECTS_HOST_DIR below → getLocalClaudeProjectsRoot()
-      # in src/backend/claude-session/discover-identity-session-file.ts. RO
-      # because the sensor only reads. Default source matches the common
-      # deployment shape (ubuntu HOME on Debian/Ubuntu AWS AMIs); override
-      # SKYNET_CLAUDE_PROJECTS_MOUNT_SRC in skynet.env for other layouts.
-      - type: bind
-        source: ${SKYNET_CLAUDE_PROJECTS_MOUNT_SRC:-/home/ubuntu/.claude/projects}
-        target: /host-claude-projects
-        read_only: true
-        bind:
-          create_host_path: true
+      - ${SKYNET_HOME_MOUNT_SRC:?SKYNET_HOME_MOUNT_SRC must be set — pass --env-file /opt/skynet/.env to docker compose (required for BOTH build and up; see docker/docker-compose.yml note above)}:/host-home
+      # tmux socket directory for the fleet-status sweep's pid→identity
+      # resolver. The sweep reads /proc/<pid>/environ (needs pid: host +
+      # SYS_PTRACE + apparmor:unconfined above) to get TMUX_PANE, then
+      # spawns `tmux display-message` to translate that pane id into the
+      # session name (which is the identity name on this fleet). Without
+      # the socket bind, tmux inside the container can't talk to the host's
+      # tmux server so every resolve returns None and every pid line is
+      # dropped. The socket + directory are owned by uid 1000 (ubuntu);
+      # container root can connect fine. Read-only is sufficient — the
+      # container never creates panes, only queries.
+      - /tmp/tmux-1000:/tmp/tmux-1000:ro
     env_file:
       - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
     environment:
       PORT: "8080"
       SKYNET_CONSOLE_FORWARD_LOG_PATH: "/var/log/skynet/console-forward/console-forward.log"
-      CLAUDE_PROJECTS_HOST_DIR: "/host-claude-projects"
     depends_on:
       - guacd
     networks:
@@ -209,30 +234,6 @@ services:
     networks:
       - skynet-net
 
-  # Phase 79 Plan 06 — Telegram <-> Matrix bridge, co-located with Skynet.
-  # Bridge script + Dockerfile at substrate/services/tg-bridge/. Reads all
-  # config from /state/config.env (written by Skynet at boot per Plan 04).
-  # NO environment: block for MATRIX_ROOT/STT_URL — CONTEXT § 4C enforces
-  # "config values come from Skynet's config" as a HARD requirement, so
-  # the bridge sources /state/config.env at boot instead of receiving env
-  # vars at compose-up time. This keeps Skynet the single source of truth.
-  tg-bridge:
-    build:
-      context: ../substrate/services/tg-bridge
-      dockerfile: Dockerfile.tg-bridge
-      # SKYNET_BUILD_SHA: see skynet service build block above (2026-09-10).
-      labels:
-        org.skynet.commit: "${SKYNET_BUILD_SHA:-}"
-    image: tg-bridge:local
-    container_name: tg-bridge
-    restart: always
-    volumes:
-      - tg-bridge-state:/state
-    depends_on:
-      - skynet
-    networks:
-      - skynet-net
-
 volumes:
   skynet-data:
     driver: local
@@ -241,12 +242,6 @@ volumes:
   caddy-config:
     driver: local
   synapse-data:
-    driver: local
-  # Phase 79 Plan 06 — shared state volume for tg-bridge <-> skynet handshake.
-  # Contents: config.env, registry.json, <human>.token, <human>.since,
-  # <human>.token-dead, <identityKey>.bottoken, offset.<agent>, work/.
-  # Skynet writes config + tokens + registry + .bottoken; bridge writes cursor + sentinels.
-  tg-bridge-state:
     driver: local
 
 networks:

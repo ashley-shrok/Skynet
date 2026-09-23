@@ -129,7 +129,7 @@ const SERVER_BUILD_ID = getServerBuildId();
 
 const wss = new WebSocketServer({
   port: 30002,
-  // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins at
+  // Phase 103 D-08: reject WS upgrades from *.serve.<domain> origins at
   // the handshake layer — WS doesn't do CORS preflight, so this is the WS
   // complement to Plan 02's cors-config.ts reject. No WS ever opens for a
   // rejected origin; existing JWT gate below still applies to accepted ones.
