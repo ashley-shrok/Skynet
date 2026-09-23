@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-23T04:24:49Z"
-last_activity: 2026-09-23 -- Completed Phase 129 Plan 01 (foundations)
+last_updated: "2026-09-23T04:41:14.032Z"
+last_activity: 2026-09-23
 progress:
   total_phases: 130
   completed_phases: 109
   total_plans: 571
-  completed_plans: 556
+  completed_plans: 557
   percent: 84
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 129 (multi-user-single-host-support-per-user-visibility-gate-on-r) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 
-Last activity: 2026-09-23 -- Completed Phase 129 Plan 01 (foundations — RawCosmetics.users? + extractCosmeticsFromFrontmatter narrower + identity-visibility-gate pure module + host-user-counter DB helpers). Ships four dependency-free primitives every Wave 2 read-path plan and every Wave 3 write-path plan needs. Three atomic commits on `feat/tab-title-from-tmux`: `e41d5bc5 feat(129-01)` (RawCosmetics.users?: string[] + absent-⇒-omit narrower in extractCosmeticsFromFrontmatter + 8 users-narrowing tests) + `ec5df06a feat(129-01)` (identity-visibility-gate.ts pure module — zero DB/express/logger imports, only imports RawCosmetics type; 10-case matrix test locks D-2 intersection + D-3 fallback + Pitfall 7 case-sensitive) + `8b90f6b5 feat(129-01)` (host-user-counter.ts with isHostMultiUser doing 4-query owner+direct+role+userRoles-expansion mirroring permission-manager.canAccessHost's Assumption A6 shape, plus getUsernameForUserId case-preserved lookup; structured systemLogger.debug entries at gate seam per box-maintainer directive; 10 tests using thenable+chainable queue-based select-chain mock). Design lock landed: gate lives in companion pure function (isIdentityVisibleToUser), NOT inside resolveIdentityAppearance's signature — preserves Phase 111 T-111-08 one-cascade authority AND makes "did we gate this call site?" an audit-visible grep for Wave 2/3 plans. Verification: `npx vitest related --run` across all three new test files + identity-appearance regression = **61/61 pass** (28 net-new tests, 33 existing regression on the extended RawCosmetics type). Zero touches to routes/orchestrators/WS filter — those are Wave 2/3 work. NOT deployed / NOT built for docker per box-maintainer standing directive; scoped-tests-only fleet rule honored. All acceptance-criteria greps green (RawCosmetics.users?: string[] present, resolveIdentityAppearance signature stable, no callerUsername in appearance file, gate module 1-import discipline, no .toLowerCase in gate, userRoles reference in counter, systemLogger.debug in counter, expiresAt deliberately-excluded 0 hits). One-time cost: `npm install` (~9 min) hydrated node_modules that were absent at plan start; not a plan-level deviation. SUMMARY at .planning/phases/129-multi-user-single-host-support-per-user-visibility-gate-on-r/129-01-SUMMARY.md.
+Last activity: 2026-09-23
 
 Last activity (prior): 2026-09-23 -- Phase 129 execution started
 
@@ -101,7 +101,7 @@ Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bo
 
 Phase: 44 (frontend-skill-editing-editor-surface-for-skill-folders-on-a) — EXECUTING
 Plan: 3 of 3
-Status: Executing Phase 129
+Status: Ready to execute
 
 Last activity: 2026-08-19
 
@@ -233,7 +233,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — user can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 98%
 Progress: [██████████] 100%
 Progress: [██████████] 100%
 
@@ -409,6 +409,7 @@ Progress: [██████████] 100%
 | Phase 128 P10 | 15min | 2 tasks | 3 files |
 | Phase 128 P11 | 12min | 2 tasks | 1 files |
 | Phase 128 Pclose-loop-fix | 41min | 4 tasks | 12 files |
+| Phase 129 P02 | ~6 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -667,6 +668,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 128 Plan 11: byte-parallel DDL integration test at src/backend/database/db/index.integration.test.ts is Skynet's schema-push equivalent — substitute for drizzle-kit push in the hand-migrated CREATE TABLE + runXxxTableDrop convention. Established phase-wide scoped vitest-related sweep as the phase-close verification pattern (fleet test discipline: never bare npx vitest run).
 - [Phase ?]: Frontend Telegram teardown: 4 chore commits landed the frontend surface that the /close notifications review flagged as closed-with-misses. See 128-CLOSE-LOOP-FIX-SUMMARY.md.
 - [Phase ?]: Phase 128 review fix-pass: applied M-1..M-7 medium-severity findings as atomic commits
+- [Phase 129]: Plan 129-02: Gate placed AFTER cosmetics/roleCosmetics extraction but BEFORE publicIdentity — hidden row is never constructed (D-7 deep-gate). Return-null collapses onto existing L450 null-filter with zero shape change.
+- [Phase 129]: Plan 129-02: callerUsername lookup runs EXACTLY ONCE per request via getUsernameForUserId (not per-host, not per-identity) — matches identities.ts per-request-cost discipline. Locked at the wire by Test A + Test B call-count assertions.
+- [Phase 129]: Plan 129-02: Sibling test files (channel-cap, disk-read, put-disk) stub host-user-counter + identity-visibility-gate directly rather than extending drizzle-orm mocks — the gate has scoped coverage in identities.get-disk.test.ts; sibling suites stay scoped to what they test.
 
 ### Pending Todos
 
@@ -1047,7 +1051,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-23T03:16:09.532Z
+Last session: 2026-09-23T04:40:17.741Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed Phase 129 Plan 01 (foundations shipped, 28 new tests + 33 regression = 61/61 pass; three atomic commits e41d5bc5 + ec5df06a + 8b90f6b5). Wave 2/3/4 plans (129-02..129-08) awaiting.
@@ -1063,7 +1067,7 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: .planning/phases/129-multi-user-single-host-support-per-user-visibility-gate-on-r/129-CONTEXT.md
+Resume file: None
 Resume file: .planning/phases/118-first-class-apps-sweep-registry-shape-2/118-CONTEXT.md
 
 - Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)
