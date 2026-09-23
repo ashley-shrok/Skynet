@@ -201,3 +201,54 @@ Code map (from session-carry, confirmed with the identity file):
 Ashley is aware this is inline and has explicitly asked me to take the time
 to do it carefully. Test discipline follows the standing role directive:
 scoped tests during development, full suite only at the deploy gate.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-23
+**Vehicle used:** inline (with harness task tracking)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Menu-path affordance for putting a conversation into a project without dragging; lands in the same setters as the drop path
+- **Shape: parent item + position + chevron** — present · "Move to project" sits between "Open in new window" and Kill; ChevronRight rendered on the right edge; final order Pin / Open in new window / Move to project / Kill / Archive verified in row-level test
+- **Shape: drill-in transition (same on desktop and mobile, click/tap only, instant swap)** — present · Drilled state swaps content in place inside the same container; no hover handlers; no CSS transitions
+- **Shape: "‹ Back" row + one-level dismiss** — present · Back row is the only way back to outer; tap-outside and Escape both dismiss the whole menu regardless of drill state — asserted by two dedicated tests
+- **Shape: project list in sidebar order** — present · submenuProjects derived from projectSections (the same source the sidebar renders); ordering flows straight through
+- **Shape: checkmark on currently-assigned** — present · Check icon rendered on the left; row-level test asserts menuitemradio + aria-checked=true on the assigned project
+- **Shape: "Remove from project" only when in a project** — present · Appended after project list iff currentProjectSlug !== null; row-level tests cover both the appears-when and hidden-when cases
+- **Shape: silent close on pick / silent no-op on currently-assigned** — present · Pick fires onClick then deferred onClose (no toast, no dialog); tapping the currently-assigned project calls no setter but still closes the menu
+- **Shape: truncation with ellipsis at outer-menu max-width; submenu inherits height constraint with internal scroll** — present · Container carries maxWidth 260, maxHeight calc(100vh - 16px), overflowY auto; label spans use textOverflow ellipsis + nowrap
+- **Philosophy: peer of drag, not replacement; drag untouched** — present · handleProjectDrop and handleFlatMiddleDrop unchanged in this diff; handleRowMoveToProject is a sibling that hits the same setters
+- **Philosophy: consistency of interaction (one drill-in model)** — present · Single code path for desktop and mobile; no side-layer submenu paradigm
+- **Philosophy: hidden over disabled** — present · Parent item omitted (not greyed) when onMoveToProject or projects is missing/empty; "Remove from project" omitted when not in a project
+- **Philosophy: silence over confirmation** — present · No toast, no confirm dialog anywhere in the menu path
+- **Prior context: reuses existing setters via same routing** — present · Menu path calls setSessionProject / setRelayRoomProject with identical routing to handleProjectDrop; identityKey fallback via sessionMatchKey mirrors the drop path
+- **Prior context: submenu consumes useProjects-fed source** — present · submenuProjects derives from projectSections which is fed by the derived selector alongside useProjects
+- **What would make it wrong: menu path lands in a different state than drop path** — present · Same setters, same routing, same null-clears, same RDP refusal, same identityKey fallback
+- **What would make it wrong: affordance appears on RDP row** — present · Panel returns undefined onMoveToProject for rdpHostRow=true; RDP zone render site also omits the prop entirely; row-side gate hides item when onMoveToProject is undefined
+- **What would make it wrong: affordance appears when zero projects exist** — present · Panel returns undefined when submenuProjects.length === 0; row-side has defense-in-depth projects.length > 0 gate covered by test
+- **What would make it wrong: drag path visibly changes** — present · handleProjectDrop / handleFlatMiddleDrop / section-header drop lane are all untouched in this diff
+- **What would make it wrong: outside-tap drops back to outer instead of dismissing** — present · outside-click always fires onClose regardless of drilled state; test asserts this while drilled
+- **What would make it wrong: parent label changes based on state** — present · Label is the string literal "Move to project"; no state interpolation
+- **What would make it wrong: toast or confirmation on move** — present · No toast/dialog machinery in either the row handler or the panel handler
+- **What would make it wrong: currently-assigned tap fires a network call** — present · Row-side guard `if (!isCurrent) onMoveToProject(p.slug)` short-circuits before any callback; test asserts the setter is not called
+- **What would make it wrong: submenu project order diverges from sidebar order** — present · Both sourced from projectSections in the same iteration order
+- **What would make it wrong: long names overflow or reflow the menu** — present · Container maxWidth 260 + label ellipsis/nowrap; no reflow surface
+- **Scope edges: in-scope items delivered** — present · Parent item + drill-in machinery + Back row + project list + checkmark + Remove-from-project + hiding rules + wiring + silent no-op + tests all present
+- **Scope edges: out-of-scope items untouched** — present · No changes to drag path, flat-middle clear path, undo/toast, animation, keyboard nav additions, multi-select, onboarding, or drag-autoscroll
+- **Scope edges: tempting-but-no items resisted** — present · Parent label is static (no "In project: Foo"); drill-in even when exactly one project exists (no one-project short-circuit); no global undo/toast
+
+### Additions (in the result, not in the shape)
+
+- maxWidth 260 and maxHeight calc(100vh - 16px) with overflowY auto applied at the outer context-menu container level, which is a new invariant on the pre-existing flat-menu items (Pin / Open in new window / Kill / Archive) that did not have those constraints before this shape — endorsed-as-drift
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The shape's inheritance language ("the outer menu's max-width", "the outer menu's height constraint") read as though those bounds already existed; in fact they were newly introduced here. Ashley endorsed applying them uniformly at the outer level rather than gating on drill state — cleaner invariant, and the pre-existing menu items have labels well under 260px and never grew tall enough to scroll, so no observable behaviour shift on the pre-existing menu path. The menu-path handler (handleRowMoveToProject) is a near-mirror of handleProjectDrop with two shape-driven deltas: (1) it accepts slug=null for the "Remove from project" leaf, and (2) it reads row.roomId directly rather than reading it out of a serialised DnD payload — same carrier, different plumbing. RDP defense-in-depth is layered: panel returns undefined for onMoveToProject on RDP; RDP row-render site also omits the prop entirely; row-side items[] gate hides on undefined; and handleRowMoveToProject itself early-returns on rdpHostRow. Any single one of those layers would suffice; all four are present.
