@@ -701,87 +701,112 @@ if (process.env.VITEST !== "true") {
         // container's HOME_HOST_DIR bind-mount (matches identities.ts
         // L357-364 local-host branch shape).
         const local = isLocalHostId(hostIdNum);
-        let conn: import("ssh2").Client | null = null;
-        if (!local) {
-          const host = await resolveHostById(hostIdNum, userId);
-          if (!host) {
-            systemLogger.debug(
-              "Fleet-status identity gate: host record not found — denying",
-              {
-                operation: "fleet_status_identity_gate_host_missing",
-                hostIdNum,
-                userId,
-                identityName,
-              },
-            );
-            return false;
-          }
-          // 5s connect budget — a WS frame gate that stalls longer is
-          // already a stale signal; the fail-closed catch in the app-
-          // frame-filter shim will drop the frame if the connect times out.
-          conn = await connectOneShot(host, 5_000);
-        }
-        try {
-          const { markdown } = await readIdentityFileForGate(
-            conn,
-            identityName,
-          );
-          if (!markdown) {
-            // Missing identity file on disk — deny per the D-7 depth
-            // invariant. An identity that no longer exists on the host
-            // has no frontmatter to gate against; surfacing the frame
-            // would leak the fact of an in-flight event for a deleted
-            // identity.
-            systemLogger.debug(
-              "Fleet-status identity gate: identity file empty/missing — denying",
-              {
-                operation: "fleet_status_identity_gate_no_file",
-                hostIdNum,
-                userId,
-                identityName,
-              },
-            );
-            return false;
-          }
-          const identityCos = extractCosmeticsForGate(markdown);
-          const role = extractRoleForGate(markdown);
-          let roleCos: ReturnType<typeof extractCosmeticsForGate> | null = null;
-          if (role !== null) {
-            try {
-              const { markdown: roleMd } = await readRoleFileByNameForGate(
-                conn,
-                role,
+
+        // Phase 129 HIGH-2 fix (2026-09-23): route the WS identity-gate
+        // SSH work through the per-host semaphore to prevent MaxSessions
+        // exhaustion on multi-identity hosts. The `snapshot` frame's
+        // Promise.all in app-frame-filter.ts fans out N identity-gate
+        // calls in parallel per subscriber connect; without the semaphore
+        // each fires its own connectOneShot + reads, and hosts with more
+        // than ~8 identities can exhaust sshd's default MaxSessions=10
+        // cap on subscribe (matches the discipline identities.ts uses at
+        // L380-384 for the REST fanout, cap 8). Local-host branch
+        // bypasses the semaphore because bind-mount reads consume no SSH
+        // channels — same short-circuit shape as identities.ts's
+        // `withSlot` closure.
+        //
+        // NO CACHE per Assumption A3 lock (preserved above at L652-656):
+        // the shape's "picked up on next read" promise is untouched. If
+        // semaphore-serialized SSH turns out to be too slow under
+        // profiling, revisit the 2-5s TTL cache as a separate decision —
+        // not part of this fix.
+        const runGate = async (): Promise<boolean> => {
+          let conn: import("ssh2").Client | null = null;
+          if (!local) {
+            const host = await resolveHostById(hostIdNum, userId);
+            if (!host) {
+              systemLogger.debug(
+                "Fleet-status identity gate: host record not found — denying",
+                {
+                  operation: "fleet_status_identity_gate_host_missing",
+                  hostIdNum,
+                  userId,
+                  identityName,
+                },
               );
-              roleCos = roleMd ? extractCosmeticsForGate(roleMd) : null;
-            } catch {
-              // Role file read failed — silent-swallow (matches
-              // identities.ts L414-419 discipline for role reads that
-              // fail behind an identity read that succeeded). The gate
-              // treats roleCos=null as "no gate on the role side"; the
-              // identity side still applies.
-              roleCos = null;
+              return false;
+            }
+            // 5s connect budget — a WS frame gate that stalls longer is
+            // already a stale signal; the fail-closed catch in the app-
+            // frame-filter shim will drop the frame if the connect times out.
+            conn = await connectOneShot(host, 5_000);
+          }
+          try {
+            const { markdown } = await readIdentityFileForGate(
+              conn,
+              identityName,
+            );
+            if (!markdown) {
+              // Missing identity file on disk — deny per the D-7 depth
+              // invariant. An identity that no longer exists on the host
+              // has no frontmatter to gate against; surfacing the frame
+              // would leak the fact of an in-flight event for a deleted
+              // identity.
+              systemLogger.debug(
+                "Fleet-status identity gate: identity file empty/missing — denying",
+                {
+                  operation: "fleet_status_identity_gate_no_file",
+                  hostIdNum,
+                  userId,
+                  identityName,
+                },
+              );
+              return false;
+            }
+            const identityCos = extractCosmeticsForGate(markdown);
+            const role = extractRoleForGate(markdown);
+            let roleCos: ReturnType<typeof extractCosmeticsForGate> | null = null;
+            if (role !== null) {
+              try {
+                const { markdown: roleMd } = await readRoleFileByNameForGate(
+                  conn,
+                  role,
+                );
+                roleCos = roleMd ? extractCosmeticsForGate(roleMd) : null;
+              } catch {
+                // Role file read failed — silent-swallow (matches
+                // identities.ts L414-419 discipline for role reads that
+                // fail behind an identity read that succeeded). The gate
+                // treats roleCos=null as "no gate on the role side"; the
+                // identity side still applies.
+                roleCos = null;
+              }
+            }
+            return isIdentityVisibleToUser(
+              identityCos,
+              roleCos,
+              callerUsername,
+            );
+          } finally {
+            // Release the one-shot SSH connection. LOCAL branch has no
+            // conn to close. connectOneShot returns a live ssh2 Client;
+            // .end() releases it. Wrapped in try because a half-open
+            // client may already be in an error state.
+            if (conn !== null) {
+              try {
+                conn.end();
+              } catch {
+                // best-effort — the fail-closed catch in the app-frame-
+                // filter shim would have already dropped the frame if
+                // anything upstream threw.
+              }
             }
           }
-          return isIdentityVisibleToUser(
-            identityCos,
-            roleCos,
-            callerUsername,
-          );
-        } finally {
-          // Release the one-shot SSH connection. LOCAL branch has no
-          // conn to close. connectOneShot returns a live ssh2 Client;
-          // .end() releases it. Wrapped in try because a half-open
-          // client may already be in an error state.
-          if (conn !== null) {
-            try {
-              conn.end();
-            } catch {
-              // best-effort — the fail-closed catch in the app-frame-
-              // filter shim would have already dropped the frame if
-              // anything upstream threw.
-            }
-          }
-        }
+        };
+
+        return local
+          ? runGate()
+          : getHostSemaphore(hostIdNum).run(runGate);
       }
 
       const fleetStatusServer = startFleetStatusServer({
