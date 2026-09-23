@@ -1,3 +1,44 @@
+# Phase 129 Context: multi-user-single-host support
+
+**Date:** 2026-09-23
+**Phase directory:** `.planning/phases/129-multi-user-single-host-support-per-user-visibility-gate-on-r/`
+**Source:** Seeded directly from `.planning/shapes/shape-multi-user-single-host-support.md` per /build skill rule ("either drop the shape file in as CONTEXT.md directly, or generate CONTEXT.md from it — don't re-do the discovery work /open already did"). The /open discussion + grill locked all the decisions below; discuss-phase did not re-elicit.
+
+## Canonical refs (MUST READ before planning)
+
+- `.planning/shapes/shape-multi-user-single-host-support.md` — the source shape file (identical content below, kept in sync). Authoritative shape agreement.
+- `src/backend/fleet-status/identity-appearance.ts` — the merge point where role + identity frontmatter cosmetics get resolved into a `ResolvedIdentityAppearance` row. The `RawCosmetics` type (~L31-47) is where the new `users` frontmatter field gets declared; `resolveIdentityAppearance()` (~L62-88, L142-222) is where the intersection gate is applied.
+- `src/backend/database/routes/identities.ts` (~L294-350) — the `/identities/` endpoint that enumerates identity keys per host and calls the appearance resolver. The gate needs to filter at this seam for the identity list.
+- `src/backend/claude-session/identity-artifact-reader.ts` (~L32-48, L370-386) — `readIdentityFile` + `readRoleFileByName` fetch role and identity markdown over SSH and parse frontmatter via `extractCosmeticsFromFrontmatter`. The new `users` field needs to be parsed here too.
+- `src/backend/fleet-status/ssh-poll-orchestrator.ts` (~L1-50) — the 2-second SSH poll that discovers tmux sessions per host. The session list also needs gating (deep-gate rule — no orphan rows).
+- `src/ui/state/conversation-store.ts` (~L50-72) — frontend join of `/sessions/list` + `/identities/`. Filter must bite before this reaches the UI, or the join needs to filter downstream.
+- `src/backend/database/routes/roles-create.ts` (~L286-628, userId extracted at L308) — `POST /roles` endpoint. Add auto-tag of creator's Skynet username to new role file's frontmatter when target host has >1 Skynet user with access.
+- `src/ui/features/pretty-conversations/CreateRoleDialog.tsx` — the "+ New role" UI. Client-side change probably not needed (backend handles auto-tag), but the dialog is the origin.
+- `src/backend/database/routes/identities.ts` — identity-creation POST endpoint (same file as list). Add matching auto-tag for identity file on multi-user hosts.
+- `src/ui/features/{new-agent-modal}/NewSessionDialog.tsx` — role dropdown that calls `GET /roles?hostId=<n>` (identities-api.ts L321-328, L533-536). This picker MUST filter by the role gate (role.users intersected with logged-in user).
+- Role/identity file locations on managed hosts: `~/fleet/roles/<slug>/<slug>.md` and `~/fleet/identities/<name>/<name>.md`.
+
+## Domain
+
+Per-user visibility gate on roles and identities. Adds a `users` YAML list field to the frontmatter of role and identity markdown files (on disk, on each managed host). The gate is applied at the identity-appearance merge point in the Skynet backend read path, hidden identities do not surface anywhere in the UI, and creation-time auto-tag happens only on multi-user hosts.
+
+## Locked decisions (from /open shape agreement)
+
+- **Storage:** New `users` list in frontmatter of both role AND identity markdown files. YAML list of Skynet usernames. Either or both may be empty.
+- **Gate semantics:** Intersection. User sees identity iff `(role.users empty OR user ∈ role.users) AND (identity.users empty OR user ∈ identity.users)`.
+- **Fallback:** Empty/absent `users` list means "visible to everyone with host access." Preserves current behavior for every existing role/identity across the fleet. Zero migration cost.
+- **Auto-tag conditional:** At creation time via the "+ New role" flow and the "new agent" flow, backend writes creator's Skynet username to the new file's `users` list ONLY IF the target host has more than one Skynet user with access. On single-user hosts, nothing is written and the field stays absent.
+- **Auto-tag scope:** Only touches the file being created. Role file auto-tagged on role creation; identity file auto-tagged on identity creation. Never rewrites existing values.
+- **UI:** NO new affordance for viewing or editing `users` lists. Sharing = manual frontmatter edit. Role picker in new-agent UI DOES filter by role.users gate (existing picker, gated read).
+- **Depth of gate:** Hidden identities leave no evidence anywhere — no orphan session rows, no ghostly indicators. Filter must bite at every surface where the sidebar composes rows (identity list + session list + any live-status heartbeat).
+- **Not a permission system:** Visibility filter only. No backend permission enforcement beyond current host-access gate. On-disk bypass (agent editing files directly) is out of scope — trusted.
+- **Migration of existing shared-host content:** Deferred. Ashley will hand-tag existing entries post-implementation as a separate manual discussion.
+- **Field name confirmed:** `users:` (YAML list of Skynet usernames).
+
+## Shape file below (unchanged from `.planning/shapes/shape-multi-user-single-host-support.md`)
+
+---
+
 # Shape: multi-user-single-host support
 
 **Opened:** 2026-09-23
