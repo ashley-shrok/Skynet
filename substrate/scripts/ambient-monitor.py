@@ -241,8 +241,8 @@ def _read_frontmatter(identity_file):
     """Return (role, is_coordinator) parsed from the identity file's YAML frontmatter.
     Frontmatter is the block between the FIRST two `---` fence lines. Missing file /
     missing frontmatter / missing role → (None, False), and the caller decides how
-    loudly to complain (role-file-watch already surfaces its own SETUP FAILED wake
-    when it can't resolve; the launcher stays quiet and lets pieces surface their
+    loudly to complain (role-file-watch logs its own setup failures to stderr into
+    the ambient-monitor log; the launcher stays quiet and lets pieces surface their
     own diagnostics).
 
     The role value is stripped of surrounding YAML quotes and whitespace, then

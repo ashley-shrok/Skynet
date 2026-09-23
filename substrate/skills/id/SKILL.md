@@ -346,7 +346,11 @@ always the user editing directly.
 
 **Agent-side reading protocol** when this watch fires: read the diff. The
 event tag names which file changed: `📝 [role-file: <role>]` or
-`📝 [identity-file: <name>]`. The watch is dumb on purpose — it doesn't
+`📝 [identity-file: <name>]`. If the diff is small it comes inline after
+`your <X> changed —`; if it's large the line reads
+`your <X> changed — READ NOW before continuing — <spill-path>` and you
+Read that path immediately (the change may bear on the work you're
+currently doing — don't defer). The watch is dumb on purpose — it doesn't
 try to detect who made the edit; that judgment lives with you, in the
 diff content. Three cases:
 

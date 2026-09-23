@@ -22,8 +22,10 @@ reads role + identity + enumerates runbooks; this is purely additive.
 Runbook coverage extends to the sentinel file only — `~/fleet/roles/<role>/runbooks/<slug>/runbook.md`
 per the id skill's runbook convention. Companion files in the same subfolder
 (checklists, prompt archives, scripts) are IGNORED — their churn is not a signal
-that the canonical procedure changed. Three runbook events fire:
-  - `📝 [runbook: <role>/<slug>] <diff>`   — edit (same shape as role/identity)
+that the canonical procedure changed. Three runbook events fire (same shape rule
+as role/identity — see _emit_event):
+  - `📝 [runbook: <role>/<slug>] your <slug> runbook changed — <diff>` (small edit, inline)
+  - `📝 [runbook: <role>/<slug>] your <slug> runbook changed — READ NOW before continuing — <path>` (large edit, spilled)
   - `📝 [runbook: <role>/<slug>] added — Read <path>` — new runbook appeared
   - `📝 [runbook: <role>/<slug>] deleted`  — runbook.md OR its parent slug folder removed
 
@@ -175,11 +177,36 @@ def _flatten_diff(diff_stdout):
     return " ⏎ ".join(kept)
 
 
+def _change_phrase(kind, label):
+    """Return the natural-language "your X changed" phrase for each event kind.
+
+    Makes the CHANGE the explicit subject of the event line, rather than leaving
+    the agent to infer it from the tag + path — an inference some agents defer
+    ("I'll read that after I finish what I'm doing") when the change might bear
+    directly on what they're currently doing.
+
+    For runbook, `label` is `<role>/<slug>` — we surface just the slug in the
+    sentence since the tag already carries both.
+    """
+    if kind == "role-file":
+        return "your role file"
+    if kind == "identity-file":
+        return "your identity file"
+    if kind == "runbook":
+        slug = label.split("/", 1)[-1]
+        return "your %s runbook" % slug
+    return "the file"  # defensive; kinds are closed-set today
+
+
 def _emit_event(kind, label, diff_stdout, spill_dir):
     """Emit one event line (or spill to file if over INLINE_MAX).
 
-    `kind` is "role-file" or "identity-file"; `label` is the role name or identity
-    name respectively — the two together form the event tag the agent sees.
+    `kind` is "role-file", "identity-file", or "runbook"; `label` is the role name,
+    identity name, or `<role>/<slug>` respectively — the two together form the event
+    tag the agent sees.
+
+    Both shapes lead with "your X changed" so the agent doesn't have to infer the
+    change from the tag/path alone.
 
     INLINE_MAX is a BYTE cap (the harness measures the emitted line in UTF-8 bytes),
     so we check `len(line.encode("utf-8"))` — not `len(line)`, which counts code points.
@@ -198,9 +225,14 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
     the agent wants (the labels are already in the event tag, and hunk offsets are
     meaningless for a file it can just read) and they are most of the line budget on
     a small change.
+
+    On spill we deliberately DO NOT include a preview snippet: if the diff was too
+    big to inline, the agent has to Read the spill file anyway, so a truncated
+    preview only clutters the line without informing the decision to read.
     """
     flat = _flatten_diff(diff_stdout)
-    line = "📝 [%s: %s] %s" % (kind, label, flat)
+    phrase = _change_phrase(kind, label)
+    line = "📝 [%s: %s] %s changed — %s" % (kind, label, phrase, flat)
     if len(line.encode("utf-8")) <= INLINE_MAX:
         print(line, flush=True)
     else:
@@ -212,11 +244,9 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
         spill_path = os.path.join(spill_dir, "%s.%s.diff" % (ts, kind))
         with open(spill_path, "w") as f:
             f.write(diff_stdout)
-        # PATH before PREVIEW, matching recv.sh's long-message idiom: if anything
-        # gets truncated it must be the preview, never the path.
         print(
-            "📝 [%s: %s] large change — full diff at %s — Read it «%s…»"
-            % (kind, label, spill_path, flat[:160]),
+            "📝 [%s: %s] %s changed — READ NOW before continuing — %s"
+            % (kind, label, phrase, spill_path),
             flush=True,
         )
 
@@ -456,11 +486,9 @@ def main():
     identity_file_path = os.path.join(ident_dir, "%s.md" % name)
     role, err = _parse_role_from_frontmatter(identity_file_path)
     if err:
-        # Setup-failure diagnostics go to BOTH stdout and stderr. Stdout so the AGENT
-        # gets woken with the diagnostic — a stderr-only failure produces a
-        # silent-deaf watch the agent never learns about (mirrors recv.sh's
-        # HARD-FAIL PREAMBLE convention against silent-deaf receivers).
-        print("📝 [role-file-watch] SETUP FAILED: %s" % err, flush=True)
+        # Watcher-health failures log to stderr only — box-maintainer notices via
+        # the ambient-monitor log. The agent can't fix its own dead watcher
+        # mid-turn, so waking it with a diagnostic it can't act on is noise.
         print("⚠️ [role-file-watch] %s" % err, file=sys.stderr, flush=True)
         sys.exit(1)
 
@@ -468,7 +496,6 @@ def main():
     role_file_path = os.path.expanduser("~/fleet/roles/%s/%s.md" % (role, role))
     if not os.path.exists(role_file_path):
         msg = "role file not found: %s" % role_file_path
-        print("📝 [role-file-watch] SETUP FAILED: %s" % msg, flush=True)
         print("⚠️ [role-file-watch] %s" % msg, file=sys.stderr, flush=True)
         sys.exit(1)
 
@@ -563,7 +590,6 @@ def main():
             current = _read_bytes(target_path)
             if current is None:
                 msg = "%s file unreadable at startup: %s" % (kind, target_path)
-                print("📝 [role-file-watch] SETUP FAILED: %s" % msg, flush=True)
                 print("⚠️ [role-file-watch] %s" % msg, file=sys.stderr, flush=True)
                 sys.exit(1)
             _atomic_write_baseline(baseline_dir, baseline_path, current)
@@ -703,7 +729,8 @@ def main():
                     # a recovery event if the previous cycle surfaced a failure.
                     if failure_emitted:
                         print(
-                            "📝 [role-file-watch] inotifywait recovered — watching resumed",
+                            "⚠️ [role-file-watch] inotifywait recovered — watching resumed",
+                            file=sys.stderr,
                             flush=True,
                         )
                         failure_emitted = False
@@ -810,6 +837,7 @@ def main():
                                 "⚠️ [role-file-watch] inotifywait exited %d — "
                                 "watcher deaf until this resolves. stderr: %s"
                                 % (exit_code, stderr_snippet or "(empty)"),
+                                file=sys.stderr,
                                 flush=True,
                             )
                             failure_emitted = True
