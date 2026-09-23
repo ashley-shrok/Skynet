@@ -222,6 +222,24 @@ export interface BirthOptions {
    */
   task?: string;
   /**
+   * Phase 129 D-4 auto-tag (write-side): the creator's Skynet username as
+   * looked up in the route handler (identity-birth.ts) via
+   * getUsernameForUserId. Threaded through as an opaque string so the
+   * orchestrator stays pure (no DB imports leak here).
+   *
+   * The route handler is responsible for gating this field on
+   * isHostMultiUser(hostId): it MUST be set only when the target host has
+   * strictly more than one Skynet user with access, and MUST be undefined
+   * on single-user hosts per shape file § "invisible in majority case".
+   *
+   * When present and non-empty, buildIdentityFileBody emits a
+   * `users: [creatorUsername]` pair via the existing pairs.push pattern
+   * (absent-⇒-omit fallback per D-3 preserved when this field is absent).
+   * Case-sensitive — echoed verbatim from the DB (Pitfall 7 lock: no
+   * .toLowerCase()/.toUpperCase() at this seam or downstream).
+   */
+  creatorUsername?: string;
+  /**
    * Phase 80 Plan 80-03b A1 lock: when true, MXID composition follows the
    * DIVERGE shape (`<pool-name>-<role>[-N]` lowercase-hyphenated) — identity
    * folder key stays lowercase (`willow`) and the Matrix account MXID becomes
@@ -541,12 +559,16 @@ const TMUX_SAFE_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 //   forceQuotes: false — let yaml.dump decide per-value; it correctly
 //                        quotes strings containing colons/newlines
 //                        automatically (T-66-01-04)
-function buildIdentityFileBody(
+export function buildIdentityFileBody(
   opts: BirthOptions,
   displayName: string,
   avatarFilename: string,
 ): string {
-  const pairs: Array<[string, string | number]> = [];
+  // Phase 129: pair-value union widened to include string[] so the auto-tag
+  // branch below can push ["users", [creatorUsername]] via the same pattern.
+  // stringifyColorHueForYaml (call site further down) only inspects the
+  // colorHue key, so widening here is byte-shape neutral for pre-129 fields.
+  const pairs: Array<[string, string | number | string[]]> = [];
 
   // role is ALWAYS present (validated upstream)
   pairs.push(["role", opts.role]);
@@ -582,6 +604,25 @@ function buildIdentityFileBody(
   // do NOT hand-quote here. Round-trip test asserts value preservation.
   if (typeof opts.task === "string" && opts.task.trim().length > 0) {
     pairs.push(["task", opts.task]);
+  }
+  // Phase 129 D-4 auto-tag: users:[creator] on multi-user hosts. Route
+  // handler (identity-birth.ts) sets opts.creatorUsername only when
+  // isHostMultiUser(hostId)=true; absent-⇒-omit fallback preserves the
+  // zero-migration byte-shape on single-user hosts (shape §"invisible
+  // in majority case"). Case-sensitive echo of the DB users.username value
+  // (Pitfall 7 lock — NO .toLowerCase()/.toUpperCase() at this seam).
+  //
+  // Positioned AFTER task per PATTERNS.md § buildIdentityFileBody insertion
+  // point. sortKeys:false + noRefs:true guarantee the emitted key lands last
+  // in the frontmatter block and serializes as a plain YAML flow-or-block
+  // sequence with no anchor/alias emission. yaml.dump serializes arrays of
+  // strings correctly under the canonical options block (T-66-01-04 precedent
+  // — no forceQuotes required).
+  if (
+    typeof opts.creatorUsername === "string" &&
+    opts.creatorUsername.length > 0
+  ) {
+    pairs.push(["users", [opts.creatorUsername]]);
   }
 
   const yamlBody = yaml.dump(
