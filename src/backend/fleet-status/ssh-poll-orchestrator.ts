@@ -1283,10 +1283,21 @@ const UUID_RE = /^[0-9a-f-]{36}$/i;
  * - Filenames whose UUID portion fails UUID_RE (e.g. response files).
  * - Lines with malformed JSON (warns + continues).
  *
- * userId is left as "" — the worker refetches via getHostOwnerUserId(hostIdNum)
- * at drain time (Pitfall 3 + Plan 99-01 Task 2 contract).
+ * `hostConnDetails` is the sweep-decrypted `_connDetails` bag threaded down
+ * from `scanSpawnRequests` (which reads it off the substrate-host record
+ * emitted by `list-substrate-hosts.ts`). Used by the worker's response-file
+ * writer to SFTP responses back without a per-user resolver call (quick-
+ * 260923-9x1 — closes the silent-response-file-failure regression where
+ * `resolveHostById(hostId, "")` returned null and the worker gave up).
+ * Optional at this seam because the LOCAL scan branch in
+ * `scan-orchestrator.ts` legitimately has no SSH bag to pass (LOCAL response
+ * writes go straight to the container bind-mount via `writeMarkdownFileAtomic`).
  */
-export function parseSpawnRequestBatch(stdout: string, hostId: string): PendingBirth[] {
+export function parseSpawnRequestBatch(
+  stdout: string,
+  hostId: string,
+  hostConnDetails?: Record<string, unknown>,
+): PendingBirth[] {
   if (!stdout.trim()) return [];
   const results: PendingBirth[] = [];
   const hostIdNum = parseInt(hostId, 10);
@@ -1323,7 +1334,7 @@ export function parseSpawnRequestBatch(stdout: string, hostId: string): PendingB
         roles: [], prompt: "",  // malformed-branch defaults (D-13 bridge — malformedReason drives behavior)
         task: null,
         requested_at: "",
-        userId: "",
+        hostConnDetails,
         malformedReason: parsed.message,
       });
       continue;
@@ -1338,7 +1349,7 @@ export function parseSpawnRequestBatch(stdout: string, hostId: string): PendingB
       prompt: parsed.body.prompt,
       task: parsed.body.task,
       requested_at: parsed.body.requested_at,
-      userId: "",
+      hostConnDetails,
     });
   }
   return results;
@@ -1364,7 +1375,14 @@ export async function scanSpawnRequests(host: HostRecord, channel: SshChannel): 
     // Missing folder (cd ... || exit 0) OR empty folder — both non-errors per D-03.
     return [];
   }
-  const results = parseSpawnRequestBatch(stdout, host.id);
+  // quick-260923-9x1: pull the sweep-decrypted _connDetails bag off the host
+  // record (populated by list-substrate-hosts.ts via the CSKEK path) so it
+  // rides onto every emitted PendingBirth as hostConnDetails. HostRecord's
+  // declared shape (host-id-resolver.ts:14) is {id, name}, but every call site
+  // in scan-orchestrator.ts and the fleet-status poll loop passes richer
+  // records that carry _connDetails — read it defensively here.
+  const hostConnDetails = (host as unknown as { _connDetails?: Record<string, unknown> })._connDetails;
+  const results = parseSpawnRequestBatch(stdout, host.id, hostConnDetails);
   systemLogger.info("Spawn-scan: exec complete", {
     operation: "spawn_scan_exec_complete",
     fleetHostId: host.id,

@@ -191,8 +191,18 @@ export function buildProductionDeps(): WorkerDeps {
  * Opens a FRESH connectOneShot connection for the write — birthIdentity manages
  * its own connection internally and closes it before returning (Pattern 7).
  *
- * If the host resolution returns null, logs warn and gives up: coord's safety
- * timeout will catch the missing response (D-13 principle).
+ * REMOTE-branch contract (quick-260923-9x1): connection details come directly
+ * from `item.hostConnDetails` — the sweep-decrypted `_connDetails` bag threaded
+ * through `parseSpawnRequestBatch` from `list-substrate-hosts.ts`'s CSKEK path.
+ * No per-user `resolveHostById` call happens here (the pre-fix version passed
+ * `item.userId === ""` to that resolver, which always returned null, and the
+ * worker silently gave up → coord timed out on every remote spawn).
+ *
+ * Absence of `hostConnDetails` on a REMOTE item is a hard invariant violation:
+ * the sweep proved credentials decryptable through the defense-in-depth CSKEK
+ * filter before enqueue, so this state should never happen in normal operation.
+ * Logs at ERROR level and gives up (coord's safety timeout still catches it,
+ * but the log should be alertable).
  *
  * Wraps the entire operation in try/catch — per D-15 no-retry, a failed
  * response-file write does NOT re-throw (coord timeout handles it).
@@ -222,15 +232,20 @@ async function writeResponseFile(
       return;
     }
 
-    // REMOTE branch — resolve host connection details via resolveHostById
-    // (requires userId for decrypt).
-    const hostDetails = await deps.resolveHostById(item.hostIdNum, item.userId);
+    // REMOTE branch — use the sweep-decrypted _connDetails bag threaded through
+    // parseSpawnRequestBatch (quick-260923-9x1). No resolveHostById call — the
+    // sweep already proved credentials decryptable at enqueue time.
+    const hostDetails = item.hostConnDetails;
     if (!hostDetails) {
-      systemLogger.warn("spawn-request worker: host details not found for response write", {
-        operation: "spawn_request_response_host_not_found",
-        uuid: item.uuid,
-        hostIdNum: item.hostIdNum,
-      });
+      systemLogger.error(
+        "spawn-request worker: hostConnDetails missing on REMOTE PendingBirth — coord will time out (sweep-side invariant violation)",
+        {
+          operation: "spawn_request_response_conn_details_missing",
+          uuid: item.uuid,
+          hostIdNum: item.hostIdNum,
+          kind,
+        },
+      );
       return;
     }
 
@@ -360,8 +375,10 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   }
 
   //    (c) Re-verify host-owner userId (may be stale if host was deleted between
-  //    sweep tick and queue drain). Use currentUserId, not item.userId, for the
-  //    subsequent birthIdentity call.
+  //    sweep tick and queue drain). Use currentUserId for the subsequent
+  //    birthIdentity call (item.userId no longer exists — removed per
+  //    quick-260923-9x1; the birth path derives userId from getHostOwnerUserId
+  //    while the response-write path uses hostConnDetails directly).
   const currentUserId = await deps.getHostOwnerUserId(item.hostIdNum);
   if (!currentUserId) {
     await writeFailureFile(item, deps, { reason: "birth_failed" });

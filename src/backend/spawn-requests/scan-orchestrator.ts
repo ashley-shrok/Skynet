@@ -171,6 +171,11 @@ export function createSpawnScanOrchestrator(
         // tab-separated stdout shape (`<filename>\t<contents>` per line)
         // so parseSpawnRequestBatch's downstream contract stays 1:1.
         const stdout = rawItems.map((r) => `${r.filename}\t${r.contents}`).join("\n");
+        // LOCAL branch: no hostConnDetails — writeResponseFile bypasses SSH
+        // via isLocalHostId + writeMarkdownFileAtomic bind-mount path
+        // (quick-260923-9x1). Omitting the third arg lands hostConnDetails
+        // as undefined on every emitted PendingBirth, which is exactly what
+        // writeResponseFile's LOCAL short-circuit needs.
         const items = parseSpawnRequestBatch(stdout, host.id);
         for (const item of items) {
           deps.enqueue(item);
@@ -213,6 +218,12 @@ export function createSpawnScanOrchestrator(
       // reuse here). Same helper the pre-fix piggyback used — atomic mv claim,
       // UUID length guard, per-line parseRequestBody validation, malformed-
       // reason enqueue path, fail-open null-exec handling. Unchanged.
+      //
+      // quick-260923-9x1: the host's `_connDetails` bag (populated at CSKEK
+      // decrypt time by listSubstrateHosts) is now consumed by scanSpawnRequests
+      // and rides onto every emitted PendingBirth as `hostConnDetails`, which
+      // writeResponseFile's REMOTE branch uses directly (no per-user
+      // resolveHostById call needed).
       const batch = await scanSpawnRequests(host as HostRecord, channel);
       for (const item of batch) {
         deps.enqueue(item);

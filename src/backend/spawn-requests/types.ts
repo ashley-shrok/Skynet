@@ -35,7 +35,30 @@ export interface PendingBirth {
   prompt: string;      // first user message to the newborn agent (D-05)
   task: string | null;
   requested_at: string;
-  userId: string;      // owner-userId from host record (D-14)
+
+  /**
+   * Sweep-side decrypted SSH connection bag threaded down from `scanSpawnRequests`
+   * (quick-260923-9x1). Consumed directly by `writeResponseFile`'s REMOTE branch
+   * via `connectOneShot` — replaces the previous `resolveHostById(hostId, userId)`
+   * lookup that silently failed when `userId` was `""` (as it always was on the
+   * queue-emitted PendingBirth items produced by `parseSpawnRequestBatch`).
+   *
+   * OPTIONAL because the LOCAL branch (`isLocalHostId(hostIdNum) === true`) writes
+   * to the container's bind-mounted `~/fleet/spawn-requests/` and bypasses SSH
+   * entirely — no connection bag needed on that path.
+   *
+   * Sweep invariant: if a host reaches the queue over the REMOTE branch, its
+   * credentials have already been proven decryptable through the defense-in-depth
+   * CSKEK filter at `list-substrate-hosts.ts:130`, so `hostConnDetails` will be
+   * populated on every REMOTE-emitted item. Absence on a REMOTE item is a hard
+   * invariant violation (see writeResponseFile's error-log branch).
+   *
+   * Source: `list-substrate-hosts.ts:168-177` (CSKEK-decrypted `_connDetails` bag)
+   * → threaded through `scanSpawnRequests(host, channel)` reading
+   * `(host as SubstrateHostRecord)._connDetails` → `parseSpawnRequestBatch(stdout,
+   * hostId, hostConnDetails)` → this field on every emitted PendingBirth.
+   */
+  hostConnDetails?: Record<string, unknown>;
 
   /**
    * Sweep-side validation failure (post-code-review M2/M3).
