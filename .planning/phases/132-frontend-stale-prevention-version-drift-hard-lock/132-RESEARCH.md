@@ -2,7 +2,7 @@
 
 **Researched:** 2026-09-21
 **Domain:** Full-stack version-drift detection — build-time tag production, HTTP + WS enforcement lanes, shell-page cache discipline, browser hard-lock UX
-**Confidence:** HIGH (Skynet codebase is fully inspected; vms reference is Ashley's own prior-art; no external library adoption required)
+**Confidence:** HIGH (Skynet codebase is fully inspected; vms reference is the user's own prior-art; no external library adoption required)
 
 ## Summary
 
@@ -1080,7 +1080,7 @@ Beyond the 7 Pitfalls documented above, five candidates from the question worth 
 5. **Header stripping in nginx / Caddy.**
    - **Nginx:** by default, nginx passes ALL custom `X-*` headers through unchanged. The `proxy_set_header` directives in each location block SET headers, but don't STRIP unrelated ones. Verified against the 30+ location blocks in `docker/nginx.conf` — none use `proxy_pass_request_headers off` or `add_header ... "" hide` for `X-Skynet-*` patterns. **Safe by default.**
    - **Caddy at box level (`/opt/skynet/caddy-config/Caddyfile`):** default behavior also passes all headers. The `header_up` directives in the Phase 103 `*.serve.term.*` block SET headers but don't strip. **Safe by default.**
-   - **Recommendation:** add ONE assertion test — `curl -sI https://term.gigaashley.click/ | grep -i x-skynet-server-build` — as a smoke check in the ship runbook. Not strictly needed in the phase's plan but cheap belt-and-suspenders.
+   - **Recommendation:** add ONE assertion test — `curl -sI https://term.gigathe user.click/ | grep -i x-skynet-server-build` — as a smoke check in the ship runbook. Not strictly needed in the phase's plan but cheap belt-and-suspenders.
 
 ### Q12: Deploy sequencing
 
@@ -1088,7 +1088,7 @@ Motion: `docker build` (2-3 min) then `docker compose up --force-recreate` (30-9
 
 Trace:
 
-1. **T0** — Ashley runs `docker compose up --force-recreate skynet`. `SKYNET_BUILD_SHA` env has been set to the new HEAD SHA. Old container starts stopping.
+1. **T0** — the user runs `docker compose up --force-recreate skynet`. `SKYNET_BUILD_SHA` env has been set to the new HEAD SHA. Old container starts stopping.
 2. **T0 + a few seconds** — Old container's Node process receives SIGTERM. In-flight HTTP requests either complete (fast) or fail with connection-reset (slow). Client's axios retry-interceptor at `main-axios.ts:559-597` retries ECONNRESET up to 3 times with 300ms base backoff. **D-15 says this does NOT fire the lock** — mismatches vs. failures are distinct.
 3. **T0 + 5-15s** — Container is gone. Any client-initiated request hits nginx (down) or Caddy (up, returns 502). Client sees `status: 502` → NOT retryable per `isRetryable()` at `main-axios.ts:193-230` (5xx is only retryable for idempotent methods, but this returns a 502 to POSTs too; POSTs get a `503` toast). **Lock does NOT fire** (D-15).
 4. **T0 + 30-90s** — New container starts. Backend initializes. `SERVER_BUILD_ID` is now the new SHA. Nginx starts listening on port 8080. Caddy's next reverse-proxy attempt succeeds.
@@ -1110,7 +1110,7 @@ Design handles the deploy sequence cleanly. **The only genuine risk is Pitfall 4
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | `SKYNET_BUILD_SHA` in the ship runbook maps 1:1 to the docker-compose `SKYNET_BUILD_SHA` env used at `docker/docker-compose.yml:40`. `[ASSUMED]` — need to confirm with Ashley or the ship runbook. | Pattern 2, Q1 | If the ship runbook uses a different var, plan needs to rename or add an alias. Not a design blocker; a name-check. |
+| A1 | `SKYNET_BUILD_SHA` in the ship runbook maps 1:1 to the docker-compose `SKYNET_BUILD_SHA` env used at `docker/docker-compose.yml:40`. `[ASSUMED]` — need to confirm with the user or the ship runbook. | Pattern 2, Q1 | If the ship runbook uses a different var, plan needs to rename or add an alias. Not a design blocker; a name-check. |
 | A2 | Skynet's Vite `manualChunks` config at `vite.config.ts:17-53` does NOT split `main-axios.ts` into a lazy-loaded chunk. `[ASSUMED]` — spot-check confirms it's imported eagerly by everything (login, dashboard, RBAC), but a chunk-graph audit would confirm. | Q2 | If it IS lazy, the interceptor doesn't attach until the first request that resolves the lazy chunk, meaning very-first requests could bypass. Low risk (main-axios is imported by main.tsx via `getUserInfo`). |
 | A3 | Guacamole-lite's client-side JS surfaces close-code / error-instruction details in a way that the frontend can distinguish a skew-lock refusal from an ordinary disconnect. `[ASSUMED]` — the `SKYNET_SUPERSEDED:` prefix pattern at `guacamole-server.ts:178` suggests this pattern works, and the frontend detection code exists somewhere for takeovers. | Guacamole handshake code example | If not, need to fall back to close-code-only detection (harder). |
 | A4 | The 20 raw-fetch call sites enumerated in Q2 are the COMPLETE set. `[ASSUMED]` — grep on `fetch(` found them, but a `fetch\s*\(` regex might miss template literals like `` fetch(`${url}`) ``. | Q2, Pitfall 6 | Missing 1-2 sites means those pathways bypass client-side stamping. Not catastrophic (D-06 mismatch-only on server means these fetches still work; they just won't detect drift). Low risk. |

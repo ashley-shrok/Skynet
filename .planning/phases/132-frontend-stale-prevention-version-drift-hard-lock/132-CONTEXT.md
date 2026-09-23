@@ -30,7 +30,7 @@ Guarantee that a user's Skynet browser session is never running client-side code
 <decisions>
 ## Implementation Decisions
 
-All decisions below were locked with Ashley via `/open` this session; the shape file at `.planning/shapes/shape-frontend-stale-prevention.md` is the primary source of truth. Downstream agents MUST read that shape file before planning or implementing.
+All decisions below were locked with the user via `/open` this session; the shape file at `.planning/shapes/shape-frontend-stale-prevention.md` is the primary source of truth. Downstream agents MUST read that shape file before planning or implementing.
 
 ### Detection surface
 
@@ -68,7 +68,7 @@ All decisions below were locked with Ashley via `/open` this session; the shape 
 
 ### Multi-tab behavior
 
-- **D-17:** Independent tabs — each tab fires its own modal on its own drift signal. No cross-tab coordination via `BroadcastChannel` or equivalent. A user with five open tabs during a deploy sees five modals and clicks Reload five times. Simpler mechanism, no wrong states to debug. Ashley explicitly picked A over cross-tab coordination.
+- **D-17:** Independent tabs — each tab fires its own modal on its own drift signal. No cross-tab coordination via `BroadcastChannel` or equivalent. A user with five open tabs during a deploy sees five modals and clicks Reload five times. Simpler mechanism, no wrong states to debug. the user explicitly picked A over cross-tab coordination.
 
 ### Version tag source (open decision for planner)
 
@@ -104,9 +104,9 @@ All decisions below were locked with Ashley via `/open` this session; the shape 
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Shape file (primary source of truth for this phase)
-- `.planning/shapes/shape-frontend-stale-prevention.md` — full `/open` shape file with Ashley's philosophy, deliberately-not-doing list, failure-mode taxonomy, and scope edges. LOCKED via `/open` grill 2026-09-21.
+- `.planning/shapes/shape-frontend-stale-prevention.md` — full `/open` shape file with the user's philosophy, deliberately-not-doing list, failure-mode taxonomy, and scope edges. LOCKED via `/open` grill 2026-09-21.
 
-### Reference implementation (vms — Ashley's own separately-maintained framework)
+### Reference implementation (vms — the user's own separately-maintained framework)
 The vms repo at `~/fleet/identities/rio/workspace/vms/` (cloned during `/open` research) ships this exact class of feature as `Phase 29 — Version-skew hard-lock`. Its `<decisions>` block is the closest existing prior-art — Skynet's design adopts the philosophy and extends the mechanism for the persistent-channel lane. Concrete files worth reading:
 - `~/fleet/identities/rio/workspace/vms/.planning/phases/29-version-skew-hard-lock-global-server-guard-client-hard-lock-/29-CONTEXT.md` — full context doc including tasting-locked decisions.
 - `~/fleet/identities/rio/workspace/vms/viewmodel-shell/src/vite.ts` — the reference Vite plugin that hashes `manifest.json` bytes into a deterministic build ID (`vmsHashManifestBytes`, exported for cross-backend parity).
@@ -161,11 +161,11 @@ The vms repo at `~/fleet/identities/rio/workspace/vms/` (cloned during `/open` r
 <specifics>
 ## Specific Ideas
 
-- **Ashley's own framing** (verbatim, 2026-09-21): *"this is building something to ensure that users are never running on anything client side stale for any amount of time"* — the one-sentence philosophy anchor.
-- **Ashley's failure-mode framing** (verbatim, 2026-09-21): *"if what we've designed doesn't work reliably. because we came up with a pretty airtight plan"* — reliability IS the spirit; anything less is failure.
-- **Ashley's enforcement intuition** (verbatim, 2026-09-21): *"if there was a way to make sure that always happened then both ends of this become fairly trivial"* — she saw the airtight-by-construction path and greenlit it.
-- **Ashley's multi-tab call**: option A (independent tabs, no coordination) — verbatim answer to my three-way question.
-- **Ashley's modal firmness call**: option A (pure firm, unsaved is gone) — verbatim answer to my three-way question.
+- **the user's own framing** (verbatim, 2026-09-21): *"this is building something to ensure that users are never running on anything client side stale for any amount of time"* — the one-sentence philosophy anchor.
+- **the user's failure-mode framing** (verbatim, 2026-09-21): *"if what we've designed doesn't work reliably. because we came up with a pretty airtight plan"* — reliability IS the spirit; anything less is failure.
+- **the user's enforcement intuition** (verbatim, 2026-09-21): *"if there was a way to make sure that always happened then both ends of this become fairly trivial"* — she saw the airtight-by-construction path and greenlit it.
+- **the user's multi-tab call**: option A (independent tabs, no coordination) — verbatim answer to my three-way question.
+- **the user's modal firmness call**: option A (pure firm, unsaved is gone) — verbatim answer to my three-way question.
 - **Motivating context**: Skynet is about to be rolled out to a hundred new users. Stale-frontend bugs grow with user count; removing that class from the possible reports is the operational win.
 
 </specifics>
@@ -173,7 +173,7 @@ The vms repo at `~/fleet/identities/rio/workspace/vms/` (cloned during `/open` r
 <deferred>
 ## Deferred Ideas
 
-None. Ashley's grill answer to the scope-edges question (verbatim): *"not sure if i can think of anything."* The tempting-but-no list is documented in the shape file's `## Scope edges` section as an explicit ruling-out (update-worker, cross-tab, drain-restore, per-user opt-out) — those are not deferrals, they are decisions to never add them.
+None. the user's grill answer to the scope-edges question (verbatim): *"not sure if i can think of anything."* The tempting-but-no list is documented in the shape file's `## Scope edges` section as an explicit ruling-out (update-worker, cross-tab, drain-restore, per-user opt-out) — those are not deferrals, they are decisions to never add them.
 
 </deferred>
 

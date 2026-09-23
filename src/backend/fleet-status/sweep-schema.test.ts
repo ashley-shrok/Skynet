@@ -740,18 +740,18 @@ describe("Phase 118 Plan 118-02: SweepAppLine dispatch", () => {
       schema_version: 1,
       slug: "gated-app",
       title: "Gated",
-      description: "Only ashley + zoey see this",
+      description: "Only alice + zoey see this",
       port: 9591,
       has_icon: false,
       created_at_ms: 0,
       is_healthy: true,
       health_message: null,
-      users: ["ashley", "zoey"],
+      users: ["alice", "zoey"],
     };
 
     const result = parseSweepJsonl(JSON.stringify(wire));
     expect(result.appLines).toHaveLength(1);
-    expect(result.appLines[0].users).toEqual(["ashley", "zoey"]);
+    expect(result.appLines[0].users).toEqual(["alice", "zoey"]);
   });
 
   it("Phase 130: app line missing users field is lenient — surfaces as undefined (downstream adapter coerces to null)", () => {

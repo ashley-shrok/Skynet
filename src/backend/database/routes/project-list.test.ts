@@ -381,9 +381,9 @@ describe("GET /projects", () => {
   // Phase 130: per-user READ-side gate on GET /projects
   // ---------------------------------------------------------------------------
   it("Test 7a (Phase 130): projects with users → filtered to caller's visible set; response strips users field", async () => {
-    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+    (getUsernameForUserId as Mock).mockResolvedValue("alice");
     (listProjects as Mock).mockResolvedValue([
-      { slug: "alpha", displayName: "Alpha", users: ["ashley"] }, // visible
+      { slug: "alpha", displayName: "Alpha", users: ["alice"] }, // visible
       { slug: "beta", displayName: "Beta", users: ["zoey"] }, // hidden
       { slug: "gamma", displayName: "Gamma", users: null }, // falls open
       { slug: "delta", displayName: "Delta", users: [] }, // falls open (empty)
@@ -413,7 +413,7 @@ describe("GET /projects", () => {
   it("Test 7b (Phase 130): username lookup returns null → gate disabled, all projects visible (fail-open)", async () => {
     (getUsernameForUserId as Mock).mockResolvedValue(null);
     (listProjects as Mock).mockResolvedValue([
-      { slug: "alpha", displayName: "Alpha", users: ["ashley"] },
+      { slug: "alpha", displayName: "Alpha", users: ["alice"] },
       { slug: "beta", displayName: "Beta", users: ["zoey"] },
     ]);
 
@@ -437,7 +437,7 @@ describe("GET /projects", () => {
       new Error("db unreachable"),
     );
     (listProjects as Mock).mockResolvedValue([
-      { slug: "alpha", displayName: "Alpha", users: ["ashley"] },
+      { slug: "alpha", displayName: "Alpha", users: ["alice"] },
       { slug: "beta", displayName: "Beta", users: ["zoey"] },
     ]);
 
@@ -622,7 +622,7 @@ describe("POST /projects", () => {
   // ---------------------------------------------------------------------------
   it("Test 12a (Phase 130): multi-user host + username resolvable → users=[creator] passed to createProject", async () => {
     (isHostMultiUser as Mock).mockResolvedValue(true);
-    (getUsernameForUserId as Mock).mockResolvedValue("ashley");
+    (getUsernameForUserId as Mock).mockResolvedValue("alice");
     (listProjects as Mock).mockResolvedValue([
       { slug: "my-project", displayName: "My Project" },
     ]);
@@ -638,12 +638,12 @@ describe("POST /projects", () => {
       null,
       "my-project",
       "My Project",
-      ["ashley"],
+      ["alice"],
     );
     // Auto-tag success log should have fired.
     expect(databaseLogger.info).toHaveBeenCalledWith(
       expect.stringMatching(
-        /auto-tagged creator on multi-user host.*hostId=5.*slug=my-project.*creatorUsername=ashley/,
+        /auto-tagged creator on multi-user host.*hostId=5.*slug=my-project.*creatorUsername=alice/,
       ),
     );
   });

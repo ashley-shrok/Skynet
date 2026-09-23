@@ -605,7 +605,7 @@ describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
         // js-yaml renders inline flow-style arrays; assert case preservation
         // by writing mixed-case usernames.
         return Promise.resolve(
-          "---\ndisplayName: 'Alpha'\nusers:\n  - Ashley\n  - zoey\n---\n",
+          "---\ndisplayName: 'Alpha'\nusers:\n  - Alice\n  - zoey\n---\n",
         );
       }
       const err = new Error("ENOENT") as NodeJS.ErrnoException;
@@ -615,7 +615,7 @@ describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
 
     const result = await listProjects(null);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha", users: ["Ashley", "zoey"] },
+      { slug: "alpha", displayName: "Alpha", users: ["Alice", "zoey"] },
     ]);
   });
 
@@ -659,7 +659,7 @@ describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
       if (typeof p === "string" && p.includes("/alpha/project.md")) {
         // users: as a scalar (bad shape) — must NOT accidentally surface.
         return Promise.resolve(
-          "---\ndisplayName: 'Alpha'\nusers: ashley\n---\n",
+          "---\ndisplayName: 'Alpha'\nusers: alice\n---\n",
         );
       }
       const err = new Error("ENOENT") as NodeJS.ErrnoException;
@@ -683,7 +683,7 @@ describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
     fsReadFileMock.mockImplementation((p: string) => {
       if (typeof p === "string" && p.includes("/alpha/project.md")) {
         return Promise.resolve(
-          "---\ndisplayName: 'Alpha'\nusers:\n  - ashley\n  - 42\n---\n",
+          "---\ndisplayName: 'Alpha'\nusers:\n  - alice\n  - 42\n---\n",
         );
       }
       const err = new Error("ENOENT") as NodeJS.ErrnoException;
@@ -893,14 +893,14 @@ describe("createProject — LOCAL branch", () => {
   // -------------------------------------------------------------------------
   it("Test C3c: users non-empty — written into frontmatter alongside displayName", async () => {
     fsMkdirMock.mockImplementation(() => Promise.resolve());
-    await createProject(null, "alpha", "Alpha One", ["ashley"]);
+    await createProject(null, "alpha", "Alpha One", ["alice"]);
 
     const written = fsWriteFileMock.mock.calls[0][1] as Buffer;
     const writtenStr = written.toString("utf-8");
     // Frontmatter should include both displayName and users.
     expect(writtenStr).toMatch(/displayName: '?Alpha One'?/);
     expect(writtenStr).toMatch(/users:/);
-    expect(writtenStr).toMatch(/- ashley/);
+    expect(writtenStr).toMatch(/- alice/);
   });
 
   it("Test C3d: users empty array — OMITTED from frontmatter (byte-identical to no-users case)", async () => {

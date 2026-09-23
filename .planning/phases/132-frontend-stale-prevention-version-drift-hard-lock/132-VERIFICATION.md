@@ -7,7 +7,7 @@ overrides_applied: 0
 human_verification:
   - test: "Trigger real drift in a live browser during a deploy — with SKYNET_BUILD_SHA changed between two container builds — and confirm the modal appears on the very first response after the deploy and that clicking Reload delivers a fresh session."
     expected: "Modal shows on drift within ~1 request; Reload lands the user back at approximately the same view running the new code; no reload loop; no reappearance of the modal after reload."
-    why_human: "The Playwright drift-smoke spec (SKEW-15) is the deploy-time gate but is orchestrator-owned. End-to-end drift-through-a-real-deploy is not exercised by any executor-runnable test — SUMMARY-narrated behavior only becomes user-observable during a real deploy. Reliability was Ashley's explicit spirit anchor; her greenlight to close should hinge on watching this happen once."
+    why_human: "The Playwright drift-smoke spec (SKEW-15) is the deploy-time gate but is orchestrator-owned. End-to-end drift-through-a-real-deploy is not exercised by any executor-runnable test — SUMMARY-narrated behavior only becomes user-observable during a real deploy. Reliability was the user's explicit spirit anchor; her greenlight to close should hinge on watching this happen once."
   - test: "Run through Guacamole (RDP) drift-refusal in a real browser: open an RDP pane, then simulate a mid-session server-tag change and observe that the shell-level SkewLockModal takes over (not the per-pane connection overlay)."
     expected: "SKYNET_STALE_CLIENT: prefix flows through onError, shell-level modal paints, per-pane connection-error UI does NOT paint."
     why_human: "Guacamole's third-party client rendering + the per-pane error path bypass are visual/UX behaviors — the codebase branches correctly on the prefix but the end-user experience (which surface takes over) can only be judged by eye."
@@ -229,7 +229,7 @@ Total scoped test run: **1602 passing, 1 skipped, 0 failing**.
 
 ---
 
-## Ashley's Reliability Anchor Check
+## the user's Reliability Anchor Check
 
 *"if what we've designed doesn't work reliably. because we came up with a pretty airtight plan"*
 
@@ -250,7 +250,7 @@ None material to the phase goal.
 
 ## Deferred
 
-None — the 3 items listed in `human_verification` (real-deploy behavioral confirmation, Guacamole visual, palette theme sweep) are visual/behavioral checks that grep can never verify. Ashley's reliability anchor points to at least one of these being observed live before closing.
+None — the 3 items listed in `human_verification` (real-deploy behavioral confirmation, Guacamole visual, palette theme sweep) are visual/behavioral checks that grep can never verify. the user's reliability anchor points to at least one of these being observed live before closing.
 
 ---
 
@@ -258,9 +258,9 @@ None — the 3 items listed in `human_verification` (real-deploy behavioral conf
 
 **Verdict: passed**
 
-All 15 verification dimensions pass with concrete codebase evidence. All 15 SKEW-nn requirements are satisfied by shipped code. All scoped tests pass (1602 passing, 1 skipped, 0 failing). The airtight-by-construction philosophy Ashley locked in the shape file is preserved through every lane: HTTP request, HTTP response, WS handshake, WS outbound message, guacamole encrypted-token, shell-page cache. Executor-scope commit discipline respected. Test discipline respected.
+All 15 verification dimensions pass with concrete codebase evidence. All 15 SKEW-nn requirements are satisfied by shipped code. All scoped tests pass (1602 passing, 1 skipped, 0 failing). The airtight-by-construction philosophy the user locked in the shape file is preserved through every lane: HTTP request, HTTP response, WS handshake, WS outbound message, guacamole encrypted-token, shell-page cache. Executor-scope commit discipline respected. Test discipline respected.
 
-Three human-verification items surfaced for real-deploy behavioral confirmation — none are gaps in the shipped code, they are the reliability-anchor UAT that Ashley's spirit calls for before final `/close`.
+Three human-verification items surfaced for real-deploy behavioral confirmation — none are gaps in the shipped code, they are the reliability-anchor UAT that the user's spirit calls for before final `/close`.
 
 _Verified: 2026-09-21T06:30:00Z_
 _Verifier: Claude (gsd-verifier)_

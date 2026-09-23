@@ -629,7 +629,7 @@ describe("app-frame-filter", () => {
   // Phase 130: per-user project gate + users-strip on project-list-changed
   // -------------------------------------------------------------------------
   it("Test 22a (Phase 130): project-list-changed with per-project users → filtered by caller username", async () => {
-    // Two hosts both host-accessible to caller "ashley". Filter differs
+    // Two hosts both host-accessible to caller "alice". Filter differs
     // per-project by the users list.
     const frame = makeProjectListChangedFrame([
       {
@@ -638,7 +638,7 @@ describe("app-frame-filter", () => {
         hostId: "h1",
         hostname: "one",
         archived: false,
-        users: ["ashley"], // visible
+        users: ["alice"], // visible
       },
       {
         slug: "beta",
@@ -662,7 +662,7 @@ describe("app-frame-filter", () => {
       userId: "U",
       resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
       resolveIdentityGate: async () => true,
-      resolveCallerUsername: async () => "ashley",
+      resolveCallerUsername: async () => "alice",
     };
     const result = await filterAppFrame(
       frame,
@@ -765,15 +765,15 @@ describe("app-frame-filter", () => {
   // Phase 130: per-app user gate + users-strip on app-update / app-snapshot
   // -------------------------------------------------------------------------
   it("Test 22e (Phase 130): app-update with users list → gated by caller username; users stripped on emit", async () => {
-    const gatedApp = makeAppState("h1", "todo", { users: ["ashley"] });
+    const gatedApp = makeAppState("h1", "todo", { users: ["alice"] });
     const frame = makeAppUpdateFrame(gatedApp);
 
-    // Case 1: caller is ashley → visible; users stripped.
+    // Case 1: caller is alice → visible; users stripped.
     const visibleCtx: AppFrameFilterCtx = {
       userId: "U",
       resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
       resolveIdentityGate: async () => true,
-      resolveCallerUsername: async () => "ashley",
+      resolveCallerUsername: async () => "alice",
     };
     const visibleResult = await filterAppFrame(
       frame,
@@ -809,7 +809,7 @@ describe("app-frame-filter", () => {
       schemaVersion: FRAME_SCHEMA_VERSION,
       type: "app-snapshot" as const,
       apps: [
-        makeAppState("h1", "alpha", { users: ["ashley"] }), // visible
+        makeAppState("h1", "alpha", { users: ["alice"] }), // visible
         makeAppState("h1", "beta", { users: ["zoey"] }), // hidden
         makeAppState("h1", "gamma", { users: null }), // falls open
         makeAppState("h1", "delta", { users: [] }), // falls open (empty)
@@ -820,7 +820,7 @@ describe("app-frame-filter", () => {
       userId: "U",
       resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
       resolveIdentityGate: async () => true,
-      resolveCallerUsername: async () => "ashley",
+      resolveCallerUsername: async () => "alice",
     };
     const result = await filterAppFrame(
       frame,
@@ -853,7 +853,7 @@ describe("app-frame-filter", () => {
       userId: "U",
       resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
       resolveIdentityGate: async () => true,
-      resolveCallerUsername: async () => "ashley",
+      resolveCallerUsername: async () => "alice",
     };
     const result = await filterAppFrame(
       frame,
@@ -872,9 +872,9 @@ describe("app-frame-filter", () => {
   it("Test 22h (Phase 130): app-update host gate short-circuits user gate (Test J discipline)", async () => {
     // If the host gate closes, the user gate MUST NOT be consulted. Mirror
     // of Test J for identity gate.
-    const gatedApp = makeAppState("h1", "todo", { users: ["ashley"] });
+    const gatedApp = makeAppState("h1", "todo", { users: ["alice"] });
     const frame = makeAppUpdateFrame(gatedApp);
-    const usernameSpy = vi.fn(async () => "ashley");
+    const usernameSpy = vi.fn(async () => "alice");
 
     const ctx: AppFrameFilterCtx = {
       userId: "U",
@@ -912,7 +912,7 @@ describe("app-frame-filter", () => {
         hostId: "h2",
         hostname: "two",
         archived: false,
-        users: ["ashley"],
+        users: ["alice"],
       },
     ]);
 
