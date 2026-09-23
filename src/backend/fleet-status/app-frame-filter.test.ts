@@ -80,6 +80,7 @@ function makeAppState(
     createdAtMs: 1_700_000_000_000,
     isHealthy: true,
     healthMessage: null,
+    users: null,
     ...overrides,
   };
 }

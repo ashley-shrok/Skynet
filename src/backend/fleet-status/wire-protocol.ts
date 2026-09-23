@@ -678,6 +678,25 @@ export const AppStateSchema = z.object({
   createdAtMs: z.number(),
   isHealthy: z.boolean(),
   healthMessage: z.string().nullable(),
+  /**
+   * Phase 130: per-user visibility gate list from app.json's optional
+   * `users` field. Adapter (`adaptAppLineToState` in ssh-poll-orchestrator.ts)
+   * populates this from SweepAppLine.users with `?? null` coercion for
+   * rolling-deploy safety (older Python emitters don't send `users`).
+   *
+   * WIRE DISCIPLINE (Phase 129 HIGH-1 mirror — gate-only field, MUST NOT
+   * leak to subscribers): the app-frame-filter's app-update and
+   * app-snapshot branches STRIP this field before emit. Test 22e/22f/22g
+   * (app-frame-filter.test.ts) pin the strip discipline. If a caller
+   * bypasses the filter and emits an AppState directly, this field WOULD
+   * leak — the strip is load-bearing.
+   *
+   * The field is nullable-required (not optional) so downstream consumers
+   * don't need to handle `undefined` (the adapter coerces at the source
+   * boundary). Empty array is a valid state (matches identity/role/project
+   * discipline — falls open at the gate seam per D-3).
+   */
+  users: z.array(z.string()).nullable(),
 });
 
 export type AppState = z.infer<typeof AppStateSchema>;

@@ -979,6 +979,10 @@ describe("Phase 118 app frame schemas", () => {
     createdAtMs: 1_700_000_000_000,
     isHealthy: true,
     healthMessage: null,
+    // Phase 130: per-user visibility gate list. Null = falls open at the
+    // gate seam (D-3). Required nullable on AppStateSchema so adapters
+    // + fixtures don't need conditional handling.
+    users: null,
   };
 
   it("Test 1: AppStateSchema accepts a valid seven-field app state (healthy branch)", () => {

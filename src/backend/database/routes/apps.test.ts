@@ -572,6 +572,7 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
         createdAtMs: 0,
         isHealthy: true,
         healthMessage: null,
+        users: null,
       },
     ]);
     const res = await httpGet(server, "/apps/1/scratch-test");
@@ -595,6 +596,7 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
         createdAtMs: 0,
         isHealthy: false,
         healthMessage: "unit exists but currently stopped",
+        users: null,
       },
     ]);
     const res = await httpGet(server, "/apps/1/scratch-test");
@@ -619,6 +621,7 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
         createdAtMs: 0,
         isHealthy: true,
         healthMessage: null,
+        users: null,
       },
     ]);
     const res = await httpGet(server, "/apps/1/scratch-test");
@@ -652,6 +655,7 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
         createdAtMs: 0,
         isHealthy: true,
         healthMessage: null,
+        users: null,
       },
     ]);
     const res = await httpGet(server, "/apps/42/my-app");

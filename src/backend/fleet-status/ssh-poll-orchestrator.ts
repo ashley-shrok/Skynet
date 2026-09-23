@@ -1223,6 +1223,12 @@ function adaptAppLineToState(hostId: string, line: SweepAppLine): AppState {
     createdAtMs: line.created_at_ms,
     isHealthy: line.is_healthy,
     healthMessage: line.health_message,
+    // Phase 130: pass through the per-user visibility gate list. Rolling-
+    // deploy coercion (undefined → null) handles the window where a NEW
+    // container reads an OLD peer sweep (pre-130 Python emitters don't send
+    // the `users` field; parser is lenient and lands undefined; adapter
+    // normalizes to the AppState D-3 contract of `string[] | null`).
+    users: line.users ?? null,
   };
 }
 

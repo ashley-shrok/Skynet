@@ -273,6 +273,7 @@ describe("app-pane-router", () => {
         createdAtMs: 0,
         isHealthy: true,
         healthMessage: null,
+        users: null,
       },
     ]);
     mocks.getRegistry.mockReturnValue({
@@ -830,6 +831,7 @@ describe("app-pane-router", () => {
           createdAtMs: 0,
           isHealthy: false,
           healthMessage: null,
+          users: null,
         },
       ]);
       const { port, close } = await makeServer(false);
