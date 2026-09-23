@@ -2806,7 +2806,7 @@ Plans:
 
 **Requirements**: none mapped (requirements captured as D-01..D-10 locked decisions in 129-CONTEXT.md; ROADMAP requirements are patch-#43 specific and this phase is a separate feature — no REQ-IDs needed)
 **Depends on:** Phase 128
-**Plans:** 6/8 plans executed
+**Plans:** 7/8 plans executed
 Plans:
 **Wave 1**
 
@@ -2822,7 +2822,7 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 129-06-PLAN.md — Auto-tag at POST /roles on multi-user hosts (D-4): pre-yaml.dump cosmetics.users = [creator] branch + write-side fail-open on username lookup fail. 7 tests. Wave 3.
-- [ ] 129-07-PLAN.md — Auto-tag at POST /identities/birth: BirthOptions.creatorUsername thread from route handler → buildIdentityFileBody pairs.push (byte-shape preserved); identity-clone.ts EXPLICITLY excluded from v1. 14 tests. Wave 3.
+- [x] 129-07-PLAN.md — Auto-tag at POST /identities/birth: BirthOptions.creatorUsername thread from route handler → buildIdentityFileBody pairs.push (byte-shape preserved); identity-clone.ts EXPLICITLY excluded from v1. 14 tests. Wave 3.
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

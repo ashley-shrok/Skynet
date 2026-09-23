@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-23T05:40:30.205Z"
+last_updated: "2026-09-23T05:58:30.043Z"
 last_activity: 2026-09-23
 progress:
   total_phases: 130
   completed_phases: 109
   total_plans: 571
-  completed_plans: 561
+  completed_plans: 562
   percent: 84
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 129 (multi-user-single-host-support-per-user-visibility-gate-on-r) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 
 Last activity: 2026-09-23
 
@@ -414,6 +414,7 @@ Progress: [██████████] 100%
 | Phase 129 P129-04 | 450 | 2 tasks | 2 files |
 | Phase 129 P05 | 1000 | 2 tasks | 4 files |
 | Phase 129 P06 | 230 | 1 tasks | 2 files |
+| Phase 129 P07 | 600 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -681,6 +682,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Search surface (POST /conversation-search) uses fail-CLOSED read-error discipline — Phase 129 exception per PATTERNS.md § Shared Patterns. Filter shape locked as gateMap.get(r.identityKey) === true (NOT !== false). Batched O(unique-identityKeys) frontmatter fetch closes Pitfall 4.
 - [Phase ?]: 129-05 (WS surface closer): AppFrameFilterCtx.resolveIdentityGate required; production closure lives in starter.ts (not fleet-status-server.ts) adjacent to resolveHostOwnerById; no cache in v1 (A3 lock); Rule-2 host-gate added to session-project-changed alongside identity gate
 - [Phase ?]: Phase 129 Plan 06: POST /roles auto-tag inserted at L583 between collision-probe 409 (L504) and yaml.dump (L619) — single-mutation-site invariant (Pitfall 5) locked by grep; fail-open on getUsernameForUserId=null with structured warn log (PATTERNS.md write-side exception).
+- [Phase ?]: 129-07: Two-file split retained; orchestrator stays pure (0 DB imports); creatorUsername threads through as opaque string on BirthOptions
+- [Phase ?]: 129-07: Write-side fail-open on username-lookup failure + defensive fail-open on isHostMultiUser probe throw with 3 structured log seams
+- [Phase ?]: 129-07: identity-clone.ts UNMODIFIED per RESEARCH v1 scope lock (T-129-07-03 accepted)
 
 ### Pending Todos
 
@@ -1061,7 +1065,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-23T05:40:05.190Z
+Last session: 2026-09-23T05:58:07.023Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Completed Phase 129 Plan 01 (foundations shipped, 28 new tests + 33 regression = 61/61 pass; three atomic commits e41d5bc5 + ec5df06a + 8b90f6b5). Wave 2/3/4 plans (129-02..129-08) awaiting.
