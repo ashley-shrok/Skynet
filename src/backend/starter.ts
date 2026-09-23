@@ -542,6 +542,25 @@ if (process.env.VITEST !== "true") {
       // Reads hosts via SimpleDBOps.select(..., "ssh_data", userId) which
       // unconditionally runs DataCrypto.decryptRecords before returning.
       const { resolveHostById } = await import("./ssh/host-resolver.js");
+      // Phase 129 Plan 129-05 (D-2, D-7): identity-artifact-reader primitives
+      // + pure visibility gate + username lookup. Composed inside the
+      // resolveIdentityGate closure below and injected into the WS filter
+      // via startFleetStatusServer opts. Kept as awaited imports (matches
+      // this block's dynamic-import discipline for the rest of the fleet-
+      // status subsystem) rather than top-of-file to avoid pulling
+      // identity-artifact-reader into the boot graph for non-fleet callers.
+      const {
+        readIdentityFile: readIdentityFileForGate,
+        readRoleFileByName: readRoleFileByNameForGate,
+        extractCosmeticsFromFrontmatter: extractCosmeticsForGate,
+        extractRoleFromMarkdown: extractRoleForGate,
+      } = await import("./claude-session/identity-artifact-reader.js");
+      const { isIdentityVisibleToUser } = await import(
+        "./fleet-status/identity-visibility-gate.js"
+      );
+      const { getUsernameForUserId: getUsernameForUserIdForGate } = await import(
+        "./utils/host-user-counter.js"
+      );
       // Phase 39 D-05 (GATE2-05): blind Stop-hook install per host (LOCKED
       // 2026-08-13 by researcher — no probe-first). installStopHook is
       // idempotent per RESEARCH §Q5; readAndMergeStopHookSettings detects
@@ -602,11 +621,175 @@ if (process.env.VITEST !== "true") {
         }
       }
 
+      // Phase 129 Plan 129-05 (D-2, D-7): production wiring for the per-user
+      // identity-name visibility gate at the WS surface. Complements the
+      // Wave-2 read-path gates (identities.ts, sessions.ts,
+      // roles-list-for-host.ts, conversation-search.ts) by closing the live-
+      // status heartbeat leak — every frame that carries an identityKey /
+      // tmuxSession is filtered through this closure before fan-out.
+      //
+      // Composition:
+      //   1. Resolve hostIdStr → SSHHost (owner-scoped decrypt via
+      //      resolveHostById; matches the pattern the pre-existing
+      //      resolveHostOwnerById uses for the numeric hostId + owner userId).
+      //   2. Resolve the caller's Skynet username (userId → username via
+      //      getUsernameForUserId — mirrors Wave-2 read-path plans).
+      //   3. Open a one-shot SSH conn (connectOneShot with a bounded
+      //      timeout; matches identities.ts L363's 5s timeout — a WS frame
+      //      that takes longer than 5s to gate is already a stale signal).
+      //   4. Read identity file + extract role + read role file (best-effort
+      //      on role read errors — matches identities.ts L414-419 silent-
+      //      swallow discipline for a role file that fails to read).
+      //   5. Apply isIdentityVisibleToUser and return boolean.
+      //
+      // Fail-CLOSED discipline: the app-frame-filter shim wraps this
+      // closure in a try/catch that returns false on throw (Test I lock at
+      // app-frame-filter.test.ts). Anything this closure THROWS becomes a
+      // dropped frame at the wire — matches the D-7 depth invariant that a
+      // leaked live-status frame is more visible than a dropped one in a
+      // real-time sidebar.
+      //
+      // NO CACHE per Assumption A3: the shape file requires that a
+      // `users:` frontmatter edit propagates on next read; a stale cache
+      // would visibly regress that promise. If SSH profiling shows the
+      // per-call cost is prohibitive under load, revisit with a 2-5s TTL
+      // cache in a follow-up phase — not this one.
+      //
+      // D-10 (this-file discipline mirrors resolveHostOwnerById): READ-
+      // ONLY. No writes anywhere in this closure.
+      async function resolveIdentityGate(
+        identityName: string,
+        hostIdStr: string,
+        userId: string,
+      ): Promise<boolean> {
+        const hostIdNum = Number(hostIdStr);
+        if (!Number.isFinite(hostIdNum)) {
+          systemLogger.debug(
+            "Fleet-status identity gate: unparseable hostIdStr — denying",
+            {
+              operation: "fleet_status_identity_gate_bad_host",
+              hostIdStr,
+              userId,
+              identityName,
+            },
+          );
+          return false;
+        }
+        // Callers' Skynet username. A null result means the userId does
+        // not map to a users row (JWT payload for a deleted / renamed
+        // user, or a bare-subscriber code path that shouldn't reach this
+        // closure). PER-REQUEST fail-OPEN mirrors the wave-2 pattern
+        // (conversation-search Test G, sessions.ts): a null caller is an
+        // infra bug, not a gate signal; treating it as "hide everything"
+        // would empty every user's sidebar on the affected code path.
+        const callerUsername = await getUsernameForUserIdForGate(userId);
+        if (callerUsername === null) {
+          systemLogger.warn(
+            "Fleet-status identity gate: caller username lookup returned null — gate disabled",
+            {
+              operation: "fleet_status_identity_gate_username_missing",
+              userId,
+              hostIdStr,
+              identityName,
+            },
+          );
+          return true;
+        }
+        // Resolve host (decrypts SSH credentials for the OWNER user).
+        // Local-host branch bypasses SSH entirely — readIdentityFile /
+        // readRoleFileByName both accept conn=null and read from the
+        // container's HOME_HOST_DIR bind-mount (matches identities.ts
+        // L357-364 local-host branch shape).
+        const local = isLocalHostId(hostIdNum);
+        let conn: import("ssh2").Client | null = null;
+        if (!local) {
+          const host = await resolveHostById(hostIdNum, userId);
+          if (!host) {
+            systemLogger.debug(
+              "Fleet-status identity gate: host record not found — denying",
+              {
+                operation: "fleet_status_identity_gate_host_missing",
+                hostIdNum,
+                userId,
+                identityName,
+              },
+            );
+            return false;
+          }
+          // 5s connect budget — a WS frame gate that stalls longer is
+          // already a stale signal; the fail-closed catch in the app-
+          // frame-filter shim will drop the frame if the connect times out.
+          conn = await connectOneShot(host, 5_000);
+        }
+        try {
+          const { markdown } = await readIdentityFileForGate(
+            conn,
+            identityName,
+          );
+          if (!markdown) {
+            // Missing identity file on disk — deny per the D-7 depth
+            // invariant. An identity that no longer exists on the host
+            // has no frontmatter to gate against; surfacing the frame
+            // would leak the fact of an in-flight event for a deleted
+            // identity.
+            systemLogger.debug(
+              "Fleet-status identity gate: identity file empty/missing — denying",
+              {
+                operation: "fleet_status_identity_gate_no_file",
+                hostIdNum,
+                userId,
+                identityName,
+              },
+            );
+            return false;
+          }
+          const identityCos = extractCosmeticsForGate(markdown);
+          const role = extractRoleForGate(markdown);
+          let roleCos: ReturnType<typeof extractCosmeticsForGate> | null = null;
+          if (role !== null) {
+            try {
+              const { markdown: roleMd } = await readRoleFileByNameForGate(
+                conn,
+                role,
+              );
+              roleCos = roleMd ? extractCosmeticsForGate(roleMd) : null;
+            } catch {
+              // Role file read failed — silent-swallow (matches
+              // identities.ts L414-419 discipline for role reads that
+              // fail behind an identity read that succeeded). The gate
+              // treats roleCos=null as "no gate on the role side"; the
+              // identity side still applies.
+              roleCos = null;
+            }
+          }
+          return isIdentityVisibleToUser(
+            identityCos,
+            roleCos,
+            callerUsername,
+          );
+        } finally {
+          // Release the one-shot SSH connection. LOCAL branch has no
+          // conn to close. connectOneShot returns a live ssh2 Client;
+          // .end() releases it. Wrapped in try because a half-open
+          // client may already be in an error state.
+          if (conn !== null) {
+            try {
+              conn.end();
+            } catch {
+              // best-effort — the fail-closed catch in the app-frame-
+              // filter shim would have already dropped the frame if
+              // anything upstream threw.
+            }
+          }
+        }
+      }
+
       const fleetStatusServer = startFleetStatusServer({
         port: 30012,
         authManager,
         resolveHostRecordByName,
         resolveHostOwnerById,
+        resolveIdentityGate,
       });
       // Registry is now server-owned — pull it back for the orchestrator
       // lifecycle wiring (onFirstSubscriber / onLastUnsubscriber below).

@@ -269,11 +269,54 @@ export async function filterAppFrame(
   }
 
   if (frame.type === "gone") {
-    return (await canUserSee(frame.hostId)) ? frame : null;
+    // Phase 129 Plan 129-05 (D-7): host gate short-circuits identity gate
+    // (Test J lock — canUserSeeIdentity MUST NOT run if the host gate
+    // already closed). Then identity gate iff the frame carries an
+    // identity name (tmuxSession nullable per Phase 52 dormant rows).
+    if (!(await canUserSee(frame.hostId))) return null;
+    if (
+      frame.tmuxSession &&
+      !(await canUserSeeIdentity(frame.tmuxSession, frame.hostId))
+    ) {
+      systemLogger.debug(
+        "Phase 129: gone frame hidden by identity gate",
+        {
+          operation: "app_frame_filter_gone_hidden",
+          userId,
+          hostId: frame.hostId,
+          tmuxSession: frame.tmuxSession,
+        },
+      );
+      return null;
+    }
+    return frame;
   }
 
   if (frame.type === "update") {
-    return (await canUserSee(frame.state.hostId)) ? frame : null;
+    // Phase 129 Plan 129-05 (D-7): host gate short-circuits identity gate
+    // (Test J lock — canUserSeeIdentity MUST NOT run when the host gate
+    // already closed). Then identity gate iff the state carries an
+    // identity name (tmuxSession nullable for source-B dormant rows).
+    if (!(await canUserSee(frame.state.hostId))) return null;
+    if (
+      frame.state.tmuxSession &&
+      !(await canUserSeeIdentity(
+        frame.state.tmuxSession,
+        frame.state.hostId,
+      ))
+    ) {
+      systemLogger.debug(
+        "Phase 129: update frame hidden by identity gate",
+        {
+          operation: "app_frame_filter_update_hidden",
+          userId,
+          hostId: frame.state.hostId,
+          tmuxSession: frame.state.tmuxSession,
+        },
+      );
+      return null;
+    }
+    return frame;
   }
 
   if (frame.type === "snapshot") {
@@ -285,16 +328,36 @@ export async function filterAppFrame(
       return frame;
     }
 
-    const uniqueHostIds = Array.from(new Set(states.map((s) => s.hostId)));
-    const visibility = await Promise.all(
-      uniqueHostIds.map(async (hid) => [hid, await canUserSee(hid)] as const),
-    );
-    const visible = new Set(
-      visibility.filter(([, ok]) => ok).map(([hid]) => hid),
+    // Phase 129 Plan 129-05 (D-7): per-state gate. Host gate first
+    // (Test J lock — identity gate not consulted if host gate closed);
+    // identity gate iff tmuxSession is non-null (defensive skip for
+    // dormant-only rows). Empty projection is a valid emit (mirrors
+    // L228-232 pre-129 empty-snapshot discipline — Test E lock).
+    const projectedStates = await Promise.all(
+      states.map(async (s) => {
+        if (!(await canUserSee(s.hostId))) return null;
+        if (
+          s.tmuxSession &&
+          !(await canUserSeeIdentity(s.tmuxSession, s.hostId))
+        ) {
+          systemLogger.debug(
+            "Phase 129: snapshot state hidden by identity gate",
+            {
+              operation: "app_frame_filter_snapshot_hidden",
+              userId,
+              hostId: s.hostId,
+              tmuxSession: s.tmuxSession,
+            },
+          );
+          return null;
+        }
+        return s;
+      }),
     );
 
-    const projectedStates = states.filter((s) => visible.has(s.hostId));
-    return makeSnapshotFrame(projectedStates);
+    return makeSnapshotFrame(
+      projectedStates.filter((s): s is typeof states[number] => s !== null),
+    );
   }
 
   if (frame.type === "project-list-changed") {
@@ -313,6 +376,35 @@ export async function filterAppFrame(
 
     const projectedProjects = projects.filter((p) => visible.has(p.hostId));
     return makeProjectListChangedFrame(projectedProjects);
+  }
+
+  if (frame.type === "session-project-changed") {
+    // Phase 129 Plan 129-05 (D-7): host gate + identity gate on
+    // session-project-changed. Pre-129 this frame passed through
+    // unfiltered (fell to the L287 verbatim pass-through) — that's an
+    // orthogonal host-visibility gap for a WS frame that carries a
+    // hostId + identityKey. Fix it here as a Rule-2 correctness addition
+    // alongside the identity-gate primary task.
+    //
+    // Wire-shape note: frame.hostId is a NUMBER on this frame (see
+    // FrontendSessionProjectChangedFrameSchema — hostId: z.number()),
+    // NOT a string like every other frame kind. String-coerce for the
+    // host + identity gate lookups (both keyed on string hostIds).
+    const hostIdStr = String(frame.hostId);
+    if (!(await canUserSee(hostIdStr))) return null;
+    if (!(await canUserSeeIdentity(frame.identityKey, hostIdStr))) {
+      systemLogger.debug(
+        "Phase 129: session-project-changed frame hidden by identity gate",
+        {
+          operation: "app_frame_filter_session_project_changed_hidden",
+          userId,
+          hostId: hostIdStr,
+          identityKey: frame.identityKey,
+        },
+      );
+      return null;
+    }
+    return frame;
   }
 
   if (frame.type === "app-snapshot") {

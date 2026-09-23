@@ -78,6 +78,26 @@ export interface FleetStatusServerOptions {
     hostIdStr: string,
   ) => Promise<{ hostIdNum: number; hostUserId: string } | null>;
   /**
+   * Phase 129 Plan 129-05 (D-2, D-7): per-frame identity-name visibility
+   * resolver injected as a closure from starter.ts. Reads identity + role
+   * frontmatter over SSH, applies isIdentityVisibleToUser against the
+   * caller's Skynet username, and returns a boolean. When present, wired
+   * into createAppFrameFilter alongside resolveHostOwnerById. Must be
+   * paired with resolveHostOwnerById; if only one is provided, the filter
+   * still runs but the identity gate is skipped (stub returns true).
+   *
+   * Fail-CLOSED on throw (deny frame) — the shim inside app-frame-filter
+   * owns the catch (mirrors the checkHostAccess catch-and-return-false
+   * discipline at L185-198). No cache in v1 per Assumption A3 — the shape
+   * file requires that a `users:` frontmatter edit propagates on next
+   * read; a stale cache would visibly regress that promise.
+   */
+  resolveIdentityGate?: (
+    identityName: string,
+    hostIdStr: string,
+    userId: string,
+  ) => Promise<boolean>;
+  /**
    * Phase 118 Plan 118-05: TTL override for the app-frame filter's
    * per-(userId, hostIdStr) access cache. Defaults to 30s in
    * createAppFrameFilter. Tests can pass 0 for deterministic per-call
@@ -185,8 +205,27 @@ export function startFleetStatusServer(
       );
     }
   } else if (opts.resolveHostOwnerById !== undefined) {
+    // Phase 129 Plan 129-05 (D-2, D-7): the identity-gate resolver is
+    // REQUIRED on CreateAppFrameFilterDeps. If the caller did not supply
+    // one (backward-compat with pre-129 callers, or intentional bypass
+    // for local-dev / test harnesses), fall back to a stub that always
+    // returns true — the intersection reduces to the host gate alone.
+    // Loud warn fires so a regression is grep-able via
+    // operation: "fleet_status_identity_gate_missing".
+    let resolveIdentityGate = opts.resolveIdentityGate;
+    if (resolveIdentityGate === undefined) {
+      systemLogger.warn(
+        "Fleet-status: resolveIdentityGate missing — identity gate disabled (host-gate-only mode)",
+        {
+          operation: "fleet_status_identity_gate_missing",
+          impact: "identity-name visibility gate skipped; per-user shared-host filtering inactive at WS surface",
+        },
+      );
+      resolveIdentityGate = async () => true;
+    }
     const appFrameFilter = createAppFrameFilter({
       resolveHostOwnerById: opts.resolveHostOwnerById,
+      resolveIdentityGate,
       ttlMs: opts.appFrameFilterTtlMs,
       _checkHostAccess: opts._testCheckHostAccessOverride,
     });
@@ -196,6 +235,7 @@ export function startFleetStatusServer(
       {
         operation: "fleet_status_filter_attached",
         ttlMs: opts.appFrameFilterTtlMs ?? "default",
+        identityGate: opts.resolveIdentityGate !== undefined ? "wired" : "stubbed",
       },
     );
   } else {
