@@ -41,7 +41,7 @@ import {
   userRoles,
   users,
 } from "../database/db/schema.js";
-import { eq, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, ne, inArray, isNotNull } from "drizzle-orm";
 import { systemLogger } from "./logger.js";
 
 /**
@@ -55,9 +55,16 @@ export async function isHostMultiUser(hostId: number): Promise<boolean> {
   });
 
   // Query 1: owner lookup. If unknown host, return false to avoid auto-tag
-  // on a phantom hostId (Test 1 of Task 3 acceptance).
+  // on a phantom hostId (Test 1 of Task 3 acceptance). Also grabs the SSH
+  // connection tuple (ip, port, username) — needed for Query 5's collision
+  // check, which is Skynet's actual sharing model today.
   const ownerRows = await db
-    .select({ userId: hosts.userId })
+    .select({
+      userId: hosts.userId,
+      ip: hosts.ip,
+      port: hosts.port,
+      username: hosts.username,
+    })
     .from(hosts)
     .where(eq(hosts.id, hostId))
     .limit(1);
@@ -115,6 +122,32 @@ export async function isHostMultiUser(hostId: number): Promise<boolean> {
     for (const row of roleMembers) {
       distinctUsers.add(row.userId);
     }
+  }
+
+  // Query 5: SSH-connection collision (Phase 129 post-deploy fix — 2026-09-23).
+  // Skynet's actual sharing model TODAY is per-user connection profiles that
+  // happen to collide on (ip, port, ssh-username) — not one host row with
+  // hostAccess entries. Two users with ssh_data rows pointing at the same
+  // (ip, port, username) tuple resolve to the same OS user on the same
+  // physical box, i.e. the same `~/fleet/` filesystem — the visibility gate's
+  // unit of concern. `host_access` is retained above as a defensive fallback
+  // for the day Skynet's credential-shared-hosts flow ships (admin runbook
+  // notes it as "Not yet documented — build if needed"), but the collision
+  // check is what matches today's reality.
+  const { ip, port, username } = ownerRows[0];
+  const sameConnRows = await db
+    .select({ userId: hosts.userId })
+    .from(hosts)
+    .where(
+      and(
+        eq(hosts.ip, ip),
+        eq(hosts.port, port),
+        eq(hosts.username, username),
+        ne(hosts.id, hostId),
+      ),
+    );
+  for (const row of sameConnRows) {
+    distinctUsers.add(row.userId);
   }
 
   const isMultiUser = distinctUsers.size > 1;
