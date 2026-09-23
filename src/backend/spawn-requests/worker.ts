@@ -483,12 +483,19 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   try {
     if (!isLocalHostId(item.hostIdNum)) {
       const hostForConn = await deps.resolveHostById(item.hostIdNum, currentUserId);
-      if (hostForConn) {
-        enumConn = await deps.connectOneShot(
-          hostForConn as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
+      if (!hostForConn) {
+        // Host row was resolvable at owner-lookup (Step 3c above) but is
+        // gone now — deleted between then and here. Do NOT fall through
+        // with enumConn=null: the enumerators would then run their LOCAL
+        // branches and read THIS box's own dirs, producing a ranker
+        // result for the wrong host. Cascade to the outer catch → tier-3
+        // fallback (same as any other total-enumeration-failure).
+        throw new Error("host_row_disappeared_during_enum");
       }
+      enumConn = await deps.connectOneShot(
+        hostForConn as unknown as Parameters<typeof connectOneShot>[0],
+        SSH_CONNECT_TIMEOUT_MS,
+      );
     }
     const [activeList, archivedList] = await Promise.all([
       deps.listActiveIdentityKeys(enumConn).catch((err: unknown) => {

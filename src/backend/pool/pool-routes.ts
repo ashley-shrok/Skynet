@@ -204,6 +204,11 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     let activeNames = new Set<string>();
     let archivedEntries: readonly ArchivedIdentityEntry[] = [];
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    // Captured so the outer finally can (a) still close a late-arriving
+    // connection when the budget race timed out before conn was assigned,
+    // and (b) cancel the losing budget-timer so it doesn't linger.
+    let connPromise: ReturnType<typeof connectOneShot> | null = null;
+    let budgetTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       // Bound the WHOLE enumeration, not just the connect. connectOneShot's
       // timeout covers the handshake only, and each enumerator's REMOTE branch
@@ -214,10 +219,11 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
       const result = await Promise.race([
         (async () => {
           if (!isLocalHostId(hostId)) {
-            conn = await connectOneShot(
+            connPromise = connectOneShot(
               host as unknown as Parameters<typeof connectOneShot>[0],
               SSH_CONNECT_TIMEOUT_MS,
             );
+            conn = await connPromise;
           }
           const [activeList, archivedList] = await Promise.all([
             listIdentityKeysOnHost(conn).catch((err: unknown) => {
@@ -246,12 +252,12 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
             archived: archivedList,
           };
         })(),
-        new Promise<never>((_, reject) =>
-          setTimeout(
+        new Promise<never>((_, reject) => {
+          budgetTimer = setTimeout(
             () => reject(new Error("enumeration_budget_exceeded")),
             ENUMERATION_BUDGET_MS,
-          ),
-        ),
+          );
+        }),
       ]);
       activeNames = result.active;
       archivedEntries = result.archived;
@@ -272,12 +278,31 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
         },
       );
     } finally {
+      // Cancel the losing budget-timer so it doesn't stay armed for
+      // ENUMERATION_BUDGET_MS after the happy path returns (harmless but
+      // messy under load / in tests asserting clean event-loop drain).
+      if (budgetTimer !== undefined) clearTimeout(budgetTimer);
       if (conn) {
         try {
           conn.end();
         } catch {
           /* ignore */
         }
+      } else if (connPromise) {
+        // Race timed out BEFORE connectOneShot resolved — clean up the
+        // connection whenever it does resolve, so a wedged-handshake host
+        // can't leak sockets under sustained pressure. Swallow rejects.
+        connPromise
+          .then((c) => {
+            try {
+              c.end();
+            } catch {
+              /* ignore */
+            }
+          })
+          .catch(() => {
+            /* connect rejected — nothing to close */
+          });
       }
     }
 

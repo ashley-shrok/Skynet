@@ -1000,6 +1000,54 @@ describe("spawn-request worker", () => {
       expect(["ada", "byron", "curie"]).toContain(namesTried[0]);
     });
 
+    it("R7: resolveHostById returns null mid-enum → degrades to tier-3, does NOT enumerate this box's local dirs", async () => {
+      // Regression guard: pre-fix, a null hostForConn left enumConn=null and
+      // the enumerators ran their LOCAL branches — reading THIS box's own
+      // identity dirs and returning a ranker result computed for the wrong
+      // host. Fix throws instead, cascading to tier-3 fallback.
+      const namesTried: string[] = [];
+      const mockBirthIdentity = vi.fn().mockImplementation(
+        async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          namesTried.push(opts.name);
+          emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+        },
+      );
+      // Enumerators that would fail the test if called at all — a LOCAL-mode
+      // call (conn=null) MUST NOT happen when the target is a REMOTE host
+      // whose row disappeared. If either of these gets invoked, the assertion
+      // below will fire.
+      const listActive = vi.fn().mockImplementation((conn: unknown) => {
+        if (conn === null) throw new Error("LOCAL branch called for a REMOTE host — bug");
+        return Promise.resolve([]);
+      });
+      const listArchived = vi.fn().mockImplementation((conn: unknown) => {
+        if (conn === null) throw new Error("LOCAL branch called for a REMOTE host — bug");
+        return Promise.resolve([]);
+      });
+      const deps = buildTestDeps({
+        getVettedPool: vi.fn().mockReturnValue(["ada", "byron"]),
+        // Owner-lookup succeeds (that call happens at Step 3c, earlier).
+        getHostOwnerUserId: vi.fn().mockResolvedValue("user-test"),
+        // But by the time the enum block runs, the host row is gone.
+        resolveHostById: vi.fn().mockResolvedValue(null),
+        listActiveIdentityKeys: listActive,
+        listArchivedIdentityEntries: listArchived,
+        birthIdentity: mockBirthIdentity,
+      });
+      const item = makePendingBirth();
+
+      await processBirth(item, deps);
+
+      // Neither enumerator was called with conn=null (the fix throws before
+      // reaching the Promise.all).
+      expect(listActive).not.toHaveBeenCalled();
+      expect(listArchived).not.toHaveBeenCalled();
+      // Ranker still returned a usable name (tier-3 shuffled full pool);
+      // one attempt, success.
+      expect(mockBirthIdentity).toHaveBeenCalledTimes(1);
+      expect(["ada", "byron"]).toContain(namesTried[0]);
+    });
+
     it("R6: tier-2 collision retry advances to next-oldest, not a fresh randomization", async () => {
       // No fresh names; pool has three archived names with distinct mtimes.
       // The first pick collides. The retry must pick the NEXT-oldest — not
