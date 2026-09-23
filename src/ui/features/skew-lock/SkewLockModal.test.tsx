@@ -209,3 +209,36 @@ describe("SkewLockModal: inert on #root while locked", () => {
     document.body.removeChild(fakeRoot);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 7 — Regression: when the modal is mounted inside #root (production
+// layout: createRoot(#root).render(<App><SkewLockModal /></App>)), the
+// Reload button MUST NOT end up under the inert subtree. If it did, the
+// button would be non-interactive. This asserts the portal escape.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("SkewLockModal: Reload button escapes #root inert freeze", () => {
+  it("renders Reload button OUTSIDE #root when parent is mounted inside #root", () => {
+    const fakeRoot = document.createElement("div");
+    fakeRoot.id = "root";
+    document.body.appendChild(fakeRoot);
+
+    // Mount the modal INSIDE #root — same shape as production.
+    render(<SkewLockModal />, { container: fakeRoot });
+    act(() => {
+      lockSkewedSession({
+        reason: "response_tag_mismatch",
+        clientBuild: "aaa",
+        serverBuild: "bbb",
+      });
+    });
+
+    const btn = screen.getByRole("button", { name: /reload/i });
+    expect(btn).toBeTruthy();
+    // The button must NOT be a descendant of #root — otherwise the inert
+    // attribute set on #root would freeze it.
+    expect(fakeRoot.contains(btn)).toBe(false);
+
+    document.body.removeChild(fakeRoot);
+  });
+});

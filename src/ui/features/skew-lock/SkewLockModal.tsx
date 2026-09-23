@@ -24,11 +24,12 @@
 // bg/fg tokens per role-file palette-authority rule.
 //
 // `inert` attribute on #root freezes underlying UI to pointer + keyboard
-// events per D-12 non-dismissibility. React 19 supports `inert` as JSX
-// prop, but we set it via document.getElementById("root") so the freeze
-// covers the app-root's siblings too (not just this modal's parent tree).
+// events per D-12 non-dismissibility. The modal is portalled to
+// document.body so it sits OUTSIDE #root — otherwise `inert` on #root
+// would also freeze the modal itself, including its Reload button.
 
 import { useSyncExternalStore, useEffect } from "react";
+import { createPortal } from "react-dom";
 
 import {
   getSkewLockedSnapshot,
@@ -79,7 +80,7 @@ export function SkewLockModal() {
     window.location.reload();
   };
 
-  return (
+  return createPortal(
     <div
       className="skynet-skew-lock-backdrop fixed inset-0 z-[9999] flex items-center justify-center"
       style={{
@@ -129,6 +130,7 @@ export function SkewLockModal() {
           </button>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
