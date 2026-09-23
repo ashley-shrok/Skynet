@@ -144,10 +144,32 @@ vi.mock("../db/index.js", () => {
   return { db: chain };
 });
 
+// Phase 129 Plan 129-02: systemLogger is used by identities.ts for the two
+// gate-seam structured logs (identities_gate_username_missing warn +
+// identities_gate_hidden debug). Must be mocked here so tests can assert on
+// the warn call in Test F. vi.hoisted keeps the mock instances reachable
+// from both the vi.mock factory (which is hoisted above imports) AND the
+// per-test assertion code below.
+const {
+  systemLoggerWarnMock,
+  systemLoggerDebugMock,
+} = vi.hoisted(() => {
+  return {
+    systemLoggerWarnMock: vi.fn(),
+    systemLoggerDebugMock: vi.fn(),
+  };
+});
+
 vi.mock("../../utils/logger.js", () => ({
   databaseLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   sshLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  systemLogger: {
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: systemLoggerWarnMock,
+    debug: systemLoggerDebugMock,
+  },
 }));
 
 vi.mock("../../utils/database-save-trigger.js", () => ({
@@ -236,8 +258,35 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     if (typeof src.coordinator === "boolean") out.coordinator = src.coordinator;
     // Phase 80 Plan 80-03: task scalar narrowing — non-empty string kept, everything else dropped.
     if (typeof src.task === "string" && src.task.length > 0) out.task = src.task;
+    // Phase 129 Plan 129-02: propagate `users: string[]` when present so the
+    // per-user visibility gate in the fanout has real data to intersect on.
+    // Mirrors the real narrower discipline (identity-artifact-reader.ts):
+    // Array.isArray + typeof-string + trim + drop-empties + only emit when
+    // normalized.length > 0 (D-3 absent-⇒-omit fallback preserved).
+    if (Array.isArray(src.users)) {
+      const normalized = src.users
+        .filter((u): u is string => typeof u === "string")
+        .map((u) => u.trim())
+        .filter((u) => u.length > 0);
+      if (normalized.length > 0) out.users = normalized;
+    }
     return out;
   },
+}));
+
+// ---------------------------------------------------------------------------
+// Phase 129 Plan 129-02: host-user-counter mock (getUsernameForUserId).
+// Task 2 (GREEN) will make identities.ts import this to translate the JWT
+// userId into a Skynet username before invoking isIdentityVisibleToUser.
+// ---------------------------------------------------------------------------
+
+const { getUsernameForUserIdMock } = vi.hoisted(() => ({
+  getUsernameForUserIdMock: vi.fn(),
+}));
+
+vi.mock("../../utils/host-user-counter.js", () => ({
+  isHostMultiUser: vi.fn().mockResolvedValue(false),
+  getUsernameForUserId: (userId: string) => getUsernameForUserIdMock(userId),
 }));
 
 // ---------------------------------------------------------------------------
@@ -324,6 +373,14 @@ beforeEach(() => {
   // has no fallback avatar. Individual tests override as needed.
   readRoleFileByNameMock.mockResolvedValue({ markdown: "" });
   readAvatarSiblingFileByRoleMock.mockResolvedValue(null);
+  // Phase 129 Plan 129-02 defaults — every pre-129 test uses mockUserId
+  // "test-user" and every gate-relevant test uses fireGetIdentitiesAs to
+  // override this per-username. Default returns "test-user" so pre-existing
+  // tests without a `users` frontmatter still fall through the gate (D-3
+  // fallback = visible when identity/role users list is empty/absent).
+  getUsernameForUserIdMock.mockResolvedValue("test-user");
+  systemLoggerWarnMock.mockClear();
+  systemLoggerDebugMock.mockClear();
 
   const app = express();
   app.use("/identities", identitiesRouter);
@@ -985,5 +1042,327 @@ describe("GET /identities/:key/avatar — Phase 85 role-folder fallback", () => 
     expect(body.error?.toLowerCase()).toContain("no avatar");
     // Role-avatar reader NOT called (no avatar filename in role frontmatter)
     expect(readAvatarSiblingFileByRoleMock).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// Phase 129 Plan 129-02: per-user visibility gate on GET /identities
+// ===========================================================================
+//
+// Deep-gate D-7 seam #1 (see 129-CONTEXT.md § "Locked decisions"):
+//   - D-2 intersection: identity is visible iff BOTH the identity's `users`
+//     gate AND the role's `users` gate pass.
+//   - D-3 fallback: empty or absent `users` list = "no gate on this side"
+//     (falls open — preserves zero-migration invariant across the fleet).
+//   - D-7 depth: hidden identity leaves NO evidence in the response — no
+//     stripped-down cosmetics row, no ghost. The row is simply absent.
+//   - D-8 not a permission system: the visibility gate is a filter; defensive
+//     branches (unknown userId → username) fail-OPEN, not fail-closed.
+//
+// Wire-shape assertions: every test parses the JSON array response body
+// and looks for identityKey presence/absence. No cosmetic inspection past
+// what's needed to confirm the row is real (not a stripped ghost).
+//
+// TDD RED note: at file creation the gate has not been wired in identities.ts
+// yet. Tests C, D, E MUST fail (the hidden identity currently surfaces).
+// Test F MUST fail (no warn log for missing username). Tests A, B, G may
+// currently pass by accident (the gate not existing = no filtering) — they
+// are locked as regressions that the GREEN implementation must not break.
+//
+// Fixture helpers below encapsulate the three axes of variation:
+//   - callerUsername (via getUsernameForUserIdMock)
+//   - identity-side `users` frontmatter (via mockIdentityWithUsers)
+//   - role-side `users` frontmatter (via mockIdentityWithUsers)
+//
+// The HTTP fire helper wires mockUserId and getUsernameForUserIdMock in one
+// call so tests read as "Ashley fires GET /identities" rather than a manual
+// two-step mock-fiddle preamble.
+
+/**
+ * Mock the DB translation from a JWT userId to a Skynet username. The gate
+ * inside identities.ts uses this to know who is asking; a null return
+ * disables the gate per Plan 129-01 Task 2 Test 1 (null-caller bypass).
+ */
+function mockGetUsernameForUserId(userId: string, username: string | null): void {
+  getUsernameForUserIdMock.mockImplementation((incomingUserId: string) => {
+    if (incomingUserId === userId) return Promise.resolve(username);
+    return Promise.resolve(null);
+  });
+}
+
+/**
+ * Wire an identity's frontmatter fixture. If identityUsers is provided the
+ * identity file's YAML gets a `users:` array; if roleUsers is provided the
+ * role file's YAML gets one too. Absent parameters mean the corresponding
+ * frontmatter key is NOT written — mirrors the D-3 absent-⇒-omit fallback
+ * that keeps pre-129 files unchanged.
+ *
+ * Only supports a single (identityKey, hostId, roleName) combo per call —
+ * each test either calls it once or overrides listIdentityKeysOnHostMock +
+ * readIdentityFileMock manually for multi-identity fixtures (Test D).
+ */
+function mockIdentityWithUsers(
+  identityKey: string,
+  _hostId: number,
+  roleName: string,
+  identityUsers?: string[],
+  roleUsers?: string[],
+): void {
+  listIdentityKeysOnHostMock.mockResolvedValue([identityKey]);
+  const idFm: string[] = [`role: ${roleName}`, `displayName: ${identityKey}`];
+  if (identityUsers !== undefined) {
+    idFm.push(`users: [${identityUsers.join(", ")}]`);
+  }
+  readIdentityFileMock.mockResolvedValue({
+    markdown: `---\n${idFm.join("\n")}\n---\n`,
+  });
+  const roleFm: string[] = [`title: ${roleName}-title`];
+  if (roleUsers !== undefined) {
+    roleFm.push(`users: [${roleUsers.join(", ")}]`);
+  }
+  readRoleFileByNameMock.mockResolvedValue({
+    markdown: `---\n${roleFm.join("\n")}\n---\n`,
+  });
+}
+
+/**
+ * Fire GET /identities as a given Skynet username. Assigns req.userId via
+ * the auth manager mock AND wires getUsernameForUserId to translate that
+ * userId back to the username string the gate expects.
+ */
+async function fireGetIdentitiesAs(
+  username: string,
+  identityHostsQuery: Record<string, number>,
+): Promise<{ status: number; body: Array<Record<string, unknown>> }> {
+  const jwtUserId = `uid-${username}`;
+  mockUserId = jwtUserId;
+  mockGetUsernameForUserId(jwtUserId, username);
+  const qs = encodeURIComponent(JSON.stringify(identityHostsQuery));
+  const res = await httpGet(server, `/identities?identityHosts=${qs}`);
+  return {
+    status: res.status,
+    body: res.body as Array<Record<string, unknown>>,
+  };
+}
+
+describe("Phase 129: per-user visibility gate", () => {
+
+  // -------------------------------------------------------------------------
+  // Test A: single-user host — no evidence of the feature (D-4 + shape file
+  // §"What would make it wrong" bullet 1). A single-user-host identity with
+  // NO users: key must still surface exactly as it did pre-129.
+  //
+  // Additionally asserts the per-request username lookup happens EXACTLY
+  // ONCE. This is the wire-level guarantee that Task 2 fetches the caller's
+  // username once per request (not once per host, not once per identity).
+  // On RED (gate not yet wired) getUsernameForUserId is never called, so
+  // this test fails until Task 2 lands.
+  // -------------------------------------------------------------------------
+  it("Test A: single-user host, identity has no `users` key → identity surfaces + username fetched once per request", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    mockIdentityWithUsers("muffin", 1, "box-maintainer"); // no users on either side
+
+    const res = await fireGetIdentitiesAs("ashley", { muffin: 1 });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].identityKey).toBe("muffin");
+    // Per-request-cost discipline: the callerUsername lookup runs ONCE
+    // per request, not per-host or per-identity (matches identities.ts's
+    // roleReadCache memo pattern for the analogous per-host DoS mitigation).
+    expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(1);
+    expect(getUsernameForUserIdMock).toHaveBeenCalledWith("uid-ashley");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test B: multi-user host, identity untagged → visible to both users
+  // (D-3 fallback = "no gate on this side"). Confirms the empty-list rule
+  // at the WIRE (not just the pure gate unit test).
+  //
+  // Also asserts the second request re-fetches the username — the lookup
+  // is per-request, not memoized module-globally. On RED the lookup is
+  // never called at all, so this fails until Task 2 wires it.
+  // -------------------------------------------------------------------------
+  it("Test B: multi-user host, identity has no `users` key → both Ashley and Zoe see it (each request re-fetches username)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    mockIdentityWithUsers("muffin", 1, "box-maintainer"); // no users on either side
+
+    const ashley = await fireGetIdentitiesAs("ashley", { muffin: 1 });
+    expect(ashley.status).toBe(200);
+    expect(ashley.body).toHaveLength(1);
+    expect(ashley.body[0].identityKey).toBe("muffin");
+
+    const zoe = await fireGetIdentitiesAs("zoe", { muffin: 1 });
+    expect(zoe.status).toBe(200);
+    expect(zoe.body).toHaveLength(1);
+    expect(zoe.body[0].identityKey).toBe("muffin");
+
+    // Two requests → two username lookups. Confirms no cross-request
+    // caching of caller identity (would be a critical bug — user A's
+    // cached username used to gate user B's request).
+    expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(2);
+    expect(getUsernameForUserIdMock).toHaveBeenNthCalledWith(1, "uid-ashley");
+    expect(getUsernameForUserIdMock).toHaveBeenNthCalledWith(2, "uid-zoe");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test C: multi-user host, identity tagged users:[ashley] → visible to
+  // Ashley, hidden from Zoe (D-2). Zoe's response has ZERO rows — the
+  // hidden identity does not appear as a stripped ghost (D-7 deep gate).
+  // -------------------------------------------------------------------------
+  it("Test C: identity tagged users:[ashley] → Ashley sees it, Zoe does NOT (no ghost row)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    mockIdentityWithUsers("muffin", 1, "box-maintainer", ["ashley"]);
+
+    const ashley = await fireGetIdentitiesAs("ashley", { muffin: 1 });
+    expect(ashley.status).toBe(200);
+    expect(ashley.body).toHaveLength(1);
+    expect(ashley.body[0].identityKey).toBe("muffin");
+
+    const zoe = await fireGetIdentitiesAs("zoe", { muffin: 1 });
+    expect(zoe.status).toBe(200);
+    // D-7 deep gate: the row is ABSENT from the array. No stripped-down
+    // cosmetics row, no ghost — Zoe gets zero identities.
+    expect(zoe.body).toHaveLength(0);
+    expect(zoe.body.find((r) => r.identityKey === "muffin")).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test D: multi-user host, role tagged users:[ashley] → identity in that
+  // role is hidden from Zoe (D-2 intersection). Identity has NO users key,
+  // so the role-side gate is what closes the door on Zoe.
+  // -------------------------------------------------------------------------
+  it("Test D: role tagged users:[ashley] (identity untagged) → Ashley sees identity, Zoe does not", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    mockIdentityWithUsers(
+      "muffin",
+      1,
+      "box-maintainer",
+      undefined, // identity has no users
+      ["ashley"], // role has users:[ashley]
+    );
+
+    const ashley = await fireGetIdentitiesAs("ashley", { muffin: 1 });
+    expect(ashley.status).toBe(200);
+    expect(ashley.body).toHaveLength(1);
+    expect(ashley.body[0].identityKey).toBe("muffin");
+
+    const zoe = await fireGetIdentitiesAs("zoe", { muffin: 1 });
+    expect(zoe.status).toBe(200);
+    // Role gate closes for Zoe → the identity vanishes entirely from her
+    // sidebar even though her host access is fine.
+    expect(zoe.body).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test E: both sides tagged with overlapping-but-not-identical lists.
+  // role users:[ashley, zoe], identity users:[ashley] → the identity is
+  // the narrower side and closes the gate for Zoe (D-2 intersection).
+  // -------------------------------------------------------------------------
+  it("Test E: role users:[ashley,zoe] + identity users:[ashley] → Ashley sees it, Zoe does not (intersection)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    mockIdentityWithUsers(
+      "muffin",
+      1,
+      "box-maintainer",
+      ["ashley"], // identity narrows to Ashley
+      ["ashley", "zoe"], // role allows both
+    );
+
+    const ashley = await fireGetIdentitiesAs("ashley", { muffin: 1 });
+    expect(ashley.status).toBe(200);
+    expect(ashley.body).toHaveLength(1);
+    expect(ashley.body[0].identityKey).toBe("muffin");
+
+    const zoe = await fireGetIdentitiesAs("zoe", { muffin: 1 });
+    expect(zoe.status).toBe(200);
+    // Intersection: identity-side narrows to Ashley → Zoe sees nothing.
+    expect(zoe.body).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test F: unknown username defensive branch. If getUsernameForUserId
+  // returns null (a JWT with a userId that no longer has a users row —
+  // shape-violation but MUST NOT throw), the gate is DISABLED and the
+  // caller sees rows their host-access allows. A warn log fires so ops
+  // can trace the mismatch.
+  //
+  // Fail-open per D-8: the visibility gate is not a permission system;
+  // a defective username lookup must not empty the sidebar.
+  // -------------------------------------------------------------------------
+  it("Test F: getUsernameForUserId returns null → gate disabled (fail-open), warn log fires", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    mockIdentityWithUsers(
+      "muffin",
+      1,
+      "box-maintainer",
+      ["ashley"], // even Ashley-only identity — with null caller username the gate is bypassed
+    );
+
+    // JWT userId is set but the username lookup returns null (row missing).
+    mockUserId = "orphan-uid";
+    getUsernameForUserIdMock.mockResolvedValue(null);
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ muffin: 1 }));
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    // Fail-open: the identity DOES surface because callerUsername=null
+    // short-circuits the gate to "visible" (Plan 129-01 Task 2 Test 1).
+    expect(rows).toHaveLength(1);
+    expect(rows[0].identityKey).toBe("muffin");
+
+    // Structured warn log fires with the operation tag so ops can grep
+    // "why did the gate not run for this request?" in prod.
+    const warnCalls = systemLoggerWarnMock.mock.calls;
+    const hasGateWarn = warnCalls.some((call) => {
+      const payload = call[1] as { operation?: string } | undefined;
+      return payload?.operation === "identities_gate_username_missing";
+    });
+    expect(hasGateWarn).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test G: existing fail-open contract on identity-file read failure. The
+  // gate MUST NOT convert an existing null-drop (readIdentityFile throws)
+  // into a false-positive visibility. The pre-129 behavior (drop the row,
+  // log a warn) must be preserved.
+  //
+  // Two identities: one reads OK and is tagged users:[ashley]; the other
+  // throws on read. Ashley must see ONLY the first (readable) identity.
+  // -------------------------------------------------------------------------
+  it("Test G: identity file read throws mid-fanout → dropped (existing contract), other identity still gates correctly", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["muffin", "broken"]);
+    readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
+      if (key === "muffin") {
+        return Promise.resolve({
+          markdown:
+            "---\nrole: box-maintainer\ndisplayName: Muffin\nusers: [ashley]\n---\n",
+        });
+      }
+      // "broken" read throws — pre-129 contract drops it via the L445
+      // null-return + .filter((x) => x !== null) on L450.
+      return Promise.reject(new Error("SSH exec timeout"));
+    });
+    readRoleFileByNameMock.mockResolvedValue({
+      markdown: "---\ntitle: role-title\n---\n",
+    });
+
+    const ashley = await fireGetIdentitiesAs("ashley", {
+      muffin: 1,
+      broken: 1,
+    });
+    expect(ashley.status).toBe(200);
+    // muffin surfaces (Ashley is in identity.users). "broken" is dropped
+    // by the pre-existing read-fail contract, NOT by the gate.
+    expect(ashley.body).toHaveLength(1);
+    expect(ashley.body[0].identityKey).toBe("muffin");
+    // Confirm the drop was not a stealth-visibility bypass: Zoe still
+    // does NOT see muffin even in the presence of a sibling read failure.
+    const zoe = await fireGetIdentitiesAs("zoe", { muffin: 1, broken: 1 });
+    expect(zoe.status).toBe(200);
+    expect(zoe.body).toHaveLength(0);
   });
 });
