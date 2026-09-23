@@ -202,6 +202,15 @@ router.get(
       return;
     }
 
+    // Projects live on SSH hosts. RDP/VNC-only hosts have no shell to enumerate
+    // ~/.claude/projects/ on, so short-circuit with an empty list rather than
+    // paying a 60s SSH connect-timeout per call. Frontend host loops already
+    // handle an empty projects array.
+    if (host.enableSsh === false) {
+      res.json({ projects: [] });
+      return;
+    }
+
     // 3. LOCAL vs REMOTE branch on isLocalHostId.
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     if (!isLocalHostId(hostId)) {
@@ -319,6 +328,12 @@ router.post(
     const host = await resolveHostById(hostId, userId);
     if (!host) {
       res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    // Projects live on SSH hosts — see gate on GET / for rationale.
+    if (host.enableSsh === false) {
+      res.status(400).json({ error: "SSH is not enabled on this host" });
       return;
     }
 
@@ -486,6 +501,12 @@ router.post(
       return;
     }
 
+    // Projects live on SSH hosts — see gate on GET / for rationale.
+    if (host.enableSsh === false) {
+      res.status(400).json({ error: "SSH is not enabled on this host" });
+      return;
+    }
+
     // 4. LOCAL/REMOTE branch.
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     if (!isLocalHostId(hostId)) {
@@ -593,6 +614,12 @@ router.get(
       return;
     }
 
+    // Projects live on SSH hosts — see gate on GET / for rationale.
+    if (host.enableSsh === false) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     if (!isLocalHostId(hostId)) {
       try {
@@ -661,6 +688,12 @@ router.put(
     const host = await resolveHostById(hostId, userId);
     if (!host) {
       res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    // Projects live on SSH hosts — see gate on GET / for rationale.
+    if (host.enableSsh === false) {
+      res.status(400).json({ error: "SSH is not enabled on this host" });
       return;
     }
 
