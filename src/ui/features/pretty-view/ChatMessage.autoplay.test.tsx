@@ -86,7 +86,7 @@ describe("ChatMessage long-press detection", () => {
     vi.useRealTimers();
   });
 
-  it("LP1: pointerdown + 500ms fires onLongPressSpeak once with eventId AND starts speak", async () => {
+  it("LP1: pointerdown + 800ms fires onLongPressSpeak once with eventId AND starts speak", async () => {
     const onLongPressSpeak = vi.fn();
     render(
       <ChatMessage
@@ -105,7 +105,7 @@ describe("ChatMessage long-press detection", () => {
 
     // Advance the timer and drain all pending microtasks/promises
     await act(async () => {
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(800);
       await vi.runAllTimersAsync();
     });
 
@@ -114,7 +114,7 @@ describe("ChatMessage long-press detection", () => {
     expect(mockedPostSpeakStream).toHaveBeenCalledTimes(1);
   });
 
-  it("LP2: pointerup BEFORE 500ms fires tap path only (postSpeakStream called, onLongPressSpeak NOT called)", async () => {
+  it("LP2: pointerup BEFORE 800ms fires tap path only (postSpeakStream called, onLongPressSpeak NOT called)", async () => {
     const onLongPressSpeak = vi.fn();
     render(
       <ChatMessage
@@ -127,7 +127,7 @@ describe("ChatMessage long-press detection", () => {
     const btn = screen.getByLabelText(/speak message/i);
 
     fireEvent.pointerDown(btn, { clientX: 10, clientY: 10 });
-    // Advance only 200ms (well before the 500ms threshold)
+    // Advance only 200ms (well before the 800ms threshold)
     act(() => {
       vi.advanceTimersByTime(200);
     });
@@ -145,7 +145,7 @@ describe("ChatMessage long-press detection", () => {
     expect(mockedPostSpeakStream).toHaveBeenCalledTimes(1);
   });
 
-  it("LP3: pointerdown + pointermove(dx=15) + advance 500ms does NOT fire long-press", async () => {
+  it("LP3: pointerdown + pointermove(dx=15) + advance 800ms does NOT fire long-press", async () => {
     const onLongPressSpeak = vi.fn();
     render(
       <ChatMessage
@@ -161,7 +161,7 @@ describe("ChatMessage long-press detection", () => {
     // Move beyond 10px threshold → cancels timer
     fireEvent.pointerMove(btn, { clientX: 25, clientY: 10 });
     await act(async () => {
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(800);
       await vi.runAllTimersAsync();
     });
 
@@ -169,7 +169,7 @@ describe("ChatMessage long-press detection", () => {
     expect(mockedPostSpeakStream).not.toHaveBeenCalled();
   });
 
-  it("LP4: pointerdown + pointercancel + advance 500ms does NOT fire long-press (iOS-safe)", async () => {
+  it("LP4: pointerdown + pointercancel + advance 800ms does NOT fire long-press (iOS-safe)", async () => {
     const onLongPressSpeak = vi.fn();
     render(
       <ChatMessage
@@ -184,7 +184,7 @@ describe("ChatMessage long-press detection", () => {
     fireEvent.pointerDown(btn, { clientX: 10, clientY: 10 });
     fireEvent.pointerCancel(btn);
     await act(async () => {
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(800);
       await vi.runAllTimersAsync();
     });
 
@@ -207,7 +207,7 @@ describe("ChatMessage long-press detection", () => {
     fireEvent.pointerDown(btn, { clientX: 10, clientY: 10 });
     // Advance timer to fire long-press
     await act(async () => {
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(800);
       await vi.runAllTimersAsync();
     });
 
@@ -307,11 +307,17 @@ describe("ChatMessage autoplay effect", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Armed-tint visual tests (TINT1-TINT2)
+// Armed-ring visual tests (TINT1-TINT2)
+//
+// Previously the armed state applied an inline background/border color tint
+// (hsla(var(--pv-id-hue),60%,70%,0.28)). Ashley 2026-09-23: replaced with an
+// MMO auto-cast style rotating conic-gradient ring implemented via the
+// .autospeak-armed CSS class in src/ui/index.css. These tests now assert the
+// class-based toggle rather than inline style.
 // ---------------------------------------------------------------------------
 
-describe("ChatMessage armed-tint visual", () => {
-  it("TINT1: autoplayArmed=true applies hue-cream tint to the speak button background", () => {
+describe("ChatMessage armed-ring visual", () => {
+  it("TINT1: autoplayArmed=true applies the autospeak-armed class", () => {
     render(
       <ChatMessage
         role="assistant"
@@ -321,14 +327,11 @@ describe("ChatMessage armed-tint visual", () => {
       />,
     );
     const btn = screen.getByLabelText(/speak message/i);
-    // The inline style sets background to the hue-cream value when armed.
-    // Check for the hsla CSS var signature — JSDOM preserves var() references
-    // without normalization since it cannot resolve them.
-    const style = btn.getAttribute("style") ?? "";
-    expect(style).toContain("--pv-id-hue");
+    expect(btn.className).toContain("autospeak-armed");
+    expect(btn.className).toContain("pv-speak-btn");
   });
 
-  it("TINT2: autoplayArmed=false shows default background; pv-speak-btn class still present", () => {
+  it("TINT2: autoplayArmed=false omits autospeak-armed; pv-speak-btn class still present", () => {
     render(
       <ChatMessage
         role="assistant"
@@ -338,13 +341,11 @@ describe("ChatMessage armed-tint visual", () => {
       />,
     );
     const btn = screen.getByLabelText(/speak message/i);
-    // Default background when not armed.
-    // JSDOM normalizes rgba(0,0,0,0.28) → rgba(0, 0, 0, 0.28) so check for
-    // the background property without the exact whitespace form.
+    expect(btn.className).not.toContain("autospeak-armed");
+    expect(btn.className).toContain("pv-speak-btn");
+    // Default background when not armed — JSDOM normalizes whitespace.
     const style = btn.getAttribute("style") ?? "";
     expect(style).toMatch(/background:\s*rgba\(0,\s*0,\s*0,\s*0\.28\)/);
-    // Base class still present
-    expect(btn.className).toContain("pv-speak-btn");
   });
 });
 

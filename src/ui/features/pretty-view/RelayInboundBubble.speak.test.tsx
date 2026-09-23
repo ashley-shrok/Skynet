@@ -302,7 +302,7 @@ describe("RelayInboundBubble speak apparatus (Phase 97 UAT batch #6)", () => {
     // gesture (mirrors ChatMessage's pattern; batch #7 removed the redundant
     // bubble-root wiring).
     fireEvent.pointerDown(speakBtn, { clientX: 0, clientY: 0 });
-    vi.advanceTimersByTime(500);
+    vi.advanceTimersByTime(800);
     fireEvent.pointerUp(speakBtn);
 
     // Long-press fires onLongPressSpeak with the bubble's eventId.
@@ -338,7 +338,7 @@ describe("RelayInboundBubble speak apparatus (Phase 97 UAT batch #6)", () => {
     // pointerDown on bubble root — no long-press timer arms because the
     // bubble-root handlers were removed in batch #7.
     fireEvent.pointerDown(bubble, { clientX: 0, clientY: 0 });
-    vi.advanceTimersByTime(500);
+    vi.advanceTimersByTime(800);
     fireEvent.pointerUp(bubble);
 
     // onLongPressSpeak NOT called — no bubble-root wiring exists anymore.

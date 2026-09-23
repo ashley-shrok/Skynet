@@ -662,7 +662,7 @@ export function ChatMessage({
           // true, this DOM node is ABSENT and speak lives in the strip
           // below (see the strip render below the bubble div). Every visual
           // + interaction state (Loader2/Pause/Play/Volume2 glyphs,
-          // autoplay-armed hue tint, long-press 500ms + 10px drift cancel,
+          // autospeak-armed ring, long-press 800ms + 10px drift cancel,
           // hover-lift, touch baseline) is preserved verbatim in the strip
           // copy per D-15/D-16/D-17.
           <button
@@ -676,9 +676,13 @@ export function ChatMessage({
               longPressTimerRef.current = window.setTimeout(() => {
                 longPressFiredRef.current = true;
                 longPressTimerRef.current = null;
+                // Capture BEFORE toggling: onLongPressSpeak flips autoplayArmed
+                // upstream. On disarm we skip startSpeak — hold-to-turn-off
+                // should not also start playing the pressed bubble.
+                const wasArmed = autoplayArmed;
                 if (eventId && onLongPressSpeak) onLongPressSpeak(eventId);
-                void startSpeak("long-press");
-              }, 500);
+                if (!wasArmed) void startSpeak("long-press");
+              }, 800);
             }}
             onPointerMove={(e) => {
               const start = pointerStartRef.current;
@@ -728,20 +732,16 @@ export function ChatMessage({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: autoplayArmed
-                ? "hsla(var(--pv-id-hue),60%,70%,0.28)"
-                : "rgba(0,0,0,0.28)",
+              background: "rgba(0,0,0,0.28)",
               borderWidth: 1,
               borderStyle: "solid",
-              borderColor: autoplayArmed
-                ? "hsla(var(--pv-id-hue),70%,70%,0.35)"
-                : "rgba(255,255,255,0.10)",
+              borderColor: "rgba(255,255,255,0.10)",
               color: "rgba(255,220,170,0.72)",
               opacity: 0.62,
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className="pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+            className={`pv-speak-btn ${autoplayArmed ? "autospeak-armed" : ""} hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />
@@ -785,9 +785,13 @@ export function ChatMessage({
               longPressTimerRef.current = window.setTimeout(() => {
                 longPressFiredRef.current = true;
                 longPressTimerRef.current = null;
+                // Capture BEFORE toggling: onLongPressSpeak flips autoplayArmed
+                // upstream. On disarm we skip startSpeak — hold-to-turn-off
+                // should not also start playing the pressed bubble.
+                const wasArmed = autoplayArmed;
                 if (eventId && onLongPressSpeak) onLongPressSpeak(eventId);
-                void startSpeak("long-press");
-              }, 500);
+                if (!wasArmed) void startSpeak("long-press");
+              }, 800);
             }}
             onPointerMove={(e) => {
               const start = pointerStartRef.current;
@@ -830,19 +834,15 @@ export function ChatMessage({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: autoplayArmed
-                ? "hsla(var(--pv-id-hue),60%,70%,0.28)"
-                : "rgba(0,0,0,0.28)",
+              background: "rgba(0,0,0,0.28)",
               borderWidth: 1,
               borderStyle: "solid",
-              borderColor: autoplayArmed
-                ? "hsla(var(--pv-id-hue),70%,70%,0.35)"
-                : "rgba(255,255,255,0.10)",
+              borderColor: "rgba(255,255,255,0.10)",
               color: "rgba(255,220,170,0.72)",
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className="pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+            className={`pv-speak-btn ${autoplayArmed ? "autospeak-armed" : ""} hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />
@@ -889,7 +889,7 @@ export function ChatMessage({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className="pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+            className={`pv-speak-btn ${autoplayArmed ? "autospeak-armed" : ""} hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             <ThumbsUp size={16} />
           </button>
@@ -928,7 +928,7 @@ export function ChatMessage({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className="pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+            className={`pv-speak-btn ${autoplayArmed ? "autospeak-armed" : ""} hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             <ThumbsDown size={16} />
           </button>

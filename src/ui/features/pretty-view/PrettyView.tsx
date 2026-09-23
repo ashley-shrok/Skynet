@@ -119,6 +119,7 @@ import {
 // armed AND the pane is visible. Fire-and-forget; pre-unlock is a silent
 // no-op (D-19). AppShell installs the unlock listeners at mount (D-18).
 import { playTink } from "@/audio/ready-cue";
+import { playAutoSpeakOn, playAutoSpeakOff } from "@/audio/auto-speak-cue";
 // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, user 2026-09-08 D-03
 // mechanical waiver): contextPct now lives on fleet-status (single source of
 // truth) rather than in this component's local useState. Both PrettyView and
@@ -1057,15 +1058,17 @@ export function PrettyView({
   const handleLongPressSpeak = useCallback((longPressedEventId: string) => {
     setAutoplayArmed((currentlyArmed) => {
       if (currentlyArmed) {
-        // Disarm: clear target. The long-press itself already started playback
-        // on the newly-pressed bubble (single-gesture-single-action). Future
-        // arrivals will NOT autoplay. Adopt option (c) from task brief: the
-        // pressed bubble speaks; armed is now false.
+        // Disarm: clear target and play the off-cue. The button handlers now
+        // skip startSpeak when currentlyArmed so hold-to-disarm no longer also
+        // starts playback of the pressed bubble (was the "tap turns off + also
+        // plays" bug Ashley reported 2026-09-23).
         setAutoplayTargetEventId(null);
+        playAutoSpeakOff();
         return false;
       }
       // Arm: set target to the just-long-pressed bubble so it starts immediately.
       setAutoplayTargetEventId(longPressedEventId);
+      playAutoSpeakOn();
       return true;
     });
   }, []);

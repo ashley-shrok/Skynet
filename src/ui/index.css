@@ -425,6 +425,49 @@ html.fs-xl {
   }
 }
 
+/* Auto-speak armed ring (Ashley 2026-09-23) — MMO auto-cast style.
+   A single spinning arc traces the button's perimeter while auto-speak is on.
+
+   Technique:
+   - @property --angle registers the custom property as an <angle> so keyframes
+     can interpolate it (unregistered custom props snap instead of animate).
+   - ::before pseudo fills the button and is masked with mask-composite: exclude
+     to leave only a padding-width ring visible (approach M4 from the ring-gen4
+     tasting).
+   - Conic-gradient is anchored to var(--angle) which the @keyframes rotates
+     from 0deg to 360deg, giving smooth compositor-thread rotation with no JS.
+*/
+@property --pv-autospeak-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.pv-speak-btn.autospeak-armed {
+  --pv-autospeak-angle: 0deg;
+  isolation: isolate;
+}
+.pv-speak-btn.autospeak-armed::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--pv-autospeak-angle),
+    hsl(var(--pv-id-hue), 90%, 70%) 0deg,
+    hsla(var(--pv-id-hue), 90%, 70%, 0) 100deg 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: pv-autospeak-spin 1.4s linear infinite;
+  pointer-events: none;
+}
+@keyframes pv-autospeak-spin {
+  to { --pv-autospeak-angle: 360deg; }
+}
+
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
