@@ -185,7 +185,10 @@ describe("Terminal.tsx Phase 31 Plan 02 — [ws-msg] dispatch line + dedup wirin
     const msgHandlerIdx = src.indexOf('ws.addEventListener("message"');
     expect(msgHandlerIdx).toBeGreaterThan(0);
 
-    const msgBlock = src.slice(msgHandlerIdx, msgHandlerIdx + 2500);
+    // Window widened from 2500 → 4000 after Phase 132 skew-lock added the
+    // ws-message tag-mismatch branch above the dispatch, pushing
+    // wsMsgDedup.shouldEmit past the old 2500 cutoff.
+    const msgBlock = src.slice(msgHandlerIdx, msgHandlerIdx + 4000);
     expect(msgBlock).toMatch(/\[ws-msg\] received type=\$\{msg\.type\}/);
 
     // wsMsgDedup must guard the emission
