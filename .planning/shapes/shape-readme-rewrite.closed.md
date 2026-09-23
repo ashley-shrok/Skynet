@@ -5,7 +5,7 @@
 
 ## What this is
 
-Replace the top-level README of the Skynet repo. The current one opens with "a personal app," dedicates most of its text to being a fork of Termix, and never says what the app does. That framing is stale — Skynet has become an agent chat app that is actively deployed beyond Ashley's own use, including to a workplace and to 100+ other users, so a "personal, no support" framing no longer fits. The new README describes what Skynet actually is (a self-hosted Claude Code-native agent chat app), plainly and without ceremony, and doesn't point readers at stale scaffolding.
+Replace the top-level README of the Skynet repo. The current one opens with "a personal app," dedicates most of its text to being a fork of Termix, and never says what the app does. That framing is stale — Skynet has become an agent chat app that is actively deployed beyond the user's own use, including to a workplace and to 100+ other users, so a "personal, no support" framing no longer fits. The new README describes what Skynet actually is (a self-hosted Claude Code-native agent chat app), plainly and without ceremony, and doesn't point readers at stale scaffolding.
 
 ## Shape
 
@@ -14,7 +14,7 @@ One top-level `README.md` replacement, plus a cleanup pass over the stale scaffo
 Around it, five other pieces of scaffolding get resolved:
 
 - The `readme/` folder of 14 translations gets deleted (every file still carries stale Termix-era marketing content — GitHub-stars badges pointing at a different project, Discord link, marketing tagline).
-- Each of `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `RELEASE_NOTES.md`, `TESTING.md`, `SECURITY.md` gets a per-file decision: keep, rewrite, or delete. Read each first, propose per-file, execute on Ashley's approval.
+- Each of `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `RELEASE_NOTES.md`, `TESTING.md`, `SECURITY.md` gets a per-file decision: keep, rewrite, or delete. Read each first, propose per-file, execute on the user's approval.
 
 ## Philosophy
 
@@ -23,7 +23,7 @@ The README is for the reader who opened the repo cold. Two audiences: an outside
 Deliberately not:
 
 - Marketing the app to a general audience or trying to build community.
-- Inviting traffic to Ashley's personal instance (URL never appears).
+- Inviting traffic to the user's personal instance (URL never appears).
 - Naming the workplace where it's deployed.
 - Leaning on hype language ("agent OS," etc.); the aspiration exists but isn't the headline.
 - Pointing at docs that don't exist (`docs/deploy/` is one file for AWS Polly) or aren't in the repo (`CLAUDE.md` is gitignored).
@@ -32,17 +32,17 @@ Deliberately not:
 
 - The current README is 7 lines, opens with "a personal app," and gives Termix-fork origin more space than app description.
 - The repo previously carried full open-source-project scaffolding (contributing / conduct / translations) inherited from the Termix upstream; that upstream tie was severed 2026-07-24 and the scaffolding has been drifting ever since.
-- Skynet is actively deployed beyond Ashley's personal machine: at her workplace and to 100+ other users. Framing matches that reality without naming specifics.
+- Skynet is actively deployed beyond the user's personal machine: at her workplace and to 100+ other users. Framing matches that reality without naming specifics.
 - Contemporaries in the space split their framing across "fleet" (Fleet, Agent Fleet, Phleet), "workspace" (AnythingLLM, Multica, Msty), and "agent OS" (OpenAgents, LobeChat). Skynet's spot: Claude Code-native, browser-based, fleet across machines, workspace ambition, but "agent OS" is a stretch aspiration not a headline.
 
 ## What would make it wrong
 
 - Reads like marketing copy. The register is plain and functional; the app sells itself in screenshots and word-of-mouth, not README hype.
-- Invites internet traffic to Ashley's personal instance by naming a URL or hostname.
-- Names Ashley's workplace, either directly or in a way that lets a reader identify it.
+- Invites internet traffic to the user's personal instance by naming a URL or hostname.
+- Names the user's workplace, either directly or in a way that lets a reader identify it.
 - Points at documentation that isn't there — a "how to deploy" section that leads to one AWS-Polly file, or a pointer to `CLAUDE.md` which is gitignored.
 - Carries residual Termix-era content in adjacent files (translations, contributing docs) that contradict what the new README says.
-- Reads as if the app is only for coding agents. Ashley uses it for coding; most deployers don't.
+- Reads as if the app is only for coding agents. the user uses it for coding; most deployers don't.
 
 ## Scope edges
 
@@ -54,11 +54,11 @@ Deliberately not:
 
 **Out of scope:**
 
-- Adding screenshots to the README (Ashley doesn't have any handy right now; deferred).
+- Adding screenshots to the README (the user doesn't have any handy right now; deferred).
 - Rewriting or regenerating `CLAUDE.md` (gitignored, separate concern).
 - Adding a deploy tutorial or backfilling `docs/deploy/`.
 - Documenting the tech stack in depth beyond the one paragraph.
-- Adding Ashley's copyright line to `LICENSE`.
+- Adding the user's copyright line to `LICENSE`.
 
 **Tempting but no:**
 
@@ -123,7 +123,7 @@ Skynet originated as a fork of [Termix](https://github.com/LukeGus/Termix). It h
 - **Philosophy** — present · Plain functional register; no personal-instance URL; no workplace naming; no hype; no pointer at missing docs or gitignored CLAUDE.md.
 - **Failure mode — reads like marketing copy** — present · Register is plain and functional throughout.
 - **Failure mode — invites traffic to personal instance** — present · No URL or hostname appears.
-- **Failure mode — names Ashley's workplace** — present · No workplace reference, direct or identifiable.
+- **Failure mode — names the user's workplace** — present · No workplace reference, direct or identifiable.
 - **Failure mode — points at documentation that isn't there** — present · No deploy-tutorial pointer, no CLAUDE.md reference; 'Running it' is honest about the absence of a paved path.
 - **Failure mode — residual Termix-era content in adjacent files** — present · readme/ folder (14 files) deleted; CONTRIBUTING, CODE_OF_CONDUCT, RELEASE_NOTES, SECURITY deleted; TESTING.md retained and is current Skynet-native content, not Termix drift.
 - **Failure mode — reads as if only for coding agents** — present · Framed as an agent chat app / workspace for a fleet of AI agents; coding is not the headline.
