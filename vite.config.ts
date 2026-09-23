@@ -1,5 +1,6 @@
 import path from "path";
 import fs from "fs";
+import { execSync } from "node:child_process";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -70,12 +71,38 @@ function getManualChunk(id: string): string | undefined {
   return undefined;
 }
 
+// Phase 111 SKEW-01: compute a byte-stable build-id at Vite config eval time
+// and bake it into every bundle via the `define` block below. Priority chain:
+//   1. `VITE_BUILD_ID` env — Dockerfile sets this from the `SKYNET_BUILD_SHA`
+//      ARG (docker/Dockerfile frontend-builder stage). Ship-runbook motion.
+//   2. `git rev-parse --short=12 HEAD` — local dev path when running
+//      `npm run build` or `npm run dev` from a checkout with `.git/` reachable.
+//   3. `dev-<epoch-base36>` — last-resort fallback (no git, no env). Produces
+//      a unique-per-invocation string so dev rebuilds still trip the drift
+//      lock against a running server rather than sharing a stale tag.
+// The client-side getter (`src/ui/lib/client-build-id.ts`) reads the
+// substituted `import.meta.env.VITE_BUILD_ID` literal AND falls back to
+// `"dev-unknown"` if the substitution didn't fire (e.g. under vitest jsdom).
+const buildId: string =
+  process.env.VITE_BUILD_ID ||
+  (() => {
+    try {
+      return execSync("git rev-parse --short=12 HEAD", {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    } catch {
+      return "dev-" + Date.now().toString(36);
+    }
+  })();
+
 export default defineConfig({
   plugins: [react(), tailwindcss(), svgr()],
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(
       packageJson.version || "0.0.0",
     ),
+    "import.meta.env.VITE_BUILD_ID": JSON.stringify(buildId),
   },
   resolve: {
     alias: {

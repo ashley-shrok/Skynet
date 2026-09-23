@@ -1,4 +1,5 @@
 import { authApi, handleApiError } from "@/main-axios";
+import { stampedFetch } from "@/lib/stamped-fetch";
 
 export const SAMPLE_PHRASE = "Hi, this is your voice.";
 
@@ -43,7 +44,10 @@ export async function postSpeakStream(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
 
-  return fetch("/voice/speak-stream", {
+  // Phase 111 SKEW-04: stamped-fetch lane. stampedFetch preserves the
+  // Authorization header we set above AND adds X-Skynet-Client-Build.
+  // Streaming semantics preserved — response.body remains a ReadableStream.
+  return stampedFetch("/voice/speak-stream", {
     method: "POST",
     headers,
     body: JSON.stringify(body),

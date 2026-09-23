@@ -9,7 +9,18 @@
  *
  * Callers construct payloads directly and `switch (event.type)` on
  * incoming frames — no runtime discriminator helper is exported.
+ *
+ * Phase 111 SKEW-09 (Plan 06): the WS URL grows a `?build=<CLIENT_BUILD_ID>`
+ * query param at construction time so the backend handshake gate (Plan 05
+ * Task 2) can refuse mismatched clients with a distinguishable 4409 close
+ * code. Shared close/message detection listeners are attached via
+ * `addEventListener` (which coexists with per-caller `.onclose`/`.onmessage`
+ * assignments) so every consumer of this helper benefits from drift
+ * detection without touching each caller site individually.
  */
+
+import { CLIENT_BUILD_ID } from "@/lib/client-build-id";
+import { lockSkewedSession } from "@/state/skew-lock-store";
 
 export function openClaudeSessionSocket(): WebSocket {
   const scheme =
@@ -18,8 +29,90 @@ export function openClaudeSessionSocket(): WebSocket {
       : "ws:";
   const host =
     typeof window !== "undefined" ? window.location.host : "localhost";
-  const url = `${scheme}//${host}/claude-session/websocket/`;
-  return new WebSocket(url);
+  // Phase 111 SKEW-09: handshake stamp for D-08 refusal on mismatch.
+  const url = `${scheme}//${host}/claude-session/websocket/?build=${encodeURIComponent(CLIENT_BUILD_ID)}`;
+  const ws = new WebSocket(url);
+  attachSkewLockListeners(ws, "claude-session");
+  return ws;
+}
+
+/**
+ * Phase 111 SKEW-09 (D-08 + D-09): attach shared drift-detection listeners.
+ *
+ * Uses `addEventListener` (not `.onclose = ...`) so caller-owned
+ * `.onclose`/`.onmessage` assignments continue to fire per DOM spec —
+ * both handlers are invoked for each event, in registration order.
+ *
+ * D-08 close-code lane: `event.code === 4409` means the backend's handshake
+ * gate refused this connection because our `CLIENT_BUILD_ID` no longer
+ * matches the server's build. Fire `lockSkewedSession` and let the
+ * SkewLockModal take over. `return` in the caller's own onclose handler
+ * would still let its reconnect logic run — but the skew-lock store is
+ * idempotent, so a second call is a no-op, and the modal freezes the app
+ * before a reconnect can complete.
+ *
+ * D-09 per-message lane: the backend piggybacks `build: <SERVER_BUILD_ID>`
+ * on every outbound JSON envelope (Plan 05 Task 3 via `ws.send` monkey-
+ * patch). If `parsed.build` is a string that differs from CLIENT_BUILD_ID,
+ * the running bundle is stale — fire the lock. The typeof check makes
+ * this a no-op for frames without the field (backward compat during
+ * rollout) and for non-JSON binary frames.
+ *
+ * Structured logging: explicit-field extraction on CloseEvent per the
+ * role-file directive (Pitfall 5 — never serialize the raw DOM CloseEvent,
+ * circular refs + non-enumerable properties).
+ */
+function attachSkewLockListeners(ws: WebSocket, endpoint: string): void {
+  // Test-mock compatibility: many pre-existing test files stub WebSocket with
+  // an object exposing only `.onmessage`/`.onclose`/`.onopen` setters, not the
+  // DOM `addEventListener` API. Real browser WebSockets always have it; tests
+  // that don't need drift-detection can skip these listeners safely.
+  if (typeof ws.addEventListener !== "function") return;
+  ws.addEventListener("close", (event) => {
+    const isSkew = event.code === 4409;
+    console.info("[skew-lock] ws closed", {
+      operation: "ws_closed",
+      code: event.code,
+      reason: event.reason,
+      wasClean: event.wasClean,
+      isSkew,
+      endpoint,
+    });
+    if (isSkew) {
+      lockSkewedSession({
+        reason: "ws_handshake_mismatch",
+        clientBuild: CLIENT_BUILD_ID,
+        // Server closes before revealing its build over the wire — store
+        // handles unknown-server-build gracefully.
+        serverBuild: event.reason || "unknown",
+      });
+    }
+  });
+
+  ws.addEventListener("message", (event) => {
+    // Only inspect string frames — binary frames (Blob/ArrayBuffer) cannot
+    // carry a JSON envelope with `build` field.
+    if (typeof event.data !== "string") return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(event.data);
+    } catch {
+      return; // malformed — caller's handler will deal with it
+    }
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      "build" in parsed &&
+      typeof (parsed as { build: unknown }).build === "string" &&
+      (parsed as { build: string }).build !== CLIENT_BUILD_ID
+    ) {
+      lockSkewedSession({
+        reason: "ws_message_tag_mismatch",
+        clientBuild: CLIENT_BUILD_ID,
+        serverBuild: (parsed as { build: string }).build,
+      });
+    }
+  });
 }
 
 export type SessionMetaEvent = {

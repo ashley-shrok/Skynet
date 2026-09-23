@@ -87,6 +87,16 @@ import {
 import { dbHealthMonitor } from "@/lib/db-health-monitor";
 import { apiLogger } from "@/lib/frontend-logger";
 
+// Phase 111 SKEW-04/SKEW-06: skew-lock store + client build-id imports for
+// the new interceptor-behavior tests appended below. The store is real (not
+// mocked) — the tests exercise the actual state transition via
+// getSkewLockedSnapshot() and reset between tests with __resetForTest().
+import { CLIENT_BUILD_ID } from "@/lib/client-build-id";
+import {
+  __resetForTest as __resetSkewLockForTest,
+  getSkewLockedSnapshot,
+} from "@/state/skew-lock-store";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SECTION 1: computeBackoffMs (full-jitter shape)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -603,5 +613,144 @@ describe("retry interceptor integration", () => {
     const exhaustedContext = exhaustedLog![1] as Record<string, unknown>;
     expect(exhaustedContext.attempts).toBe(3);
     expect(exhaustedContext).toHaveProperty("finalErrorCode");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 4: SKEW-04 request stamping + SKEW-06 response drift detection
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Phase 111 Plan 04. Tests the two new interceptor behaviors added inside
+// `createApiInstance`:
+//
+//   - Request interceptor: stamps `X-Skynet-Client-Build: <CLIENT_BUILD_ID>`
+//     on every outgoing request (covers all 8 axios instances via the shared
+//     factory).
+//
+//   - Response interceptor: fires `lockSkewedSession(...)` on either drift
+//     signal:
+//       (a) successful response carrying `x-skynet-server-build` != CLIENT_BUILD_ID
+//           → reason "response_tag_mismatch" (SKEW-06a).
+//       (b) 409 error with `{error: "stale_client", ...}` body
+//           → reason "server_refused_stale_client" (SKEW-06b).
+//
+// The store is the REAL store (not mocked). Each test resets via
+// __resetForTest() so state is hermetic between cases. Uses
+// getSkewLockedSnapshot() to observe the transition.
+
+describe("SKEW-04 request stamping + SKEW-06 response drift detection", () => {
+  let mock: MockAdapter;
+  let instance: ReturnType<typeof axios.create>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetSkewLockForTest();
+    instance = createApiInstance("http://test.local", "TEST");
+    mock = new MockAdapter(instance, { onNoMatch: "throwException" });
+  });
+
+  afterEach(() => {
+    mock?.restore();
+    __resetSkewLockForTest();
+    vi.useRealTimers();
+  });
+
+  it("Test 1: request carries X-Skynet-Client-Build header equal to CLIENT_BUILD_ID", async () => {
+    mock.onGet("/x").reply(200, {});
+
+    await instance.get("/x");
+
+    expect(mock.history.get.length).toBe(1);
+    const req = mock.history.get[0];
+    // axios-mock-adapter preserves headers as AxiosHeaders when config.headers.set exists.
+    const headerVal =
+      typeof req.headers?.get === "function"
+        ? req.headers.get("X-Skynet-Client-Build")
+        : (req.headers as Record<string, string>)?.["X-Skynet-Client-Build"];
+    expect(headerVal).toBe(CLIENT_BUILD_ID);
+  });
+
+  it("Test 2: mismatched x-skynet-server-build on 200 → store transitions to locked with response_tag_mismatch", async () => {
+    mock
+      .onGet("/y")
+      .reply(200, {}, { "x-skynet-server-build": "some-other-build" });
+
+    const response = await instance.get("/y");
+    expect(response.status).toBe(200);
+
+    const snap = getSkewLockedSnapshot();
+    expect(snap.locked).toBe(true);
+    expect(snap.reason).toBe("response_tag_mismatch");
+    expect(snap.clientBuild).toBe(CLIENT_BUILD_ID);
+    expect(snap.serverBuild).toBe("some-other-build");
+  });
+
+  it("Test 3: matching x-skynet-server-build on 200 → store NOT locked", async () => {
+    mock
+      .onGet("/z")
+      .reply(200, {}, { "x-skynet-server-build": CLIENT_BUILD_ID });
+
+    const response = await instance.get("/z");
+    expect(response.status).toBe(200);
+
+    expect(getSkewLockedSnapshot().locked).toBe(false);
+  });
+
+  it("Test 4: 409 stale_client body → axios REJECTS + store locked with server_refused_stale_client", async () => {
+    mock.onGet("/w").reply(
+      409,
+      {
+        error: "stale_client",
+        clientBuild: CLIENT_BUILD_ID,
+        serverBuild: "different",
+      },
+      { "x-skynet-server-build": "different" },
+    );
+
+    await expect(instance.get("/w")).rejects.toBeDefined();
+
+    const snap = getSkewLockedSnapshot();
+    expect(snap.locked).toBe(true);
+    expect(snap.reason).toBe("server_refused_stale_client");
+    expect(snap.clientBuild).toBe(CLIENT_BUILD_ID);
+    expect(snap.serverBuild).toBe("different");
+  });
+
+  it("Test 5: 409 without stale_client body → axios rejects, store NOT locked", async () => {
+    mock.onGet("/v").reply(409, { error: "some_other_conflict" });
+
+    await expect(instance.get("/v")).rejects.toBeDefined();
+
+    expect(getSkewLockedSnapshot().locked).toBe(false);
+  });
+
+  it("Test 6: two consecutive drift responses → store notifies subscribers only once (idempotent)", async () => {
+    mock
+      .onGet("/y")
+      .reply(200, {}, { "x-skynet-server-build": "some-other-build" });
+
+    // Fire two requests that both would trigger drift detection.
+    await instance.get("/y");
+    await instance.get("/y");
+
+    const snap = getSkewLockedSnapshot();
+    expect(snap.locked).toBe(true);
+    // First-drift-wins: reason and serverBuild reflect the first signal only.
+    expect(snap.reason).toBe("response_tag_mismatch");
+    expect(snap.serverBuild).toBe("some-other-build");
+  });
+
+  it("Test 7: existing behaviors unaffected — 401 SESSION_EXPIRED fires reportSessionExpired without triggering the lock", async () => {
+    mock.onGet("/protected").reply(401, {
+      code: "SESSION_EXPIRED",
+      error: "Session has expired",
+    });
+
+    await expect(instance.get("/protected")).rejects.toBeDefined();
+
+    // Legacy 401 handler still fired.
+    expect(dbHealthMonitor.reportSessionExpired).toHaveBeenCalledTimes(1);
+    // Skew lock NOT activated by a 401.
+    expect(getSkewLockedSnapshot().locked).toBe(false);
   });
 });

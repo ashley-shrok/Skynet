@@ -33,6 +33,11 @@ import {
   queryPaneCurrentCommand,
 } from "./tmux-helper.js";
 import { MemoryAgent, performPortKnocking } from "./terminal-auth-helpers.js";
+// Phase 111 SKEW-07: WS handshake gate — shared helper + server build-id
+// getter (module-load capture per D-16). SERVER_BUILD_ID is read once at
+// module load below; the gate runs before any JWT auth work.
+import { extractSkewTag } from "../utils/skew-tag.js";
+import { getServerBuildId } from "../config/server-build-id.js";
 
 interface ConnectToHostData {
   cols: number;
@@ -117,9 +122,14 @@ const shellQuote = (s: string): string =>
 
 const userConnections = new Map<string, Set<WebSocket>>();
 
+// Phase 111 SKEW-07: module-load capture of the server build id — parallel
+// to D-16 read-once contract. Used by the handshake gate below (Task 2) and
+// by sendFrame's outbound piggyback (Task 3).
+const SERVER_BUILD_ID = getServerBuildId();
+
 const wss = new WebSocketServer({
   port: 30002,
-  // Phase 103 D-08: reject WS upgrades from *.serve.<domain> origins at
+  // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins at
   // the handshake layer — WS doesn't do CORS preflight, so this is the WS
   // complement to Plan 02's cors-config.ts reject. No WS ever opens for a
   // rejected origin; existing JWT gate below still applies to accepted ones.
@@ -137,6 +147,56 @@ const wss = new WebSocketServer({
 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
+  // Phase 111 SKEW-07: WS handshake gate. Version tag arrives as `?build=<sha>`
+  // query param on the upgrade URL. Absence AND mismatch both close with 4409
+  // (unlike HTTP lane's D-06 mismatch-only — browsers are the only legit WS
+  // clients, so absence is inherently suspicious for WS).
+  const clientBuild = extractSkewTag(req);
+  if (!clientBuild || clientBuild !== SERVER_BUILD_ID) {
+    ws.close(4409, "stale_client");
+    return;
+  }
+
+  // Phase 111 SKEW-08: sendFrame wraps ws.send with build-id piggyback.
+  // D-09: every outbound JSON-envelope message from server → client
+  // carries `build:<sha>`. Client's onmessage handler checks parsed.build
+  // vs its baked-in CLIENT_BUILD_ID and fires lockSkewedSession on
+  // mismatch.
+  //
+  // Implementation: rather than rewrite ~60 existing ws.send(JSON.stringify(...))
+  // call sites individually, we monkey-patch ws.send at connection scope.
+  // Every outbound string that parses as a JSON object gets a `build` field
+  // injected top-level; anything else (binary/non-JSON) passes through
+  // untouched. sendFrame is also exposed as the canonical helper for
+  // future callers.
+  const originalSend = ws.send.bind(ws);
+  const sendFrame = (frame: object): void => {
+    try {
+      originalSend(JSON.stringify({ ...frame, build: SERVER_BUILD_ID }));
+    } catch {
+      /* ws mid-close — swallow silently, matches pre-existing send patterns */
+    }
+  };
+  const patchedSend = function (this: WebSocket, data: unknown, ...rest: unknown[]): void {
+    if (typeof data === "string" && data.length > 0 && data.charCodeAt(0) === 123 /* { */) {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          originalSend(
+            JSON.stringify({ ...parsed, build: SERVER_BUILD_ID }),
+            ...(rest as []),
+          );
+          return;
+        }
+      } catch {
+        /* not a JSON object envelope — fall through to raw send */
+      }
+    }
+    originalSend(data as never, ...(rest as []));
+  };
+  (ws as unknown as { send: typeof patchedSend }).send = patchedSend;
+  void sendFrame; // reserved for future direct callers; keeps helper live
+
   let userId: string | undefined;
   let sessionId: string | undefined;
 

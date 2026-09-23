@@ -19,6 +19,8 @@
  * is called. Call it once at the top of main.tsx, before snapshotPendingTab().
  */
 
+import { stampedFetch } from "./stamped-fetch";
+
 // --- types ---
 
 type LogLevel = "log" | "info" | "warn" | "error";
@@ -91,7 +93,8 @@ function flushFetch(): void {
   if (buffer.length === 0) return;
 
   const entries = buffer.splice(0);
-  fetch("/debug/console-log", {
+  // Phase 111 SKEW-04: stamped-fetch lane (debug beacon).
+  stampedFetch("/debug/console-log", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },

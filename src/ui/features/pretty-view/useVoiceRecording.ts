@@ -52,6 +52,7 @@ import startUrl from "../../assets/sounds/mic/start.mp3?url";
 import stopUrl from "../../assets/sounds/mic/stop.mp3?url";
 import cancelUrl from "../../assets/sounds/mic/cancel.mp3?url";
 import errorUrl from "../../assets/sounds/mic/error.mp3?url";
+import { stampedFetch } from "@/lib/stamped-fetch";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -293,7 +294,8 @@ export function useVoiceRecording(
 
     let res: Response;
     try {
-      res = await fetch(TRANSCRIBE_URL, { method: "POST", body: fd });
+      // Phase 111 SKEW-04: stamped-fetch lane (STT upload).
+      res = await stampedFetch(TRANSCRIBE_URL, { method: "POST", body: fd });
     } catch (err) {
       const errName = err instanceof Error ? err.name : "unknown";
       const errMessage = err instanceof Error ? err.message : String(err);

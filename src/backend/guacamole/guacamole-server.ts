@@ -2,8 +2,24 @@ import GuacamoleLite from "guacamole-lite";
 import { guacLogger } from "../utils/logger.js";
 import { GuacamoleTokenService } from "./token-service.js";
 import { getDb } from "../database/db/index.js";
+// Phase 111 SKEW-10: build-id check at token-decrypt time. Guacamole's
+// third-party wire format (per-frame text protocol) makes per-message
+// piggyback impossible (Pitfall 1) — the encrypted token payload's
+// buildId is the ONLY drift enforcement point. Refusal here happens
+// BEFORE any guacd tunnel is spun up.
+import { getServerBuildId } from "../config/server-build-id.js";
 
 const tokenService = GuacamoleTokenService.getInstance();
+
+// Phase 111 SKEW-10: module-load capture of the server build id — parallel
+// to D-16 read-once contract. Used by processConnectionSettings callback
+// below to compare against decryptedToken.buildId.
+const SERVER_BUILD_ID = getServerBuildId();
+
+// Phase 111 SKEW-10: distinguishable prefix so the client-side guacamole-lite
+// JS can distinguish drift-refusal from takeover-refusal (SKYNET_SUPERSEDED)
+// or generic errors. Mirrors the takeover-marker pattern at L178.
+const STALE_CLIENT_MARKER = "SKYNET_STALE_CLIENT:";
 
 function parseGuacUrl(url: string): { host: string; port: number } {
   const parts = url.split(":");
@@ -117,6 +133,9 @@ type WsLike = {
   ping: () => void;
   terminate: () => void;
   on: (event: string, listener: () => void) => void;
+  // Phase 111 SKEW-10: needed to close with 4409 (stale_client) on the
+  // drift-refusal path, consistent with the other 4 WS servers.
+  close?: (code?: number, reason?: string) => void;
 };
 
 function installWsHeartbeat(ws: WsLike): void {
@@ -166,9 +185,13 @@ type TrackableConn = {
   // the TOP LEVEL of the token to survive — see token-service.ts. The protocol
   // type is captured earlier by guacamole-lite into `connectionSelector`
   // (ClientConnection.js line 42), so we read type from there.
+  //
+  // Phase 111 SKEW-10: buildId is a Phase-111 addition; also lives at the
+  // top level of the token so it survives the mergeConnectionOptions pass.
   connectionSettings?: {
     userId?: string;
     hostId?: number;
+    buildId?: string;
   };
   connectionSelector?: string;
   webSocket?: WsLike;
@@ -200,6 +223,54 @@ function createGuacServer(): GuacamoleLite {
   );
 
   server.on("open", (clientConnection: TrackableConn) => {
+    // Phase 111 SKEW-10: stale-client refusal at the earliest guacamole-lite
+    // hook that exposes both `sendErrorToClient` and `connectionSettings` on
+    // the ClientConnection. Guacamole's third-party wire format (per-frame
+    // text protocol) makes per-message piggyback impossible (Pitfall 1) —
+    // the buildId inside the encrypted token payload is the ONLY enforcement
+    // point. Mirrors the takeover-error pattern below (SKYNET_SUPERSEDED:)
+    // with a distinguishable prefix (SKYNET_STALE_CLIENT:) so the client-side
+    // guacamole-lite JS can tell drift-refusal apart from takeover-refusal
+    // and from ordinary CONNECTION_ERROR closes.
+    //
+    // Note: guacamole-lite's own architecture emits 'open' AFTER guacd has
+    // finished its initial handshake — a stale-client's guacd tunnel is
+    // therefore contacted briefly before this refusal fires and tears it
+    // down. This is a known guacamole-lite limitation; the drift refusal
+    // still succeeds because the tunnel is immediately closed and the
+    // client-side never gets a usable session. Cost at deploy-drift time
+    // is a few dozen ms of guacd worker time per stale client — acceptable.
+    const tokenBuildId = clientConnection.connectionSettings?.buildId;
+    if (tokenBuildId !== SERVER_BUILD_ID) {
+      guacLogger.warn("Guacamole stale-client refused", {
+        operation: "guac_stale_client_refused",
+        serverBuild: SERVER_BUILD_ID,
+        hasTokenBuildId: tokenBuildId !== undefined,
+        type: clientConnection.connectionSelector,
+      });
+      try {
+        clientConnection.sendErrorToClient?.(
+          `${STALE_CLIENT_MARKER}${SERVER_BUILD_ID}`,
+          "STALE_CLIENT",
+        );
+      } catch {
+        // best-effort — matches the takeover-error path below
+      }
+      // Close the underlying WebSocket with 4409 stale_client so the
+      // client sees the same close code family as the other 4 WS servers.
+      try {
+        clientConnection.webSocket?.close?.(4409, "stale_client");
+      } catch {
+        // best-effort
+      }
+      try {
+        clientConnection.close?.();
+      } catch {
+        // best-effort
+      }
+      return;
+    }
+
     guacLogger.info("Guacamole connection opened", {
       operation: "guac_connection_open",
       type: clientConnection.connectionSelector,

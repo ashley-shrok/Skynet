@@ -30,6 +30,7 @@
 //     whether the fetch resolves, rejects, or hangs.
 
 import { publishBrandingConfig, type BrandingConfig } from "./branding-store";
+import { stampedFetch } from "@/lib/stamped-fetch";
 
 // ─── Defensive shape guard ───────────────────────────────────────────────────
 //
@@ -74,7 +75,11 @@ function isBrandingConfig(v: unknown): v is BrandingConfig {
  */
 export async function fetchBrandingConfig(): Promise<void> {
   try {
-    const res = await fetch("/api/branding");
+    // Phase 111 SKEW-04: stamped-fetch lane. Pitfall 6 — this call fires
+    // BEFORE the axios instances finish initializing on cold boot; using
+    // stampedFetch guarantees the client-build header lands on the very
+    // first tab request, avoiding a false-positive drift lock on cold boot.
+    const res = await stampedFetch("/api/branding");
     if (!res.ok) return; // non-2xx: retain bundled defaults, do not clear
     const json = (await res.json()) as unknown;
     if (!isBrandingConfig(json)) return; // unexpected shape: retain defaults

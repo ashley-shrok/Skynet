@@ -1,4 +1,5 @@
 import { authApi, handleApiError } from "@/main-axios";
+import { stampedFetch } from "@/lib/stamped-fetch";
 
 export interface MessageQueueItem {
   id: string;
@@ -73,7 +74,8 @@ export function flushMessageQueueItemKeepalive(id: string, body: string): void {
   try {
     const base = authApi.defaults.baseURL ?? "";
     const url = `${base}/message-queue/${id}`;
-    fetch(url, {
+    // Phase 111 SKEW-04: stamped-fetch lane (keepalive beacon).
+    stampedFetch(url, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ body }),
@@ -95,7 +97,8 @@ export function deleteMessageQueueItemKeepalive(id: string): void {
   try {
     const base = authApi.defaults.baseURL ?? "";
     const url = `${base}/message-queue/${id}`;
-    fetch(url, {
+    // Phase 111 SKEW-04: stamped-fetch lane (keepalive beacon).
+    stampedFetch(url, {
       method: "DELETE",
       credentials: "include",
       keepalive: true,

@@ -411,6 +411,10 @@ export function CreateRoleDialog({
     // Generated candidate path — fetch bytes and re-package.
     const picked = candidates.find((c) => c.id === pickedCandidateId);
     if (!picked) return null;
+    // Phase 111 SKEW-04: SKIPPED (external URL — pravatar/gravatar avatar
+    // candidate). We do NOT wrap this with stampedFetch because
+    // X-Skynet-Client-Build would leak to a third-party server and it's
+    // not our origin anyway. Keep raw fetch().
     const res = await fetch(picked.url);
     if (!res.ok) {
       throw new Error(
@@ -495,7 +499,7 @@ export function CreateRoleDialog({
     defaultValue: "Name",
   });
   const namePlaceholder = t("nav.createRoleNamePlaceholder", {
-    defaultValue: "Meal Planner",
+    defaultValue: "Box Maintainer",
   });
   const nameErrorText = t("nav.createRoleNameError", {
     defaultValue: "Name must contain at least one letter or number",
@@ -506,6 +510,7 @@ export function CreateRoleDialog({
   const descriptionPlaceholder = t("nav.createRoleDescriptionPlaceholder", {
     defaultValue: "What is this role responsible for?",
   });
+  const cancelLabel = t("common.cancel", { defaultValue: "Cancel" });
   const openLabel = t("common.create", { defaultValue: "Create" });
   const emptyHostsLabel = t("nav.newSessionNoHosts", {
     defaultValue: "No hosts available",
@@ -808,6 +813,14 @@ export function CreateRoleDialog({
         </div>
 
         <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            disabled={submitting}
+            className="text-xs"
+          >
+            {cancelLabel}
+          </Button>
           <Button
             onClick={handleSubmit}
             disabled={!canOpen}

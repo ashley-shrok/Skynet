@@ -1,5 +1,6 @@
 import axios from "axios";
 import { authApi, handleApiError, tunnelApi } from "@/main-axios";
+import { CLIENT_BUILD_ID } from "@/lib/client-build-id";
 import type {
   C2STunnelPreset,
   TunnelConfig,
@@ -26,7 +27,14 @@ export function subscribeTunnelStatuses(
   onError?: () => void,
 ): () => void {
   const baseURL = (tunnelApi.defaults.baseURL || "").replace(/\/$/, "");
-  const source = new EventSource(`${baseURL}/tunnel/status/stream`, {
+  // EventSource has no way to set request headers, so the skew-lock tag
+  // travels as a `build` query param — the middleware accepts either lane
+  // (header OR query). Without this, an SSE-only tab could stay silently
+  // stale (Phase 111 § "no in-between state").
+  const streamUrl = `${baseURL}/tunnel/status/stream?build=${encodeURIComponent(
+    CLIENT_BUILD_ID,
+  )}`;
+  const source = new EventSource(streamUrl, {
     withCredentials: true,
   });
 

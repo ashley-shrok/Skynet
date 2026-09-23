@@ -77,6 +77,12 @@ import {
 } from "@/features/keyboard/inputAdapter.ts";
 import { useIsMobile } from "@/hooks/use-mobile.ts";
 import { createLogDedup } from "@/lib/log-dedup";
+// Phase 111 SKEW-09: version-drift detection on this WS lane.
+import { CLIENT_BUILD_ID } from "@/lib/client-build-id";
+import {
+  lockSkewedSession,
+  getSkewLockedSnapshot,
+} from "@/state/skew-lock-store";
 
 // Phase 31 Plan 02: dedup instances for hot-path ref transitions.
 // visibilityDedup — isVisibleRef flap is the confirmed hot path (D-17 opt-in).
@@ -1295,6 +1301,22 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         baseWsUrl = `${getBasePath()}/ssh/websocket/`;
       }
 
+      // Phase 111 SKEW-09 (D-08): stamp handshake with CLIENT_BUILD_ID so
+      // backend terminal.ts handshake gate can refuse mismatched clients
+      // with 4409. Preserve existing `?token=...` (Electron embedded/served)
+      // by picking `?` vs `&` correctly.
+      baseWsUrl += baseWsUrl.includes("?")
+        ? `&build=${encodeURIComponent(CLIENT_BUILD_ID)}`
+        : `?build=${encodeURIComponent(CLIENT_BUILD_ID)}`;
+
+      // Phase 111 SKEW-09: don't open a new WS if the shell has already
+      // been skew-locked by another lane — the tab is about to reload.
+      if (getSkewLockedSnapshot().locked) {
+        setIsConnecting(false);
+        isConnectingRef.current = false;
+        return;
+      }
+
       if (
         webSocketRef.current &&
         webSocketRef.current.readyState !== WebSocket.CLOSED
@@ -1464,6 +1486,25 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         }
         try {
           const msg = JSON.parse(event.data);
+          // Phase 111 SKEW-09 (D-09 idle-tab lane): per-message drift detection.
+          // Backend terminal.ts monkey-patches ws.send to piggyback
+          // `build: <SERVER_BUILD_ID>` on every JSON envelope (Plan 05 Task 3).
+          // Mismatched build => bundle is stale => fire the shell-level lock
+          // and drop the frame. Backward compat: frames without `build` are
+          // no-ops (typeof check short-circuits).
+          if (
+            msg &&
+            typeof msg === "object" &&
+            typeof msg.build === "string" &&
+            msg.build !== CLIENT_BUILD_ID
+          ) {
+            lockSkewedSession({
+              reason: "ws_message_tag_mismatch",
+              clientBuild: CLIENT_BUILD_ID,
+              serverBuild: msg.build,
+            });
+            return; // drop frame — session is skew-locked
+          }
           // [ws-msg] dispatch — one line per frame, dedup-collapsed for hot types (D-13/D-17)
           const wsMsgKey = `[ws-msg] received type=${msg.type}`;
           const wsMsgLine = `[ws-msg] received type=${msg.type} hostId=${hostConfig.id ?? 'null'} sessionId=${tmuxSessionNameRef.current ?? 'null'} readyState=${ws.readyState}`;
@@ -2151,6 +2192,32 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       ws.addEventListener("close", (event) => {
         if (currentAttemptId !== connectionAttemptIdRef.current) {
+          return;
+        }
+
+        // Phase 111 SKEW-09 (D-08): distinguishable close code = version drift.
+        // Structured field extraction — never serialize the raw DOM CloseEvent
+        // (circular refs; role-file directive + Pitfall 5).
+        const isSkew = event.code === 4409;
+        console.info("[skew-lock] ws closed", {
+          operation: "ws_closed",
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          isSkew,
+          endpoint: "terminal",
+        });
+        if (isSkew) {
+          lockSkewedSession({
+            reason: "ws_handshake_mismatch",
+            clientBuild: CLIENT_BUILD_ID,
+            serverBuild: event.reason || "unknown",
+          });
+          // Halt: prevent existing reconnect-backoff logic from firing.
+          shouldNotReconnectRef.current = true;
+          setIsConnected(false);
+          setIsConnecting(false);
+          isConnectingRef.current = false;
           return;
         }
 

@@ -18,6 +18,13 @@ import { makeGuacamoleAdapter } from "@/features/keyboard/guacamoleAdapter.ts";
 import { Button } from "@/components/button.tsx";
 import { SimpleLoader } from "@/lib/SimpleLoader.tsx";
 import type { SSHHost } from "@/types";
+// Phase 111 SKEW-10: guacamole client-side drift detection. The backend
+// (Plan 05 Task 4) emits a `SKYNET_STALE_CLIENT:<serverBuild>` guacamole
+// error instruction from server.on("open") when the encrypted token's
+// buildId does not match SERVER_BUILD_ID. We mirror the takeover-pattern
+// (SKYNET_SUPERSEDED:) below and fire the shell-level lock on detection.
+import { CLIENT_BUILD_ID } from "@/lib/client-build-id";
+import { lockSkewedSession } from "@/state/skew-lock-store";
 
 interface GuacamoleAppProps {
   hostId?: string;
@@ -34,6 +41,14 @@ interface GuacamoleAppProps {
 // single-Reconnect "connection failed" copy to the friendlier
 // Reconnect + Close Tab pair with "taken over by another window" text.
 const TAKEOVER_MARKER = "SKYNET_SUPERSEDED:";
+
+// Phase 111 SKEW-10: server-side marker prefix on the guacamole error
+// instruction emitted when the encrypted token's buildId did not match
+// SERVER_BUILD_ID (Plan 05 Task 4). Distinct from TAKEOVER_MARKER — this
+// one triggers the shell-level skew lock (framework-owned SkewLockModal),
+// not the per-pane overlay. The suffix after the colon is the server's
+// build SHA, useful for the lock's diagnostic fields.
+const STALE_CLIENT_MARKER = "SKYNET_STALE_CLIENT:";
 
 const GuacamoleApp: React.FC<GuacamoleAppProps> = ({
   hostId,
@@ -291,6 +306,23 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
         }}
         isVisible={isVisible}
         onError={(err) => {
+          // Phase 111 SKEW-10: drift-refusal → shell-level lock, NOT
+          // per-pane connection overlay. Backend emitted this because our
+          // encrypted-token buildId != SERVER_BUILD_ID. Fire the lock and
+          // stop further protocol processing (no setConnectionError, no
+          // reconnect — the SkewLockModal will take over the viewport and
+          // window.location.reload() is the only path forward).
+          if (err.startsWith(STALE_CLIENT_MARKER)) {
+            const serverBuild = err.slice(STALE_CLIENT_MARKER.length) || "unknown";
+            lockSkewedSession({
+              reason: "ws_handshake_mismatch",
+              clientBuild: CLIENT_BUILD_ID,
+              serverBuild,
+            });
+            // Suppress the auto-reconnect that onDisconnect below would fire.
+            takenOverRef.current = true;
+            return;
+          }
           if (err.startsWith(TAKEOVER_MARKER)) takenOverRef.current = true;
           setConnectionError(err);
         }}

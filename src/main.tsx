@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import "./ui/i18n/i18n";
 import { isElectron } from "@/lib/electron";
 import { Toaster } from "@/components/sonner";
+import { SkewLockModal } from "@/features/skew-lock/SkewLockModal";
 import { Auth, getStoredAuth, clearStoredAuth } from "@/auth/Auth";
 import { validateReturnUrl, parseReturnFromSearch } from "@/auth/return-url";
 import { getUserInfo, getCurrentToken, appReadyPromise } from "@/main-axios";
@@ -54,9 +55,9 @@ console.info(`[pwa] boot ts=${Date.now()} ua="${navigator.userAgent.slice(0, 80)
 // Removable in ~5 min when the mitigation shape is chosen.
 startDiagEmitter();
 
-// Preserve ?tab=<spec> across the auth flow. Auth.tsx calls replaceState in
-// several branches that would otherwise strip the query string before
-// AppShell mounts.
+// Preserve ?tab=<spec> across the auth flow. Auth.tsx / LoginPage.tsx call
+// replaceState in several branches that would otherwise strip the query
+// string before AppShell mounts.
 snapshotPendingTab();
 console.info(`[pwa] snapshot-tab-restore result=no-pending`);
 
@@ -241,6 +242,7 @@ function App() {
       )}
 
       <Toaster position="bottom-right" />
+      <SkewLockModal />
     </>
   );
 }

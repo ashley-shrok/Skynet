@@ -2827,3 +2827,30 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 129-08-PLAN.md — Phase-wide gate: npm run build:backend + npm run build typecheck + phase-scoped vitest sweep across all 13 modified files + no-leak audit grep coverage matrix. Wave 4.
+
+### Phase 132: Frontend stale-prevention: version-drift hard-lock
+
+**Goal:** Guarantee that a user's Skynet browser tab is never running client-side code out of agreement with the server it's talking to. On any drift signal (mismatched HTTP response header, 409 stale_client refusal, WS handshake refusal, or per-message tag mismatch), the app hard-locks and surfaces a non-dismissible modal with a single Reload button. Combined with three-layer no-store discipline on `index.html`, reloading fetches a fresh shell and recovers the tab cleanly. Airtight-by-construction via a single edit to the axios factory (covers all 8 axios instances) + `stampedFetch` helper (13 raw-fetch sites) + one middleware in the Express bootstrap + one URL-query stamp per WS handshake.
+**Requirements**: SKEW-01, SKEW-02, SKEW-03, SKEW-04, SKEW-05, SKEW-06, SKEW-07, SKEW-08, SKEW-09, SKEW-10, SKEW-11, SKEW-12, SKEW-13, SKEW-14, SKEW-15
+**Depends on:** Phase 110
+**Plans:** 6/7 plans executed
+
+Plans:
+- [x] 132-01-PLAN.md — Build-ID emission (Vite define + Dockerfile ARG plumbing) + client/backend getter modules (SKEW-01)
+- [x] 132-02-PLAN.md — Skew-lock store + SkewLockModal component + reload-loop sentinel (SKEW-03, SKEW-11, SKEW-12)
+- [x] 132-03-PLAN.md — Backend Express middleware: response stamping + mismatch-only 409 refusal + startup boot log (SKEW-02, SKEW-05, SKEW-13)
+- [x] 132-04-PLAN.md — Client-side airtight stamping: axios interceptor covers 8 instances + stampedFetch helper for 13 raw-fetch sites + response drift detection (SKEW-04, SKEW-06)
+- [x] 132-05-PLAN.md — Backend WS integrations: handshake refusal on all 5 WS servers + per-message piggyback on 4 JSON servers + guacamole encrypted-token buildId enforcement (SKEW-07, SKEW-08, SKEW-10)
+- [x] 132-06-PLAN.md — Client WS integrations: URL-param stamping + 4409 close detection + per-message drift check on 4 client WS handlers + SKYNET_STALE_CLIENT: prefix detection for guacamole (SKEW-09, SKEW-10)
+- [ ] 132-07-PLAN.md — Cache-Control codification (Phase 132 cross-reference comments on nginx x2 + Express fallback) + assertion vitest + playwright drift-smoke spec (SKEW-14, SKEW-15)
+
+Wave structure:
+- Wave 0 (parallel): 132-01, 132-02 — foundations (build-id + store/modal). Zero networking; zero file overlap between the two plans.
+- Wave 1 (parallel): 132-03, 132-04, 132-05, 132-06 — all four wire into the foundations. Zero file overlap between them (backend middleware vs. backend WS servers vs. frontend interceptor vs. frontend WS handlers).
+- Wave 2 (single): 132-07 — codification comments + assertion test + end-to-end playwright spec, depends on 03-06 being present.
+
+Threat model highlights (STRIDE registers per plan):
+- T-132-SPOOF (hostile client suppresses X-Skynet-Client-Build to evade refusal): accepted per D-06 design (mismatch-only server enforcement; client-side interceptor guarantees the header on legitimate browsers; hostile clients are outside the trust boundary).
+- T-132-DoS reload-loop (Pitfall 4): mitigated by reload-loop sentinel in Plan 02 Task 2 (fatal-mode modal after 4 reloads within 60s).
+- Package-legitimacy gate: N/A this phase — zero new npm/pip/cargo packages.
+

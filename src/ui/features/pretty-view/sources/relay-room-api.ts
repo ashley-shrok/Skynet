@@ -37,7 +37,17 @@
  * `openClaudeSessionSocket` in `claude-session-api.ts` L14-23 with the URL
  * path swapped to `/relay-room/websocket/`. Same-origin — no query-string
  * JWT fallback (browsers send the HttpOnly cookie automatically).
+ *
+ * Phase 111 SKEW-09 (Plan 06): the WS URL grows a `?build=<CLIENT_BUILD_ID>`
+ * query param at construction time so the backend handshake gate (Plan 05
+ * Task 2 on relay-room-stream-server.ts) can refuse mismatched clients
+ * with a distinguishable 4409 close code. Shared close/message detection
+ * listeners are attached via `addEventListener` (which coexists with
+ * caller-owned `.onclose`/`.onmessage` in `use-relay-adapter.ts`).
  */
+import { CLIENT_BUILD_ID } from "@/lib/client-build-id";
+import { lockSkewedSession } from "@/state/skew-lock-store";
+
 export function openRelayRoomSocket(): WebSocket {
   const scheme =
     typeof window !== "undefined" && window.location.protocol === "https:"
@@ -45,8 +55,76 @@ export function openRelayRoomSocket(): WebSocket {
       : "ws:";
   const host =
     typeof window !== "undefined" ? window.location.host : "localhost";
-  const url = `${scheme}//${host}/relay-room/websocket/`;
-  return new WebSocket(url);
+  // Phase 111 SKEW-09: handshake stamp for D-08 refusal on mismatch.
+  const url = `${scheme}//${host}/relay-room/websocket/?build=${encodeURIComponent(CLIENT_BUILD_ID)}`;
+  const ws = new WebSocket(url);
+  attachRelayRoomSkewLockListeners(ws);
+  return ws;
+}
+
+/**
+ * Phase 111 SKEW-09 (D-08 + D-09): attach drift-detection listeners.
+ *
+ * `addEventListener` coexists with the caller's own `.onclose`/`.onmessage`
+ * assignments (use-relay-adapter.ts L458 + L616) — both fire per DOM spec.
+ *
+ * D-08 close-code lane: `event.code === 4409` = handshake refused because
+ * bundle is stale. Fires `lockSkewedSession`; the use-relay-adapter's own
+ * onclose still runs but its reconnect setTimeout callback re-checks the
+ * skew-lock snapshot before firing a fresh WS (see companion edit).
+ *
+ * D-09 per-message lane: backend piggybacks `build:` on every outbound
+ * envelope. Mismatch fires the lock.
+ *
+ * Structured logging: explicit-field extraction on CloseEvent per role-file
+ * directive (Pitfall 5).
+ */
+function attachRelayRoomSkewLockListeners(ws: WebSocket): void {
+  // Test-mock compatibility: pre-existing relay tests (PrettyView.relay-veil,
+  // use-relay-adapter) stub WebSocket with only `.onmessage`/`.onclose`
+  // setters. Real browsers always ship `addEventListener` on WebSocket.
+  if (typeof ws.addEventListener !== "function") return;
+  ws.addEventListener("close", (event) => {
+    const isSkew = event.code === 4409;
+    console.info("[skew-lock] ws closed", {
+      operation: "ws_closed",
+      code: event.code,
+      reason: event.reason,
+      wasClean: event.wasClean,
+      isSkew,
+      endpoint: "relay-room-stream",
+    });
+    if (isSkew) {
+      lockSkewedSession({
+        reason: "ws_handshake_mismatch",
+        clientBuild: CLIENT_BUILD_ID,
+        serverBuild: event.reason || "unknown",
+      });
+    }
+  });
+
+  ws.addEventListener("message", (event) => {
+    if (typeof event.data !== "string") return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      "build" in parsed &&
+      typeof (parsed as { build: unknown }).build === "string" &&
+      (parsed as { build: string }).build !== CLIENT_BUILD_ID
+    ) {
+      lockSkewedSession({
+        reason: "ws_message_tag_mismatch",
+        clientBuild: CLIENT_BUILD_ID,
+        serverBuild: (parsed as { build: string }).build,
+      });
+    }
+  });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

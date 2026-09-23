@@ -1,5 +1,11 @@
 import crypto from "crypto";
 import { guacLogger } from "../utils/logger.js";
+// Phase 111 SKEW-10: build id lives inside the encrypted token payload.
+// Guacamole's third-party wire format prevents per-frame stamping
+// (Pitfall 1), so the encrypted `buildId` is the ONLY drift-refusal
+// enforcement point — checked at decrypt time in guacamole-server.ts
+// BEFORE any guacd tunnel is spun up.
+import { getServerBuildId } from "../config/server-build-id.js";
 
 export interface GuacamoleConnectionSettings {
   type: "rdp" | "vnc" | "telnet";
@@ -36,6 +42,10 @@ export interface GuacamoleToken {
   // is a pass-through and never touches keys outside `.connection`.
   userId?: string;
   hostId?: number;
+  /** Phase 111 SKEW-10: server's build id at token-issue time. Checked at
+   *  token decrypt (see guacamole-server.ts) to refuse stale-client
+   *  connections BEFORE guacd is contacted. Non-secret (git short SHA). */
+  buildId?: string;
 }
 
 const CIPHER = "aes-256-cbc";
@@ -147,6 +157,8 @@ export class GuacamoleTokenService {
       ...(takeover
         ? { userId: takeover.userId, hostId: takeover.hostId }
         : {}),
+      // Phase 111 SKEW-10: encrypted-payload skew stamp.
+      buildId: getServerBuildId(),
     };
     return this.encryptToken(token);
   }
@@ -168,6 +180,8 @@ export class GuacamoleTokenService {
           ...options,
         },
       },
+      // Phase 111 SKEW-10: encrypted-payload skew stamp.
+      buildId: getServerBuildId(),
     };
     return this.encryptToken(token);
   }
@@ -189,6 +203,8 @@ export class GuacamoleTokenService {
           ...options,
         },
       },
+      // Phase 111 SKEW-10: encrypted-payload skew stamp.
+      buildId: getServerBuildId(),
     };
     return this.encryptToken(token);
   }

@@ -1,5 +1,15 @@
 import { authApi, handleApiError } from "@/main-axios";
 
+// Phase 111 SKEW-10: guacamole handshake stamp lives INSIDE the encrypted
+// token payload (buildId field, see backend token-service.ts populated by
+// Plan 05 Task 4). The WS URL itself does NOT carry ?build= because
+// guacamole-lite's client (used by GuacamoleDisplay.tsx) owns URL
+// construction from the opaque token blob — Pitfall 1 also forbids
+// per-frame stamping on the guac wire protocol. Handshake refusal from
+// the server surfaces via a SKYNET_STALE_CLIENT: guacamole error
+// instruction detected in GuacamoleApp.tsx's onError handler (mirroring
+// the existing SKYNET_SUPERSEDED: takeover pattern).
+
 export interface GuacamoleTokenRequest {
   protocol: "rdp" | "vnc" | "telnet";
   hostname: string;

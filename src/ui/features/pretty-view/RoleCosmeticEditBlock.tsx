@@ -254,6 +254,9 @@ export function RoleCosmeticEditBlock({
     // ship it in the eventual multipart save (mirrors CreateRoleDialog
     // resolveAvatarFile at L393-410).
     try {
+      // Phase 111 SKEW-04: SKIPPED (external URL — pravatar/gravatar avatar
+      // candidate). Do NOT wrap with stampedFetch — X-Skynet-Client-Build
+      // must not leak to third-party origins.
       const res = await fetch(candidate.url);
       if (!res.ok) {
         throw new Error(`Failed to fetch avatar candidate (HTTP ${res.status})`);

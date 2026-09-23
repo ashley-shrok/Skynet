@@ -21,18 +21,18 @@ RUN --mount=type=cache,target=/root/.npm npm ci && \
 FROM deps AS frontend-builder
 WORKDIR /app
 
+# Phase 111 SKEW-01: propagate the ship-runbook's SKYNET_BUILD_SHA into
+# the frontend-builder stage so `vite.config.ts` (which reads
+# process.env.VITE_BUILD_ID at config eval time) can bake the byte-stable
+# build-id into every bundle via its `define` block. ARG scope resets per
+# stage in Docker (Pitfall 3), so this declaration is stage-local and
+# MUST be repeated in every downstream stage that reads the value.
+ARG SKYNET_BUILD_SHA
+ENV VITE_BUILD_ID=${SKYNET_BUILD_SHA:-dev-unknown}
+
 COPY . .
 
 RUN find public/fonts -name "*.ttf" ! -name "*Regular.ttf" ! -name "*Bold.ttf" ! -name "*Italic.ttf" -delete
-
-# Per-deployment TTS playback-rate override. Vite reads `import.meta.env.VITE_*`
-# from process env at build time; ARG makes it a build-time input, ENV exposes
-# it to the `npm run build` RUN command below. Empty/unset => webAudioStreamPlayer
-# falls back to 1.0 (native rate). Set via `docker/docker-compose.yml`'s
-# `services.skynet.build.args`, sourced from the deployment's `.env` (e.g.
-# `/opt/skynet/.env`). t1000 runs at 1.25; T800 leaves it unset to keep 1.0.
-ARG VITE_TTS_PLAYBACK_RATE
-ENV VITE_TTS_PLAYBACK_RATE=$VITE_TTS_PLAYBACK_RATE
 
 RUN npm cache clean --force && \
     NODE_OPTIONS="--max-old-space-size=3072" npm run build
@@ -40,6 +40,14 @@ RUN npm cache clean --force && \
 # Stage 3: Build backend
 FROM deps AS backend-builder
 WORKDIR /app
+
+# Phase 111 SKEW-01: declare the ARG in the backend-builder stage too so
+# `--build-arg SKYNET_BUILD_SHA=...` propagates through this stage (ARG
+# scope resets per stage — Pitfall 3). The tsc compile itself does not
+# read the value, but re-declaring keeps the plumbing uniform and lets any
+# future stage-3 tooling read it without a surprise "unset" gap.
+ARG SKYNET_BUILD_SHA
+ENV VITE_BUILD_ID=${SKYNET_BUILD_SHA:-dev-unknown}
 
 COPY . .
 
@@ -69,31 +77,25 @@ RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev && \
 FROM node:22-slim
 WORKDIR /app
 
+# Phase 111 SKEW-01: this is where the running Node process reads
+# process.env.VITE_BUILD_ID at startup (src/backend/config/server-build-id.ts).
+# ARG scope resets per stage in Docker (Pitfall 3) — this declaration is
+# load-bearing; drop it and the runtime image will boot with an unset env
+# var → SERVER_BUILD_ID falls back to "dev-unknown" → every client sees
+# a mismatch → phase-wide reload-loop. See threat T-111-01.
+ARG SKYNET_BUILD_SHA
+
 ENV DATA_DIR=/app/data \
     PORT=8080 \
     NODE_ENV=production \
-    # Phase 117 M-K (2026-09-19): safe container default so every fleet
-    # subpath reader (getLocalIdentitiesRoot / getLocalRolesRoot /
-    # getLocalProjectsRoot) writes into the /host-home bind mount by
-    # default. Prevents the silent-ephemeral bug where projects (or any
-    # future fleet subpath) land in the container's writable layer and
-    # get destroyed on every `docker compose up --force-recreate`.
-    # Operator can still override via docker-compose env_file if they
-    # need a custom host-home path.
-    HOME_HOST_DIR=/host-home
+    VITE_BUILD_ID=${SKYNET_BUILD_SHA:-dev-unknown}
 
-RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget ffmpeg systemd jq tmux && \
+RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget ffmpeg && \
     update-ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx /var/log/skynet/console-forward && \
     chown -R node:node /app /tmp/nginx /var/log/skynet && \
     chmod 755 /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx /var/log/skynet /var/log/skynet/console-forward
-# `systemd` package provides the `systemctl` client binary — needed for the
-# distributor's local-branch fireRestartHookLocally to talk to the host user's
-# systemd session (via the /run/user/1000 bind-mount + XDG_RUNTIME_DIR from
-# docker/docker-compose.host-systemd.override.yml). We do NOT run systemd
-# itself as PID 1 inside the container — the entrypoint stays the app.
-# systemctl is just a DBus client.
 
 COPY docker/nginx.conf /app/nginx/nginx.conf.template
 COPY docker/nginx-https.conf /app/nginx/nginx-https.conf.template

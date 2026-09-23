@@ -11,6 +11,7 @@
 // First-load failure: renders aria-busy empty container (layout stable).
 
 import { useEffect, useState } from "react";
+import { stampedFetch } from "@/lib/stamped-fetch";
 
 // Green→amber→red band matches the ComposeBox context-window meter
 // (ComposeBox.tsx §Phase 9 UAT, patch #83+ — thresholds locked 2026-07-22).
@@ -96,7 +97,8 @@ export function WeeklyUsageMeter() {
   useEffect(() => {
     async function poll() {
       try {
-        const res = await fetch("/api/usage");
+        // Phase 111 SKEW-04: stamped-fetch lane (usage poller).
+        const res = await stampedFetch("/api/usage");
         if (!res.ok) return; // non-2xx: retain last-known, do not clear
         const json = (await res.json()) as UsageResponse;
         setData(json);

@@ -157,7 +157,9 @@ afterEach(async () => {
 async function openAndSubscribe(
   callbacks: ReturnType<typeof buildCallbacks>,
 ): Promise<void> {
-  const url = `ws://localhost:${serverPort}/fleet-status/ws`;
+  // Phase 111 SKEW-07: frontend path now requires ?build= param matching
+  // getServerBuildId(). Test-env falls back to "dev-unknown".
+  const url = `ws://localhost:${serverPort}/fleet-status/ws?build=dev-unknown`;
 
   // We need a WS client that mimics what the browser client does. Use ws package
   // with an Authorization header to satisfy the auth check.

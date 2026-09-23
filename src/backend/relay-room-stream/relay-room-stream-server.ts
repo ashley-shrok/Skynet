@@ -83,6 +83,11 @@ import {
   type ClassifiedParticipants,
   type ClassifyParticipantsDeps,
 } from "./participants-classifier.js";
+// Phase 111 SKEW-07: WS handshake gate — shared helper + server build-id
+// getter (module-load capture per D-16). SERVER_BUILD_ID is read once at
+// module load below; the gate runs before any JWT auth work.
+import { extractSkewTag } from "../utils/skew-tag.js";
+import { getServerBuildId } from "../config/server-build-id.js";
 
 // ============================================================================
 // PORT + CONSTANTS
@@ -94,6 +99,11 @@ import {
  * 30013/30014 to leave room for peer subsystems).
  */
 export const RELAY_ROOM_STREAM_PORT = 30015;
+
+// Phase 111 SKEW-07: module-load capture of the server build id — parallel
+// to D-16 read-once contract. Used by the handshake gate below (Task 2) and
+// by the emit() piggyback (Task 3).
+const SERVER_BUILD_ID = getServerBuildId();
 
 /** Rate limit — 30 sends per 60s window per user. */
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -1172,7 +1182,7 @@ function startWebSocketServer(): void {
 
   const wss = new WebSocketServer({
     port: RELAY_ROOM_STREAM_PORT,
-    // Phase 103 D-08: reject WS upgrades from *.serve.<domain> origins
+    // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins
     // at the handshake layer — WS complement to Plan 02's CORS reject.
     verifyClient: (info, done) => {
       if (rejectServeSubdomain(info.req)) {
@@ -1188,6 +1198,16 @@ function startWebSocketServer(): void {
   });
 
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
+    // Phase 111 SKEW-07: WS handshake gate. Version tag arrives as `?build=<sha>`
+    // query param on the upgrade URL. Absence AND mismatch both close with 4409
+    // (unlike HTTP lane's D-06 mismatch-only — browsers are the only legit WS
+    // clients, so absence is inherently suspicious for WS).
+    const clientBuild = extractSkewTag(req);
+    if (!clientBuild || clientBuild !== SERVER_BUILD_ID) {
+      ws.close(4409, "stale_client");
+      return;
+    }
+
     // ─── JWT auth on upgrade ───────────────────────────────────────────
     const token = extractJwt(req);
     if (!token) {
@@ -1230,10 +1250,26 @@ function startWebSocketServer(): void {
      * Per-connection frame emitter — the closure passed into subscribeRoom.
      * Wraps ws.send with the same try/catch as the request-response paths
      * so a mid-close ws doesn't throw out of the tick callback.
+     *
+     * Phase 111 SKEW-08: emit wraps ws.send with build-id piggyback.
+     * D-09: every outbound message from server → client carries `build:<sha>`.
+     * Client's onmessage handler checks parsed.build vs its baked-in
+     * CLIENT_BUILD_ID and fires lockSkewedSession on mismatch.
      */
     const emit = (frame: ServerFrame): void => {
       try {
-        ws.send(JSON.stringify(frame));
+        ws.send(JSON.stringify({ ...frame, build: SERVER_BUILD_ID }));
+      } catch {
+        /* ws may be mid-close */
+      }
+    };
+    // Phase 111 SKEW-08: alias for the error-path direct-send sites below
+    // so they also carry the build tag. Same body as emit but typed
+    // loosely (any object) since error frames don't share ServerFrame's
+    // discriminated-union shape.
+    const sendFrame = (frame: object): void => {
+      try {
+        ws.send(JSON.stringify({ ...frame, build: SERVER_BUILD_ID }));
       } catch {
         /* ws may be mid-close */
       }
@@ -1244,20 +1280,12 @@ function startWebSocketServer(): void {
       try {
         parsed = JSON.parse(raw.toString());
       } catch {
-        try {
-          ws.send(JSON.stringify({ type: "error", message: "invalid_json" }));
-        } catch {
-          /* ws may be mid-close */
-        }
+        sendFrame({ type: "error", message: "invalid_json" });
         return;
       }
       const frame = parseClientFrame(parsed);
       if (frame === null) {
-        try {
-          ws.send(JSON.stringify({ type: "error", message: "invalid_frame" }));
-        } catch {
-          /* ws may be mid-close */
-        }
+        sendFrame({ type: "error", message: "invalid_frame" });
         return;
       }
 
@@ -1289,16 +1317,10 @@ function startWebSocketServer(): void {
       }
 
       if (boundRoomId === null) {
-        try {
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              message: "connect_first",
-            }),
-          );
-        } catch {
-          /* ws may be mid-close */
-        }
+        sendFrame({
+          type: "error",
+          message: "connect_first",
+        });
         return;
       }
 

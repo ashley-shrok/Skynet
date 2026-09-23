@@ -1,4 +1,5 @@
 import { authApi, handleApiError } from "@/main-axios";
+import { stampedFetch } from "@/lib/stamped-fetch";
 
 // Patch #57: per-pane ComposeBox draft persistence client.
 //
@@ -79,7 +80,8 @@ export function flushComposeDraftKeepalive(
     const url = `${base}/compose-drafts`;
     const payload: Record<string, unknown> = { hostId, tmuxSession, body };
     if (queueSlots !== undefined) payload.queueSlots = queueSlots;
-    fetch(url, {
+    // Phase 111 SKEW-04: stamped-fetch lane (keepalive beacon).
+    stampedFetch(url, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

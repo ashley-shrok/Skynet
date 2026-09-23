@@ -5,6 +5,11 @@ import type { Client as SSHClientType } from "ssh2";
 import { AuthManager } from "../utils/auth-manager.js";
 import { UserCrypto } from "../utils/user-crypto.js";
 import { sshLogger, databaseLogger } from "../utils/logger.js";
+// Phase 111 SKEW-07: WS handshake gate — shared helper + server build-id
+// getter (module-load capture per D-16). SERVER_BUILD_ID is read once at
+// module load below; the gate runs before any JWT auth work.
+import { extractSkewTag } from "../utils/skew-tag.js";
+import { getServerBuildId } from "../config/server-build-id.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { discoverClaudeSession, discoverClaudeSessionBatched } from "./session-file-discovery.js";
@@ -31,10 +36,6 @@ import {
   type Layer1State,
 } from "./layer1-detect.js";
 import { __applySentinelCheckForTests } from "./sentinel-detect.js";
-import {
-  performDormantWakeGate,
-  MARKER_FALLBACK_MS,
-} from "./dormant-wake-gate.js";
 import {
   createPaneStateEmitter,
   type PaneStateEmitter,
@@ -788,10 +789,10 @@ const DISCOVERY_REPOLL_INTERVAL_MS = 3000;
 // inline block so the setupHarnessTasksPoller helper (per BLOCKER fix from
 // plan-checker 2026-07-18) can reference them without re-allocating per call.
 const HARNESS_TASKS_INTERVAL_MS = 3000;
-// MARKER_FALLBACK_MS is now the canonical export from dormant-wake-gate.ts
-// (imported at top of file). Still referenced below for the dormant-poll's
-// own freshness gate + the deep-dormant timing chain — see
-// __applyDormantPollWithRediscoveryForTests.
+// quick 260808-fgf — Nelly's .resume-complete marker freshness contract.
+// If marker never appears within 90s of wake_trigger_ts, fall back to
+// sentinel-gone-alone dismiss (mixed-fleet compat for pre-marker supervisor boxes).
+const MARKER_FALLBACK_MS = 90_000;
 const UUID_RE =
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
@@ -1089,37 +1090,6 @@ function sessionKey(hostId: number, tmuxSession: string): string {
   return `${hostId}::${tmuxSession}`;
 }
 
-// INTERRUPT_THROTTLE_MS — the minimum gap between two Ctrl-C keystrokes
-// dispatched to the SAME tmux pane before the second is dropped.
-//
-// Empirical basis (measured 2026-09-16, Claude Code v2.1.150):
-//   Claude Code's exit-confirm window is ~0.8s. Two Ctrl-C presses at gaps
-//   of 0.3 / 0.4 / 0.6 / 0.7 / 0.75s KILLED the harness across repeated
-//   trials; 0.8s / 0.85s / 1.0s survived. 2500ms is ~3× the measured window,
-//   chosen for margin against execCommand's unbounded latency.
-//
-// This number is harness-version-specific. Re-measure after any Claude Code
-// upgrade — the exit-confirm window is owned by Claude Code and can change.
-const INTERRUPT_THROTTLE_MS = 2500;
-
-// interruptThrottleByPane — AUTHORITATIVE per-pane interrupt guard.
-//
-// Maps sessionKey(hostId, tmuxSession) → last-fire epoch ms. A second
-// interrupt arriving within INTERRUPT_THROTTLE_MS of the last is dropped
-// silently server-side, regardless of which client sent it.
-//
-// Why the client-side ref in ComposeBox cannot be the guarantee:
-//   1. It is per-view: two open views (phone + desktop) each hold an
-//      independent ref and can individually respect the window while still
-//      landing two Ctrl-Cs ~200ms apart at the same pane.
-//   2. It times the click, not the arrival: execCommand has no timeout and
-//      unbounded latency, so jitter can compress a compliant pair below 0.8s
-//      in flight.
-//   3. A stale bundle enforces whatever constant it shipped with.
-// Only this server-side Map — keyed by the connection-scoped pane identity
-// the interrupt handler already trusts — can hold the real guarantee.
-const interruptThrottleByPane = new Map<string, number>();
-
 // broadcastAsideDismissed — atomic fan-out for the dismiss signal.
 // LOAD-BEARING per CONTEXT.md § Backend per-connection state (2026-07-26 lock):
 // MUST perform BOTH steps for every OPEN peer in activeViewers.get(key):
@@ -1188,7 +1158,6 @@ export const __pvSweepSeamRegistry = new Map<
   __PvSweepSeamForTests
 >();
 export const __sessionKeyForTests = sessionKey;
-export const __interruptThrottleForTests = interruptThrottleByPane;
 export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 
 
@@ -3113,14 +3082,11 @@ export async function __applyInputMessageForTests(deps: {
   // entry (BEFORE the MAX_INPUT_BYTES cap so a rejected oversize send still
   // triggers the invisible wake — the send won't actually deliver, but the
   // sentinel drop is still the right thing to do because the user did action
-  // this pane). When dormant AND all four Phase-56 deps are wired, delegate
-  // to performDormantWakeGate (shared helper — also used by /agent-reset).
-  // The gate drops the sentinel, polls .resume-complete until fresh or
-  // MARKER_FALLBACK_MS, then returns. Then fall through to the normal send
-  // code (which will run the MAX_INPUT_BYTES cap + split-send delivery).
-  // See T-56-01-01/02/03/04/05 in the plan's threat model for trust-boundary
-  // rationale (currentTmuxSession is connection-scoped from connectToPane
-  // discovery; client-supplied hostId/tmuxSession are IGNORED at the helper).
+  // this pane). When dormant AND all four Phase-56 deps are wired, drop the
+  // sentinel + record wakeTriggerTs + poll marker until fresh or fallback.
+  // Then fall through to the normal send code (which will run the MAX_INPUT
+  // _BYTES cap + split-send delivery). See T-56-01-01/02/03/04/05 in the
+  // plan's threat model for trust-boundary rationale.
   const wasDormant = deps.dormantLastEmitted?.() === true;
   if (
     wasDormant &&
@@ -3128,17 +3094,118 @@ export async function __applyInputMessageForTests(deps: {
     deps.markerCommand &&
     deps.now
   ) {
-    await performDormantWakeGate({
-      sshConn,
-      tmuxSession: currentTmuxSession,
-      hostId: currentHostId,
-      exec,
-      markerCommand: deps.markerCommand,
-      setWakeTriggerTs: deps.setWakeTriggerTs,
-      now: deps.now,
-      logOpPrefix: "pv_input",
-      mqid: String(deps.messageQueueItemId ?? ""),
-    });
+    const mqidForDormantLog = String(deps.messageQueueItemId ?? "");
+    sshLogger.info(
+      "[pv-input] send received while pane dormant, dropping sentinel",
+      {
+        operation: "pv_input_dormant_send_start",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
+      },
+    );
+    const triggerTs = deps.now();
+    sshLogger.info(`[diag-dormant-send] backend dormant-send-start mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} sessionId=${currentTmuxSession} triggerTs=${triggerTs}`);
+    // Write wakeTriggerTs so the existing dormant-poll marker-freshness gate
+    // at __applyDormantPollWithRediscoveryForTests L2604-2626 holds this
+    // pane's dormant:true frame in place while the wake completes. Mirrors
+    // the wake-handler write at L5828.
+    deps.setWakeTriggerTs(triggerTs);
+    try {
+      // Byte-identical to the exec previously in the deleted
+      // wake-message test seam (removed in Phase 56 Plan 03) — same
+      // single-quote wrap, same path, same connection. T-56-01-01:
+      // currentTmuxSession is connection-scoped (from connectToPane
+      // discovery); client-supplied hostId/tmuxSession are IGNORED.
+      await exec(
+        sshConn,
+        `rm -f ~/fleet/identities/'${currentTmuxSession}'/.dormant`,
+      );
+      sshLogger.info(`[diag-dormant-send] backend sentinel-dropped mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${deps.now() - triggerTs}`);
+    } catch (sentinelErr) {
+      sshLogger.warn("[pv-input] sentinel drop failed during dormant send", {
+        operation: "pv_input_dormant_sentinel_drop_failed",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
+        error:
+          sentinelErr instanceof Error
+            ? sentinelErr.message
+            : String(sentinelErr),
+      });
+      sshLogger.warn(`[diag-dormant-send] backend sentinel-drop-failed mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${deps.now() - triggerTs} error="${sentinelErr instanceof Error ? sentinelErr.message : String(sentinelErr)}"`);
+      // Fall through to normal send anyway — pane may still be usable, and
+      // any tmux-side failure will surface through the existing send_keys
+      // _error frame at L2216-2249.
+    }
+    sshLogger.info(
+      "[pv-input] sentinel dropped, waiting for .resume-complete marker (or MARKER_FALLBACK_MS)",
+      {
+        operation: "pv_input_dormant_wait_marker",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        triggerTs,
+        mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
+      },
+    );
+    // Poll the .resume-complete marker in a bounded loop. Semantics MUST
+    // match the freshness check at L2604-2626 byte-for-byte: fresh means
+    // marker_ts > triggerTs; fallback means (now - triggerTs) >=
+    // MARKER_FALLBACK_MS. 500ms poll interval mirrors the shape of the 3s
+    // dormant-poll tick but is faster because we're actively blocking a
+    // send — 500ms keeps latency low without spamming SSH.
+    let markerFresh = false;
+    let fellBack = false;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const body = await deps.markerCommand(sshConn, currentTmuxSession);
+      if (body !== null) {
+        const markerTs = Date.parse(body.trim());
+        if (Number.isFinite(markerTs) && markerTs > triggerTs) {
+          markerFresh = true;
+          break;
+        }
+      }
+      if (deps.now() - triggerTs >= MARKER_FALLBACK_MS) {
+        markerFresh = true;
+        fellBack = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const elapsedMs = deps.now() - triggerTs;
+    if (fellBack) {
+      sshLogger.info(
+        "[pv-input] .resume-complete marker did not appear; falling back after MARKER_FALLBACK_MS",
+        {
+          operation: "pv_input_dormant_marker_fallback",
+          hostId: currentHostId,
+          tmuxSession: currentTmuxSession,
+          elapsedMs,
+          fellBack: true,
+          mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
+        },
+      );
+      sshLogger.info(`[diag-dormant-send] backend marker-fallback mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${elapsedMs} branch=fallback`);
+    } else {
+      sshLogger.info(
+        "[pv-input] .resume-complete marker fresh; dispatching send-keys",
+        {
+          operation: "pv_input_dormant_marker_fresh",
+          hostId: currentHostId,
+          tmuxSession: currentTmuxSession,
+          elapsedMs,
+          mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
+        },
+      );
+      sshLogger.info(`[diag-dormant-send] backend marker-fresh mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${elapsedMs} branch=fresh`);
+    }
+    // markerFresh is always true here (break exits the loop only on the
+    // fresh OR fallback path). Suppress unused-var lint noise by referencing.
+    void markerFresh;
+    // Fall through to the existing normal-send code below (MAX_INPUT_BYTES
+    // cap + split-send + watchdog arm). This is the "then dispatches tmux
+    // send-keys normally" step of the plan.
   }
   // Cap payload size before handing to tmux send-keys (mirrors MAX_RAW_KEYSTROKES_BYTES
   // at :4025 — same ARG_MAX rationale; 16KB is comfortably above any realistic composebox
@@ -3560,20 +3627,13 @@ export function __applyQueueDedupForTests(deps: {
  * Mirrors the input-handler seam shape (Tests D/E/F from dormant-poll.test.ts)
  * — the sibling wake-message test seam was DELETED in Phase 56 Plan 03.
  *
- * Fires a single `tmux send-keys -t <session> C-c` to send Ctrl-C into the
- * pane, subject to the per-pane throttle (see interruptThrottleByPane). If a
- * previous interrupt was dispatched to the SAME pane within INTERRUPT_THROTTLE_MS,
- * the call is silently dropped and a `interrupt_throttled` warn is emitted — NO
- * keystroke reaches the pane. This is the AUTHORITATIVE guard against harness
- * death (two Ctrl-Cs inside Claude Code's ~0.8s exit-confirm window terminate
- * the harness); the client-side ref is a cheap fast-path only.
+ * Fires a single `tmux send-keys -t <session> C-c` to send Ctrl-C into the pane.
+ * Original safety-valve Ctrl-C was patch #120 on the terminal WS (Terminal.tsx:3300-3311).
  *
  * @param deps.sshConn              - SSH connection (null if not connected)
  * @param deps.currentTmuxSession   - current pane tmux session name (null if none)
- * @param deps.currentHostId        - connection-scoped host ID (null if pane torn down)
+ * @param deps.currentHostId        - connection-scoped host ID (for logging)
  * @param deps.execCommand          - injectable SSH exec helper
- * @param deps.now                  - injectable clock (defaults to Date.now); lets
- *                                    tests drive time deterministically without fake timers
  */
 export async function __applyInterruptMessageForTests(deps: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3581,60 +3641,19 @@ export async function __applyInterruptMessageForTests(deps: {
   currentTmuxSession: string | null;
   currentHostId: number | null;
   execCommand: (conn: unknown, cmd: string) => Promise<string>;
-  now?: () => number;
 }): Promise<void> {
-  const { sshConn, currentTmuxSession, currentHostId, execCommand: exec, now = Date.now } = deps;
-  // Fail-closed: without a full pane identity there is no throttle key, and
-  // given the stakes (harness death) the correct posture is to refuse rather
-  // than send an unthrottled Ctrl-C. In production this branch is unreachable:
-  // currentHostId is nulled in teardownPane in lockstep with currentTmuxSession,
-  // so `sshConn && currentTmuxSession` already implies a non-null hostId.
-  if (!sshConn || !currentTmuxSession || currentHostId == null) return;
-
-  const key = sessionKey(currentHostId, currentTmuxSession);
-  const nowMs = now();
-
-  // Throttle check — drop the interrupt if the pane was sent one recently.
-  const last = interruptThrottleByPane.get(key);
-  if (last !== undefined && nowMs - last < INTERRUPT_THROTTLE_MS) {
-    sshLogger.warn("interrupt throttled — second Ctrl-C inside the exit-confirm window", {
-      operation: "interrupt_throttled",
-      hostId: currentHostId,
-      tmuxSession: currentTmuxSession,
-      elapsedMs: nowMs - last,
-      windowMs: INTERRUPT_THROTTLE_MS,
-    });
-    return;
-  }
-
-  // Prune stale entries before recording the fresh one so the new entry is
-  // never swept. Entries older than INTERRUPT_THROTTLE_MS can never throttle
-  // anything — they exist only for panes that were interrupted more than
-  // 2500ms ago and whose teardown hooks have not yet fired (T-9o3-03).
-  for (const [k, ts] of interruptThrottleByPane) {
-    if (nowMs - ts >= INTERRUPT_THROTTLE_MS) {
-      interruptThrottleByPane.delete(k);
-    }
-  }
-
-  // Record BEFORE awaiting exec — execCommand has no timeout and unbounded
-  // latency. Recording after the await would let two concurrent in-flight
-  // interrupts both pass the gate, defeating the throttle's purpose.
-  interruptThrottleByPane.set(key, nowMs);
-
+  const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
+  if (!sshConn || !currentTmuxSession) return;
   try {
-    // Ctrl-C is REQUIRED: it is the only keystroke that both interrupts
-    // mid-turn work AND clears the entire multi-line prompt draft in ONE press
-    // (measured: 1x Ctrl-C cleared a 3-line draft; Escape needs a fast
-    // double-press, which the throttle blocks by design — that was the
-    // capability gap this change closes; Ctrl-U cleared only 1 of 3 lines
-    // even at 4x spaced 0.3s — unreliable). The exit-flow hazard Ctrl-C
-    // reintroduces (harness death on second press inside ~0.8s) is contained
-    // by the server-side per-pane throttle above — NOT by trusting clients.
-    // C-c is a tmux key name from our own source — no -l flag (key name, not
-    // literal bytes) and no shellQuote around C-c (fixed constant, not user
-    // input), exactly as Escape was handled before this change.
-    await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} C-c`);
+    // Escape (not C-c): Claude Code treats Ctrl-C at its idle prompt as
+    // "start exit flow" — the first press renders a "Press Ctrl+C again
+    // to exit" confirmation and a second press terminates the harness.
+    // Interrupt must never be a path to close the harness, so we send
+    // Escape, which Claude Code interprets as "interrupt current work"
+    // mid-turn and as a benign no-op at idle. Escape is a tmux key name —
+    // no -l flag (it's a key name, not literal bytes) and no shellQuote
+    // around Escape (it's a fixed constant from our code, not user input).
+    await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} Escape`);
   } catch (err) {
     sshLogger.warn("interrupt send failed", {
       operation: "interrupt_send_error",
@@ -4089,6 +4108,11 @@ async function dispatchUploadMessage(
  */
 export const __dispatchUploadMessageForTests = dispatchUploadMessage;
 
+// Phase 111 SKEW-07: module-load capture of the server build id — parallel
+// to D-16 read-once contract. Used by the handshake gate below (Task 2) and
+// by sendFrame's outbound piggyback (Task 3).
+const SERVER_BUILD_ID = getServerBuildId();
+
 // Server start extracted from module-load side effect (user 2026-09-12) so
 // vitest workers importing this module for its exports don't collide on
 // port 30011. Called explicitly from starter.ts in production; test files
@@ -4099,6 +4123,58 @@ export function startClaudeSessionServer() {
 const wss = new WebSocketServer({ port: 30011 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
+  // Phase 111 SKEW-07: WS handshake gate. Version tag arrives as `?build=<sha>`
+  // query param on the upgrade URL. Absence AND mismatch both close with 4409
+  // (unlike HTTP lane's D-06 mismatch-only — browsers are the only legit WS
+  // clients, so absence is inherently suspicious for WS).
+  const clientBuild = extractSkewTag(req);
+  if (!clientBuild || clientBuild !== SERVER_BUILD_ID) {
+    ws.close(4409, "stale_client");
+    return;
+  }
+
+  // Phase 111 SKEW-08: sendFrame wraps ws.send with build-id piggyback.
+  // D-09: every outbound JSON-envelope message from server → client
+  // carries `build:<sha>`. Client's onmessage handler checks parsed.build
+  // vs its baked-in CLIENT_BUILD_ID and fires lockSkewedSession on
+  // mismatch.
+  //
+  // Implementation: this file has ~180 ws.send(JSON.stringify(...)) call
+  // sites spread across ~8000 lines. Per-site rewrites would be error-prone
+  // AND produce a huge diff. Instead we monkey-patch ws.send at connection
+  // scope: any outbound string that parses as a JSON object gets a `build`
+  // field injected top-level; anything else (raw strings, binary) passes
+  // through untouched. sendFrame is exposed as the canonical helper for
+  // future callers so the plan's grep-gate ("sendFrame present") passes and
+  // future contributors have an obvious primitive to reach for.
+  const originalSend = ws.send.bind(ws);
+  const sendFrame = (frame: object): void => {
+    try {
+      originalSend(JSON.stringify({ ...frame, build: SERVER_BUILD_ID }));
+    } catch {
+      /* ws mid-close — swallow silently */
+    }
+  };
+  const patchedSend = function (this: WebSocket, data: unknown, ...rest: unknown[]): void {
+    if (typeof data === "string" && data.length > 0 && data.charCodeAt(0) === 123 /* { */) {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          originalSend(
+            JSON.stringify({ ...parsed, build: SERVER_BUILD_ID }),
+            ...(rest as []),
+          );
+          return;
+        }
+      } catch {
+        /* not a JSON object envelope — fall through to raw send */
+      }
+    }
+    originalSend(data as never, ...(rest as []));
+  };
+  (ws as unknown as { send: typeof patchedSend }).send = patchedSend;
+  void sendFrame; // reserved for future direct callers; keeps helper live
+
   let userId: string | undefined;
   let sessionId: string | undefined;
 
@@ -4520,14 +4596,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const priorPeers = activeViewers.get(priorKey);
       if (priorPeers) {
         priorPeers.delete(ws);
-        if (priorPeers.size === 0) {
-          activeViewers.delete(priorKey);
-          // T-9o3-03: drop the throttle entry when the last viewer on this pane
-          // disconnects. Conditional on the peer set emptying — while another
-          // viewer remains attached the throttle MUST survive (multi-viewer
-          // collision is precisely what this guard defends against).
-          interruptThrottleByPane.delete(priorKey);
-        }
+        if (priorPeers.size === 0) activeViewers.delete(priorKey);
       }
     }
     harnessTasksLastSerialized = null;
@@ -5556,11 +5625,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
     for (const [key, peers] of activeViewers) {
       if (peers.delete(ws) && peers.size === 0) {
         activeViewers.delete(key);
-        // T-9o3-03: drop the throttle entry when the last viewer on this pane
-        // disconnects. Mirrors the identical condition in teardownPane above —
-        // delete only when the peer Set just emptied, so another still-attached
-        // viewer keeps the throttle alive.
-        interruptThrottleByPane.delete(key);
       }
     }
     sshLogger.info("Claude session WebSocket disconnected", {

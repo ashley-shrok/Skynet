@@ -63,9 +63,15 @@ describe("openBirthStream: Test 1 — sends POST /identities/birth", () => {
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/identities/birth");
     expect(init.method).toBe("POST");
-    const headers = init.headers as Record<string, string>;
-    expect(headers["Accept"]).toBe("text/event-stream");
-    expect(headers["Content-Type"]).toBe("application/json");
+    // Phase 111 SKEW-04: openBirthStream now routes through stampedFetch,
+    // which normalizes headers to a Headers instance before delegating. Use
+    // `.get()` for readback instead of the pre-normalization plain-object
+    // shape.
+    const headers = init.headers as Headers;
+    expect(headers.get("Accept")).toBe("text/event-stream");
+    expect(headers.get("Content-Type")).toBe("application/json");
+    // Stamped-fetch also adds the client-build header — confirm it lands.
+    expect(headers.get("X-Skynet-Client-Build")).toBeTruthy();
     expect(JSON.parse(init.body as string)).toMatchObject({ name: "alicia", hostId: 1 });
   });
 });

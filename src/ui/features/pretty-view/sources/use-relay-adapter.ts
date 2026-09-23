@@ -87,6 +87,7 @@ import type {
   ChatSurfaceParticipants,
 } from "./chat-surface-source";
 import { useViewingUserMxid, useViewingUserId } from "@/state/viewing-user-store";
+import { getSkewLockedSnapshot } from "@/state/skew-lock-store";
 
 // ─── Constants (mirror source hook + PrettyView pending-send + reconnect) ────
 
@@ -622,6 +623,11 @@ export function useRelayAdapter(
       });
       // Clear pending timers on close.
       clearAllPendingSends();
+      // Phase 111 SKEW-09: if the skew-lock has been tripped (either by
+      // this WS's own 4409 close code detected in relay-room-api.ts, or by
+      // another lane), don't reconnect — the shell is about to reload and
+      // a reconnect would just get 4409-closed again.
+      if (getSkewLockedSnapshot().locked) return;
       // Reconnect with linear-with-cap backoff (patch #148: 2s/4s/6s/8s/8s).
       if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
         const capMs = Math.min(
@@ -653,16 +659,6 @@ export function useRelayAdapter(
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      // Bounty t800-frontend-websocket-leak-on-container-recreate: detach
-      // handler property refs BEFORE close() so the retention cycle
-      // (ws → ws.onopen closure → ws via ws.send at L438) is broken. Without
-      // this, each cleanup (retryKey bump or unmount) leaves a dead WS pinned
-      // by its own handlers and container-recreate storms compound the count
-      // against nginx worker_connections.
-      ws.onopen = null;
-      ws.onmessage = null;
-      ws.onerror = null;
-      ws.onclose = null;
       try {
         ws.close();
       } catch {

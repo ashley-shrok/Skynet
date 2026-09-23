@@ -1,4 +1,5 @@
 import { authApi, handleApiError } from "@/main-axios";
+import { stampedFetch } from "@/lib/stamped-fetch";
 
 export interface Identity {
   identityKey: string;
@@ -32,13 +33,6 @@ export interface Identity {
    *  task). Present-and-truthy gates the task-primary UI treatment on chat +
    *  list surfaces (D-06 fallback semantics). */
   task: string | null;
-  /** Phase 117 Plan 117-07 (D-05 identity carrier): project slug from
-   *  identity file frontmatter. Null when absent. Non-optional to match the
-   *  backend emitter's always-emit posture (publicIdentity emits `null` when
-   *  the field is missing on disk, per identity-appearance's fallback).
-   *  Consumed by the frontend's conversation-store projects-derived selector
-   *  to bucket the identity's conversation into a project section. */
-  project: string | null;
   /** Phase 92 Plan 02 (D-03/D-04): presence of `~/fleet/identities/<key>/.pinned`
    *  sentinel on the identity's home host, populated by the backend
    *  publicIdentity fanout via identityFileExists in the same Promise.all wave
@@ -49,9 +43,16 @@ export interface Identity {
    *  deriveDiskPinnedIds (identities-store.ts) — Plan 92-04's replacement for
    *  the retired getPinnedIds() /user-preferences fetch. */
   pinned?: boolean;
-  /** (Phase 115 Plan 115-02: the Phase 107 sibling `hidden?: boolean` field
-   *  was retired per D-21 alongside the backend publicIdentity() 7th-arg
-   *  removal + the `.hidden` disk-fanout probe removal.) */
+  /** Phase 107 Plan 107-04 (D-03/D-04): presence of `~/fleet/identities/<key>/.hidden`
+   *  sentinel on the identity's home host, populated by the backend
+   *  publicIdentity fanout via identityFileExists in the same Promise.all wave
+   *  as readIdentityFile and the .pinned probe (Plan 107-02 parallel-probe
+   *  pattern). Optional to preserve fixture compat and match the backend's
+   *  fail-closed default (Plan 107-02 publicIdentity seventh arg defaults to
+   *  false). The panel's hydrate effect projects this field into state.hiddenIds
+   *  via deriveDiskHiddenIds (identities-store.ts) — Plan 107-04's replacement
+   *  for the retired getHiddenIds() /user-preferences fetch. */
+  hidden?: boolean;
   /** Phase 85 Plan 85-01 Task 2: role-cosmetic defaults surfaced separately
    *  from the resolved values. Populated per D-CTX-85-inherit merge on the
    *  backend so IdentityModal (Plan 85-05) can render inherit-vs-override
@@ -69,7 +70,6 @@ export interface Identity {
    *  identity's own frontmatter. */
   roleDefaults?: {
     title?: string;
-    displayName?: string;
     colorHue?: number;
     voice?: string;
     avatar?: string;
@@ -413,12 +413,13 @@ export async function pickPoolName(
 // POST /identities/clone with JSON body {sourceIdentityKey, hostId, newName,
 //   title, voice, avatarCandidateId} → 201 publicIdentity(newRow)
 //
-// The standalone clone dialog and its context-menu entry-point were both
-// deleted; identity creation now flows exclusively through the unified
-// NewSessionDialog (POST /identities/birth). This cloneIdentity() client is
-// currently unused by the UI but preserved for backend parity — the route
-// still exists and other automation may consume it. If confirmed dead across
-// all callers, safe to remove in a follow-up.
+// Phase 80: the standalone clone dialog that used to consume this client was
+// deleted; the "create new agent under this role" context-menu path now routes through (bounty 260908-h78 renamed the label; the underlying chainPrefill wiring is unchanged)
+// the unified NewSessionDialog, which does its own POST /identities/birth
+// (identity-birth flow). This cloneIdentity() client is currently unused by
+// the UI but preserved for backend parity — the route still exists and other
+// automation (or a future path) may consume it. If confirmed dead across all
+// callers, safe to remove in a follow-up.
 //
 // Contract intentionally JSON-only (NOT multipart) — sidesteps Phase 20 patch
 // #77 silent-no-op trap per RESEARCH Pitfall 2; backend enforces via 415 gate.
@@ -645,7 +646,9 @@ export async function* openBirthStream(
   opts: BirthRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<BirthEvent> {
-  const response = await fetch("/identities/birth", {
+  // Phase 111 SKEW-04: stamped-fetch lane (SSE stream stays untouched
+  // downstream — stampedFetch returns the raw Response so getReader() works).
+  const response = await stampedFetch("/identities/birth", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

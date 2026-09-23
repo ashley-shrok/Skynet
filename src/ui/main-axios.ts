@@ -56,6 +56,15 @@ import {
   type LogContext,
 } from "@/lib/frontend-logger";
 import { dbHealthMonitor } from "@/lib/db-health-monitor";
+// Phase 111 Plan 04 (SKEW-04 / SKEW-06): client-side airtight stamping +
+// response drift detection. CLIENT_BUILD_ID is the Vite-`define`-baked
+// literal that goes on every request; skew-lock-store is the shell-level
+// state Wave 1 lanes converge on when either drift signal fires.
+import { CLIENT_BUILD_ID } from "@/lib/client-build-id";
+import {
+  getSkewLockedSnapshot,
+  lockSkewedSession,
+} from "@/state/skew-lock-store";
 
 export type ServerStatus = {
   status: "online" | "offline";
@@ -102,6 +111,7 @@ export interface AuthResponse {
   data_unlocked?: boolean;
   requires_totp?: boolean;
   temp_token?: string;
+  rememberMe?: boolean;
   token?: string;
 }
 
@@ -416,6 +426,11 @@ export function createApiInstance(
     }
 
     if (isElectron()) {
+      if (config.headers.set) {
+        config.headers.set("X-Electron-App", "true");
+      } else {
+        config.headers["X-Electron-App"] = "true";
+      }
       const jwt = localStorage.getItem("jwt");
       if (jwt) {
         if (config.headers.set) {
@@ -424,6 +439,42 @@ export function createApiInstance(
           config.headers["Authorization"] = `Bearer ${jwt}`;
         }
       }
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      (window as ElectronWindow).ReactNativeWebView
+    ) {
+      let platform = "Unknown";
+      if (typeof navigator !== "undefined" && navigator.userAgent) {
+        if (navigator.userAgent.includes("Android")) {
+          platform = "Android";
+        } else if (
+          navigator.userAgent.includes("iPhone") ||
+          navigator.userAgent.includes("iPad") ||
+          navigator.userAgent.includes("iOS")
+        ) {
+          platform = "iOS";
+        }
+      }
+      if (config.headers.set) {
+        config.headers.set("User-Agent", `Skynet-Mobile/${platform}`);
+      } else {
+        config.headers["User-Agent"] = `Skynet-Mobile/${platform}`;
+      }
+    }
+
+    // Phase 111 SKEW-04: airtight-by-construction client stamping. All 8
+    // axios instances derive from this factory; a single header set here
+    // covers every UI-initiated HTTP call. Parallel discipline lives in
+    // src/ui/lib/stamped-fetch.ts for the raw-fetch lane. The two-branch
+    // guard matches the existing Authorization / X-Electron-App idiom just
+    // above — AxiosHeaders in real axios, plain-object headers under
+    // axios-mock-adapter in older tests.
+    if (config.headers.set) {
+      config.headers.set("X-Skynet-Client-Build", CLIENT_BUILD_ID);
+    } else {
+      config.headers["X-Skynet-Client-Build"] = CLIENT_BUILD_ID;
     }
 
     return config;
@@ -472,6 +523,28 @@ export function createApiInstance(
       }
 
       dbHealthMonitor.reportDatabaseSuccess();
+
+      // Phase 111 SKEW-06a: response tag mismatch drift detection (D-15 —
+      // only fires on SUCCESSFUL responses; failed requests during a deploy
+      // restart go through the existing reconnecting-affordance surface,
+      // not the skew-lock modal). Absence of the header (dev mode, non-
+      // versioned response path) passes through unchanged — mirrors the
+      // backend's mismatch-only enforcement in skew-lock-middleware. The
+      // idempotency check is a cheap short-circuit — the store already
+      // handles first-drift-wins internally, but skipping the call when
+      // already locked keeps the console quiet on rapid duplicate signals.
+      const serverBuild = response.headers["x-skynet-server-build"];
+      if (
+        typeof serverBuild === "string" &&
+        serverBuild !== CLIENT_BUILD_ID &&
+        !getSkewLockedSnapshot().locked
+      ) {
+        lockSkewedSession({
+          reason: "response_tag_mismatch",
+          clientBuild: CLIENT_BUILD_ID,
+          serverBuild,
+        });
+      }
 
       return response;
     },
@@ -566,6 +639,29 @@ export function createApiInstance(
         }
       }
       // ── End retry interceptor ─────────────────────────────────────────────
+
+      // Phase 111 SKEW-06b: server-refused stale client (D-15). 409 with the
+      // canonical stale_client body triggers the lock. Non-stale_client 409s
+      // (business-logic conflicts) DO NOT fire the lock — body-shape check
+      // gates on `error === "stale_client"` in the JSON payload. Idempotent
+      // via the store's own first-drift-wins guard + the cheap snapshot
+      // short-circuit. Rejection still surfaces so caller cleanup fires —
+      // the lock modal is renderer-owned; the caller sees the reject as
+      // normal 409 behavior.
+      if (error.response?.status === 409) {
+        const body = error.response?.data as { error?: string } | undefined;
+        if (body?.error === "stale_client" && !getSkewLockedSnapshot().locked) {
+          const serverBuildHeader =
+            (error.response.headers?.["x-skynet-server-build"] as
+              | string
+              | undefined) || "unknown";
+          lockSkewedSession({
+            reason: "server_refused_stale_client",
+            clientBuild: CLIENT_BUILD_ID,
+            serverBuild: serverBuildHeader,
+          });
+        }
+      }
 
       if (status === 401) {
         const errorCode = (error.response?.data as Record<string, unknown>)
@@ -1090,7 +1186,7 @@ export function handleApiError(error: unknown, operation: string): never {
           errorContext,
         );
         throw new ApiError(
-          "No server configured. Please configure a server first.",
+          "No server configured. Please configure a Skynet server first.",
           0,
           "NO_SERVER_CONFIGURED",
         );
@@ -1638,11 +1734,13 @@ export async function registerUser(
 export async function loginUser(
   username: string,
   password: string,
+  rememberMe: boolean = false,
 ): Promise<AuthResponse> {
   try {
     const response = await authApi.post("/users/login", {
       username,
       password,
+      rememberMe,
     });
 
     const isInIframe =
@@ -1678,6 +1776,7 @@ export async function loginUser(
       username: response.data.username,
       requires_totp: response.data.requires_totp,
       temp_token: response.data.temp_token,
+      rememberMe: response.data.rememberMe,
       is_oidc: response.data.is_oidc,
       totp_enabled: response.data.totp_enabled,
       data_unlocked: response.data.data_unlocked,
