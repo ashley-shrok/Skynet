@@ -38,11 +38,15 @@ import { systemLogger } from "../utils/logger.js";
 import type { AppState, FrontendOutboundFrameType } from "./wire-protocol.js";
 import {
   makeAppSnapshotFrame,
+  makeAppUpdateFrame,
   makeProjectListChangedFrame,
   makeSnapshotFrame,
 } from "./wire-protocol.js";
 // Phase 130: per-project user gate. Pure function; no DB / SSH imports.
 import { isProjectVisibleToUser } from "./project-visibility-gate.js";
+// Phase 130: per-app user gate. Same shape as project gate; separate module
+// so a grep for `isAppVisibleToUser(` audits every app emit site.
+import { isAppVisibleToUser } from "./app-visibility-gate.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -277,11 +281,86 @@ export async function filterAppFrame(
     }
   }
 
+  /**
+   * Phase 130: lazy per-filter-call callerUsername resolver. Wrapped in a
+   * memoized promise so branches that need it (project-list-changed,
+   * app-update, app-snapshot) share ONE DB round-trip; branches that don't
+   * (session update/snapshot/gone) never touch it.
+   *
+   * Absent resolver (pre-130 tests) OR null username (deleted / renamed
+   * user, bare-subscriber path) OR resolver throw → returns null,
+   * DISABLING every user gate for this frame. Host + identity gates still
+   * apply. Fail-OPEN mirrors the wave-2 identity-gate discipline at
+   * starter.ts L685-697: a null caller is an infra bug, not a gate signal;
+   * treating it as "hide everything" would empty every user's sidebar on
+   * the affected code path.
+   */
+  let callerUsernamePromise: Promise<string | null> | null = null;
+  function getCallerUsername(): Promise<string | null> {
+    if (callerUsernamePromise === null) {
+      const resolver = ctx.resolveCallerUsername;
+      if (resolver === undefined) {
+        callerUsernamePromise = Promise.resolve(null);
+      } else {
+        callerUsernamePromise = resolver(userId).catch((err: unknown) => {
+          systemLogger.warn(
+            "Fleet-status app-frame filter — caller username lookup threw; user gate disabled for this frame",
+            {
+              operation: "app_frame_filter_username_error",
+              userId,
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
+          return null;
+        });
+      }
+    }
+    return callerUsernamePromise;
+  }
+
+  /**
+   * Phase 130: strip the `users` gate list from an AppState before it
+   * reaches the wire. Mirrors the identity discipline (Phase 129 HIGH-1):
+   * `users` is a gate-only field; it MUST NOT appear on any subscriber-
+   * facing emit. Returns a shallow copy with `users` omitted. Called by
+   * app-update and app-snapshot branches AFTER the gate decision.
+   */
+  function stripAppUsers(app: AppState): AppState {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { users: _users, ...rest } = app;
+    // The cast is safe: AppState with users omitted is still assignable to
+    // AppState at the schema level (users is nullable, and the wire client
+    // strips unknown/missing keys via Zod on parse).
+    return rest as AppState;
+  }
+
   if (frame.type === "app-update") {
-    return (await canUserSee(frame.app.hostId)) ? frame : null;
+    // Phase 130 (D-7 short-circuit): host gate first, then per-app user gate.
+    // Strip the `users` field before emit — Phase 129 HIGH-1 mirror; users
+    // is a gate-only field, MUST NOT leak to the wire.
+    if (!(await canUserSee(frame.app.hostId))) return null;
+    const callerUsername = await getCallerUsername();
+    if (!isAppVisibleToUser(frame.app.users ?? null, callerUsername)) {
+      systemLogger.debug("Phase 130: app-update hidden by user gate", {
+        operation: "app_frame_filter_app_update_user_hidden",
+        userId,
+        hostId: Number(frame.app.hostId),
+        slug: frame.app.slug,
+      });
+      return null;
+    }
+    return makeAppUpdateFrame(stripAppUsers(frame.app));
   }
 
   if (frame.type === "app-gone") {
+    // Phase 130 note: app-gone is host-gated only. The frame carries no
+    // users list (only hostId + slug), and looking up the app's users from
+    // the registry cache would require plumbing a registry ref into this
+    // pure function. Over-share is minor: a subscriber who never saw the
+    // app gets a gone frame for a slug they don't have — the frontend
+    // silently ignores it. Symmetric with identity-gone's D-7 discipline
+    // when tmuxSession is null (gate skips defensively). Revisit if
+    // profiling shows the noise is user-visible.
     return (await canUserSee(frame.hostId)) ? frame : null;
   }
 
@@ -400,33 +479,11 @@ export async function filterAppFrame(
       visibility.filter(([, ok]) => ok).map(([hid]) => hid),
     );
 
-    // Phase 130: per-project user gate. Resolve callerUsername ONCE per
-    // filter call (per subscriber per frame). Null resolver (pre-130 tests
-    // constructing ctx without this field) OR null username (deleted /
-    // renamed user; bare-subscriber path) DISABLES the project gate for
-    // this frame — the host-access gate above still applies. Matches the
-    // wave-2 identity-gate fail-open discipline at starter.ts L685-697:
-    // a null caller is an infra bug, not a gate signal.
-    let callerUsername: string | null = null;
-    if (ctx.resolveCallerUsername) {
-      try {
-        callerUsername = await ctx.resolveCallerUsername(userId);
-      } catch (err) {
-        // Fail-OPEN on resolver error (username lookup is not the primary
-        // gate; the host gate is authoritative). Log so the failure is
-        // visible; matches identity-gate-username-missing at
-        // starter.ts:687-694.
-        systemLogger.warn(
-          "Fleet-status project gate: caller username lookup threw — gate disabled for this frame",
-          {
-            operation: "app_frame_filter_project_username_error",
-            userId,
-            error: err instanceof Error ? err.message : "unknown",
-          },
-        );
-        callerUsername = null;
-      }
-    }
+    // Phase 130: per-project user gate. Reuse the shared getCallerUsername
+    // memo so a filter call that touches multiple gated branches only
+    // resolves the DB round-trip once (project + app). Fail-OPEN on null
+    // resolver or null username — see getCallerUsername JSDoc.
+    const callerUsername = await getCallerUsername();
 
     // Filter: host gate + user gate. Strip `users` from every survivor
     // before emit — Phase 129 HIGH-1 mirror. The field is gate-only.
@@ -490,7 +547,24 @@ export async function filterAppFrame(
       visibility.filter(([, ok]) => ok).map(([hid]) => hid),
     );
 
-    const projectedApps: AppState[] = apps.filter((a) => visible.has(a.hostId));
+    // Phase 130: per-app user gate on every survivor of the host filter.
+    // Strip `users` from every app before emit (Phase 129 HIGH-1 mirror).
+    const callerUsername = await getCallerUsername();
+    const projectedApps: AppState[] = apps
+      .filter((a) => {
+        if (!visible.has(a.hostId)) return false;
+        if (!isAppVisibleToUser(a.users ?? null, callerUsername)) {
+          systemLogger.debug("Phase 130: app-snapshot entry hidden by user gate", {
+            operation: "app_frame_filter_app_snapshot_user_hidden",
+            userId,
+            hostId: Number(a.hostId),
+            slug: a.slug,
+          });
+          return false;
+        }
+        return true;
+      })
+      .map(stripAppUsers);
     return makeAppSnapshotFrame(projectedApps);
   }
 

@@ -90,7 +90,7 @@ function makeAppState(
 // ---------------------------------------------------------------------------
 
 describe("app-frame-filter", () => {
-  it("Test 1: owner-self path — resolver returns { hostIdNum, hostUserId: U } for U, app-update passes verbatim", async () => {
+  it("Test 1: owner-self path — resolver returns { hostIdNum, hostUserId: U } for U, app-update passes verbatim (users stripped per Phase 130)", async () => {
     const app = makeAppState("h1", "todo");
     const frame = makeAppUpdateFrame(app);
     const resolver = vi
@@ -111,7 +111,14 @@ describe("app-frame-filter", () => {
     };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
-    expect(result).toEqual(frame);
+    // Phase 130: filter strips `users` from the app payload before emit.
+    // Assert type + slug + hostId + users-is-gone rather than deep-equal.
+    expect(result?.type).toBe("app-update");
+    if (result?.type === "app-update") {
+      expect(result.app.slug).toBe("todo");
+      expect(result.app.hostId).toBe("h1");
+      expect(result.app.users).toBeUndefined();
+    }
     expect(resolver).toHaveBeenCalledWith("h1");
     // The mock returned true; whether it was invoked or not is fine — production
     // checkHostAccess short-circuits on owner-self BEFORE PermissionManager,
@@ -754,6 +761,139 @@ describe("app-frame-filter", () => {
     }
   });
 
+  // -------------------------------------------------------------------------
+  // Phase 130: per-app user gate + users-strip on app-update / app-snapshot
+  // -------------------------------------------------------------------------
+  it("Test 22e (Phase 130): app-update with users list → gated by caller username; users stripped on emit", async () => {
+    const gatedApp = makeAppState("h1", "todo", { users: ["ashley"] });
+    const frame = makeAppUpdateFrame(gatedApp);
+
+    // Case 1: caller is ashley → visible; users stripped.
+    const visibleCtx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
+      resolveIdentityGate: async () => true,
+      resolveCallerUsername: async () => "ashley",
+    };
+    const visibleResult = await filterAppFrame(
+      frame,
+      visibleCtx,
+      undefined,
+      async () => true,
+    );
+    expect(visibleResult?.type).toBe("app-update");
+    if (visibleResult?.type === "app-update") {
+      expect(visibleResult.app.slug).toBe("todo");
+      // Phase 129 HIGH-1 mirror: users MUST be stripped before emit.
+      expect(visibleResult.app.users).toBeUndefined();
+    }
+
+    // Case 2: caller is zoey → hidden.
+    const hiddenCtx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
+      resolveIdentityGate: async () => true,
+      resolveCallerUsername: async () => "zoey",
+    };
+    const hiddenResult = await filterAppFrame(
+      frame,
+      hiddenCtx,
+      undefined,
+      async () => true,
+    );
+    expect(hiddenResult).toBeNull();
+  });
+
+  it("Test 22f (Phase 130): app-snapshot per-app user gate + strip", async () => {
+    const frame = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "app-snapshot" as const,
+      apps: [
+        makeAppState("h1", "alpha", { users: ["ashley"] }), // visible
+        makeAppState("h1", "beta", { users: ["zoey"] }), // hidden
+        makeAppState("h1", "gamma", { users: null }), // falls open
+        makeAppState("h1", "delta", { users: [] }), // falls open (empty)
+      ],
+    };
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
+      resolveIdentityGate: async () => true,
+      resolveCallerUsername: async () => "ashley",
+    };
+    const result = await filterAppFrame(
+      frame,
+      ctx,
+      undefined,
+      async () => true,
+    );
+
+    expect(result?.type).toBe("app-snapshot");
+    if (result?.type === "app-snapshot") {
+      expect(result.apps.map((a) => a.slug).sort()).toEqual([
+        "alpha",
+        "delta",
+        "gamma",
+      ]);
+      // Users field stripped from EVERY survivor.
+      for (const a of result.apps) {
+        expect(a.users).toBeUndefined();
+      }
+    }
+  });
+
+  it("Test 22g (Phase 130): app-update with null users falls open + strips users", async () => {
+    // The most common case: pre-130 apps have no users. Gate must pass and
+    // strip must run so the wire never carries the field.
+    const nullUsersApp = makeAppState("h1", "todo", { users: null });
+    const frame = makeAppUpdateFrame(nullUsersApp);
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
+      resolveIdentityGate: async () => true,
+      resolveCallerUsername: async () => "ashley",
+    };
+    const result = await filterAppFrame(
+      frame,
+      ctx,
+      undefined,
+      async () => true,
+    );
+
+    expect(result?.type).toBe("app-update");
+    if (result?.type === "app-update") {
+      expect(result.app.slug).toBe("todo");
+      expect(result.app.users).toBeUndefined();
+    }
+  });
+
+  it("Test 22h (Phase 130): app-update host gate short-circuits user gate (Test J discipline)", async () => {
+    // If the host gate closes, the user gate MUST NOT be consulted. Mirror
+    // of Test J for identity gate.
+    const gatedApp = makeAppState("h1", "todo", { users: ["ashley"] });
+    const frame = makeAppUpdateFrame(gatedApp);
+    const usernameSpy = vi.fn(async () => "ashley");
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => null, // host unknown → deny
+      resolveIdentityGate: async () => true,
+      resolveCallerUsername: usernameSpy,
+    };
+    const result = await filterAppFrame(
+      frame,
+      ctx,
+      undefined,
+      async () => true,
+    );
+
+    expect(result).toBeNull();
+    // User gate resolver MUST NOT have been consulted — host gate closed first.
+    expect(usernameSpy).not.toHaveBeenCalled();
+  });
+
   it("Test 22d (Phase 130): absent resolveCallerUsername ctx field → project user gate skipped (host gate still applies)", async () => {
     // Backward-compat: pre-130 ctx without resolveCallerUsername should
     // degrade to host-gate-only behavior for project-list-changed frames.
@@ -828,8 +968,18 @@ describe("app-frame-filter", () => {
     const r1 = await filter(frame, "U");
     const r2 = await filter(frame, "U");
 
-    expect(r1).toEqual(frame);
-    expect(r2).toEqual(frame);
+    // Phase 130: filter strips `users` before emit; assert shape not
+    // byte-equal (see Test 1 above for the same discipline).
+    expect(r1?.type).toBe("app-update");
+    if (r1?.type === "app-update") {
+      expect(r1.app.slug).toBe("todo");
+      expect(r1.app.users).toBeUndefined();
+    }
+    expect(r2?.type).toBe("app-update");
+    if (r2?.type === "app-update") {
+      expect(r2.app.slug).toBe("todo");
+      expect(r2.app.users).toBeUndefined();
+    }
     // TTL cache lives inside the factory-created filter — second call reuses it.
     expect(checkAccessMock).toHaveBeenCalledTimes(1);
   });

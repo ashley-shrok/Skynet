@@ -691,12 +691,19 @@ export const AppStateSchema = z.object({
    * bypasses the filter and emits an AppState directly, this field WOULD
    * leak — the strip is load-bearing.
    *
-   * The field is nullable-required (not optional) so downstream consumers
-   * don't need to handle `undefined` (the adapter coerces at the source
-   * boundary). Empty array is a valid state (matches identity/role/project
-   * discipline — falls open at the gate seam per D-3).
+   * The field is nullable-AND-optional at the Zod schema level. Rationale:
+   *   - Nullable so the adapter can explicitly set `users: null` when the
+   *     source has no users list (`?? null` coercion at adaptAppLineToState).
+   *   - Optional so the app-frame-filter's `stripAppUsers()` can OMIT the
+   *     field entirely from the wire frame — a stripped frame with no
+   *     `users` key must survive Zod .parse() at the client. If users were
+   *     nullable-required, the client's .parse() would reject a stripped
+   *     frame, defeating the wire-strip discipline.
+   *
+   * Empty array is a valid state (matches identity/role/project discipline
+   * — falls open at the gate seam per D-3).
    */
-  users: z.array(z.string()).nullable(),
+  users: z.array(z.string()).nullable().optional(),
 });
 
 export type AppState = z.infer<typeof AppStateSchema>;
