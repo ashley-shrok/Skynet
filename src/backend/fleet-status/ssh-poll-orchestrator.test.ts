@@ -8446,7 +8446,60 @@ describe("spawn-request scan helpers", () => {
     expect(item.prompt).toBe("test prompt");
     expect(item.task).toBe("test task");
     expect(item.requested_at).toBe("2026-09-10T00:00:00Z");
-    expect(item.userId).toBe(""); // worker refetches via getHostOwnerUserId
+    // quick-260923-9x1: PendingBirth.userId removed; hostConnDetails is now
+    // threaded from the host record's _connDetails bag. This test passes a
+    // bare HostRecord without _connDetails, so hostConnDetails is undefined
+    // (the malformed-branch and normal-branch pushes both propagate the
+    // parameter's undefined value). Real production flow always passes a
+    // populated bag via scanSpawnRequests(host, channel).
+    expect(item.hostConnDetails).toBeUndefined();
+  });
+
+  // Regression 260923-9x1 — scanSpawnRequests reads `_connDetails` off the
+  // host record (populated by list-substrate-hosts.ts on the CSKEK path) and
+  // forwards it onto every emitted PendingBirth as hostConnDetails. Both the
+  // valid-body branch AND the malformed branch propagate the same bag —
+  // the worker's response-write path consumes it directly without a
+  // per-user resolveHostById lookup.
+  it("Regression 260923-9x1: scanSpawnRequests threads host._connDetails onto every emitted PendingBirth (valid + malformed branches)", async () => {
+    const channel = new MockSshChannel();
+    const uuidGood = "12345678-1234-1234-1234-1234567890ab";
+    const uuidBad = "abcdef12-abcd-abcd-abcd-abcdef123456";
+    const bodyGood = JSON.stringify({
+      roles: ["coordinator"],
+      prompt: "test prompt",
+      task: "test task",
+      requested_at: "2026-09-10T00:00:00Z",
+    });
+    channel.setResponse(
+      "fleet/spawn-requests",
+      `${uuidGood}.json\t${bodyGood}\n${uuidBad}.json\t{not-json}\n`,
+    );
+    const connDetails = {
+      ip: "10.0.0.9",
+      port: 22,
+      username: "sweep-user",
+      authType: "password",
+      password: "sweep-secret",
+      key: null,
+      keyPassword: null,
+      keyType: null,
+    };
+    // Pass a HostRecord-shape that carries _connDetails (matches what
+    // list-substrate-hosts.ts + the fleet-status poll loop hand to
+    // scanSpawnRequests in production).
+    const host = {
+      id: "host-1",
+      name: "testhost",
+      _connDetails: connDetails,
+    } as unknown as HostRecord;
+
+    const result = await scanSpawnRequests(host, channel);
+    expect(result).toHaveLength(2);
+    // Both items — valid AND malformed — carry the sweep bag.
+    for (const item of result) {
+      expect(item.hostConnDetails).toEqual(connDetails);
+    }
   });
 
   // scanSpawnRequests — malformed JSON body → enqueued with malformedReason

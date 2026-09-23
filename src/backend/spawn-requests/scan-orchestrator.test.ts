@@ -84,10 +84,16 @@ function makePendingBirth(uuid: string, hostId: string): PendingBirth {
     hostId,
     hostIdNum: parseInt(hostId, 10) || 1,
     uuid,
-    role: "test-role",
+    // quick-260923-9x1: PendingBirth shape uses `roles: string[]` + `prompt`
+    // (D-13 bridge — the single `role:` field this fixture used was a bug
+    // that TS never caught because Partial-shape helpers weren't in play).
+    // `userId` removed — the field no longer exists on PendingBirth; the
+    // response-write path uses hostConnDetails (unused by these tests, which
+    // only assert that `enqueue` was called with the item).
+    roles: ["test-role"],
+    prompt: "",
     task: null,
     requested_at: "2026-09-12T00:00:00Z",
-    userId: "",
   };
 }
 

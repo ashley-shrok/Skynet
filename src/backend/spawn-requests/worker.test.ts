@@ -129,7 +129,20 @@ function makePendingBirth(overrides?: Partial<PendingBirth>): PendingBirth {
     prompt: "test-prompt",
     task: "do a thing",
     requested_at: "2026-09-10T00:00:00Z",
-    userId: "user-abc",
+    // quick-260923-9x1: PendingBirth.userId removed; hostConnDetails carries the
+    // sweep-decrypted SSH bag that writeResponseFile's REMOTE branch consumes
+    // directly (mirrors the shape listSubstrateHosts produces at
+    // list-substrate-hosts.ts:168-177).
+    hostConnDetails: {
+      ip: "10.0.0.1",
+      port: 22,
+      username: "user",
+      authType: "password",
+      password: "secret",
+      key: null,
+      keyPassword: null,
+      keyType: null,
+    },
     ...overrides,
   };
 }
@@ -806,6 +819,86 @@ describe("spawn-request worker", () => {
         (isLocalHostId as ReturnType<typeof vi.fn>).mockReset().mockReturnValue(false);
       }
     });
+
+    it("Regression 260923-9x1: writeResponseFile REMOTE branch uses item.hostConnDetails directly and never calls deps.resolveHostById for the response write", async () => {
+      // Pre-fix: writeResponseFile called deps.resolveHostById(hostId, item.userId)
+      // where item.userId was always "" — the resolver returned null and the
+      // worker gave up silently. This test locks in the new contract:
+      // hostConnDetails rides on the PendingBirth and goes straight into
+      // connectOneShot, WITHOUT a resolver call for the response write.
+      //
+      // birthIdentity is mocked to succeed WITHOUT touching birthDeps
+      // (returns ended{ok:true} synchronously). doBirth's own enumeration
+      // path (worker.ts:502) calls deps.resolveHostById exactly ONCE — the
+      // birth-path SSH resolver call for tiered pool enumeration. Pre-fix,
+      // writeResponseFile would have added a SECOND resolveHostById call for
+      // the SFTP write. Post-fix, that call is gone.
+      const deps = buildTestDeps();
+      const item = makePendingBirth({
+        hostConnDetails: {
+          ip: "10.0.0.1",
+          port: 22,
+          username: "user",
+          authType: "password",
+          password: "secret",
+          key: null,
+          keyPassword: null,
+          keyType: null,
+        },
+      });
+
+      await processBirth(item, deps);
+
+      // resolveHostById called EXACTLY once (birth-path enumeration at
+      // worker.ts:502) — NOT twice as it would have been pre-fix.
+      expect(deps.resolveHostById).toHaveBeenCalledTimes(1);
+
+      // The response-write connectOneShot got the connDetails bag from
+      // item.hostConnDetails directly.
+      const connectCalls = (deps.connectOneShot as ReturnType<typeof vi.fn>).mock.calls;
+      const responseConnect = connectCalls.find(
+        (c) => (c[0] as { ip?: string }).ip === "10.0.0.1",
+      );
+      expect(responseConnect).toBeDefined();
+      expect(responseConnect![0]).toMatchObject({
+        ip: "10.0.0.1",
+        port: 22,
+      });
+
+      // Success file was written (connDetails made it all the way through).
+      const writes = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls;
+      const successWrite = writes.find(
+        (c) => typeof c[1] === "string" && (c[1] as string).endsWith(".success.json"),
+      );
+      expect(successWrite).toBeDefined();
+    });
+
+    it("Regression 260923-9x1: missing hostConnDetails on a REMOTE PendingBirth → response file NOT written (ERROR-log short-circuit)", async () => {
+      // Sweep-invariant violation branch: if a REMOTE item somehow reaches the
+      // worker without hostConnDetails, writeResponseFile logs at ERROR and
+      // gives up. No SFTP write happens (writeMarkdownFileAtomic is called
+      // ONLY by the birth flow, not by the response-write path). Coord's
+      // safety timeout catches it — see writeResponseFile docblock in worker.ts.
+      const deps = buildTestDeps();
+      const item = makePendingBirth({ hostConnDetails: undefined });
+
+      await processBirth(item, deps);
+
+      // Birth still succeeded (birthIdentity mock returns ok:true), so the
+      // control flow REACHED the response-write path. But writeMarkdownFileAtomic
+      // was NOT called because the missing-connDetails branch short-circuited
+      // before the SFTP write. NOTE: this is a REMOTE item (default hostIdNum=42,
+      // isLocalHostId mocked to false), so the LOCAL branch which DOES call
+      // writeMarkdownFileAtomic is not the one that would have fired.
+      expect(deps.writeMarkdownFileAtomic).not.toHaveBeenCalled();
+
+      // connectOneShot for the response write was NOT called either — the
+      // short-circuit happens before connect. (deps.connectOneShot IS still
+      // called ONCE by the birth-path enumeration at worker.ts:504-508 for
+      // the REMOTE tier-2/tier-3 identity-list read; assert exactly-once so we
+      // pin down that the response-write path did not add a second call.)
+      expect(deps.connectOneShot).toHaveBeenCalledTimes(1);
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1168,7 +1261,8 @@ describe("spawn-request worker", () => {
       expect(depsB.birthIdentity).toHaveBeenCalledTimes(1);
 
       // A's birthIdentity received itemA's hostIdNum; B's received itemB's.
-      // (opts.userId is derived from getHostOwnerUserId mock, not item.userId.)
+      // (opts.userId is derived from getHostOwnerUserId mock; item.userId no
+      // longer exists on PendingBirth as of quick-260923-9x1.)
       expect((depsA.birthIdentity as ReturnType<typeof vi.fn>).mock.calls[0][0].hostId).toBe(itemA.hostIdNum);
       expect((depsB.birthIdentity as ReturnType<typeof vi.fn>).mock.calls[0][0].hostId).toBe(itemB.hostIdNum);
     });
