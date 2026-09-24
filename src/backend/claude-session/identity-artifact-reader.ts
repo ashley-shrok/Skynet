@@ -176,6 +176,15 @@ export function humanizeWakeupSchedule(schedule: unknown): string {
     }
     return baseWeekly;
   }
+  if (type === "one_shot") {
+    // Phase 128 code-review fix #2: one_shot was falling through to "custom
+    // schedule". A one_shot spec has `at`: an ISO datetime string. Render it
+    // in the same idiom as daily to keep the shape-3 modal's row-label
+    // consistent (label + "at" + human-readable time). No days-gate branch —
+    // one_shot fires once, at a moment; a day-of-week gate is meaningless.
+    const at = typeof s.at === "string" ? s.at : "";
+    return at ? `Once at ${at}` : "Once";
+  }
   return "custom schedule";
 }
 
@@ -320,6 +329,26 @@ export function getLocalProjectsRoot(): string {
   );
 }
 
+/**
+ * Returns the local wake-ups root directory (Phase 134 Plan 134-01).
+ *
+ * D-16: Skynet's own host is a managed host from the wake-ups CRUD API's
+ * perspective. The new fleet-wide LIST fan-out reads t1000 (Skynet's own
+ * host) via the container bind mount, not loopback SSH. This helper mirrors
+ * getLocalIdentitiesRoot + getLocalRolesRoot + getLocalProjectsRoot so
+ * every fleet subtree derives its root from the same HOME_HOST_DIR
+ * resolution (Phase 117 M-K parity).
+ *
+ * Precedence: WAKEUPS_HOST_DIR (test escape hatch) → HOME_HOST_DIR-derived
+ * default (`<home>/fleet/wakeups`).
+ */
+export function getLocalWakeupsRoot(): string {
+  return (
+    process.env.WAKEUPS_HOST_DIR ||
+    path.join(getLocalHomeRoot(), "fleet", "wakeups")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Two-step role resolution — Phase 22 SRIC-01
 // ---------------------------------------------------------------------------
@@ -364,7 +393,7 @@ export function extractRoleFromMarkdown(markdown: string): string | null {
   // malformed prose field (bad `task:` with unquoted `: ` — the recurring
   // Pitfall 3 case) used to collapse the whole frontmatter to null and force
   // role=null, which in turn caused the role-side visibility gate to fall
-  // open (Phase 129 D-3 fallback conflating "absent" with "unparseable"),
+  // open (Phase 135 D-3 fallback conflating "absent" with "unparseable"),
   // silently leaking every affected identity to every user. With the tolerant
   // parser, `role:` on line 1 survives a broken `task:` on line 3, so the
   // role-side gate still closes correctly.
@@ -683,7 +712,7 @@ export async function listProjects(
   // For each slug, best-effort read of project.md to extract displayName and
   // the `users:` visibility list. Any failure falls back to (slug, null users)
   // — a bare project dir is still a project, and a missing users list falls
-  // open per the Phase 129 D-3 fallback (matches identity-appearance discipline).
+  // open per the Phase 135 D-3 fallback (matches identity-appearance discipline).
   const out: Array<{
     slug: string;
     displayName: string;
@@ -1584,141 +1613,6 @@ export async function readIdentityWakeups(
 }
 
 // ---------------------------------------------------------------------------
-// 3b. readRoleWakeups — ~/fleet/roles/<role>/wakeups/*.json (Phase 72 Plan 01)
-// ---------------------------------------------------------------------------
-
-/**
- * Read all role-scope wakeup specs for the given identity, via the two-step
- * (identity file frontmatter → role folder). Byte-shape mirror of
- * readIdentityWakeups PLUS the two-step from readRoleFile: resolve role
- * BEFORE the LOCAL/REMOTE branch split, then substitute
- * identities/<key>/wakeups → roles/<role>/wakeups in both branches.
- *
- * Return shape is identical to readIdentityWakeups: {wakeups: Wakeup[]}.
- * Poisoned per-file JSON is logged (operation "role_wakeups_local_parse_error"
- * / "role_wakeups_remote_parse_error") and skipped — one bad wakeup file
- * does not poison the whole list.
- *
- * Throws (via resolveRoleForIdentity) when the identity file lacks role:
- * frontmatter. Returns {wakeups: []} when the role's wakeups folder is
- * missing on disk (LOCAL ENOENT / REMOTE cd-fail via `||` fallback).
- */
-export async function readRoleWakeups(
-  conn: SSHClientType | null,
-  identityKey: string,
-): Promise<{ wakeups: Wakeup[] }> {
-  // Two-step: resolve role BEFORE the branch split. Throws (no fallback) if
-  // role is missing or fails IDENTITY_KEY_RE. Role is IDENTITY_KEY_RE-safe
-  // for shell interpolation after this line.
-  const role = await resolveRoleForIdentity(conn, identityKey);
-
-  if (conn === null) {
-    // LOCAL branch — mirrors readIdentityWakeups LOCAL, rooted at
-    // ~/fleet/roles/<role>/wakeups/
-    const root = getLocalRolesRoot();
-    const wakeupsDir = path.join(root, role, "wakeups");
-    let dirEntries: string[];
-    try {
-      dirEntries = await fs.readdir(wakeupsDir);
-    } catch (err: unknown) {
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        (err as NodeJS.ErrnoException).code === "ENOENT"
-      ) {
-        return { wakeups: [] };
-      }
-      throw err;
-    }
-    const jsonFiles = dirEntries.filter((e) => e.endsWith(".json"));
-    const wakeups: Wakeup[] = [];
-    for (const filename of jsonFiles) {
-      const filePath = path.join(wakeupsDir, filename);
-      try {
-        const raw = await fs.readFile(filePath, "utf-8");
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        const stem = filename.replace(/\.json$/, "");
-        const name = typeof parsed.name === "string" ? parsed.name : stem;
-        const enabled =
-          typeof parsed.enabled === "boolean" ? parsed.enabled : false;
-        const instruction =
-          typeof parsed.instruction === "string" ? parsed.instruction : "";
-        const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
-        wakeups.push({ slug: stem, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction });
-      } catch (err) {
-        sshLogger.error(
-          "identity-artifact-reader: failed to parse local role wakeup JSON",
-          err instanceof Error ? err : new Error(String(err)),
-          {
-            operation: "role_wakeups_local_parse_error",
-            identityKey,
-            role,
-            filename,
-          },
-        );
-        // Skip poisoned entry — one bad file must not poison the list.
-      }
-    }
-    return { wakeups };
-  }
-
-  // REMOTE branch — delimiter-based one-liner (one round-trip for all wakeup files)
-  // Direct interpolation is safe: both identityKey (from caller) AND role
-  // (from resolveRoleForIdentity's IDENTITY_KEY_RE gate) are validated by
-  // /^[a-z0-9_-]{1,64}$/ — none of those characters are shell-special inside
-  // double quotes.
-  const cmd =
-    `cd "$HOME/fleet/roles/${role}/wakeups" 2>/dev/null && ` +
-    'for f in *.json; do echo "===FILE:$f==="; cat "$f"; done';
-  let stdout: string;
-  try {
-    stdout = await execWithTimeout(conn, cmd);
-  } catch {
-    // Wakeups dir likely doesn't exist — treat as empty (matches ENOENT semantics).
-    return { wakeups: [] };
-  }
-
-  if (!stdout) return { wakeups: [] };
-
-  const wakeups: Wakeup[] = [];
-  // Split on ===FILE: delimiter; first chunk is empty (before the first marker).
-  const chunks = stdout.split("===FILE:");
-  for (const chunk of chunks) {
-    if (!chunk.trim()) continue;
-    // chunk = "<filename>.json===\n<json content>"
-    const separatorIdx = chunk.indexOf("===");
-    if (separatorIdx === -1) continue;
-    const filename = chunk.slice(0, separatorIdx).trim();
-    const jsonContent = chunk.slice(separatorIdx + 3).trim();
-    if (!filename.endsWith(".json") || !jsonContent) continue;
-    try {
-      const parsed = JSON.parse(jsonContent) as Record<string, unknown>;
-      const stem = filename.replace(/\.json$/, "");
-      const name = typeof parsed.name === "string" ? parsed.name : stem;
-      const enabled =
-        typeof parsed.enabled === "boolean" ? parsed.enabled : false;
-      const instruction =
-        typeof parsed.instruction === "string" ? parsed.instruction : "";
-      const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
-      wakeups.push({ slug: stem, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction });
-    } catch (err) {
-      sshLogger.error(
-        "identity-artifact-reader: failed to parse remote role wakeup JSON",
-        err instanceof Error ? err : new Error(String(err)),
-        {
-          operation: "role_wakeups_remote_parse_error",
-          identityKey,
-          role,
-          filename,
-        },
-      );
-      // Skip poisoned entry.
-    }
-  }
-  return { wakeups };
-}
-
-// ---------------------------------------------------------------------------
 // 4. readIdentityHandoff — <key>/handoff.md
 // ---------------------------------------------------------------------------
 
@@ -2128,113 +2022,25 @@ export async function writeIdentityWakeupUpdate(
 }
 
 // ---------------------------------------------------------------------------
-// 6a1. writeRoleWakeupUpdate — patch a role-scope wakeup spec (Phase 72 Plan 01)
+// 6a2. Shared wake-up spec helpers — used by writeIdentityWakeupCreate
 // ---------------------------------------------------------------------------
 //
-// Byte-shape mirror of writeIdentityWakeupUpdate PLUS the two-step:
-// resolves role BEFORE the branch split, then substitutes
-// identities/<key>/wakeups → roles/<role>/wakeups in both LOCAL and REMOTE.
-// Same schema guards (schedule.type non-empty, enabled boolean, name non-empty,
-// instruction string) and same IDENTITY_SLUG_RE double-belt on wakeupSlug in
-// REMOTE branch as the identity-scope version.
+// Phase 134 Plan 134-02: the role-scope writers that also called these were
+// deleted (D-10). The helpers stay live for writeIdentityWakeupCreate below
+// (per-identity CRUD is still in use — D-09).
+// `normalizeWakeupSlug` is also `export`ed because Plan 128-01 wired the new
+// global-wakeups REST router to import it.
 
-/** Merge `updates` into ~/fleet/roles/<role>/wakeups/<wakeupSlug>.json.
- *  Two-step: resolves role from identity file's frontmatter first (throws
- *  when missing). Caller validates slug against IDENTITY_SLUG_RE before
- *  invoking. Throws on filesystem/parse errors or if the spec file doesn't
- *  exist. */
-export async function writeRoleWakeupUpdate(
-  conn: SSHClientType | null,
-  identityKey: string,
-  wakeupSlug: string,
-  updates: WakeupUpdate,
-): Promise<void> {
-  // Same schema guards as writeIdentityWakeupUpdate — validate BEFORE the
-  // two-step round-trip so a bad payload short-circuits with no I/O.
-  if (updates.schedule !== undefined) {
-    if (typeof updates.schedule !== "object" || updates.schedule === null) {
-      throw new Error("schedule must be an object");
-    }
-    const t = (updates.schedule as Record<string, unknown>).type;
-    if (typeof t !== "string" || t.length === 0) {
-      throw new Error("schedule.type must be a non-empty string");
-    }
-  }
-  if (updates.enabled !== undefined && typeof updates.enabled !== "boolean") {
-    throw new Error("enabled must be a boolean");
-  }
-  if (updates.name !== undefined) {
-    if (typeof updates.name !== "string" || updates.name.length === 0) {
-      throw new Error("name must be a non-empty string");
-    }
-  }
-  if (updates.instruction !== undefined && typeof updates.instruction !== "string") {
-    throw new Error("instruction must be a string");
-  }
-
-  // Two-step: resolve role BEFORE the branch split. Throws (no fallback) if
-  // role is missing or fails IDENTITY_KEY_RE. Role is IDENTITY_KEY_RE-safe
-  // for shell interpolation after this line.
-  const role = await resolveRoleForIdentity(conn, identityKey);
-
-  if (conn === null) {
-    const root = getLocalRolesRoot();
-    const filePath = path.join(root, role, "wakeups", wakeupSlug + ".json");
-    const raw = await fs.readFile(filePath, "utf-8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (updates.enabled !== undefined) parsed.enabled = updates.enabled;
-    if (updates.schedule !== undefined) parsed.schedule = updates.schedule;
-    if (updates.name !== undefined) parsed.name = updates.name;
-    if (updates.instruction !== undefined) parsed.instruction = updates.instruction;
-    const next = JSON.stringify(parsed, null, 2) + "\n";
-    const tmpPath = filePath + ".tmp";
-    await fs.writeFile(tmpPath, next, "utf-8");
-    await fs.rename(tmpPath, filePath);
-    return;
-  }
-
-  // REMOTE branch — same python3 script as writeIdentityWakeupUpdate; only
-  // the target path changes to roles/<role>/wakeups/.
-  if (!IDENTITY_SLUG_RE.test(wakeupSlug)) {
-    throw new Error("invalid wakeup slug");
-  }
-  const script =
-    'import json,os,sys\n' +
-    'p=sys.argv[1]\n' +
-    'u=json.loads(sys.stdin.read())\n' +
-    'with open(p,"r") as f: d=json.load(f)\n' +
-    'for k,v in u.items(): d[k]=v\n' +
-    'tmp=p+".tmp"\n' +
-    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
-    'os.rename(tmp,p)\n';
-  const payload = JSON.stringify(updates).replace(/'/g, "'\\''");
-  const cmd =
-    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/fleet/roles/${role}/wakeups/${wakeupSlug}.json"`;
-  await execWithTimeout(conn, cmd);
-}
-
-// ---------------------------------------------------------------------------
-// 6a2. writeRoleWakeupCreate — create a new role-scope wakeup (Phase 72 Plan 01)
-// ---------------------------------------------------------------------------
-//
-// Creates a fresh ~/fleet/roles/<role>/wakeups/<slug>.json. Slug is derived
-// from spec.name via kebab-case normalization. Guards against clobber (throws
-// if the file already exists). After a successful write, re-lists via
-// readRoleWakeups and returns the fresh list so the WS handler can echo it
-// back to the client for atomic re-render.
-
-/** Kebab-case slug normalizer shared by both wakeup create writers.
+/** Kebab-case slug normalizer.
  *  Lowercase, alphanumerics + hyphens, trim leading/trailing hyphens. Empty
  *  result means the input has no legal characters — caller throws in that
  *  case. */
-function normalizeWakeupSlug(name: string): string {
+export function normalizeWakeupSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 /** Validate a WakeupSpec's field shapes. Throws with a specific message per
- *  violation. Shared between writeRoleWakeupCreate + writeIdentityWakeupCreate
- *  to keep validation identical across both scopes. */
+ *  violation. Consumed by writeIdentityWakeupCreate below. */
 function validateWakeupSpec(spec: WakeupSpec): void {
   if (typeof spec.name !== "string" || spec.name.length === 0) {
     throw new Error("name must be a non-empty string");
@@ -2252,143 +2058,6 @@ function validateWakeupSpec(spec: WakeupSpec): void {
   if (typeof t !== "string" || t.length === 0) {
     throw new Error("schedule.type must be a non-empty string");
   }
-}
-
-/** Create a new ~/fleet/roles/<role>/wakeups/<slug>.json where <slug> is
- *  derived from spec.name via kebab-case. Throws "wakeup with this name
- *  already exists" if the target file already exists (last-writer-wins is
- *  the norm for updates; create is deliberately non-overwriting so a rushed
- *  double-tap on Save doesn't obliterate a peer's freshly-created wakeup).
- *  Returns the refreshed {wakeups} list post-write. */
-export async function writeRoleWakeupCreate(
-  conn: SSHClientType | null,
-  identityKey: string,
-  spec: WakeupSpec,
-): Promise<{ wakeups: Wakeup[] }> {
-  validateWakeupSpec(spec);
-  const slug = normalizeWakeupSlug(spec.name);
-  if (!IDENTITY_SLUG_RE.test(slug)) {
-    throw new Error("name normalizes to empty or invalid slug");
-  }
-
-  // Two-step: resolve role BEFORE the branch split.
-  const role = await resolveRoleForIdentity(conn, identityKey);
-
-  // Canonical body — serialized once so LOCAL + REMOTE write identical bytes.
-  const body = JSON.stringify(
-    { name: spec.name, enabled: spec.enabled, schedule: spec.schedule, instruction: spec.instruction },
-    null,
-    2,
-  ) + "\n";
-
-  if (conn === null) {
-    const root = getLocalRolesRoot();
-    const wakeupsDir = path.join(root, role, "wakeups");
-    // Defensive mkdir -p — mirrors writeRoleFile L1903 pattern. Cheap and
-    // forgiving; the folder might not exist if this is the first wakeup ever
-    // created for the role.
-    await fs.mkdir(wakeupsDir, { recursive: true });
-    const filePath = path.join(wakeupsDir, slug + ".json");
-    // Clobber guard: fs.access fires ENOENT when the file is absent (the
-    // happy path); any other outcome means the file exists (or perms are
-    // wrong — surface loudly rather than overwrite silently).
-    try {
-      await fs.access(filePath);
-      // If we get here, file exists — refuse.
-      throw new Error("wakeup with this name already exists");
-    } catch (err: unknown) {
-      const isEnoent =
-        typeof err === "object" &&
-        err !== null &&
-        (err as NodeJS.ErrnoException).code === "ENOENT";
-      if (!isEnoent) {
-        // Re-throw the "already exists" or any perm issue.
-        throw err;
-      }
-      // ENOENT is the happy path — file does not exist, safe to create.
-    }
-    const tmpPath = filePath + ".tmp";
-    await fs.writeFile(tmpPath, body, "utf-8");
-    await fs.rename(tmpPath, filePath);
-    return readRoleWakeups(conn, identityKey);
-  }
-
-  // REMOTE branch — clobber-check via `[ -e ]` + create via python3
-  // (mirrors writeIdentityWakeupUpdate REMOTE for atomic tmp+rename).
-  const targetPath = `$HOME/fleet/roles/${role}/wakeups/${slug}.json`;
-  // Clobber check + defensive mkdir in one round-trip.
-  const preCheckCmd =
-    `mkdir -p "$HOME/fleet/roles/${role}/wakeups" && ` +
-    `[ -e "${targetPath}" ] && echo EXISTS || echo OK`;
-  const preCheck = (await execWithTimeout(conn, preCheckCmd)).trim();
-  if (preCheck.endsWith("EXISTS")) {
-    throw new Error("wakeup with this name already exists");
-  }
-  const script =
-    'import json,os,sys\n' +
-    'p=sys.argv[1]\n' +
-    'd=json.loads(sys.stdin.read())\n' +
-    'tmp=p+".tmp"\n' +
-    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
-    'os.rename(tmp,p)\n';
-  const payload = JSON.stringify({
-    name: spec.name,
-    enabled: spec.enabled,
-    schedule: spec.schedule,
-    instruction: spec.instruction,
-  }).replace(/'/g, "'\\''");
-  const writeCmd =
-    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} "${targetPath}"`;
-  await execWithTimeout(conn, writeCmd);
-  return readRoleWakeups(conn, identityKey);
-}
-
-// ---------------------------------------------------------------------------
-// 6a3. writeRoleWakeupDelete — delete a role-scope wakeup (Phase 72 Plan 01)
-// ---------------------------------------------------------------------------
-//
-// Idempotent delete: swallows ENOENT on LOCAL branch (fs.unlink) and uses
-// `rm -f` on REMOTE branch (which is itself idempotent). After delete,
-// re-lists via readRoleWakeups and returns the refreshed {wakeups}.
-
-/** Delete ~/fleet/roles/<role>/wakeups/<wakeupSlug>.json. Idempotent —
- *  succeeds silently if the file is already absent. Returns the refreshed
- *  {wakeups} list post-delete. */
-export async function writeRoleWakeupDelete(
-  conn: SSHClientType | null,
-  identityKey: string,
-  wakeupSlug: string,
-): Promise<{ wakeups: Wakeup[] }> {
-  // Slug guard at the TOP — fires before the two-step SSH round-trip.
-  if (!IDENTITY_SLUG_RE.test(wakeupSlug)) {
-    throw new Error("invalid wakeup slug");
-  }
-
-  const role = await resolveRoleForIdentity(conn, identityKey);
-
-  if (conn === null) {
-    const root = getLocalRolesRoot();
-    const filePath = path.join(root, role, "wakeups", wakeupSlug + ".json");
-    try {
-      await fs.unlink(filePath);
-    } catch (err: unknown) {
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        (err as NodeJS.ErrnoException).code === "ENOENT"
-      ) {
-        // Idempotent — file already gone, nothing to do.
-      } else {
-        throw err;
-      }
-    }
-    return readRoleWakeups(conn, identityKey);
-  }
-
-  // REMOTE branch — `rm -f` is idempotent (silent on missing files).
-  const cmd = `rm -f "$HOME/fleet/roles/${role}/wakeups/${wakeupSlug}.json"`;
-  await execWithTimeout(conn, cmd);
-  return readRoleWakeups(conn, identityKey);
 }
 
 // ---------------------------------------------------------------------------
@@ -4097,270 +3766,6 @@ export async function readRoleBountiesByName(
   const archivedBounties = parseDelimited(archiveStdout, roleName, true);
 
   return { bounties, archivedBounties };
-}
-
-// ---------------------------------------------------------------------------
-// 6d. readRoleWakeupsByName — Phase 90 Plan 90-07 (D-08.3)
-// ---------------------------------------------------------------------------
-
-/** Read all wakeup specs for a role directly by role name — WITHOUT the
- *  identity two-step used by readRoleWakeups. Byte-shape mirror of
- *  readRoleWakeups MINUS the resolveRoleForIdentity step (since roleName
- *  arrives directly, use it after ROLE_NAME_PATTERN validation).
- *
- *  Sibling of readRoleFileByName / readRoleBountiesByName — role-name-keyed
- *  counterpart for the RoleModal wakeups tab (Phase 90 Plan 90-04). D-08.3
- *  planner-pick.
- *
- *  Return shape identical to readRoleWakeups: `{ wakeups: Wakeup[] }`.
- *  Poisoned per-file JSON logged (operation "role_wakeups_by_name_*_parse_error")
- *  and skipped — one bad wakeup file does not poison the whole list.
- */
-export async function readRoleWakeupsByName(
-  conn: SSHClientType | null,
-  roleName: string,
-): Promise<{ wakeups: Wakeup[] }> {
-  // Gate BEFORE any I/O.
-  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
-    throw new Error("invalid roleName");
-  }
-
-  if (conn === null) {
-    // LOCAL branch — mirrors readRoleWakeups LOCAL rooted at
-    // ~/fleet/roles/<roleName>/wakeups/
-    const root = getLocalRolesRoot();
-    const wakeupsDir = path.join(root, roleName, "wakeups");
-    let dirEntries: string[];
-    try {
-      dirEntries = await fs.readdir(wakeupsDir);
-    } catch (err: unknown) {
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        (err as NodeJS.ErrnoException).code === "ENOENT"
-      ) {
-        return { wakeups: [] };
-      }
-      throw err;
-    }
-    const jsonFiles = dirEntries.filter((e) => e.endsWith(".json"));
-    const wakeups: Wakeup[] = [];
-    for (const filename of jsonFiles) {
-      const filePath = path.join(wakeupsDir, filename);
-      try {
-        const raw = await fs.readFile(filePath, "utf-8");
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        const stem = filename.replace(/\.json$/, "");
-        const name = typeof parsed.name === "string" ? parsed.name : stem;
-        const enabled =
-          typeof parsed.enabled === "boolean" ? parsed.enabled : false;
-        const instruction =
-          typeof parsed.instruction === "string" ? parsed.instruction : "";
-        const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
-        wakeups.push({ slug: stem, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction });
-      } catch (err) {
-        sshLogger.error(
-          "identity-artifact-reader: failed to parse local role wakeup JSON (by name)",
-          err instanceof Error ? err : new Error(String(err)),
-          {
-            operation: "role_wakeups_by_name_local_parse_error",
-            roleName,
-            filename,
-          },
-        );
-        // Skip poisoned entry.
-      }
-    }
-    return { wakeups };
-  }
-
-  // REMOTE branch — delimiter-based one-liner. roleName validated by
-  // ROLE_NAME_PATTERN above; direct interpolation inside double quotes is
-  // shell-safe.
-  const cmd =
-    `cd "$HOME/fleet/roles/${roleName}/wakeups" 2>/dev/null && ` +
-    'for f in *.json; do echo "===FILE:$f==="; cat "$f"; done';
-  let stdout: string;
-  try {
-    stdout = await execWithTimeout(conn, cmd);
-  } catch {
-    return { wakeups: [] };
-  }
-
-  if (!stdout) return { wakeups: [] };
-
-  const wakeups: Wakeup[] = [];
-  const chunks = stdout.split("===FILE:");
-  for (const chunk of chunks) {
-    if (!chunk.trim()) continue;
-    const separatorIdx = chunk.indexOf("===");
-    if (separatorIdx === -1) continue;
-    const filename = chunk.slice(0, separatorIdx).trim();
-    const jsonContent = chunk.slice(separatorIdx + 3).trim();
-    if (!filename.endsWith(".json") || !jsonContent) continue;
-    try {
-      const parsed = JSON.parse(jsonContent) as Record<string, unknown>;
-      const stem = filename.replace(/\.json$/, "");
-      const name = typeof parsed.name === "string" ? parsed.name : stem;
-      const enabled =
-        typeof parsed.enabled === "boolean" ? parsed.enabled : false;
-      const instruction =
-        typeof parsed.instruction === "string" ? parsed.instruction : "";
-      const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
-      wakeups.push({ slug: stem, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction });
-    } catch (err) {
-      sshLogger.error(
-        "identity-artifact-reader: failed to parse remote role wakeup JSON (by name)",
-        err instanceof Error ? err : new Error(String(err)),
-        {
-          operation: "role_wakeups_by_name_remote_parse_error",
-          roleName,
-          filename,
-        },
-      );
-      // Skip poisoned entry.
-    }
-  }
-  return { wakeups };
-}
-
-// ---------------------------------------------------------------------------
-// 6e. writeRoleWakeupByName (create-or-update) — Phase 90 Plan 90-07 (D-08.3)
-// ---------------------------------------------------------------------------
-
-/** Write a role-scope wakeup spec by role name — full-overwrite of
- *  ~/fleet/roles/<roleName>/wakeups/<slug>.json where <slug> is derived
- *  from spec.name via kebab-case normalization. Byte-shape mirror of
- *  writeRoleWakeupCreate/writeRoleWakeupUpdate combined MINUS the
- *  resolveRoleForIdentity step.
- *
- *  Unlike writeRoleWakeupCreate (which throws on clobber), this writer
- *  performs a full-overwrite — the plan spec calls this "create or update"
- *  semantics per the plan's must_have wording ("full-overwrite of the file").
- *  Same atomic tmp+rename pattern as the identity/role wakeup writers.
- *
- *  Returns the refreshed {wakeups} list post-write via readRoleWakeupsByName
- *  so the caller can atomically re-render without a follow-up read (mirrors
- *  writeRoleWakeupCreate's convention).
- *
- *  Guards fire BEFORE any I/O:
- *   1. ROLE_NAME_PATTERN.test(roleName)
- *   2. validateWakeupSpec(spec) — name/enabled/schedule/instruction shape.
- *   3. slug normalization + IDENTITY_SLUG_RE.test(slug).
- */
-export async function writeRoleWakeupByName(
-  conn: SSHClientType | null,
-  roleName: string,
-  spec: WakeupSpec,
-): Promise<{ wakeups: Wakeup[] }> {
-  // Gate 1: role-name.
-  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
-    throw new Error("invalid roleName");
-  }
-  // Gate 2: spec shape.
-  validateWakeupSpec(spec);
-  // Gate 3: derived slug.
-  const slug = normalizeWakeupSlug(spec.name);
-  if (!IDENTITY_SLUG_RE.test(slug)) {
-    throw new Error("name normalizes to empty or invalid slug");
-  }
-
-  // Canonical body serialized once so LOCAL + REMOTE write identical bytes.
-  const body = JSON.stringify(
-    { name: spec.name, enabled: spec.enabled, schedule: spec.schedule, instruction: spec.instruction },
-    null,
-    2,
-  ) + "\n";
-
-  if (conn === null) {
-    const root = getLocalRolesRoot();
-    const wakeupsDir = path.join(root, roleName, "wakeups");
-    // Defensive mkdir -p — mirrors writeRoleWakeupCreate L1583.
-    await fs.mkdir(wakeupsDir, { recursive: true });
-    const filePath = path.join(wakeupsDir, slug + ".json");
-    const tmpPath = filePath + ".tmp";
-    await fs.writeFile(tmpPath, body, "utf-8");
-    await fs.rename(tmpPath, filePath);
-    return readRoleWakeupsByName(conn, roleName);
-  }
-
-  // REMOTE branch — mkdir -p + python3 tmp+rename write (mirrors
-  // writeRoleWakeupCreate REMOTE MINUS the clobber check since this is
-  // create-or-update semantics per plan spec).
-  const targetPath = `$HOME/fleet/roles/${roleName}/wakeups/${slug}.json`;
-  const mkdirCmd = `mkdir -p "$HOME/fleet/roles/${roleName}/wakeups"`;
-  await execWithTimeout(conn, mkdirCmd);
-  const script =
-    'import json,os,sys\n' +
-    'p=sys.argv[1]\n' +
-    'd=json.loads(sys.stdin.read())\n' +
-    'tmp=p+".tmp"\n' +
-    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
-    'os.rename(tmp,p)\n';
-  const payload = JSON.stringify({
-    name: spec.name,
-    enabled: spec.enabled,
-    schedule: spec.schedule,
-    instruction: spec.instruction,
-  }).replace(/'/g, "'\\''");
-  const writeCmd =
-    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} "${targetPath}"`;
-  await execWithTimeout(conn, writeCmd);
-  return readRoleWakeupsByName(conn, roleName);
-}
-
-// ---------------------------------------------------------------------------
-// 6f. deleteRoleWakeupByName — Phase 90 Plan 90-07 (D-08.3)
-// ---------------------------------------------------------------------------
-
-/** Delete a role-scope wakeup by role name —
- *  ~/fleet/roles/<roleName>/wakeups/<wakeupName>.json. Idempotent (succeeds
- *  silently if the file is already absent — same as writeRoleWakeupDelete).
- *  Byte-shape mirror of writeRoleWakeupDelete MINUS the resolveRoleForIdentity
- *  step.
- *
- *  Guards fire BEFORE any I/O:
- *   1. ROLE_NAME_PATTERN.test(roleName)
- *   2. IDENTITY_SLUG_RE.test(wakeupName) — safe-filename gate to prevent SSH
- *      path escape via `..` etc.
- *
- *  Returns the refreshed {wakeups} list post-delete via readRoleWakeupsByName.
- */
-export async function deleteRoleWakeupByName(
-  conn: SSHClientType | null,
-  roleName: string,
-  wakeupName: string,
-): Promise<{ wakeups: Wakeup[] }> {
-  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
-    throw new Error("invalid roleName");
-  }
-  if (!IDENTITY_SLUG_RE.test(wakeupName)) {
-    throw new Error("invalid wakeup slug");
-  }
-
-  if (conn === null) {
-    const root = getLocalRolesRoot();
-    const filePath = path.join(root, roleName, "wakeups", wakeupName + ".json");
-    try {
-      await fs.unlink(filePath);
-    } catch (err: unknown) {
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        (err as NodeJS.ErrnoException).code === "ENOENT"
-      ) {
-        // Idempotent — file already gone.
-      } else {
-        throw err;
-      }
-    }
-    return readRoleWakeupsByName(conn, roleName);
-  }
-
-  // REMOTE branch — `rm -f` is idempotent.
-  const cmd = `rm -f "$HOME/fleet/roles/${roleName}/wakeups/${wakeupName}.json"`;
-  await execWithTimeout(conn, cmd);
-  return readRoleWakeupsByName(conn, roleName);
 }
 
 // ---------------------------------------------------------------------------

@@ -2868,3 +2868,31 @@ Plans:
 - [ ] 133-04-PLAN.md — New `scan_role_archive_requested_sentinels()` scanner + `identity_has_role()` helper + ROLES_DIR constants + reconcile wire-up + new test file (Wave 3)
 - [ ] 133-05-PLAN.md — `RolesListModal` right-click context menu + double-confirm cascade preview + `archiveRole` fire-and-forget + tests (Wave 4)
 - [ ] 133-06-PLAN.md — id-skill docs: new "On archiving a role" section in `substrate/skills/id/SKILL.md` (Wave 4)
+
+### Phase 134: wake-ups-redesign campaign shape 2 (CRUD API): fleet-wide REST endpoints over global wake-up specs (list/create/update/delete/toggle) plus role + skill enumeration for the modal's chip-pickers, plus removal of the retired per-role wake-up CRUD surface
+
+**Goal:** Skynet backend exposes a fleet-wide REST CRUD API over the `~/fleet/wakeups/<slug>/wakeup.json` on-disk convention Phase 127 established (list fan-out, per-host create/update/delete/toggle-enabled, atomic writes, scheduler-parity validation), and the retired per-role wake-up CRUD surface — backend service functions + WS handlers + frontend API helpers + `RoleModal.tsx`'s `role-wakeups` tab + 4 wholesale + 2 surgical test cleanups — is fully removed
+
+**Rescue-rebased from Phase 128 → 134** on 2026-09-24 after peer identities' Phase 128 (push-notifications-replacing-telegram-bridge), Phase 129 (multi-user-single-host support), Phase 132 (frontend stale-prevention), and Phase 133 (role archival) all landed on origin in a single batch (42 commits `763e594c..c7015ac4`). Slot-collision with peer's Phase 128 alone would have forced renumber; slots 129, 132, 133 were also taken, so next-free slot pair = 134/135 for shape 2 + shape 3. Per fleet rule the later-mover renumbers.
+
+**Requirements**: D-01 through D-19 in 134-CONTEXT.md (this campaign uses D-XX decisions instead of REQ-IDs, matching Phase 123/127 pattern)
+**Depends on:** Phase 127
+**Plans:** 2/2 plans complete
+
+Plans:
+- [x] 134-01-PLAN.md — Wave 1: new global-wake-up REST surface (wakeups-list.ts fleet-wide fan-out + wakeups-write.ts per-host POST/PATCH/DELETE + toggle-enabled + scheduler-parity validation + atomic writes via writeMarkdownFileAtomic/ext_openssh_rename + getLocalWakeupsRoot helper + export normalizeWakeupSlug + database.ts chained mounts + paired nginx location blocks in both nginx.conf and nginx-https.conf) covering D-01/D-02/D-03/D-05/D-06/D-07/D-08/D-15/D-16/D-17
+- [x] 134-02-PLAN.md — Wave 2 (depends on 134-01): retire per-role wake-up CRUD surface — 6 backend service functions from identity-artifact-reader.ts, 8 WS handlers + JSDoc + imports from claude-session-server.ts, 5 frontend API helpers + payload/event types from claude-session-api.ts, RoleModal.tsx's role-wakeups tab + state/effects/callbacks/imports, 4 wholesale test-file deletions + 2 surgical test-file excisions — covering D-09/D-10/D-11/D-12/D-13/D-14
+
+### Phase 135: wake-ups-redesign campaign shape 3 (UI modal): Skynet front-end modal for managing wake-ups fleet-wide, reached from a new conversation-list header button
+
+**Goal:** Deliver the front-end path in — a new AlarmClock header button in `PrettyConversationsPanel.tsx` opens a Radix Dialog + glass-morphism modal that consumes shape 2's REST endpoints for fleet-wide list + per-host create/update/delete/toggle. Two-state modal (list view + create/edit form) inside a single shell. Filter bar with search + role dropdown + host dropdown; rows show name/schedule/prompt/roles/toggle/kebab; form fields name/prompt/roles/host/schedule (skills OUT, host read-only on edit, name read-only on edit per PATCH's name-vs-slug gate). Pessimistic toggle; native `window.confirm()` delete; inline error banners; skeleton loading; centered empty helper; refetch on open + on every write. Two paths in, one truth out — hand-editor fields (`skills`, `schedule.timezone`, `schedule.days`) survive modal round-trip.
+
+**Rescue-rebased from Phase 129 → 135** on 2026-09-24 alongside Phase 128 → 134 (same batched rescue after peer's 42-commit push landed 128/129/132/133).
+
+**Requirements**: N/A (traceability via 135-CONTEXT.md D-01..D-31 + shape-wake-ups-modal.closed.md)
+**Depends on:** Phase 134
+**Plans:** 2/2 plans complete
+
+Plans:
+- [x] 135-01-PLAN.md — Wave 1: `wakeups-api.ts` frontend client (5 REST helpers + `GlobalWakeupSpecWire` + `WakeupListItem` types with DELETE-with-body pattern per RESEARCH Pitfall #4) + `WakeupsModalRow.tsx` presentational component + `WakeupsModal.tsx` shell with fetch-on-open + reset-on-close + filter bar + Skeleton loading + empty state + footer count + AlarmClock header button + modal mount in `PrettyConversationsPanel.tsx`. Wave 1 leaves form view as stub.
+- [x] 135-02-PLAN.md — Wave 2 (depends on 135-01): `WakeupsModalForm.tsx` (5 form fields per D-20; Name+Host disabled on edit per Pitfall #5 + D-21; Weekly single-day segmented per Assumption A4; round-trip preservation Option B — preserve `skills` + `schedule.timezone` + `schedule.days` untouched). Replace wave-1 handler stubs with real pessimistic-toggle (D-12), native `window.confirm()` delete (D-14), inline-error-banner save (D-25). 25 tests (6 api + 15 modal + 4 panel-button). Plus /close-driven follow-ups (hide 1-host picker, preserve `schedule.days` on round-trip) + code-review fixes (filter reconciliation, safer ALL sentinel, toggle in-flight guard, refetch load-error surface, T-15 filter reset test extension, filter parseInt gate).

@@ -1,10 +1,12 @@
 // ─── role-name-keyed READ WS handlers (Phase 90 Plan 90-07 Task 3) ─
 //
 // Byte-shape mirror of claude-session-server.role-update-file.test.ts (Plan
-// 90-03), but covering the three READ variants added in Plan 90-07:
+// 90-03), covering the READ variants added in Plan 90-07:
 //   - role:get-file       → readRoleFileByName
 //   - role:list-bounties  → readRoleBountiesByName
-//   - role:list-wakeups   → readRoleWakeupsByName
+//
+// Phase 134 Plan 134-02: role:list-wakeups is retired (its coverage lived
+// here in the third describe block). Removed along with the reader mock.
 //
 // Test strategy:
 //   - vi.mock the reader helpers so we control responses / surface throws.
@@ -29,7 +31,6 @@ vi.mock("./identity-artifact-reader.js", async (importOriginal) => {
     ...actual,
     readRoleFileByName: vi.fn(),
     readRoleBountiesByName: vi.fn(),
-    readRoleWakeupsByName: vi.fn(),
   };
 });
 
@@ -38,12 +39,10 @@ import { resolveHostById } from "../ssh/host-resolver.js";
 import {
   readRoleFileByName,
   readRoleBountiesByName,
-  readRoleWakeupsByName,
 } from "./identity-artifact-reader.js";
 import {
   __handleRoleGetFileForTests,
   __handleRoleListBountiesForTests,
-  __handleRoleListWakeupsForTests,
 } from "./claude-session-server.js";
 
 // ──────────────────────────────────────────────────────────────────────
@@ -77,7 +76,6 @@ beforeEach(() => {
   vi.mocked(resolveHostById).mockReset();
   vi.mocked(readRoleFileByName).mockReset();
   vi.mocked(readRoleBountiesByName).mockReset();
-  vi.mocked(readRoleWakeupsByName).mockReset();
 });
 
 afterEach(() => {
@@ -294,100 +292,5 @@ describe("role:list-bounties WS handler", () => {
   });
 });
 
-// ══════════════════════════════════════════════════════════════════════
-// role:list-wakeups — happy paths + validation
-// ══════════════════════════════════════════════════════════════════════
-
-describe("role:list-wakeups WS handler", () => {
-  it("LOCAL happy path: calls readRoleWakeupsByName(null, roleName); response carries wakeups list", async () => {
-    vi.mocked(readRoleWakeupsByName).mockResolvedValue({
-      wakeups: [
-        {
-          slug: "morning-check",
-          name: "Morning Check",
-          enabled: true,
-          scheduleHuman: "every day at 09:00",
-          schedule: { type: "cron", value: "0 9 * * *" },
-          instruction: "Check morning email",
-        },
-      ],
-    });
-
-    await __handleRoleListWakeupsForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-wakeups", roleName: "box-maintainer" },
-      "1",
-    );
-
-    expect(readRoleWakeupsByName).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(readRoleWakeupsByName).mock.calls[0][0]).toBeNull();
-    expect(vi.mocked(readRoleWakeupsByName).mock.calls[0][1]).toBe("box-maintainer");
-
-    expect(sent[0].type).toBe("role:wakeups-loaded");
-    expect(sent[0].wakeups).toHaveLength(1);
-    expect(sent[0].error).toBeUndefined();
-  });
-
-  it("REMOTE happy path: resolves host, opens conn, calls reader with conn, closes conn", async () => {
-    const fakeConn = makeFakeConn("hostZ");
-    vi.mocked(resolveHostById).mockResolvedValue({ ip: "1.2.3.4" } as never);
-    vi.mocked(connectOneShot).mockResolvedValue(fakeConn as never);
-    vi.mocked(readRoleWakeupsByName).mockResolvedValue({ wakeups: [] });
-
-    await __handleRoleListWakeupsForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-wakeups", roleName: "box-maintainer", hostId: 5 },
-      "1",
-    );
-
-    expect(vi.mocked(readRoleWakeupsByName).mock.calls[0][0]).toBe(fakeConn);
-    expect(fakeConn.end).toHaveBeenCalledTimes(1);
-    expect(sent[0].type).toBe("role:wakeups-loaded");
-  });
-
-  it("invalid roleName → error envelope with empty list", async () => {
-    await __handleRoleListWakeupsForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-wakeups", roleName: "../oops" },
-      "1",
-    );
-
-    expect(readRoleWakeupsByName).not.toHaveBeenCalled();
-    expect(sent[0]).toEqual({
-      type: "role:wakeups-loaded",
-      wakeups: [],
-      error: "invalid roleName",
-    });
-  });
-
-  it("host not found → error envelope with empty list", async () => {
-    vi.mocked(resolveHostById).mockResolvedValue(null as never);
-
-    await __handleRoleListWakeupsForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-wakeups", roleName: "box-maintainer", hostId: 999 },
-      "1",
-    );
-
-    expect(readRoleWakeupsByName).not.toHaveBeenCalled();
-    expect(sent[0]).toEqual({
-      type: "role:wakeups-loaded",
-      wakeups: [],
-      error: "host not found",
-    });
-  });
-
-  it("reader throws → error propagates on envelope", async () => {
-    vi.mocked(readRoleWakeupsByName).mockRejectedValue(new Error("wakeup read failed"));
-
-    await __handleRoleListWakeupsForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-wakeups", roleName: "box-maintainer" },
-      "1",
-    );
-
-    expect(sent[0].type).toBe("role:wakeups-loaded");
-    expect(sent[0].wakeups).toEqual([]);
-    expect(sent[0].error).toBe("wakeup read failed");
-  });
-});
+// Phase 134 Plan 134-02: the role:list-wakeups describe block was removed
+// here (D-11 wire-op retirement + D-13 test cleanup). See above header block.

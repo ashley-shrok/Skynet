@@ -15,7 +15,8 @@
  * D-09 (LOCKED SEMANTICS): RoleModal is a NEW component, not a re-
  *   parameterized IdentityModal. IdentityModal keeps identity-scope tabs
  *   only (post-Phase-90-06); RoleModal owns role-scope tabs (role file /
- *   runbooks / bounties / wakeups).
+ *   runbooks / bounties). Phase 134 Plan 134-02: role-scope wakeups tab
+ *   retired top-to-bottom (see D-09 in 128-CONTEXT.md).
  *
  * D-08.3 (LOCKED — CONTEXT.md rejects the identity indirection): every
  *   read/write path on this modal is addressed BY ROLE NAME. Callers pass
@@ -43,7 +44,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlarmClock,
   BookOpen,
   Target,
   Users,
@@ -61,17 +61,10 @@ import { roleAvatarUrl, updateRoleAvatarByName } from "@/api/identities-api";
 import {
   updateRoleFileByName,
   getRoleFileByName,
-  listRoleWakeupsByName,
-  createRoleWakeupByName,
-  updateRoleWakeupByName,
-  deleteRoleWakeupByName,
-  type WakeupSpecWire,
-  type Wakeup,
 } from "@/api/claude-session-api";
 import type { TabState } from "./IdentityFileTab";
 import { RoleFileTab } from "./RoleFileTab";
 import { RunbooksTab } from "./RunbooksTab";
-import { WakeupsTab } from "./WakeupsTab";
 import { RoleBountiesTab } from "./RoleBountiesTab";
 import { RoleCosmeticEditBlock } from "./RoleCosmeticEditBlock";
 import { roleDisplayName } from "@/lib/role-display-name";
@@ -82,11 +75,12 @@ const FALLBACK_HUE = 190;
 // Bottom-nav icon bar entries. Order + labels mirror IdentityModal
 // NAV_SECTIONS_ROLE (L351-361) but restated here to keep the file
 // standalone. Default landing tab = "role" (D-CONTEXT §UX rules).
+// Phase 134 Plan 134-02: `role-wakeups` entry removed alongside the
+// per-role wake-up CRUD retirement (D-09).
 const NAV_SECTIONS = [
   { value: "role", label: "Role file", Icon: Users },
   { value: "runbooks", label: "Runbooks", Icon: BookOpen },
   { value: "bounties", label: "Bounties", Icon: Target },
-  { value: "role-wakeups", label: "Wakeups", Icon: AlarmClock },
 ] as const;
 
 /**
@@ -189,12 +183,13 @@ function yamlScalar(value: string | number): string {
   return value;
 }
 
-// Phase 90 Plan 90-10: openOneShot + sendMutation helpers deleted. The 6
+// Phase 90 Plan 90-10: openOneShot + sendMutation helpers deleted. The
 // role-name-keyed API helpers from Plan 90-09 (getRoleFileByName,
-// listRoleWakeupsByName, createRoleWakeupByName, updateRoleWakeupByName,
-// deleteRoleWakeupByName, updateRoleFileByName) all return Promises with the
-// same connection lifecycle baked in, so the modal-local WS plumbing was pure
-// duplication of what claude-session-api.ts already owns.
+// updateRoleFileByName) all return Promises with the same connection
+// lifecycle baked in, so the modal-local WS plumbing was pure duplication of
+// what claude-session-api.ts already owns. Phase 134 Plan 134-02: the four
+// role-scope wakeup helpers that once shared this pattern have been retired
+// top-to-bottom (see 128-CONTEXT.md D-12).
 
 export interface RoleModalProps {
   /** Controlled — true = modal open. */
@@ -204,10 +199,11 @@ export interface RoleModalProps {
    *  clean up their own state. */
   onOpenChange: (open: boolean) => void;
   /** Role slug (kebab-case). Addresses ALL of: header avatar, role-file
-   *  fetch/write, runbooks + role-wakeups scoping, bounty read, avatar upload.
-   *  Phase 90 Plan 90-10: this is the ONLY addressing prop for role-scope
-   *  reads/writes — the earlier Wave-2 identity prop was removed after Plan
-   *  90-09 shipped 6 role-name-keyed API helpers (D-08.3 lock). */
+   *  fetch/write, runbooks scoping, bounty read, avatar upload. Phase 90 Plan
+   *  90-10: this is the ONLY addressing prop for role-scope reads/writes —
+   *  the earlier Wave-2 identity prop was removed after Plan 90-09 shipped
+   *  the role-name-keyed API helpers (D-08.3 lock). Phase 134 Plan 134-02:
+   *  role-wakeups scoping retired. */
   roleName: string;
   /** Role cosmetics from Plan 90-01's RoleSummary. All keys optional. */
   roleCosmetics: {
@@ -241,9 +237,6 @@ export function RoleModal({
   const [roleFileState, setRoleFileState] = useState<TabState<string>>({
     status: "loading",
   });
-  const [roleWakeupsState, setRoleWakeupsState] = useState<TabState<Wakeup[]>>({
-    status: "loading",
-  });
 
   // Cosmetic-edit-block draft. Accumulates onDraftChange patches so we can
   // splice them into the frontmatter at save time. Reset on modal close.
@@ -270,16 +263,16 @@ export function RoleModal({
   // its saveError UI. The modal stays open so the draft is preserved. No
   // separate error state needed here.
 
-  // ── Fetch role file + role-wakeups on open ────────────────────────────────
+  // ── Fetch role file on open ───────────────────────────────────────────────
   //
-  // Plan 90-10 shim removal: both reads route through role-name-keyed helpers
-  // from claude-session-api.ts (Plan 90-09). The prior openOneShot plumbing
-  // was pure duplication.
+  // Plan 90-10 shim removal: reads route through the role-name-keyed helper
+  // from claude-session-api.ts (Plan 90-09). Phase 134 Plan 134-02: the
+  // role-wakeups fetch that once ran here alongside the role-file read has
+  // been retired.
   useEffect(() => {
     if (!open) return;
 
     setRoleFileState({ status: "loading" });
-    setRoleWakeupsState({ status: "loading" });
     setCosmeticDraft({});
     setAvatarFile(null);
     setClearedKeys(new Set());
@@ -304,90 +297,10 @@ export function RoleModal({
       }
     })();
 
-    void (async () => {
-      try {
-        const { wakeups } = await listRoleWakeupsByName({ roleName, hostId });
-        if (!cancelled) {
-          setRoleWakeupsState({ status: "ready", data: wakeups });
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setRoleWakeupsState({
-            status: "error",
-            error: e instanceof Error ? e.message : "Connection failed",
-          });
-        }
-      }
-    })();
-
     return () => {
       cancelled = true;
     };
   }, [open, roleName, hostId]);
-
-  // ── Role-scope wakeup CRUD (byte-shape mirror of IdentityModal L922-974) ──
-  //
-  // Plan 90-10 shim removal: mutations route through role-name-keyed helpers
-  // from claude-session-api.ts (Plan 90-09). The updateRoleWakeupByName /
-  // createRoleWakeupByName / deleteRoleWakeupByName helpers all resolve with
-  // `{wakeups}` (the FRESH post-write list) so we can update state in one shot.
-  //
-  // Compatibility with WakeupsTab's onUpdate signature: the tab still calls
-  // `onUpdate(wakeupSlug, updates)` — we rebuild the FULL WakeupSpecWire by
-  // reading the current wakeup and applying the patch. This matches how
-  // IdentityModal's L922-974 layer worked; the byName variant just replaces
-  // the wire type.
-  const updateRoleWakeup = useCallback(
-    async (
-      wakeupSlug: string,
-      updates: {
-        enabled?: boolean;
-        schedule?: unknown;
-        name?: string;
-        instruction?: string;
-      },
-    ): Promise<void> => {
-      // Locate the current wakeup so we can construct a full spec. The tab
-      // passes a slug; the byName WS payload wants a full spec.
-      const current =
-        roleWakeupsState.status === "ready"
-          ? roleWakeupsState.data.find((w) => w.name === wakeupSlug)
-          : undefined;
-      if (!current) {
-        throw new Error(`wakeup not found: ${wakeupSlug}`);
-      }
-      const spec: WakeupSpecWire = {
-        name: updates.name ?? current.name,
-        enabled: updates.enabled ?? current.enabled,
-        // WakeupSpecWire.schedule is the same shape the wakeup carries.
-        schedule: (updates.schedule ?? current.schedule) as WakeupSpecWire["schedule"],
-        instruction: updates.instruction ?? current.instruction,
-      };
-      const res = await updateRoleWakeupByName({ roleName, hostId, spec });
-      setRoleWakeupsState({ status: "ready", data: res.wakeups });
-    },
-    [roleName, hostId, roleWakeupsState],
-  );
-
-  const createRoleWakeup = useCallback(
-    async (spec: WakeupSpecWire): Promise<void> => {
-      const res = await createRoleWakeupByName({ roleName, hostId, spec });
-      setRoleWakeupsState({ status: "ready", data: res.wakeups });
-    },
-    [roleName, hostId],
-  );
-
-  const deleteRoleWakeup = useCallback(
-    async (wakeupSlug: string): Promise<void> => {
-      const res = await deleteRoleWakeupByName({
-        roleName,
-        hostId,
-        wakeupName: wakeupSlug,
-      });
-      setRoleWakeupsState({ status: "ready", data: res.wakeups });
-    },
-    [roleName, hostId],
-  );
 
   // ── Role-file save handler ────────────────────────────────────────────────
   //
@@ -653,23 +566,10 @@ export function RoleModal({
               />
             </TabsContent>
 
-            <TabsContent
-              value="role-wakeups"
-              className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-            >
-              <WakeupsTab
-                state={roleWakeupsState}
-                hue={hue}
-                scope="role"
-                isCoordinator={false}
-                onUpdate={updateRoleWakeup}
-                onCreate={createRoleWakeup}
-                onDelete={deleteRoleWakeup}
-              />
-            </TabsContent>
-
             {/* Bottom icon-bar nav — mirrors IdentityModal L2557-2597
-                shape. 4 items keyed off NAV_SECTIONS above. */}
+                shape. 3 items keyed off NAV_SECTIONS above (role/runbooks/
+                bounties); the retired role-wakeups tab was removed here in
+                Phase 134 Plan 134-02. */}
             <div
               className="shrink-0 flex items-stretch justify-around px-2 py-1 border-t"
               style={{

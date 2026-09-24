@@ -502,11 +502,10 @@ export type ClaudeSessionServerEvent =
   // (frontend consumers deleted; backend WS handlers still handle these types).
   | IdentityWakeupsEvent
   | IdentityWakeupUpdatedEvent
-  // Phase 72 Plan 01: role-scope wakeup CRUD + identity-scope create/delete parity
-  | IdentityRoleWakeupsEvent
-  | IdentityRoleWakeupUpdatedEvent
-  | IdentityRoleWakeupCreatedEvent
-  | IdentityRoleWakeupDeletedEvent
+  // Phase 72 Plan 01: identity-scope create/delete parity-gap closure.
+  // Phase 134 Plan 134-02: role-scope wakeup CRUD variants retired
+  // (IdentityRoleWakeupsEvent + IdentityRoleWakeupUpdatedEvent +
+  // IdentityRoleWakeupCreatedEvent + IdentityRoleWakeupDeletedEvent).
   | IdentityWakeupCreatedEvent
   | IdentityWakeupDeletedEvent
   | IdentityBountyPriorityUpdatedEvent
@@ -791,96 +790,30 @@ export type IdentityWakeupUpdatedEvent = {
   error?: string;
 };
 
-// ─── Phase 72 Plan 01: role-scope wakeup CRUD + identity-scope create/delete ──
+// ─── Phase 72 Plan 01: identity-scope wakeup create/delete parity-gap closure ─
 //
-// Six new wire type pairs land the backend WS handlers that let the
-// IdentityModal role-view Wakeups tab list/create/edit/delete role-scope
-// wakeups (~/fleet/roles/<role>/wakeups/*.json) plus close the
-// identity-scope parity gap (create + delete for identity-scope wakeups,
-// which today only supports list + update).
-//
-// Role-scope wire types (four pairs — full CRUD for role-scope wakeups):
-//   - identity:list-role-wakeups   / identity:role-wakeups         (list)
-//   - identity:update-role-wakeup  / identity:role-wakeup-updated  (patch)
-//   - identity:create-role-wakeup  / identity:role-wakeup-created  (create)
-//   - identity:delete-role-wakeup  / identity:role-wakeup-deleted  (delete)
-//
-// Identity-scope wire types (two pairs — parity-gap closure only, list +
-// update already existed):
+// Two wire type pairs close the identity-scope parity gap (create + delete
+// for identity-scope wakeups, which today only supports list + update):
 //   - identity:create-wakeup / identity:wakeup-created (create)
 //   - identity:delete-wakeup / identity:wakeup-deleted (delete)
 //
-// All six events echo the FRESH {wakeups} list on success so the client can
+// Both events echo the FRESH {wakeups} list on success so the client can
 // atomically re-render without a follow-up read (same convention as
-// IdentityWakeupUpdatedEvent). Role-scope handlers do the two-step
-// (identity file frontmatter -> role folder) INTERNALLY inside the backend
-// writer/reader — the wire contract stays (identityKey, hostId, spec/slug).
+// IdentityWakeupUpdatedEvent).
+//
+// Phase 134 Plan 134-02: the four role-scope wire type pairs that once lived
+// alongside these (identity:{list,update,create,delete}-role-wakeup +
+// identity:role-wakeup{s,-updated,-created,-deleted}) have been retired
+// top-to-bottom.
 
-/** Shared wire-side shape for the create-wakeup payloads (identity + role
- *  scope). Mirror of the backend WakeupSpec type. Slug is derived server-side
- *  from `name` via kebab-case normalization — client does NOT compute it. */
+/** Shared wire-side shape for the create-wakeup payloads. Mirror of the
+ *  backend WakeupSpec type. Slug is derived server-side from `name` via
+ *  kebab-case normalization — client does NOT compute it. */
 export type WakeupSpecWire = {
   name: string;
   enabled: boolean;
   schedule: unknown;
   instruction: string;
-};
-
-// ─── role-scope wakeup CRUD ──────────────────────────────────────────
-
-export type IdentityListRoleWakeupsPayload = {
-  type: "identity:list-role-wakeups";
-  identityKey: string;
-  /** Pane's SSH host id — backend routes reads to the pane's box. */
-  hostId: number;
-};
-export type IdentityRoleWakeupsEvent = {
-  type: "identity:role-wakeups";
-  wakeups: Wakeup[];
-  error?: string;
-};
-
-export type IdentityUpdateRoleWakeupPayload = {
-  type: "identity:update-role-wakeup";
-  identityKey: string;
-  hostId: number;
-  /** filename stem of roles/<role>/wakeups/<slug>.json — regex-validated on the server. */
-  wakeupSlug: string;
-  updates: {
-    enabled?: boolean;
-    schedule?: unknown;
-    name?: string;
-    instruction?: string;
-  };
-};
-export type IdentityRoleWakeupUpdatedEvent = {
-  type: "identity:role-wakeup-updated";
-  wakeups: Wakeup[];
-  error?: string;
-};
-
-export type IdentityCreateRoleWakeupPayload = {
-  type: "identity:create-role-wakeup";
-  identityKey: string;
-  hostId: number;
-  spec: WakeupSpecWire;
-};
-export type IdentityRoleWakeupCreatedEvent = {
-  type: "identity:role-wakeup-created";
-  wakeups: Wakeup[];
-  error?: string;
-};
-
-export type IdentityDeleteRoleWakeupPayload = {
-  type: "identity:delete-role-wakeup";
-  identityKey: string;
-  hostId: number;
-  wakeupSlug: string;
-};
-export type IdentityRoleWakeupDeletedEvent = {
-  type: "identity:role-wakeup-deleted";
-  wakeups: Wakeup[];
-  error?: string;
 };
 
 // ─── identity-scope wakeup CRUD parity-gap closure ─────────────────────
@@ -1379,17 +1312,17 @@ export function updateRoleFileByName(
 //
 // Byte-shape mirrors of updateRoleFileByName above — one-shot open →
 // send-on-open → resolve on matching response envelope → close socket.
-// Backend handlers for these six wire types shipped in Plan 90-07.
+// Backend handlers for these wire types shipped in Plan 90-07.
 // Consumers (RoleModal + RoleBountiesTab + RoleCosmeticEditBlock) landed in
 // Plan 90-10 and use these instead of the earlier identity-keyed reads.
 //
 // Wire type / response type pairs:
 //   role:get-file        {roleName, hostId?}                       -> role:file-loaded     {markdown, error?}
 //   role:list-bounties   {roleName, hostId?, includeArchived?}     -> role:bounties-loaded {bounties, archivedBounties, error?}
-//   role:list-wakeups    {roleName, hostId?}                       -> role:wakeups-loaded  {wakeups, error?}
-//   role:create-wakeup   {roleName, hostId?, spec: WakeupSpecWire} -> role:wakeup-created  {wakeups, error?}
-//   role:update-wakeup   {roleName, hostId?, spec: WakeupSpecWire} -> role:wakeup-updated  {wakeups, error?}
-//   role:delete-wakeup   {roleName, hostId?, wakeupName}           -> role:wakeup-deleted  {wakeups, error?}
+//
+// Phase 134 Plan 134-02: the four role-scope wakeup CRUD wire types
+// (role:{list,create,update,delete}-wakeup + role:wakeup{s-loaded,-created,-updated,-deleted})
+// have been retired top-to-bottom.
 
 export type RoleGetFilePayload = {
   type: "role:get-file";
@@ -1415,54 +1348,6 @@ export type RoleBountiesLoadedEvent = {
   bounties: unknown[];
   /** Always present; empty array when includeArchived omitted. */
   archivedBounties: unknown[];
-  error?: string;
-};
-
-export type RoleListWakeupsPayload = {
-  type: "role:list-wakeups";
-  roleName: string;
-  hostId?: number;
-};
-export type RoleWakeupsLoadedEvent = {
-  type: "role:wakeups-loaded";
-  wakeups: Wakeup[];
-  error?: string;
-};
-
-export type RoleCreateWakeupPayload = {
-  type: "role:create-wakeup";
-  roleName: string;
-  hostId?: number;
-  spec: WakeupSpecWire;
-};
-export type RoleWakeupCreatedEvent = {
-  type: "role:wakeup-created";
-  wakeups: Wakeup[];
-  error?: string;
-};
-
-export type RoleUpdateWakeupPayload = {
-  type: "role:update-wakeup";
-  roleName: string;
-  hostId?: number;
-  spec: WakeupSpecWire;
-};
-export type RoleWakeupUpdatedEvent = {
-  type: "role:wakeup-updated";
-  wakeups: Wakeup[];
-  error?: string;
-};
-
-export type RoleDeleteWakeupPayload = {
-  type: "role:delete-wakeup";
-  roleName: string;
-  hostId?: number;
-  /** filename stem of roles/<role>/wakeups/<name>.json — server IDENTITY_SLUG_RE gated. */
-  wakeupName: string;
-};
-export type RoleWakeupDeletedEvent = {
-  type: "role:wakeup-deleted";
-  wakeups: Wakeup[];
   error?: string;
 };
 
@@ -1585,234 +1470,8 @@ export function listBountiesForRoleName(args: {
   });
 }
 
-/**
- * List ~/fleet/roles/<roleName>/wakeups/*.json. Resolves `{wakeups}` on
- * success.
- */
-export function listRoleWakeupsByName(args: {
-  roleName: string;
-  hostId?: number;
-}): Promise<{ wakeups: Wakeup[] }> {
-  return new Promise((resolve, reject) => {
-    let responded = false;
-    const sock = openClaudeSessionSocket();
-    sock.onopen = () => {
-      const payload: RoleListWakeupsPayload = {
-        type: "role:list-wakeups",
-        roleName: args.roleName,
-        hostId: args.hostId,
-      };
-      try {
-        sock.send(JSON.stringify(payload));
-      } catch {
-        /* ws may be mid-close */
-      }
-    };
-    sock.onmessage = (event: MessageEvent<string>) => {
-      if (responded) return;
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== "role:wakeups-loaded") return;
-        responded = true;
-        const env = raw as RoleWakeupsLoadedEvent;
-        try {
-          sock.close();
-        } catch {
-          /* ignore */
-        }
-        if (env.error) {
-          reject(new Error(env.error));
-        } else {
-          resolve({ wakeups: env.wakeups });
-        }
-      } catch {
-        /* ignore parse errors */
-      }
-    };
-    const handleFail = () => {
-      if (responded) return;
-      responded = true;
-      reject(new Error("Connection failed"));
-    };
-    sock.onerror = handleFail;
-    sock.onclose = () => {
-      if (!responded) handleFail();
-    };
-  });
-}
-
-/**
- * Create a role-scope wakeup. Slug is derived server-side from `spec.name`
- * (kebab-case). Resolves with the FRESH wakeups list post-write so callers
- * can atomically re-render without a follow-up read.
- */
-export function createRoleWakeupByName(args: {
-  roleName: string;
-  hostId?: number;
-  spec: WakeupSpecWire;
-}): Promise<{ wakeups: Wakeup[] }> {
-  return new Promise((resolve, reject) => {
-    let responded = false;
-    const sock = openClaudeSessionSocket();
-    sock.onopen = () => {
-      const payload: RoleCreateWakeupPayload = {
-        type: "role:create-wakeup",
-        roleName: args.roleName,
-        hostId: args.hostId,
-        spec: args.spec,
-      };
-      try {
-        sock.send(JSON.stringify(payload));
-      } catch {
-        /* ws may be mid-close */
-      }
-    };
-    sock.onmessage = (event: MessageEvent<string>) => {
-      if (responded) return;
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== "role:wakeup-created") return;
-        responded = true;
-        const env = raw as RoleWakeupCreatedEvent;
-        try {
-          sock.close();
-        } catch {
-          /* ignore */
-        }
-        if (env.error) {
-          reject(new Error(env.error));
-        } else {
-          resolve({ wakeups: env.wakeups });
-        }
-      } catch {
-        /* ignore parse errors */
-      }
-    };
-    const handleFail = () => {
-      if (responded) return;
-      responded = true;
-      reject(new Error("Connection failed"));
-    };
-    sock.onerror = handleFail;
-    sock.onclose = () => {
-      if (!responded) handleFail();
-    };
-  });
-}
-
-/**
- * Update a role-scope wakeup (full-overwrite via writeRoleWakeupByName —
- * same writer as create, distinct wire type so client can distinguish
- * optimistic UI). Resolves with the FRESH wakeups list post-write.
- */
-export function updateRoleWakeupByName(args: {
-  roleName: string;
-  hostId?: number;
-  spec: WakeupSpecWire;
-}): Promise<{ wakeups: Wakeup[] }> {
-  return new Promise((resolve, reject) => {
-    let responded = false;
-    const sock = openClaudeSessionSocket();
-    sock.onopen = () => {
-      const payload: RoleUpdateWakeupPayload = {
-        type: "role:update-wakeup",
-        roleName: args.roleName,
-        hostId: args.hostId,
-        spec: args.spec,
-      };
-      try {
-        sock.send(JSON.stringify(payload));
-      } catch {
-        /* ws may be mid-close */
-      }
-    };
-    sock.onmessage = (event: MessageEvent<string>) => {
-      if (responded) return;
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== "role:wakeup-updated") return;
-        responded = true;
-        const env = raw as RoleWakeupUpdatedEvent;
-        try {
-          sock.close();
-        } catch {
-          /* ignore */
-        }
-        if (env.error) {
-          reject(new Error(env.error));
-        } else {
-          resolve({ wakeups: env.wakeups });
-        }
-      } catch {
-        /* ignore parse errors */
-      }
-    };
-    const handleFail = () => {
-      if (responded) return;
-      responded = true;
-      reject(new Error("Connection failed"));
-    };
-    sock.onerror = handleFail;
-    sock.onclose = () => {
-      if (!responded) handleFail();
-    };
-  });
-}
-
-/**
- * Delete a role-scope wakeup by filename stem (idempotent — missing target
- * is not an error). Resolves with the FRESH wakeups list post-delete.
- */
-export function deleteRoleWakeupByName(args: {
-  roleName: string;
-  hostId?: number;
-  wakeupName: string;
-}): Promise<{ wakeups: Wakeup[] }> {
-  return new Promise((resolve, reject) => {
-    let responded = false;
-    const sock = openClaudeSessionSocket();
-    sock.onopen = () => {
-      const payload: RoleDeleteWakeupPayload = {
-        type: "role:delete-wakeup",
-        roleName: args.roleName,
-        hostId: args.hostId,
-        wakeupName: args.wakeupName,
-      };
-      try {
-        sock.send(JSON.stringify(payload));
-      } catch {
-        /* ws may be mid-close */
-      }
-    };
-    sock.onmessage = (event: MessageEvent<string>) => {
-      if (responded) return;
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== "role:wakeup-deleted") return;
-        responded = true;
-        const env = raw as RoleWakeupDeletedEvent;
-        try {
-          sock.close();
-        } catch {
-          /* ignore */
-        }
-        if (env.error) {
-          reject(new Error(env.error));
-        } else {
-          resolve({ wakeups: env.wakeups });
-        }
-      } catch {
-        /* ignore parse errors */
-      }
-    };
-    const handleFail = () => {
-      if (responded) return;
-      responded = true;
-      reject(new Error("Connection failed"));
-    };
-    sock.onerror = handleFail;
-    sock.onclose = () => {
-      if (!responded) handleFail();
-    };
-  });
-}
+// Phase 134 Plan 134-02: the four role-scope wakeup helpers
+// (listRoleWakeupsByName, createRoleWakeupByName, updateRoleWakeupByName,
+// deleteRoleWakeupByName) were retired here alongside their payload/event
+// type declarations above. The per-identity wakeup helpers + WakeupSpecWire
+// type stay live.

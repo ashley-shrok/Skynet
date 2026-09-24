@@ -198,9 +198,22 @@ describe("humanizeWakeupSchedule — defensive input handling (Phase 65 / D-07)"
     ).toBe("Daily at 23:00 (box-local)");
   });
 
-  it("30. one_shot + days → custom schedule (one_shot is unchanged, days gate ignored)", () => {
+  it("30. one_shot + days → 'Once' (days gate ignored — one_shot fires once, DoW gate is meaningless; Phase 128 code-review fix #2)", () => {
     expect(
       humanizeWakeupSchedule({ type: "one_shot", days: ["mon", "fri"] }),
-    ).toBe("custom schedule");
+    ).toBe("Once");
+  });
+
+  it("31. one_shot with `at` datetime → 'Once at <at>' (Phase 128 code-review fix #2)", () => {
+    expect(
+      humanizeWakeupSchedule({
+        type: "one_shot",
+        at: "2026-08-15T09:00:00-04:00",
+      }),
+    ).toBe("Once at 2026-08-15T09:00:00-04:00");
+  });
+
+  it("32. one_shot with no `at` field → 'Once' (Phase 128 code-review fix #2)", () => {
+    expect(humanizeWakeupSchedule({ type: "one_shot" })).toBe("Once");
   });
 });

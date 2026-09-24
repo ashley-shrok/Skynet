@@ -11,8 +11,9 @@
 //   R3. listBountiesForRoleName happy path — sends role:list-bounties; resolves
 //       {bounties, archivedBounties}; includeArchived threads through.
 //   R4. listBountiesForRoleName error envelope — rejects Error(env.error).
-//   R5. listRoleWakeupsByName happy path — sends role:list-wakeups; resolves {wakeups}.
-//   R6. listRoleWakeupsByName error envelope — rejects Error(env.error).
+//
+// Phase 134 Plan 134-02: R5+R6 (listRoleWakeupsByName happy path + error
+// envelope) removed together with the retired listRoleWakeupsByName helper.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -176,66 +177,5 @@ describe("listBountiesForRoleName one-shot helper", () => {
   });
 });
 
-// ─── listRoleWakeupsByName ───────────────────────────────────────────────
-describe("listRoleWakeupsByName one-shot helper", () => {
-  it("R5: sends role:list-wakeups; resolves {wakeups} on role:wakeups-loaded", async () => {
-    const { listRoleWakeupsByName } = await import("./claude-session-api.js");
-
-    const promise = listRoleWakeupsByName({ roleName: "box-maintainer" });
-    lastSocket!.onopen?.call(
-      lastSocket as unknown as WebSocket,
-      new Event("open"),
-    );
-    const sentPayload = JSON.parse(lastSocket!.send.mock.calls[0][0] as string);
-    expect(sentPayload).toEqual({
-      type: "role:list-wakeups",
-      roleName: "box-maintainer",
-      // hostId omitted from args -> undefined in payload (JSON.stringify drops it)
-    });
-
-    const wakeups = [
-      {
-        slug: "morning-check",
-        name: "morning check",
-        enabled: true,
-        scheduleHuman: "every morning at 09:00",
-        schedule: { cron: "0 9 * * *" },
-        instruction: "greet",
-      },
-    ];
-    lastSocket!.onmessage?.call(
-      lastSocket as unknown as WebSocket,
-      new MessageEvent("message", {
-        data: JSON.stringify({ type: "role:wakeups-loaded", wakeups }),
-      }),
-    );
-
-    const resolved = await promise;
-    expect(resolved).toEqual({ wakeups });
-    expect(lastSocket!.close).toHaveBeenCalledTimes(1);
-  });
-
-  it("R6: rejects with Error(env.error) on role:wakeups-loaded envelope carrying `error`", async () => {
-    const { listRoleWakeupsByName } = await import("./claude-session-api.js");
-
-    const promise = listRoleWakeupsByName({ roleName: "BAD_NAME" });
-    lastSocket!.onopen?.call(
-      lastSocket as unknown as WebSocket,
-      new Event("open"),
-    );
-
-    lastSocket!.onmessage?.call(
-      lastSocket as unknown as WebSocket,
-      new MessageEvent("message", {
-        data: JSON.stringify({
-          type: "role:wakeups-loaded",
-          wakeups: [],
-          error: "invalid roleName",
-        }),
-      }),
-    );
-
-    await expect(promise).rejects.toThrow(/invalid roleName/);
-    expect(lastSocket!.close).toHaveBeenCalledTimes(1);
-  });
-});
+// Phase 134 Plan 134-02: listRoleWakeupsByName one-shot describe block
+// (R5+R6) removed here alongside the retired helper.

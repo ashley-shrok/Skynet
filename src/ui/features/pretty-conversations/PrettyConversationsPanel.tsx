@@ -62,7 +62,7 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AppWindow, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, SquarePen, X } from "lucide-react";
+import { AlarmClock, AppWindow, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -142,6 +142,15 @@ import { ProjectFileModal } from "./ProjectFileModal";
 // NOT remove the existing filter-as-you-type — that lands in Plan 04
 // (D-18 ordering: modal usable BEFORE filter removed).
 import { ConversationSearchModal } from "./ConversationSearchModal";
+// Phase 135 Plan 135-01 Task 4 (shape 3, wake-ups-redesign) — WakeupsModal:
+// portal-mounted sibling of ConversationSearchModal, opened via the new
+// AlarmClock header button below (position 6 in the .pv-header-actions
+// cluster, between Edit-global-files and the feedback + kebab buttons).
+// Owns its own list + form + refetch lifecycle (D-03 no client cache);
+// controlled open state lifted to this panel per D-26 (mirrors sibling
+// modals). Consumes the fleet-wide LIST + CRUD helpers from
+// src/ui/api/wakeups-api.ts, which layer over shape 2's REST endpoints.
+import { WakeupsModal } from "./WakeupsModal";
 import type { ConversationSearchResult } from "@/api/conversation-search-api";
 import {
   useSessionIsWorking,
@@ -904,6 +913,13 @@ export function PrettyConversationsPanel({
   // three-dots menu "Edit roles…" entry (which replaces the deleted "New role"
   // entry). See <RolesListModal> mount below.
   const [rolesListModalOpen, setRolesListModalOpen] = useState(false);
+  // Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4 — controlled
+  // open state for the new WakeupsModal. Opened via the AlarmClock button
+  // in .pv-header-actions below (inserted after the Edit-global-files
+  // Globe, before the feedback + kebab buttons). No preserved query
+  // state — modal refetches every open (D-03) and resets filter state on
+  // close (D-17). Sibling of ConversationSearchModal's controlled state.
+  const [wakeupsModalOpen, setWakeupsModalOpen] = useState(false);
   // Phase 90 Plan 90-06 (D-04): role modal swap-not-stack coordination. Set by
   // RolesListModal's onSelectRole (row click closes list + opens role modal).
   // Also used by the nested RoleModal → RunbookEditorModal swap through
@@ -2442,19 +2458,22 @@ export function PrettyConversationsPanel({
             </a>
           </span>
           <div className="pv-header-actions">
-            {/* Header icon buttons, left-to-right:
+            {/* Header icon buttons, left-to-right (8 total):
                 (1) Search (Phase 122; opens ConversationSearchModal — prepended
                     as the leftmost for discoverability per that phase's RESEARCH),
                 (2) New conversation, (3) Create project, (4) Edit roles,
-                (5) Edit global files, (6) Send feedback (Phase 124 shape 2;
-                gates independently on useFeedbackEnabled per D-12, not on
-                showPencilButton), (7) kebab.
-                The Search + create/edit/kebab siblings all share the
-                `showPencilButton` guard (typeof onCreateSession === "function")
-                and appear/disappear together. The kebab was split out from
-                this fragment in Phase 124 so the feedback button can render
-                between the guarded cluster and the kebab regardless of
-                showPencilButton. Only the feedback button gates independently. */}
+                (5) Edit global files, (6) Wake-ups (Phase 129 shape 3;
+                    opens WakeupsModal — added between Globe and feedback),
+                (7) Send feedback (Phase 124 shape 2; gates independently on
+                    useFeedbackEnabled per D-12, not on showPencilButton),
+                (8) kebab.
+                The Search + create/edit/wake-ups/kebab siblings all share
+                the `showPencilButton` guard (typeof onCreateSession ===
+                "function") and appear/disappear together. The kebab was
+                split out from this fragment in Phase 124 so the feedback
+                button can render between the guarded cluster and the kebab
+                regardless of showPencilButton. Only the feedback button
+                gates independently. */}
             {showPencilButton && (
               <>
                 <button
@@ -2513,6 +2532,26 @@ export function PrettyConversationsPanel({
                   onClick={() => setGlobalFilesModalOpen(true)}
                 >
                   <Globe size={18} />
+                </button>
+                {/* Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4
+                    — Wake-ups header button. Position: sixth of the guarded
+                    cluster (after Edit-global-files Globe, before the
+                    feedback + kebab). Chrome mirrors the five siblings
+                    verbatim: same .pv-pencil class, AlarmClock at size 18,
+                    aria-label + title both "Wake-ups". No dashed-border
+                    accent (RESEARCH Assumption A7 — the prototype's dashed
+                    accent was a tasting artifact; v1 ships without it,
+                    matching neighbor buttons). Opens the new WakeupsModal
+                    mounted alongside the sibling modals below. */}
+                <button
+                  type="button"
+                  className="pv-pencil"
+                  aria-label="Wake-ups"
+                  title="Wake-ups"
+                  data-testid="pv-header-wakeups-button"
+                  onClick={() => setWakeupsModalOpen(true)}
+                >
+                  <AlarmClock size={18} />
                 </button>
               </>
             )}
@@ -3178,6 +3217,21 @@ export function PrettyConversationsPanel({
         onOpenActiveConversation={(result) => {
           onSearchResultOpenActive?.(result);
         }}
+      />
+      {/* Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4 —
+          WakeupsModal: portal-mounted sibling of ConversationSearchModal.
+          Opened via the AlarmClock button in .pv-header-actions above
+          (position 6 in the guarded cluster — after Edit-global-files
+          Globe, before feedback + kebab). Owns its own list + form +
+          refetch lifecycle (D-03 no client cache, D-17 filter reset on
+          close); controlled open state only. hostTree threaded so the
+          filter-bar host dropdown + wave-2 host chip-picker can render
+          the same user-scoped host set every other modal in this cluster
+          uses. */}
+      <WakeupsModal
+        open={wakeupsModalOpen}
+        onOpenChange={setWakeupsModalOpen}
+        hostTree={hostTree ?? null}
       />
       {/* Phase 90 Plan 90-06 (D-07): RolesListModal — portal-mounted sibling of
           GlobalFilesModal + SkillsEditorModal. Opened via the header menu's

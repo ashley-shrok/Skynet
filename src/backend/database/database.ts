@@ -80,6 +80,13 @@ import rolesRoutes from "./routes/roles.js";
 // /roles routers so /:name/archive isn't shadowed by any future generic
 // /:roleName handler (mirrors the identity-archive mount discipline).
 import roleArchiveRoutes from "./routes/role-archive.js";
+// Phase 134 Plan 134-01 (wake-ups-redesign campaign shape 2 CRUD API): the
+// two /wakeups routers land as a chained pair — the list router handles GET
+// / fleet-wide fan-out, the write router handles POST/PATCH/DELETE per-host.
+// Matching nginx location blocks live in BOTH docker/nginx.conf AND
+// docker/nginx-https.conf (D-17 — CLAUDE.md load-bearing rule).
+import wakeupsListRoutes from "./routes/wakeups-list.js";
+import wakeupsWriteRoutes from "./routes/wakeups-write.js";
 import globalFilesListRoutes from "./routes/global-files.js";
 import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
 // Phase 44 SKILLED-01: /skills-editor router — 7 endpoints
@@ -2073,6 +2080,16 @@ app.use("/roles", rolesCreateRoutes);
 // `router.get("/:name/avatar")`, which is depth-2 and cannot shadow the
 // list router's depth-0 `router.get("/")` enumeration route.
 app.use("/roles", rolesRoutes);
+// Phase 134 Plan 134-01 (wake-ups-redesign shape 2 CRUD API — D-01/D-02/D-17):
+// /wakeups chained mounts. The list router only handles GET /; the write
+// router handles POST /, PATCH /:slug, PATCH /:slug/toggle-enabled, and
+// DELETE /:slug — Express falls through so both routers share the same base
+// path (same pattern as the /roles chain above). Matching nginx location
+// blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf are
+// load-bearing per CLAUDE.md — missing the HTTPS conf means /wakeups
+// 200-returns index.html and crashes the SPA on `.map` in production.
+app.use("/wakeups", wakeupsListRoutes);
+app.use("/wakeups", wakeupsWriteRoutes);
 // Phase 23 GEFM-03: GET /global-files?hostId=<n> — reads the per-host
 // configured file list from /app/data/global-files.json. Wave-2 plan
 // adds a second router on the same base path for POST /read + PUT /write.
