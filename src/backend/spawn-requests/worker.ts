@@ -56,6 +56,22 @@ import type { PendingBirth, SpawnRequestBody, SuccessResponse, FailureResponse, 
 
 const execLocal = promisify(execCb);
 
+/**
+ * Per-attempt wall-clock timeout for a single birthIdentity call.
+ *
+ * Normal births run ~1-2 min (dominated by Matrix account registration + peer-side
+ * ambient-monitor coming up). 3 min gives comfortable headroom while bounding the
+ * "silent hang" failure mode where an SSH round-trip inside birthIdentity stalls
+ * without a per-command timeout (see eda51eac/joseph-check-red-card-errors —
+ * step 8 started, never completed, no response file, identity actually born but
+ * Skynet never knew).
+ *
+ * On timeout the worker writes a `birth_timeout` failure marker naming the
+ * partially-birthed identity so operators can adopt-or-abandon rather than
+ * retry-blind (which would spawn a duplicate).
+ */
+const BIRTH_ATTEMPT_TIMEOUT_MS = 3 * 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // parseRequestBody + TASK_MAX_LENGTH — re-exported from parse-request-body.ts
 // ---------------------------------------------------------------------------
@@ -606,8 +622,37 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     lastStepFailReason = undefined;
 
     try {
-      await deps.birthIdentity(opts, emit, birthDeps);
+      await Promise.race([
+        deps.birthIdentity(opts, emit, birthDeps),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("BIRTH_ATTEMPT_TIMEOUT")),
+            BIRTH_ATTEMPT_TIMEOUT_MS,
+          ),
+        ),
+      ]);
     } catch (err) {
+      // Outer wall-clock timeout: birthIdentity has no per-SSH-command timeout
+      // internally (D-20 forbids modifying identity-birth-orchestrator.ts), so
+      // this is the only place a hung SSH round-trip inside the birth flow gets
+      // bounded. Break out of the retry loop — a timeout may mean the identity
+      // was actually born on the peer, and re-running would produce a duplicate.
+      // The failure marker carries the partial identity name so operators can
+      // check `fleet/identities/<partialName>` before deciding whether to retry.
+      if (err instanceof Error && err.message === "BIRTH_ATTEMPT_TIMEOUT") {
+        const partialName = `${pickedName.toLowerCase()}-${item.roles[0]}`;
+        systemLogger.warn("spawn-request worker: birth attempt exceeded wall-clock timeout", {
+          operation: "spawn_request_birth_attempt_timeout",
+          uuid: item.uuid,
+          partialName,
+          timeoutMs: BIRTH_ATTEMPT_TIMEOUT_MS,
+        });
+        await writeFailureFile(item, deps, {
+          reason: "birth_timeout",
+          message: `Birth exceeded ${BIRTH_ATTEMPT_TIMEOUT_MS / 1000}s wall-clock timeout. Identity '${partialName}' MAY have been born on the peer host — verify (fleet/identities/${partialName} + tmux session) BEFORE retrying to avoid duplicate.`,
+        });
+        return;
+      }
       // Truly unexpected — orchestrator's own catch should have emitted ended{ok:false}
       systemLogger.error("spawn-request worker: birthIdentity threw unexpectedly", {
         operation: "spawn_request_birth_unexpected_throw",

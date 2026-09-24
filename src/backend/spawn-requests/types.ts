@@ -100,7 +100,13 @@ export interface SuccessResponse {
 
 /**
  * Failure reason enum (D-10).
- * Exactly six values in this order per RESEARCH.md Failure reason Enum section.
+ *
+ * `birth_timeout` (added post-Phase-99): the worker's per-attempt wall-clock
+ * timeout fired. Distinguished from `homeserver_unreachable` (which is an
+ * early-step SSH-connect failure) — a timeout can strike AFTER the peer-side
+ * birth has actually started or even completed, so the accompanying `message`
+ * carries a "may have been born as X — verify before retrying" instruction to
+ * avoid the operator creating a duplicate identity.
  */
 export type FailureReason =
   | "malformed"
@@ -108,7 +114,8 @@ export type FailureReason =
   | "birth_failed"
   | "homeserver_unreachable"
   | "pool_exhausted"
-  | "matrix_creds_missing";
+  | "matrix_creds_missing"
+  | "birth_timeout";
 
 /**
  * Failure response file body (D-10).
