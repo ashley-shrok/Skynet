@@ -2856,10 +2856,15 @@ Threat model highlights (STRIDE registers per plan):
 
 ### Phase 133: Role archival — cascade retire a role and all identities holding it, plus inline-retry refactor of identity retirement
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Add the missing "retire a role" gesture to Skynet — one operator click drops one sentinel on the role folder, and the box's supervisor cascade-retires every identity currently holding that role before moving the role folder itself to `~/fleet/roles-archive/<name>/`. Ship the load-bearing refactor of `retire_identity()` to inline per-step exponential-backoff retries in place of the cross-tick fail-counter + retire-stuck-sentinel machinery, so both the new role cascade and the existing user-initiated identity archive path share the clean atomic-retire semantic.
+**Requirements**: N/A (Phase 133 does not map to REQ-XX IDs; traceability via CONTEXT.md D-01..D-21 + shape-role-archival.md)
 **Depends on:** Phase 132
-**Plans:** 0 plans
+**Plans:** 6 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 133 to break down)
+- [ ] 133-01-PLAN.md — Backend HTTP route `POST /roles/:name/archive` + `writeRoleFile()` primitive + route mount + tests (Wave 1)
+- [ ] 133-02-PLAN.md — Frontend API wrapper `archiveRole(hostId, roleName)` + tests (Wave 1)
+- [ ] 133-03-PLAN.md — Refactor `retire_identity()` inline retries on steps 1+4b; delete retire-fail-count-* + retire-stuck mechanism from both scanners; update tests (Wave 2)
+- [ ] 133-04-PLAN.md — New `scan_role_archive_requested_sentinels()` scanner + `identity_has_role()` helper + ROLES_DIR constants + reconcile wire-up + new test file (Wave 3)
+- [ ] 133-05-PLAN.md — `RolesListModal` right-click context menu + double-confirm cascade preview + `archiveRole` fire-and-forget + tests (Wave 4)
+- [ ] 133-06-PLAN.md — id-skill docs: new "On archiving a role" section in `substrate/skills/id/SKILL.md` (Wave 4)
