@@ -345,16 +345,17 @@ router.post(
     }
 
     // -----------------------------------------------------------------------
-    // Phase 110: acquire a global-birth-throttle slot before opening SSE. If
-    // the queue is at capacity, reject with 429 JSON (Content-Type
-    // application/json) — do NOT flush SSE headers, because a caller that
-    // receives text/event-stream frames after a 429 status has no clean way
-    // to route the response. The 429 body carries retry_after_ms so the
-    // frontend can back off with a hint.
+    // Phase 110 (reshaped 2026-09-24 to per-host): acquire a per-target-host
+    // birth-throttle slot before opening SSE. If the host's queue is at
+    // capacity, reject with 429 JSON (Content-Type application/json) — do NOT
+    // flush SSE headers, because a caller that receives text/event-stream
+    // frames after a 429 status has no clean way to route the response. The
+    // 429 body carries retry_after_ms so the frontend can back off with a
+    // hint. Cross-host concurrency is now unrestricted.
     // -----------------------------------------------------------------------
     let release: (() => void) | null = null;
     try {
-      release = await acquireBirthSlot({ source: "http" });
+      release = await acquireBirthSlot({ source: "http", hostId });
     } catch (err) {
       if (err instanceof ThrottleRejectedError) {
         res
@@ -699,14 +700,15 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
       return;
     }
 
-    // Phase 110: acquire a global-birth-throttle slot before opening SSE. If
-    // the queue is at capacity, reject with 429 JSON (Content-Type
-    // application/json) — same discipline as the POST / handler above.
-    // Acquire happens AFTER the host-resolve 404 gate so a bad hostId
-    // doesn't needlessly hold a throttle slot.
+    // Phase 110 (reshaped 2026-09-24 to per-host): acquire a per-target-host
+    // birth-throttle slot before opening SSE. If the host's queue is at
+    // capacity, reject with 429 JSON (Content-Type application/json) — same
+    // discipline as the POST / handler above. Acquire happens AFTER the
+    // host-resolve 404 gate so a bad hostId doesn't needlessly hold a
+    // throttle slot.
     let release: (() => void) | null = null;
     try {
-      release = await acquireBirthSlot({ source: "http" });
+      release = await acquireBirthSlot({ source: "http", hostId });
     } catch (err) {
       if (err instanceof ThrottleRejectedError) {
         res

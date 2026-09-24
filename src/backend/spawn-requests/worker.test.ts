@@ -1213,8 +1213,11 @@ describe("spawn-request worker", () => {
 
   describe("throttle integration (Phase 110)", () => {
     it("Test 110-W-A: two parallel processBirth calls serialize under maxConcurrent=1", async () => {
-      // maxConcurrent=1 is the default — no env mutation needed; the
-      // __resetThrottleForTests() in beforeEach already applied default config.
+      // Force maxConcurrent=1 for this test (the reshape default is 2 —
+      // per-host, not global). Both items share hostIdNum=42 so per-host
+      // serialization applies at cap=1.
+      process.env.IDENTITY_BIRTH_MAX_CONCURRENT = "1";
+      __resetThrottleForTests();
 
       const callOrder: string[] = [];
 

@@ -1133,10 +1133,11 @@ it(
 
 describe("throttle integration", () => {
   it("Test 110-A: three concurrent POST /identities/birth serialize under maxConcurrent=1", async () => {
-    // Ensure maxConcurrent=1 (the default) is in effect. The beforeEach
-    // __resetThrottleForTests() call already re-reads env; delete any override
-    // so the default (1) applies.
-    delete process.env.IDENTITY_BIRTH_MAX_CONCURRENT;
+    // Force maxConcurrent=1 for this test (the reshape default is 2 —
+    // per-host, not global). We need cap=1 to prove serialization; three
+    // requests to the same hostId will queue behind each other regardless
+    // of the axis change.
+    process.env.IDENTITY_BIRTH_MAX_CONCURRENT = "1";
     __resetThrottleForTests();
 
     // Build three manually-resolvable promises (deferred pattern from

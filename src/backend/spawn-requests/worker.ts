@@ -350,6 +350,7 @@ export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promis
   // the broader construct both entry points share.
   const release = await acquireBirthSlot({
     source: "spawn-request",
+    hostId: item.hostIdNum,
     bypassQueueDepth: true,
     requestId: item.uuid,
   });
