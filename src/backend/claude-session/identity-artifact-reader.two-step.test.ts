@@ -122,18 +122,34 @@ describe("extractRoleFromMarkdown", () => {
   // both extract functions now emit a WARN via systemLogger before returning
   // the fail-open value, so the failure is visible in the docker forensic
   // trail.
-  it("test 5b: logs a WARN and returns null when YAML fails to parse (bare `: ` inside plain scalar)", () => {
+  // Post-tolerant-parse contract (2026-09-24 atlantis-zoho leak fix): a
+  // malformed prose field (bare `: ` in a plain YAML scalar — the recurring
+  // Pitfall 3 case) no longer collapses the WHOLE frontmatter to null. Fields
+  // that parsed cleanly BEFORE the offending line survive. In this test
+  // `role:` on line 1 is unaffected by the broken `task:` on line 2 — it
+  // still resolves to "box-maintainer". The WARN still fires so the failure
+  // remains visible in the docker forensic trail, but the identity-visibility
+  // gate on the caller side can now close correctly against the recovered
+  // role instead of falling open on `role=null`.
+  it("test 5b: recovers role: when a later field has a YAML parse error (tolerant parse)", () => {
     vi.mocked(systemLogger.warn).mockClear();
     const md =
       "---\nrole: box-maintainer\ntask: broken Evidence: extra colon-space here\n---\n\n# body";
-    expect(extractRoleFromMarkdown(md)).toBeNull();
+    expect(extractRoleFromMarkdown(md)).toBe("box-maintainer");
     expect(vi.mocked(systemLogger.warn)).toHaveBeenCalledTimes(1);
     const call = vi.mocked(systemLogger.warn).mock.calls[0];
-    expect(call[0]).toMatch(/frontmatter yaml parse failed/i);
-    const context = call[1] as { operation?: string; site?: string; snippet?: string; error?: string };
+    expect(call[0]).toMatch(/tolerant recovery/i);
+    const context = call[1] as {
+      operation?: string;
+      site?: string;
+      snippet?: string;
+      errorCount?: number;
+      firstError?: string;
+    };
     expect(context.operation).toBe("frontmatter_yaml_parse_failed");
     expect(context.site).toBe("extractRoleFromMarkdown");
-    expect(typeof context.error).toBe("string");
+    expect(context.errorCount).toBeGreaterThan(0);
+    expect(typeof context.firstError).toBe("string");
     expect(context.snippet).toContain("role: box-maintainer");
     expect((context.snippet ?? "").length).toBeLessThanOrEqual(200);
   });
@@ -144,19 +160,77 @@ describe("extractCosmeticsFromFrontmatter (malformed-YAML logging — regression
     vi.clearAllMocks();
   });
 
-  it("test 5c: logs a WARN and returns {} when YAML fails to parse (bare `: ` inside plain scalar)", () => {
+  // Post-tolerant-parse contract (2026-09-24 atlantis-zoho leak fix): fields
+  // that parsed cleanly BEFORE the offending line survive into cosmetics.
+  // Here `displayName` on line 2 is unaffected by the broken `task:` on
+  // line 3 — cosmetics still carry {displayName:"Odin"}. WARN fires so ops
+  // sees the broken file. The dropped `task:` field is expected — the
+  // narrower rejects the nested-mapping shape the tolerant parser recovers
+  // for the broken line, and any consumer inspecting `"task" in cosmetics`
+  // gets the "not present" answer, matching the shape-file's
+  // absent-⇒-omit invariant.
+  it("test 5c: recovers cosmetics that parsed cleanly around a later YAML error (tolerant parse)", () => {
     const md =
       "---\nrole: box-maintainer\ndisplayName: Odin\ntask: bad Evidence: extra colon inside plain scalar\n---\n\n# body";
-    expect(extractCosmeticsFromFrontmatter(md)).toEqual({});
+    const cos = extractCosmeticsFromFrontmatter(md);
+    expect(cos.displayName).toBe("Odin");
+    expect("task" in cos).toBe(false);
     expect(vi.mocked(systemLogger.warn)).toHaveBeenCalledTimes(1);
     const call = vi.mocked(systemLogger.warn).mock.calls[0];
-    expect(call[0]).toMatch(/frontmatter yaml parse failed/i);
-    const context = call[1] as { operation?: string; site?: string; snippet?: string; error?: string };
+    expect(call[0]).toMatch(/tolerant recovery/i);
+    const context = call[1] as {
+      operation?: string;
+      site?: string;
+      snippet?: string;
+      errorCount?: number;
+      firstError?: string;
+    };
     expect(context.operation).toBe("frontmatter_yaml_parse_failed");
     expect(context.site).toBe("extractCosmeticsFromFrontmatter");
-    expect(typeof context.error).toBe("string");
+    expect(context.errorCount).toBeGreaterThan(0);
+    expect(typeof context.firstError).toBe("string");
     expect(context.snippet).toContain("role: box-maintainer");
     expect((context.snippet ?? "").length).toBeLessThanOrEqual(200);
+  });
+
+  // Regression coverage for the specific leak the tolerant parse closes: an
+  // identity file's `task:` field can contain two `: ` sequences (e.g. a
+  // prose sentence with a colon or a nested key-value note). js-yaml threw
+  // on that shape → both extractCosmeticsFromFrontmatter and
+  // extractRoleFromMarkdown collapsed → role=null → the caller in
+  // identities.ts:459 skipped the readRoleCosmeticsMemoized fetch → both
+  // sides of the visibility gate fell open (identity-side: no users list;
+  // role-side: no role fetched) → the identity became visible to every user
+  // regardless of the role's `users: [...]` gate. With the tolerant parse,
+  // `role: some-role` on line 1 survives the broken `task:` on line 3,
+  // extractRoleFromMarkdown returns "some-role", the caller fetches the role
+  // file, and the role-side gate closes the unauthorized viewer out as
+  // intended.
+  it("test 5j: role: on line 1 survives a broken task: on line 3 (visibility-gate regression)", () => {
+    vi.mocked(systemLogger.warn).mockClear();
+    const md =
+      "---\nrole: some-role\ndisplayName: Alpha\ntask: category: subcategory: another colon (cid: refs)\nusers:\n  - alice\n---\n\n# body";
+    expect(extractRoleFromMarkdown(md)).toBe("some-role");
+    const cos = extractCosmeticsFromFrontmatter(md);
+    expect(cos.displayName).toBe("Alpha");
+    // The broken task: swallows the sibling users: list into its nested
+    // mapping recovery, so top-level users is undefined. Documented here as
+    // an accepted limitation — the caller closes the leak via the role-side
+    // gate (readRoleCosmeticsMemoized(role).users), not via the identity-
+    // side users list, once role is extractable.
+    expect("users" in cos).toBe(false);
+  });
+
+  // Positive coverage for the users-side gate: when the users: list appears
+  // BEFORE the offending field, it parses cleanly and the caller's
+  // identity-side gate closes directly (no need to fall through to the
+  // role-side fetch). Writers should prefer this order for defence in depth.
+  it("test 5k: users: BEFORE a broken task: survives into cosmetics (identity-side gate stays authoritative)", () => {
+    vi.mocked(systemLogger.warn).mockClear();
+    const md =
+      "---\nrole: some-role\nusers:\n  - alice\n  - bob\ntask: broken Evidence: extra colon\n---\n\n# body";
+    const cos = extractCosmeticsFromFrontmatter(md);
+    expect(cos.users).toEqual(["alice", "bob"]);
   });
 
   it("test 5d: does NOT log on well-formed frontmatter (log is scoped to parse failures)", () => {

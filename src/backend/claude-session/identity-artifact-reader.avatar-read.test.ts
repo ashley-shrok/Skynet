@@ -302,12 +302,24 @@ describe("extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 6
     expect("coordinator" in result).toBe(false);
   });
 
-  it("COORD-6: malformed YAML block → {} returned; coordinator absent", async () => {
+  // Post-tolerant-parse contract (2026-09-24 atlantis-zoho leak fix): a
+  // malformed block no longer zeros out sibling cleanly-parsed fields. Here
+  // `coordinator: true` on the last frontmatter line parses cleanly around
+  // the noise above it, so the extractor surfaces it — this is the intended
+  // shape of the recovery. The security-relevant assertion is that the
+  // narrower still rejects garbage-shaped values (the empty-key nested-map
+  // mess doesn't leak into any of the typed cosmetic fields).
+  it("COORD-6: malformed YAML block above coordinator: true → coordinator survives via tolerant parse; garbage keys stay dropped", async () => {
     const md =
       "---\n: : broken : : yaml : :\n  invalid: [unclosed\ncoordinator: true\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
-    expect(result).toEqual({});
-    expect("coordinator" in result).toBe(false);
+    expect(result.coordinator).toBe(true);
+    // Nothing else legitimate parsed; every unknown key stays dropped by the
+    // typed narrower.
+    expect("displayName" in result).toBe(false);
+    expect("title" in result).toBe(false);
+    expect("colorHue" in result).toBe(false);
+    expect("avatar" in result).toBe(false);
   });
 });
 
@@ -354,12 +366,20 @@ describe("extractCosmeticsFromFrontmatter — task field (Phase 80 Plan 80-03)",
     expect("task" in result).toBe(false);
   });
 
-  it("TASK-5: malformed YAML block → {} returned; task absent (parse-error swallow preserved — RESEARCH §5 landmine)", async () => {
+  // Post-tolerant-parse contract (2026-09-24 atlantis-zoho leak fix): the
+  // clean `task: something` on the last frontmatter line parses around the
+  // noise above and survives into cosmetics — this replaces the old strict
+  // {} return. See COORD-6 for the analogous rewrite and the docblock on
+  // extractRoleFromMarkdown for the full rationale.
+  it("TASK-5: malformed YAML block above task: something → task survives via tolerant parse; garbage keys stay dropped", async () => {
     const md =
       "---\n: : broken : : yaml : :\n  invalid: [unclosed\ntask: something\n---\n\n# body\n";
     const result = extractCosmeticsFromFrontmatter(md);
-    expect(result).toEqual({});
-    expect("task" in result).toBe(false);
+    expect(result.task).toBe("something");
+    expect("displayName" in result).toBe(false);
+    expect("title" in result).toBe(false);
+    expect("colorHue" in result).toBe(false);
+    expect("coordinator" in result).toBe(false);
   });
 });
 

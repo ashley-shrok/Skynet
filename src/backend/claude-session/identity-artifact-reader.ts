@@ -38,6 +38,18 @@ import { spawnSync } from "child_process";
 import type { Client as SSHClientType } from "ssh2";
 type SFTPWrapper = import("ssh2").SFTPWrapper;
 import yaml from "js-yaml";
+// Tolerant YAML parser for READ paths that feed the visibility gate.
+// js-yaml is all-or-nothing: one malformed line invalidates the whole block,
+// collapsing every field to undefined. When that happens for an identity
+// file, the D-3 fallback ("absent users list = no gate on this side, falls
+// open") mis-fires — a legitimately-gated identity becomes visible to every
+// user because the gate can't SEE the users list even though it's still on
+// disk. Eemeli's `yaml` package parses tolerantly: recoverable errors leave
+// unaffected fields intact on the returned Document, and the caller can
+// still read `users:` / `role:` / etc. through `.toJS()`. WRITE paths keep
+// js-yaml (yaml.dump) because writers correctly refuse to touch a broken
+// file — different failure semantics from readers.
+import { parseDocument as yamlParseDocument } from "yaml";
 import { sshLogger, systemLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 // Phase 85 Plan 85-01 Task 1: role-name gate for readRoleFileByName +
@@ -346,34 +358,33 @@ export function getLocalProjectsRoot(): string {
 export function extractRoleFromMarkdown(markdown: string): string | null {
   const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;
-  try {
-    const parsed = yaml.load(match[1]) as Record<string, unknown> | null;
-    if (parsed === null || typeof parsed !== "object") return null;
-    const role = parsed.role;
-    return typeof role === "string" && role.length > 0 ? role : null;
-  } catch (err) {
-    // Frontmatter YAML parse failure — treat role as null (fail-open, per the
-    // original silent-catch contract), but LOG the error loudly so bad writes
-    // are visible in the docker forensic trail instead of silently degrading
-    // the identity's frontend display. The 200-char snippet is bounded so
-    // it doesn't spam and is enough to identify the offending file in every
-    // real case (`role: <name>` or `title: <name>` at the top identifies it).
-    //
-    // Root cause the bounty
-    // `fleet-status-orchestrator-coupling-with-spawn-request-scanning` e2e
-    // test surfaced (2026-09-12): a hand-authored identity file whose
-    // `task:` value contained a bare `: ` (colon-space) inside a plain YAML
-    // scalar tripped the parser silently — visible only as "no title/color/
-    // avatar all at once for one identity" in the frontend UI. This log
-    // closes the "silent" half.
-    systemLogger.warn("Identity/role frontmatter YAML parse failed — treating as no role", {
-      operation: "frontmatter_yaml_parse_failed",
-      site: "extractRoleFromMarkdown",
-      error: err instanceof Error ? err.message : String(err),
-      snippet: match[1].slice(0, 200),
-    });
-    return null;
+  // Tolerant parse: parseDocument does NOT throw on recoverable YAML errors —
+  // it collects them on `doc.errors` and still exposes whatever nodes parsed
+  // cleanly via doc.toJS(). Critical for the identity-visibility gate: a
+  // malformed prose field (bad `task:` with unquoted `: ` — the recurring
+  // Pitfall 3 case) used to collapse the whole frontmatter to null and force
+  // role=null, which in turn caused the role-side visibility gate to fall
+  // open (Phase 129 D-3 fallback conflating "absent" with "unparseable"),
+  // silently leaking every affected identity to every user. With the tolerant
+  // parser, `role:` on line 1 survives a broken `task:` on line 3, so the
+  // role-side gate still closes correctly.
+  const doc = yamlParseDocument(match[1]);
+  if (doc.errors.length > 0) {
+    systemLogger.warn(
+      "Identity/role frontmatter YAML had parse errors — using tolerant recovery",
+      {
+        operation: "frontmatter_yaml_parse_failed",
+        site: "extractRoleFromMarkdown",
+        errorCount: doc.errors.length,
+        firstError: doc.errors[0]?.message?.split("\n")[0],
+        snippet: match[1].slice(0, 200),
+      },
+    );
   }
+  const parsed = doc.toJS() as Record<string, unknown> | null;
+  if (parsed === null || typeof parsed !== "object") return null;
+  const role = parsed.role;
+  return typeof role === "string" && role.length > 0 ? role : null;
 }
 
 /**
@@ -475,23 +486,23 @@ export async function readSessionProjectField(
   const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n[\s\S]*$/);
   if (!match) return null; // no frontmatter block
 
-  let parsed: unknown;
-  try {
-    parsed = yaml.load(match[1]);
-  } catch (err) {
-    // Log loud, return null soft — mirrors extractRoleFromMarkdown's contract.
-    // A broken identity file should not throw for a mere project-field read.
+  // Tolerant parse — see extractRoleFromMarkdown docblock for rationale.
+  // A broken `task:` should not zero out the `project:` field on the same
+  // identity; if project parsed cleanly it's still readable.
+  const doc = yamlParseDocument(match[1]);
+  if (doc.errors.length > 0) {
     systemLogger.warn(
-      "Identity frontmatter YAML parse failed — treating as no project",
+      "Identity frontmatter YAML had parse errors — using tolerant recovery",
       {
         operation: "frontmatter_yaml_parse_failed",
         site: "readSessionProjectField",
-        error: err instanceof Error ? err.message : String(err),
+        errorCount: doc.errors.length,
+        firstError: doc.errors[0]?.message?.split("\n")[0],
         snippet: match[1].slice(0, 200),
       },
     );
-    return null;
   }
+  const parsed = doc.toJS() as unknown;
   if (parsed === null || typeof parsed !== "object") return null;
   const project = (parsed as Record<string, unknown>).project;
   return typeof project === "string" && project.length > 0 ? project : null;
@@ -686,26 +697,39 @@ export async function listProjects(
       if (markdown.length > 0) {
         const fmMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
         if (fmMatch) {
-          try {
-            const parsed = yaml.load(fmMatch[1]) as Record<
-              string,
-              unknown
-            > | null;
-            if (parsed !== null && typeof parsed === "object") {
-              const dn = (parsed as Record<string, unknown>).displayName;
-              if (typeof dn === "string" && dn.length > 0) {
-                displayName = dn;
-              }
-              const rawUsers = (parsed as Record<string, unknown>).users;
-              if (
-                Array.isArray(rawUsers) &&
-                rawUsers.every((u) => typeof u === "string")
-              ) {
-                users = rawUsers as string[];
-              }
+          // Tolerant parse — see extractRoleFromMarkdown docblock. Critical
+          // for the project-visibility gate: same "malformed prose field
+          // shouldn't zero out users:" concern as identities. A broken task
+          // (or any other prose field) on project.md must not silently make
+          // the project visible to every user by collapsing users to
+          // undefined.
+          const doc = yamlParseDocument(fmMatch[1]);
+          if (doc.errors.length > 0) {
+            systemLogger.warn(
+              "Project frontmatter YAML had parse errors — using tolerant recovery",
+              {
+                operation: "frontmatter_yaml_parse_failed",
+                site: "listProjects",
+                slug,
+                errorCount: doc.errors.length,
+                firstError: doc.errors[0]?.message?.split("\n")[0],
+                snippet: fmMatch[1].slice(0, 200),
+              },
+            );
+          }
+          const parsed = doc.toJS() as Record<string, unknown> | null;
+          if (parsed !== null && typeof parsed === "object") {
+            const dn = (parsed as Record<string, unknown>).displayName;
+            if (typeof dn === "string" && dn.length > 0) {
+              displayName = dn;
             }
-          } catch {
-            // parse failure → keep slug + null users fallback
+            const rawUsers = (parsed as Record<string, unknown>).users;
+            if (
+              Array.isArray(rawUsers) &&
+              rawUsers.every((u) => typeof u === "string")
+            ) {
+              users = rawUsers as string[];
+            }
           }
         }
       }
@@ -3183,23 +3207,27 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
 } {
   const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
-  let parsed: unknown;
-  try {
-    parsed = yaml.load(match[1]);
-  } catch (err) {
-    // Frontmatter YAML parse failure — return {} (fail-open, per the original
-    // silent-catch contract), but LOG loudly. Silent {} manifests as "all
-    // cosmetics missing simultaneously" in the frontend (no displayName, no
-    // title, no colorHue, no avatar) — hard to diagnose from the UI alone.
-    // See extractRoleFromMarkdown for the incident this warn closes.
-    systemLogger.warn("Identity/role frontmatter YAML parse failed — treating as no cosmetics", {
-      operation: "frontmatter_yaml_parse_failed",
-      site: "extractCosmeticsFromFrontmatter",
-      error: err instanceof Error ? err.message : String(err),
-      snippet: match[1].slice(0, 200),
-    });
-    return {};
+  // Tolerant parse: see the docblock on extractRoleFromMarkdown above for the
+  // full rationale. Same call pattern here — any field that parsed cleanly
+  // survives into `parsed`, even if a sibling field on another line had a
+  // YAML error. The narrowing gates below (typeof / Array.isArray / range
+  // checks) still drop anything that came out mis-shaped, so a nested-map
+  // corruption of the value (like when a bad `task:` swallows subsequent
+  // list items) is silently rejected rather than surfaced as a garbage cos.
+  const doc = yamlParseDocument(match[1]);
+  if (doc.errors.length > 0) {
+    systemLogger.warn(
+      "Identity/role frontmatter YAML had parse errors — using tolerant recovery",
+      {
+        operation: "frontmatter_yaml_parse_failed",
+        site: "extractCosmeticsFromFrontmatter",
+        errorCount: doc.errors.length,
+        firstError: doc.errors[0]?.message?.split("\n")[0],
+        snippet: match[1].slice(0, 200),
+      },
+    );
   }
+  const parsed = doc.toJS() as unknown;
   if (parsed === null || typeof parsed !== "object") return {};
   const src = parsed as Record<string, unknown>;
   const out: {
