@@ -835,6 +835,134 @@ the last piece of work.
 
 ---
 
+## On archiving a role
+
+Role archival is a NEW gesture (adjacent to but distinct from identity
+archival — the two compose over each other, they aren't duplicate paths).
+Where identity archival tears down a single fleet identity, ROLE archival
+tears down the ROLE FOLDER at `~/fleet/roles/<name>/` plus
+cascade-retires every identity that currently holds that role. The
+operator clicks once in Skynet; the supervisor on the box holding the
+role does the entire cascade in one reconcile tick.
+
+⚠️ **USER-INITIATED ONLY — an agent NEVER drops
+`~/fleet/roles/<name>/.archive-requested` on its own initiative, under
+any circumstances.** Same rule and same reasons as `/id reset` and `/id
+archive`. If you *think* a role archive would make sense (task is done,
+the whole line of work has wrapped up, no future need for this role),
+OFFER — don't self-execute. The trigger belongs to the human operator.
+Note there is no `/id`-style body-drop path for role archival either —
+the only supported trigger is the operator's click in Skynet.
+
+### How it works (mechanism)
+
+1. Operator right-clicks a role in Skynet's roles list, picks `Archive`
+   from the context menu.
+2. Two confirmation dialogs follow. The first names the role and lists
+   every identity that will be cascade-archived (one line per identity,
+   using the identity's `task` field with a fallback to its `displayName`
+   — same fallback Skynet's sidebar uses). The list is complete;
+   nothing is truncated. If zero identities hold the role, the first
+   dialog says so plainly.
+3. Both dialogs OK'd, Skynet POSTs `/roles/<name>/archive` to the box
+   holding the role.
+4. The backend drops a `.archive-requested` sentinel at
+   `~/fleet/roles/<name>/`.
+5. The supervisor's next reconcile tick (~15s) finds the sentinel and
+   runs the cascade inline on that tick:
+   - Fresh-enumerates identities holding the role by walking
+     `~/fleet/identities/*/*.md` and matching `role:` frontmatter.
+   - Runs the full identity retire (Matrix deactivate → graceful `/exit`
+     → tmux kill-session → sentinel delete + workspace-repo cleanup →
+     folder move to `~/fleet/identities-archive/<name>/`) on each,
+     fail-soft: every identity is attempted regardless of individual
+     failures.
+   - If ALL identities retired cleanly, the role folder moves to
+     `~/fleet/roles-archive/<name>/`.
+   - If ANY identity failed to retire, the role folder STAYS in the
+     live tree; the supervisor logs LOUDLY which identities failed and
+     at which step.
+   - The sentinel is deleted at end-of-tick regardless of outcome.
+
+### Failure semantics
+
+Role archival is honest about partial failure. When the cascade fails
+partway:
+
+- Successfully-retired identities are already gone from the live tree
+  (moved to `~/fleet/identities-archive/`).
+- Failed identities remain in the live tree with their own
+  `.archive-requested` sentinel still present (a retry-on-next-tick
+  signal for the identity-archive path).
+- The role folder remains in the live tree — folder movement is the
+  LAST thing the cascade does and it happens ONLY when every enumerated
+  identity retired cleanly.
+- The role sentinel is deleted anyway (one-shot signal — subsequent
+  supervisor ticks do NOT re-cascade automatically).
+- The operator retries by clicking Archive again in Skynet. Because the
+  scanner freshly enumerates the disk on every scan, a retry naturally
+  picks up only the identities that weren't already archived — the ones
+  that succeeded on the first pass are gone from the live tree and get
+  silently skipped.
+
+There is no cross-tick failure counter and no persisted stuck-marker
+for role archival. All retry lives inline within a single retire
+attempt at the identity level (bounded exponential backoff on the
+steps with genuine transient-failure surface); at the cascade level,
+retry is the operator re-clicking Archive from a position of knowing
+what state the box is in.
+
+### Guard bypass
+
+Identities holding a role being cascade-archived have their `.pinned`,
+`.no-dormancy`, and `coordinator: true` guards **bypassed** during the
+cascade. Those guards exist to protect against AUTOMATED retirement
+(e.g. a background dormancy sweep won't retire a pinned identity). A
+deliberate operator click on Archive is not automated — the click
+means intent, and the intent is honored.
+
+### Click-vs-scan enumeration race (design, not bug)
+
+The frontend confirmation dialog shows the identity list at CLICK TIME.
+The supervisor freshly enumerates at SCAN TIME (~15s later typically).
+If a new identity spawns holding the role between click and scan, the
+supervisor will archive it too, even though the operator's dialog didn't
+name it. Conversely, if an identity is manually re-assigned to another
+role between click and scan, the supervisor won't include it in the
+cascade. The operator sees this discrepancy in the log lines. This is
+honest failure-mode surfacing, not a bug — the philosophy is "the
+sentinel is the memory, the supervisor freshly reads disk on every
+tick." No snapshot of the enumeration is ever stored.
+
+### Not reversible (yet)
+
+Role archival is one-way for now. The archived role folder is at
+`~/fleet/roles-archive/<name>/` on disk and can be moved back by hand
+if desired, but there is no gesture in Skynet to un-archive a role.
+Reversibility is a separate future concern (would require settling
+rehydrate semantics for the cascade of identities that were retired
+alongside the role).
+
+### What travels with the archive
+
+Everything in `~/fleet/roles/<name>/` at the moment of archival travels
+verbatim into `~/fleet/roles-archive/<name>/`: the role file, history,
+runbooks, reference documents, wakeups, bounties, and any ad-hoc
+content that identities working the role had accumulated. Roles should
+not hold credentials as a hygiene matter, but this archival gesture is
+not the place to introduce scrubbing — whatever is in the folder moves
+uncensored.
+
+### Per-box scope
+
+A role and every identity holding it live on the same box (id-skill
+invariant: identities and roles are strictly 1:1 with a host). The
+archival gesture is per-box: the sentinel drops on that box, the
+scanner runs on that box, the cascade retires that box's identities.
+There is no cross-box coordination and no cross-box cascade.
+
+---
+
 ## File locations
 
 Under **`~/fleet/roles/<role>/`** — shared across every identity holding
