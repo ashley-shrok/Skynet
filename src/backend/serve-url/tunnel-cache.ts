@@ -165,21 +165,39 @@ class TunnelCache {
         // which is the agent's box). We do NOT reference target.host.ip
         // here — that's the box's tailnet address, not what the agent's
         // process is bound to. Agents bind to 127.0.0.1 by convention.
-        sshClient.forwardOut(
-          "127.0.0.1",
-          0,
-          "127.0.0.1",
-          target.port,
-          (err, stream) => {
-            if (err) {
-              sock.destroy();
-              return;
-            }
-            sock.pipe(stream).pipe(sock);
-            sock.on("error", () => stream.destroy());
-            stream.on("error", () => sock.destroy());
-          },
-        );
+        //
+        // ssh2's Client.forwardOut throws SYNCHRONOUSLY with
+        // `Error: Not connected` when the pooled SSH client's underlying
+        // TCP connection has died between cache hits. The callback pattern
+        // doesn't catch sync throws — without this try/catch it propagates
+        // to the top of net.Server's event emitter and crashes Node.
+        // Close-the-server triggers the D-15 cache eviction below, so the
+        // next request rebuilds a fresh tunnel via a fresh pooled client.
+        try {
+          sshClient.forwardOut(
+            "127.0.0.1",
+            0,
+            "127.0.0.1",
+            target.port,
+            (err, stream) => {
+              if (err) {
+                sock.destroy();
+                return;
+              }
+              sock.pipe(stream).pipe(sock);
+              sock.on("error", () => stream.destroy());
+              stream.on("error", () => sock.destroy());
+            },
+          );
+        } catch (err) {
+          sshLogger.warn("serve-url tunnel: forwardOut sync throw", {
+            operation: "serve_url_tunnel_forward_out_sync_error",
+            target: cacheKey,
+            errorClass: err instanceof Error ? err.name : "unknown",
+          });
+          sock.destroy();
+          server.close();
+        }
       });
 
       // On any local server close (whether triggered by our own code or by
