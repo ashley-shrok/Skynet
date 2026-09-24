@@ -1816,13 +1816,57 @@ export function PrettyConversationsPanel({
   // mental map matches the sidebar's. Displayed even for the currently-
   // assigned project (checkmarked in place), so the ordering does not
   // change based on which row opened the menu.
-  const submenuProjects = useMemo(
-    () =>
-      projectSections.map((s) => ({
-        slug: s.slug,
-        displayName: s.displayName,
-      })),
-    [projectSections],
+  //
+  // hostId is carried alongside slug/displayName here so the per-row
+  // narrowing below (submenuProjectsForRow) can filter identity rows to
+  // projects that live on that row's host. Sourced from projectsList
+  // (ProjectRow carries hostId; projectSections does not).
+  const submenuProjects = useMemo(() => {
+    const hostBySlug = new Map<string, string>();
+    for (const p of projectsList) hostBySlug.set(p.slug, p.hostId);
+    return projectSections.map((s) => ({
+      slug: s.slug,
+      displayName: s.displayName,
+      hostId: hostBySlug.get(s.slug) ?? null,
+    }));
+  }, [projectSections, projectsList]);
+
+  // Per-row narrowing for the "Move to project" submenu.
+  //
+  // Identity rows are host-scoped: projects live under the identity's
+  // host's ~/fleet/projects/ tree (D-01), and setSessionProject writes
+  // to that host's identity file. Offering a cross-host project would
+  // fire setSessionProject(row.host.id, key, slug-that-lives-on-another-
+  // host) which the writer can't satisfy — the project directory doesn't
+  // exist on the row's host. Filter to matching hostId so the menu can't
+  // list options the wire would then bounce.
+  //
+  // Relay-room rows are cross-host by design (the setRelayRoomProject
+  // payload is {roomId, userMxid, slug} with no hostId; the room-project
+  // tag is per-user, not per-host). No natural host key to filter on —
+  // return the full list.
+  //
+  // hostId=null entries (project not yet in projectsList — race window
+  // between projectSections update and useProjects snapshot bump) are
+  // conservatively hidden from identity rows to avoid a wire call whose
+  // routing we can't verify.
+  const submenuProjectsForRow = useCallback(
+    (
+      row: ConversationRowShape,
+    ): readonly { slug: string; displayName: string }[] => {
+      if (typeof row.roomId === "string" && row.roomId.length > 0) {
+        return submenuProjects.map(({ slug, displayName }) => ({
+          slug,
+          displayName,
+        }));
+      }
+      const rowHostId = row.host?.id;
+      if (!rowHostId) return [];
+      return submenuProjects
+        .filter((p) => p.hostId === rowHostId)
+        .map(({ slug, displayName }) => ({ slug, displayName }));
+    },
+    [submenuProjects],
   );
 
   // shape-move-to-project-context-menu (2026-09-23): context-menu path for
@@ -1894,15 +1938,18 @@ export function PrettyConversationsPanel({
   );
 
   // Returns the row-scoped onMoveToProject callback, or undefined to hide
-  // the "Move to project" affordance entirely (RDP row OR zero projects —
-  // both are hide-not-grey per shape). Called at each row render site.
+  // the "Move to project" affordance entirely (RDP row OR zero projects
+  // ON THIS ROW'S HOST — both are hide-not-grey per shape). Called at
+  // each row render site. Zero-projects check uses submenuProjectsForRow
+  // so an identity on a host with no local projects hides the item even
+  // when other hosts have projects.
   const rowMoveToProjectCallback = useCallback(
     (row: ConversationRowShape): ((slug: string | null) => void) | undefined => {
       if (row.rdpHostRow === true) return undefined;
-      if (submenuProjects.length === 0) return undefined;
+      if (submenuProjectsForRow(row).length === 0) return undefined;
       return (slug: string | null) => handleRowMoveToProject(row, slug);
     },
-    [submenuProjects.length, handleRowMoveToProject],
+    [submenuProjectsForRow, handleRowMoveToProject],
   );
 
   const [isFlatMiddleDragOver, setIsFlatMiddleDragOver] = useState(false);
@@ -2714,7 +2761,7 @@ export function PrettyConversationsPanel({
                         : undefined
                     }
                     onMoveToProject={rowMoveToProjectCallback(row)}
-                    projects={submenuProjects}
+                    projects={submenuProjectsForRow(row)}
                     currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                     inActiveSet={activeSet.has(row.id)}
                     sessionKey={sessionWorkingKey(row)}
@@ -2772,7 +2819,7 @@ export function PrettyConversationsPanel({
                             : undefined
                         }
                         onMoveToProject={rowMoveToProjectCallback(row)}
-                        projects={submenuProjects}
+                        projects={submenuProjectsForRow(row)}
                         currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                         inActiveSet={activeSet.has(row.id)}
                         sessionKey={sessionWorkingKey(row)}
@@ -2865,7 +2912,7 @@ export function PrettyConversationsPanel({
                         : undefined
                     }
                     onMoveToProject={rowMoveToProjectCallback(row)}
-                    projects={submenuProjects}
+                    projects={submenuProjectsForRow(row)}
                     currentProjectSlug={rowIdToProjectSlug.get(row.id) ?? null}
                     inActiveSet={activeSet.has(row.id)}
                     sessionKey={sessionWorkingKey(row)}

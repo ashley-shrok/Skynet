@@ -21,6 +21,8 @@ import {
   fireEvent,
   createEvent,
   cleanup,
+  screen,
+  within,
 } from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
 
@@ -1911,5 +1913,223 @@ describe("PrettyConversationsPanel: flat-middle section header (M-J)", () => {
     expect(
       container.querySelector('[data-testid="pv-flat-middle-section-header"]'),
     ).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Move-to-project context menu — per-row host filtering
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The "Move to project" drill-in submenu must list only projects that live on
+// the row's host for IDENTITY rows: projects live under a specific host's
+// ~/fleet/projects/ tree (D-01), and setSessionProject writes to that host's
+// identity file. Offering a cross-host project would fire
+// setSessionProject(rowHostId, key, foreign-slug) which the writer can't
+// satisfy — the project directory doesn't exist on the row's host.
+//
+// RELAY-ROOM rows are cross-host by design (the setRelayRoomProject payload
+// has no hostId), so their submenu keeps the full projects list.
+
+describe("PrettyConversationsPanel: Move-to-project host filtering", () => {
+  it("identity row on host 1 sees only host-1 projects in the drill-in submenu", () => {
+    const hostA = makeHost("1", "hostA");
+    const identityRow = makeRow({
+      id: "id-row-a",
+      host: hostA,
+      targetTmuxSession: "wren-session",
+    });
+    setSnapshot({
+      middle: [identityRow],
+      projectSections: [
+        { slug: "alpha", displayName: "Alpha", rows: [] },
+        { slug: "beta", displayName: "Beta", rows: [] },
+      ],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+      { slug: "beta", displayName: "Beta", hostId: "2", hostname: "hostB", archived: false },
+    ];
+
+    const HOST_TREE_MULTI: HostFolder = {
+      name: "root",
+      children: [makeHost("1", "hostA"), makeHost("2", "hostB")],
+    };
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE_MULTI}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowWrapper = container.querySelector(
+      '[data-conversation-id="id-row-a"]',
+    ) as HTMLElement;
+    expect(rowWrapper).not.toBeNull();
+    const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+
+    const menu = screen.getByRole("menu");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: /move to project/i }),
+    );
+
+    // Alpha (host 1) present; Beta (host 2) filtered out.
+    expect(
+      within(menu).queryByRole("menuitemradio", { name: /^Alpha$/ }),
+    ).not.toBeNull();
+    expect(
+      within(menu).queryByRole("menuitemradio", { name: /^Beta$/ }),
+    ).toBeNull();
+  });
+
+  it("identity row on host 2 sees only host-2 projects in the drill-in submenu (symmetric case)", () => {
+    const hostB = makeHost("2", "hostB");
+    const identityRow = makeRow({
+      id: "id-row-b",
+      host: hostB,
+      targetTmuxSession: "quill-session",
+    });
+    setSnapshot({
+      middle: [identityRow],
+      projectSections: [
+        { slug: "alpha", displayName: "Alpha", rows: [] },
+        { slug: "beta", displayName: "Beta", rows: [] },
+      ],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+      { slug: "beta", displayName: "Beta", hostId: "2", hostname: "hostB", archived: false },
+    ];
+
+    const HOST_TREE_MULTI: HostFolder = {
+      name: "root",
+      children: [makeHost("1", "hostA"), makeHost("2", "hostB")],
+    };
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE_MULTI}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowWrapper = container.querySelector(
+      '[data-conversation-id="id-row-b"]',
+    ) as HTMLElement;
+    const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: /move to project/i }),
+    );
+
+    expect(
+      within(menu).queryByRole("menuitemradio", { name: /^Beta$/ }),
+    ).not.toBeNull();
+    expect(
+      within(menu).queryByRole("menuitemradio", { name: /^Alpha$/ }),
+    ).toBeNull();
+  });
+
+  it("identity row on a host with zero projects hides the 'Move to project' item entirely (hide-not-grey)", () => {
+    const hostZ = makeHost("9", "hostZ");
+    const identityRow = makeRow({
+      id: "id-row-z",
+      host: hostZ,
+      targetTmuxSession: "sess-z",
+    });
+    setSnapshot({
+      middle: [identityRow],
+      projectSections: [
+        { slug: "alpha", displayName: "Alpha", rows: [] },
+      ],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+
+    const HOST_TREE_MULTI: HostFolder = {
+      name: "root",
+      children: [makeHost("1", "hostA"), hostZ],
+    };
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE_MULTI}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowWrapper = container.querySelector(
+      '[data-conversation-id="id-row-z"]',
+    ) as HTMLElement;
+    const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    expect(
+      within(menu).queryByRole("menuitem", { name: /move to project/i }),
+    ).toBeNull();
+  });
+
+  it("relay-room row sees ALL projects (cross-host) in the drill-in submenu — no host filtering", () => {
+    const relayRow: MockRow = {
+      id: "relay-row",
+      type: "terminal",
+      label: "Room A",
+      host: undefined,
+      targetTmuxSession: null,
+      kind: "relay-room",
+      roomId: "!room-a:matrix.example",
+      roomTitle: "Room A",
+    };
+    setSnapshot({
+      middle: [relayRow],
+      projectSections: [
+        { slug: "alpha", displayName: "Alpha", rows: [] },
+        { slug: "beta", displayName: "Beta", rows: [] },
+      ],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+      { slug: "beta", displayName: "Beta", hostId: "2", hostname: "hostB", archived: false },
+    ];
+
+    const HOST_TREE_MULTI: HostFolder = {
+      name: "root",
+      children: [makeHost("1", "hostA"), makeHost("2", "hostB")],
+    };
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE_MULTI}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowWrapper = container.querySelector(
+      '[data-conversation-id="relay-row"]',
+    ) as HTMLElement;
+    const body = rowWrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
+    const menu = screen.getByRole("menu");
+    fireEvent.click(
+      within(menu).getByRole("menuitem", { name: /move to project/i }),
+    );
+
+    expect(
+      within(menu).queryByRole("menuitemradio", { name: /^Alpha$/ }),
+    ).not.toBeNull();
+    expect(
+      within(menu).queryByRole("menuitemradio", { name: /^Beta$/ }),
+    ).not.toBeNull();
   });
 });
