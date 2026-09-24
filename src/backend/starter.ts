@@ -162,17 +162,18 @@ export function maybeInstallStopHook(
 
 // ---------------------------------------------------------------------------
 // Bounty b31a5c8e-7f2d-4c91-a4b6-8e9f1c3b7d24 — per-connection SSH exec
-// throttle. OpenSSH default MaxSessions=10 (universal since OpenSSH 5.1,
-// 2008) is per-CONNECTION, not per-host-global (sshd_config man page: "the
-// maximum number of open shell, login or subsystem sessions permitted per
-// network connection"). We cap Skynet's own exec-channel concurrency at 8
-// per (host, SSH connection) — this leaves 2 channels of headroom on our
-// own connection's bucket and cannot starve any other legitimate SSH
-// client on any target box (they each get their own private 10-cap
-// bucket). This eliminates CHANNEL_OPEN_FAILURE bursts from the
-// fleet-status poller under any target host's default sshd config, with
-// zero call-site changes to ssh-poll-orchestrator.ts (its Promise.all
-// fan-outs queue implicitly).
+// throttle. MaxSessions is per-CONNECTION on OpenSSH (sshd_config man page:
+// "the maximum number of open shell, login or subsystem sessions permitted
+// per network connection"). We cap Skynet's own exec-channel concurrency
+// at getHostSemaphore's default (48 as of 2026-09-24 — see
+// host-semaphore-registry.ts docblock for cap history). This is paired
+// with a substrate-installed MaxSessions=64 drop-in on OpenSSH-served
+// hosts, leaving 16 channels of headroom for other legitimate SSH clients
+// on the same box. Eliminates CHANNEL_OPEN_FAILURE bursts from the
+// fleet-status poller under substrate-configured sshd, with zero call-site
+// changes to ssh-poll-orchestrator.ts (its Promise.all fan-outs queue
+// implicitly). Tailscale-SSH hosts ignore MaxSessions entirely — the
+// semaphore alone bounds concurrency there.
 //
 // Contract:
 //   - `run(fn)` runs fn() when a slot is free; otherwise queues FIFO.
@@ -707,13 +708,13 @@ if (process.env.VITEST !== "true") {
         // exhaustion on multi-identity hosts. The `snapshot` frame's
         // Promise.all in app-frame-filter.ts fans out N identity-gate
         // calls in parallel per subscriber connect; without the semaphore
-        // each fires its own connectOneShot + reads, and hosts with more
-        // than ~8 identities can exhaust sshd's default MaxSessions=10
-        // cap on subscribe (matches the discipline identities.ts uses at
-        // L380-384 for the REST fanout, cap 8). Local-host branch
-        // bypasses the semaphore because bind-mount reads consume no SSH
-        // channels — same short-circuit shape as identities.ts's
-        // `withSlot` closure.
+        // each fires its own connectOneShot + reads, and hosts with many
+        // identities would exhaust sshd's MaxSessions cap on subscribe
+        // (matches the discipline identities.ts uses at L380-384 for the
+        // REST fanout). Cap details in host-semaphore-registry.ts's
+        // module docblock. Local-host branch bypasses the semaphore
+        // because bind-mount reads consume no SSH channels — same
+        // short-circuit shape as identities.ts's `withSlot` closure.
         //
         // NO CACHE per Assumption A3 lock (preserved above at L652-656):
         // the shape's "picked up on next read" promise is untouched. If
@@ -970,8 +971,8 @@ if (process.env.VITEST !== "true") {
               try {
                 // Bounty b31a5c8e (Phase 101): per-host semaphore now shared via
                 // registry — fleet-status + substrate + route producers running on
-                // the same host now share a single 8-slot pool. Wilma-incident
-                // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
+                // the same host share a single pool. Cap history in
+                // host-semaphore-registry.ts docblock (48 slots as of 2026-09-24).
                 const sem = getHostSemaphore(host.id);
                 const channel = {
                   exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
@@ -1333,9 +1334,8 @@ if (process.env.VITEST !== "true") {
       // Bounty b31a5c8e (Phase 101, D-04): substrate semaphore now shared via
       // the module-scope registry (host-semaphore-registry.ts). The former
       // substrateHostSemaphores Map is removed — fleet-status + substrate
-      // producers running on the same hostId now share ONE 8-slot pool.
-      // Wilma-incident MaxSessions=10 citation: cap at 8 leaves 2 channels
-      // of headroom per connection.
+      // producers running on the same hostId share ONE pool. Cap history
+      // in host-semaphore-registry.ts docblock (48 slots as of 2026-09-24).
 
       async function substrateAcquireChannel(host: {
         id: string;

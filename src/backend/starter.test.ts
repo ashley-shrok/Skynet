@@ -162,8 +162,11 @@ describe("Bounty b31a5c8e — makeSemaphore per-connection SSH exec throttle", (
         }),
       ),
     );
-    // Load-bearing cap-at-8 assertion — if this ever slips, Skynet can
-    // exceed OpenSSH default MaxSessions=10 again.
+    // Primitive contract: the semaphore MUST honor the cap passed to its
+    // constructor regardless of load. The cap number here (8) is
+    // arbitrary — the point is that maxInFlight never exceeds it.
+    // getHostSemaphore's default lives in host-semaphore-registry.ts
+    // and is validated separately.
     expect(maxInFlight).toBeLessThanOrEqual(8);
     // Sanity: the semaphore did NOT refuse everything — at least one
     // task actually ran concurrently.

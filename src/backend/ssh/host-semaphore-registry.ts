@@ -13,6 +13,19 @@
  *   This module-scope Map<hostId, HostSemaphore> registry gives us ONE shared
  *   slot pool per host across ALL producers — correct aggregate policy per D-04.
  *
+ * SEMAPHORE CAP HISTORY (see box-maintainer role file for full context):
+ *   Original cap = 8 (OpenSSH default MaxSessions=10 minus 2 headroom).
+ *   Bumped to 48 on 2026-09-24 after a workstation-side wedge investigation
+ *   (~27 active identities × one permanently-held slot per `tail -F` via
+ *   acquireTailSlot exhausted the 8-slot pool → spawn-scan / image-gen /
+ *   fleet-status legacy poll all starved on sem.run). Paired with a bump
+ *   of the substrate's `/etc/ssh/sshd_config.d/60-skynet-maxsessions.conf`
+ *   from MaxSessions=30 to MaxSessions=64 on OpenSSH-served hosts, sized
+ *   for the 4GB Graviton floor (~10MB per sshd child × 64 ≈ 16% of RAM,
+ *   leaves ample budget for the actual identity workload). Tailscale-SSH
+ *   hosts (e.g. workstation) ignore MaxSessions entirely — the semaphore
+ *   bump alone unblocks them.
+ *
  * D-02 primary path: makeSemaphore is defined HERE and re-exported for starter.ts
  * to import (starter.ts's inline call sites are migrated in Plan 101-02).
  *
@@ -70,14 +83,18 @@ const registry = new Map<string, HostSemaphore>();
  * the same slot pool (D-01).
  *
  * @param hostId  Host identifier — string or number, both accepted (D-01).
- * @param limit   Semaphore cap. Defaults to 8 (wilma-incident MaxSessions=10
- *                policy: cap at 8 leaves 2 channels of headroom per connection).
- *                Only applied on first call for a given hostId; subsequent calls
- *                return the existing instance regardless of limit argument.
+ * @param limit   Semaphore cap. Defaults to 48 (2026-09-24 — see SEMAPHORE
+ *                CAP HISTORY in the module docblock). Sized to cover the
+ *                observed peak of ~27 long-lived `tail -F` slots per host
+ *                plus ~20 slots of headroom for short-exec work
+ *                (spawn-scan, image-gen, fleet-status polls) with 16 slots
+ *                to spare under the substrate's MaxSessions=64.
+ *                Only applied on first call for a given hostId; subsequent
+ *                calls return the existing instance regardless of limit.
  */
 export function getHostSemaphore(
   hostId: string | number,
-  limit: number = 8,
+  limit: number = 48,
 ): HostSemaphore {
   const key = String(hostId);
   let sem = registry.get(key);

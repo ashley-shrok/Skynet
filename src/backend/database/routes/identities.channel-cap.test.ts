@@ -170,10 +170,11 @@ import identitiesRouter from "./identities.js";
 import { __resetHostSemaphoreRegistryForTests } from "../../ssh/host-semaphore-registry.js";
 
 /**
- * sshd's default MaxSessions. getHostSemaphore defaults to 8, leaving 2
- * channels of headroom, so anything at or above this number is a refusal.
+ * Substrate-installed sshd MaxSessions ceiling (see box-maintainer role file
+ * for the 2026-09-24 bump from 30 → 64). getHostSemaphore defaults to 48,
+ * leaving 16 channels of headroom under this ceiling.
  */
-const MAX_SESSIONS = 10;
+const MAX_SESSIONS = 64;
 
 function httpGet(server: http.Server, path: string): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
@@ -233,9 +234,9 @@ describe("GET /identities — per-host SSH channel cap", () => {
     expect(peak).toBeLessThan(MAX_SESSIONS);
   });
 
-  it("caps at 8, not merely under MaxSessions", async () => {
-    const keys = Array.from({ length: 8 }, (_, i) => `agent${i}`);
+  it("caps at 48, not merely under MaxSessions", async () => {
+    const keys = Array.from({ length: 48 }, (_, i) => `agent${i}`);
     await httpGet(server, query(keys));
-    expect(peak).toBeLessThanOrEqual(8);
+    expect(peak).toBeLessThanOrEqual(48);
   });
 });
