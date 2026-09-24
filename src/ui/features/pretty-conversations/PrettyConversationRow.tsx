@@ -205,6 +205,26 @@ function setTitleIfOverflowing(e: React.MouseEvent<HTMLElement>): void {
   }
 }
 
+// Row-level unified tooltip: shows the identity's displayName so the user can
+// tell which identity the convo is for without opening it; appends the full
+// task on a second line iff the task label is currently truncated. Subsumes
+// the per-span overflow tooltip in the task-primary branch.
+function setRowTooltip(
+  displayName: string | null | undefined,
+  task: string | null | undefined,
+): (e: React.MouseEvent<HTMLElement>) => void {
+  return (e) => {
+    const rowEl = e.currentTarget;
+    if (!displayName) {
+      rowEl.removeAttribute("title");
+      return;
+    }
+    const label = rowEl.querySelector<HTMLElement>(".pv-label");
+    const overflowing = !!label && label.scrollWidth > label.clientWidth;
+    rowEl.title = task && overflowing ? `${displayName}\n${task}` : displayName;
+  };
+}
+
 export function PrettyConversationRow({
   row,
   selected,
@@ -1221,6 +1241,7 @@ export function PrettyConversationRow({
         aria-pressed={selected}
         onClick={onBodyClick}
         onKeyDown={onBodyKeyDown}
+        onMouseEnter={setRowTooltip(identity?.displayName, identity?.task)}
         onContextMenu={!isMobile ? onRowContextMenu : undefined}
         // quick-260821-suv: the four `onTouch*` gates were widened from
         // `isMobile ? h : undefined` to `acceptsTouch ? h : undefined`
@@ -1359,8 +1380,8 @@ export function PrettyConversationRow({
         <div className="pv-body">
           {identity?.task ? (
             <>
-              <span className="pv-label" onMouseEnter={setTitleIfOverflowing}>{identity.task}</span>
-              <span className="pv-ai-title" onMouseEnter={setTitleIfOverflowing}>
+              <span className="pv-label">{identity.task}</span>
+              <span className="pv-ai-title">
                 <strong>
                   {roleDisplayName(identity.role ?? "", identity.roleDefaults?.displayName)}
                 </strong>
