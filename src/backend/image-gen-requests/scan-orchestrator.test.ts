@@ -99,6 +99,7 @@ function makeDeps(overrides: {
   hosts?: ImageGenScanHostRecord[];
   acquireChannel?: (host: ImageGenScanHostRecord) => Promise<SshChannel | null>;
   scanIntervalMs?: number;
+  scanTimeoutMs?: number;
 } = {}) {
   const hosts =
     overrides.hosts ??
@@ -115,6 +116,22 @@ function makeDeps(overrides: {
   });
   const clearIntervalMock = vi.fn();
 
+  // Scan-timeout mock. Same pattern as spawn-requests test: capture every
+  // scheduled callback so tests can simulate a timeout firing via
+  // fireLatestTimeout(). Real time never advances.
+  const capturedTimeoutFns: Array<{ fn: () => void; handle: number; cleared: boolean }> = [];
+  let timeoutHandleCounter = 0;
+  const setTimeoutMock = vi.fn((fn: () => void, _ms: number) => {
+    timeoutHandleCounter++;
+    const handle = timeoutHandleCounter;
+    capturedTimeoutFns.push({ fn, handle, cleared: false });
+    return handle as unknown as ReturnType<typeof setTimeout>;
+  });
+  const clearTimeoutMock = vi.fn((h: ReturnType<typeof setTimeout>) => {
+    const entry = capturedTimeoutFns.find((e) => e.handle === (h as unknown as number));
+    if (entry) entry.cleared = true;
+  });
+
   const listSubstrateHosts = vi.fn(async () => hosts);
   const acquireChannel =
     overrides.acquireChannel ??
@@ -129,8 +146,11 @@ function makeDeps(overrides: {
     enqueue: enqueueDep,
     setInterval: setIntervalMock,
     clearInterval: clearIntervalMock,
+    setTimeout: setTimeoutMock,
+    clearTimeout: clearTimeoutMock,
     now: vi.fn(() => Date.now()),
     scanIntervalMs: overrides.scanIntervalMs,
+    scanTimeoutMs: overrides.scanTimeoutMs,
   };
 
   return {
@@ -142,9 +162,21 @@ function makeDeps(overrides: {
     enqueueDep,
     setIntervalMock,
     clearIntervalMock,
+    setTimeoutMock,
+    clearTimeoutMock,
     async fireTick() {
       if (capturedIntervalFn) await capturedIntervalFn();
     },
+    fireLatestTimeout() {
+      for (let i = capturedTimeoutFns.length - 1; i >= 0; i--) {
+        if (!capturedTimeoutFns[i].cleared) {
+          capturedTimeoutFns[i].fn();
+          return true;
+        }
+      }
+      return false;
+    },
+    capturedTimeoutFns,
   };
 }
 
@@ -327,6 +359,51 @@ describe("per-host in-flight guard", () => {
 
     releaseSlow();
     await slowPromise;
+  });
+
+  it("G2: scan-timeout force-releases the guard when scanOneHost hangs — next tick can scan again", async () => {
+    // Mirror of spawn-requests G3. The alexander/alicia workstation
+    // incident (2026-09-24) had a wedged spawn-scan; image-gen shares
+    // the same in-flight-guard shape and needs the same protection.
+    const hosts: ImageGenScanHostRecord[] = [
+      { id: "1", name: "host-1", _connDetails: {} },
+    ];
+    const hangingAcquire = vi.fn(
+      (_host: ImageGenScanHostRecord) => new Promise<SshChannel>(() => {}),
+    );
+
+    const { deps, acquireChannel, fireTick, fireLatestTimeout } = makeDeps({
+      hosts,
+      acquireChannel: hangingAcquire,
+    });
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(acquireChannel).toHaveBeenCalledTimes(1);
+
+    // Without timeout firing, subsequent ticks skip.
+    await fireTick();
+    await flush();
+    expect(acquireChannel).toHaveBeenCalledTimes(1);
+
+    // Timeout fires; guard released; next tick re-scans.
+    expect(fireLatestTimeout()).toBe(true);
+    await flush();
+    await fireTick();
+    await flush();
+    expect(acquireChannel).toHaveBeenCalledTimes(2);
+  });
+
+  it("G3: scan-timeout timer is cleared when scan completes normally", async () => {
+    const { deps, clearTimeoutMock, fireTick } = makeDeps();
+    const orch = createImageGenScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    expect(clearTimeoutMock).toHaveBeenCalledTimes(1);
+
+    await fireTick();
+    await flush();
+    expect(clearTimeoutMock).toHaveBeenCalledTimes(2);
   });
 });
 

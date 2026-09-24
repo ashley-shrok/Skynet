@@ -102,11 +102,36 @@ export interface SpawnScanOrchestratorDeps {
   /** Timer cancellation. */
   clearInterval(h: ReturnType<typeof setInterval>): void;
 
+  /**
+   * One-shot timer factory (injectable for tests). Used to bound the per-host
+   * scan promise so a wedged `acquireChannel` / `scanSpawnRequests` cannot
+   * hold the in-flight guard indefinitely (see scan-timeout rationale below).
+   */
+  setTimeout(fn: () => void, ms: number): ReturnType<typeof setTimeout>;
+
+  /** One-shot timer cancellation. */
+  clearTimeout(h: ReturnType<typeof setTimeout>): void;
+
   /** Clock (injectable for tests). */
   now(): number;
 
   /** Scan interval in ms. Default 10000. */
   scanIntervalMs?: number;
+
+  /**
+   * Per-host scan timeout in ms. Default 30000 (three scan intervals).
+   *
+   * Bounds a single `scanOneHost` invocation. If `acquireChannel` or
+   * `scanSpawnRequests` hangs indefinitely (a known failure mode — see the
+   * scanOneHost docblock's LOCAL-bypass rationale + the wilma incident notes),
+   * without this bound the per-host in-flight guard is held forever and
+   * every subsequent tick logs `spawn_scan_skip_in_flight` while doing
+   * nothing. On timeout the guard is force-released with a WARN-level log
+   * (grep-able as `spawn_scan_timeout`) so the next tick's scan runs. The
+   * still-hanging scan promise is abandoned; its own `.finally` will
+   * release its SSH channel if/when it eventually resolves.
+   */
+  scanTimeoutMs?: number;
 }
 
 /**
@@ -131,6 +156,7 @@ export function createSpawnScanOrchestrator(
   deps: SpawnScanOrchestratorDeps,
 ): SpawnScanOrchestrator {
   const scanIntervalMs = deps.scanIntervalMs ?? 10000;
+  const scanTimeoutMs = deps.scanTimeoutMs ?? 30000;
 
   /**
    * Per-host in-flight guard — quick-260820-tm0 wilma pattern. A slow host
@@ -305,7 +331,31 @@ export function createSpawnScanOrchestrator(
         continue;
       }
       inFlight.add(host.id);
+      // Scan-timeout race: whichever settles first (scan-complete OR timeout)
+      // releases the guard. If the timeout wins, the still-hanging scan is
+      // abandoned — its own internal `.finally` will release the SSH channel
+      // if/when it eventually resolves. Without this bound, a wedged
+      // `acquireChannel` or `scanSpawnRequests` holds the guard forever.
+      let settled = false;
+      const timeoutHandle = deps.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        systemLogger.warn(
+          "Spawn-scan: per-host scan exceeded timeout — force-releasing in-flight guard",
+          {
+            operation: "spawn_scan_timeout",
+            fleetHostId: host.id,
+            hostName: host.name,
+            scanTimeoutMs,
+            tick: scanTickCount,
+          },
+        );
+        inFlight.delete(host.id);
+      }, scanTimeoutMs);
       void scanOneHost(host).finally(() => {
+        if (settled) return;
+        settled = true;
+        deps.clearTimeout(timeoutHandle);
         inFlight.delete(host.id);
       });
     }

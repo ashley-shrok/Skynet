@@ -1578,6 +1578,8 @@ if (process.env.VITEST !== "true") {
         enqueue: enqueueSpawnRequest,
         setInterval,
         clearInterval,
+        setTimeout,
+        clearTimeout,
         now: () => Date.now(),
         scanIntervalMs: 10000,
       });
@@ -1754,6 +1756,8 @@ if (process.env.VITEST !== "true") {
         enqueue: enqueueImageGenRequest,
         setInterval,
         clearInterval,
+        setTimeout,
+        clearTimeout,
         now: () => Date.now(),
         scanIntervalMs: 10000,
       });

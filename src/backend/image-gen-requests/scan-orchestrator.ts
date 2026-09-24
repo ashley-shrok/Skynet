@@ -102,11 +102,29 @@ export interface ImageGenScanOrchestratorDeps {
   /** Timer cancellation. */
   clearInterval(h: ReturnType<typeof setInterval>): void;
 
+  /**
+   * One-shot timer factory (injectable for tests). Used to bound the per-host
+   * scan promise so a wedged `acquireChannel` / `scanImageGenRequests` cannot
+   * hold the in-flight guard indefinitely. See the sibling spawn-requests
+   * scan-orchestrator's docblock for the shared rationale.
+   */
+  setTimeout(fn: () => void, ms: number): ReturnType<typeof setTimeout>;
+
+  /** One-shot timer cancellation. */
+  clearTimeout(h: ReturnType<typeof setTimeout>): void;
+
   /** Clock (injectable for tests). */
   now(): number;
 
   /** Scan interval in ms. Default 10000. */
   scanIntervalMs?: number;
+
+  /**
+   * Per-host scan timeout in ms. Default 30000 (three scan intervals).
+   * On timeout the in-flight guard is force-released with a WARN-level log
+   * (`image_gen_scan_timeout`) so the next tick's scan runs.
+   */
+  scanTimeoutMs?: number;
 }
 
 /**
@@ -395,6 +413,7 @@ export function createImageGenScanOrchestrator(
   deps: ImageGenScanOrchestratorDeps,
 ): ImageGenScanOrchestrator {
   const scanIntervalMs = deps.scanIntervalMs ?? 10000;
+  const scanTimeoutMs = deps.scanTimeoutMs ?? 30000;
 
   /**
    * Per-host in-flight guard — a slow host whose scan is still awaiting when
@@ -563,7 +582,30 @@ export function createImageGenScanOrchestrator(
         continue;
       }
       inFlight.add(host.id);
+      // Scan-timeout race: whichever settles first (scan-complete OR timeout)
+      // releases the guard. If the timeout wins, the still-hanging scan is
+      // abandoned. See the sibling spawn-requests scan-orchestrator for the
+      // shared rationale — same failure mode, same fix.
+      let settled = false;
+      const timeoutHandle = deps.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        systemLogger.warn(
+          "Image-gen-scan: per-host scan exceeded timeout — force-releasing in-flight guard",
+          {
+            operation: "image_gen_scan_timeout",
+            fleetHostId: host.id,
+            hostName: host.name,
+            scanTimeoutMs,
+            tick: scanTickCount,
+          },
+        );
+        inFlight.delete(host.id);
+      }, scanTimeoutMs);
       void scanOneHost(host).finally(() => {
+        if (settled) return;
+        settled = true;
+        deps.clearTimeout(timeoutHandle);
         inFlight.delete(host.id);
       });
     }

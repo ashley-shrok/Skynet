@@ -72,6 +72,7 @@ import {
   createImageGenScanOrchestrator,
   IMAGE_GEN_SCAN_CMD,
   type ImageGenScanHostRecord,
+  type ImageGenScanOrchestratorDeps,
   type SshChannel,
 } from "./scan-orchestrator.js";
 import type { PendingImageGen } from "./types.js";
@@ -503,6 +504,13 @@ describe("image-gen end-to-end: SCAN_INTEGRATION", () => {
       enqueue,
       setInterval: setIntervalMock,
       clearInterval: clearIntervalMock,
+      setTimeout: ((fn: () => void, _ms: number) => {
+        // In-line real timers: this e2e test only exercises the happy path
+        // (scan completes fast, timeout is cleared before firing), so a
+        // real setTimeout with a large timeout is fine.
+        return setTimeout(fn, 60_000);
+      }) as unknown as ImageGenScanOrchestratorDeps["setTimeout"],
+      clearTimeout: ((h: ReturnType<typeof setTimeout>) => clearTimeout(h)) as unknown as ImageGenScanOrchestratorDeps["clearTimeout"],
       now: () => Date.now(),
       scanIntervalMs: 10000,
     });
@@ -569,6 +577,13 @@ describe("image-gen end-to-end: SCAN_INTEGRATION", () => {
       enqueue,
       setInterval: setIntervalMock,
       clearInterval: clearIntervalMock,
+      setTimeout: ((fn: () => void, _ms: number) => {
+        // In-line real timers: this e2e test only exercises the happy path
+        // (scan completes fast, timeout is cleared before firing), so a
+        // real setTimeout with a large timeout is fine.
+        return setTimeout(fn, 60_000);
+      }) as unknown as ImageGenScanOrchestratorDeps["setTimeout"],
+      clearTimeout: ((h: ReturnType<typeof setTimeout>) => clearTimeout(h)) as unknown as ImageGenScanOrchestratorDeps["clearTimeout"],
       now: () => Date.now(),
       scanIntervalMs: 10000,
     });
@@ -637,6 +652,13 @@ describe("image-gen end-to-end: SCAN_INTEGRATION", () => {
       enqueue,
       setInterval: setIntervalMock,
       clearInterval: clearIntervalMock,
+      setTimeout: ((fn: () => void, _ms: number) => {
+        // In-line real timers: this e2e test only exercises the happy path
+        // (scan completes fast, timeout is cleared before firing), so a
+        // real setTimeout with a large timeout is fine.
+        return setTimeout(fn, 60_000);
+      }) as unknown as ImageGenScanOrchestratorDeps["setTimeout"],
+      clearTimeout: ((h: ReturnType<typeof setTimeout>) => clearTimeout(h)) as unknown as ImageGenScanOrchestratorDeps["clearTimeout"],
       now: () => Date.now(),
       scanIntervalMs: 10000,
     });

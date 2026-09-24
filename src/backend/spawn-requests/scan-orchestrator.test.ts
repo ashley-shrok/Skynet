@@ -101,6 +101,7 @@ function makeDeps(overrides: {
   hosts?: SpawnScanHostRecord[];
   acquireChannel?: (host: SpawnScanHostRecord) => Promise<SshChannel | null>;
   scanIntervalMs?: number;
+  scanTimeoutMs?: number;
 } = {}) {
   const hosts =
     overrides.hosts ??
@@ -117,6 +118,22 @@ function makeDeps(overrides: {
   });
   const clearIntervalMock = vi.fn();
 
+  // Timeout mock: captures every scheduled callback so tests that want to
+  // simulate a scan-timeout firing can invoke it manually via `fireTimeout()`.
+  // Real time never advances — same pattern the setInterval mock uses.
+  const capturedTimeoutFns: Array<{ fn: () => void; handle: number; cleared: boolean }> = [];
+  let timeoutHandleCounter = 0;
+  const setTimeoutMock = vi.fn((fn: () => void, _ms: number) => {
+    timeoutHandleCounter++;
+    const handle = timeoutHandleCounter;
+    capturedTimeoutFns.push({ fn, handle, cleared: false });
+    return handle as unknown as ReturnType<typeof setTimeout>;
+  });
+  const clearTimeoutMock = vi.fn((h: ReturnType<typeof setTimeout>) => {
+    const entry = capturedTimeoutFns.find((e) => e.handle === (h as unknown as number));
+    if (entry) entry.cleared = true;
+  });
+
   const listSubstrateHosts = vi.fn(async () => hosts);
   const acquireChannel =
     overrides.acquireChannel ??
@@ -131,8 +148,11 @@ function makeDeps(overrides: {
     enqueue: enqueueDep,
     setInterval: setIntervalMock,
     clearInterval: clearIntervalMock,
+    setTimeout: setTimeoutMock,
+    clearTimeout: clearTimeoutMock,
     now: vi.fn(() => Date.now()),
     scanIntervalMs: overrides.scanIntervalMs,
+    scanTimeoutMs: overrides.scanTimeoutMs,
   };
 
   return {
@@ -144,9 +164,22 @@ function makeDeps(overrides: {
     enqueueDep,
     setIntervalMock,
     clearIntervalMock,
+    setTimeoutMock,
+    clearTimeoutMock,
     async fireTick() {
       if (capturedIntervalFn) await capturedIntervalFn();
     },
+    /** Invoke the most-recently-scheduled un-cleared timeout callback. */
+    fireLatestTimeout() {
+      for (let i = capturedTimeoutFns.length - 1; i >= 0; i--) {
+        if (!capturedTimeoutFns[i].cleared) {
+          capturedTimeoutFns[i].fn();
+          return true;
+        }
+      }
+      return false;
+    },
+    capturedTimeoutFns,
   };
 }
 
@@ -356,6 +389,66 @@ describe("per-host in-flight guard", () => {
     await fireTick();
     await flush();
     expect(acquireChannel).toHaveBeenCalledTimes(3);
+  });
+
+  it("G3: scan-timeout force-releases the guard when scanOneHost hangs — next tick can scan again", async () => {
+    // Repro: a wedged scanOneHost that never resolves. Without the timeout
+    // race, the in-flight guard is held forever and every subsequent tick
+    // is a no-op skip (root cause of the alexander/alicia-on-workstation
+    // stuck-spawn-scanner incident, 2026-09-24 ~03:17 UTC).
+    const hosts: SpawnScanHostRecord[] = [
+      { id: "1", name: "host-1", _connDetails: {} },
+    ];
+    // acquireChannel hangs forever — never resolves, never rejects. Real-
+    // world SSH-side wedge.
+    const hangingAcquire = vi.fn(
+      (_host: SpawnScanHostRecord) => new Promise<SshChannel>(() => {}),
+    );
+
+    const { deps, acquireChannel, fireTick, fireLatestTimeout } = makeDeps({
+      hosts,
+      acquireChannel: hangingAcquire,
+    });
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    // First scan is in-flight (hanging).
+    expect(acquireChannel).toHaveBeenCalledTimes(1);
+
+    // Without firing the timeout, subsequent ticks skip (in-flight guard held).
+    await fireTick();
+    await flush();
+    expect(acquireChannel).toHaveBeenCalledTimes(1);
+    await fireTick();
+    await flush();
+    expect(acquireChannel).toHaveBeenCalledTimes(1);
+
+    // Simulate the scan-timeout firing. This must force-release the guard.
+    const fired = fireLatestTimeout();
+    expect(fired).toBe(true);
+    await flush();
+
+    // Next tick can now start a fresh scan.
+    await fireTick();
+    await flush();
+    expect(acquireChannel).toHaveBeenCalledTimes(2);
+  });
+
+  it("G4: scan-timeout does NOT force-release when scan completes normally — timer is cleared", async () => {
+    // Complement to G3: a scan that resolves cleanly must NOT leave a
+    // pending timeout that could later stomp the guard for a fresh scan.
+    vi.mocked(scanSpawnRequests).mockResolvedValue([]);
+    const { deps, clearTimeoutMock, fireTick } = makeDeps();
+    const orch = createSpawnScanOrchestrator(deps);
+    await orch.start();
+    await flush();
+    // First scan completes; its timeout must have been cleared.
+    expect(clearTimeoutMock).toHaveBeenCalledTimes(1);
+
+    await fireTick();
+    await flush();
+    // Second scan same story.
+    expect(clearTimeoutMock).toHaveBeenCalledTimes(2);
   });
 });
 
