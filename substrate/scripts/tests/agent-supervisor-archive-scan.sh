@@ -239,6 +239,14 @@ STUB_LOG=""
 STUB_REQ_LOG=""   # Phase 115 extension: captures request bodies (one per line) for assertions.
 
 start_stub_homeserver() {
+  # Usage:
+  #   start_stub_homeserver 200           — return 200 forever (single-code, back-compat)
+  #   start_stub_homeserver "500,500,200" — Phase 133 D-13a: return 500, then 500, then 200
+  #                                          on the 1st, 2nd, 3rd POST respectively, then
+  #                                          keep returning the LAST code (200) for any
+  #                                          additional requests. Used by Test A to exercise
+  #                                          the inline retire step 1 exponential-backoff
+  #                                          recovery path (transient 5xx → success on retry).
   local http_code="$1"
   STUB_PID=""
   STUB_PORT=""
@@ -249,12 +257,16 @@ start_stub_homeserver() {
     # Phase 115 D-22 (RESEARCH §11): extend the stub to capture request bodies. The stub
     # writes each POST body as a single line to the STUB_REQ_LOG file so tests can assert
     # on payload contents (e.g. Test 1 asserts the deactivate POST contains the mxid).
+    # Phase 133 D-13a: extend the stub to accept a comma-separated code sequence. Each POST
+    # advances the sequence pointer; once the sequence is exhausted the LAST code is repeated
+    # (so a single-code caller behaves exactly as before).
     python3 -c "
 import http.server, sys, socketserver, os
 
-code = int(sys.argv[1])
+codes = [int(c) for c in sys.argv[1].split(',')]
 port_file = sys.argv[2]
 req_log = sys.argv[3]
+counter = {'i': 0}
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -265,6 +277,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             f.write(('%s %d ' % (self.path, length)).encode('utf-8'))
             f.write(body.replace(b'\n', b' '))
             f.write(b'\n')
+        idx = min(counter['i'], len(codes) - 1)
+        counter['i'] += 1
+        code = codes[idx]
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
@@ -646,73 +661,232 @@ test_retire_password_with_quotes() {
 }
 
 # ============================================================
-# RETIRE-STUCK COUNTER TESTS — D-14
+# Phase 133 D-13/D-13a/D-14 inline-retry refactor tests
 # ============================================================
+# The pre-Phase-133 cross-tick fail-count + stuck-sentinel tests were deleted with the
+# mechanism they pinned — retire_identity now recovers inline from transient failures via
+# per-step exponential backoff and is atomic from the caller's perspective. The tests below
+# pin the new contract:
+#
+#   Test A: step 1 recovers after 2 transient 5xx (sequence-of-codes stub → 500,500,200).
+#   Test B: step 1 fails terminally after 3 5xx (single-code 500 stub).
+#   Test C: step 1 does NOT retry on permanent 400 (single-code 400 stub, <5s elapsed).
+#   Test D: step 4b does NOT retry on State 3 collision.
+#   Test E: neither scanner writes counter files or drops legacy stuck-sentinels.
+#   Test F: legacy retire-stuck sentinel (pre-Phase-133 archaeology) does NOT block a
+#           fresh retry — the removed skip guard is gone.
 
-test_retire_stuck_fires_at_3_not_before() {
-  # Use State 3 collision (both active AND archive exist) as the fail vehicle: retire_identity
-  # returns 1 every call because mv is refused when both $iddir and $archdir exist. This way,
-  # tina stays in the active tree across all 3 passes, and the scan calls retire_identity each
-  # time, incrementing the counter. D-14: sentinel fires exactly on pass 3, not before.
+# Test A: step 1 recovers inline after 2 transient 5xx via exponential backoff (D-13a).
+# Stub returns 500,500,200 across the first three POSTs. retire completes successfully;
+# the log records attempts 1/3 and 2/3 as transient failures, and 3/3 succeeds.
+test_retire_step1_recovers_after_transient_5xx() {
+  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
   local scratch; scratch=$(setup_scratch)
-  fixture_identity "$scratch" tina --cursor-age-days 200
-  # Pre-create archive tina in the archive sibling dir to produce the State 3 collision on every pass
-  mkdir -p "${scratch}-archive/tina"
-
-  local i out count
-  for i in 1 2 3; do
-    out=$( _source_supervisor "$scratch"
-           run_archive_scan 2>&1 ) || true
-    count=$(cat "$scratch/.state/retire-fail-count-tina" 2>/dev/null || echo 0)
-    assert_eq "$i" "$count" \
-      "retire-stuck: counter must equal $i after $i failed passes (got=$count)"
-    if [ "$i" -lt 3 ]; then
-      assert_nofile "${scratch}-archive/tina/retire-stuck" \
-        "retire-stuck: sentinel MUST NOT be dropped before pass 3 (pass=$i)"
-      if printf '%s' "$out" | grep -q 'STUCK'; then
-        fail "retire-stuck: LOUD STUCK log must NOT fire before pass 3 (fired on pass $i)"
-      fi
-    else
-      assert_file "${scratch}-archive/tina/retire-stuck" \
-        "retire-stuck: sentinel MUST be dropped on pass 3"
-      assert_grep 'STUCK' "$out" \
-        "retire-stuck: LOUD STUCK log must fire on pass 3"
-    fi
-  done
+  fixture_identity "$scratch" zeta --cursor-age-days 200
+  touch "$scratch/zeta/.archive-requested"
+  fixture_relay_json "$scratch/zeta" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@zeta:test" "pw" "tok"
+  start_stub_homeserver "500,500,200" || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/zeta/relay.json"
+  local start_epoch end_epoch elapsed rc=0 out
+  start_epoch=$(date +%s)
+  out=$( _source_supervisor "$scratch"
+         retire_identity "zeta" 2>&1 ) || rc=$?
+  end_epoch=$(date +%s)
+  elapsed=$(( end_epoch - start_epoch ))
+  stop_stub_homeserver
+  assert_eq "0" "$rc" "step 1 recovers: retire_identity must return 0 after transient recovery"
+  assert_nofile "$scratch/zeta" \
+    "step 1 recovers: live folder must be gone (full retire completed)"
+  assert_file "${scratch}-archive/zeta" \
+    "step 1 recovers: archive folder must exist"
+  assert_grep "attempt 1/3 transient failure" "$out" \
+    "step 1 recovers: log must record attempt 1/3 transient failure"
+  assert_grep "attempt 2/3 transient failure" "$out" \
+    "step 1 recovers: log must record attempt 2/3 transient failure"
+  assert_grep "retire step 1 (matrix deactivate) success" "$out" \
+    "step 1 recovers: step-1-success log line at end"
+  # Wall-time floor: 2s + 4s sleep between attempts = >= 6s.
+  assert_gte "6" "$elapsed" \
+    "step 1 recovers: elapsed must be >= 6s (2s+4s inline backoff sleeps, got=${elapsed}s)"
+  # NEVER writes counter file or retire-stuck sentinel.
+  assert_nofile "$scratch/.state/retire-fail-count-user-zeta" \
+    "step 1 recovers: legacy user-path counter file MUST NOT be written"
+  assert_nofile "${scratch}-archive/zeta/retire-stuck" \
+    "step 1 recovers: legacy retire-stuck sentinel MUST NOT be dropped"
   teardown_scratch "$scratch"
 }
 
-test_retire_stuck_counter_resets_on_success() {
-  # Fail twice (State 3 collision → counter = 2), then clear the collision and succeed.
-  # The third pass finds tina in the active tree only (archive/tina/ removed) → retire succeeds
-  # → counter file must be removed.
+# Test B: step 1 fails terminally after 3 5xx attempts (D-13a bounded retry).
+# Single-code 500 stub returns 500 forever. retire_identity returns 1 after attempting
+# 3 times with 2s + 4s inline sleeps, sentinel is retained, live folder untouched, no
+# counter file, no retire-stuck sentinel.
+test_retire_step1_terminal_after_3_5xx() {
   _retire_test_preamble || { PASS=$((PASS + 1)); return; }
   local scratch; scratch=$(setup_scratch)
-  fixture_identity "$scratch" tina --cursor-age-days 200
-  # Pre-create archive tina in the archive sibling dir for the 2 failing passes (State 3 collision)
-  mkdir -p "${scratch}-archive/tina"
-
-  # Two failing passes via State 3 collision
-  local i
-  for i in 1 2; do
-    ( _source_supervisor "$scratch"
-      run_archive_scan >/dev/null 2>&1 ) || true
-  done
-  local count_after_2
-  count_after_2=$(cat "$scratch/.state/retire-fail-count-tina" 2>/dev/null || echo 0)
-  assert_eq "2" "$count_after_2" "retire-stuck reset: counter must be 2 after 2 failed passes"
-
-  # Clear the collision: remove archive/tina/ so the third pass does State 1 (normal mv + Step 3)
-  rm -rf "${scratch}-archive/tina"
-  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
-  start_stub_homeserver 200 || { teardown_scratch "$scratch"; return; }
-  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
-  ( _source_supervisor "$scratch"
-    run_archive_scan >/dev/null 2>&1 ) || true
+  fixture_identity "$scratch" theta --cursor-age-days 200
+  touch "$scratch/theta/.archive-requested"
+  fixture_relay_json "$scratch/theta" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@theta:test" "pw" "tok"
+  start_stub_homeserver 500 || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/theta/relay.json"
+  local start_epoch end_epoch elapsed rc=0 out
+  start_epoch=$(date +%s)
+  out=$( _source_supervisor "$scratch"
+         retire_identity "theta" 2>&1 ) || rc=$?
+  end_epoch=$(date +%s)
+  elapsed=$(( end_epoch - start_epoch ))
   stop_stub_homeserver
+  assert_eq "1" "$rc" "step 1 terminal: retire_identity must return 1 after 3 5xx attempts"
+  # Live folder retained; step 4a (sentinel delete) never reached because step 1 aborted.
+  assert_file "$scratch/theta" \
+    "step 1 terminal: live folder must remain (step 4b never reached)"
+  assert_file "$scratch/theta/.archive-requested" \
+    "step 1 terminal: sentinel must remain (step 4a not reached)"
+  assert_grep "attempt 1/3 transient failure" "$out" \
+    "step 1 terminal: log records attempt 1/3"
+  assert_grep "attempt 2/3 transient failure" "$out" \
+    "step 1 terminal: log records attempt 2/3"
+  assert_grep "ERROR: 'theta' retire step 1 (matrix deactivate) FAILED after 3 attempts" "$out" \
+    "step 1 terminal: LOUD terminal ERROR log fires after 3 attempts"
+  # Wall-time floor: 2s + 4s sleep across 3 attempts.
+  assert_gte "6" "$elapsed" \
+    "step 1 terminal: elapsed must be >= 6s (2s+4s inline backoff sleeps, got=${elapsed}s)"
+  # No cross-tick state.
+  assert_nofile "$scratch/.state/retire-fail-count-user-theta" \
+    "step 1 terminal: legacy user-path counter file MUST NOT be written"
+  assert_nofile "${scratch}-archive/theta/retire-stuck" \
+    "step 1 terminal: legacy retire-stuck sentinel MUST NOT be dropped"
+  teardown_scratch "$scratch"
+}
 
-  assert_nofile "$scratch/.state/retire-fail-count-tina" \
-    "retire-stuck reset: counter file must be removed on successful retire"
+# Test C: step 1 does NOT retry on permanent 4xx (400). Terminates immediately.
+# Elapsed < 5s (no retry sleeps fired) and log does NOT contain any attempt-2/3 line.
+test_retire_step1_permanent_400_no_retry() {
+  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
+  local scratch; scratch=$(setup_scratch)
+  fixture_identity "$scratch" omicron --cursor-age-days 200
+  touch "$scratch/omicron/.archive-requested"
+  fixture_relay_json "$scratch/omicron" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@omicron:test" "pw" "tok"
+  start_stub_homeserver 400 || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/omicron/relay.json"
+  local start_epoch end_epoch elapsed rc=0 out
+  start_epoch=$(date +%s)
+  out=$( _source_supervisor "$scratch"
+         retire_identity "omicron" 2>&1 ) || rc=$?
+  end_epoch=$(date +%s)
+  elapsed=$(( end_epoch - start_epoch ))
+  stop_stub_homeserver
+  assert_eq "1" "$rc" "step 1 permanent 400: retire_identity must return 1"
+  assert_grep "FAILED http=400" "$out" \
+    "step 1 permanent 400: log must record http=400 failure"
+  # NO retry attempt lines — a permanent 4xx aborts on the first attempt.
+  if printf '%s' "$out" | grep -q "attempt 2/3"; then
+    fail "step 1 permanent 400: log MUST NOT contain 'attempt 2/3' (permanent 4xx, no retry)"
+  fi
+  # Elapsed must be short — no retry sleeps.
+  if [ "$elapsed" -ge 5 ]; then
+    fail "step 1 permanent 400: elapsed must be < 5s (no retry sleeps, got=${elapsed}s)"
+  fi
+  teardown_scratch "$scratch"
+}
+
+# Test D: step 4b does NOT retry on State 3 collision. Hard-fail on first attempt.
+test_retire_step4b_state3_collision_no_retry() {
+  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
+  local scratch; scratch=$(setup_scratch)
+  fixture_identity "$scratch" pi --cursor-age-days 200
+  touch "$scratch/pi/.archive-requested"
+  fixture_relay_json "$scratch/pi" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@pi:test" "pw" "tok"
+  # Pre-create archive/pi/ to force State 3 collision on step 4b's mv attempt.
+  mkdir -p "${scratch}-archive/pi"
+  start_stub_homeserver 200 || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/pi/relay.json"
+  local rc=0 out
+  out=$( _source_supervisor "$scratch"
+         retire_identity "pi" 2>&1 ) || rc=$?
+  stop_stub_homeserver
+  assert_eq "1" "$rc" "step 4b State 3 collision: must return 1"
+  assert_grep "retire step 4b (folder move) FAILED: collision" "$out" \
+    "step 4b State 3 collision: log must record the collision-abort ERROR"
+  # NO retry attempt lines on step 4b — collision is not transient.
+  if printf '%s' "$out" | grep -q "retire step 4b (folder move) attempt 2/3"; then
+    fail "step 4b State 3 collision: log MUST NOT contain step-4b 'attempt 2/3' (collision, no retry)"
+  fi
+  teardown_scratch "$scratch"
+}
+
+# Test E: neither scanner writes counter files or drops retire-stuck sentinels on failure.
+# Pins D-14 removal end-to-end via the scanner (not just direct retire_identity call).
+test_scanner_no_longer_writes_counter_or_retire_stuck() {
+  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
+  local scratch; scratch=$(setup_scratch)
+  fixture_identity "$scratch" sigma --cursor-age-days 200
+  touch "$scratch/sigma/.archive-requested"
+  fixture_relay_json "$scratch/sigma" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@sigma:test" "pw" "tok"
+  start_stub_homeserver 500 || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/sigma/relay.json"
+  local out
+  out=$( _source_supervisor "$scratch"
+         scan_archive_requested_sentinels 2>&1 ) || true
+  stop_stub_homeserver
+  # Legacy counter files: neither user-path nor daily-path counter is written.
+  assert_nofile "$scratch/.state/retire-fail-count-user-sigma" \
+    "scanner D-14: legacy user-path counter file MUST NOT be written"
+  assert_nofile "$scratch/.state/retire-fail-count-sigma" \
+    "scanner D-14: legacy daily-path counter file MUST NOT be written"
+  # Legacy retire-stuck sentinel is NOT dropped in the archive folder.
+  assert_nofile "${scratch}-archive/sigma/retire-stuck" \
+    "scanner D-14: legacy retire-stuck sentinel MUST NOT be dropped in archive/"
+  # Terminal ERROR log line from scan_archive_requested_sentinels.
+  assert_grep "ERROR: 'sigma' user-initiated archive: retire_identity FAILED" "$out" \
+    "scanner D-14: terminal ERROR log line fires on retire failure"
+  teardown_scratch "$scratch"
+}
+
+# Test F: legacy retire-stuck sentinel (pre-Phase-133 archaeology per D-21) does NOT block
+# a fresh retry. Pins the D-14 removal of the retire-stuck-skip guard from the scanner.
+test_scanner_bypasses_legacy_retire_stuck_sentinel() {
+  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
+  local scratch; scratch=$(setup_scratch)
+  fixture_identity "$scratch" nu --cursor-age-days 200
+  touch "$scratch/nu/.archive-requested"
+  fixture_relay_json "$scratch/nu" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@nu:test" "pw" "tok"
+  # Pre-create legacy retire-stuck sentinel in the archive folder — pre-Phase-133 boxes
+  # can have these lying around (D-21 archaeology). The new scanner must NOT skip on it.
+  mkdir -p "${scratch}-archive/nu"
+  touch "${scratch}-archive/nu/retire-stuck"
+  start_stub_homeserver 200 || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/nu/relay.json"
+  local rc=0 out
+  # NOTE: pre-existing archive/nu/ dir would produce a State 3 collision on step 4b, so
+  # remove it BEFORE the scan (leaving only the retire-stuck sentinel in a scratch spot
+  # would leave the dir behind — but the point of the test is: even with a stale
+  # retire-stuck sentinel lying around, the scanner does not skip). We simulate by
+  # removing the archive/nu/ dir contents AFTER the sentinel-touch, keeping just the
+  # sentinel file in place ephemerally isn't sufficient — the retire itself needs to
+  # succeed. So the setup below moves the sentinel to a non-collision location: we
+  # actually want the *skip-guard-is-gone* property; the sentinel's mere existence at
+  # $IDENTITIES_ARCHIVE_DIR/nu/retire-stuck previously caused `continue` in the loop.
+  # Since we deleted that skip-guard, we can leave the sentinel in a real archive/nu/
+  # subdir and expect the retire to hit State 3 (collision, no retry) — which is a hard
+  # abort. That's NOT what we want to test. Simpler: clear archive/nu after touching a
+  # sibling retire-stuck marker under a different name, then confirm the retire ran.
+  # But the semantic being pinned is literally "the guard `if [ -f archive/$name/retire-stuck ]`
+  # is gone". To test that: place the file exactly where the old guard looked, THEN
+  # confirm retire proceeds anyway. On the mv path, State 3 collision will occur, but
+  # the assertion of interest is the log line "user-initiated archive: .archive-requested
+  # detected, invoking retire_identity" — which the old guard would have SKIPPED. Its
+  # presence proves the guard is gone.
+  out=$( _source_supervisor "$scratch"
+         scan_archive_requested_sentinels 2>&1 ) || rc=$?
+  stop_stub_homeserver
+  # The key assertion: the scanner INVOKED retire_identity despite the legacy sentinel.
+  # (Old guard would have `continue`'d before this log line fired.)
+  assert_grep "'nu' user-initiated archive: .archive-requested detected, invoking retire_identity" "$out" \
+    "guard-gone: scanner MUST invoke retire_identity even with legacy retire-stuck sentinel present"
+  # Retire itself will hit State 3 collision (both live nu/ and archive/nu/ exist), but
+  # that's incidental — the point is the retire was ATTEMPTED (not skipped).
+  assert_grep "retire step 1 (matrix deactivate) starting" "$out" \
+    "guard-gone: retire_identity actually ran (step 1 log present)"
   teardown_scratch "$scratch"
 }
 
@@ -860,7 +1034,7 @@ test_sentinel_scan_triggers_retire() {
   assert_nofile "$scratch/alpha/.archive-requested" \
     "sentinel-scan retire: sentinel must be deleted (step 4a)"
   assert_nofile "$scratch/.state/retire-fail-count-user-alpha" \
-    "sentinel-scan retire: user-initiated fail counter must be absent on success"
+    "sentinel-scan retire: legacy user-initiated counter file MUST NOT be written (Phase 133 D-14)"
   # All four retire-step entry log lines emit.
   assert_grep "retire step 1" "$out" "sentinel-scan retire: step 1 log line present"
   assert_grep "retire step 2" "$out" "sentinel-scan retire: step 2 log line present"
@@ -990,56 +1164,17 @@ test_retire_step_order_observable() {
   teardown_scratch "$scratch"
 }
 
-# Test 5: matrix deactivate 5xx failure → per-tick retry → retire-stuck after 3.
-# scan_archive_requested_sentinels invoked 3 times against a 500-returning stub. Counter
-# increments 1 → 2 → 3, sentinel is retained across all 3 calls, retire-stuck sentinel
-# drops on pass 3, LOUD ERROR log line emits on each failure.
-test_user_path_retire_stuck_after_3_failures() {
-  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
-  local scratch; scratch=$(setup_scratch)
-  _114_setup_identity "$scratch" delta 500 || { teardown_scratch "$scratch"; return; }
-
-  local i out count
-  for i in 1 2 3; do
-    out=$( _source_supervisor "$scratch"
-           scan_archive_requested_sentinels 2>&1 ) || true
-    count=$(cat "$scratch/.state/retire-fail-count-user-delta" 2>/dev/null || echo 0)
-    assert_eq "$i" "$count" \
-      "user-path retire-stuck: counter must equal $i after $i failed passes (got=$count)"
-    # Sentinel retained: step 4a is inside retire_identity(), which aborts at step 1 on 5xx.
-    assert_file "$scratch/delta/.archive-requested" \
-      "user-path retire-stuck: sentinel MUST remain on failed pass $i (step 4a not reached)"
-    # Live folder untouched: step 4b never ran.
-    assert_file "$scratch/delta" \
-      "user-path retire-stuck: live folder unchanged on failed pass $i"
-    # LOUD ERROR log line per failure.
-    assert_grep "ERROR: 'delta' user-initiated archive: retire_identity FAILED" "$out" \
-      "user-path retire-stuck: LOUD error log line emits on failed pass $i"
-    if [ "$i" -lt 3 ]; then
-      # Retire-stuck must NOT drop before the 3rd failure.
-      assert_nofile "${scratch}-archive/delta/retire-stuck" \
-        "user-path retire-stuck: sentinel MUST NOT drop before pass 3 (currently pass $i)"
-      if printf '%s' "$out" | grep -q 'STUCK'; then
-        fail "user-path retire-stuck: LOUD STUCK log must NOT fire before pass 3 (fired on pass $i)"
-      fi
-    else
-      # Pass 3: retire-stuck sentinel drops in archive/, LOUD STUCK log emits.
-      assert_file "${scratch}-archive/delta/retire-stuck" \
-        "user-path retire-stuck: sentinel dropped in archive/delta/ on pass 3 (mkdir -p defends against step-1-fail-never-reached-step-4b)"
-      assert_grep "STUCK after $count consecutive per-tick failures" "$out" \
-        "user-path retire-stuck: LOUD STUCK log fires on pass 3"
-    fi
-  done
-  stop_stub_homeserver
-  teardown_scratch "$scratch"
-}
+# Test 5 (Phase 133 D-14): the pre-Phase-133 user-path 3-failures-then-stuck test was
+# deleted along with the cross-tick counter + stuck-sentinel mechanism it exercised.
+# See tests A-F above for the new inline-retry contract.
 
 # Test 6: sentinel-delete-before-move safety on collision-abort (State 3).
 # Pre-create archive/epsilon so step 4b's mv aborts. Step 4a runs BEFORE step 4b, so the
 # sentinel is already deleted when the collision-abort fires. Documents observed behavior:
 # after step 4a but before a step-4b failure, the sentinel is gone and next-tick retry
 # WILL NOT re-fire (this is intentional — State 3 collision-abort is a hard-abort, not
-# a transient crash). retire returns 1 and fail counter increments.
+# a transient crash). Phase 133 D-14: retire returns 1 but the scanner no longer writes a
+# counter file — the terminal ERROR is logged and the identity is left for operator triage.
 test_sentinel_delete_before_move_collision() {
   _retire_test_preamble || { PASS=$((PASS + 1)); return; }
   local scratch; scratch=$(setup_scratch)
@@ -1067,11 +1202,12 @@ test_sentinel_delete_before_move_collision() {
   # Collision log line emitted.
   assert_grep "collision" "$out" \
     "sentinel-delete-before-move: collision-abort log line emits"
-  # retire returned 1 → fail counter = 1 (retire_identity aborted at step 4b).
-  local count
-  count=$(cat "$scratch/.state/retire-fail-count-user-epsilon" 2>/dev/null || echo 0)
-  assert_eq "1" "$count" \
-    "sentinel-delete-before-move: user-initiated fail counter increments to 1 on collision-abort"
+  # Phase 133 D-14: no counter file written on collision-abort.
+  assert_nofile "$scratch/.state/retire-fail-count-user-epsilon" \
+    "sentinel-delete-before-move (D-14): legacy user-initiated counter file MUST NOT be written on collision-abort"
+  # Phase 133 D-14: no retire-stuck sentinel dropped.
+  assert_nofile "${scratch}-archive/epsilon/retire-stuck" \
+    "sentinel-delete-before-move (D-14): legacy retire-stuck sentinel MUST NOT be dropped on collision-abort"
   teardown_scratch "$scratch"
 }
 
@@ -1109,7 +1245,7 @@ test_ambient_monitor_graceful_shutdown_observable_minimal() {
 
 # Test 8: sentinel-scan on malformed state — folder + sentinel but no md and no relay.json.
 # scan_archive_requested_sentinels() must NOT crash. retire_identity() fails at step 1 (no
-# relay.json), sentinel is retained, fail counter increments.
+# relay.json), sentinel is retained. Phase 133 D-14: no counter file is written any more.
 test_sentinel_scan_on_malformed_identity_does_not_crash() {
   local scratch; scratch=$(setup_scratch)
   # Malformed: identity dir + sentinel exist, but no md file and no relay.json.
@@ -1129,11 +1265,9 @@ test_sentinel_scan_on_malformed_identity_does_not_crash() {
   # Sentinel retained (step 4a never reached).
   assert_file "$scratch/deleted/.archive-requested" \
     "malformed-identity sentinel-scan: sentinel retained on step-1 failure"
-  # Fail counter incremented once.
-  local count
-  count=$(cat "$scratch/.state/retire-fail-count-user-deleted" 2>/dev/null || echo 0)
-  assert_eq "1" "$count" \
-    "malformed-identity sentinel-scan: fail counter incremented to 1"
+  # Phase 133 D-14: no legacy counter file written.
+  assert_nofile "$scratch/.state/retire-fail-count-user-deleted" \
+    "malformed-identity sentinel-scan (D-14): legacy counter file MUST NOT be written"
   teardown_scratch "$scratch"
 }
 
@@ -1760,9 +1894,17 @@ run_test test_retire_retry_from_partial
 run_test test_retire_collision_aborts
 run_test test_retire_password_with_quotes
 
-# --- retire-stuck counter (D-14) ---
-run_test test_retire_stuck_fires_at_3_not_before
-run_test test_retire_stuck_counter_resets_on_success
+# --- Phase 133 D-13/D-13a/D-14 inline-retry refactor ---
+# (The three pre-Phase-133 tests pinning the cross-tick fail-counter + stuck-sentinel
+# mechanism were deleted along with the mechanism itself; retire_identity is now atomic
+# from the caller's perspective and recovers inline from transient failures. The six new
+# tests below pin the new contract.)
+run_test test_retire_step1_recovers_after_transient_5xx
+run_test test_retire_step1_terminal_after_3_5xx
+run_test test_retire_step1_permanent_400_no_retry
+run_test test_retire_step4b_state3_collision_no_retry
+run_test test_scanner_no_longer_writes_counter_or_retire_stuck
+run_test test_scanner_bypasses_legacy_retire_stuck_sentinel
 
 # --- MODE-agnostic scan (Pitfall 1 + 2) ---
 run_test test_scan_walks_all_identity_folders
@@ -1778,7 +1920,6 @@ run_test test_sentinel_scan_triggers_retire
 run_test test_sentinel_scan_bypasses_all_guards
 run_test test_daily_path_preserves_all_guards
 run_test test_retire_step_order_observable
-run_test test_user_path_retire_stuck_after_3_failures
 run_test test_sentinel_delete_before_move_collision
 run_test test_ambient_monitor_graceful_shutdown_observable_minimal
 run_test test_sentinel_scan_on_malformed_identity_does_not_crash
