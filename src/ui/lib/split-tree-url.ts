@@ -16,13 +16,12 @@
 //
 //     <url>       ::= 's=' <alphabet> '&t=' <tree>
 //     <alphabet>  ::= <spec>  ('~' <spec>)*
-//     <spec>      ::= same shape as tab-url.ts `encodeTabSpec`, i.e.
-//                     'tmux:' <URL-encoded host> ':' <URL-encoded session>
-//                     (this module accepts ONLY the tmux protocol because
-//                     terminal/rdp/vnc/telnet tabs are single-session
-//                     surfaces and never enter the split tree — see plan
-//                     Task 2 action § "skip that leaf as if the tab did
-//                     not exist" for defence-in-depth)
+//     <spec>      ::= exact output of tab-url.ts `encodeTabSpec` (this module
+//                     delegates encode + parse to that codec so every TabSpec
+//                     variant round-trips: tmux, terminal, rdp, vnc, telnet,
+//                     relay, and app). Historically only tmux was accepted;
+//                     Phase 120 introduced app leaves in split trees, so the
+//                     codec must handle every variant symmetrically.
 //     <tree>      ::= <leaf> | <split>
 //     <leaf>      ::= decimal integer index into <alphabet>, base 10, no
 //                     leading '+' or '-' or whitespace, in-range against
@@ -39,13 +38,14 @@
 // RECURSION DEPTH CAP: 20. Deeper trees are physically unusable on a
 // screen — 20 splits > 1M cells. See threat register T-56-01.
 //
-// SISTER CODEC: src/ui/lib/tab-url.ts. TabSpec structural shape is imported
-// type-only so this codec's alphabet stays consistent with the existing
-// #tab= URL scheme's addressing conventions. No runtime coupling.
+// SISTER CODEC: src/ui/lib/tab-url.ts. This codec delegates per-spec encode
+// and parse to tab-url.ts so alphabet entries round-trip symmetrically with
+// the #tab= URL scheme; the local grammar only owns the alphabet separator
+// (~), the tree grammar (h/v splits), and the resolver-miss collapse pass.
 //
 // NO REACT / DOM / BACKEND / ui-types IMPORTS.
 
-import type { TabSpec } from "./tab-url";
+import { type TabSpec, encodeTabSpec, parseTabParam } from "./tab-url";
 import { collectTabIds, removeLeaf, type SplitNode } from "./split-tree";
 
 const MAX_DEPTH = 20;
@@ -91,17 +91,17 @@ export function encodeSplitTreeToUrl(
   return `s=${alphabet}&t=${treeStr}`;
 }
 
+// Delegates to tab-url.ts's encodeTabSpec so every TabSpec variant (tmux,
+// terminal, rdp, vnc, telnet, relay, app) round-trips correctly. The prior
+// local implementation read spec.host on every variant and produced
+// "app:undefined" / "relay:undefined" for app + relay leaves whose
+// TabSpec discriminated-union carries host?: never — the decoder then
+// rejected the alphabet and the whole split tree silently collapsed on
+// reload (visible as "one thing shows up after reload" when a split
+// contained an app tab). encodeTabSpec's output never contains '~', so
+// the alphabet's tilde separator remains unambiguous.
 function encodeSpec(spec: TabSpec): string {
-  // Matches tab-url.ts encodeTabSpec output form for tmux specs. Only the
-  // tmux protocol enters the split tree in the current phase (56-CONTEXT.md
-  // § "In-scope this phase" — sessions are tmux sessions on identity hosts);
-  // non-tmux protocols get a best-effort encoding but the decoder rejects
-  // anything not starting with 'tmux:' as unknown (returns null via resolver).
-  const parts: string[] = [spec.protocol, encodeURIComponent(spec.host)];
-  if (spec.session !== undefined) {
-    parts.push(encodeURIComponent(spec.session));
-  }
-  return parts.join(":");
+  return encodeTabSpec(spec);
 }
 
 function stringifyTree(
@@ -268,26 +268,14 @@ function decodeInner(
   return materialized;
 }
 
+// Delegates to tab-url.ts's parseTabParam so every TabSpec variant round-
+// trips symmetrically with encodeSpec above. parseTabParam already
+// validates each variant at the wire boundary (tmux needs host+session;
+// app needs hostId matching /^[1-9][0-9]{0,9}$/ and slug matching APP_SLUG_RE;
+// relay needs a non-empty roomId ≤ 512 chars; terminal/rdp/vnc/telnet need
+// a non-empty host) and returns null fail-safe on any malformed input,
+// which cascades to the whole decode returning null per decodeInner's
+// contract.
 function decodeSpec(str: string): TabSpec | null {
-  // Only 'tmux:<host>:<session>' is accepted — split-tree leaves reference
-  // tmux sessions, no other protocol.
-  const idx1 = str.indexOf(":");
-  if (idx1 === -1) return null;
-  const protocol = str.slice(0, idx1);
-  if (protocol !== "tmux") return null;
-  const rest = str.slice(idx1 + 1);
-  const idx2 = rest.indexOf(":");
-  if (idx2 === -1) return null;
-  const hostRaw = rest.slice(0, idx2);
-  const sessionRaw = rest.slice(idx2 + 1);
-  let host: string;
-  let session: string;
-  try {
-    host = decodeURIComponent(hostRaw);
-    session = decodeURIComponent(sessionRaw);
-  } catch {
-    return null; // malformed URL-encoding
-  }
-  if (host === "" || session === "") return null;
-  return { protocol: "tmux", host, session };
+  return parseTabParam(str);
 }

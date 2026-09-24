@@ -46,6 +46,12 @@ function makeFixture(rows: ReadonlyArray<[string, TabSpec]>): Fixture {
 }
 
 function specKey(spec: TabSpec): string {
+  // Discriminated-union-safe key: app/relay variants carry host?: never, so
+  // reading spec.host on them would key every app/relay leaf to
+  // "<protocol>:undefined:" and collapse distinct leaves onto the same
+  // fixture row. Branch on protocol first, then read the owning fields.
+  if (spec.protocol === "relay") return `relay:${spec.roomId}`;
+  if (spec.protocol === "app") return `app:${spec.hostId}:${spec.slug}`;
   return `${spec.protocol}:${spec.host}:${spec.session ?? ""}`;
 }
 
@@ -284,4 +290,61 @@ describe("split-tree-url", () => {
       expect(elapsed).toBeLessThan(100);
     },
   );
+
+  // Test 13 — regression: a tree containing an app leaf round-trips.
+  // Pre-fix the alphabet's encodeSpec read spec.host on the app variant
+  // (which carries host?: never) and emitted "app:undefined"; the decoder
+  // then rejected the alphabet and the whole tree collapsed to null on
+  // reload. The visible symptom was "one thing shows up after reload"
+  // when a split contained an app tab (URL-restore active-index tab
+  // rendered full-screen because splitTree stayed null). Fix: delegate
+  // encodeSpec / decodeSpec to tab-url.ts's encodeTabSpec / parseTabParam
+  // so every TabSpec variant round-trips.
+  it("Test 13: tree with an app leaf round-trips (regression — app+tmux split)", () => {
+    const A: TabSpec = { protocol: "tmux", host: "workstation", session: "alice" };
+    const B: TabSpec = { protocol: "app", hostId: "6", slug: "workstation-vitals" };
+    const fx = makeFixture([
+      ["tabA", A],
+      ["tabB", B],
+    ]);
+    const tree: SplitNode = {
+      kind: "split",
+      direction: "horizontal",
+      children: [leaf("tabA"), leaf("tabB")],
+    };
+    const url = encodeSplitTreeToUrl(tree, fx.address);
+    expect(url).not.toBe("");
+    // Fail-loudly guard: pre-fix bug produced "app:undefined" in the
+    // alphabet; regression-guard the exact literal so a future encode-side
+    // revert lights up here rather than in the round-trip below.
+    expect(url).not.toContain("app:undefined");
+    expect(url).not.toContain("app%3Aundefined");
+    const decoded = decodeSplitTreeFromUrl(url, fx.resolve);
+    expect(JSON.stringify(decoded)).toBe(JSON.stringify(tree));
+  });
+
+  // Test 14 — regression: a tree containing a relay leaf round-trips.
+  // Same shape as Test 13 for the relay variant, which carries
+  // host?: never / session?: never and encoded as "relay:undefined"
+  // pre-fix. Prevents a symmetric regression for relay-room leaves in
+  // split trees.
+  it("Test 14: tree with a relay leaf round-trips (regression — relay+tmux split)", () => {
+    const A: TabSpec = { protocol: "tmux", host: "workstation", session: "alice" };
+    const R: TabSpec = { protocol: "relay", roomId: "!RXaEPCQRtLMmjyRlGY:t1000.taild9b663.ts.net" };
+    const fx = makeFixture([
+      ["tabA", A],
+      ["tabR", R],
+    ]);
+    const tree: SplitNode = {
+      kind: "split",
+      direction: "vertical",
+      children: [leaf("tabA"), leaf("tabR")],
+    };
+    const url = encodeSplitTreeToUrl(tree, fx.address);
+    expect(url).not.toBe("");
+    expect(url).not.toContain("relay:undefined");
+    expect(url).not.toContain("relay%3Aundefined");
+    const decoded = decodeSplitTreeFromUrl(url, fx.resolve);
+    expect(JSON.stringify(decoded)).toBe(JSON.stringify(tree));
+  });
 });
