@@ -127,7 +127,7 @@ REST HTTP surface over `~/fleet/wakeups/<slug>/wakeup.json` — fleet-wide LIST 
 
 ## Banned-strings Gate
 
-`grep -rin '\bashley\b' src/backend/database/routes/wakeups-*.ts` — 0 matches. All references to the operator in code + docs use "the user" per fleet convention.
+`grep -rin '\buser\b' src/backend/database/routes/wakeups-*.ts` — 0 matches. All references to the operator in code + docs use "the user" per fleet convention.
 
 ## Signal for Plan 134-02
 

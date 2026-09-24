@@ -125,7 +125,7 @@ Plus a small follow-up commit `feat(127-followup): plumb wake-up name→task + p
 - `BirthOptions.bodyContent` field + `buildIdentityFileBody` extension for the `## Do this first` block — WAS implied by the shape's philosophy ("prompt reaches the newborn") but not explicitly enumerated in Scope Edges; the follow-up commit added it as the load-bearing mechanism. Retroactively considered a shape-scope In-item.
 
 **Side-bounties spun up during shipment (for future work, not blockers):**
-- Spawn block in `agent-supervisor.sh` logs "started" even when `setsid` redirect silently failed (ashley-laptop root-owned-fleet-dir issue would have been louder with exit-code checking).
+- Spawn block in `agent-supervisor.sh` logs "started" even when `setsid` redirect silently failed (laptop-host root-owned-fleet-dir issue would have been louder with exit-code checking).
 - Nested `~/fleet/wakeups/wakeups/.state/scheduler.pid` cosmetic artifact on thenasty + zoeybattlestation (probable state-dir path glitch in global mode).
 - Deeper coord-code retirement remains: `ambient-monitor.py`'s IS_COORDINATOR branch, `agent-supervisor.sh`'s `is_coordinator()`, backend `coordinator: boolean` fields — all inert but stale carry-over. Not shape scope.
 

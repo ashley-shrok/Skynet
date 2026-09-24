@@ -169,7 +169,7 @@ No hollow-prop / disconnected-data findings.
 |----------|---------|--------|--------|
 | Type-check all touched files | `npx tsc --noEmit` | exit 0, no output | ✓ PASS |
 | Run scoped test suite for phase 129 files (wave 1 + wave 2 + panel test) | `npx vitest related --run <7 files>` | 11 test files, 205 tests passed | ✓ PASS |
-| Grep — banned strings ("ashley", "gigaashley", "ashleycook") across new files | `grep -Rni "ashley\|gigaashley\|ashleycook" <7 files>` | no output | ✓ PASS |
+| Grep — banned strings across new files (banned list at `~/fleet/roles/box-maintainer/banned-strings.txt`) | `grep -Rni -f <banned-list> <7 files>` | no output | ✓ PASS |
 | Grep — no debt markers (TBD/FIXME/XXX) in touched files | `grep -n "TBD\|FIXME\|XXX" <7 files>` | no output | ✓ PASS |
 | Grep — no wave-1 stubs remain in WakeupsModal.tsx | `grep -n "TODO(wave 2)\|wakeups-modal-form-placeholder" WakeupsModal.tsx` | no output | ✓ PASS |
 | Grep — no `instruction` in wakeups-api.ts (Pitfall #2 gate) | `grep -n "instruction" src/ui/api/wakeups-api.ts` | no output | ✓ PASS |

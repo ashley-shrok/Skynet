@@ -21,7 +21,7 @@ Per-role wake-ups (the coordinator-routes-to-actor pattern) are subsumed by the 
 - An agent on the same host can CRUD the same wake-ups by touching the disk files directly; the UI shows those changes on next refetch. Neither surface is authoritative over the other.
 - The old per-role wake-up mechanism is gone fleet-wide — no per-role scheduler processes, no per-role dispatch code, no leftover per-role spec files.
 - The tissue-model philosophy holds: recurring wake-ups start fresh every fire, no baggage, no hidden state channel. Continuity is the prompt author's job via existing shared-knowledge mechanisms (role files, bounties, arbitrary scratch files).
-- The pattern is instance-agnostic — the Skynet at term.gigaashley.click and any downstream Skynet (like Stacy's on T800) both work identically without per-instance tailoring.
+- The pattern is instance-agnostic — the Skynet at term.example.com and any downstream Skynet (like Stacy's on T800) both work identically without per-instance tailoring.
 
 ## Shapes
 
@@ -35,7 +35,7 @@ Per-role wake-ups (the coordinator-routes-to-actor pattern) are subsumed by the 
 
 Spun up during shape 1 shipment (not blockers, small quality-of-life follow-ups):
 
-- **`agent-supervisor-spawn-honesty`** (implicit) — Spawn block in `substrate/scripts/agent-supervisor.sh` currently logs `"global wake-up scheduler started"` even when the `setsid` redirect silently failed. The ashley-laptop root-owned-fleet-dir issue would have been loud instead of silent with proper exit-code checking. One-line fix + a bit of test coverage.
+- **`agent-supervisor-spawn-honesty`** (implicit) — Spawn block in `substrate/scripts/agent-supervisor.sh` currently logs `"global wake-up scheduler started"` even when the `setsid` redirect silently failed. The laptop-host root-owned-fleet-dir issue would have been loud instead of silent with proper exit-code checking. One-line fix + a bit of test coverage.
 - **`nested-wakeups-state-dir-glitch`** (implicit) — Global scheduler writes a `~/fleet/wakeups/wakeups/.state/scheduler.pid` nested-dir artifact at startup on some hosts (thenasty + zoeybattlestation confirmed at shape-1 close). Probable state-dir path glitch in the scheduler when running in global mode. Cosmetic but ugly; also may affect the one-shot self-delete path's sentinel writes.
 - **`deep-coord-code-retirement`** (implicit) — Broader retirement of the coord-as-mode concept beyond the wake-up dispatch: `ambient-monitor.py`'s IS_COORDINATOR branch, `agent-supervisor.sh`'s `is_coordinator()` function, backend `coordinator: boolean` fields (fleet-status wire-protocol, identity-appearance, identity-clone). All inert (no `coordinator: true` identities exist fleet-wide), but stale carry-over from the coord-as-mode retirement completed 2026-09-20. Not this campaign's scope but naturally follows.
 
@@ -65,7 +65,7 @@ Each shape ships independently (unlike first-class-apps' campaign, which held de
 ## Vehicle notes for future shape execution
 
 - **Bounty carries the design memory.** `~/fleet/roles/box-maintainer/bounties/wake-ups-redesign/` on t1000 (also on any box-maintainer identity's home box, since the bounty is role-scoped) holds the shape-1 tasting prototype, the migration script that ran fleet-wide, and any post-close scratch. **Shape 2 + 3 executors should look here for the settled modal design.**
-- **Container mutation required for shapes 2 + 3.** Both touch Skynet backend and/or frontend, so both need docker rebuild + `--force-recreate` and Ashley's container-mutation coordination.
+- **Container mutation required for shapes 2 + 3.** Both touch Skynet backend and/or frontend, so both need docker rebuild + `--force-recreate` and the user's container-mutation coordination.
 - **No fleet-substrate changes expected for shapes 2 + 3.** All work is inside the Skynet container.
 - **Shape 3 references shape 2's endpoints directly.** Don't start shape 3 until shape 2 has landed the enumeration + CRUD endpoints; the modal will be untestable without them.
 

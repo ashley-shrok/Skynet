@@ -990,9 +990,9 @@ vi.mock("@/api/wakeups-api", () => ({
 - **Frontend `tsc --noEmit` doesn't catch backend TS errors** — pre-push typecheck for any backend-touching patch is `npm run build:backend && npm run build`. Shape 3 is frontend-only, so this is less pressing, but if any wire-type edit spills into `src/backend/`, the pre-push check applies.
 - **Executors don't deploy** — plans MUST NOT include `docker build` / `docker compose up` / `git push` tasks assigned to executors. Deploy steps are orchestrator-only.
 - **NO UAT check-ins** — after ship, do NOT ask "did it work?" Silence = success.
-- **Banned-strings gate** — `~/fleet/roles/box-maintainer/banned-strings.txt` lists personal / deployment-specific strings that must not appear in the repo. Every commit touching docs/planning/tests should be scanned. The current active string is Ashley's first name (see banned-strings.txt line 1-3 comment) — do NOT hardcode names in code, tests, or docs.
+- **Banned-strings gate** — `~/fleet/roles/box-maintainer/banned-strings.txt` lists personal / deployment-specific strings that must not appear in the repo. Every commit touching docs/planning/tests should be scanned. The current active string is the user's first name (see banned-strings.txt line 1-3 comment) — do NOT hardcode names in code, tests, or docs.
 - **Ship path:** commit + green scoped tests → orchestrator runs full suite + playwright smoke → `git pull --rebase` → `docker build` → `git pull --rebase` (yes, again) → `docker compose up --force-recreate skynet` → HTTPS 200 verify → `docker logs --since 60s skynet` sanity check.
-- **Container mutations serialize on Ashley's manual coordination** — do NOT post coord announcements.
+- **Container mutations serialize on the user's manual coordination** — do NOT post coord announcements.
 - **Deploy boundary = `git push`, not `docker compose up`** — user must give a fresh greenlight for the actual container motion. Per-phase pre-authorizations do NOT include the deploy motion.
 
 ## Metadata

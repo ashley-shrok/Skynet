@@ -225,7 +225,7 @@ Follow-up opportunity if AddWakeupDialog.tsx is ever refactored — drop the `sc
 
 ## Banned-strings Gate
 
-`grep -rin '\bashley\b' src/ | grep -v -E '(the user|test-context|// user|/\* user)'` — 10 pre-existing test-context matches in files this plan does NOT touch (users-list-basic.test.ts, participants-classifier.test.ts, matrix-admin-routes.test.ts, observation-loop.test.ts, registry-rooms.test.ts). None of my 4 commits introduced new occurrences: `git diff --name-only HEAD~4..HEAD | xargs grep -l ashley` → empty.
+`grep -rin '\buser\b' src/ | grep -v -E '(the user|test-context|// user|/\* user)'` — 10 pre-existing test-context matches in files this plan does NOT touch (users-list-basic.test.ts, participants-classifier.test.ts, matrix-admin-routes.test.ts, observation-loop.test.ts, registry-rooms.test.ts). None of my 4 commits introduced new occurrences: `git diff --name-only HEAD~4..HEAD | xargs grep -l "$BANNED_TOKEN"` → empty.
 
 ## Signal for Orchestrator (D-18/D-19 deploy motion)
 

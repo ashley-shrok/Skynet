@@ -99,7 +99,7 @@ Two responsibilities in one phase (both come out of the shape file, both LOCKED 
 
 ### Deploy
 
-- **D-18:** **Container mutation required.** Backend code + frontend removal + nginx blocks all live in the Skynet container. Standard docker build + `docker compose up --force-recreate skynet` motion. No fleet-substrate changes. Standard fleet-rule serialization on container mutations (Ashley coordinates manually).
+- **D-18:** **Container mutation required.** Backend code + frontend removal + nginx blocks all live in the Skynet container. Standard docker build + `docker compose up --force-recreate skynet` motion. No fleet-substrate changes. Standard fleet-rule serialization on container mutations (the user coordinates manually).
 
 - **D-19:** **Full test suite is the pre-deploy gate.** `npx vitest run` (exit 0) + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium` (exit 0) BEFORE `docker build`. Per fleet rule "Test discipline: scoped during dev, full suite ONLY at deployment" — orchestrator runs the full suite as the FIRST step before container motion.
 

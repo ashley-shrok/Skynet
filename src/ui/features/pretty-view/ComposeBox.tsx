@@ -641,6 +641,21 @@ export function ComposeBox({
   // rationale was false. Post-change it is moot: the hazard is now
   // harness death via double Ctrl-C.
   const interruptLastFireRef = useRef<number>(0);
+  // Guards async setState from firing after unmount. Load-bearing for
+  // dispatchResetPayload's .then/.catch (line ~2029/2038) — under JSDOM
+  // teardown a stale promise resolving after the component unmounts
+  // schedules a React setState that hits `resolveUpdatePriority`, which
+  // needs `window` — and JSDOM has already torn `window` down by then.
+  // Result: unhandled-rejection false-positive in the full test suite.
+  // The isMounted guard prevents the setState call entirely so React
+  // never asks for update priority. Standard React defensive pattern.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   // Quick 260803-05i: records which target owns the currently-open file picker.
   // The main-composebox paperclip sets this to "primary" on click; each queued
   // slot's paperclip sets this to `queued:${slot.id}`. handleFileInputChange
@@ -2022,6 +2037,11 @@ export function ComposeBox({
         // 200 + {ok:true} → dispatch succeeded; run success-path effects.
         // Any other shape → surface the not-connected error message (matches
         // pre-rewire dispatched=false semantics).
+        //
+        // isMountedRef guard: swallow the state updates when a stale promise
+        // resolves after the component unmounted (JSDOM teardown race —
+        // see isMountedRef ref definition above).
+        if (!isMountedRef.current) return;
         const okShape =
           response?.data &&
           typeof response.data === "object" &&
@@ -2035,6 +2055,7 @@ export function ComposeBox({
         }
       })
       .catch(() => {
+        if (!isMountedRef.current) return;
         setErrorMessage("Not connected — try again in a moment");
       });
   }
