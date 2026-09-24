@@ -74,6 +74,12 @@ import rolesCreateRoutes from "./routes/roles-create.js";
 // create routers; the depth difference (`/` vs `/:name/avatar`) keeps them
 // from colliding under Express's chained-router mount.
 import rolesRoutes from "./routes/roles.js";
+// Phase 133 Plan 133-01 (D-01, D-05, D-16, D-19): user-initiated role archive
+// endpoint — POST /roles/:name/archive drops `.archive-requested` on the role
+// folder via the per-role-file primitive. Mounted BEFORE the three existing
+// /roles routers so /:name/archive isn't shadowed by any future generic
+// /:roleName handler (mirrors the identity-archive mount discipline).
+import roleArchiveRoutes from "./routes/role-archive.js";
 import globalFilesListRoutes from "./routes/global-files.js";
 import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
 // Phase 44 SKILLED-01: /skills-editor router — 7 endpoints
@@ -2045,6 +2051,14 @@ app.use("/conversation-search", conversationSearchRoutes);
 // subscription-registry.publishProjectListChanged so connected WS clients
 // re-hydrate the sidebar's projects zone.
 app.use("/identities", sessionProjectWriteRoutes);
+// Phase 133 Plan 133-01 (D-01, D-05): role archive route — POST
+// /roles/:name/archive drops the `.archive-requested` sentinel on the role
+// folder. Mounted BEFORE the three existing /roles routers below so
+// /:name/archive is not shadowed by any future generic /:roleName handler
+// in rolesRoutes (mirrors the identity-archive mount discipline at
+// database.ts:2033). Same match-precedence pattern: specific /:name/action
+// sub-routes MUST mount ahead of generic /:name handlers.
+app.use("/roles", roleArchiveRoutes);
 // Phase 22 (SRIC-02): /roles?hostId=<n> — target-host-side role directory
 // enumeration. Standalone mount; kept ABOVE /identities to preserve match
 // precedence should a future /roles subpath ever collide.
