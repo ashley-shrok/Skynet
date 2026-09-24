@@ -55,6 +55,46 @@ vi.mock("@/sidebar/CreateRoleDialog", () => ({
   },
 }));
 
+// Phase 133 Plan 133-05 (D-01/D-02/D-03/D-04) — mock the archiveRole API
+// wrapper so tests can assert call args without hitting the network.
+const archiveRoleMock =
+  vi.fn<(hostId: number, roleName: string) => Promise<{ ok: true }>>();
+vi.mock("@/api/role-archive-api", () => ({
+  archiveRole: (hostId: number, roleName: string) =>
+    archiveRoleMock(hostId, roleName),
+}));
+
+// Phase 133 Plan 133-05 (D-04) — mock useIdentities so tests can seed the
+// cascade-preview enumeration per-scenario. `identities` is a mutable module-
+// scoped array; tests mutate `useIdentitiesReturn.identities` in place before
+// rendering so the mock factory always yields the current value on call.
+const useIdentitiesReturn: {
+  identities: Array<{
+    identityKey: string;
+    displayName: string;
+    role: string | null;
+    hostId?: number;
+    task: string | null;
+  }>;
+  byKey: Map<string, unknown>;
+  byHostKey: Map<string, unknown>;
+  loaded: boolean;
+  refresh: () => Promise<void>;
+} = {
+  identities: [],
+  byKey: new Map(),
+  byHostKey: new Map(),
+  loaded: true,
+  refresh: vi.fn(async () => {}),
+};
+vi.mock("@/state/identities-store", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    useIdentities: () => useIdentitiesReturn,
+  };
+});
+
 // ── Late imports (after mocks are registered) ────────────────────────────────
 import { RolesListModal } from "./RolesListModal";
 
@@ -501,5 +541,255 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       name: /\+ New role/i,
     });
     expect(newRoleButtons.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ─── Phase 133 D-01/D-02/D-03/D-04 — archive role context menu ───────────
+  describe("Phase 133 D-01/D-02/D-03/D-04 — archive role context menu", () => {
+    // Solo-role fixture keyed to `role-a` at hue 100 — used across most of the
+    // Phase 133 tests. Alphabetical sort promotes "Role A" straight to the
+    // first row; makes findByRole(/Role A/) deterministic.
+    const SOLO_ROLE_FIXTURE: RoleSummary[] = [
+      {
+        name: "role-a",
+        description: "the test role",
+        displayName: "Role A",
+        colorHue: 100,
+      },
+    ];
+
+    beforeEach(() => {
+      // Reset the API mock + identity fixture between tests.
+      archiveRoleMock.mockReset();
+      archiveRoleMock.mockResolvedValue({ ok: true });
+      useIdentitiesReturn.identities = [];
+      // Default: both confirms accept. Individual tests override with
+      // mockReturnValueOnce(false) as needed.
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      // Silence + spy on console.warn so Test 10 can assert on the shape.
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      // Every test in this block uses the SOLO_ROLE_FIXTURE by default; tests
+      // that need a different fixture override with mockResolvedValueOnce.
+      listRolesForHost.mockImplementation(async () => SOLO_ROLE_FIXTURE);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    async function renderModalAndGetRow(props?: {
+      onOpenChange?: (open: boolean) => void;
+      onSelectRole?: () => void;
+    }): Promise<HTMLElement> {
+      render(
+        <RolesListModal
+          open={true}
+          onOpenChange={props?.onOpenChange ?? vi.fn()}
+          hostTree={SINGLE_HOST_TREE}
+          defaultHostId={2}
+          onSelectRole={props?.onSelectRole ?? vi.fn()}
+          onNewRole={vi.fn()}
+        />,
+      );
+      return screen.findByRole("button", { name: /Role A/ });
+    }
+
+    it("1: renders Archive item on right-click (danger-styled)", async () => {
+      const row = await renderModalAndGetRow();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      expect(archiveItem).toBeTruthy();
+      // D-02 danger-styled: color is `#ff9a8a` per PrettyConversationContextMenu
+      // itemButtonStyle when danger:true.
+      const style = archiveItem.getAttribute("style") ?? "";
+      expect(style).toMatch(/color:\s*(?:#ff9a8a|rgb\(\s*255,\s*154,\s*138\s*\))/i);
+    });
+
+    it("2: right-click does NOT open the role modal (onSelectRole is not called)", async () => {
+      const onSelectRole = vi.fn();
+      const row = await renderModalAndGetRow({ onSelectRole });
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      // Menu appeared…
+      await screen.findByRole("menuitem", { name: /^Archive$/ });
+      // …but the row's onClick handler was NOT invoked.
+      expect(onSelectRole).not.toHaveBeenCalled();
+    });
+
+    it("3: cascade preview N=0 — first confirm is 'no identities hold it.'", async () => {
+      useIdentitiesReturn.identities = [];
+      const row = await renderModalAndGetRow();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      expect(window.confirm).toHaveBeenNthCalledWith(
+        1,
+        "archive role Role A? no identities hold it.",
+      );
+    });
+
+    it("4: cascade preview N=1 — first confirm lists the identity's task", async () => {
+      useIdentitiesReturn.identities = [
+        {
+          identityKey: "alpha",
+          displayName: "Alpha",
+          role: "role-a",
+          hostId: 2,
+          task: "Fixing the auth bug",
+        },
+      ];
+      const row = await renderModalAndGetRow();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      expect(window.confirm).toHaveBeenNthCalledWith(
+        1,
+        "archive role Role A? this will also archive 1 identities holding it:\n" +
+          "• Fixing the auth bug",
+      );
+    });
+
+    it("5: cascade preview N=3 uses displayName fallback when task is null/empty", async () => {
+      useIdentitiesReturn.identities = [
+        {
+          identityKey: "one",
+          displayName: "One",
+          role: "role-a",
+          hostId: 2,
+          task: "Task A",
+        },
+        {
+          identityKey: "two",
+          displayName: "Wren",
+          role: "role-a",
+          hostId: 2,
+          task: null,
+        },
+        {
+          identityKey: "three",
+          displayName: "Aqua",
+          role: "role-a",
+          hostId: 2,
+          task: "",
+        },
+        // Also seed an unrelated identity (different role) — MUST be filtered
+        // out of the preview.
+        {
+          identityKey: "other",
+          displayName: "Other",
+          role: "some-other-role",
+          hostId: 2,
+          task: "should not appear",
+        },
+        // And another that matches role but is on a different host — filtered.
+        {
+          identityKey: "wrong-host",
+          displayName: "Wrong Host",
+          role: "role-a",
+          hostId: 99,
+          task: "should not appear either",
+        },
+      ];
+      const row = await renderModalAndGetRow();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      expect(window.confirm).toHaveBeenNthCalledWith(
+        1,
+        "archive role Role A? this will also archive 3 identities holding it:\n" +
+          "• Task A\n" +
+          "• Wren\n" +
+          "• Aqua",
+      );
+    });
+
+    it("6: cancel first confirm stops without API call", async () => {
+      vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+      const row = await renderModalAndGetRow();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      expect(window.confirm).toHaveBeenCalledTimes(1);
+      expect(archiveRoleMock).not.toHaveBeenCalled();
+    });
+
+    it("7: cancel second confirm stops without API call", async () => {
+      const confirmSpy = vi.spyOn(window, "confirm");
+      confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false);
+      const row = await renderModalAndGetRow();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      expect(window.confirm).toHaveBeenCalledTimes(2);
+      expect(archiveRoleMock).not.toHaveBeenCalled();
+    });
+
+    it("8: both confirms → archiveRole called with (hostId, roleName)", async () => {
+      const row = await renderModalAndGetRow();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      expect(archiveRoleMock).toHaveBeenCalledTimes(1);
+      expect(archiveRoleMock).toHaveBeenCalledWith(2, "role-a");
+    });
+
+    it("9: second confirm copy is byte-identical to identity-archive sanity tap", async () => {
+      const row = await renderModalAndGetRow();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      // Second call = the sanity tap. Byte-identical copy pinned against
+      // silent drift.
+      expect(window.confirm).toHaveBeenNthCalledWith(
+        2,
+        "are you sure? this can't be undone.",
+      );
+    });
+
+    it("10: fire-and-forget catch logs structured console.warn on API failure", async () => {
+      archiveRoleMock.mockRejectedValueOnce(new Error("network gone"));
+      const row = await renderModalAndGetRow();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      // Wait for the fire-and-forget rejection to propagate through .catch.
+      await waitFor(() => expect(console.warn).toHaveBeenCalled(), {
+        timeout: 2000,
+      });
+      expect(console.warn).toHaveBeenCalledWith({
+        operation: "role_archive_failed",
+        hostId: 2,
+        roleName: "role-a",
+        errMessage: "network gone",
+      });
+    });
+
+    it("11: RolesListModal stays open after Archive click (no onOpenChange(false))", async () => {
+      const onOpenChange = vi.fn();
+      const row = await renderModalAndGetRow({ onOpenChange });
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      // Modal must NOT be told to close (browse-and-act semantics per plan).
+      expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    });
   });
 });
