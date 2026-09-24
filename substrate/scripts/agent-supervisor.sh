@@ -22,7 +22,6 @@
 # Config file (~/.claude/agent-supervisor.conf), sourced as bash (all keys optional):
 #   # CHECK_INTERVAL=30            # seconds between reconcile passes in loop mode
 #   # STAGGER_SECONDS=8            # extra gap between launches during a bring-up
-#   # SETTLE_SECONDS=6             # time budget to blind-drive past the trust prompt before sending /id
 #   # CLAUDE_MODEL="opus"          # value for claude's --model flag; empty string omits the flag entirely
 #   # DORMANCY="off"               # dormancy is ON by default; this is the per-box escape hatch
 #   # IDLE_THRESHOLD_MINUTES=30    # idle minutes before an identity is swept dormant
@@ -89,7 +88,6 @@ declare -A MATRIX_PEEK_SNAPSHOT=()
 IDENTITIES=()
 CHECK_INTERVAL=15
 STAGGER_SECONDS=8
-SETTLE_SECONDS=6
 MEMORY_CAP="disabled"    # 2026-08-08 fleet policy (user + Stacy catch): cap mechanism was unsafe
                          # at scale (below WSS = thrash; cgroup child-inheritance broke Stacy's t800
                          # builds). Session-dormancy replaces it for idle reclamation (bounty
@@ -1665,24 +1663,41 @@ drive() {
     fi
     log "'$name' claude launched on retry"
   fi
-  sleep 2
-  local budget="${SETTLE_SECONDS:-6}" spent=0
-  while [ "$spent" -lt "$budget" ]; do
-    timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
-    sleep 3; spent=$((spent+3))
-  done
-  # ⚠️ VERIFY CLAUDE SURVIVED THE SETTLE LOOP before pasting /id — root cause TBD but this class
-  # of failure has been observed live (2026-09-02, tanya on t1000): wait_for_claude passed cleanly
-  # above, then between the settle loop's blind Enters and submit_id firing, the fresh claude
-  # ended up dead — pane back at bash prompt. Old behavior: submit_id's leading C-c + paste of
-  # `/id name` landed IN BASH, producing `-bash: /id: No such file or directory` visible in the
-  # pane, no jsonl written, submit_id looped its full 2× 15s budget with no signal. Silent from
-  # the log's POV (submit_id error is generic; the actual "claude died between settle and submit"
-  # is invisible without this check). Fix: a second wait_for_claude here catches that gap and
-  # bails LOUD, so alive-check can retry cleanly on the next tick + we have logs to root-cause
-  # next occurrence.
+  # Trust-dialog scrape (replaces the historical 6s SETTLE_SECONDS blind-Enter train + 2s
+  # pre-loop hedge). The dialog is source-suppressed via hasTrustDialogAccepted=true (written
+  # by accept_trust_for_workdir() before every launch, see log line above) + the
+  # --dangerously-skip-permissions flag — so on the common path there is nothing to clear.
+  # We keep a scrape-based safety net: if a prompt regression puts the trust dialog back on
+  # screen, we WARN loud (findable in the log) and fall back to a small bounded blind-Enter
+  # burst; alive-check on the next tick can then retry cleanly if submit_id still fails.
+  # Same pattern as the resume path above at the "Resume from summary" / "Yes, I trust this
+  # folder" case block.
+  sleep 1                                      # brief settle so claude's Ink renders past initial paint before scrape
+  _fresh_pane="$(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -40 2>/dev/null)"
+  case "$_fresh_pane" in
+    *"Yes, I trust this folder"*|*"Enter to confirm"*|*"Do you trust the files"*)
+      log "WARNING: '$name' drive fresh: trust-dialog scrape matched a prompt string — hasTrustDialogAccepted source-suppression may have regressed. Falling back to bounded blind-Enter burst (3× 500ms) as a one-shot safety net; if this fires more than once, restore the historical 6s SETTLE_SECONDS blind-Enter train. Pane tail: $(printf '%s' "$_fresh_pane" | tr '\n' '|' | tail -c 400)"
+      local _i=0
+      while [ "$_i" -lt 3 ]; do
+        timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
+        sleep 0.5; _i=$((_i+1))
+      done
+      ;;
+    *)
+      : # normal path — no prompt on screen, proceed straight to submit_id
+      ;;
+  esac
+  # ⚠️ VERIFY CLAUDE SURVIVED before pasting /id — this class of failure has been observed
+  # live (2026-09-02, tanya on t1000): wait_for_claude passed cleanly above, then the fresh
+  # claude ended up dead — pane back at bash prompt. Old behavior: submit_id's leading C-c +
+  # paste of `/id name` landed IN BASH, producing `-bash: /id: No such file or directory`
+  # visible in the pane, no jsonl written, submit_id looped its full 2× 15s budget with no
+  # signal. Silent from the log's POV (submit_id error is generic; the actual "claude died
+  # between wait_for_claude and submit" is invisible without this check). Fix: a second
+  # aliveness probe here catches that gap and bails LOUD, so alive-check can retry cleanly
+  # on the next tick + we have logs to root-cause next occurrence.
   if ! claude_running "$sess"; then
-    log "ERROR: '$name' drive fresh: claude DIED between wait_for_claude and submit_id (during settle loop / blind Enters) — bailing before pasting /id into bash. Alive-check will re-attempt on next tick."
+    log "ERROR: '$name' drive fresh: claude DIED between wait_for_claude and submit_id — bailing before pasting /id into bash. Alive-check will re-attempt on next tick."
     log "  pane tail: $(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -20 2>/dev/null | tr '\n' '|' | tail -c 600)"
     return 1
   fi
