@@ -47,6 +47,12 @@ import {
 } from "@/api/identities-api";
 import type { TabState } from "./IdentityFileTab";
 import { roleDisplayName } from "@/lib/role-display-name";
+import {
+  PrettyConversationContextMenu,
+  type PrettyContextMenuItem,
+} from "@/features/pretty-conversations/PrettyConversationContextMenu";
+import { useIdentities } from "@/state/identities-store";
+import { archiveRole } from "@/api/role-archive-api";
 
 // Chrome/Linux desktop <option> popup — same OPTION_STYLE that
 // GlobalFilesModal.tsx L33 pins for popup contrast.
@@ -121,6 +127,64 @@ export function RolesListModal({
   const [rolesState, setRolesState] = useState<TabState<RoleSummary[]>>({
     status: "loading",
   });
+
+  // Phase 133 Plan 133-05 (D-04): cascade-preview identities live here.
+  // useIdentities() returns the fleet-wide identity snapshot; the row-level
+  // Archive click filters this down to `role === roleName && hostId === selectedHostId`.
+  const { identities } = useIdentities();
+
+  // Phase 133 Plan 133-05 (D-02): right-click context-menu open state.
+  // Captures cursor coords + the row's identity (role name + display label +
+  // hue) so the menu-item onClick has everything it needs without re-lookup.
+  const [menuOpen, setMenuOpen] = useState<{
+    x: number;
+    y: number;
+    roleName: string;
+    roleDisplayLabel: string;
+    hue: number;
+  } | null>(null);
+
+  // Phase 133 Plan 133-05 (D-01, D-03, D-04): the archive click handler.
+  // - D-04 cascade preview computed frontend-side from useIdentities().
+  // - D-03 double confirm — cancel at either stops with zero API calls.
+  // - D-01 fire-and-forget: cascade complexity lives in the supervisor; the
+  //   UI does not await. .catch() logs a structured warn matching the
+  //   identity-archive path at IdentitySessionPane.tsx:232-239.
+  // Rationale: modal stays OPEN after archive (browse-and-act semantics — the
+  // operator may want to archive multiple roles in sequence). Deliberate
+  // divergence from identity-archive which closes the pane.
+  const handleArchiveClick = (
+    roleName: string,
+    roleDisplayLabel: string,
+  ): void => {
+    if (selectedHostId == null) return;
+    const hostId = selectedHostId;
+    // D-04: filter useIdentities() by role + host. Uses `task || displayName`
+    // fallback — same expression as AppShell.tsx:894 (do not special-case
+    // "Untitled conversation").
+    const affected = identities.filter(
+      (i) => i.role === roleName && i.hostId === hostId,
+    );
+    // D-03 first confirm: blast-radius disclosure. Complete list, no truncation.
+    const dialog1 =
+      affected.length === 0
+        ? `archive role ${roleDisplayLabel}? no identities hold it.`
+        : `archive role ${roleDisplayLabel}? this will also archive ${affected.length} identities holding it:\n` +
+          affected.map((i) => `• ${i.task || i.displayName}`).join("\n");
+    if (!window.confirm(dialog1)) return;
+    // D-03 second confirm: sanity tap. Byte-identical to identity-archive's
+    // sanity-tap copy at IdentitySessionPane.tsx:227.
+    if (!window.confirm("are you sure? this can't be undone.")) return;
+    // D-01 fire-and-forget with structured console.warn on failure.
+    void archiveRole(hostId, roleName).catch((err) => {
+      console.warn({
+        operation: "role_archive_failed",
+        hostId,
+        roleName,
+        errMessage: err instanceof Error ? err.message : String(err),
+      });
+    });
+  };
 
   const flatHosts = useMemo(
     () =>
@@ -345,6 +409,22 @@ export function RolesListModal({
                         hostId: selectedHostId,
                       })
                     }
+                    // Phase 133 Plan 133-05 (D-02): right-click opens the
+                    // PrettyConversationContextMenu at cursor coords with a
+                    // single danger-styled Archive item. preventDefault
+                    // suppresses the browser's native menu; the row's own
+                    // onClick does NOT fire on contextmenu so the role modal
+                    // does not accidentally open.
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setMenuOpen({
+                        x: e.clientX,
+                        y: e.clientY,
+                        roleName: role.name,
+                        roleDisplayLabel: label,
+                        hue,
+                      });
+                    }}
                     // D-05 verbatim: `.pv-row` treatment inline (class-based
                     // hue is not viable, so we inline the hsla stops keyed
                     // on the role's hue). Values mirror
@@ -445,6 +525,30 @@ export function RolesListModal({
           )}
 
         </DialogPrimitive.Content>
+
+        {/* Phase 133 Plan 133-05 (D-02): the right-click context menu.
+            PrettyConversationContextMenu portals to document.body internally
+            (via createPortal); mounting it inside DialogPrimitive.Portal
+            here is stylistic — the menu's own portal decides its DOM home. */}
+        {menuOpen && (
+          <PrettyConversationContextMenu
+            x={menuOpen.x}
+            y={menuOpen.y}
+            hue={menuOpen.hue}
+            items={[
+              {
+                label: "Archive",
+                danger: true,
+                onClick: () =>
+                  handleArchiveClick(
+                    menuOpen.roleName,
+                    menuOpen.roleDisplayLabel,
+                  ),
+              } satisfies PrettyContextMenuItem,
+            ]}
+            onClose={() => setMenuOpen(null)}
+          />
+        )}
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
