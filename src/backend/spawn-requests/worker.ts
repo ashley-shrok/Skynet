@@ -38,6 +38,7 @@ import {
   loginAsUser as matrixLoginAsUser,
   buildRelayJsonBody,
   countUsersMatching as matrixCountUsersMatching,
+  deactivateUser as matrixDeactivateUser,
 } from "../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
 import { getVettedPool } from "../pool/pool-loader.js";
@@ -435,19 +436,14 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     execCommand,
     isLocalHostId,
     execLocal: execLocalFn,
-    getCandidateForBirth: () => null,
     resolveHostById: async (hId, uid) => deps.resolveHostById(hId, uid),
-    fsp: {
-      readFile: (p: string, enc: "utf8") => fsp.readFile(p, enc),
-      writeFile: (p: string, content: string) => fsp.writeFile(p, content),
-    },
-    writeMarkdownFileAtomic: async (conn, targetPath, contents) =>
-      deps.writeMarkdownFileAtomic(conn, targetPath, contents),
-    writeAvatarSiblingFile: async () => {},
     matrixCreateOrUpdateUser: (mxid, password, displayname) =>
       matrixCreateOrUpdateUser(mxid, password, displayname),
     matrixLoginAsUser: (mxid, validUntilMs) =>
       matrixLoginAsUser(mxid, validUntilMs),
+    // Rollback primitive for the mint-first atomic-birth flow (see
+    // identity-birth-orchestrator.ts's Step 6 → Step 8 → finally chain).
+    matrixDeactivateUser: (mxid) => matrixDeactivateUser(mxid),
     matrixHomeserver: creds.homeserverBase,
     matrixServerName: creds.serverName,
     // 2026-09-11: Host-reachable relay.json base — falls back to
@@ -623,7 +619,6 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       path: `~/${pickedName.toLowerCase()}/`,
       colorHue: null,
       voice: null,
-      avatarCandidateId: "",
       role: item.roles[0], // TODO: multi-role — pass full roles[] once BirthOptions accepts it (D-13, RESEARCH Assumption A2)
       task: item.task ?? undefined,
       // Phase 127 follow-up: wake-up spec's `prompt` field lands as the

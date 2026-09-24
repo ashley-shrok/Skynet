@@ -82,6 +82,7 @@ import {
   loginAsUser as matrixLoginAsUser,
   buildRelayJsonBody,
   countUsersMatching as matrixCountUsersMatching,
+  deactivateUser as matrixDeactivateUser,
 } from "../../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../../matrix/matrix-admin-creds-store.js";
 import type { AuthenticatedRequest } from "../../../types/index.js";
@@ -433,22 +434,8 @@ router.post(
       execCommand,
       isLocalHostId,
       execLocal,
-      getCandidateForBirth: (uid, id) => getCandidateForBirth(uid, id),
       resolveHostById: async (hostId, uid) =>
         resolveHostById(hostId, uid),
-      fsp: {
-        readFile: (p: string, enc: "utf8") => fsp.readFile(p, enc),
-        writeFile: (p: string, content: string) => fsp.writeFile(p, content),
-      },
-      // Phase 22 SRIC-02: SFTP tmp+rename helper for Step 2.5 pre-write.
-      writeMarkdownFileAtomic: async (conn, targetPath, contents) =>
-        writeMarkdownFileAtomic(conn, targetPath, contents),
-      // Phase 66 Plan 66-01 Track 1: SFTP binary tmp+rename helper for the
-      // Step 2.5 avatar sibling write — same ext_openssh_rename discipline
-      // as writeMarkdownFileAtomic, binary payload, log tag
-      // identity_avatar_write.
-      writeAvatarSiblingFile: async (conn, identityKey, ext, bytes) =>
-        writeAvatarSiblingFile(conn, identityKey, ext, bytes),
       // Phase 75 Plan 04 — four new BirthDeps for the admin-mint + relay.json
       // write sequence (Steps 6/7/8). Wired to Plan 02's matrix-admin-client
       // exports. matrixHomeserver is read from the first-class column on
@@ -459,6 +446,11 @@ router.post(
         matrixCreateOrUpdateUser(mxid, password, displayname),
       matrixLoginAsUser: (mxid, validUntilMs) =>
         matrixLoginAsUser(mxid, validUntilMs),
+      // Rollback primitive for the mint-first atomic-birth flow: when Step 6
+      // mint succeeds but Step 8 peer-commit fails, the orchestrator calls
+      // this to deactivate the just-minted account so retry with next
+      // ordinal doesn't leak Synapse accounts.
+      matrixDeactivateUser: (mxid) => matrixDeactivateUser(mxid),
       matrixHomeserver: creds.homeserverBase,
       matrixServerName: creds.serverName,
       // Host-reachable relay.json base — falls back to homeserverBase when
@@ -566,11 +558,6 @@ router.post(
           path: parsedPath,
           colorHue: parsedColorHue,
           voice: parsedVoice,
-          // Phase 86 Plan 86-04: empty-string avatarCandidateId signals the
-          // orchestrator's Step 1 candidate lookup + Step 2.5 sibling-file
-          // write to skip; the role's avatar file is served via Plan 86-01's
-          // GET /:key/avatar role-folder fallback (D-CTX-86-inherit).
-          avatarCandidateId: parsedAvatarCandidateId,
           role: role.trim(),
           // Phase 80 Plan 80-03: thread task through opts. ?? undefined so
           // parsedTask=null → orchestrator sees undefined (omit-empty matches
@@ -754,8 +741,10 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
       res.write(`event: birth\ndata: ${JSON.stringify(e)}\n\n`);
     };
 
-    // Assemble the four Phase 75 deps that runRelayMintAndWrite needs.
-    // Same wiring as the birth handler's BirthDeps for consistency.
+    // Assemble the deps that runRelayMintAndWrite needs. Same wiring shape
+    // as the birth handler's BirthDeps for consistency; writeIdentityFile
+    // inside runRelayMintAndWrite handles the relay.json write through its
+    // own module import (no deps.writeMarkdownFileAtomic needed).
     const deps: Pick<
       BirthDeps,
       | "matrixCreateOrUpdateUser"
@@ -764,12 +753,9 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
       | "matrixServerName"
       | "relayJsonHomeserverBase"
       | "buildRelayJsonBody"
-      | "writeMarkdownFileAtomic"
       | "execCommand"
     > = {
       execCommand,
-      writeMarkdownFileAtomic: async (conn, targetPath, contents) =>
-        writeMarkdownFileAtomic(conn, targetPath, contents),
       matrixCreateOrUpdateUser: (mxid, password, displayname) =>
         matrixCreateOrUpdateUser(mxid, password, displayname),
       matrixLoginAsUser: (mxid, validUntilMs) =>

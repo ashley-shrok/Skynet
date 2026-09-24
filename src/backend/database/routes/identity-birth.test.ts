@@ -509,7 +509,6 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
   expect(o.path).toBe(VALID_BODY.path);
   expect(o.colorHue).toBe(VALID_BODY.colorHue);
   expect(o.voice).toBe(VALID_BODY.voice);
-  expect(o.avatarCandidateId).toBe(VALID_BODY.avatarCandidateId);
   expect(o.userId).toBeDefined();
 
   // Phase 22 SRIC-02: role passed through
@@ -517,6 +516,9 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
 
   // Verify deps has all required keys
   // Phase 68 Plan 03: createIdentityRecord + getIdentityRecord removed from BirthDeps
+  // 2026-09-24 mint-first reshape: getCandidateForBirth, writeMarkdownFileAtomic,
+  // writeAvatarSiblingFile also removed (avatar handling folded out; peer-commit
+  // script writes files inline). matrixDeactivateUser added for rollback.
   const d = capturedDeps as Record<string, unknown>;
   expect(typeof d.connectOneShot).toBe("function");
   expect(typeof d.execCommand).toBe("function");
@@ -524,12 +526,11 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
   expect(typeof d.execLocal).toBe("function");
   expect(d.createIdentityRecord).toBeUndefined();
   expect(d.getIdentityRecord).toBeUndefined();
-  expect(typeof d.getCandidateForBirth).toBe("function");
+  expect(d.getCandidateForBirth).toBeUndefined();
+  expect(d.writeMarkdownFileAtomic).toBeUndefined();
+  expect(d.writeAvatarSiblingFile).toBeUndefined();
+  expect(typeof d.matrixDeactivateUser).toBe("function");
   expect(typeof d.resolveHostById).toBe("function");
-  // Phase 22 SRIC-02: writeMarkdownFileAtomic dep for Step 2.5 pre-write
-  expect(typeof d.writeMarkdownFileAtomic).toBe("function");
-  // Phase 66 Plan 66-01: writeAvatarSiblingFile dep for Step 2.5 avatar write
-  expect(typeof d.writeAvatarSiblingFile).toBe("function");
   // Phase 80 Plan 80-03b: matrixCountUsersMatching dep for Step 6 MXID
   // ordinal derivation — wired from plan 80-02's countUsersMatching export.
   expect(typeof d.matrixCountUsersMatching).toBe("function");
@@ -879,11 +880,12 @@ it(
     expect(result.body).toContain("ended");
 
     // Orchestrator received the empty-string sentinels so its own
-    // absent-⇒-omit branches (Plan 86-04 buildIdentityFileBody +
-    // Step 1 candidate lookup + Step 2.5 sibling write) fire correctly.
+    // absent-⇒-omit branches (Plan 86-04 buildIdentityFileBody) fire
+    // correctly. 2026-09-24 mint-first reshape: avatarCandidateId dropped
+    // from BirthOptions.
     const o = capturedOpts as Record<string, unknown>;
     expect(o.title).toBe("");
-    expect(o.avatarCandidateId).toBe("");
+    expect(o.avatarCandidateId).toBeUndefined();
     // colorHue absent from body → parsedColorHue is null
     expect(o.colorHue).toBeNull();
     // voice absent from body → parsedVoice is null

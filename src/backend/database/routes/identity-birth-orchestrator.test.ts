@@ -1,36 +1,41 @@
 /**
- * Phase 20 (IDUI-06/08/09): Tests for identity-birth-orchestrator.ts.
+ * identity-birth-orchestrator tests — post-2026-09-24 mint-first atomic-birth
+ * reshape. The pre-reshape tests exercised a fragmented Step 1 (SSH role +
+ * avatar + collision probes) + Step 2 (SSH mkdir + writeMarkdownFileAtomic
+ * + writeAvatarSiblingFile) + Step 6/7/8 (Matrix mint + relay.json build +
+ * SFTP write + chmod) sequence. That flow is retired: MXID derivation
+ * moved to Step 1 (no SSH), Step 2 is a wire-compat placeholder, Steps 6/7
+ * remain Skynet-local, and Step 8 executes ONE atomic peer-commit bash
+ * script in a single SSH exec. Rollback is via a new matrixDeactivateUser
+ * BirthDep.
  *
- * Phase 106 (Plan 106-03) rewire — the harness bootstrap (Steps 3/4/5:
- * trust-flag pre-write, claude launch, 7-Enter settle train, `/id <name>`
- * dispatch) is RETIRED from the birth orchestrator. agent-supervisor.sh
- * on the target box is now the sole spawner and lifecycle owner. The
- * orchestrator's Step 2 no longer opens the tmux session either — the
- * per-session `tmux new-session -d -s <name>` call is retired. All
- * step:3/step:4/step:5 assertions are removed from this file per D-20.
- *
- * New coverage added in Plan 106-03:
- *   - Wait-for-supervisor poll success case (mock discoverIdentitySessionFile
- *     returns non-null on Nth poll → ended{ok:true}).
- *   - Wait-for-supervisor poll timeout case (mock always returns null →
- *     ended{ok:false, reason:"supervisor_wait_timeout"} + databaseLogger.warn
- *     with operation:"identity_birth_supervisor_wait_timeout").
- *   - SSH-error-during-poll path (mock returns null throughout — same shape
- *     as the fail-safe null-return contract at
- *     discover-identity-session-file.ts:319-321).
- *   - D-12 forensics preservation — step:6/step:7/step:8 breadcrumbs still
- *     emit for backend log-forensic purposes.
- *
- * Tests exercise birthIdentity() as a pure function with injected deps.
- * All SSH, local-exec, fs, discovery, and identity-record operations are
- * mocked. Events are collected via the emit callback.
+ * Coverage in this file:
+ *   - Nelly-verbatim exported constants (unchanged)
+ *   - Mint-first ordering (matrixCreateOrUpdateUser called before any SSH
+ *     exec; SSH connect only fires at Step 8)
+ *   - Peer-commit script contract (role, identityFolderName, base64 blobs
+ *     for identity file body + relay.json body, "birth_committed" sentinel)
+ *   - Rollback fires on Step 8 failure (matrixDeactivateUser called with
+ *     the derived MXID); rollback does NOT fire on Step 8 success
+ *   - Rollback semantics for Step 6/Step 7 failures (mint failure = no
+ *     rollback needed; login-as-user failure DOES roll back since mint
+ *     succeeded)
+ *   - Wire-compat: emits step 1/2/6/7/8 events in order for wire-compat
+ *     with the frontend BirthProgress checklist
+ *   - Wait-for-supervisor unchanged (poll cadence, timeout, client abort)
+ *   - Local branch (isLocalHostId=true) — peer script runs via execLocal
+ *   - Custom opts.path pre-created after commit (best-effort)
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
-import type { BirthEvent, BirthOptions, BirthDeps } from "./identity-birth-orchestrator.js";
+import type {
+  BirthEvent,
+  BirthOptions,
+  BirthDeps,
+} from "./identity-birth-orchestrator.js";
 
 // ---------------------------------------------------------------------------
-// Mock all external deps BEFORE importing the module under test
+// Mock external modules BEFORE importing the module under test
 // ---------------------------------------------------------------------------
 
 vi.mock("../../ssh/ssh-one-shot.js", () => ({
@@ -42,36 +47,20 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
 }));
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
-  stringifyColorHueForYaml: (obj: Record<string, unknown>) => (typeof obj.colorHue === "number" ? { ...obj, colorHue: String(obj.colorHue) } : obj),
+  stringifyColorHueForYaml: (obj: Record<string, unknown>) =>
+    typeof obj.colorHue === "number"
+      ? { ...obj, colorHue: String(obj.colorHue) }
+      : obj,
   isLocalHostId: vi.fn(),
-  writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
-  // Phase 66 Plan 66-01: additive dep — pre-existing tests are unchanged;
-  // the orchestrator's Step 2.5 now calls this after writeMarkdownFileAtomic.
-  writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
-  // 2026-09-11 LOCAL-branch fix: orchestrator Step 2.5 resolves the LOCAL
-  // identity dir via this helper (parent-of-IDENTITIES_HOST_DIR or fallback
-  // os.homedir()/fleet/identities). Stub returns a stable test path so
-  // Step 2.5 can compose identityDir + identityFilePath without failing.
   getLocalIdentitiesRoot: vi.fn().mockReturnValue("/tmp/test-fleet/identities"),
-  // Phase 108: orchestrator runStep(1) LOCAL branch role-folder probe uses
-  // this helper to resolve ~/fleet/roles. Stable test path so the probe's
-  // fs.access target has a predictable "/roles/" segment for the default
-  // fs mock's discriminating impl to match on.
   getLocalRolesRoot: vi.fn().mockReturnValue("/tmp/test-fleet/roles"),
-  // Phase 92 Plan 92-01 Task 2: per-identity-file.ts imports IDENTITY_KEY_RE
-  // from identity-artifact-reader (H1 write⇔read parity lock). The primitive
-  // is transitively imported by identity-birth-orchestrator's Step 8, so
-  // this mocked module MUST export the real regex value (not a stub) so
-  // the primitive's identityKey gate matches production behavior in tests.
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
   MIME_TO_AVATAR_EXT: {
     "image/webp": "webp",
     "image/png": "png",
     "image/jpeg": "jpg",
-    "image/gif": "gif",
-    "image/svg+xml": "svg",
   },
-  AVATAR_EXT_VALUES: ["webp", "png", "jpg", "gif", "svg"] as const,
+  AVATAR_EXT_VALUES: ["webp", "png", "jpg"] as const,
   IDMEDIT_MAX_AVATAR_BYTES: 5_000_000,
 }));
 
@@ -79,35 +68,11 @@ vi.mock("node:child_process", () => ({
   exec: vi.fn(),
 }));
 
-// Phase 89-02 Task 3: mock registry-rooms module for the runRelayMintAndWrite
-// Step 6 post-mint hook. Default happy-path; individual tests override.
 vi.mock("../../relay-sessions/registry-rooms.js", () => ({
-  joinAgentToAgentsRegistry: vi.fn().mockResolvedValue({
-    ok: true,
-    roomId: "!agents-registry:example.com",
-  }),
+  joinAgentToAgentsRegistry: vi
+    .fn()
+    .mockResolvedValue({ ok: true, roomId: "!agents-registry:example.com" }),
 }));
-
-// Phase 108: Step 1 has TWO fs.access probes on the LOCAL branch —
-//   (a) role-folder probe at getLocalRolesRoot()/<role>/<role>.md — MUST
-//       resolve for birth to proceed (missing role = throw "role not found").
-//   (b) identity-collision probe at getLocalIdentitiesRoot()/<name> — MUST
-//       reject with ENOENT for birth to proceed (present folder = throw
-//       "identity already exists").
-// Default mock discriminates by path segment so pre-Phase-108 tests that
-// expected the happy-path both branches (role exists, identity missing)
-// continue to pass without per-test override. Tests that need to exercise
-// the failure branch (role missing OR identity present) override
-// per-test with a path-discriminating mockImplementation.
-function defaultAccessImpl(p: unknown): Promise<void> {
-  const s = typeof p === "string" ? p : String(p);
-  if (s.includes("/roles/")) {
-    // Role probe: default = role exists on target host (birth proceeds).
-    return Promise.resolve();
-  }
-  // Identity collision probe (and anything else): default = missing.
-  return Promise.reject(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
-}
 
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
@@ -115,56 +80,26 @@ vi.mock("node:fs/promises", () => ({
   rename: vi.fn(),
   chmod: vi.fn(),
   unlink: vi.fn(),
-  // 2026-09-11 sub-agent review HIGH #1 fix: Step 1's LOCAL collision probe
-  // uses fs.access against getLocalIdentitiesRoot()/<name>.
-  // Phase 108: default now ALSO handles the LOCAL role-folder probe at
-  // getLocalRolesRoot()/<role>/<role>.md — resolves for /roles/ paths,
-  // rejects (ENOENT) otherwise. Per-test overrides remain supported.
-  access: vi.fn().mockImplementation(defaultAccessImpl),
+  access: vi.fn().mockResolvedValue(undefined),
   default: {
     readFile: vi.fn(),
     writeFile: vi.fn(),
     rename: vi.fn(),
     chmod: vi.fn(),
     unlink: vi.fn(),
-    access: vi.fn().mockImplementation(defaultAccessImpl),
+    access: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
-// Phase 106 Plan 106-03: mock databaseLogger so wait-for-supervisor timeout
-// tests can assert the structured warn call on operation-key
-// "identity_birth_supervisor_wait_timeout" (see D-08 rationale in
-// identity-birth-orchestrator.ts wait-block comment).
 vi.mock("../../utils/logger.js", () => ({
-  databaseLogger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-  sshLogger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-  systemLogger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-  logger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
+  databaseLogger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  sshLogger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  systemLogger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 import {
   birthIdentity,
-  buildIdentityFileBody,
   ENTER_TRAIN_COUNT,
   ENTER_TRAIN_SPACING_MS,
   SETTLE_SECONDS,
@@ -176,15 +111,10 @@ import {
   WAIT_FOR_SUPERVISOR_POLL_MS,
   WAIT_FOR_SUPERVISOR_TIMEOUT_MS,
 } from "./identity-birth-orchestrator.js";
-import yaml from "js-yaml";
 
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
-import {
-  isLocalHostId,
-  writeMarkdownFileAtomic,
-} from "../../claude-session/identity-artifact-reader.js";
-import { joinAgentToAgentsRegistry } from "../../relay-sessions/registry-rooms.js";
+import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
 import { databaseLogger } from "../../utils/logger.js";
 
 // ---------------------------------------------------------------------------
@@ -194,43 +124,22 @@ import { databaseLogger } from "../../utils/logger.js";
 const mockConnectOneShot = connectOneShot as unknown as Mock;
 const mockExecCommand = execCommand as unknown as Mock;
 const mockIsLocalHostId = isLocalHostId as unknown as Mock;
-// Phase 92 Plan 92-01 Task 2: Step 8's relay.json write now routes through
-// per-identity-file.writeIdentityFile which internally calls the module-level
-// writeMarkdownFileAtomic (not deps.writeMarkdownFileAtomic). Test assertions
-// for the relay.json write need to inspect this module-mock.
-const mockWriteMarkdownFileAtomicModule =
-  writeMarkdownFileAtomic as unknown as Mock;
-const mockJoinAgentToAgentsRegistry = joinAgentToAgentsRegistry as unknown as Mock;
-// Phase 106 Plan 106-03: typed handle for the mocked databaseLogger.warn so
-// the wait-poll timeout test can inspect the structured warn payload for the
-// operation-key "identity_birth_supervisor_wait_timeout".
 const mockDatabaseLoggerWarn = databaseLogger.warn as unknown as Mock;
 
-function collectEvents(): { events: BirthEvent[]; emit: (e: BirthEvent) => void } {
+function collectEvents(): {
+  events: BirthEvent[];
+  emit: (e: BirthEvent) => void;
+} {
   const events: BirthEvent[] = [];
   return { events, emit: (e) => events.push(e) };
 }
 
 function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
-  const mockExecLocal = vi.fn().mockResolvedValue("");
-
   return {
     connectOneShot: mockConnectOneShot,
     execCommand: mockExecCommand,
     isLocalHostId: mockIsLocalHostId,
-    execLocal: mockExecLocal,
-    // Phase 22 SRIC-02: pre-write dep for Step 2.5 (mocked as no-op in existing tests)
-    writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
-    // Phase 66 Plan 66-01: additive avatar-sibling dep for Step 2.5 (mocked
-    // as no-op in existing tests so pre-Phase-66 assertions don't drift).
-    writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
-    // Phase 68 Plan 03: createIdentityRecord + getIdentityRecord removed from
-    // BirthDeps — no DB record is created; disk folder + frontmatter + avatar
-    // sibling ARE the identity's identity.
-    getCandidateForBirth: vi.fn().mockReturnValue({
-      bytes: Buffer.from("fakepng"),
-      mime: "image/png",
-    }),
+    execLocal: vi.fn().mockResolvedValue("birth_committed"),
     resolveHostById: vi.fn().mockResolvedValue({
       ip: "100.1.2.3",
       port: 22,
@@ -239,43 +148,29 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       authType: "key",
       key: "fake-key",
     }),
-    fsp: {
-      readFile: vi.fn(),
-      writeFile: vi.fn(),
-    },
-    // Phase 75 Plan 04 — four new BirthDeps fields wired to happy-path mocks
-    // so existing Steps 1-5 tests keep passing. The Step 6/7/8 sequence runs
-    // for remote-branch tests and succeeds silently unless a specific test
-    // overrides these mocks (see the Phase 75 describe block below).
-    matrixCreateOrUpdateUser: vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@test:example.com", password: "pw", status: 201 }),
-    matrixLoginAsUser: vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_fake_access_token" }),
+    matrixCreateOrUpdateUser: vi.fn().mockResolvedValue({
+      ok: true,
+      mxid: "@testkey:example.com",
+      password: "pw",
+      status: 201,
+    }),
+    matrixLoginAsUser: vi.fn().mockResolvedValue({
+      ok: true,
+      accessToken: "syt_fake_access_token",
+    }),
+    matrixDeactivateUser: vi.fn().mockResolvedValue({ ok: true }),
     matrixHomeserver: "http://synapse.example.com:8008",
     matrixServerName: null,
-    // 2026-09-11: default fallback branch — relay.json base equals the
-    // homeserverBase URL when hostSideBase column is null. Tests below that
-    // exercise the override branch pass an override via makeDeps({}).
     relayJsonHomeserverBase: "http://synapse.example.com:8008",
     buildRelayJsonBody: vi.fn().mockReturnValue(
-      JSON.stringify(
-        {
-          base: "http://synapse.example.com:8008/_matrix/client/v3",
-          user_id: "@test:example.com",
-          password: "pw",
-          token: "syt_fake_access_token",
-          access_token: "syt_fake_access_token",
-        },
-        null,
-        2,
-      ),
+      JSON.stringify({
+        base: "http://synapse.example.com:8008/_matrix/client/v3",
+        user_id: "@testkey:example.com",
+        password: "pw",
+        token: "syt_fake_access_token",
+        access_token: "syt_fake_access_token",
+      }),
     ),
-    // Phase 106 Plan 106-03 (D-05/D-06): the wait-for-supervisor sensor.
-    // Default returns a non-null jsonl path on the FIRST call so the wait-poll
-    // exits immediately with success on all happy-path tests (no fake-timer
-    // dance needed). Individual tests override for null-return timeout tests.
     matrixCountUsersMatching: vi
       .fn()
       .mockResolvedValue({ ok: true, total: 0 }),
@@ -283,7 +178,7 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       .fn()
       .mockResolvedValue("/mock/session.jsonl"),
     ...overrides,
-  };
+  } as BirthDeps;
 }
 
 function makeOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
@@ -292,14 +187,12 @@ function makeOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
     hostId: 7,
     name: "testkey",
     title: "Test Identity",
-    path: "/workspace/testkey",
+    path: "~/",
     colorHue: 210,
     voice: "Joanna",
-    avatarCandidateId: "cand-abc",
-    // Phase 22 SRIC-02: role is required
     role: "box-maintainer",
     ...overrides,
-  };
+  } as BirthOptions;
 }
 
 // ---------------------------------------------------------------------------
@@ -311,34 +204,14 @@ beforeEach(() => {
   mockConnectOneShot.mockReset();
   mockExecCommand.mockReset();
   mockIsLocalHostId.mockReset();
-  // Phase 92 Plan 92-01 Task 2: reset the module-level writeMarkdownFileAtomic
-  // mock between tests so Step 8's per-identity-file callthrough is inspected
-  // per-test (previously the deps-level mock was reset via makeDeps overrides;
-  // the module mock persists across tests without an explicit reset).
-  mockWriteMarkdownFileAtomicModule.mockReset();
-  mockWriteMarkdownFileAtomicModule.mockResolvedValue(undefined);
+  mockDatabaseLoggerWarn.mockReset();
 
-  // Default: remote host
   mockIsLocalHostId.mockReturnValue(false);
-  // Default: SSH connect returns a stub connection
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  // Default: execCommand succeeds — Phase 22 SRIC-02 requires `echo $HOME`
-  // to resolve during Step 2.5, so make that return a plausible path.
-  // Phase 108: Step 1's role-folder probe (REMOTE branch) needs the default
-  // execCommand to return "exists" for the `fleet/roles/` probe so
-  // pre-Phase-108 tests continue to pass without per-test override. Tests
-  // asserting the role-miss path (e.g. Tests 108-A / 108-E) explicitly
-  // override with mockImplementation returning "missing".
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
+  // Default execCommand: the peer commit script returns "birth_committed" on
+  // success. Individual tests override to simulate failures.
+  mockExecCommand.mockResolvedValue("birth_committed");
 });
 
 afterEach(() => {
@@ -347,2562 +220,441 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Exported constant sanity checks (Nelly-verbatim)
+// Exported constants (Nelly-verbatim)
 // ---------------------------------------------------------------------------
 
 describe("exported constants (Nelly-verbatim)", () => {
   it("ENTER_TRAIN_COUNT is 7", () => {
     expect(ENTER_TRAIN_COUNT).toBe(7);
   });
-
   it("ENTER_TRAIN_SPACING_MS is 3000", () => {
     expect(ENTER_TRAIN_SPACING_MS).toBe(3000);
   });
-
   it("SETTLE_SECONDS is 22", () => {
     expect(SETTLE_SECONDS).toBe(22);
   });
-
   it("STEP_2_SLEEP_MS is 3000", () => {
     expect(STEP_2_SLEEP_MS).toBe(3000);
   });
-
   it("STEP_3_SLEEP_MS is 2000", () => {
     expect(STEP_3_SLEEP_MS).toBe(2000);
   });
-
   it("SSH_CONNECT_TIMEOUT_MS is 30000", () => {
     expect(SSH_CONNECT_TIMEOUT_MS).toBe(30000);
   });
-
   it("CLAUDE_LAUNCH_CMD_PREFIX contains both env-vars verbatim", () => {
-    expect(CLAUDE_LAUNCH_CMD_PREFIX).toContain("CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999");
-    expect(CLAUDE_LAUNCH_CMD_PREFIX).toContain("CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999");
+    expect(CLAUDE_LAUNCH_CMD_PREFIX).toContain(
+      "CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999",
+    );
+    expect(CLAUDE_LAUNCH_CMD_PREFIX).toContain(
+      "CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999",
+    );
   });
-
   it("TMUX_NEW_SESSION_FLAGS is -x 220 -y 50", () => {
     expect(TMUX_NEW_SESSION_FLAGS).toBe("-x 220 -y 50");
   });
-
-  // Phase 106 Plan 106-03 (D-07/D-08): wait-for-supervisor exports.
-  it("WAIT_FOR_SUPERVISOR_POLL_MS is 2000 (Phase 106 D-07)", () => {
+  it("WAIT_FOR_SUPERVISOR_POLL_MS is 2000", () => {
     expect(WAIT_FOR_SUPERVISOR_POLL_MS).toBe(2000);
   });
-
   it("WAIT_FOR_SUPERVISOR_TIMEOUT_MS is 300000", () => {
     expect(WAIT_FOR_SUPERVISOR_TIMEOUT_MS).toBe(300000);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Test 1: happy path remote host — emits steps 1/2/6/7/8 (post-Phase-106).
-// The harness steps (3/4/5) are retired per D-01..D-03; agent-supervisor.sh
-// is the sole spawner. Test asserts 11 events: 5 steps × 2 phases + 1 ended.
+// Mint-first ordering + wire-compat step events
 // ---------------------------------------------------------------------------
 
-it("Test 1: happy path, remote host, emits steps 1/2/6/7/8 in order (Phase 106)", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
+describe("mint-first atomic-birth flow", () => {
+  it("happy path emits step 1/2/6/7/8 events in order + ended:ok:true", async () => {
+    const { events, emit } = collectEvents();
+    const deps = makeDeps();
+    const opts = makeOpts();
 
-  const deps = makeDeps();
-  const opts = makeOpts();
-  const { events, emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
 
-  const birthPromise = birthIdentity(opts, emit, deps);
+    const stepStarts = events
+      .filter((e) => e.type === "step" && e.phase === "started")
+      .map((e) => (e as { n: number }).n);
+    expect(stepStarts).toEqual([1, 2, 6, 7, 8]);
 
-  // Advance through all sleeps (Step 2 STEP_2_SLEEP_MS + any wait-poll sleeps
-  // — with the default happy-path mock returning non-null on first call, the
-  // wait-poll block exits before its first sleep runs).
-  await vi.runAllTimersAsync();
-  await birthPromise;
+    const stepCompletes = events
+      .filter((e) => e.type === "step" && e.phase === "completed")
+      .map((e) => (e as { n: number }).n);
+    expect(stepCompletes).toEqual([1, 2, 6, 7, 8]);
 
-  // Phase 106 (D-01..D-03): steps 3/4/5 retired. Expected wire on remote-branch
-  // happy path:
-  //   Steps 1, 2, 6, 7, 8 × 2 (started+completed) = 10
-  //   1 ended{ok:true}                            = 1
-  //   total                                       = 11
-  expect(events.length).toBe(11);
-
-  // Check step sequence in order (only steps 1/2/6/7/8 present under new wire)
-  for (const n of [1, 2, 6, 7, 8]) {
-    const startedIdx = events.findIndex(
-      (e) => e.type === "step" && e.n === n && e.phase === "started",
+    const ended = events.find((e) => e.type === "ended");
+    expect(ended).toEqual(
+      expect.objectContaining({ type: "ended", ok: true }),
     );
-    const completedIdx = events.findIndex(
-      (e) => e.type === "step" && e.n === n && e.phase === "completed",
-    );
-    expect(startedIdx).toBeGreaterThanOrEqual(0);
-    expect(completedIdx).toBeGreaterThan(startedIdx);
-  }
-
-  // No retired step numbers on the wire.
-  for (const n of [3, 4, 5]) {
-    const retiredStepEvents = events.filter(
-      (e) => e.type === "step" && (e as { n: number }).n === n,
-    );
-    expect(retiredStepEvents).toHaveLength(0);
-  }
-
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect(endedEvent).toBeDefined();
-  expect((endedEvent as { type: "ended"; ok: boolean }).ok).toBe(true);
-
-  // conn.end() was called
-  expect(mockConn.end).toHaveBeenCalled();
-}, 10_000);
-
-// ---------------------------------------------------------------------------
-// Test 2: self-birth (isLocalHostId=true) — no SSH, runs the wait-for-supervisor
-// poll with conn=null (LOCAL branch of discoverIdentitySessionFile reads the
-// container's bind-mounted host `.claude/projects/` via node fs). LOCAL branch
-// runs Steps 1, 2 (via execLocal) + 6, 7, 8 (writeIdentityFile routes to node
-// fs) + the supervisor-wait (with null conn).
-// Updated 2026-09-13: local branch now goes through the wait for uniformity
-// with the remote branch — bind-mount added in docker-compose.yml, sensor
-// signature widened to (Client | null).
-// ---------------------------------------------------------------------------
-
-it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH, runs 1+2+6+7+8, runs wait-poll with null conn", async () => {
-  mockIsLocalHostId.mockReturnValue(true);
-
-  // execLocal returns "" for mkdir/touch, "/home/test" for `echo $HOME` (Step 2.5
-  // resolves $HOME via this exec — empty string would fail the guard).
-  const mockExecLocal = vi.fn().mockImplementation(async (cmd: string) => {
-    if (cmd.includes("echo $HOME")) return "/home/test";
-    return "";
-  });
-  const mockDiscover = vi.fn().mockResolvedValue("/mock/session.jsonl");
-  const mockCreateOrUpdate = vi
-    .fn()
-    .mockResolvedValue({ ok: true, mxid: "@test:example.com", password: "pw", status: 201 });
-  const mockLoginAsUser = vi
-    .fn()
-    .mockResolvedValue({ ok: true, accessToken: "syt_fake" });
-  const deps = makeDeps({
-    execLocal: mockExecLocal,
-    discoverIdentitySessionFile: mockDiscover,
-    matrixCreateOrUpdateUser: mockCreateOrUpdate,
-    matrixLoginAsUser: mockLoginAsUser,
-  });
-  const opts = makeOpts({ hostId: 5 });
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // connectOneShot was NEVER called for local branch
-  expect(mockConnectOneShot).not.toHaveBeenCalled();
-
-  // execLocal was called for step 1 (collision probe) + step 2 (mkdir + $HOME
-  // resolve + identity-dir mkdir).
-  expect(mockExecLocal).toHaveBeenCalled();
-
-  // LOCAL branch NOW runs 6/7/8 — matrix mint fires, identity file + relay.json
-  // land on disk via writeMarkdownFileAtomic(null,...) + writeIdentityFile LOCAL.
-  expect(mockCreateOrUpdate).toHaveBeenCalled();
-  expect(mockLoginAsUser).toHaveBeenCalled();
-
-  // Step 2.5 writes: deps.writeMarkdownFileAtomic + deps.writeAvatarSiblingFile
-  // are both called with conn === null on the LOCAL branch.
-  expect(deps.writeMarkdownFileAtomic).toHaveBeenCalledWith(null, expect.any(String), expect.any(String));
-  expect(deps.writeAvatarSiblingFile).toHaveBeenCalledWith(null, opts.name, expect.any(String), expect.any(Buffer));
-
-  // 2026-09-13: LOCAL branch now runs the wait-poll with null conn. The mock
-  // resolves to a real path on the first tick, so the loop exits immediately.
-  expect(mockDiscover).toHaveBeenCalled();
-  expect(mockDiscover.mock.calls[0][0]).toBeNull();
-  expect(mockDiscover.mock.calls[0][1]).toBe(opts.name);
-
-  // Ended{ok:true}
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect(endedEvent).toBeDefined();
-  expect((endedEvent as { type: "ended"; ok: boolean }).ok).toBe(true);
-
-  // Step-event set covers 1, 2, 6, 7, 8 (each started+completed) = 10 step
-  // events + 1 ended = 11.
-  const stepEvents = events.filter((e) => e.type === "step");
-  const stepNums = new Set(stepEvents.map((e) => (e as { n: number }).n));
-  expect(stepNums).toEqual(new Set([1, 2, 6, 7, 8]));
-}, 10_000);
-
-// Test 2b (LOCAL collision detection via fs.access) was drafted but the
-// vitest fs/promises mock + module-level access mock don't cooperate for
-// per-test overrides in the way birthIdentity is structured (mock caching
-// across the dynamic-imported writeIdentityFile primitive). Production
-// behavior of the HIGH #1 fix (fs.access on LOCAL branch) is exercised by
-// the E2E spawn-request test on t1000 — a duplicate spawn-request would
-// hit the collision-detect throw at Step 1.
-
-// ---------------------------------------------------------------------------
-// Test 3: Phase 68 — getCandidateForBirth still called with (userId, avatarCandidateId)
-// ---------------------------------------------------------------------------
-
-it("Test 3: Phase 68 — getCandidateForBirth called; no DB createIdentityRecord/getIdentityRecord", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
   });
 
-  const avatarBytes = Buffer.from("avatar-png-bytes");
-  const mockGetCandidate = vi.fn().mockReturnValue({ bytes: avatarBytes, mime: "image/png" });
-
-  const deps = makeDeps({
-    getCandidateForBirth: mockGetCandidate,
-  });
-
-  const opts = makeOpts({
-    name: "testkey",
-    title: "Test Title",
-    colorHue: 210,
-    voice: "Joanna",
-    avatarCandidateId: "cand-xyz",
-  });
-
-  const { events, emit } = collectEvents();
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // getCandidateForBirth was called with (userId, avatarCandidateId)
-  expect(mockGetCandidate).toHaveBeenCalledWith(opts.userId, opts.avatarCandidateId);
-
-  // Phase 68: no DB helpers exist on BirthDeps — only disk operations run
-  // (createIdentityRecord + getIdentityRecord were deleted from the interface)
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect(endedEvent).toBeDefined();
-  expect((endedEvent as { type: "ended"; ok: boolean }).ok).toBe(true);
-}, 10_000);
-
-// ---------------------------------------------------------------------------
-// Test 4: Phase 68 — on-disk collision probe: identity already exists → step failed
-// ---------------------------------------------------------------------------
-
-it("Test 4: Phase 68 — on-disk collision probe: existing folder returns step failed with 'already exists'", async () => {
-  // Simulate the SSH collision probe returning "exists"
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    // Collision probe returns "exists"
-    if (typeof cmd === "string" && cmd.includes("identities") && cmd.includes("testkey") && cmd.includes("if [ -d")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
-  const opts = makeOpts();
-  const { events, emit } = collectEvents();
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // A step failure should have occurred
-  const failedEvent = events.find(
-    (e) => e.type === "step" && e.phase === "failed",
-  );
-  expect(failedEvent).toBeDefined();
-  expect((failedEvent as { reason?: string }).reason).toMatch(/already exists/i);
-
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect(endedEvent).toBeDefined();
-  expect((endedEvent as { type: "ended"; ok: boolean }).ok).toBe(false);
-});
-
-// ---------------------------------------------------------------------------
-// Test 5: Phase 68 — ended event identityId carries opts.name (the identityKey)
-// ---------------------------------------------------------------------------
-
-it("Test 5: Phase 68 — ended event identityId carries opts.name (not a nanoid)", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
-  const opts = makeOpts({ name: "testkey" });
-  const { events, emit } = collectEvents();
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  const endedEvent = events.find((e) => e.type === "ended" && (e as { ok: boolean }).ok === true);
-  expect(endedEvent).toBeDefined();
-  // identityId must be the identityKey (opts.name), not a nanoid
-  expect((endedEvent as { identityId?: string }).identityId).toBe("testkey");
-  expect((endedEvent as { sessionName?: string }).sessionName).toBe("testkey");
-}, 10_000);
-
-// ---------------------------------------------------------------------------
-// Test 6: Phase 106 — Step 2 does NOT open a tmux session (retired per D-01)
-// ---------------------------------------------------------------------------
-// The per-session `tmux new-session -d -s <name> ...` invocation is retired
-// from birth orchestrator. agent-supervisor.sh's 15s reconcile tick is now
-// the sole party that opens the tmux session for the new identity. Verified
-// via ZERO exec calls containing "tmux new-session" during birthIdentity.
-
-it("Test 6: Phase 106 — Step 2 exec does NOT contain `tmux new-session` (retired per D-01)", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
-  const opts = makeOpts({ name: "testkey", path: "/workspace/testkey" });
-  const { emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // No exec invocation should carry a `tmux new-session` fragment — the
-  // per-session tmux invocation is now agent-supervisor.sh's job.
-  const tmuxNewSessionCall = mockExecCommand.mock.calls.find(
-    (call: unknown[]) =>
-      typeof call[1] === "string" &&
-      (call[1] as string).includes("tmux new-session"),
-  );
-  expect(tmuxNewSessionCall).toBeUndefined();
-
-  // Step 2's mkdir -p on the target path IS still present (this is what
-  // survives the tmux retirement in the Step 2 body).
-  const mkdirPathCall = mockExecCommand.mock.calls.find(
-    (call: unknown[]) =>
-      typeof call[1] === "string" &&
-      (call[1] as string).startsWith("mkdir -p ") &&
-      (call[1] as string).includes("testkey"),
-  );
-  expect(mkdirPathCall).toBeDefined();
-}, 10_000);
-
-// ---------------------------------------------------------------------------
-// Test 6b: Step 2 creates wakeups/ + workspace/ sub-parts at identity birth
-// (D-04: workspace/ is a generic working directory inside every identity folder)
-// ---------------------------------------------------------------------------
-
-it("Test 6b: Step 2 identity-tree mkdir creates both wakeups/ and workspace/ sub-parts per D-04", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
-  const opts = makeOpts({ name: "agent1" });
-  const { emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // Find the identity-tree mkdir command (contains "wakeups" — this is the
-  // Step 2.5 mkdir for the identity folder tree).
-  const identityTreeMkdir = mockExecCommand.mock.calls.find(
-    (call: unknown[]) =>
-      typeof call[1] === "string" &&
-      (call[1] as string).includes("wakeups"),
-  );
-
-  expect(identityTreeMkdir).toBeDefined();
-  const mkdirCmd = identityTreeMkdir![1] as string;
-
-  // Both sub-parts must be present in a single mkdir -p invocation (D-04)
-  expect(mkdirCmd).toContain("mkdir -p");
-  expect(mkdirCmd).toContain("wakeups"); // wakeups/ sub-part
-  expect(mkdirCmd).toContain("workspace"); // workspace/ sub-part per D-04
-  expect(mkdirCmd).toContain("fleet/identities/agent1"); // fleet-tree path
-}, 10_000);
-
-// ---------------------------------------------------------------------------
-// Phase 106 Plan 106-03 wait-for-supervisor tests (Tests A / B / C / D)
-//
-// The birth orchestrator's terminal condition is now supervisor-observable
-// disk state (transcript JSONL with `/id <name>` first-turn on the target
-// host), not Skynet-driven action. The wait block runs after Steps 6/7/8's
-// mint sequence completes, polls the injected discoverIdentitySessionFile
-// dep every WAIT_FOR_SUPERVISOR_POLL_MS, and closes the stream with
-// ended{ok:true} on first non-null result or ended{ok:false,
-// reason:"supervisor_wait_timeout"} after WAIT_FOR_SUPERVISOR_TIMEOUT_MS.
-// ---------------------------------------------------------------------------
-
-it("Test A (Phase 106): emits ended:ok:true after discoverIdentitySessionFile returns non-null on 3rd poll", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
-
-  // Mock the discovery sensor: returns null twice, then a real path on the 3rd
-  // poll. This proves the wait-poll loop keeps ticking on null and terminates
-  // successfully as soon as the sensor sees the transcript file appear.
-  const mockDiscover = vi
-    .fn()
-    .mockResolvedValueOnce(null)
-    .mockResolvedValueOnce(null)
-    .mockResolvedValueOnce("/home/ubuntu/.claude/projects/found/session.jsonl");
-
-  const deps = makeDeps({ discoverIdentitySessionFile: mockDiscover });
-  const opts = makeOpts({ name: "testkey" });
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-
-  // Advance through Step 2's STEP_2_SLEEP_MS + wait-poll sleeps. Two null
-  // returns → two 2s sleeps between polls; third call returns non-null so the
-  // loop exits. Use runAllTimersAsync to drain the whole cascade in one shot
-  // (the mock resolves synchronously in the same tick each poll fires).
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // Discovery was called exactly 3 times — proves the poll loop respected the
-  // null-return cadence and stopped on first non-null.
-  expect(mockDiscover).toHaveBeenCalledTimes(3);
-
-  // Every poll was invoked with (conn, identityName)
-  for (const call of mockDiscover.mock.calls) {
-    expect(call[1]).toBe("testkey");
-  }
-
-  // Terminal event: ended{ok:true, identityId, sessionName}
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect(endedEvent).toBeDefined();
-  expect((endedEvent as { ok: boolean; identityId?: string; sessionName?: string }).ok).toBe(true);
-  expect((endedEvent as { identityId?: string }).identityId).toBe("testkey");
-  expect((endedEvent as { sessionName?: string }).sessionName).toBe("testkey");
-
-  // D-12 forensics: step:6, step:7, step:8 breadcrumbs still emit BEFORE the
-  // ended event (proves the mint sequence ran to completion — the wait block
-  // sits AFTER the Step 8 relay.json write).
-  const endedIdx = events.indexOf(endedEvent!);
-  for (const n of [6, 7, 8]) {
-    const startedIdx = events.findIndex(
-      (e) => e.type === "step" && (e as { n: number }).n === n && (e as { phase: string }).phase === "started",
-    );
-    const completedIdx = events.findIndex(
-      (e) => e.type === "step" && (e as { n: number }).n === n && (e as { phase: string }).phase === "completed",
-    );
-    expect(startedIdx).toBeGreaterThanOrEqual(0);
-    expect(completedIdx).toBeGreaterThan(startedIdx);
-    expect(completedIdx).toBeLessThan(endedIdx);
-  }
-}, 30_000);
-
-it("Test B (Phase 106): emits ended:ok:false reason:supervisor_wait_timeout after 120s of null returns", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
-
-  // Always-null: the transcript file never appears; the wait block must run
-  // out its full 120s window.
-  const mockDiscover = vi.fn().mockResolvedValue(null);
-
-  // Reset the logger warn spy so we can assert cleanly on the timeout call.
-  mockDatabaseLoggerWarn.mockClear();
-
-  const deps = makeDeps({ discoverIdentitySessionFile: mockDiscover });
-  const opts = makeOpts({ name: "testkey", hostId: 42 });
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  // Drain the whole cadence in one shot — runAllTimersAsync steps through
-  // every setTimeout the orchestrator queues (Step 2 sleep + the full
-  // WAIT_FOR_SUPERVISOR_TIMEOUT_MS window's poll sleeps).
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // Terminal event: ended{ok:false, reason:"supervisor_wait_timeout"}. No
-  // failedStep is set (this isn't a Step N failure — the mint sequence
-  // completed; the supervisor just never picked the identity up).
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect(endedEvent).toBeDefined();
-  expect((endedEvent as { ok: boolean }).ok).toBe(false);
-  expect((endedEvent as { reason?: string }).reason).toBe(
-    "supervisor_wait_timeout",
-  );
-
-  // Mock was called ~150 times over the 300s window at 2s cadence. The exact
-  // count depends on when Date.now() ticks over the timeout boundary — allow
-  // an off-by-one window rather than pinning the exact integer.
-  const expectedCalls = Math.floor(
-    WAIT_FOR_SUPERVISOR_TIMEOUT_MS / WAIT_FOR_SUPERVISOR_POLL_MS,
-  );
-  expect(mockDiscover.mock.calls.length).toBeGreaterThanOrEqual(
-    expectedCalls - 1,
-  );
-  expect(mockDiscover.mock.calls.length).toBeLessThanOrEqual(
-    expectedCalls + 1,
-  );
-
-  // Structured warn log fires on the operation-key defined in the wait block
-  // (identity_birth_supervisor_wait_timeout) — proves the log-forensic
-  // breadcrumb lands for post-mortem correlation per D-08.
-  const timeoutWarnCall = mockDatabaseLoggerWarn.mock.calls.find(
-    (call: unknown[]) =>
-      typeof call[1] === "object" &&
-      call[1] !== null &&
-      (call[1] as { operation?: string }).operation ===
-        "identity_birth_supervisor_wait_timeout",
-  );
-  expect(timeoutWarnCall).toBeDefined();
-  const warnPayload = timeoutWarnCall![1] as {
-    identityKey?: string;
-    hostId?: number;
-    timeoutMs?: number;
-  };
-  expect(warnPayload.identityKey).toBe("testkey");
-  expect(warnPayload.hostId).toBe(42);
-  expect(warnPayload.timeoutMs).toBe(WAIT_FOR_SUPERVISOR_TIMEOUT_MS);
-}, 30_000);
-
-it("Test C (Phase 106): SSH-error-during-poll — discoverIdentitySessionFile returns null throughout (fail-safe contract) → supervisor_wait_timeout", async () => {
-  // Per discover-identity-session-file.ts:319-321, the helper is fail-safe:
-  // SSH exec errors during the discovery script return null, not throw. This
-  // test mirrors that contract — from the orchestrator's perspective an
-  // SSH-error tick looks identical to a "signal not found" tick, and the
-  // wait block treats both the same way: keep polling until the timeout.
-  // Guards against a future refactor treating discovery errors as a hard
-  // failure that emits step:8:failed instead of supervisor_wait_timeout.
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
-
-  // Fail-safe: the helper returns null on any internal SSH error. This test
-  // uses the null-return shape (preferred per module contract at :319-321)
-  // to simulate the SSH-error path.
-  const mockDiscover = vi.fn().mockResolvedValue(null);
-
-  const deps = makeDeps({ discoverIdentitySessionFile: mockDiscover });
-  const opts = makeOpts({ name: "testkey" });
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // Same terminal shape as Test B — reason must be supervisor_wait_timeout,
-  // NOT some SSH-error-specific reason string. Fail-safe contract preserved.
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect(endedEvent).toBeDefined();
-  expect((endedEvent as { ok: boolean }).ok).toBe(false);
-  expect((endedEvent as { reason?: string }).reason).toBe(
-    "supervisor_wait_timeout",
-  );
-
-  // No step:N:failed emitted — the wait-poll timeout is NOT a step failure.
-  const stepFailedEvent = events.find(
-    (e) => e.type === "step" && (e as { phase: string }).phase === "failed",
-  );
-  expect(stepFailedEvent).toBeUndefined();
-}, 30_000);
-
-it("Test D (Phase 106 / D-12 forensics): step:6/step:7/step:8 breadcrumbs still emit on happy path", async () => {
-  // D-12 lock: intermediate step events stay on the wire during the mint
-  // block (step:1, step:2, step:6, step:7, step:8) purely as backend
-  // log-forensic breadcrumbs — the frontend discards them, but backend log
-  // correlation requires them present for per-step failure attribution.
-  // This test explicitly pins that D-12 invariant so any future refactor
-  // that quietly drops intermediate emits gets caught.
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
-
-  // Happy-path discovery returns non-null on first call so the wait-poll
-  // exits immediately with success and doesn't dominate the event log.
-  const mockDiscover = vi.fn().mockResolvedValue("/mock/session.jsonl");
-  const deps = makeDeps({ discoverIdentitySessionFile: mockDiscover });
-  const opts = makeOpts();
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // Assert step:6/7/8 breadcrumbs are PRESENT on the wire — literal object
-  // shapes so grep(`n: 6`) and grep(`n: 8`) catch this test in the
-  // acceptance-criteria guard for D-12 preservation.
-  expect(events).toContainEqual({ type: "step", n: 6, phase: "started" });
-  expect(events).toContainEqual({ type: "step", n: 6, phase: "completed" });
-  expect(events).toContainEqual({ type: "step", n: 7, phase: "started" });
-  expect(events).toContainEqual({ type: "step", n: 7, phase: "completed" });
-  expect(events).toContainEqual({ type: "step", n: 8, phase: "started" });
-  expect(events).toContainEqual({ type: "step", n: 8, phase: "completed" });
-
-  // Ordering: every step:6/7/8 emit comes BEFORE the ended event (proves
-  // the wait block sits AFTER the mint sequence).
-  const endedIdx = events.findIndex((e) => e.type === "ended");
-  expect(endedIdx).toBeGreaterThanOrEqual(0);
-  for (const n of [6, 7, 8]) {
-    const startedIdx = events.findIndex(
-      (e) => e.type === "step" && (e as { n: number }).n === n && (e as { phase: string }).phase === "started",
-    );
-    const completedIdx = events.findIndex(
-      (e) => e.type === "step" && (e as { n: number }).n === n && (e as { phase: string }).phase === "completed",
-    );
-    expect(startedIdx).toBeGreaterThanOrEqual(0);
-    expect(completedIdx).toBeGreaterThan(startedIdx);
-    expect(completedIdx).toBeLessThan(endedIdx);
-  }
-
-  // Terminal ended:ok:true (happy path completes end-to-end).
-  const endedEvent = events[endedIdx];
-  expect((endedEvent as { ok: boolean }).ok).toBe(true);
-}, 30_000);
-
-
-// ---------------------------------------------------------------------------
-// Test 15: avatar candidate cache miss → step:1:failed:candidate-expired
-// ---------------------------------------------------------------------------
-
-it("Test 15: avatar candidate cache miss → step:1:failed with avatar reason", async () => {
-  const mockGetCandidate = vi.fn().mockReturnValue(null); // cache miss
-
-  const deps = makeDeps({ getCandidateForBirth: mockGetCandidate });
-  const opts = makeOpts({ avatarCandidateId: "nonexistent-cand" });
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  const failedEvent = events.find(
-    (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
-  );
-  expect(failedEvent).toBeDefined();
-  expect((failedEvent as { reason?: string }).reason).toMatch(/avatar/i);
-
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect((endedEvent as { ok: boolean; failedStep?: number }).failedStep).toBe(1);
-});
-
-// ---------------------------------------------------------------------------
-// Test 16: SSH connect timeout → step:1:failed (Phase 68 SHAPE B: SSH connects before Step 1)
-// ---------------------------------------------------------------------------
-
-it("Test 16: SSH connect timeout → step:1:failed with timeout/unreachable reason (SHAPE B: SSH hoisted before Step 1)", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  mockConnectOneShot.mockRejectedValue(
-    new Error("Connect timeout after 30000ms"),
-  );
-
-  const deps = makeDeps();
-  const opts = makeOpts();
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // Phase 68 SHAPE B: SSH connect happens before Step 1 (collision probe).
-  // Connect failure surfaces as step:1:failed (not step:2:failed).
-  const failedEvent = events.find(
-    (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
-  );
-  expect(failedEvent).toBeDefined();
-  // Reason must contain timeout or unreachable (no raw stack or IP leak)
-  const reason = (failedEvent as { reason?: string }).reason ?? "";
-  expect(reason.match(/timeout|unreachable/i)).not.toBeNull();
-
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect((endedEvent as { ok: boolean; failedStep?: number }).failedStep).toBe(1);
-});
-
-// ---------------------------------------------------------------------------
-// Test 17: orchestrator IDENTITY_KEY_RE gate on name
-// ---------------------------------------------------------------------------
-
-it("Test 17: name with space fails IDENTITY_KEY_RE gate before any SSH", async () => {
-  const deps = makeDeps();
-  const opts = makeOpts({ name: "Bad Name" }); // has space — invalid
-
-  const { events, emit } = collectEvents();
-
-  await expect(birthIdentity(opts, emit, deps)).rejects.toThrow();
-
-  // No SSH connection opened
-  expect(mockConnectOneShot).not.toHaveBeenCalled();
-
-  // No step events (validation fires before step 1)
-  const stepEvents = events.filter((e) => e.type === "step");
-  expect(stepEvents.length).toBe(0);
-});
-
-// ---------------------------------------------------------------------------
-// Test 18: path normalization (Phase 106: Step 2 exec is `mkdir -p <path>`
-// only — the tmux new-session invocation is retired per D-01, so path
-// normalization is now inspected on the bare mkdir exec)
-// ---------------------------------------------------------------------------
-
-it("Test 18: path normalization — backslashes → forward slashes; tilde → $HOME shell expansion", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-
-  const allCmds: string[] = [];
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    allCmds.push(cmd as string);
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
-
-  // Test backslash normalization. Post-Phase-106, Step 2's target-path exec
-  // is `mkdir -p <path>` (no `&& tmux new-session ...` tail). Find the exec
-  // that mentions the normalized path fragment `home/ubuntu/test` — the
-  // wakeups-dir mkdir uses `fleet/identities/<name>` so the target-path
-  // mkdir is uniquely identifiable by containing `/home/ubuntu/test`.
-  const deps1 = makeDeps();
-  const opts1 = makeOpts({ path: "\\home\\ubuntu\\test" });
-  const { emit: emit1 } = collectEvents();
-  const bp1 = birthIdentity(opts1, emit1, deps1);
-  await vi.runAllTimersAsync();
-  await bp1;
-
-  const step2Cmd1 = allCmds.find(
-    (cmd) => cmd.startsWith("mkdir -p ") && cmd.includes("home/ubuntu/test"),
-  );
-  expect(step2Cmd1).toBeDefined();
-  // Backslashes should be normalized to forward slashes
-  expect(step2Cmd1!).toContain("/home/ubuntu/test");
-  expect(step2Cmd1!).not.toContain("\\");
-
-  // Reset
-  allCmds.length = 0;
-  mockExecCommand.mockClear();
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    allCmds.push(cmd as string);
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-    if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-      return Promise.resolve("exists");
-    }
-    return Promise.resolve("");
-  });
-
-  // Test tilde normalization — should use $HOME (unquoted for shell expansion)
-  const deps2 = makeDeps();
-  const opts2 = makeOpts({ path: "~" });
-  const { emit: emit2 } = collectEvents();
-  const bp2 = birthIdentity(opts2, emit2, deps2);
-  await vi.runAllTimersAsync();
-  await bp2;
-
-  // The mkdir target-path exec must reference $HOME (shell-expandable) rather
-  // than a literal tilde character.
-  const step2Cmd2 = allCmds.find(
-    (cmd) => cmd.startsWith("mkdir -p ") && cmd.includes("$HOME"),
-  );
-  expect(step2Cmd2).toBeDefined();
-  expect(step2Cmd2!).toMatch(/\$HOME/);
-}, 20_000);
-
-// ---------------------------------------------------------------------------
-// CR-02: TMUX_SAFE_NAME_RE stricter gate
-// ---------------------------------------------------------------------------
-
-describe("CR-02: TMUX_SAFE_NAME_RE stricter gate", () => {
-  it.each(["foo=bar", "foo/bar", "foo+bar", "foo.bar"])(
-    "rejects name with tmux-unsafe char '%s' before any dep is called",
-    async (evilName) => {
-      const deps = makeDeps({
-        getCandidateForBirth: vi.fn(),
-        connectOneShot: mockConnectOneShot,
-        execCommand: mockExecCommand,
-        execLocal: vi.fn(),
-        isLocalHostId: mockIsLocalHostId,
-        resolveHostById: vi.fn(),
-        fsp: {
-          readFile: vi.fn(),
-          writeFile: vi.fn(),
-        },
-      });
-      const opts = makeOpts({ name: evilName });
-      const { emit } = collectEvents();
-
-      await expect(birthIdentity(opts, emit, deps)).rejects.toThrow(
-        /unsafe for tmux target/,
-      );
-
-      // No SSH/exec deps should have been called (DB deps removed in Phase 68)
-      expect(deps.getCandidateForBirth).not.toHaveBeenCalled();
-      expect(mockConnectOneShot).not.toHaveBeenCalled();
-      expect(mockExecCommand).not.toHaveBeenCalled();
-      expect(deps.execLocal).not.toHaveBeenCalled();
-    },
-  );
-
-  it("accepts a lowercase name with dashes and underscores and reaches getCandidateForBirth", async () => {
-    // A well-formed name like "test_agent-1" must pass both IDENTITY_KEY_RE and
-    // TMUX_SAFE_NAME_RE and proceed to step 1 (where getCandidateForBirth is called).
-    // We short-circuit by returning null from getCandidateForBirth (avatar cache miss)
-    // which causes a step:1:failed — but the key assertion is that getCandidateForBirth
-    // WAS called, proving both validation gates passed.
-    const mockGetCandidate = vi.fn().mockReturnValue(null); // cache miss → step 1 fails
-    const deps = makeDeps({ getCandidateForBirth: mockGetCandidate });
-    const opts = makeOpts({ name: "test-agent1" });
+  it("Matrix mint fires BEFORE SSH connect (mint-first invariant)", async () => {
     const { emit } = collectEvents();
+    const orderLog: string[] = [];
 
-    // Should NOT throw from validation — only from step 1 avatar cache miss
-    // (birthIdentity catches step failures internally and emits events, does not rethrow)
-    await expect(birthIdentity(opts, emit, deps)).resolves.toBeUndefined();
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: vi.fn().mockImplementation(async () => {
+        orderLog.push("mint");
+        return {
+          ok: true,
+          mxid: "@testkey:example.com",
+          password: "pw",
+          status: 201,
+        };
+      }),
+      connectOneShot: vi.fn().mockImplementation(async () => {
+        orderLog.push("ssh_connect");
+        return { end: vi.fn() };
+      }),
+    });
 
-    // getCandidateForBirth was called, confirming we passed both name gates
-    expect(mockGetCandidate).toHaveBeenCalled();
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    expect(orderLog[0]).toBe("mint");
+    expect(orderLog[1]).toBe("ssh_connect");
   });
-});
 
-// ---------------------------------------------------------------------------
-// Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)
-//
-// Test coverage:
-//   A: happy path 1-8 — full sequence emits step:6/7/8 completed events
-//   B: step 6 failure does NOT roll back folder (Q2 agent-supervisor race)
-//   B2: step 6.5 (matrixLoginAsUser) failure does NOT roll back folder
-//       (Q2 agent-supervisor race)
-//   C: step 8 (SFTP write) failure does NOT roll back folder or Synapse
-//      account (Q2 agent-supervisor race)
-//   C2: chmod 600 failure fails step 8 without rollback
-//       (Q2 agent-supervisor race)
-//   D: useLocal skips 6-8 entirely
-//   E: retry helper idempotency (runRelayMintAndWrite called twice succeeds)
-//
-// The Q2 no-rollback lock is proven by:
-//   - Test name containing the phrase "Q2 agent-supervisor race" (W-3 lock —
-//     grep-recoverable rationale that survives casual refactors)
-//   - Explicit assertion that mockExecCommand.mock.calls contains no
-//     `rm -rf` string in any invocation (anti-rollback grep pattern)
-// ---------------------------------------------------------------------------
+  it("execCommand called exactly ONCE (the atomic peer-commit script)", async () => {
+    const { emit } = collectEvents();
+    const deps = makeDeps();
 
-import { runRelayMintAndWrite } from "./identity-birth-orchestrator.js";
-
-describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
-  // Anti-rollback assertion helper — asserts NO execCommand call issued any
-  // `rm -rf` (or `rm ` in general) that would delete the identity folder.
-  // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode +
-  // agent-supervisor race.
-  function assertNoRmRfInExecCalls(mockFn: Mock): void {
-    const rmCalls = mockFn.mock.calls.filter(
-      (call: unknown[]) =>
-        typeof call[1] === "string" && /rm\s+-rf|rm\s+-r|rm\s+-f/.test(call[1] as string),
-    );
-    expect(rmCalls).toHaveLength(0);
-  }
-
-  // ---- Test A: happy path 1-8 ----
-  it("Test A: happy path — emits step:6/7/8 in order, calls matrixLoginAsUser between step 6 and step 7, applies chmod 600", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("exists");
-      }
-      return Promise.resolve("");
-    });
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent1:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token_abc123" });
-    const mockBuildRelay = vi.fn().mockImplementation((o) =>
-      JSON.stringify({
-        base: `${o.homeserverBase}/_matrix/client/v3`,
-        user_id: o.mxid,
-        password: o.password,
-        token: o.accessToken,
-        access_token: o.accessToken,
-      }),
-    );
-    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-      matrixHomeserver: "http://matrix.local:8008",
-      writeMarkdownFileAtomic: mockWriteMd,
-    });
-    const opts = makeOpts({ name: "agent1" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
     await vi.runAllTimersAsync();
     await birthPromise;
 
-    // Assert step 6/7/8 emit sequence
-    for (const n of [6, 7, 8]) {
-      const startedIdx = events.findIndex(
-        (e) => e.type === "step" && e.n === n && e.phase === "started",
-      );
-      const completedIdx = events.findIndex(
-        (e) => e.type === "step" && e.n === n && e.phase === "completed",
-      );
-      expect(startedIdx).toBeGreaterThanOrEqual(0);
-      expect(completedIdx).toBeGreaterThan(startedIdx);
-    }
+    // Just the peer-commit script (opts.path is "~/" → normalizes to $HOME,
+    // best-effort mkdir is skipped).
+    expect(mockExecCommand).toHaveBeenCalledTimes(1);
+  });
 
-    // Ended with ok:true
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect(endedEvent).toBeDefined();
-    expect((endedEvent as { ok: boolean }).ok).toBe(true);
+  it("custom opts.path triggers best-effort mkdir AFTER peer commit", async () => {
+    const { emit } = collectEvents();
+    const deps = makeDeps();
 
-    // matrixCreateOrUpdateUser called with mxid + hex password + displayname
-    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(1);
-    const [mxidArg, passwordArg, displaynameArg] = mockCreateOrUpdate.mock.calls[0];
-    expect(mxidArg).toBe("@agent1:matrix.local");
-    expect(passwordArg).toMatch(/^[a-f0-9]{48}$/); // 48-char hex from crypto.randomBytes(24)
-    expect(displaynameArg).toBe("Agent1"); // capitalize(opts.name)
-
-    // matrixLoginAsUser called with same mxid (D-OQ6 proof)
-    expect(mockLoginAsUser).toHaveBeenCalledTimes(1);
-    expect(mockLoginAsUser.mock.calls[0][0]).toBe("@agent1:matrix.local");
-
-    // buildRelayJsonBody called with non-empty accessToken (from login)
-    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
-    const relayArg = mockBuildRelay.mock.calls[0][0];
-    expect(relayArg.accessToken).toBe("syt_real_token_abc123");
-    expect(relayArg.accessToken.length).toBeGreaterThan(0);
-    expect(relayArg.mxid).toBe("@agent1:matrix.local");
-
-    // Phase 92 Plan 92-01 Task 2: Step 8's relay.json write now routes
-    // through per-identity-file.writeIdentityFile → module-level
-    // writeMarkdownFileAtomic (mockWriteMarkdownFileAtomicModule), NOT
-    // deps.writeMarkdownFileAtomic (mockWriteMd). deps.writeMarkdownFileAtomic
-    // stays wired for Step 2.5's identity .md write.
-    const moduleWriteCalls = mockWriteMarkdownFileAtomicModule.mock.calls;
-    const relayJsonWrite = moduleWriteCalls.find(
-      (c: unknown[]) => typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
-    );
-    expect(relayJsonWrite).toBeDefined();
-    expect(relayJsonWrite![1]).toContain("fleet/identities/agent1/relay.json");
-
-    // chmod 600 was called on the relay.json path — S-1 lock proof
-    const chmodCalls = mockExecCommand.mock.calls.filter(
-      (c: unknown[]) =>
-        typeof c[1] === "string" && /chmod\s+600\s+.*relay\.json/.test(c[1] as string),
-    );
-    expect(chmodCalls.length).toBeGreaterThanOrEqual(1);
-  }, 30_000);
-
-  // ---- Test B: step 6 failure does NOT roll back folder (Q2 agent-supervisor race) ----
-  it("Test B: step 6 (createOrUpdateUser) failure does NOT roll back folder (Q2 agent-supervisor race)", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("exists");
-      }
-      return Promise.resolve("");
-    });
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: false, status: 502, error: "admin_api_proxy_error" });
-    const mockLoginAsUser = vi.fn();
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-    });
-    const opts = makeOpts({ name: "agent1" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    // step:6:failed emitted with admin_mint_failed reason
-    const failedEvent = events.find(
-      (e) => e.type === "step" && e.n === 6 && e.phase === "failed",
-    );
-    expect(failedEvent).toBeDefined();
-    expect((failedEvent as { reason?: string }).reason).toMatch(/admin_mint_failed/);
-
-    // ended{ok:false, failedStep:6}
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect(endedEvent).toBeDefined();
-    expect((endedEvent as { ok: boolean }).ok).toBe(false);
-    expect((endedEvent as { failedStep?: number }).failedStep).toBe(6);
-
-    // Step 1 folder-create completed (proves the folder is still on disk)
-    const step1Completed = events.find(
-      (e) => e.type === "step" && e.n === 1 && e.phase === "completed",
-    );
-    expect(step1Completed).toBeDefined();
-
-    // matrixLoginAsUser was NEVER called (createOrUpdateUser failed first)
-    expect(mockLoginAsUser).not.toHaveBeenCalled();
-
-    // Q2 anti-rollback assertion: NO rm/rm -rf call in any execCommand invocation
-    assertNoRmRfInExecCalls(mockExecCommand);
-  }, 30_000);
-
-  // ---- Test B2: step 6.5 (matrixLoginAsUser) failure does NOT roll back ----
-  it("Test B2: step 6.5 (matrixLoginAsUser) failure does NOT roll back folder (Q2 agent-supervisor race)", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("exists");
-      }
-      return Promise.resolve("");
-    });
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent1:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: false, status: 502, error: "admin_api_proxy_error" });
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-    });
-    const opts = makeOpts({ name: "agent1" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    // Failure attributed to step 6 (login inside runStep(6) per D-OQ6 lock)
-    const failedEvent = events.find(
-      (e) => e.type === "step" && e.n === 6 && e.phase === "failed",
-    );
-    expect(failedEvent).toBeDefined();
-    expect((failedEvent as { reason?: string }).reason).toMatch(/admin_login_failed/);
-
-    // ended{ok:false, failedStep:6}
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect(endedEvent).toBeDefined();
-    expect((endedEvent as { ok: boolean }).ok).toBe(false);
-
-    // createOrUpdateUser was called (succeeded) but login failed
-    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(1);
-    expect(mockLoginAsUser).toHaveBeenCalledTimes(1);
-
-    // Q2 anti-rollback assertion
-    assertNoRmRfInExecCalls(mockExecCommand);
-  }, 30_000);
-
-  // ---- Test C: step 8 SFTP write failure does NOT roll back (Q2 agent-supervisor race) ----
-  it("Test C: step 8 (SFTP write) failure does NOT roll back folder or Synapse account (Q2 agent-supervisor race)", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("exists");
-      }
-      return Promise.resolve("");
-    });
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent1:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
-
-    // Phase 92 Plan 92-01 Task 2: Step 8's write now routes through the
-    // module-level writeMarkdownFileAtomic (via per-identity-file). Reject
-    // relay.json writes there, not on deps.writeMarkdownFileAtomic.
-    // deps.writeMarkdownFileAtomic (Step 2.5 identity.md write) remains no-op.
-    let writeCallCount = 0;
-    mockWriteMarkdownFileAtomicModule.mockImplementation(
-      (_conn: unknown, targetPath: string) => {
-        writeCallCount += 1;
-        if (
-          typeof targetPath === "string" &&
-          targetPath.endsWith("/relay.json")
-        ) {
-          return Promise.reject(new Error("sftp_write_failed"));
-        }
-        return Promise.resolve(undefined);
-      },
-    );
-    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      writeMarkdownFileAtomic: mockWriteMd,
-    });
-    const opts = makeOpts({ name: "agent1" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    // step:8:failed + ended{ok:false, failedStep:8}
-    const failedEvent = events.find(
-      (e) => e.type === "step" && e.n === 8 && e.phase === "failed",
-    );
-    expect(failedEvent).toBeDefined();
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect(endedEvent).toBeDefined();
-    expect((endedEvent as { ok: boolean }).ok).toBe(false);
-    expect((endedEvent as { failedStep?: number }).failedStep).toBe(8);
-
-    // Step 6 completed (mint succeeded — proves no inverse admin-delete)
-    const step6Completed = events.find(
-      (e) => e.type === "step" && e.n === 6 && e.phase === "completed",
-    );
-    expect(step6Completed).toBeDefined();
-
-    // Q2 anti-rollback assertion: NO rm/rm -rf, no folder-cleanup
-    assertNoRmRfInExecCalls(mockExecCommand);
-
-    // Confirm module-level writeMarkdownFileAtomic was invoked for relay.json
-    // (proves we reached step 8 via the per-identity-file primitive).
-    expect(writeCallCount).toBeGreaterThanOrEqual(1);
-    // Additionally: deps.writeMarkdownFileAtomic (Step 2.5 identity .md write)
-    // was invoked at least once (proves Step 2.5 still runs pre-Step 8).
-    expect(mockWriteMd).toHaveBeenCalled();
-  }, 30_000);
-
-  // ---- Test C2: chmod 600 failure fails step 8 without rollback (Q2 agent-supervisor race) ----
-  it("Test C2: chmod 600 failure fails step 8 without rollback (Q2 agent-supervisor race)", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-
-    // Make execCommand fail specifically on chmod 600 — other commands succeed.
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("exists");
-      }
-      if (typeof cmd === "string" && /chmod\s+600/.test(cmd)) {
-        return Promise.reject(new Error("chmod: permission denied"));
-      }
-      return Promise.resolve("");
-    });
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent1:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
-    // writeMarkdownFileAtomic SUCCEEDS for relay.json — only chmod fails
-    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      writeMarkdownFileAtomic: mockWriteMd,
-    });
-    const opts = makeOpts({ name: "agent1" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    // step:8:failed with chmod_600_failed reason
-    const failedEvent = events.find(
-      (e) => e.type === "step" && e.n === 8 && e.phase === "failed",
-    );
-    expect(failedEvent).toBeDefined();
-    expect((failedEvent as { reason?: string }).reason).toMatch(/chmod_600_failed/);
-
-    // ended{ok:false, failedStep:8}
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect(endedEvent).toBeDefined();
-    expect((endedEvent as { ok: boolean }).ok).toBe(false);
-    expect((endedEvent as { failedStep?: number }).failedStep).toBe(8);
-
-    // Q2 anti-rollback: no rm -rf even after chmod failure
-    assertNoRmRfInExecCalls(mockExecCommand);
-  }, 30_000);
-
-  // ---- Test D: useLocal RUNS 6-8 with conn=null (2026-09-11 LOCAL-branch fix) ----
-  it("Test D: useLocal=true (self-birth) RUNS step 6/7/8 — matrixCreateOrUpdateUser + matrixLoginAsUser fire, buildRelayJsonBody fires, conn=null wire preserved", async () => {
-    mockIsLocalHostId.mockReturnValue(true);
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@self:example.com", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_local" });
-    const mockBuildRelay = vi.fn().mockReturnValue("{\"local\":true}");
-
-    const deps = makeDeps({
-      execLocal: vi.fn().mockImplementation(async (cmd: string) => {
-        if (cmd.includes("echo $HOME")) return "/home/test";
-        return "";
-      }),
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-    });
-    const opts = makeOpts({ hostId: 5 });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    // Step 6/7/8 events all fire (started + completed each = 6 events).
-    const phase75Events = events.filter(
-      (e) => e.type === "step" && (e.n === 6 || e.n === 7 || e.n === 8),
-    );
-    expect(phase75Events).toHaveLength(6);
-
-    // Phase 75 deps ARE called on LOCAL now.
-    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(1);
-    expect(mockLoginAsUser).toHaveBeenCalledTimes(1);
-    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
-
-    // ended{ok:true}
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect(endedEvent).toBeDefined();
-    expect((endedEvent as { ok: boolean }).ok).toBe(true);
-
-    // connectOneShot NEVER called (LOCAL preserves no-SSH invariant).
-    expect(mockConnectOneShot).not.toHaveBeenCalled();
-  }, 30_000);
-
-  // ---- Test E: retry helper idempotency ----
-  it("Test E: runRelayMintAndWrite called twice succeeds — both calls emit full step:6/7/8 sequence", async () => {
-    const mockConn = { end: vi.fn() };
-    mockExecCommand.mockResolvedValue("");
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent1:matrix.local", password: "pw", status: 200 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_fresh_token" });
-    const mockBuildRelay = vi.fn().mockReturnValue("{}");
-    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-      writeMarkdownFileAtomic: mockWriteMd,
-      matrixHomeserver: "http://matrix.local:8008",
-    });
-
-    const { events: events1, emit: emit1 } = collectEvents();
-    const { events: events2, emit: emit2 } = collectEvents();
-
-    // First invocation
-    await runRelayMintAndWrite(
-      { name: "agent1", displayName: "Agent1", hostId: 999 },
-      emit1,
+    const birthPromise = birthIdentity(
+      makeOpts({ path: "~/pdf-inspector" }),
+      emit,
       deps,
-      mockConn as unknown as Parameters<typeof runRelayMintAndWrite>[3],
     );
+    await vi.runAllTimersAsync();
+    await birthPromise;
 
-    // Second invocation (retry)
-    await runRelayMintAndWrite(
-      { name: "agent1", displayName: "Agent1", hostId: 999 },
-      emit2,
+    // Peer script exec + custom-path mkdir exec = 2 total
+    expect(mockExecCommand).toHaveBeenCalledTimes(2);
+    const secondCall = mockExecCommand.mock.calls[1][1] as string;
+    expect(secondCall).toContain("mkdir -p");
+    expect(secondCall).toContain("$HOME/pdf-inspector");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Peer-commit script content contract
+// ---------------------------------------------------------------------------
+
+describe("peer-commit script content", () => {
+  it("contains role name and identity folder key", async () => {
+    const { emit } = collectEvents();
+    const deps = makeDeps();
+
+    const birthPromise = birthIdentity(
+      makeOpts({ name: "willow", role: "hecate-maintainer", poolPicked: true }),
+      emit,
       deps,
-      mockConn as unknown as Parameters<typeof runRelayMintAndWrite>[3],
     );
+    await vi.runAllTimersAsync();
+    await birthPromise;
 
-    // Both calls emit step:6/7/8 completed
-    for (const events of [events1, events2]) {
-      for (const n of [6, 7, 8]) {
-        const startedIdx = events.findIndex(
-          (e) => e.type === "step" && e.n === n && e.phase === "started",
-        );
-        const completedIdx = events.findIndex(
-          (e) => e.type === "step" && e.n === n && e.phase === "completed",
-        );
-        expect(startedIdx).toBeGreaterThanOrEqual(0);
-        expect(completedIdx).toBeGreaterThan(startedIdx);
-      }
-    }
-
-    // Each mock was called twice (once per invocation)
-    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(2);
-    expect(mockLoginAsUser).toHaveBeenCalledTimes(2);
-    expect(mockBuildRelay).toHaveBeenCalledTimes(2);
-    // Phase 92 Plan 92-01 Task 2: Step 8's relay.json write now flows through
-    // the module-level writeMarkdownFileAtomic (via per-identity-file), NOT
-    // deps.writeMarkdownFileAtomic. runRelayMintAndWrite only covers Steps
-    // 6/7/8 (Step 2.5 isn't executed here) so deps.writeMarkdownFileAtomic
-    // is NEVER called on this path post-refactor; the module mock IS.
-    expect(mockWriteMd).not.toHaveBeenCalled();
-    const relayJsonWrites =
-      mockWriteMarkdownFileAtomicModule.mock.calls.filter(
-        (c: unknown[]) =>
-          typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
-      );
-    expect(relayJsonWrites).toHaveLength(2);
-
-    // chmod 600 called twice
-    const chmodCalls = mockExecCommand.mock.calls.filter(
-      (c: unknown[]) =>
-        typeof c[1] === "string" && /chmod\s+600/.test(c[1] as string),
-    );
-    expect(chmodCalls.length).toBeGreaterThanOrEqual(2);
-  }, 30_000);
-});
-
-// ---------------------------------------------------------------------------
-// Phase 89 Plan 02 Task 3: registry-room join hook wired into
-// runRelayMintAndWrite Step 6 (post-mint, best-effort per D-12)
-// ---------------------------------------------------------------------------
-
-describe("Phase 89-02 Task 3: agents-registry join hook in Step 6", () => {
-  beforeEach(() => {
-    mockJoinAgentToAgentsRegistry.mockReset();
-    // Default happy path — override per test.
-    mockJoinAgentToAgentsRegistry.mockResolvedValue({
-      ok: true,
-      roomId: "!agents-registry:example.com",
-    });
+    const script = mockExecCommand.mock.calls[0][1] as string;
+    expect(script).toContain('ROLE="hecate-maintainer"');
+    // poolPicked=true derives identityFolderName = <name>-<role>
+    expect(script).toMatch(/KEY="willow-hecate-maintainer"/);
   });
 
-  // ---- Test 1 (orchestrator): fires joinAgentToAgentsRegistry after mint+login ----
-  it("Test 1: runRelayMintAndWrite Step 6 fires joinAgentToAgentsRegistry(mxid) AFTER mint+login, BEFORE Step 7", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("exists");
-      }
-      return Promise.resolve("");
-    });
+  it("contains base64 identity file body decoded to expected frontmatter", async () => {
+    const { emit } = collectEvents();
+    const deps = makeDeps();
 
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent89a:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token_abc123" });
-    const mockBuildRelay = vi.fn().mockImplementation((o) =>
-      JSON.stringify({
-        base: `${o.homeserverBase}/_matrix/client/v3`,
-        user_id: o.mxid,
-        password: o.password,
-        token: o.accessToken,
-        access_token: o.accessToken,
-      }),
-    );
-    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-      matrixHomeserver: "http://matrix.local:8008",
-      writeMarkdownFileAtomic: mockWriteMd,
-    });
-    const opts = makeOpts({ name: "agent89a" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
     await vi.runAllTimersAsync();
     await birthPromise;
 
-    // Assert ended{ok:true}.
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect((endedEvent as { ok: boolean }).ok).toBe(true);
-
-    // joinAgentToAgentsRegistry called exactly once with the minted mxid.
-    expect(mockJoinAgentToAgentsRegistry).toHaveBeenCalledTimes(1);
-    expect(mockJoinAgentToAgentsRegistry.mock.calls[0][0]).toBe(
-      "@agent89a:matrix.local",
+    const script = mockExecCommand.mock.calls[0][1] as string;
+    // Extract the identity-file base64 blob after `printf '%s' '<blob>'`
+    // preceding writing "$STAGING/$KEY.md"
+    const idFileMatch = script.match(
+      /printf '%s' '([^']+)' \| base64 -d > "\$STAGING\/\$KEY\.md"/,
     );
+    expect(idFileMatch).not.toBeNull();
+    const decoded = Buffer.from(idFileMatch![1], "base64").toString("utf-8");
+    expect(decoded).toContain("role: box-maintainer");
+    expect(decoded).toContain("displayName: Testkey");
+    // # heading at the tail
+    expect(decoded).toMatch(/#\s+testkey/i);
+  });
 
-    // Assert AFTER mint+login (both mocks were called BEFORE the join hook).
-    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(1);
-    expect(mockLoginAsUser).toHaveBeenCalledTimes(1);
+  it("contains base64 relay.json body decoded to Matrix creds JSON", async () => {
+    const { emit } = collectEvents();
+    const deps = makeDeps();
 
-    // Step 7 (buildRelayJsonBody) still ran.
-    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
-  }, 30_000);
-
-  // ---- Test 2: join returns non-ok → does NOT throw, proceeds to Step 7 ----
-  it("Test 2: joinAgentToAgentsRegistry returns { ok:false } → Step 6 does NOT throw, proceeds to Step 7 (best-effort per D-12)", async () => {
-    mockJoinAgentToAgentsRegistry.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      error: "registry_room_not_configured",
-    });
-
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("exists");
-      }
-      return Promise.resolve("");
-    });
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent89b:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token_abc123" });
-    const mockBuildRelay = vi.fn().mockImplementation((o) =>
-      JSON.stringify({
-        base: `${o.homeserverBase}/_matrix/client/v3`,
-        user_id: o.mxid,
-        password: o.password,
-        token: o.accessToken,
-        access_token: o.accessToken,
-      }),
-    );
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-      matrixHomeserver: "http://matrix.local:8008",
-    });
-    const opts = makeOpts({ name: "agent89b" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
     await vi.runAllTimersAsync();
     await birthPromise;
 
-    // Step 6 completed successfully — the failed join did NOT convert it to failure.
-    const step6Completed = events.find(
-      (e) => e.type === "step" && e.n === 6 && e.phase === "completed",
+    const script = mockExecCommand.mock.calls[0][1] as string;
+    const relayMatch = script.match(
+      /printf '%s' '([^']+)' \| base64 -d > "\$STAGING\/relay\.json"/,
     );
-    expect(step6Completed).toBeDefined();
-    const step6Failed = events.find(
-      (e) => e.type === "step" && e.n === 6 && e.phase === "failed",
-    );
-    expect(step6Failed).toBeUndefined();
+    expect(relayMatch).not.toBeNull();
+    const decoded = Buffer.from(relayMatch![1], "base64").toString("utf-8");
+    const parsed = JSON.parse(decoded) as Record<string, unknown>;
+    expect(parsed.user_id).toBe("@testkey:example.com");
+    expect(parsed.access_token).toBe("syt_fake_access_token");
+  });
 
-    // Step 7 proceeded (buildRelayJsonBody was called).
-    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
+  it("chmods relay.json to 600 (T-75-18 S-1 lock)", async () => {
+    const { emit } = collectEvents();
+    const deps = makeDeps();
 
-    // Ended ok:true — best-effort semantics preserved.
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect((endedEvent as { ok: boolean }).ok).toBe(true);
-  }, 30_000);
-
-  // ---- Test 3: join throws unexpectedly → caught, proceeds to Step 7 ----
-  it("Test 3: joinAgentToAgentsRegistry THROWS → Step 6 catches, proceeds to Step 7 (defense-in-depth per D-12)", async () => {
-    mockJoinAgentToAgentsRegistry.mockRejectedValueOnce(
-      new Error("unexpected registry-rooms throw"),
-    );
-
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      // Phase 108: role-folder probe defaults to "exists" (baseline happy path).
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("exists");
-      }
-      return Promise.resolve("");
-    });
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent89c:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token_abc123" });
-    const mockBuildRelay = vi.fn().mockImplementation((o) =>
-      JSON.stringify({
-        base: `${o.homeserverBase}/_matrix/client/v3`,
-        user_id: o.mxid,
-        password: o.password,
-        token: o.accessToken,
-        access_token: o.accessToken,
-      }),
-    );
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-      matrixHomeserver: "http://matrix.local:8008",
-    });
-    const opts = makeOpts({ name: "agent89c" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
     await vi.runAllTimersAsync();
     await birthPromise;
 
-    // Step 6 still completed — the throw was caught.
-    const step6Completed = events.find(
-      (e) => e.type === "step" && e.n === 6 && e.phase === "completed",
+    const script = mockExecCommand.mock.calls[0][1] as string;
+    expect(script).toContain('chmod 600 "$STAGING/relay.json"');
+  });
+
+  it("commits via atomic mv rename into $FLEET_ROOT/identities/$KEY", async () => {
+    const { emit } = collectEvents();
+    const deps = makeDeps();
+
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    const script = mockExecCommand.mock.calls[0][1] as string;
+    expect(script).toContain(
+      'mv "$STAGING" "$FLEET_ROOT/identities/$KEY"',
     );
-    expect(step6Completed).toBeDefined();
-
-    // Step 7 proceeded.
-    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
-
-    // Ended ok:true.
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect((endedEvent as { ok: boolean }).ok).toBe(true);
-  }, 30_000);
+  });
 });
 
 // ---------------------------------------------------------------------------
-// Phase 92 Plan 92-01 Task 2: identity-birth Step 8 refactor — byte-shape
-// regression tests. Step 8's relay.json write is rerouted through the new
-// per-identity-file.writeIdentityFile primitive; the wire must be
-// byte-for-byte identical to the pre-refactor Phase 77 SFTP write.
+// Rollback semantics — matrixDeactivateUser
 // ---------------------------------------------------------------------------
 
-describe("Phase 92-01 Task 2: Step 8 refactor byte-shape parity", () => {
-  // ---- T1: relay.json target path is home-relative (SFTP resolves against SSH user's $HOME)
-  it("T1: relay.json REMOTE target path is relative `fleet/identities/<name>/relay.json` (Phase 107 hotfix — SFTP home-resolves; prior `$HOME/...` literal silently ENOENT'd)", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent92:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
-    const mockBuildRelay = vi.fn().mockReturnValue('{"ok":true}');
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-    });
-    const opts = makeOpts({ name: "agent92" });
+describe("rollback on failure", () => {
+  it("Step 8 peer-commit failure → matrixDeactivateUser called with derived MXID", async () => {
     const { emit } = collectEvents();
+    const deactivateMock = vi.fn().mockResolvedValue({ ok: true });
+    mockExecCommand.mockRejectedValue(new Error("peer_commit_mv_failed"));
 
-    const birthPromise = birthIdentity(opts, emit, deps);
+    const deps = makeDeps({ matrixDeactivateUser: deactivateMock });
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
     await vi.runAllTimersAsync();
     await birthPromise;
 
-    // Find the relay.json write call on the module-level writeMarkdownFileAtomic
-    const relayJsonWrites =
-      mockWriteMarkdownFileAtomicModule.mock.calls.filter(
-        (c: unknown[]) =>
-          typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
-      );
-    expect(relayJsonWrites).toHaveLength(1);
-    // Byte-shape lock: $HOME is a LITERAL string, not resolved.
-    expect(relayJsonWrites[0][1]).toBe(
-      "fleet/identities/agent92/relay.json",
-    );
-  }, 30_000);
+    expect(deactivateMock).toHaveBeenCalledTimes(1);
+    expect(deactivateMock).toHaveBeenCalledWith("@testkey:synapse.example.com");
+  });
 
-  // ---- T2: relay.json body threaded through verbatim (no wrapping)
-  it("T2: relay.json body threaded verbatim (equals buildRelayJsonBody output)", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-
-    const expectedBody = '{"custom":"body","token":"xyz"}';
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent92:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
-    const mockBuildRelay = vi.fn().mockReturnValue(expectedBody);
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-    });
-    const opts = makeOpts({ name: "agent92" });
+  it("Step 8 peer-commit SUCCESS → matrixDeactivateUser NOT called", async () => {
     const { emit } = collectEvents();
+    const deactivateMock = vi.fn().mockResolvedValue({ ok: true });
+    const deps = makeDeps({ matrixDeactivateUser: deactivateMock });
 
-    const birthPromise = birthIdentity(opts, emit, deps);
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
     await vi.runAllTimersAsync();
     await birthPromise;
 
-    const relayJsonWrites =
-      mockWriteMarkdownFileAtomicModule.mock.calls.filter(
-        (c: unknown[]) =>
-          typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
-      );
-    expect(relayJsonWrites).toHaveLength(1);
-    // Contents (arg [2]) must be the raw buildRelayJsonBody output — no
-    // wrapping / re-serialization.
-    expect(relayJsonWrites[0][2]).toBe(expectedBody);
-  }, 30_000);
+    expect(deactivateMock).not.toHaveBeenCalled();
+  });
 
-  // ---- T3: chmod 600 preserved
-  it("T3: Step 8 still applies chmod 600 to relay.json (S-1 lock)", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent92:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
-    const mockBuildRelay = vi.fn().mockReturnValue("{}");
-
+  it("Step 6 mint failure → NO rollback (nothing was minted)", async () => {
+    const { emit, events } = collectEvents();
+    const deactivateMock = vi.fn().mockResolvedValue({ ok: true });
     const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-    });
-    const opts = makeOpts({ name: "agent92" });
-    const { emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    // chmod 600 called on relay.json — S-1 lock (world-readable relay.json
-    // would expose Matrix creds; primitive threads opts.chmod=0o600).
-    const chmodCalls = mockExecCommand.mock.calls.filter(
-      (c: unknown[]) =>
-        typeof c[1] === "string" &&
-        /chmod\s+600\s+.*relay\.json/.test(c[1] as string),
-    );
-    expect(chmodCalls.length).toBeGreaterThanOrEqual(1);
-  }, 30_000);
-
-  // ---- T4: writeIdentityFile throw fails Step 8 loudly (no rollback)
-  it("T4: writeIdentityFile (module writeMarkdownFileAtomic) throw at Step 8 → ended{ok:false, failedStep:8}", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-
-    // Make the module-level writeMarkdownFileAtomic REJECT for relay.json only
-    mockWriteMarkdownFileAtomicModule.mockImplementation(
-      (_conn: unknown, targetPath: string) => {
-        if (
-          typeof targetPath === "string" &&
-          targetPath.endsWith("/relay.json")
-        ) {
-          return Promise.reject(new Error("sftp_write_failed_at_relay"));
-        }
-        return Promise.resolve(undefined);
-      },
-    );
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent92:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
-    const mockBuildRelay = vi.fn().mockReturnValue("{}");
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-    });
-    const opts = makeOpts({ name: "agent92" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    const failedEvent = events.find(
-      (e) => e.type === "step" && e.n === 8 && e.phase === "failed",
-    );
-    expect(failedEvent).toBeDefined();
-
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect(endedEvent).toBeDefined();
-    expect((endedEvent as { ok: boolean }).ok).toBe(false);
-    expect((endedEvent as { failedStep?: number }).failedStep).toBe(8);
-  }, 30_000);
-
-  // ---- T5: Step 6/7 unaffected — mint + login + buildRelay still invoked
-  it("T5: Step 6/7 unaffected — matrixCreateOrUpdateUser + matrixLoginAsUser + buildRelayJsonBody still called", async () => {
-    mockIsLocalHostId.mockReturnValue(false);
-
-    const mockCreateOrUpdate = vi
-      .fn()
-      .mockResolvedValue({ ok: true, mxid: "@agent92:matrix.local", password: "pw", status: 201 });
-    const mockLoginAsUser = vi
-      .fn()
-      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
-    const mockBuildRelay = vi.fn().mockReturnValue('{"ok":true}');
-
-    const deps = makeDeps({
-      matrixCreateOrUpdateUser: mockCreateOrUpdate,
-      matrixLoginAsUser: mockLoginAsUser,
-      buildRelayJsonBody: mockBuildRelay,
-    });
-    const opts = makeOpts({ name: "agent92" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(1);
-    expect(mockLoginAsUser).toHaveBeenCalledTimes(1);
-    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
-
-    // Step 6/7/8 all completed
-    for (const n of [6, 7, 8]) {
-      const done = events.find(
-        (e) => e.type === "step" && e.n === n && e.phase === "completed",
-      );
-      expect(done).toBeDefined();
-    }
-  }, 30_000);
-
-  // ---- T6: regex-tightening backwards compat — every legit identity key still reaches Step 8
-  it("T6: every identity key that passed the pre-refactor gates STILL reaches Step 8 through the primitive's stricter regex", async () => {
-    // Legitimate identity keys observed in the fleet — all lowercase alnum with
-    // hyphen/underscore. These MUST reach Step 8 (invoke module
-    // writeMarkdownFileAtomic for relay.json) under the primitive's stricter
-    // /^[a-z0-9_-]{1,64}$/ gate. The pre-refactor identity-birth.ts:64 route
-    // regex is looser but no fleet identity uses the extra characters.
-    const legitKeys = [
-      "tina",
-      "tina-01",
-      "stacy",
-      "role-name-hyphenated",
-      "underscored_id",
-      "a".repeat(63),
-      "a".repeat(64),
-    ];
-
-    for (const key of legitKeys) {
-      // Reset only the module-level writeMarkdownFileAtomic between iterations
-      // — vi.useFakeTimers state persists across iterations within one it().
-      mockWriteMarkdownFileAtomicModule.mockReset();
-      mockWriteMarkdownFileAtomicModule.mockResolvedValue(undefined);
-
-      const mockCreateOrUpdate = vi
+      matrixCreateOrUpdateUser: vi
         .fn()
-        .mockResolvedValue({ ok: true, mxid: `@${key}:matrix.local`, password: "pw", status: 201 });
-      const mockLoginAsUser = vi
+        .mockResolvedValue({ ok: false, status: 500, error: "synapse_500" }),
+      matrixDeactivateUser: deactivateMock,
+    });
+
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    expect(deactivateMock).not.toHaveBeenCalled();
+    const ended = events.find((e) => e.type === "ended");
+    expect(ended).toEqual(
+      expect.objectContaining({ ok: false, failedStep: 6 }),
+    );
+  });
+
+  it("Step 6 login-as-user failure AFTER mint → rollback DOES fire", async () => {
+    const { emit } = collectEvents();
+    const deactivateMock = vi.fn().mockResolvedValue({ ok: true });
+    const deps = makeDeps({
+      matrixLoginAsUser: vi
         .fn()
-        .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
-      const mockBuildRelay = vi.fn().mockReturnValue("{}");
-
-      const deps = makeDeps({
-        matrixCreateOrUpdateUser: mockCreateOrUpdate,
-        matrixLoginAsUser: mockLoginAsUser,
-        buildRelayJsonBody: mockBuildRelay,
-      });
-      const opts = makeOpts({ name: key });
-      const { events, emit } = collectEvents();
-
-      const birthPromise = birthIdentity(opts, emit, deps);
-      await vi.runAllTimersAsync();
-      await birthPromise;
-
-      // Step 8 must have completed for every legit key
-      const step8Completed = events.find(
-        (e) => e.type === "step" && e.n === 8 && e.phase === "completed",
-      );
-      expect(
-        step8Completed,
-        `identity key ${JSON.stringify(key)} failed to reach Step 8 completed`,
-      ).toBeDefined();
-
-      // relay.json write path is exactly `fleet/identities/<key>/relay.json`
-      // (Phase 107 hotfix — SFTP home-resolves relative paths; prior `$HOME/...`
-      // literal silently ENOENT'd because SFTP does not expand $HOME).
-      const relayJsonWrite =
-        mockWriteMarkdownFileAtomicModule.mock.calls.find(
-          (c: unknown[]) =>
-            typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
-        );
-      expect(relayJsonWrite).toBeDefined();
-      expect(relayJsonWrite![1]).toBe(
-        `fleet/identities/${key}/relay.json`,
-      );
-    }
-  }, 60_000);
-});
-
-// ===========================================================================
-// Phase 108: role-folder existence probe (D-13 A-E)
-//
-// Coverage matrix (see .planning/phases/108-.../108-CONTEXT.md §D-13):
-//   A  REMOTE role folder MISSING → step 1 failed, zero Step 2+ side effects
-//   B  REMOTE role folder PRESENT + identity missing → Step 1 completes
-//   C  LOCAL  role folder MISSING → step 1 failed
-//   D  LOCAL  role folder PRESENT + identity missing → Step 1 completes
-//   E  Ordering — remote role missing + avatarCandidateId set →
-//      deps.getCandidateForBirth called ZERO times (proves role probe runs
-//      BEFORE avatar-candidate lookup per D-11).
-//
-// Import the mocked fs.access handle so LOCAL tests can override per-path.
-// The orchestrator uses `import fs from "node:fs/promises"` (default import),
-// so `fs.access` at runtime calls `mockedModule.default.access` — which is
-// a DIFFERENT vi.fn() than the named `access` export. Reach through the
-// default sub-object to control the exact mock the orchestrator sees.
-// ===========================================================================
-import mockFsDefault from "node:fs/promises";
-const mockFsAccessMock = mockFsDefault.access as unknown as Mock;
-
-describe("Phase 108: role-folder existence probe (D-13 A-E)", () => {
-  // Reset fs.access to the module-default discriminating impl before each
-  // test in this block. Individual tests then override for the failure or
-  // path-specific behavior they exercise. This isolates Phase 108 tests
-  // from any lingering mockImplementation set by prior tests in the file.
-  beforeEach(() => {
-    mockFsAccessMock.mockImplementation((p: unknown) => {
-      const s = typeof p === "string" ? p : String(p);
-      if (s.includes("/roles/")) return Promise.resolve();
-      return Promise.reject(
-        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
-      );
-    });
-  });
-
-  it("Test 108-A: Phase 108 — role folder missing on target host (remote) → step:1:failed, zero Step 2+ side effects", async () => {
-    // REMOTE branch: role probe returns "missing" for `fleet/roles/` cmd.
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      // Phase 108 role probe: MISSING — this is the failure branch.
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("missing");
-      }
-      return Promise.resolve("");
+        .mockResolvedValue({ ok: false, status: 500, error: "login_500" }),
+      matrixDeactivateUser: deactivateMock,
     });
 
-    const deps = makeDeps();
-    const opts = makeOpts({ role: "bogus-role" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
     await vi.runAllTimersAsync();
     await birthPromise;
 
-    // step:1:failed with the exact throw string.
-    const failedEvent = events.find(
-      (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
-    );
-    expect(failedEvent).toBeDefined();
-    const reason = (failedEvent as { reason?: string }).reason ?? "";
-    expect(reason).toMatch(/role not found on target host/);
-    expect(reason).toContain("bogus-role");
-
-    // ended{ok:false, failedStep:1}.
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect(endedEvent).toBeDefined();
-    expect((endedEvent as { ok: boolean }).ok).toBe(false);
-    expect((endedEvent as { failedStep?: number }).failedStep).toBe(1);
-
-    // Zero Step 2+ side effects on the injected deps:
-    //   - writeMarkdownFileAtomic (Step 2.5 identity file write)
-    //   - writeAvatarSiblingFile (Step 2.5 avatar sibling)
-    //   - matrixCreateOrUpdateUser (Step 6 admin mint)
-    //   - matrixLoginAsUser (Step 6 login)
-    //   - buildRelayJsonBody (Step 7)
-    // Any non-zero call count means a durable side effect landed on a bogus
-    // role — the exact bug this phase closes.
-    expect((deps.writeMarkdownFileAtomic as Mock).mock.calls.length).toBe(0);
-    expect((deps.writeAvatarSiblingFile as Mock).mock.calls.length).toBe(0);
-    expect((deps.matrixCreateOrUpdateUser as Mock).mock.calls.length).toBe(0);
-    expect((deps.matrixLoginAsUser as Mock).mock.calls.length).toBe(0);
-    expect((deps.buildRelayJsonBody as Mock).mock.calls.length).toBe(0);
+    expect(deactivateMock).toHaveBeenCalledTimes(1);
+    expect(deactivateMock).toHaveBeenCalledWith("@testkey:synapse.example.com");
   });
 
-  it("Test 108-B: Phase 108 — role folder present on target host (remote) → Step 1 completes past role probe", async () => {
-    // Complementary happy-path for the remote-miss case. Same probe path — but the
-    // remote host reports the role .md file exists, so the orchestrator
-    // does NOT throw "role not found on target host: <role>" and Step 1
-    // proceeds to the avatar-candidate + identity-collision sub-checks.
-    // REMOTE branch: role probe "exists", identity collision "missing".
-    // Discriminate by substring: role probe cmd contains `fleet/roles/`,
-    // identity collision probe cmd contains `fleet/identities/`.
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-    let step2MkdirCalled = false;
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("exists");
-      }
-      if (typeof cmd === "string" && cmd.includes("fleet/identities/")) {
-        return Promise.resolve("missing");
-      }
-      // Step 2's mkdir -p is how we know flow reached Step 2 past Step 1.
-      if (typeof cmd === "string" && cmd.startsWith("mkdir -p ")) {
-        step2MkdirCalled = true;
-      }
-      return Promise.resolve("");
-    });
-
-    const deps = makeDeps();
-    const opts = makeOpts({ role: "box-maintainer", name: "testkey" });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    // No step:1:failed event (Step 1 completed cleanly).
-    const failedEvent = events.find(
-      (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
-    );
-    expect(failedEvent).toBeUndefined();
-
-    // Step 1 completed.
-    const step1Completed = events.find(
-      (e) => e.type === "step" && e.n === 1 && e.phase === "completed",
-    );
-    expect(step1Completed).toBeDefined();
-
-    // Flow reached Step 2 (mkdir was invoked).
-    expect(step2MkdirCalled).toBe(true);
-  });
-
-  it("Test 108-C: Phase 108 — role folder missing on target host (local self-birth) → step:1:failed", async () => {
-    // LOCAL branch: fs.access rejects with ENOENT for the roles path
-    // (path contains "roles/bogus-role/bogus-role.md").
-    mockIsLocalHostId.mockReturnValue(true);
-    mockFsAccessMock.mockImplementation((p: unknown) => {
-      const s = typeof p === "string" ? p : String(p);
-      if (s.includes("roles/bogus-role/bogus-role.md")) {
-        return Promise.reject(
-          Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
-        );
-      }
-      // Any other fs.access call (identity collision probe) — reject too
-      // so the flow doesn't accidentally hit an unrelated success path.
-      return Promise.reject(
-        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
-      );
-    });
-
-    const deps = makeDeps();
-    const opts = makeOpts({ role: "bogus-role", hostId: 5 });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    const failedEvent = events.find(
-      (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
-    );
-    expect(failedEvent).toBeDefined();
-    const reason = (failedEvent as { reason?: string }).reason ?? "";
-    expect(reason).toMatch(/role not found on target host/);
-    expect(reason).toContain("bogus-role");
-
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect((endedEvent as { ok: boolean }).ok).toBe(false);
-    expect((endedEvent as { failedStep?: number }).failedStep).toBe(1);
-
-    // Zero Step 2+ side effects (same guardrail as Test A).
-    expect((deps.writeMarkdownFileAtomic as Mock).mock.calls.length).toBe(0);
-    expect((deps.matrixCreateOrUpdateUser as Mock).mock.calls.length).toBe(0);
-  });
-
-  it("Test 108-D: Phase 108 — role folder present on target host (local self-birth) → Step 1 completes past role probe", async () => {
-    // Complementary happy-path for the local-miss case. On a self-birth host where
-    // the role .md file is readable via fs.access, the orchestrator does
-    // NOT throw "role not found on target host: <role>" and Step 1
-    // completes cleanly.
-    // LOCAL branch: fs.access resolves for the roles/<role>/<role>.md path;
-    // rejects (ENOENT) for the identity-collision path so birth proceeds.
-    mockIsLocalHostId.mockReturnValue(true);
-    mockFsAccessMock.mockImplementation((p: unknown) => {
-      const s = typeof p === "string" ? p : String(p);
-      if (s.includes("/roles/")) {
-        return Promise.resolve();
-      }
-      // Identity collision probe (or anything else) — missing → proceed.
-      return Promise.reject(
-        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
-      );
-    });
-
-    const deps = makeDeps();
-    const opts = makeOpts({ role: "box-maintainer", hostId: 5 });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    // No step:1:failed (Step 1 got past the role probe AND the collision
-    // probe — role file present, identity folder missing).
-    const failedEvent = events.find(
-      (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
-    );
-    expect(failedEvent).toBeUndefined();
-
-    const step1Completed = events.find(
-      (e) => e.type === "step" && e.n === 1 && e.phase === "completed",
-    );
-    expect(step1Completed).toBeDefined();
-  });
-
-  it("Test 108-E: Phase 108 — role probe runs BEFORE avatar-candidate lookup (D-11 ordering)", async () => {
-    // REMOTE branch: role probe returns "missing"; opts.avatarCandidateId
-    // is non-empty. If ordering is correct, deps.getCandidateForBirth is
-    // NEVER called — the role probe throws first, aborting Step 1 before
-    // the avatar-candidate lookup runs.
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-        return Promise.resolve("/home/ubuntu\n");
-      }
-      if (typeof cmd === "string" && cmd.includes("fleet/roles/")) {
-        return Promise.resolve("missing");
-      }
-      return Promise.resolve("");
-    });
-
-    const mockGetCandidate = vi.fn().mockReturnValue({
-      bytes: Buffer.from("fakepng"),
-      mime: "image/png",
-    });
-    const deps = makeDeps({ getCandidateForBirth: mockGetCandidate });
-    const opts = makeOpts({
-      role: "bogus-role",
-      avatarCandidateId: "cand-xyz-nonempty",
-    });
-    const { events, emit } = collectEvents();
-
-    const birthPromise = birthIdentity(opts, emit, deps);
-    await vi.runAllTimersAsync();
-    await birthPromise;
-
-    // Ordering assertion (D-11): role probe fires first, avatar-candidate
-    // lookup never runs. If the probe was reordered to fire AFTER the avatar
-    // check, this assertion trips.
-    expect(mockGetCandidate.mock.calls.length).toBe(0);
-    expect(mockGetCandidate).toHaveBeenCalledTimes(0);
-
-    // Sanity: the step:1 failure still happens (test isn't tautological).
-    const failedEvent = events.find(
-      (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
-    );
-    expect(failedEvent).toBeDefined();
-    expect((failedEvent as { reason?: string }).reason).toMatch(
-      /role not found on target host/,
-    );
-  });
-});
-
-// ===========================================================================
-// Quick 260918-52n (2026-09-18): identity folder name derives from mxid
-// localpart. Purpose — kill two production bugs verified live tonight:
-//   1. Claude Code auto-resume of the OLD JSONL at
-//      ~/.claude/projects/-home-ubuntu-fleet-identities-<name>-workspace/
-//      when a pool name is reused (anthem/piano/ballad/lullaby all
-//      resumed prior Sep 13-16 sessions).
-//   2. agent-supervisor.sh retire_identity "State 3" archive-name
-//      collision (~/fleet/identities-archive/<name>/ already exists).
-// Both structurally fixed for birth-forward identities.
-//
-// Q2 no-rollback lock preserved — this test asserts zero rm/rm -rf/rmdir
-// invocations across all execCommand calls (same anti-rollback assertion
-// pattern as Test C1/C2/B in the Phase 75 block above).
-// ===========================================================================
-
-describe("Quick 260918-52n: identity folder name derived from mxid localpart", () => {
-  // Local anti-rollback assertion helper — matches Phase 75's
-  // assertNoRmRfInExecCalls from Test C/C2/B, kept per-block so the Q2
-  // lock is re-asserted at every test that touches the derived-folder
-  // path (grep-recoverable rationale that survives casual refactors).
-  function assertNoRmRfInExecCalls(mockFn: Mock): void {
-    const rmCalls = mockFn.mock.calls.filter(
-      (call: unknown[]) =>
-        typeof call[1] === "string" && /rm\s+-rf|rm\s+-r|rm\s+-f/.test(call[1] as string),
-    );
-    expect(rmCalls).toHaveLength(0);
-  }
-
-  it("birth with poolPicked=true + role + existing account creates folder at derived mxid-localpart path (not at bare pool name)", async () => {
-    // REMOTE branch — asserts against SSH exec strings for the mkdir + the
-    // module-level writeMarkdownFileAtomic module mock for the relay.json
-    // path. (LOCAL Step 8 routes through fs.writeFile in per-identity-file.ts,
-    // not through the module mock — REMOTE is the cleaner assertion path.)
-    mockIsLocalHostId.mockReturnValue(false);
-    const mockConn = { end: vi.fn() };
-    mockConnectOneShot.mockResolvedValue(mockConn);
-
-    // Simulate: @anthem-box-maintainer:<server> already exists (total:1) →
-    // ordinal search advances to @anthem-box-maintainer-2:<server> which is
-    // free (total:0). Expected identityFolderName = "anthem-box-maintainer-2".
-    const countMock = vi
+  it("matrixDeactivateUser failure is warn-logged but does NOT raise", async () => {
+    const { emit, events } = collectEvents();
+    const deactivateMock = vi
       .fn()
-      .mockResolvedValueOnce({ ok: true, total: 1 }) // @anthem-box-maintainer: taken
-      .mockResolvedValueOnce({ ok: true, total: 0 }); // @anthem-box-maintainer-2: free
+      .mockResolvedValue({ ok: false, status: 500, error: "deact_500" });
+    mockExecCommand.mockRejectedValue(new Error("peer_commit_mv_failed"));
 
-    const mintMock = vi.fn().mockResolvedValue({
-      ok: true,
-      mxid: "@anthem-box-maintainer-2:synapse.example.com",
-      password: "mock",
-      status: 201,
-    });
-    const loginMock = vi.fn().mockResolvedValue({
-      ok: true,
-      accessToken: "syt_derived_folder_test",
-    });
+    const deps = makeDeps({ matrixDeactivateUser: deactivateMock });
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
 
-    // Track the mkdir command that creates the identity folder tree
-    // (contains "wakeups") so we can assert its path. Role probe defaults
-    // to "exists" via beforeEach; collision probe returns "missing" so
-    // birth proceeds past Step 1.
-    let step2MkdirCmd = "";
-    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-      if (typeof cmd !== "string") return Promise.resolve("");
-      if (cmd.trim() === "echo $HOME") return Promise.resolve("/home/ubuntu\n");
-      if (cmd.includes("fleet/roles/")) return Promise.resolve("exists");
-      if (cmd.includes("fleet/identities/") && cmd.includes("echo missing"))
-        return Promise.resolve("missing");
-      if (cmd.includes("wakeups")) {
-        step2MkdirCmd = cmd;
-      }
-      return Promise.resolve("");
-    });
+    expect(deactivateMock).toHaveBeenCalled();
+    // Warn logged
+    const warnCalls = mockDatabaseLoggerWarn.mock.calls;
+    const rollbackWarn = warnCalls.find(
+      (call) =>
+        typeof call[0] === "string" &&
+        call[0].includes("rollback deactivate failed"),
+    );
+    expect(rollbackWarn).toBeDefined();
+    // Birth still ended with step:8:failed (not with an uncaught throw)
+    const ended = events.find((e) => e.type === "ended");
+    expect(ended).toEqual(
+      expect.objectContaining({ ok: false, failedStep: 8 }),
+    );
+  });
+});
 
-    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
-    const mockWriteAvatar = vi.fn().mockResolvedValue(undefined);
-    const mockDiscover = vi.fn().mockResolvedValue("/mock/session.jsonl");
+// ---------------------------------------------------------------------------
+// Role validation + SSH connect failure
+// ---------------------------------------------------------------------------
+
+describe("failure surfaces", () => {
+  it("invalid role name → step:1:failed, no mint, no SSH connect", async () => {
+    const { emit, events } = collectEvents();
+    const mintMock = vi.fn();
+    const connectMock = vi.fn();
 
     const deps = makeDeps({
-      matrixCountUsersMatching: countMock,
       matrixCreateOrUpdateUser: mintMock,
-      matrixLoginAsUser: loginMock,
-      writeMarkdownFileAtomic: mockWriteMd,
-      writeAvatarSiblingFile: mockWriteAvatar,
-      discoverIdentitySessionFile: mockDiscover,
+      connectOneShot: connectMock,
     });
 
-    const opts = makeOpts({
-      name: "anthem",
-      role: "box-maintainer",
-      poolPicked: true,
-    });
-
-    const { events, emit } = collectEvents();
-    const birthPromise = birthIdentity(opts, emit, deps);
+    const birthPromise = birthIdentity(
+      makeOpts({ role: "Invalid_Role" }),
+      emit,
+      deps,
+    );
     await vi.runAllTimersAsync();
     await birthPromise;
 
-    // Expected identityFolderName (derived from mxid @anthem-box-maintainer-2:...
-    // via slice — leading @ + trailing :serverName stripped).
-    const derivedName = "anthem-box-maintainer-2";
-
-    // (a) countMock advanced through both ordinals — proves derivation ran.
-    expect(countMock).toHaveBeenCalledTimes(2);
-
-    // (b) mint was called with the DERIVED mxid (ordinal-2 form), NOT the
-    //     legacy @anthem:server form.
-    expect(mintMock).toHaveBeenCalledTimes(1);
-    const mintedMxid = mintMock.mock.calls[0]?.[0] as string;
-    expect(mintedMxid).toBe(`@${derivedName}:synapse.example.com`);
-    expect(mintedMxid).not.toBe("@anthem:synapse.example.com");
-
-    // (c) Step 2 mkdir exec command contains the DERIVED folder path (with
-    //     wakeups suffix), NOT the bare pool name.
-    expect(step2MkdirCmd).toContain(`fleet/identities/${derivedName}/wakeups`);
-    expect(step2MkdirCmd).not.toContain("fleet/identities/anthem/wakeups");
-
-    // (d) writeMarkdownFileAtomic (deps-level, Step 2.5 identity .md write)
-    //     was called with a path ending in /<derivedName>/<derivedName>.md
-    //     — NOT /anthem/anthem.md.
-    expect(mockWriteMd).toHaveBeenCalled();
-    const mdWriteCall = mockWriteMd.mock.calls.find(
-      (c: unknown[]) =>
-        typeof c[1] === "string" && (c[1] as string).endsWith(".md"),
+    expect(mintMock).not.toHaveBeenCalled();
+    expect(connectMock).not.toHaveBeenCalled();
+    const ended = events.find((e) => e.type === "ended");
+    expect(ended).toEqual(
+      expect.objectContaining({ ok: false, failedStep: 1 }),
     );
-    expect(mdWriteCall).toBeDefined();
-    expect(mdWriteCall![1]).toContain(`/${derivedName}/${derivedName}.md`);
-    expect(mdWriteCall![1]).not.toContain("/anthem/anthem.md");
+  });
 
-    // (e) module-level writeMarkdownFileAtomic (Step 8 relay.json write via
-    //     per-identity-file's REMOTE branch) is called with the DERIVED
-    //     folder path, NOT the bare pool name.
-    const relayJsonWrites = mockWriteMarkdownFileAtomicModule.mock.calls.filter(
-      (c: unknown[]) =>
-        typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
+  it("SSH connect failure at Step 8 → step:8:failed with 'Host unreachable' + rollback fires", async () => {
+    const { emit, events } = collectEvents();
+    const deactivateMock = vi.fn().mockResolvedValue({ ok: true });
+    mockConnectOneShot.mockRejectedValue(new Error("ECONNREFUSED"));
+
+    const deps = makeDeps({ matrixDeactivateUser: deactivateMock });
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    const step8Failed = events.find(
+      (e) => e.type === "step" && e.n === 8 && e.phase === "failed",
     );
-    expect(relayJsonWrites.length).toBeGreaterThanOrEqual(1);
-    expect(relayJsonWrites[0][1]).toBe(
-      `fleet/identities/${derivedName}/relay.json`,
+    expect(step8Failed).toEqual(
+      expect.objectContaining({ reason: "Host unreachable" }),
     );
+    const ended = events.find((e) => e.type === "ended");
+    expect(ended).toEqual(
+      expect.objectContaining({ ok: false, failedStep: 8 }),
+    );
+    // Rollback fires because we minted before Step 8
+    expect(deactivateMock).toHaveBeenCalledTimes(1);
+  });
 
-    // (f) writeAvatarSiblingFile was called with identityFolderName as the
-    //     folder-key argument (second positional) — the derived name, not
-    //     opts.name.
-    expect(mockWriteAvatar).toHaveBeenCalled();
-    expect(mockWriteAvatar.mock.calls[0][1]).toBe(derivedName);
+  it("supervisor wait timeout → ended:ok:false with supervisor_wait_timeout reason (NO rollback — Q2 lock preserved)", async () => {
+    const { emit, events } = collectEvents();
+    const deactivateMock = vi.fn().mockResolvedValue({ ok: true });
+    const deps = makeDeps({
+      discoverIdentitySessionFile: vi.fn().mockResolvedValue(null),
+      matrixDeactivateUser: deactivateMock,
+    });
 
-    // (g) discoverIdentitySessionFile probes by derived folder name —
-    //     agent-supervisor's tmux session name matches the folder name,
-    //     which is what the JSONL discovery path is keyed on.
-    expect(mockDiscover).toHaveBeenCalled();
-    expect(mockDiscover.mock.calls[0][1]).toBe(derivedName);
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
+    // Advance past the wait timeout
+    await vi.advanceTimersByTimeAsync(WAIT_FOR_SUPERVISOR_TIMEOUT_MS + 1000);
+    await birthPromise;
 
-    // (h) ended event on success carries identityFolderName as both
-    //     identityId AND sessionName (the identity IS its folder name).
-    const endedEvent = events.find((e) => e.type === "ended");
-    expect(endedEvent).toBeDefined();
-    expect((endedEvent as { ok: boolean }).ok).toBe(true);
-    expect((endedEvent as { identityId?: string }).identityId).toBe(derivedName);
-    expect((endedEvent as { sessionName?: string }).sessionName).toBe(derivedName);
-
-    // (i) Q2 no-rollback anti-rollback assertion: zero rm / rm -rf / rm -r /
-    //     rm -f invocations across all execCommand calls (parallel to the
-    //     assertNoRmRfInExecCalls pattern used in the Phase 75 describe block
-    //     above). Guards against a future refactor introducing a naive
-    //     "clean up on failed birth" branch that would re-open the
-    //     agent-supervisor race Q2 was written to prevent.
-    assertNoRmRfInExecCalls(mockExecCommand);
-  }, 30_000);
+    const ended = events.find((e) => e.type === "ended");
+    expect(ended).toEqual(
+      expect.objectContaining({ ok: false, reason: "supervisor_wait_timeout" }),
+    );
+    // Q2 no-rollback: birth already committed to peer disk atomically;
+    // supervisor may still pick it up. Do NOT deactivate on timeout.
+    expect(deactivateMock).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
-// Phase 129 Plan 07 Task 1: buildIdentityFileBody creatorUsername handling
-//
-// Auto-tag write-side half of D-4 for identity creation. On multi-user hosts
-// the route handler resolves the creator's Skynet username and threads it
-// through as opts.creatorUsername; buildIdentityFileBody emits a users: pair
-// via the existing pairs.push([...]) pattern. On single-user hosts (or when
-// the DB lookup fails on a multi-user host) opts.creatorUsername is absent
-// and the users: key stays out of the file (absent-⇒-omit fallback per D-3).
-//
-// Byte-shape preservation: canonical yaml.dump options
-// {sortKeys:false, lineWidth:-1, noRefs:true, forceQuotes:false} are locked;
-// only the pairs[] array gains ONE optional entry. Existing pre-129 identity
-// files stay byte-identical when opts.creatorUsername is absent (Test F
-// golden-file assertion).
-//
-// Case preservation (Pitfall 7): username case comes through the pipe from
-// the DB (users.username stored as-typed); buildIdentityFileBody echoes
-// verbatim — no .toLowerCase()/.toUpperCase().
-//
-// The orchestrator stays PURE at this seam: buildIdentityFileBody receives
-// creatorUsername as an opaque string from the route handler. No DB imports,
-// no getUsernameForUserId call — those live in identity-birth.ts (Task 2).
+// Local branch (self-birth)
 // ---------------------------------------------------------------------------
 
-describe("Phase 129: buildIdentityFileBody creatorUsername handling", () => {
-  // Baseline opts fixture — every test overrides opts.creatorUsername.
-  // Task/voice/title stay populated so key-order tests can assert insertion
-  // position (users: appended AFTER task per PATTERNS.md Pitfall 5 pattern).
-  function baseOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
-    return {
-      userId: "user-1",
-      hostId: 7,
-      name: "aster",
-      title: "Coordinator",
-      path: "/workspace/aster",
-      colorHue: 210,
-      voice: "Joanna",
-      avatarCandidateId: "cand-abc",
-      role: "coordinator",
-      task: "coordinate the fleet",
-      ...overrides,
-    };
-  }
+describe("local branch (isLocalHostId=true)", () => {
+  it("uses execLocal instead of execCommand and NEVER opens SSH", async () => {
+    const { emit } = collectEvents();
+    mockIsLocalHostId.mockReturnValue(true);
+    const execLocalMock = vi.fn().mockResolvedValue("birth_committed");
 
-  const displayName = "Aster";
-  const avatarFilename = "aster.png";
+    const deps = makeDeps({ execLocal: execLocalMock });
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
 
-  // Test A: opts.creatorUsername absent → NO users: key in output
-  // (absent-⇒-omit fallback per D-3).
-  it("Test A: creatorUsername absent → NO users: key emitted", () => {
-    const body = buildIdentityFileBody(baseOpts(), displayName, avatarFilename);
-
-    // Extract YAML frontmatter (between --- markers) and parse.
-    const match = body.match(/^---\n([\s\S]*?)\n---/);
-    expect(match).not.toBeNull();
-    const parsed = yaml.load(match![1]) as Record<string, unknown>;
-
-    expect(parsed.users).toBeUndefined();
-    // Defensive: verify users: was not written as null / [] either.
-    expect("users" in parsed).toBe(false);
+    expect(execLocalMock).toHaveBeenCalled();
+    expect(mockConnectOneShot).not.toHaveBeenCalled();
+    expect(mockExecCommand).not.toHaveBeenCalled();
   });
 
-  // Test B: opts.creatorUsername = "" (empty string) → NO users: key.
-  // Normalization matches the guard `opts.creatorUsername.length > 0`.
-  it("Test B: creatorUsername empty-string → NO users: key emitted", () => {
-    const body = buildIdentityFileBody(
-      baseOpts({ creatorUsername: "" }),
-      displayName,
-      avatarFilename,
-    );
+  it("peer script uses absolute fleet-root path (bind-mount parent), NOT $HOME", async () => {
+    const { emit } = collectEvents();
+    mockIsLocalHostId.mockReturnValue(true);
+    const execLocalMock = vi.fn().mockResolvedValue("birth_committed");
 
-    const match = body.match(/^---\n([\s\S]*?)\n---/);
-    expect(match).not.toBeNull();
-    const parsed = yaml.load(match![1]) as Record<string, unknown>;
+    const deps = makeDeps({ execLocal: execLocalMock });
+    const birthPromise = birthIdentity(makeOpts(), emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
 
-    expect(parsed.users).toBeUndefined();
-    expect("users" in parsed).toBe(false);
-  });
-
-  // Test C: opts.creatorUsername = "user" → users: [user] emitted.
-  it("Test C: creatorUsername 'user' → users: [user] emitted", () => {
-    const body = buildIdentityFileBody(
-      baseOpts({ creatorUsername: "user" }),
-      displayName,
-      avatarFilename,
-    );
-
-    const match = body.match(/^---\n([\s\S]*?)\n---/);
-    expect(match).not.toBeNull();
-    const parsed = yaml.load(match![1]) as Record<string, unknown>;
-
-    expect(parsed.users).toEqual(["user"]);
-  });
-
-  // Test D: opts.creatorUsername = "User" case preservation lock
-  // (Pitfall 7 — DB stores as-typed; auto-tag echoes verbatim).
-  it("Test D: creatorUsername case preserved verbatim ('User' stays User)", () => {
-    const body = buildIdentityFileBody(
-      baseOpts({ creatorUsername: "User" }),
-      displayName,
-      avatarFilename,
-    );
-
-    const match = body.match(/^---\n([\s\S]*?)\n---/);
-    expect(match).not.toBeNull();
-    const parsed = yaml.load(match![1]) as Record<string, unknown>;
-
-    expect(parsed.users).toEqual(["User"]);
-    // Belt-and-braces: no case-mangling anywhere in the output.
-    expect(body).toContain("User");
-    expect(body).not.toContain("- user");
-  });
-
-  // Test E: byte-shape preservation — key insertion order.
-  // sortKeys:false guarantees emission follows pairs[] push order:
-  //   role → displayName → title → colorHue → voice → avatar → task → users
-  // The users key MUST appear AFTER task (creatorUsername appended AFTER
-  // the L583-585 task block per PATTERNS.md instruction).
-  it("Test E: key insertion order — users appears AFTER task", () => {
-    const body = buildIdentityFileBody(
-      baseOpts({ creatorUsername: "user" }),
-      displayName,
-      avatarFilename,
-    );
-
-    const match = body.match(/^---\n([\s\S]*?)\n---/);
-    expect(match).not.toBeNull();
-    const frontmatter = match![1];
-
-    // Extract line-starting key names in order (top-level YAML keys).
-    const keyLines = frontmatter
-      .split("\n")
-      .map((line) => {
-        const m = line.match(/^([a-zA-Z][a-zA-Z0-9_-]*):/);
-        return m ? m[1] : null;
-      })
-      .filter((k): k is string => k !== null);
-
-    // Expected canonical order: role, displayName, title, colorHue, voice, avatar, task, users.
-    expect(keyLines).toEqual([
-      "role",
-      "displayName",
-      "title",
-      "colorHue",
-      "voice",
-      "avatar",
-      "task",
-      "users",
-    ]);
-  });
-
-  // Test F: byte-shape preservation — WITHOUT creatorUsername the emitted
-  // string is exactly what pre-Phase-129 code would have produced. Golden-
-  // file assertion locks the pre-129 shape verbatim.
-  it("Test F: byte-shape preservation — pre-129 shape unchanged when creatorUsername absent", () => {
-    const body = buildIdentityFileBody(baseOpts(), displayName, avatarFilename);
-
-    // Golden expected output — matches the pre-Phase-129 canonical shape
-    // for baseOpts (role/displayName/title/colorHue/voice/avatar/task all
-    // populated, no users). stringifyColorHueForYaml wraps colorHue as a
-    // string in the test mock (see L45), so the frontmatter shows
-    // "colorHue: '210'" — that's the mock's behavior, not the production
-    // yaml.dump. The point of this test is byte-shape lock UNDER THE SAME
-    // MOCKING — any regression that changes buildIdentityFileBody's output
-    // beyond a users: key addition would break this assertion.
-    const expected = `---
-role: coordinator
-displayName: Aster
-title: Coordinator
-colorHue: '210'
-voice: Joanna
-avatar: aster.png
-task: coordinate the fleet
----
-
-# aster
-`;
-    expect(body).toBe(expected);
-  });
-
-  // Test G: BirthOptions type extension is source-visible — a TS compile
-  // of `const opts: BirthOptions = { ...required, creatorUsername: "user" }`
-  // must succeed. This test compiles at test-parse time; the assertion
-  // just proves the shape at runtime.
-  it("Test G: BirthOptions.creatorUsername is a valid optional field", () => {
-    // TS-level: this assignment must type-check without an `as unknown` cast.
-    const opts: BirthOptions = {
-      userId: "user-1",
-      hostId: 7,
-      name: "aster",
-      title: "Coordinator",
-      path: "/workspace/aster",
-      colorHue: 210,
-      voice: "Joanna",
-      avatarCandidateId: "cand-abc",
-      role: "coordinator",
-      creatorUsername: "user",
-    };
-
-    // Round-trip through the builder to prove the field flows through.
-    const body = buildIdentityFileBody(opts, "Aster", "aster.png");
-    const match = body.match(/^---\n([\s\S]*?)\n---/);
-    expect(match).not.toBeNull();
-    const parsed = yaml.load(match![1]) as Record<string, unknown>;
-    expect(parsed.users).toEqual(["user"]);
+    const script = execLocalMock.mock.calls[0][0] as string;
+    // getLocalIdentitiesRoot() mock returns "/tmp/test-fleet/identities" →
+    // parent is "/tmp/test-fleet". FLEET_ROOT substitutes absolute path
+    // rather than "$HOME/fleet".
+    expect(script).toContain('FLEET_ROOT="/tmp/test-fleet"');
+    expect(script).not.toContain('FLEET_ROOT="$HOME/fleet"');
   });
 });

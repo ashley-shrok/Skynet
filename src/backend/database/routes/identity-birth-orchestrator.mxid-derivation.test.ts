@@ -96,12 +96,6 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
     execCommand: mockExecCommand,
     isLocalHostId: mockIsLocalHostId,
     execLocal: mockExecLocal,
-    writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
-    writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
-    getCandidateForBirth: vi.fn().mockReturnValue({
-      bytes: Buffer.from("fakepng"),
-      mime: "image/png",
-    }),
     resolveHostById: vi.fn().mockResolvedValue({
       ip: "100.1.2.3",
       port: 22,
@@ -110,10 +104,6 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       authType: "key",
       key: "fake-key",
     }),
-    fsp: {
-      readFile: vi.fn(),
-      writeFile: vi.fn(),
-    },
     matrixHomeserver: "http://mock.homeserver.local:8008",
     matrixServerName: null,
     // 2026-09-11: fallback branch — relay.json base equals homeserverBase
@@ -130,6 +120,7 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       accessToken: "syt_mock_access_token_test",
       status: 200,
     }),
+    matrixDeactivateUser: vi.fn().mockResolvedValue({ ok: true }),
     matrixCountUsersMatching: vi.fn().mockResolvedValue({ ok: true, total: 0 }),
     buildRelayJsonBody: vi.fn().mockReturnValue(
       JSON.stringify({
@@ -160,7 +151,6 @@ function makeOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
     path: "/workspace/willow",
     colorHue: 210,
     voice: "Joanna",
-    avatarCandidateId: "cand-abc",
     role: "skynet-maintainer",
     ...overrides,
   } as BirthOptions;

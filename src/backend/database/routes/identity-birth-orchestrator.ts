@@ -1,43 +1,53 @@
 /**
- * Phase 20 (IDUI-06/08/09): Identity birth orchestrator — pure logic module.
+ * Identity birth orchestrator — pure logic module.
  *
  * Exports: birthIdentity(opts, emit, deps) — runs the birth bootstrap sequence
  * and streams progress via the emit callback.
  *
- * Design: pure function with injected deps (no direct express or HTTP imports),
- * making unit testing clean. The SSE route wraps this with real dep instances.
+ * Design: pure function with injected deps (no direct express or HTTP imports).
+ * The SSE route (identity-birth.ts) and the spawn-request worker
+ * (spawn-requests/worker.ts) both wrap this with real dep instances.
  *
- * Step sequence (post-Phase-106 sole-spawner reshape — see
- * .planning/shapes/shape-birth-flow-supervisor-sole-spawner.md):
- *   Step 1: Role-folder existence probe (Phase 108) + avatar candidate check + on-disk collision probe (Phase 68 rewire)
- *   Step 2: mkdir -p target path + Step 2.5 identity file / avatar sibling
- *           pre-write on the target host (SSH or local). Post-Phase-106 the
- *           per-session tmux invocation is retired — agent-supervisor.sh's
- *           15s reconcile tick becomes the sole party opening the tmux
- *           session and launching the claude REPL for the new identity.
- *   Step 6: admin-mint relay account (Matrix admin API)
- *   Step 7: build relay.json JSON body
- *   Step 8: SFTP-write relay.json + chmod 600 on the target host
- *   Wait for supervisor transcript signal (bounded, up to
- *     WAIT_FOR_SUPERVISOR_TIMEOUT_MS): poll the injected identity-session
- *     discovery dep every WAIT_FOR_SUPERVISOR_POLL_MS until a non-null JSONL
- *     path appears — that signal means the supervisor picked the identity
- *     up, launched its tmux session, and the agent's `/id <name>` first-turn
- *     is on disk. On timeout the identity stays on disk (Q2 no-rollback
- *     lock) and the SSE stream closes with ended{ok:false,
- *     reason:"supervisor_wait_timeout"}.
+ * Step sequence (2026-09-24 mint-first atomic-birth reshape):
+ *   Step 1: MXID derivation (Skynet-side). Validates role name, then calls
+ *           Synapse admin API for ordinal collision resolution when
+ *           opts.poolPicked === true. No SSH.
+ *   Step 2: wire-compat instant-complete placeholder. The mkdir + identity-
+ *           file write work that used to live here is folded into Step 8's
+ *           atomic peer-commit script; emitted so the frontend
+ *           BirthProgress checklist doesn't stall on a step that never fires.
+ *   Step 6: admin-mint (createOrUpdateUser) + inline login-as-user +
+ *           best-effort agents-registry join (Phase 89 D-11).
+ *   Step 7: build relay.json body + identity file body — both fed into
+ *           Step 8's peer script as base64 blobs.
+ *   Step 8: SSH connect (remote branch) + ONE atomic peer-commit exec.
+ *           The script stages files in a same-filesystem mktemp -d, then
+ *           finalizes with a kernel-atomic mv rename. Peer disk either has
+ *           the entire identity folder or none of it — no half-populated
+ *           window (fixes the crane/eda51eac/maple half-birth failure mode).
+ *   Wait for supervisor transcript signal (bounded up to
+ *     WAIT_FOR_SUPERVISOR_TIMEOUT_MS, unchanged from pre-reshape).
+ *
+ * Rollback (mint-first invariant): if Step 6 mint succeeds but Step 7 or
+ *   Step 8 fails, the orchestrator's finally block deactivates the
+ *   just-minted Matrix account via deps.matrixDeactivateUser so retry with
+ *   next ordinal doesn't leak Synapse accounts. On Step 8 SUCCESS, no
+ *   rollback fires even if the supervisor-wait times out — the identity
+ *   dir is whole on peer disk and the supervisor will bring it alive on
+ *   its own schedule (Q2 no-rollback lock preserved for post-commit
+ *   failures).
+ *
+ * D-20 reopened: the spawn-request-watcher shape locked
+ * "identity-birth-orchestrator.ts unchanged" as D-20. That constraint is
+ * reopened by this reshape — the atomic-commit peer script eliminates the
+ * fragmented-round-trip failure surface it was protecting, and the mint-first
+ * ordering makes rollback cleaner than the pre-reshape Q2 "no rollback ever"
+ * discipline was designed to work around.
  *
  * Steps 3/4/5 (harness bootstrap: trust-flag pre-write, claude launch, Enter
- * settle train, `/id <name>` dispatch) are RETIRED from birth per Phase 106
+ * settle train, `/id <name>` dispatch) were retired from birth per Phase 106
  * (D-01..D-03). The harness-start helper still lives at
- * ./identity-harness-start.js and is still used by identity-clone.ts:632 (D-03).
- *
- * Failure policy: any step failure emits step:N:failed + ended{ok:false,
- * failedStep:N, reason} and STOPS. NO rollback. NO retry. NO cancel.
- * Supervisor-wait timeout emits ended{ok:false, reason:"supervisor_wait_timeout"}
- * and STOPS — also NO rollback (the identity folder + Matrix account stay on
- * disk; the supervisor may still bring the identity alive after we've stopped
- * waiting). See shape file §"What would make it wrong" bullet 4.
+ * ./identity-harness-start.js and is still used by identity-clone.ts:632.
  */
 
 import { randomBytes } from "node:crypto";
@@ -205,7 +215,6 @@ export interface BirthOptions {
   path: string;
   colorHue: number | null;
   voice: string | null;
-  avatarCandidateId: string;
   /**
    * Phase 22 SRIC-02: kebab-case-lowercase role name from ~/fleet/roles/<role>/
    * on the target host. Validated at HTTP handler (identity-birth.ts) AND
@@ -304,42 +313,8 @@ export interface BirthDeps {
   isLocalHostId: (hostId: number) => boolean;
   /** Runs a shell command locally (child_process.exec equivalent). */
   execLocal: (command: string) => Promise<string>;
-  /** Fetches avatar candidate bytes from plan 01's cache. Returns null if expired/missing. */
-  getCandidateForBirth: (userId: string, id: string) => { bytes: Buffer; mime: string } | null;
   /** Resolves a hostId to host connection details. */
   resolveHostById: (hostId: number, userId: string) => Promise<unknown>;
-  /** fs/promises subset for trust-flag write (local-branch only). */
-  fsp: {
-    readFile: (p: string, enc: "utf8") => Promise<string>;
-    writeFile: (p: string, content: string) => Promise<void>;
-  };
-  /**
-   * Phase 22 SRIC-02: identity file atomic tmp+rename helper for Step 2.5.
-   * Wraps identity-artifact-reader.writeMarkdownFileAtomic. The primitive
-   * routes on conn === null → LOCAL (fs tmp+rename), non-null → REMOTE
-   * (SFTP ext_openssh_rename, Pitfall 3 / #2924). Same $HOME-literal path
-   * convention either way.
-   */
-  writeMarkdownFileAtomic: (
-    conn: SSHClient | null,
-    targetPath: string,
-    contents: string,
-  ) => Promise<void>;
-  /**
-   * Phase 66 Plan 66-01 Track 1: avatar sibling file atomic tmp+rename
-   * helper for Step 2.5. Wraps identity-artifact-reader.writeAvatarSiblingFile
-   * — routes on conn === null (LOCAL: Node fs, per identity-artifact-reader.ts
-   * L2104-L2111) vs non-null (REMOTE: SFTP ext_openssh_rename atomic-overwrite,
-   * matching writeMarkdownFileAtomic's discipline). Binary Buffer payload,
-   * own log tag (identity_avatar_write). Called AFTER writeMarkdownFileAtomic
-   * in Step 2.5; called ONCE per successful birth.
-   */
-  writeAvatarSiblingFile: (
-    conn: SSHClient | null,
-    identityKey: string,
-    ext: AvatarExt,
-    bytes: Buffer,
-  ) => Promise<void>;
   /**
    * Phase 75 Plan 04 (D-OQ6 lock) — Matrix admin mint primitive from Plan 02.
    * Called by runRelayMintAndWrite at Step 6. Wired in identity-birth.ts to
@@ -370,6 +345,23 @@ export interface BirthDeps {
     validUntilMs?: number,
   ) => Promise<
     | { ok: true; accessToken: string }
+    | { ok: false; status: number; error: string }
+  >;
+  /**
+   * Rollback primitive for the mint-first birth flow. When Step 6 (Matrix
+   * admin-mint) succeeds but the subsequent Step 8 peer-commit fails, the
+   * orchestrator deactivates the just-minted Matrix account so a retry with
+   * the next ordinal doesn't leak Synapse accounts. Wired to
+   * matrix-admin-client.ts's deactivateUser export
+   * (POST /_synapse/admin/v1/deactivate/<mxid> with erase:false — no
+   * room-history erasure per that primitive's RESEARCH.md Assumption A3).
+   * Best-effort: a non-ok result is warn-logged but does not raise (the
+   * orphan is recoverable via periodic Synapse sweep).
+   */
+  matrixDeactivateUser: (
+    mxid: string,
+  ) => Promise<
+    | { ok: true }
     | { ok: false; status: number; error: string }
   >;
   /**
@@ -1185,6 +1177,113 @@ export async function runRelayMintAndWrite(
 }
 
 // ---------------------------------------------------------------------------
+// Peer-commit script builder (mint-first atomic-birth reshape)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the single bash script that lands the birth's peer-side state
+ * atomically. Executed in ONE SSH exec (or one execLocal for self-birth) —
+ * no round-trip fragmentation. Replaces the pre-reshape Step 1 collision
+ * probe + Step 2 mkdir/writes + Step 8 SFTP-relay.json chain.
+ *
+ * Atomicity model: everything is staged inside a mktemp -d directory that
+ * lives on the SAME filesystem as `<fleetRoot>/identities` (kept under
+ * `<fleetRoot>/.cache/skynet-birth-staging/` for this reason — a
+ * cross-filesystem `mv` degrades to copy+delete which is NOT atomic and
+ * would leave a window where the identity folder is half-populated).
+ * The final `mv` is a kernel-atomic rename syscall: peer disk either has
+ * the entire identity folder or none of it.
+ *
+ * Exit-code taxonomy consumed by callers (execCommand rejects on non-zero
+ * exit with stderr baked into the Error message — the taxonomy is preserved
+ * through the STRING content, not just the code, since ssh2's exec API
+ * doesn't surface the numeric code back through the Promise reject):
+ *   0  = success (stdout ends "birth_committed")
+ *   90 = role folder missing on peer                  → matches worker.ts
+ *          /role.*not found/i → `role_unknown`
+ *   91 = identity folder already exists on peer       → matches pre-reshape
+ *          "identity already exists on this host" string
+ *   92 = staging area setup failed
+ *   93 = writing into staging failed
+ *   94 = atomic commit rename failed
+ *
+ * All file bodies are base64-encoded before interpolation so any special
+ * characters (newlines, quotes, non-ASCII) survive the SSH command channel
+ * + shell heredoc-free single-quoted echo cleanly. Same convention as
+ * fleet-status/remote-hook-install.ts and distributor/ssh-push.ts.
+ *
+ * fleetRoot: pass "$HOME/fleet" for remote branch (target shell expands),
+ *            pass an absolute bind-mount path (e.g. "/host-home/fleet") for
+ *            LOCAL self-birth where the container shell's $HOME does NOT
+ *            resolve to the fleet dir.
+ */
+function buildPeerCommitScript(args: {
+  role: string;
+  identityFolderName: string;
+  identityFileBody: string;
+  relayJsonBody: string;
+  fleetRoot: string;
+}): string {
+  // role + identityFolderName are already regex-gated (ROLE_NAME_PATTERN
+  // and IDENTITY_KEY_RE) before we reach this builder, so shell
+  // interpolation is safe.
+  const { role, identityFolderName, fleetRoot } = args;
+  const identityFileBodyB64 = Buffer.from(args.identityFileBody, "utf-8").toString("base64");
+  const relayJsonBodyB64 = Buffer.from(args.relayJsonBody, "utf-8").toString("base64");
+
+  return `set -e
+FLEET_ROOT="${fleetRoot}"
+ROLE="${role}"
+KEY="${identityFolderName}"
+
+# Guard 1: role folder must exist on peer
+if [ ! -f "$FLEET_ROOT/roles/$ROLE/$ROLE.md" ]; then
+  echo "role not found on target host: $ROLE" >&2
+  exit 90
+fi
+
+# Guard 2: identity folder must NOT already exist
+if [ -d "$FLEET_ROOT/identities/$KEY" ]; then
+  echo "identity already exists on this host" >&2
+  exit 91
+fi
+
+# Ensure the identities parent exists (brand-new peers may not have it yet)
+mkdir -p "$FLEET_ROOT/identities" || { echo "peer_identities_root_mkdir_failed" >&2; exit 92; }
+
+# Staging root on the SAME filesystem as the target so the final mv is
+# kernel-atomic (rename syscall). A cross-filesystem mv degrades to
+# copy+delete and would open a half-populated window.
+STAGING_ROOT="$FLEET_ROOT/.cache/skynet-birth-staging"
+mkdir -p "$STAGING_ROOT" || { echo "peer_staging_root_mkdir_failed" >&2; exit 92; }
+STAGING=$(mktemp -d "$STAGING_ROOT/birth-XXXXXX") || { echo "peer_staging_mktemp_failed" >&2; exit 92; }
+trap 'rm -rf "$STAGING"' EXIT
+
+# Write identity file
+printf '%s' '${identityFileBodyB64}' | base64 -d > "$STAGING/$KEY.md" || { echo "peer_identity_md_write_failed" >&2; exit 93; }
+
+# Create subdirs + handoff sentinel
+mkdir "$STAGING/wakeups" "$STAGING/workspace" || { echo "peer_subdir_mkdir_failed" >&2; exit 93; }
+touch "$STAGING/handoff.md" || { echo "peer_handoff_touch_failed" >&2; exit 93; }
+
+# Write relay.json + chmod 600 (T-75-18 S-1 lock: Matrix creds cannot be
+# world-readable). chmod on the staging path is fine — permissions survive
+# the mv into place.
+printf '%s' '${relayJsonBodyB64}' | base64 -d > "$STAGING/relay.json" || { echo "peer_relay_json_write_failed" >&2; exit 93; }
+chmod 600 "$STAGING/relay.json" || { echo "peer_relay_json_chmod_failed" >&2; exit 93; }
+
+# Atomic commit
+mv "$STAGING" "$FLEET_ROOT/identities/$KEY" || { echo "peer_commit_mv_failed" >&2; exit 94; }
+
+# Post-mv: $STAGING no longer exists. The trap's rm -rf is a silent no-op
+# on nonexistent paths (rm -rf never errors when the target is gone).
+
+echo birth_committed
+exit 0
+`;
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -1206,6 +1305,32 @@ export async function birthIdentity(
   deps: BirthDeps,
 ): Promise<void> {
   // -------------------------------------------------------------------------
+  // Mint-first atomic-birth reshape (2026-09-24, reopens D-20 from spawn-
+  // request-watcher shape).
+  //
+  // Pre-reshape: birth was 5 ordered steps with fragmented state — Step 1
+  //   probed peer (SSH), Step 2 mkdir+wrote identity file (SFTP), Step 6
+  //   admin-minted on Synapse, Step 7 built relay.json in-memory, Step 8
+  //   SFTP-wrote relay.json + chmod. A Skynet crash between steps 2 and 8
+  //   left half-births on peer disk (identity dir + .md file with no
+  //   relay.json — the eda51eac/crane/maple failure mode).
+  //
+  // Post-reshape: mint FIRST on Skynet, then commit ALL peer state in ONE
+  //   atomic SSH exec via a bash script that stages inside a same-filesystem
+  //   mktemp -d and finalizes with a kernel-atomic mv rename. Peer disk
+  //   never sees a half-populated identity dir. On any peer-commit failure,
+  //   deactivate the just-minted Matrix account so retry with next ordinal
+  //   doesn't leak Synapse accounts.
+  //
+  // Wire-compat: BirthEvent step numbers (1, 2, 6, 7, 8) are preserved so
+  //   the frontend BirthProgress checklist doesn't need re-wiring. Steps 1
+  //   and 2 now cover MXID derivation (fast, local, no SSH) and step 2 is
+  //   emitted as an instant-complete placeholder for the retired
+  //   "mkdir+writes on peer" phase. Steps 6 and 7 stay Skynet-side. Step 8
+  //   is the new peer-commit script exec.
+  // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
   // 0. Validate name (defense-in-depth — route layer should also gate)
   // -------------------------------------------------------------------------
   if (!IDENTITY_KEY_RE.test(opts.name)) {
@@ -1224,16 +1349,10 @@ export async function birthIdentity(
   }
 
   // -------------------------------------------------------------------------
-  // 0b. Normalize path
-  //   - Replace backslashes with forward slashes
-  //   - Empty / bare "~" / "~/" → "$HOME"  (unquoted so remote shell expands)
-  //   - "~/foo/bar"             → "$HOME/foo/bar"  (unquoted prefix)
-  //
-  // Patch #318: previous code only handled the bare-"~" case, so a normal
-  // input like "~/pdf-inspector" fell through to shellSingleQuote() and hit
-  // the remote shell as literal '~/pdf-inspector' — inside single quotes the
-  // tilde does NOT expand. shellPath() only leaves the string unquoted when
-  // it starts with "$HOME", so we have to do the ~-to-$HOME rewrite here.
+  // 0b. Normalize opts.path (best-effort custom workspace dir pre-created by
+  // the peer-commit script AFTER the atomic commit lands — kept as a
+  // frontend affordance, not a birth-gating field). Same ~/…/$HOME rewrite
+  // rules as pre-reshape so existing form inputs keep working.
   // -------------------------------------------------------------------------
   let normalizedPath = opts.path.replace(/\\/g, "/");
   if (
@@ -1282,501 +1401,263 @@ export async function birthIdentity(
   }
 
   // -------------------------------------------------------------------------
-  // 2026-09-18 (quick 260918-52n): identityFolderName is derived inside
-  // Step 1 (below) from the MXID localpart via deriveMxidAndFolderName —
-  // NOT from opts.name. This is what makes ~/fleet/identities/<key>/
-  // structurally unique across pool-name reuse and keeps agent-supervisor's
-  // retire_identity archive-move safe from name collisions. Steps 2, 6, 7,
-  // 8 and the supervisor-wait block reference these values via closure.
+  // Closure-scoped state shared across steps + rollback.
   //
-  // Legacy identityId (was opts.name) is retired — the ended event now
-  // carries identityFolderName as both identityId AND sessionName because
-  // the identity IS its folder name on disk (also the tmux session name).
+  //   mxid + identityFolderName: derived in Step 1 (Skynet-side, consults
+  //     Synapse admin API for ordinal collision). identityFolderName drives
+  //     every subsequent path (peer script's target dir, supervisor sensor
+  //     probe key, ended event's identityId + sessionName).
+  //
+  //   agentPassword + mintedAccessToken: filled by Step 6 (admin-mint +
+  //     login-as-user), consumed by Step 7 (relay.json body build).
+  //
+  //   mintedForRollback: flipped true once the Synapse admin mint returns
+  //     ok:true. Consumed by the finally block: if birthCommitted is still
+  //     false when we exit, deactivate the just-minted account so a retry
+  //     with next ordinal doesn't leak Synapse accounts.
+  //
+  //   birthCommitted: flipped true once the peer-side atomic mv lands in
+  //     Step 8. Once true, we don't roll back on subsequent failure — the
+  //     identity is fully on peer disk and the supervisor will bring it
+  //     alive; a supervisor-wait timeout leaves everything on disk (Q2
+  //     no-rollback lock preserved from the pre-reshape flow).
   // -------------------------------------------------------------------------
   let mxid = "";
   let identityFolderName = "";
+  let agentPassword = "";
+  let mintedAccessToken = "";
+  let relayJsonBody = "";
+  let identityFileBody = "";
+  let mintedForRollback = false;
+  let birthCommitted = false;
 
-  // -------------------------------------------------------------------------
-  // Branch selection: SSH vs local
-  // -------------------------------------------------------------------------
   const useLocal = deps.isLocalHostId(opts.hostId);
 
-  // For SSH branch: resolve the host and connect.
-  // Wrap ALL step ops (1, 2, 6, 7, 8 + wait-for-supervisor) in a single
-  // try/finally that calls conn.end() so the SSH connection is released
-  // regardless of which step failed or whether the wait timed out.
+  // For SSH branch: resolve the host and connect BEFORE Step 8. Wrap all
+  // step ops + wait-for-supervisor in a single try/catch/finally so the
+  // SSH connection is released regardless of which step failed, and so the
+  // rollback (matrixDeactivateUser) fires exactly once on any pre-commit
+  // failure path.
   let conn: SSHClient | null = null;
 
-  // -------------------------------------------------------------------------
-  // Exec abstraction — same interface for remote and local branches
-  // -------------------------------------------------------------------------
-  async function exec(command: string): Promise<string> {
-    if (useLocal) {
-      return deps.execLocal(command);
-    } else {
-      return deps.execCommand(conn!, command);
-    }
-  }
-
-  // Phase 66 Plan 66-01: hoisted so Step 2.5 can reuse the candidate mime+bytes
-  // without calling getCandidateForBirth() a second time (would race with
-  // consumeCandidateForBirth's cleanup path). Assigned before Step 1 after
-  // the non-null guard; Step 2.5 asserts non-null with `!` because a null
-  // candidate at Step 1 already threw and aborted the flow.
-  let birthCandidate: { bytes: Buffer; mime: string } | null = null;
-
-  // -------------------------------------------------------------------------
-  // All step ops: SSH or local (wrapped in single try/finally for conn cleanup)
-  // -------------------------------------------------------------------------
   try {
-    // For remote branch, connect now (before Step 1 so the collision probe
-    // can use SSH exec). SHAPE B: Step 1 is the on-disk collision probe.
-    if (!useLocal) {
-      const host = await deps.resolveHostById(opts.hostId, opts.userId);
-      try {
-        conn = await deps.connectOneShot(host, SSH_CONNECT_TIMEOUT_MS);
-      } catch (e) {
-        // Step 1 failure: SSH connect error before collision probe.
-        // Phase 106 review (H1 fix): propagate the reason string to the
-        // `ended` event so operators reading logs see the same "Host
-        // unreachable" wire-forensic tag the step:failed breadcrumb carries.
-        // Every other failure emit in this file carries reason per D-11;
-        // this branch was silently drifting.
-        emit({ type: "step", n: 1, phase: "started" });
-        const reason = "Host unreachable";
-        emit({ type: "step", n: 1, phase: "failed", reason });
-        emit({ type: "ended", ok: false, failedStep: 1, reason });
-        return;
-      }
-    }
-
     // -----------------------------------------------------------------------
-    // Step 1: Role-folder existence probe (Phase 108) + avatar candidate check
-    //         + on-disk collision probe (Phase 68 rewire — no DB INSERT
-    //         or GET-verify)
-    //
-    //   Role-folder probe (Phase 108, FIRST substantive check inside Step 1):
-    //     For remote: SSH exec `test -f "$HOME/fleet/roles/<role>/<role>.md"`
-    //     For local:  fs.access on getLocalRolesRoot()/<role>/<role>.md
-    //     On miss:    throw "role not found on target host: <role>" — matches
-    //                 worker.ts:95 regex → FailureResponse{reason:"role_unknown"}.
-    //
-    //   For remote: SSH exec `if [ -d ~/fleet/identities/<name> ]`
-    //   For local: relies on Step 2's mkdir being idempotent (local branch
-    //              self-birth doesn't probe — same pre-Phase-68 behavior).
-    //
-    // Avatar candidate check is also in Step 1 so a cache miss aborts before
-    // any state mutation (mirrors the pre-Phase-68 early-abort discipline).
+    // Step 1: Skynet-side MXID derivation (consults Synapse admin API for
+    //         ordinal collision resolution when poolPicked=true). No SSH.
+    //         The failure surface is: local role-name validation + one
+    //         Synapse admin API call.
     // -----------------------------------------------------------------------
     await runStep(1, async () => {
-      // 2026-09-18 (quick 260918-52n): derive MXID + identityFolderName FIRST
-      // so all downstream file/folder path construction (role-folder probe
-      // uses opts.role — unaffected; identity-collision probe below uses
-      // identityFolderName; Step 2's identityDir; Step 2.5's identity file +
-      // avatar sibling paths; Step 8's relay.json path) references the
-      // structurally-unique folder key.
-      //
-      // Order inside Step 1:
-      //   (a) derive mxid + identityFolderName            ← this block
-      //   (b) role-folder existence probe                  (Phase 108)
-      //   (c) avatar candidate check                       (Phase 66)
-      //   (d) on-disk collision probe using derived path   (Phase 68)
-      //
-      // Any derivation error attributes to Step 1 as a step-failed SSE
-      // event (Q2 no-rollback preserved — Step 1 has no on-disk side
-      // effects, so throwing here is safe). For poolPicked=true this may
-      // call deps.matrixCountUsersMatching (Synapse admin API) before the
-      // role probe — a countUsersMatching failure surfaces as
-      // `admin_count_failed: <err> (<status>)`, categorized by
-      // sanitizeError as a generic reason (no Q2 rollback concern; no
-      // folder yet).
-      {
-        const derived = await deriveMxidAndFolderName(
-          { name: opts.name, role: opts.role, poolPicked: opts.poolPicked },
-          {
-            matrixServerName: deps.matrixServerName,
-            matrixHomeserver: deps.matrixHomeserver,
-            matrixCountUsersMatching: deps.matrixCountUsersMatching,
-          },
-        );
-        mxid = derived.mxid;
-        identityFolderName = derived.identityFolderName;
-      }
-
-      // Phase 108: role-folder existence probe — MUST run BEFORE any
-      // durable side effect (avatar-cache mutation, identity folder mkdir,
-      // identity file write, Matrix admin-mint with role baked into MXID
-      // localpart, relay creds mint, relay.json SFTP write). Throw string
-      // matches worker.ts:95 regex `/role.*not found/i` →
-      // FailureResponse{reason:"role_unknown"} via mapEndedEventToReason.
-      // opts.role is validated upstream by ROLE_NAME_PATTERN so
-      // interpolation is safe (same validate-then-interpolate discipline
-      // as the collision probe below).
-      if (useLocal) {
-        // LOCAL branch — a shell probe would expand $HOME to the Skynet
-        // container's node user home, NOT the /fleet bind mount. Use
-        // fs.access on the resolved roles root instead (same rationale as
-        // the LOCAL-branch collision probe below).
-        const roleMdPath = path.join(
-          getLocalRolesRoot(),
-          opts.role,
-          opts.role + ".md",
-        );
-        try {
-          await fs.access(roleMdPath);
-        } catch {
-          // ANY error (ENOENT, EACCES, etc.) — a role file that cannot be
-          // confirmed readable is functionally missing. Fail closed.
-          throw new Error("role not found on target host: " + opts.role);
-        }
-      } else {
-        // REMOTE branch — reuse the exec() closure (no new SSH connection;
-        // conn is guaranteed non-null because SSH connect completed above
-        // before entering runStep(1)).
-        const roleProbeOut = await exec(
-          `if [ -f "$HOME/fleet/roles/${opts.role}/${opts.role}.md" ]; then echo exists; else echo missing; fi`,
-        );
-        if (roleProbeOut.trim() !== "exists") {
-          throw new Error("role not found on target host: " + opts.role);
-        }
-      }
-
-      // Phase 86 Plan 86-04 (D-CTX-86-inherit): the avatar candidate lookup
-      // is now gated on opts.avatarCandidateId being non-empty. Identities
-      // born without an explicit candidate inherit the role's avatar via
-      // Plan 86-01's GET /:key/avatar role-folder fallback — the identity's
-      // frontmatter omits `avatar:` (see buildIdentityFileBody's
-      // absent-⇒-omit branch) and Step 2.5 skips writeAvatarSiblingFile.
-      // Empty-string sentinel matches identity-birth.ts's parsedAvatarCandidateId
-      // fallback (Phase 86 Plan 86-04 route handler).
-      if (opts.avatarCandidateId.length > 0) {
-        // Look up avatar bytes from plan 01's candidate cache
-        const cand = deps.getCandidateForBirth(opts.userId, opts.avatarCandidateId);
-        if (!cand) {
-          throw new Error("avatar candidate expired or not found");
-        }
-        birthCandidate = cand;
-      }
-      // else: birthCandidate stays null; Step 2.5 will skip the sibling
-      // file write; buildIdentityFileBody will skip the `avatar:` key.
-
-      // On-disk collision probe.
-      //   REMOTE: shell probe via SSH — `sh -c` on the target host expands
-      //           $HOME to the target host user's home, which IS where the
-      //           fleet dir lives.
-      //   LOCAL:  fs.access via getLocalIdentitiesRoot(). A shell probe on
-      //           LOCAL would expand $HOME to the Skynet container's node
-      //           user home (/home/node), NOT the /fleet bind mount — so
-      //           the probe would ALWAYS report "missing" regardless of
-      //           actual on-disk state, and Step 2.5 would silently
-      //           overwrite an existing identity's <name>.md + relay.json.
-      //           (2026-09-11 sub-agent review HIGH #1.)
-      // 2026-09-18 (quick 260918-52n): probe path uses identityFolderName
-      // (derived above from MXID localpart), NOT opts.name. On pool-picked
-      // births with a role, this path is `<pool>-<role>[-N]` — structurally
-      // unique per Synapse account, so the collision probe here now catches
-      // ONLY the rare case where a prior failed birth left an orphaned
-      // folder AND the current mxid ordinal search happened to converge on
-      // the same suffix. identityFolderName is IDENTITY_KEY_RE-gated inside
-      // deriveMxidAndFolderName so interpolation is safe.
-      if (useLocal) {
-        const probeDir = path.join(getLocalIdentitiesRoot(), identityFolderName);
-        try {
-          await fs.access(probeDir);
-          throw new Error("identity already exists on this host");
-        } catch (err) {
-          if (err instanceof Error && err.message === "identity already exists on this host") {
-            throw err;
-          }
-          // ENOENT / anything else — treat as missing (birth proceeds).
-        }
-      } else {
-        const probeOut = await exec(
-          `if [ -d "$HOME/fleet/identities/${identityFolderName}" ]; then echo exists; else echo missing; fi`,
-        );
-        if (probeOut.trim() === "exists") {
-          throw new Error("identity already exists on this host");
-        }
-      }
-    });
-
-    const escPath = shellPath(normalizedPath);
-
-    // -----------------------------------------------------------------------
-    // Step 2: mkdir -p target path + Step 2.5 identity file / avatar sibling
-    //         pre-write on the target host.
-    //
-    // Phase 106 (D-01): the per-session tmux invocation (`-d -s <name> -c
-    // <path> -x 220 -y 50`) is retired from this step. agent-supervisor.sh's
-    // 15s reconcile tick is now the sole party opening the tmux session for
-    // the new identity (Chunk 1 of the birth-flow rework arc — 5f6efd29
-    // landed the supervisor's disk-scan behavior that makes this handoff
-    // safe).
-    // See shape file §Philosophy: one party owns tmux + agent lifecycle on
-    // every box. The STEP_2_SLEEP_MS profile-sourcing sleep is gone from
-    // this step now (Phase 106 review M2 fix): its purpose was to let a
-    // login shell source its profile before a tmux launch — that launch is
-    // retired, so the sleep was pure dead wait on every remote birth. The
-    // STEP_2_SLEEP_MS constant itself is retained (still consumed by clone's
-    // harness sequence in identity-harness-start.ts).
-    //
-    // Phase 22 SRIC-02 addendum (B4b(a), REVISION 2026-08-04):
-    //   Step 2 also pre-writes ~/fleet/identities/<name>/<name>.md with
-    //   role: frontmatter + a wake-up seed comment, creates the wakeups/ dir,
-    //   and touches handoff.md — this makes the id skill on the box take its
-    //   load-existing branch instead of the interactive create branch (so no
-    //   human prompt is needed on the box side for role selection). All of
-    //   this stays on Step 2; the supervisor picks up the pre-written folder
-    //   on its next reconcile tick.
-    //
-    //   Skynet does NOT invoke the relay-register block — that's the fresh
-    //   agent's own responsibility at first wake (per the seed comment).
-    //
-    //   Local branch (isLocalHostId=true) is currently NOT covered — this
-    //   phase's UAT scope is remote fleet hosts only. Local-branch self-birth
-    //   remains a pre-Phase-22 workflow and skips the pre-write silently.
-    // -----------------------------------------------------------------------
-    await runStep(2, async () => {
-      await exec(`mkdir -p ${escPath}`);
-
-      // Phase 22 SRIC-02 Step 2.5: identity file pre-write.
-      // Phase 66 Plan 66-01 grew this to also emit full-cosmetics frontmatter
-      // (displayName/title/colorHue/voice/avatar) + write the avatar sibling
-      // file, so Skynet-born identities are byte-shape-indistinguishable from
-      // Nelly-migrated (Phase A) ones on disk.
-      //
-      // LOCAL branch (2026-09-11): fs.writeFile tmp+rename via
-      // writeMarkdownFileAtomic(null,...) + writeAvatarSiblingFile(null,...).
-      // Both primitives take conn nullable — REMOTE passes the SSH client,
-      // LOCAL passes null. Same $HOME-prefixed path shape either way; the
-      // primitive's LOCAL branch substitutes $HOME/fleet →
-      // parent-of-IDENTITIES_HOST_DIR (i.e. /host-home/fleet under the
-      // host-home bind mount), NOT os.homedir()/fleet (which would land at
-      // /root/fleet — ephemeral overlay storage the supervisor on
-      // the host can't see).
-      // Defense in depth: HTTP handler validates opts.role, but re-check
-      // here because role is shell-interpolated in the identity file body.
       if (!opts.role || !ROLE_NAME_PATTERN.test(opts.role)) {
         throw new Error(
           `role must match ${ROLE_NAME_PATTERN}; got: ${JSON.stringify(opts.role)}`,
         );
       }
-
-      // Build the identity folder path.
-      //   REMOTE: resolve $HOME via SSH exec — the target host's shell tells
-      //           us where the user's fleet dir lives.
-      //   LOCAL:  use getLocalIdentitiesRoot() — the container-side path
-      //           inside the host-home bind mount (env IDENTITIES_HOST_DIR
-      //           = /host-home/fleet/identities in production, falling back
-      //           to os.homedir()/fleet/identities in dev). Do NOT use the
-      //           container shell's $HOME — inside the Skynet container
-      //           that's /root which is NOT where the bind mount is, and
-      //           writes there land in ephemeral container storage
-      //           (invisible to the supervisor on the host).
-      // opts.name is already gated by IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE
-      // above, so it's shell-safe.
-      // 2026-09-18 (quick 260918-52n): identityDir + identityFilePath +
-      // avatarFilename derive from identityFolderName (mxid localpart)
-      // instead of opts.name. This keeps ~/fleet/identities/<key>/,
-      // <key>.md, and <key>.<avatarExt> all in sync with the mxid, so a
-      // reused pool name never collides with a prior identity's folder.
-      let identityDir: string;
-      if (useLocal) {
-        identityDir = `${getLocalIdentitiesRoot()}/${identityFolderName}`;
-      } else {
-        const remoteHome = (await exec("echo $HOME")).trim();
-        if (!remoteHome || remoteHome.includes("\n")) {
-          throw new Error("could not resolve $HOME");
-        }
-        identityDir = `${remoteHome}/fleet/identities/${identityFolderName}`;
-      }
-      const identityFilePath = `${identityDir}/${identityFolderName}.md`;
-
-      // 1. Create the identity folder tree — wakeups/ + workspace/ (generic
-      //    working dir per D-04) plus touch handoff.md to satisfy id skill's
-      //    load-existing branch. Single mkdir -p + touch works both branches
-      //    (LOCAL via execLocal, REMOTE via SSH exec). identityDir is an
-      //    absolute path either way (bind-mount root on LOCAL, remote $HOME
-      //    on REMOTE), so the shell interpolation is safe.
-      await exec(
-        `mkdir -p "${identityDir}/wakeups" "${identityDir}/workspace" && touch "${identityDir}/handoff.md"`,
+      const derived = await deriveMxidAndFolderName(
+        { name: opts.name, role: opts.role, poolPicked: opts.poolPicked },
+        {
+          matrixServerName: deps.matrixServerName,
+          matrixHomeserver: deps.matrixHomeserver,
+          matrixCountUsersMatching: deps.matrixCountUsersMatching,
+        },
       );
+      mxid = derived.mxid;
+      identityFolderName = derived.identityFolderName;
+    });
 
-      // 2. Derive avatar ext from the candidate mime. Defense-in-depth: the
-      //    birth upload path is capped to png/jpeg/webp so an unmapped mime
-      //    should never surface here, but throw loud instead of silent-no-op
-      //    if the map ever narrows and a caller widens (T-66-01-01).
-      //
-      //    Phase 86 Plan 86-04 (D-CTX-86-inherit): when opts.avatarCandidateId
-      //    was absent from the birth request, Step 1's candidate lookup was
-      //    skipped and birthCandidate is still null — the identity inherits
-      //    the role's avatar via Plan 86-01's GET /:key/avatar role-folder
-      //    fallback. buildIdentityFileBody receives "" for avatarFilename
-      //    (absent-⇒-omit invariant), the .md is written, and
-      //    writeAvatarSiblingFile is skipped entirely.
-      let avatarExt: AvatarExt | null = null;
-      let avatarFilename = "";
-      if (birthCandidate !== null) {
-        const derivedExt = MIME_TO_AVATAR_EXT[birthCandidate.mime];
-        if (!derivedExt) {
-          throw new Error(
-            "unsupported avatar mime for on-disk write: " + birthCandidate.mime,
+    // -----------------------------------------------------------------------
+    // Step 2: wire-compat instant-complete placeholder. The mkdir + identity-
+    //         file write that lived here pre-reshape is folded into Step 8's
+    //         atomic peer-commit script. Emitted as instant start+complete
+    //         so the frontend BirthProgress checklist doesn't stall on a
+    //         step that never fires.
+    // -----------------------------------------------------------------------
+    emit({ type: "step", n: 2, phase: "started" });
+    emit({ type: "step", n: 2, phase: "completed" });
+
+    const displayName = opts.name.length > 0
+      ? opts.name[0].toUpperCase() + opts.name.slice(1)
+      : opts.name;
+
+    // -----------------------------------------------------------------------
+    // Step 6: admin-mint (createOrUpdateUser) + login-as-user +
+    //         best-effort agents-registry join. On mint success we set
+    //         mintedForRollback=true so a subsequent Step 7 or Step 8
+    //         failure triggers deactivate in the finally block below.
+    // -----------------------------------------------------------------------
+    await runStep(6, async () => {
+      agentPassword = generateAgentPassword();
+      const mintResult = await deps.matrixCreateOrUpdateUser(
+        mxid,
+        agentPassword,
+        displayName,
+      );
+      if (mintResult.ok === false) {
+        throw new Error(
+          `admin_mint_failed: ${mintResult.error} (${mintResult.status})`,
+        );
+      }
+      mintedForRollback = true;
+
+      const loginResult = await deps.matrixLoginAsUser(mxid);
+      if (loginResult.ok === false) {
+        throw new Error(
+          `admin_login_failed: ${loginResult.error} (${loginResult.status})`,
+        );
+      }
+      mintedAccessToken = loginResult.accessToken;
+
+      // Phase 89 D-11 hook — best-effort join to the agents registry room.
+      // A failed join does NOT fail the birth; the observation loop's
+      // classification falls back to 'unknown foreign account'.
+      try {
+        const joinResult = await joinAgentToAgentsRegistry(mxid);
+        if (joinResult.ok === false) {
+          databaseLogger.warn(
+            "identity birth: agents-registry join failed (best-effort per D-12)",
+            {
+              operation: "identity_birth_registry_join_failed",
+              mxid,
+              status: joinResult.status,
+              error: joinResult.error,
+            },
           );
         }
-        avatarExt = derivedExt;
-        // 2026-09-18 (quick 260918-52n): avatar sibling filename tracks the
-        // folder name (mxid localpart), NOT opts.name — matches identityDir
-        // and identityFilePath naming above.
-        avatarFilename = `${identityFolderName}.${avatarExt}`;
-      }
-
-      // 3. Compose the identity file body via the Phase 66 builder —
-      //    full cosmetics frontmatter with role-first ordering and the
-      //    absent-⇒-omit invariant for null / empty-string fields.
-      //    displayName mirrors identity-birth.ts createIdentityRecord's
-      //    capitalize(opts.name) rule (Patch #320 correct mapping).
-      const displayName =
-        opts.name.length > 0
-          ? opts.name[0].toUpperCase() + opts.name.slice(1)
-          : opts.name;
-      const identityFileBody = buildIdentityFileBody(
-        opts,
-        displayName,
-        avatarFilename,
-      );
-
-      // 4. Write markdown atomically. REMOTE: SFTP tmp+rename via
-      //    ext_openssh_rename (Pitfall 3 / #2924). LOCAL: fs.writeFile
-      //    tmp+rename. writeMarkdownFileAtomic routes on conn === null.
-      await deps.writeMarkdownFileAtomic(conn, identityFilePath, identityFileBody);
-
-      // 5. Write avatar sibling file (same atomic tmp+rename discipline,
-      //    binary payload — Phase 66 Plan 66-01 Track 1). Runs AFTER
-      //    writeMarkdownFileAtomic: graceful partial recovery — if the
-      //    avatar write fails, the .md + wakeups/ + handoff.md are still
-      //    on disk (re-birth is the recovery path, not a rollback we build).
-      //    Test 24b pins this ordering.
-      //
-      //    Phase 86 Plan 86-04 (D-CTX-86-inherit): skip the sibling write
-      //    when no candidate bytes exist (role-inherited-avatar path).
-      //    The role's avatar file at ~/fleet/roles/<role>/<file> is
-      //    served via Plan 86-01's GET /:key/avatar role-folder fallback.
-      //    avatarExt was assigned above inside the same `birthCandidate
-      //    !== null` guard, so the non-null assertion is safe here.
-      //
-      //    writeAvatarSiblingFile already has a LOCAL branch (conn === null
-      //    routes to Node fs — see identity-artifact-reader.ts L2104-L2111).
-      if (birthCandidate !== null) {
-        // 2026-09-18 (quick 260918-52n): writeAvatarSiblingFile's second arg
-        // is the identity folder key it uses to build the target path (see
-        // identity-artifact-reader.ts L2270/2279). Swap opts.name →
-        // identityFolderName so the sibling avatar lands next to the
-        // identity file inside the derived folder.
-        await deps.writeAvatarSiblingFile(conn, identityFolderName, avatarExt!, birthCandidate.bytes);
+      } catch (joinErr) {
+        databaseLogger.warn(
+          "identity birth: agents-registry join threw unexpectedly (best-effort per D-12)",
+          {
+            operation: "identity_birth_registry_join_threw",
+            mxid,
+            error:
+              joinErr instanceof Error ? joinErr.message : String(joinErr),
+          },
+        );
       }
     });
 
     // -----------------------------------------------------------------------
-    // Phase 75 Plan 04 — Steps 6, 7, 8 (D-OQ3 lock):
-    // admin-mint relay account + write relay.json to target host with a real
-    // access_token.
-    //
-    // LOCAL branch (2026-09-11): the helper accepts conn: SSHClient | null.
-    // Steps 6/7 don't touch conn (they call matrix-admin HTTP primitives),
-    // and Step 8's writeIdentityFile already routes on hostId (LOCAL:
-    // Node fs, REMOTE: SFTP) — per per-identity-file.ts. Passing conn=null
-    // here for LOCAL is the whole story.
-    //
-    // The helper handles all three steps' event emission and error handling.
-    // Its runStep wrapper throws BirthAborted on failure which propagates
-    // through the outer try/catch below (L634-644) exactly like Steps 1-3.
-    //
-    // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode +
-    // agent-supervisor race. The helper does NOT delete the identity folder
-    // on any Step 6/7/8 failure; this call site MUST NOT either.
+    // Step 7: build relay.json body + identity file body — both consumed
+    //         by Step 8's peer-commit script as base64-encoded blobs.
+    //         Guards against empty access_token propagating to disk.
     // -----------------------------------------------------------------------
-    {
-      const displayName =
-        opts.name.length > 0
-          ? opts.name[0].toUpperCase() + opts.name.slice(1)
-          : opts.name;
-      // 2026-09-18 (quick 260918-52n): pass the mxid + identityFolderName
-      // derived in Step 1 into the helper. runRelayMintAndWrite no longer
-      // derives the MXID itself — it just uses what Step 1 computed. This
-      // keeps folder path (Step 8's writeIdentityFile) and mxid (Step 6's
-      // admin mint) in sync with the Step 1 folder-existence probe.
-      // displayName still derives from opts.name (UI badge shows "Anthem",
-      // not "Anthem-box-maintainer-2") — this is the sole surviving
-      // opts.name consumer downstream of Step 1 by design.
-      await runRelayMintAndWrite(
-        {
-          name: opts.name,
-          displayName,
-          hostId: opts.hostId,
-          mxid,
-          identityFolderName,
-        },
-        emit,
-        deps,
-        conn,
-      );
+    await runStep(7, async () => {
+      if (!mintedAccessToken) {
+        throw new Error("empty_access_token_from_login");
+      }
+      relayJsonBody = deps.buildRelayJsonBody({
+        mxid,
+        password: agentPassword,
+        accessToken: mintedAccessToken,
+        homeserverBase: deps.relayJsonHomeserverBase,
+      });
+      // Phase 86 Plan 86-04 (D-CTX-86-inherit): avatar is absent-⇒-omit for
+      // this reshape — spawn-request births never carry an avatar, and the
+      // SSE frontend's create form dropped its avatar-upload affordance
+      // (avatars are edit-only now). Empty avatarFilename → frontmatter
+      // omits `avatar:` and the role's avatar resolves via role-folder
+      // fallback per Plan 86-01.
+      identityFileBody = buildIdentityFileBody(opts, displayName, "");
+    });
+
+    // -----------------------------------------------------------------------
+    // Step 8: SSH connect (remote branch) + execute the atomic peer-commit
+    //         script in ONE exec. Failure at any point in the peer script
+    //         exits non-zero with a stderr message; execCommand rejects
+    //         with that message baked into the Error, which runStep's
+    //         catch converts to a step:8:failed emit + BirthAborted throw.
+    //         The finally block below picks up the pieces (rollback +
+    //         connection release).
+    // -----------------------------------------------------------------------
+    if (!useLocal) {
+      try {
+        const host = await deps.resolveHostById(opts.hostId, opts.userId);
+        conn = await deps.connectOneShot(host, SSH_CONNECT_TIMEOUT_MS);
+      } catch (e) {
+        // SSH connect failure surfaces as step:8:failed with the same "Host
+        // unreachable" reason string Fix 3's worker.ts routing depends on
+        // (sanitizeError maps /connect/i → "Host unreachable" →
+        // peer_host_unreachable). Rollback still fires via the finally
+        // block because mintedForRollback=true.
+        const reason = "Host unreachable";
+        emit({ type: "step", n: 8, phase: "started" });
+        emit({ type: "step", n: 8, phase: "failed", reason });
+        emit({ type: "ended", ok: false, failedStep: 8, reason });
+        throw new BirthAborted(8);
+      }
+    }
+
+    // Resolve the fleet root for the peer script. Remote branch relies on
+    // the peer shell to expand $HOME; local branch substitutes the
+    // container's bind-mount fleet root (parent of getLocalIdentitiesRoot()).
+    const fleetRoot = useLocal
+      ? path.dirname(getLocalIdentitiesRoot())
+      : "$HOME/fleet";
+
+    const peerScript = buildPeerCommitScript({
+      role: opts.role,
+      identityFolderName,
+      identityFileBody,
+      relayJsonBody,
+      fleetRoot,
+    });
+
+    await runStep(8, async () => {
+      const output = useLocal
+        ? await deps.execLocal(peerScript)
+        : await deps.execCommand(conn!, peerScript);
+      // Peer script emits "birth_committed" on happy path. `set -e` +
+      // trailing `exit 0` should make any other final stdout impossible,
+      // but assert defensively.
+      if (output.trim() !== "birth_committed") {
+        throw new Error(
+          `peer_commit_unexpected_output: ${output.slice(0, 100)}`,
+        );
+      }
+    });
+
+    // Peer commit landed atomically. From here on no rollback fires even
+    // if the supervisor-wait times out — the identity dir is whole on
+    // peer disk and the supervisor will bring it alive on its own
+    // schedule (Q2 no-rollback lock preserved for post-commit failures).
+    birthCommitted = true;
+
+    // Best-effort: pre-create opts.path (frontend-supplied custom workspace
+    // directory) AFTER the atomic commit. Failure here does NOT fail the
+    // birth — the identity is already committed. Skipped when normalizedPath
+    // resolves to $HOME (trivial default) since that always exists on peer.
+    if (normalizedPath !== "$HOME") {
+      try {
+        const mkdirCmd = `mkdir -p ${shellPath(normalizedPath)}`;
+        if (useLocal) {
+          await deps.execLocal(mkdirCmd);
+        } else {
+          await deps.execCommand(conn!, mkdirCmd);
+        }
+      } catch (mkdirErr) {
+        databaseLogger.warn(
+          "identity birth: custom workspace mkdir failed (best-effort, birth already committed)",
+          {
+            operation: "identity_birth_custom_workspace_mkdir_failed",
+            identityKey: identityFolderName,
+            hostId: opts.hostId,
+            path: normalizedPath,
+            error:
+              mkdirErr instanceof Error ? mkdirErr.message : String(mkdirErr),
+          },
+        );
+      }
     }
 
     // -----------------------------------------------------------------------
-    // Phase 106 — Wait for the supervisor to bring the identity alive.
-    //
-    // Steps 3/4/5 (harness bootstrap: trust-flag pre-write, claude launch,
-    // 7-Enter settle train, `/id <name>` dispatch) are RETIRED per D-01..D-03.
-    // The harness-start helper still lives at ./identity-harness-start.js
-    // and is still used by identity-clone.ts:632.
-    //
-    // Rationale (see shape file §Shape step 4 + §Philosophy):
-    //   agent-supervisor.sh on the target host reconciles the identities
-    //   folder every 15s (CHECK_INTERVAL=15). Once Step 8 has written the
-    //   identity's folder tree + <name>.md + relay.json, the supervisor's
-    //   next tick picks the identity up, opens the tmux session (its own
-    //   `tmux new -d -s <name> -c <workdir> -x 220 -y 50`), launches the
-    //   claude REPL, and dispatches `/id <name>`. Skynet does not talk to
-    //   the supervisor directly — the coordination is shared-nothing
-    //   through disk. We wait for the visible completion signal on disk
-    //   (the transcript JSONL with `/id <name>` as its first user-turn),
-    //   then close the SSE stream with ended{ok:true}.
-    //
-    // Signal (D-05): `discoverIdentitySessionFile(conn, identityFolderName)`
-    // — the SAME sensor fleet-status and sessions.ts already trust for
-    // "this is a live agent session, not a bare shell." Do NOT invent a
-    // parallel sensor per shape file §"What would make it wrong" bullet 7.
-    // (2026-09-18 quick 260918-52n: probe key is the mxid-localpart-derived
-    // folder name, not opts.name — the tmux session name matches the
-    // folder.)
-    //
-    // Cadence (D-07): every WAIT_FOR_SUPERVISOR_POLL_MS (2s).
-    // Timeout: after WAIT_FOR_SUPERVISOR_TIMEOUT_MS (300s), emit
-    //   ended{ok:false, reason:"supervisor_wait_timeout"} and stop.
-    //
-    // Q2 no-rollback lock (shape file §"What would make it wrong" bullet 4):
-    //   On timeout the identity folder + Matrix account STAY on disk. Do NOT
-    //   rm -rf, do NOT unlink relay.json, do NOT deactivate the Matrix
-    //   account. The supervisor may still bring the identity alive after
-    //   we've given up waiting — deleting on timeout re-introduces the race
-    //   the no-rollback rule was written to prevent.
-    //
-    // Local branch (isLocalHostId=true): runs the SAME poll loop with a
-    // null SSH conn. discoverIdentitySessionFile's LOCAL branch reads the
-    // container's bind-mounted host `.claude/projects/` via node fs, routed
-    // through HOME_HOST_DIR (= /host-home/.claude/projects/) — same routing
-    // shape as writeIdentityFile at per-identity-file.ts. Local births go through the wait for two
-    // reasons: (1) the UI birth flow (POST /identities/birth, SSE) can now
-    // target the Skynet host itself and its modal auto-route depends on
-    // ended{ok:true} meaning "PrettyView has something real to render", and
-    // (2) uniformity with the remote branch means one set of semantics for
-    // every caller (spawn-requests worker, /identities/birth handler) and
-    // one testable timeout path.
-    //
-    // Prior behavior (fast-exit for useLocal — the "not currently mounted"
-    // deferral) is retired: the bind-mount is now first-class in the
-    // canonical compose, and the local FS walk has the same fail-safe
-    // return-null semantics as the SSH branch.
+    // Wait for the supervisor's 15s reconcile tick to bring the identity
+    // alive. Unchanged from pre-reshape: poll discoverIdentitySessionFile
+    // every WAIT_FOR_SUPERVISOR_POLL_MS until a transcript JSONL appears
+    // under the identity's ~/.claude/projects/ dir, up to
+    // WAIT_FOR_SUPERVISOR_TIMEOUT_MS. On timeout we STAY on disk (Q2
+    // no-rollback lock): the supervisor may still pick up the identity
+    // after we've given up polling; deleting on timeout re-introduces the
+    // race the no-rollback rule was written to prevent.
     // -----------------------------------------------------------------------
     const supervisorSensorConn: SSHClient | null = useLocal ? null : conn;
     if (useLocal || conn) {
@@ -1784,38 +1665,30 @@ export async function birthIdentity(
       let discoveredPath: string | null = null;
       let clientAborted = false;
       while (Date.now() - waitStartMs < WAIT_FOR_SUPERVISOR_TIMEOUT_MS) {
-        // Phase 106 review M1 fix: bail out if the client disconnected
-        // (browser tab closed, hard refresh, navigation). SSE stream is
-        // already dead; no emit needed. Outer finally still releases the
-        // SSH connection.
         if (opts.abortSignal?.aborted) {
           clientAborted = true;
           break;
         }
-        // 2026-09-18 (quick 260918-52n): probe by identityFolderName —
-        // agent-supervisor.sh opens its tmux session named after the
-        // on-disk folder, and discoverIdentitySessionFile hashes that name
-        // into the `~/.claude/projects/-home-ubuntu-fleet-identities-<key>-
-        // workspace/` project path. Using opts.name here would look at the
-        // wrong project directory for pool-picked births.
-        discoveredPath = await deps.discoverIdentitySessionFile(supervisorSensorConn, identityFolderName);
+        discoveredPath = await deps.discoverIdentitySessionFile(
+          supervisorSensorConn,
+          identityFolderName,
+        );
         if (discoveredPath !== null) break;
         await sleep(WAIT_FOR_SUPERVISOR_POLL_MS);
       }
       if (clientAborted) {
-        databaseLogger.warn("identity birth: client aborted during supervisor wait", {
-          operation: "identity_birth_client_aborted",
-          identityKey: identityFolderName,
-          hostId: opts.hostId,
-          elapsedMs: Date.now() - waitStartMs,
-        });
+        databaseLogger.warn(
+          "identity birth: client aborted during supervisor wait",
+          {
+            operation: "identity_birth_client_aborted",
+            identityKey: identityFolderName,
+            hostId: opts.hostId,
+            elapsedMs: Date.now() - waitStartMs,
+          },
+        );
         return;
       }
       if (discoveredPath === null) {
-        // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode +
-        // agent-supervisor race, and shape file §"What would make it wrong"
-        // bullet 4. Timeout STAYS on disk; the operator sees the alert; the
-        // log captures the operation-key for post-mortem correlation.
         databaseLogger.warn("identity birth: supervisor wait timed out", {
           operation: "identity_birth_supervisor_wait_timeout",
           identityKey: identityFolderName,
@@ -1827,14 +1700,14 @@ export async function birthIdentity(
       }
     }
 
-    // All steps completed successfully (and — for the remote branch — the
-    // supervisor's transcript signal fired within the timeout window).
-    // 2026-09-18 (quick 260918-52n): identityId + sessionName both carry
-    // identityFolderName — the identity IS its folder name on disk (also
-    // the tmux session name agent-supervisor opens). Frontend consumers
-    // (NewSessionDialog etc.) that keyed off opts.name for tab-open will
-    // see the mxid-localpart-derived value now.
-    emit({ type: "ended", ok: true, identityId: identityFolderName, sessionName: identityFolderName });
+    // All steps completed successfully and the supervisor's transcript
+    // signal fired (for the remote branch) within the timeout window.
+    emit({
+      type: "ended",
+      ok: true,
+      identityId: identityFolderName,
+      sessionName: identityFolderName,
+    });
   } catch (e) {
     if (e instanceof BirthAborted) {
       // Failure event already emitted by runStep — no re-emit
@@ -1845,7 +1718,35 @@ export async function birthIdentity(
     // step failures and from the supervisor-wait timeout.
     emit({ type: "ended", ok: false, reason: sanitizeError(e) });
   } finally {
-    // Always clean up SSH connection if we opened one
+    // Rollback path: if we minted a Matrix account but the atomic peer
+    // commit never landed, deactivate the mint so a retry with the next
+    // ordinal doesn't leak a Synapse account. Best-effort — a failed
+    // deactivate is warn-logged (the orphan is recoverable via periodic
+    // sweep) but does not raise (we're already in finally on an existing
+    // failure path).
+    if (mintedForRollback && !birthCommitted) {
+      try {
+        const deactResult = await deps.matrixDeactivateUser(mxid);
+        if (deactResult.ok === false) {
+          databaseLogger.warn("identity birth: rollback deactivate failed", {
+            operation: "identity_birth_rollback_deactivate_failed",
+            mxid,
+            status: deactResult.status,
+            error: deactResult.error,
+          });
+        }
+      } catch (rollbackErr) {
+        databaseLogger.warn("identity birth: rollback deactivate threw", {
+          operation: "identity_birth_rollback_deactivate_threw",
+          mxid,
+          error:
+            rollbackErr instanceof Error
+              ? rollbackErr.message
+              : String(rollbackErr),
+        });
+      }
+    }
+    // Always release SSH connection if we opened one
     if (conn) {
       try {
         (conn as SSHClient & { end: () => void }).end();
