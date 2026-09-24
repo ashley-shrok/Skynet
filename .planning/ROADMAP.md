@@ -2853,3 +2853,13 @@ Threat model highlights (STRIDE registers per plan):
 - T-111-SPOOF (hostile client suppresses X-Skynet-Client-Build to evade refusal): accepted per D-06 design (mismatch-only server enforcement; client-side interceptor guarantees the header on legitimate browsers; hostile clients are outside the trust boundary).
 - T-111-DoS reload-loop (Pitfall 4): mitigated by reload-loop sentinel in Plan 02 Task 2 (fatal-mode modal after 4 reloads within 60s).
 - Package-legitimacy gate: N/A this phase — zero new npm/pip/cargo packages.
+
+### Phase 133: Role archival — cascade retire a role and all identities holding it, plus inline-retry refactor of identity retirement
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 132
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 133 to break down)
