@@ -101,18 +101,33 @@ export interface SuccessResponse {
 /**
  * Failure reason enum (D-10).
  *
- * `birth_timeout` (added post-Phase-99): the worker's per-attempt wall-clock
- * timeout fired. Distinguished from `homeserver_unreachable` (which is an
- * early-step SSH-connect failure) — a timeout can strike AFTER the peer-side
- * birth has actually started or even completed, so the accompanying `message`
- * carries a "may have been born as X — verify before retrying" instruction to
- * avoid the operator creating a duplicate identity.
+ * `peer_host_unreachable` — birth step 1/2/8 hit an SSH-level failure
+ * (connect timeout, connection refused, network unreachable) talking to the
+ * PEER host (the box the identity is being birthed on). Steps 1/2 do folder
+ * probes and mkdir; step 8 does the SFTP relay.json write.
+ *
+ * `matrix_homeserver_unreachable` — birth step 6 hit a network failure
+ * talking to the Matrix Synapse admin API (mint the identity's Matrix
+ * account). Distinct from peer-host issues; the fleet Synapse at t1000 could
+ * be down while every managed peer is reachable, or vice versa.
+ *
+ * Historically these were one enum value (`homeserver_unreachable`) which
+ * mixed SSH-to-peer and Matrix-API failures under a name that suggested only
+ * the Matrix case — operators wasted debugging cycles looking at Synapse when
+ * the real problem was SSH to the peer. Split at the point where the
+ * information is already available: `ended.failedStep`.
+ *
+ * `birth_timeout` — the worker's per-attempt wall-clock timeout fired. Can
+ * strike AFTER the peer-side birth has actually started or even completed, so
+ * the accompanying `message` carries a "may have been born as X — verify
+ * before retrying" instruction to avoid the operator creating a duplicate.
  */
 export type FailureReason =
   | "malformed"
   | "role_unknown"
   | "birth_failed"
-  | "homeserver_unreachable"
+  | "peer_host_unreachable"
+  | "matrix_homeserver_unreachable"
   | "pool_exhausted"
   | "matrix_creds_missing"
   | "birth_timeout";

@@ -111,15 +111,33 @@ export function mapEndedEventToReason(
   }
 
   const reason = stepFailReason ?? "";
+  const step = ended.failedStep;
 
-  // SSH / network connectivity failures
-  if (/timeout|unreachable|refused|econnrefused|connection/i.test(reason)) {
-    return "homeserver_unreachable";
-  }
-
-  // Role folder not found on target host (Step 1 check in orchestrator — Phase 108)
+  // Role folder not found on target host (Step 1 check in orchestrator — Phase 108).
+  // Checked before the network-error regex so a "role X not found" reason
+  // doesn't accidentally match /connection/ or similar.
   if (/role.*not found|role.*does not exist|unknown role|invalid role/i.test(reason)) {
     return "role_unknown";
+  }
+
+  // SSH / network connectivity failures — split by which system the step
+  // actually talks to (see identity-birth-orchestrator.ts step semantics):
+  //   Step 1: role-folder existence probe on the peer (SSH)
+  //   Step 2: mkdir identity dir on the peer (SSH)
+  //   Step 6: admin-mint the Matrix account via Synapse admin API (HTTP)
+  //   Step 7: build relay.json JSON body (pure local — no network)
+  //   Step 8: SFTP-write relay.json + chmod on the peer (SSH)
+  //
+  // Fallback when the failedStep isn't set or isn't one we recognize: keep
+  // the historical "matrix_homeserver_unreachable" name — a birth that got
+  // far enough to emit an ended event with a connection-flavored reason but
+  // no step number is more likely a downstream Matrix issue than a peer-SSH
+  // one (peer-SSH failures usually surface at step 1 with a step number set).
+  if (/timeout|unreachable|refused|econnrefused|connection/i.test(reason)) {
+    if (step === 1 || step === 2 || step === 8) {
+      return "peer_host_unreachable";
+    }
+    return "matrix_homeserver_unreachable";
   }
 
   // Default: generic birth failure

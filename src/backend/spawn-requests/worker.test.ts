@@ -20,8 +20,10 @@
  *    13. skills absent (undefined) accepted — field is optional
  *
  *   Failure-mapping (mapEndedEventToReason):
- *    14. failedStep:1 + reason:"ssh connect timeout" → homeserver_unreachable
- *    15. failedStep:6 + reason matching /refused/ → homeserver_unreachable (or birth_failed)
+ *    14. failedStep:1 + reason:"ssh connect timeout" → peer_host_unreachable
+ *    15. failedStep:6 + reason matching /refused/ → matrix_homeserver_unreachable
+ *    15b. failedStep:8 + reason:"ssh connect timeout" → peer_host_unreachable (SFTP write)
+ *    15c. no failedStep + connection-flavored reason → matrix_homeserver_unreachable (fallback)
  *    16. failedStep:2 no reason → birth_failed
  *
  *   processBirth end-to-end (with injected deps + mocked birthIdentity):
@@ -377,24 +379,43 @@ describe("spawn-request worker", () => {
     // because BirthEvent.ended has no reason field — reasons live on step events.
     // Worker threads the last step:failed reason through as the 2nd arg.
 
-    it("Test 14: stepFailReason='ssh connect timeout' → homeserver_unreachable", () => {
+    it("Test 14: failedStep:1 + 'ssh connect timeout' → peer_host_unreachable", () => {
       const event: BirthEvent & { type: "ended" } = {
         type: "ended",
         ok: false,
         failedStep: 1,
       };
       const result = mapEndedEventToReason(event, "ssh connect timeout");
-      expect(result).toBe("homeserver_unreachable");
+      expect(result).toBe("peer_host_unreachable");
     });
 
-    it("Test 15: stepFailReason containing /refused/ → homeserver_unreachable", () => {
+    it("Test 15: failedStep:6 + 'connection refused' → matrix_homeserver_unreachable", () => {
       const event: BirthEvent & { type: "ended" } = {
         type: "ended",
         ok: false,
         failedStep: 6,
       };
       const result = mapEndedEventToReason(event, "admin_mint_failed: connection refused");
-      expect(result).toBe("homeserver_unreachable");
+      expect(result).toBe("matrix_homeserver_unreachable");
+    });
+
+    it("Test 15b: failedStep:8 + 'ssh connect timeout' → peer_host_unreachable (SFTP write)", () => {
+      const event: BirthEvent & { type: "ended" } = {
+        type: "ended",
+        ok: false,
+        failedStep: 8,
+      };
+      const result = mapEndedEventToReason(event, "ssh connect timeout");
+      expect(result).toBe("peer_host_unreachable");
+    });
+
+    it("Test 15c: no failedStep + connection-flavored reason → matrix_homeserver_unreachable (safe fallback)", () => {
+      const event: BirthEvent & { type: "ended" } = {
+        type: "ended",
+        ok: false,
+      };
+      const result = mapEndedEventToReason(event, "connection refused");
+      expect(result).toBe("matrix_homeserver_unreachable");
     });
 
     it("Test 16: no stepFailReason → birth_failed", () => {
