@@ -279,3 +279,63 @@ Handoff notes for the implementing agent:
 - Multiple identities of this role work in parallel on this repo — the
   standard rebase-before-push and rebase-before-build discipline applies
   throughout.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-24
+**Vehicle used:** gsd phase
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · One deliberate gesture retires the role folder plus every identity holding it — right-click Archive → HTTP → sentinel → supervisor cascade → folder move
+- **Shape: single gesture, right-click Archive, two confirmations** — present · Right-click opens context menu with one danger-styled Archive item; first confirm names role + lists every affected identity by task-or-displayName with no truncation and an empty-list message; second confirm is byte-identical sanity tap to identity-archive
+- **Shape: one HTTP call drops one sentinel, no fan-out** — present · Single POST drops exactly `.archive-requested` at the role folder via the new per-role-file primitive; no identity folders touched
+- **Shape: supervisor cascade on next reconcile tick** — present · Scanner walks the roles dir each tick, fresh-enumerates identities via frontmatter check, calls the identity retire end-to-end per identity, moves role folder iff all retired cleanly, deletes sentinel regardless
+- **Shape: inline retry replaces cross-tick counters + stuck-sentinel machinery for both paths** — present · Steps 1 (matrix deactivate) and 4b (folder move) carry 3-attempt exponential backoff; steps 2 (grace) and 3 (tmux kill) intentionally single-attempt; scanners no longer write counter files or drop legacy retire-stuck sentinels
+- **Shape: archive verbatim, no scrubbing** — present · Role folder is moved wholesale to the archive sibling; writeRoleFile whitelist bounded to exactly `.archive-requested` with no chmod field and no scrub call site
+- **Shape: empty cascade is degenerate same-code-path** — present · Zero enumerated identities → for-loop is zero-iter → failed stays 0 → folder move fires immediately
+- **Shape: guards bypassed for role cascade** — present · Scanner does not consult pinned, no-dormancy, or coordinator markers; docs "Guard bypass" affirms
+- **Shape: per-box scope** — present · Roles-dir + roles-archive-dir are local paths; endpoint takes hostId; supervisor runs on the box holding the role; docs affirm no cross-box coordination
+- **Shape: one-way, no un-archive** — present · Route is POST-only; no GET/DELETE counterpart; docs "Not reversible (yet)" explicit
+- **Philosophy: single deliberate gesture; machinery does the rest** — present · Operator sees only right-click + two dialogs; all cascade + retry + folder-move ordering lives inside the supervisor
+- **Philosophy: honest failure mode with loud logs** — present · Partial-cascade line names every failed identity, references per-step retire logs, instructs retry via UI; no silent background retry
+- **Philosophy: retry is inline; nothing lives across ticks** — present · 3-attempt exponential backoff wraps only the two genuinely-transient steps; no counter files written; sentinel deleted after every tick for role path
+- **Philosophy: sentinel is the memory** — present · Presence of the sentinel is the only state; no separate registry, no job store, disk walk IS the state
+- **Prior context: identity retirement building block reused verbatim** — present · Cascade calls the existing retire-identity function unchanged; retry-mechanism refactor benefits both role cascade and existing user-initiated identity archive path uniformly
+- **What would make it wrong: two clicks instead of one gesture** — present · One right-click + two confirms + one HTTP call
+- **What would make it wrong: sentinel becomes chatty** — present · Role sentinel deleted regardless of outcome; subsequent ticks find nothing and do nothing
+- **What would make it wrong: first confirmation lies about blast radius** — present · Every affected identity is listed, no truncation, empty case handled
+- **What would make it wrong: retries live across ticks** — present · No counter files, no state directories written by the retire path or its scanners
+- **What would make it wrong: role folder half-archives** — present · Role folder move fires only when failed==0 across the entire cascade
+- **What would make it wrong: operator's pin becomes a shield** — present · Scanner does not consult pinned/no-dormancy/coordinator during cascade — the click means intent
+- **What would make it wrong: credential files get special handling** — present · writeRoleFile has no chmod field; archival path never inspects folder contents; move is wholesale
+- **Scope: right-click context menu affordance** — present · Reuses existing context-menu component with a single danger-styled Archive item
+- **Scope: API endpoint that drops the sentinel** — present · Route mounted before generic /roles routes to avoid shadowing
+- **Scope: primitive for writing to a role folder** — present · New per-role-file module with writeRoleFile + whitelist + defense-in-depth role-name pattern gate
+- **Scope: supervisor logic that watches for the sentinel, cascades, and moves the folder** — present · Scanner mounted in reconcile loop between existing identity archive scan and identity resolution
+- **Scope: refactor of identity retirement to inline retries** — present · Retire refactored; both scanners updated; state dir now only holds the daily-scan cadence marker
+- **Scope: tests at each layer** — present · Tests present at HTTP, frontend API, primitive, UI + confirmations, cascade happy/fail-soft/empty/guard-bypass, and the identity scanner tests updated for the state-machinery removal
+- **Scope: docs update in identity skill** — present · New "On archiving a role" section with mechanism, failure semantics, guard bypass, click-vs-scan race, non-reversibility, verbatim archive, per-box scope
+- **Out: un-archive** — present · Not added; docs and route both explicit
+- **Out: automated role archival** — present · No age-based or dormancy-based scanner; docs explicit user-initiated-only
+- **Out: cross-box coordination** — present · Endpoint scoped to a single hostId; supervisor is per-box
+- **Out: cleanup of legacy stuck-sentinels/counter files** — present · Legacy files treated as archaeology; new code simply doesn't read or write them
+- **Out: scrubbing role folder contents** — present · Move is wholesale; no inspection
+- **Out: behavior around runbooks/wakeups/bounties beyond folder move** — present · None added
+- **Tempting-but-no: archive affordance on the role modal** — present · Archive lives only on the roles-list context menu; role-detail modal not touched
+- **Tempting-but-no: role-level stuck marker** — present · Not added; sentinel is single-shot per shape
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The retire refactor and the identity-scan callsite have been updated so the cross-tick counter + stuck-sentinel machinery is gone from both scanners, which is what the shape asked for as the load-bearing change. The identity-archive scanner still retains its own sentinel across ticks on retire failure (pre-existing behavior — automatic next-tick retry from the identity's own sentinel), while the role-archive scanner deletes its sentinel every tick regardless of outcome (one-shot per shape). This asymmetry is intentional under the shape's language, which specified one-shot behavior only for the role sentinel; but a future clarification might want to state whether the identity path's persist-on-failure semantic should also flip to one-shot for consistency with the "system does not silently retry in the background" philosophy. The frontend's browse-and-act semantic (list stays open after Archive click) and fire-and-forget catch-and-log are unremarkable UX details not covered by the shape and are natural implementation calls; called out here for completeness only.
