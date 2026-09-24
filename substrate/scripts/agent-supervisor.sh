@@ -40,6 +40,13 @@ IDENTITIES_DIR="${AGENT_IDENTITIES_DIR:-$HOME/fleet/identities}"
 # derive the archive path from IDENTITIES_DIR + '/archive' (which would resolve to
 # `~/fleet/identities/archive/` — wrong tree).
 IDENTITIES_ARCHIVE_DIR="${AGENT_IDENTITIES_ARCHIVE_DIR:-$HOME/fleet/identities-archive}"
+# Phase 133 D-16 + D-18: role folder + role-archive sibling. Roles are per-box
+# (id-skill invariant), so the archival gesture is scoped to this box's disk.
+# Env-overridable for test hermeticity (same discipline as AGENT_IDENTITIES_DIR /
+# AGENT_IDENTITIES_ARCHIVE_DIR — see substrate/scripts/tests/*.test.sh for
+# scratch-dir setup patterns).
+ROLES_DIR="${AGENT_ROLES_DIR:-$HOME/fleet/roles}"
+ROLES_ARCHIVE_DIR="${AGENT_ROLES_ARCHIVE_DIR:-$HOME/fleet/roles-archive}"
 SELF_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
@@ -325,6 +332,35 @@ is_coordinator() {
   local identity_file="$1"
   [ -f "$identity_file" ] || return 1
   awk '/^---$/{f++} f==1 && /^coordinator: true$/{found=1; exit} END{exit !found}' "$identity_file"
+}
+
+# ---- Phase 133 D-07: identity_has_role <identity_file_path> <role_name> ----
+# Returns 0 IFF the identity file has `role: <role_name>` on its own line
+# BETWEEN the first two `---` frontmatter delimiters. Handles unquoted (Skynet
+# convention — verified across the fleet 2026-09-24), plus double- and single-
+# quoted YAML variants; logs a WARN via the bash caller when a quoted variant is
+# encountered so fleet-drift surfaces (per Assumption A2).
+#
+# Mirrors is_coordinator's awk-between-fences shape — same delimiter-sensitivity
+# discipline (Pitfall 6 lock from Phase 94). The match is EXACT ("role: foo"
+# does NOT match "role: foo-bar", nor vice-versa — Pitfall 2 substring-safety).
+# The WARN emission is a post-hoc grep after the match (simpler + more robust
+# than awk-stderr routing per the plan Task 1 Part B recommendation).
+identity_has_role() {
+  local identity_file="$1" want_role="$2"
+  [ -f "$identity_file" ] || return 1
+  # Awk match (unquoted OR quoted — Skynet convention is unquoted but tolerate both).
+  awk -v w="$want_role" '
+    /^---$/{f++}
+    f==1 && ($0 == "role: " w || $0 == "role: \"" w "\"" || $0 == "role: '\''" w "'\''") { found=1; exit }
+    END { exit !found }
+  ' "$identity_file" || return 1
+  # Fleet-drift signal: warn on quoted variants after a match confirmed.
+  # (Only fires when a match was found + the shape is quoted — cheap post-hoc grep.)
+  if grep -qE "^role: [\"'].*[\"']$" "$identity_file" 2>/dev/null; then
+    log "WARN: '$identity_file' has quoted role frontmatter — Skynet convention is unquoted (fleet-drift signal)"
+  fi
+  return 0
 }
 
 # ---- archive scan (Phase 94) — freshness signal reader ----
@@ -1024,6 +1060,107 @@ scan_archive_requested_sentinels() {
       log "'$name' user-initiated archive: retire_identity succeeded"
     else
       log "ERROR: '$name' user-initiated archive: retire_identity FAILED — sentinel retained; next tick will retry"
+    fi
+  done
+}
+
+# ---- user-initiated role archive scanner (Phase 133 D-01/D-05/D-06/D-07/D-08/D-09/D-10/D-12) ----
+# scan_role_archive_requested_sentinels()
+#
+# Sibling of scan_archive_requested_sentinels. Walks $ROLES_DIR/*/ every
+# reconcile tick (~15s cadence). For each role folder carrying a
+# `.archive-requested` sentinel:
+#
+#   1. FRESH ENUMERATION (D-07): walk $IDENTITIES_DIR/*/ and collect every
+#      identity whose frontmatter carries `role: <role_name>` via
+#      identity_has_role(). No snapshot; the disk walk IS the state.
+#
+#   2. FAIL-SOFT CASCADE (D-08): invoke retire_identity(name) on each
+#      enumerated identity. Do NOT abort on individual failures — try every
+#      identity, accumulate failures. Guards (.pinned / .no-dormancy /
+#      coordinator: true) are BYPASSED (D-10) — the scanner doesn't check
+#      them, uniform with the user-initiated identity archive path.
+#
+#   3. CONDITIONAL FOLDER MOVE (D-09): if ALL enumerated identities retired
+#      cleanly, mv $ROLES_DIR/<name>/ to $ROLES_ARCHIVE_DIR/<name>/ and
+#      clean up the sentinel that travelled with the folder. If ANY failed,
+#      keep the role folder in the live tree; emit a LOUD ERROR: log line
+#      naming each failed identity (mirrors the D-15 silent-by-design
+#      carve-out that the removed retire-stuck logging used to occupy).
+#
+#   4. SENTINEL ALWAYS DELETED (D-06): whether cascade succeeded, partially
+#      succeeded, or fully failed, remove the sentinel at end-of-tick. No
+#      cross-tick persistence of the archival intent. Operator retries via a
+#      fresh UI click (D-11), which drops a fresh sentinel and the scanner
+#      naturally picks up only identities not-yet-retired.
+#
+# D-12: empty cascade is the same code path — zero identities → for-loop is
+# zero-iteration → failed stays 0 → folder move happens immediately.
+#
+# D-18: per-box scope — no cross-box coordination. Scanner runs on the box
+# holding the role.
+#
+# D-15 silent discipline exception: the LOUD ERROR: log lines on partial
+# failure are the ONE explicit carve-out (same status as the removed
+# retire-stuck logging in the D-14 refactor). Underlying per-step error
+# details live inside retire_identity()'s own per-step ERROR: log lines,
+# already emitted upstream — cascade partial-failure line references those
+# rather than re-emitting the text ("see per-step retire logs above").
+scan_role_archive_requested_sentinels() {
+  local d role_name identity_dir identity_name
+  for d in "$ROLES_DIR"/*/; do
+    [ -d "$d" ] || continue                          # nullglob-miss guard
+    role_name="$(basename "$d")"
+    [ -f "$d/.archive-requested" ] || continue
+
+    log "role '$role_name' archive: .archive-requested detected — cascading"
+
+    # D-07: fresh enumeration on every scan.
+    local to_retire=()
+    for identity_dir in "$IDENTITIES_DIR"/*/; do
+      [ -d "$identity_dir" ] || continue
+      identity_name="$(basename "$identity_dir")"
+      [ -f "$identity_dir/$identity_name.md" ] || continue
+      if identity_has_role "$identity_dir/$identity_name.md" "$role_name"; then
+        to_retire+=("$identity_name")
+      fi
+    done
+
+    log "role '$role_name' cascade: ${#to_retire[@]} identities hold this role"
+
+    # D-08 fail-soft cascade + D-10 guards bypassed (scanner doesn't check them).
+    local failed=0 total=${#to_retire[@]} failed_names=""
+    local ident
+    if [ "$total" -gt 0 ]; then
+      for ident in "${to_retire[@]}"; do
+        if retire_identity "$ident"; then
+          log "role '$role_name' cascade: identity '$ident' retired cleanly"
+        else
+          failed=$((failed + 1))
+          failed_names="$failed_names $ident"
+          log "ERROR: role '$role_name' cascade: identity '$ident' FAILED to retire (see per-step retire logs above)"
+        fi
+      done
+    fi
+
+    # D-09: folder moves only if ALL identities retired cleanly.
+    # D-06: sentinel deleted regardless of cascade outcome.
+    # D-12: empty cascade — failed=0 total=0 → folder move fires immediately.
+    if [ "$failed" -eq 0 ]; then
+      mkdir -p "$ROLES_ARCHIVE_DIR" 2>/dev/null
+      if mv "$d" "$ROLES_ARCHIVE_DIR/$role_name" 2>/dev/null; then
+        # Sentinel travelled with the folder into the archive — clean it up there.
+        rm -f "$ROLES_ARCHIVE_DIR/$role_name/.archive-requested" 2>/dev/null
+        log "role '$role_name' cascade complete: $total identities retired, folder moved to archive"
+      else
+        # All-clean cascade but move failed — anomaly. Log LOUD, still delete the live sentinel (D-06).
+        log "ERROR: role '$role_name' cascade: all identities retired but folder move FAILED — role folder retained in live tree"
+        rm -f "$d/.archive-requested" 2>/dev/null
+      fi
+    else
+      # D-09 partial failure — role folder stays live; sentinel still deleted (D-06).
+      log "ERROR: role '$role_name' cascade PARTIAL: $failed/$total identities failed:${failed_names}. Role folder retained in live tree. Retry via UI."
+      rm -f "$d/.archive-requested" 2>/dev/null
     fi
   done
 }
@@ -2356,6 +2493,7 @@ reconcile() {
   snapshot_claude_running                          # one ps + one tmux list-panes -a per tick; claude_running_cached reads from CLAUDE_RUNNING_SNAPSHOT.
   run_archive_scan_if_due                          # Phase 94: daily archive-scan branch (24h gate; fast-path no-op on most ticks)
   scan_archive_requested_sentinels                 # Phase 115 D-10: user-initiated archive-scan (every tick, no gate, bypasses .pinned/.no-dormancy/coordinator/freshness)
+  scan_role_archive_requested_sentinels            # Phase 133 D-01/D-05: user-initiated ROLE archive (every tick, no gate, cascades retire_identity per D-08, moves role folder per D-09 if all-clean)
   resolve_identities
   snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).
   snapshot_matrix_peek                             # parallel curls (default -P 20) to Matrix homeservers for all dormant identities; matrix_peek_cached reads from MATRIX_PEEK_SNAPSHOT.
