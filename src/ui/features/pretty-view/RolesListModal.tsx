@@ -169,7 +169,7 @@ export function RolesListModal({
     const dialog1 =
       affected.length === 0
         ? `archive role ${roleDisplayLabel}? no identities hold it.`
-        : `archive role ${roleDisplayLabel}? this will also archive ${affected.length} identities holding it:\n` +
+        : `archive role ${roleDisplayLabel}? this will also archive ${affected.length} ${affected.length === 1 ? "identity" : "identities"} holding it:\n` +
           affected.map((i) => `• ${i.task || i.displayName}`).join("\n");
     if (!window.confirm(dialog1)) return;
     // D-03 second confirm: sanity tap. Byte-identical to identity-archive's

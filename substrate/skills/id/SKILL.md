@@ -891,9 +891,10 @@ partway:
 
 - Successfully-retired identities are already gone from the live tree
   (moved to `~/fleet/identities-archive/`).
-- Failed identities remain in the live tree with their own
-  `.archive-requested` sentinel still present (a retry-on-next-tick
-  signal for the identity-archive path).
+- Failed identities remain in the live tree with NO per-identity
+  sentinel (the cascade calls the identity retire directly rather than
+  dropping identity sentinels, so the identity-archive path does NOT
+  auto-retry them on subsequent ticks).
 - The role folder remains in the live tree — folder movement is the
   LAST thing the cascade does and it happens ONLY when every enumerated
   identity retired cleanly.

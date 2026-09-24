@@ -648,7 +648,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       fireEvent.click(archiveItem);
       expect(window.confirm).toHaveBeenNthCalledWith(
         1,
-        "archive role Role A? this will also archive 1 identities holding it:\n" +
+        "archive role Role A? this will also archive 1 identity holding it:\n" +
           "• Fixing the auth bug",
       );
     });
