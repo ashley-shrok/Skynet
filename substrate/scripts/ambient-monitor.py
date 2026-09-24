@@ -451,14 +451,24 @@ def _inject(event_text):
             fd, tmp = tempfile.mkstemp(prefix="ambient-inject-")
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(payload)
-            if not _tmux("load-buffer", "-t", INJECT_SESSION, tmp):
+            # Named buffer, not the default one. Tmux's default paste buffer is a
+            # server-wide singleton, so a concurrent load-buffer from another
+            # ambient-monitor process (a peer identity on the same box) clobbers ours
+            # in the window between load and paste — and our paste then delivers the
+            # peer's envelope into OUR session. Observed 2026-09-24 with two coordinator
+            # identities racing on a shared role-file edit. `-b <uniq>` isolates us.
+            buf_name = "ambient-%s-%d-%d" % (INJECT_SESSION, os.getpid(), time.time_ns())
+            if not _tmux("load-buffer", "-b", buf_name, tmp):
                 emit_diag("INJECTION FAILED (load-buffer) for session %s — event NOT delivered: %s"
                           % (INJECT_SESSION, event_text[:200]))
                 return False
-            if not _tmux("paste-buffer", "-p", "-t", INJECT_SESSION):
-                emit_diag("INJECTION FAILED (paste-buffer) for session %s — event NOT delivered: %s"
-                          % (INJECT_SESSION, event_text[:200]))
-                return False
+            try:
+                if not _tmux("paste-buffer", "-p", "-b", buf_name, "-t", INJECT_SESSION):
+                    emit_diag("INJECTION FAILED (paste-buffer) for session %s — event NOT delivered: %s"
+                              % (INJECT_SESSION, event_text[:200]))
+                    return False
+            finally:
+                _tmux("delete-buffer", "-b", buf_name)
         finally:
             if tmp:
                 try:
