@@ -1244,14 +1244,25 @@ function adaptAppLineToState(hostId: string, line: SweepAppLine): AppState {
  *   when folder is empty, which is guarded by the `[ -f ]` test).
  * - `base="${f%.json}"` then `[ ${#base} -eq 36 ] || continue` — UUID length
  *   guard: request filenames are <uuid>.json (36-char hex-and-dash). Response
- *   files are <uuid>.success.json / <uuid>.failure.json — stripped base is 43+
- *   chars, rejected here (RESEARCH Security Note + Pitfall 7).
- * - `mv "$f" "$tmp" 2>/dev/null || continue` — atomic claim. Only one
- *   concurrent tick can win the mv; the loser skips (double-observation
- *   defense per Pitfall 7).
- * - `printf '%s\t' "$f"; cat "$tmp"; printf '\n'; rm -f "$tmp"` — emit
- *   tab-separated `<filename><TAB><body><NEWLINE>` then delete the temp file.
- *   No shell quoting of the JSON body — the body goes to stdout as raw bytes.
+ *   files (.success.json, .failure.json) AND in-flight markers (.claimed.json)
+ *   have stripped bases of 44+ chars, all rejected here — so the scan never
+ *   double-claims a request already in-flight or already resolved (Pitfall 7).
+ * - `mv "$f" "$base.claimed.json" 2>/dev/null || continue` — atomic claim.
+ *   Only one concurrent tick can win the mv; the loser skips. The renamed
+ *   `.claimed.json` marker STAYS on disk as durable in-flight state:
+ *     - Operators can `ls` the folder and see queue state at a glance
+ *       (raw .json = awaiting scan; .claimed.json = birth in progress;
+ *       .success.json / .failure.json = done).
+ *     - If Skynet's in-memory queue is wiped by a container restart mid-drain,
+ *       the .claimed.json file survives. Operator can manually rename it
+ *       back to .json to re-drop rather than silently losing the request.
+ *       (Pre-fix: `mv $f $tmp; cat $tmp; rm -f $tmp` deleted the file at
+ *       claim time — request evaporated with the queue on restart.)
+ * - `printf '%s\t' "$f"; cat "$base.claimed.json"; printf '\n'` — emit
+ *   tab-separated `<filename><TAB><body><NEWLINE>`. `$f` is the ORIGINAL
+ *   filename (`<uuid>.json`) because bash doesn't retroactively update it
+ *   after the mv — parseSpawnRequestBatch's UUID_RE match still works.
+ *   No shell quoting of the JSON body — raw bytes to stdout.
  */
 const SPAWN_REQUESTS_SCAN_CMD = [
   "cd ~/fleet/spawn-requests 2>/dev/null || exit 0;",
@@ -1259,9 +1270,8 @@ const SPAWN_REQUESTS_SCAN_CMD = [
   "[ -f \"$f\" ] || continue;",
   "base=\"${f%.json}\";",
   "[ ${#base} -eq 36 ] || continue;",
-  "tmp=\"$f.$$\";",
-  "mv \"$f\" \"$tmp\" 2>/dev/null || continue;",
-  "printf '%s\\t' \"$f\"; cat \"$tmp\"; printf '\\n'; rm -f \"$tmp\";",
+  "mv \"$f\" \"$base.claimed.json\" 2>/dev/null || continue;",
+  "printf '%s\\t' \"$f\"; cat \"$base.claimed.json\"; printf '\\n';",
   "done",
 ].join(" ");
 

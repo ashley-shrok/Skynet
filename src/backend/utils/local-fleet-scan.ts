@@ -96,7 +96,7 @@ export interface LocalFleetScanItem {
  * `"image-gen-requests"`) and atomically claim every 36-char-basename
  * `<uuid>.json` file present. For each claimed file, returns `{filename,
  * contents}` — the filename is the ORIGINAL (`<uuid>.json`), the contents
- * are the raw JSON body read from the temp-renamed file.
+ * are the raw JSON body read from the claimed file.
  *
  * Never throws. Missing folder / any FS error → returns `[]` (with warn-log
  * for genuine errors, but silent on ENOENT to match the SSH `cd || exit 0`
@@ -104,10 +104,21 @@ export interface LocalFleetScanItem {
  *
  * @param subfolder — subfolder name under the local fleet root
  *                    (e.g. `"spawn-requests"`, `"image-gen-requests"`)
+ * @param opts.preserveClaimed — when true, the atomic claim renames to
+ *                    `<uuid>.claimed.json` and LEAVES it on disk (durable
+ *                    in-flight marker; mirrors the SSH SPAWN_REQUESTS_SCAN_CMD
+ *                    change). When false/absent, uses the historical
+ *                    `<uuid>.json.<pid>` tmp + unlink flow. Spawn-requests
+ *                    opts in for restart-durability + operator queue-state
+ *                    visibility; image-gen keeps the default (its requests
+ *                    are transient and its scan-orchestrator has its own
+ *                    completion story).
  */
 export async function scanLocalFleetFolder(
   subfolder: string,
+  opts?: { preserveClaimed?: boolean },
 ): Promise<LocalFleetScanItem[]> {
+  const preserveClaimed = opts?.preserveClaimed === true;
   const folderPath = path.join(getLocalFleetRoot(), subfolder);
 
   // Step 1: list directory entries. ENOENT is not an error — silent [].
@@ -143,57 +154,72 @@ export async function scanLocalFleetFolder(
 
   const results: LocalFleetScanItem[] = [];
   for (const filename of candidates) {
-    // Step 3: atomic-claim via rename to `<filename>.<pid>`. Concurrent racers
-    // lose on the second rename attempt (ENOENT) and are silently skipped.
-    // Mirrors the shell `tmp="$f.$$"; mv "$f" "$tmp" 2>/dev/null || continue`.
+    // Step 3: atomic-claim.
+    //   - preserveClaimed=false: rename `<filename>` → `<filename>.<pid>` (tmp),
+    //     read, unlink. Historical behavior; still used by image-gen.
+    //   - preserveClaimed=true:  rename `<filename>` → `<uuid>.claimed.json`.
+    //     Read; do NOT unlink. The .claimed.json is a durable in-flight
+    //     marker (survives container restart mid-birth; gives operators queue
+    //     state via `ls`). Both success/failure completion writes land as
+    //     separate <uuid>.success.json / <uuid>.failure.json files alongside
+    //     it — the 36-char base guard above filters .claimed.json out of
+    //     re-scans automatically (base is `<uuid>.claimed`, 44 chars).
+    // Concurrent racers lose on the second rename attempt (ENOENT) and are
+    // silently skipped. Mirrors the shell atomic-claim.
     const srcPath = path.join(folderPath, filename);
-    const tmpPath = `${srcPath}.${process.pid}`;
+    const uuid = filename.slice(0, -".json".length);
+    const claimedPath = preserveClaimed
+      ? path.join(folderPath, `${uuid}.claimed.json`)
+      : `${srcPath}.${process.pid}`;
     try {
-      await fs.rename(srcPath, tmpPath);
+      await fs.rename(srcPath, claimedPath);
     } catch {
       // Losing racer OR file vanished between readdir and rename. Silent skip
       // — matches the shell scan's `|| continue`.
       continue;
     }
 
-    // Step 4: read the temp file's contents.
+    // Step 4: read the claimed file's contents.
     let contents: string;
     try {
-      contents = await fs.readFile(tmpPath, "utf-8");
+      contents = await fs.readFile(claimedPath, "utf-8");
     } catch (err) {
-      systemLogger.warn("local-fleet-scan: readFile of claimed tmp failed", {
+      systemLogger.warn("local-fleet-scan: readFile of claimed file failed", {
         operation: "local_fleet_scan_error",
         site: "readFile",
         subfolder,
         filename,
-        tmpPath,
+        claimedPath,
         error: err instanceof Error ? err.message : String(err),
       });
-      // Try to clean up the orphaned tmp — best-effort.
-      try {
-        await fs.unlink(tmpPath);
-      } catch {
-        // Nothing more we can do — log-and-move-on.
+      // In tmp mode, try to clean up the orphaned tmp — best-effort.
+      // In preserve mode, leave the .claimed.json for operator visibility.
+      if (!preserveClaimed) {
+        try {
+          await fs.unlink(claimedPath);
+        } catch {
+          // Nothing more we can do — log-and-move-on.
+        }
       }
       continue;
     }
 
-    // Step 5: unlink the temp file. Best-effort — if unlink fails, the item
-    // was still claimed successfully and the tmp will show up on the next
-    // scan (where it'll be filtered by the 36-char guard: `<uuid>.json.<pid>`
-    // has basename `<uuid>.json` which is 41 chars, so it won't be re-claimed).
-    try {
-      await fs.unlink(tmpPath);
-    } catch (err) {
-      systemLogger.warn("local-fleet-scan: unlink of claimed tmp failed (item still enqueued)", {
-        operation: "local_fleet_scan_error",
-        site: "unlink",
-        subfolder,
-        filename,
-        tmpPath,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      // Fall through — the item's contents are already captured.
+    // Step 5: only unlink in tmp mode. In preserve mode the .claimed.json
+    // stays on disk until the worker writes .success.json / .failure.json.
+    if (!preserveClaimed) {
+      try {
+        await fs.unlink(claimedPath);
+      } catch (err) {
+        systemLogger.warn("local-fleet-scan: unlink of claimed tmp failed (item still enqueued)", {
+          operation: "local_fleet_scan_error",
+          site: "unlink",
+          subfolder,
+          filename,
+          claimedPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        // Fall through — the item's contents are already captured.
+      }
     }
 
     results.push({ filename, contents });

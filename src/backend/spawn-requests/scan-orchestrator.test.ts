@@ -536,7 +536,9 @@ describe("LOCAL-host bypass", () => {
     const orch = createSpawnScanOrchestrator(deps);
     await orch.start();
     await flush();
-    expect(scanLocalMock).toHaveBeenCalledWith("spawn-requests");
+    expect(scanLocalMock).toHaveBeenCalledWith("spawn-requests", {
+      preserveClaimed: true,
+    });
     expect(acquireChannel).not.toHaveBeenCalled();
     expect(releaseChannel).not.toHaveBeenCalled();
     expect(vi.mocked(scanSpawnRequests)).not.toHaveBeenCalled();

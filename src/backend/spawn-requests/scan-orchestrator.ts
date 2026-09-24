@@ -191,7 +191,13 @@ export function createSpawnScanOrchestrator(
     const numericId = parseInt(host.id, 10);
     if (isLocalHostId(numericId)) {
       try {
-        const rawItems = await scanLocalFleetFolder("spawn-requests");
+        // preserveClaimed=true — atomic-claim renames to <uuid>.claimed.json
+        // instead of tmp+unlink, matching the SSH SPAWN_REQUESTS_SCAN_CMD
+        // change. Preserves in-flight state across container restart and gives
+        // operators queue visibility via `ls`.
+        const rawItems = await scanLocalFleetFolder("spawn-requests", {
+          preserveClaimed: true,
+        });
         if (rawItems.length === 0) return;
         // Feed into the same parser the SSH path uses: build the same
         // tab-separated stdout shape (`<filename>\t<contents>` per line)
