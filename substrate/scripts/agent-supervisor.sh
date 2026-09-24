@@ -623,8 +623,15 @@ clean_workspace_repos() {
 # still success, step 4b collision/anomaly}. STEP 2 is best-effort and NEVER gates the retire
 # (a stuck harness could otherwise block retire forever; STEP 3 is the hard-stop backstop).
 #
-# Caller (run_archive_scan or scan_archive_requested_sentinels) owns the retire-stuck counter;
-# this function does NOT touch it.
+# Phase 133 D-13/D-13a/D-14 refactor: retire_identity() is atomic from the caller's perspective.
+# Steps 1 (matrix deactivate) and 4b (folder move) carry inline 3-attempt exponential-backoff
+# retries (2s / 4s sleeps between attempts — worst-case per-step wall-time ~6s of sleep + 3
+# curl/mv attempts). Steps 2 and 3 keep single-attempt behavior (step 2 already carries an 11s
+# GRACE_WAIT; step 3 is idempotent no-op when the session is gone). The retire either succeeds
+# outright (having recovered inline from transient failures) or fails terminally in one call,
+# with no cross-tick state written by this function or its callers. The former cross-tick
+# failure counters (in $DORMANCY_STATE_DIR) and the sentinel drop after N consecutive failures
+# in the callers are all removed per Phase 133 D-14.
 retire_identity() {
   local name="$1"
   local iddir="$IDENTITIES_DIR/$name"
@@ -668,47 +675,77 @@ retire_identity() {
   body=$(jq -nc --arg u "$mxid" --arg p "$password" \
     '{"auth":{"type":"m.login.password","user":$u,"password":$p},"erase":true}')
   local resp http_code
-  # Phase 115 hotfix (2026-09-17 sky-UAT): $base in relay.json already contains
-  # the "/_matrix/client/v3" prefix (fleet convention — see recv.sh's $BASE/account/whoami
-  # pattern; verified 100% of production identities). Append only the trailing endpoint
-  # to avoid a double-prefix 404. Prior code did `$base/_matrix/client/v3/account/deactivate`
-  # which produced `.../_matrix/client/v3/_matrix/client/v3/account/deactivate` → 404.
-  resp=$(curl -sS -w '\n%{http_code}' --max-time 30 \
-    -X POST "$base/account/deactivate" \
-    -H "Authorization: Bearer $access_token" \
-    -H "Content-Type: application/json" \
-    -d "$body" 2>/dev/null)
-  http_code=$(printf '%s\n' "$resp" | tail -1)
-  case "$http_code" in
-    200)
-      log "'$name' retire step 1 (matrix deactivate) success (http=$http_code)"
-      ;;
-    401)
-      # Token already revoked by a prior deactivation — account is already deactivated.
-      # Treat as idempotent success (D-13 / Assumption A4): the prior run completed Step 1;
-      # this retry run simply confirms it.
-      log "'$name' retire step 1 (matrix deactivate) success (http=$http_code — token already revoked / A4 idempotent)"
-      ;;
-    4*)
-      # Non-401 4xx: a client-side error we cannot recover from automatically (bad endpoint,
-      # malformed body, authorization issue beyond token expiry). Log $base and $mxid only —
-      # never $access_token or $password (T-94-02-04 / T-115-04-03 mitigation).
-      log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED http=$http_code for $mxid at $base — sentinel retained"
-      return 1
-      ;;
-    5*|"")
-      log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED http=$http_code for $mxid at $base — network or server error, sentinel retained"
-      return 1
-      ;;
-    *)
-      log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED http=$http_code for $mxid at $base — unexpected code, sentinel retained"
-      return 1
-      ;;
-  esac
+  # Phase 133 D-13/D-13a: inline 3-attempt exponential backoff on transient failures (5xx +
+  # empty http_code / network error). Delay math: sleep 2^attempt after attempts 1 and 2 (2s
+  # then 4s); attempt 3 does not sleep (loop ends). Worst-case wall time: ~6s of sleep + 3×
+  # (curl --max-time 30) ≈ 96s. Permanent client errors (non-401 4xx) hard-fail on the FIRST
+  # attempt — retrying a 400 would just re-fail three times uselessly and inflate the retire
+  # time. Pre-curl validation (relay.json existence + jq field extraction) stays OUTSIDE the
+  # loop above — missing files / fields are also terminal, not transient.
+  #
+  # Phase 115 hotfix (2026-09-17 sky-UAT): $base in relay.json already contains the
+  # "/_matrix/client/v3" prefix (fleet convention — see recv.sh's $BASE/account/whoami pattern;
+  # verified 100% of production identities). Append only the trailing endpoint to avoid a
+  # double-prefix 404. Prior code did `$base/_matrix/client/v3/account/deactivate` which
+  # produced `.../_matrix/client/v3/_matrix/client/v3/account/deactivate` → 404.
+  local _step1_ok=0
+  local _attempt _delay
+  for _attempt in 1 2 3; do
+    resp=$(curl -sS -w '\n%{http_code}' --max-time 30 \
+      -X POST "$base/account/deactivate" \
+      -H "Authorization: Bearer $access_token" \
+      -H "Content-Type: application/json" \
+      -d "$body" 2>/dev/null)
+    http_code=$(printf '%s\n' "$resp" | tail -1)
+    case "$http_code" in
+      200)
+        log "'$name' retire step 1 (matrix deactivate) success (http=$http_code)"
+        _step1_ok=1
+        break
+        ;;
+      401)
+        # Token already revoked by a prior deactivation — account is already deactivated.
+        # Treat as idempotent success (D-13 / Assumption A4): the prior run completed Step 1;
+        # this retry run simply confirms it.
+        log "'$name' retire step 1 (matrix deactivate) success (http=$http_code — token already revoked / A4 idempotent)"
+        _step1_ok=1
+        break
+        ;;
+      4*)
+        # Non-401 4xx: a client-side error we cannot recover from automatically (bad endpoint,
+        # malformed body, authorization issue beyond token expiry). Permanent — NO retry.
+        # Log $base and $mxid only — never $access_token or $password (T-94-02-04 / T-115-04-03).
+        log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED http=$http_code for $mxid at $base — sentinel retained"
+        return 1
+        ;;
+      5*|"")
+        # Transient: fall through to the retry-sleep block below.
+        log "'$name' retire step 1 (matrix deactivate) attempt $_attempt/3 transient failure (http=$http_code) — will retry"
+        ;;
+      *)
+        # Unexpected code — treat as permanent (no retry).
+        log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED http=$http_code for $mxid at $base — unexpected code, sentinel retained"
+        return 1
+        ;;
+    esac
+    if [ "$_attempt" -lt 3 ]; then
+      _delay=$((2 ** _attempt))
+      log "'$name' retire step 1 (matrix deactivate) sleeping ${_delay}s before attempt $((_attempt + 1))/3"
+      sleep "$_delay"
+    fi
+  done
+  if [ "$_step1_ok" != 1 ]; then
+    log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED after 3 attempts (last http=$http_code) for $mxid at $base — sentinel retained"
+    return 1
+  fi
 
   # =============================================================================================
   # STEP 2 (Phase 115 D-13/D-14 NEW): Graceful harness exit — reuses recycle()'s pattern verbatim.
   # =============================================================================================
+  # Phase 133 D-13a: NO inline retry wrap on this step. GRACE_WAIT (11s) already gives ambient-
+  # monitor room to clean up; wrapping in a 3× retry would just re-fire the same graceful-exit
+  # burst against a pane that either already exited (waste) or is genuinely stuck (a 3× retry
+  # will not un-stick it). Do NOT add a for _attempt in 1 2 3 loop here.
   # Send /exit to the claude REPL via bracketed paste + Enter, wait, then SIGTERM survivors.
   # After the recycle-style burst, wait an additional GRACE_WAIT seconds so ambient-monitor's
   # _harness_watch fires (once/sec poll → ≤1s to detect), its _do_shutdown SIGTERMs the four
@@ -759,6 +796,10 @@ retire_identity() {
   # =============================================================================================
   # STEP 3 (Phase 115 D-13; was Phase 94 step 2): tmux kill-session — hard-stop backstop.
   # =============================================================================================
+  # Phase 133 D-13a: NO inline retry wrap on this step. tmux kill-session is idempotent — if the
+  # session is already gone (which it will be after step 2's graceful exit in the happy path),
+  # kill-session returns non-zero and we treat that as success (session dead = goal reached).
+  # Do NOT add a for _attempt in 1 2 3 loop here.
   # EXCEPTION to the "never kill" rule (see "SAFETY: the supervisor NEVER kills a session" below):
   # this function IS the permanent-removal case. Unlike the keep-alive loop which only recovers
   # sessions, retire deliberately tears down a session that will never be relaunched on this host.
@@ -797,26 +838,52 @@ retire_identity() {
   # STEP 4b (Phase 115 D-13; was Phase 94 step 1): Move identity folder to archive sibling.
   # =============================================================================================
   # Create the archive sibling location on demand (first retire on any box creates it).
+  #
+  # Phase 133 D-13/D-13a: inline 3-attempt exponential backoff wraps ONLY the State 1 mv path
+  # (2s/4s sleeps between attempts; State 1 mv failures are the transient fs-race case — EBUSY,
+  # cross-device link during a live mv). State 2 is idempotent success and breaks out on the
+  # first pass. State 3 (collision) and State 4 (anomaly) are hard anomalies, NOT transient —
+  # they hard-fail on the first attempt without retry (retrying a collision would just re-fail
+  # three times uselessly). The former cross-tick failure-counter comment on State 3 has been
+  # removed: the counter mechanism was deleted in Phase 133 D-14.
   mkdir -p "$IDENTITIES_ARCHIVE_DIR" 2>/dev/null
-  if [ -d "$iddir" ] && [ ! -d "$archdir" ]; then
-    # State 1 (normal path): active present, archive absent — do the move.
-    if ! mv "$iddir" "$archdir" 2>/dev/null; then
-      log "ERROR: '$name' retire step 4b (folder move) FAILED: mv to archive/ failed — sentinel already deleted, next tick will retry from step 1"
+
+  local _step4b_ok=0
+  # NOTE: _attempt / _delay reused from the step-1 loop above (both are local to retire_identity).
+  for _attempt in 1 2 3; do
+    if [ -d "$iddir" ] && [ ! -d "$archdir" ]; then
+      # State 1 (normal path): active present, archive absent — do the move.
+      if mv "$iddir" "$archdir" 2>/dev/null; then
+        log "'$name' retire step 4b (folder move) success: moved to archive/"
+        _step4b_ok=1
+        break
+      fi
+      # mv failed — fall through to the retry-sleep block below (transient fs race).
+      log "'$name' retire step 4b (folder move) attempt $_attempt/3 transient failure (mv to archive/ failed) — will retry"
+    elif [ ! -d "$iddir" ] && [ -d "$archdir" ]; then
+      # State 2 (retry from prior partial run): active absent, archive present — idempotent success.
+      log "'$name' retire step 4b (folder move) success: folder already in archive/ (State 2 resume)"
+      _step4b_ok=1
+      break
+    elif [ -d "$iddir" ] && [ -d "$archdir" ]; then
+      # State 3 (collision — impossible per D-16 since un-archive is out of scope, but planner-defensive):
+      # both active and archive/ exist. NOT transient — abort on the first attempt.
+      log "ERROR: '$name' retire step 4b (folder move) FAILED: collision — both active and archive/ folders exist; refusing to mv"
+      return 1
+    else
+      # State 4 (anomaly): active absent, archive absent — nothing to retire. NOT transient.
+      log "ERROR: '$name' retire step 4b (folder move) FAILED: neither active nor archive/ folder exists (anomaly)"
       return 1
     fi
-    log "'$name' retire step 4b (folder move) success: moved to archive/"
-  elif [ ! -d "$iddir" ] && [ -d "$archdir" ]; then
-    # State 2 (retry from prior partial run): active absent, archive present — skip move.
-    log "'$name' retire step 4b (folder move) success: folder already in archive/ (State 2 resume)"
-  elif [ -d "$iddir" ] && [ -d "$archdir" ]; then
-    # State 3 (collision — impossible per D-16 since un-archive is out of scope, but planner-defensive):
-    # both active and archive/ exist. Abort — the retire-stuck counter will drive to retire-stuck after
-    # 3 consecutive failures so the maintainer sees the anomalous state.
-    log "ERROR: '$name' retire step 4b (folder move) FAILED: collision — both active and archive/ folders exist; refusing to mv"
-    return 1
-  else
-    # State 4 (anomaly): active absent, archive absent — nothing to retire.
-    log "ERROR: '$name' retire step 4b (folder move) FAILED: neither active nor archive/ folder exists (anomaly)"
+
+    if [ "$_attempt" -lt 3 ]; then
+      _delay=$((2 ** _attempt))
+      log "'$name' retire step 4b (folder move) sleeping ${_delay}s before attempt $((_attempt + 1))/3"
+      sleep "$_delay"
+    fi
+  done
+  if [ "$_step4b_ok" != 1 ]; then
+    log "ERROR: '$name' retire step 4b (folder move) FAILED after 3 attempts — sentinel already deleted, live folder remains"
     return 1
   fi
 
@@ -827,20 +894,24 @@ retire_identity() {
 # ---- archive scan (Phase 94) — daily scan dispatcher ----
 # run_archive_scan()
 #
-# The daily archive-scan branch (D-01 cadence, D-14 retire-stuck counter, D-15 silent-by-design).
-# Walks ALL identity directories under $IDENTITIES_DIR/*/. For each identity, applies four guards
-# in order:
+# The daily archive-scan branch (D-01 cadence, D-15 silent-by-design). Walks ALL identity
+# directories under $IDENTITIES_DIR/*/. For each identity, applies four guards in order:
 #
 #   (1) require .md file exists         — an empty stub is not a retire candidate
 #   (2) skip if .pinned present         — D-03 guard (Phase 92 sentinel)
 #   (3) skip if .no-dormancy present    — D-04 guard (existing always-on affordance)
 #   (4) skip if is_coordinator returns 0 — D-05 guard (strict frontmatter check, Pitfall 6)
 #   (5) compute age; skip if < ARCHIVE_THRESHOLD_SECONDS — D-06/D-07/D-08 freshness
-#   (6) invoke retire_identity(name)    — and update the retire-stuck counter (D-14)
+#   (6) invoke retire_identity(name)    — atomic from this caller's POV per Phase 133 D-14
+#
+# Phase 133 D-14: the former cross-tick failure counter (a file in $DORMANCY_STATE_DIR) and the
+# stuck-sentinel drop after 3 consecutive daily-pass failures are REMOVED. retire_identity()
+# now recovers inline from transient failures via per-step exponential backoff (D-13a on steps
+# 1 + 4b); a terminal retire failure is logged LOUDLY and the identity is retried on the next
+# daily pass (the identity is still on disk because retire_identity returned before step 4b).
 #
 # D-15 silent discipline: routine per-identity skip/retire log lines are diagnostic plumbing
-# (not announcements). Only the D-14 retire-stuck fire uses the ERROR: prefix (the ONE
-# explicit exception to D-15 per CONTEXT.md).
+# (not announcements). Only the terminal ERROR: retire-failed line carries the ERROR: prefix.
 run_archive_scan() {
   log "archive-scan: starting scan"
   mkdir -p "$IDENTITIES_ARCHIVE_DIR" 2>/dev/null
@@ -869,32 +940,13 @@ run_archive_scan() {
     # D-15 carve-out: the RETIRE event IS worth naming in the log (diagnostic plumbing).
     log "archive-scan: '$name' dormant for $((age / 86400))d — retiring"
 
+    # Phase 133 D-14: no cross-tick counter, no stuck-sentinel drop. retire_identity is atomic
+    # from this caller's POV — it either succeeds outright (having recovered inline from
+    # transient failures per D-13a) or fails terminally in one call.
     if retire_identity "$name"; then
-      # Success: reset the retire-fail counter (caller-owned per Open Question 3 resolution).
-      rm -f "$DORMANCY_STATE_DIR/retire-fail-count-$name" 2>/dev/null
       log "archive-scan: '$name' retire succeeded"
     else
-      # Failure path — D-14 retire-stuck counter (Option A: plain-integer file in DORMANCY_STATE_DIR).
-      # Counter must survive supervisor restarts → on-disk, not in-memory.
-      mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null
-      local count
-      count=$(grep -E '^[0-9]+$' "$DORMANCY_STATE_DIR/retire-fail-count-$name" 2>/dev/null || echo 0)
-      count=$((count + 1))
-      printf '%s' "$count" > "$DORMANCY_STATE_DIR/retire-fail-count-$name"
-      if [ "$count" -ge 3 ]; then
-        # D-14: drop retire-stuck sentinel (presence-only empty file, matches .pinned/.no-dormancy
-        # convention). Written to the archived folder ($IDENTITIES_ARCHIVE_DIR/$name/retire-stuck).
-        # Phase 115 D-13 note: in the new step order (matrix-first, folder-move last), STEP 1
-        # can fail without STEP 4b having created the archive subfolder. mkdir -p first so the
-        # touch does not silently no-op on a step-1-fail-3x path.
-        mkdir -p "$IDENTITIES_ARCHIVE_DIR/$name" 2>/dev/null
-        touch "$IDENTITIES_ARCHIVE_DIR/$name/retire-stuck" 2>/dev/null \
-          || log "ERROR: could not touch retire-stuck for $name"
-        # LOUD log — the ONE explicit exception to D-15 silent-by-design (per CONTEXT.md D-14).
-        log "ERROR: archive-scan: '$name': STUCK after $count consecutive daily-pass failures — retire-stuck sentinel dropped in archive/$name/"
-      else
-        log "archive-scan: '$name' retire failed (attempt $count/3) — will retry next daily pass"
-      fi
+      log "ERROR: archive-scan: '$name' retire FAILED — will retry next daily pass"
     fi
   done
   log "archive-scan: scan complete"
@@ -939,15 +991,19 @@ run_archive_scan_if_due() {
 # doesn't call the four guards); retire_identity() itself remains guard-agnostic so no
 # force-flag parameter is added to it (RESEARCH §3 recommendation).
 #
-# Phase 115 D-15 failure semantics: on any step failure inside retire_identity(), the
-# sentinel is retained (step 4a's rm -f is inside retire_identity and only runs after
-# steps 1-3 succeed; on earlier abort the sentinel stays put). The per-tick counter file
-# retire-fail-count-user-<name> is a SIBLING of the daily path's retire-fail-count-<name>
-# (RESEARCH §3 recommendation option b): independent counters so a passing daily sweep
-# doesn't reset a mid-flight user-initiated stuck counter. After 3 consecutive per-tick
-# failures (~45s wall-time), a retire-stuck sentinel is written to the archive folder
-# (mkdir -p'd first in case step 1 failed 3x without ever creating archdir — same
-# defense as the daily path's Phase 115 fix).
+# Phase 133 D-14 failure semantics: on any step failure inside retire_identity(), the
+# .archive-requested sentinel is retained (step 4a's rm -f is inside retire_identity and only
+# runs after steps 1-3 succeed AND step 4a itself; on earlier abort the sentinel stays put).
+# The former cross-tick per-user counter file (in $DORMANCY_STATE_DIR) and the stuck-sentinel
+# drop after 3 consecutive per-tick failures are REMOVED — retire_identity() recovers inline
+# from transient failures via per-step exponential backoff (D-13a on steps 1 + 4b), so a
+# failure here is terminal (permanent 4xx, State 3 collision, or 3 exhausted transient
+# attempts). The next reconcile tick re-fires the scanner and picks the identity up again
+# from the on-disk .archive-requested sentinel — no counter bookkeeping, no cross-tick state.
+# The former stuck-sentinel skip guard (which read a legacy sentinel in the archive folder
+# to short-circuit hammering a known-broken retire) is also REMOVED per D-14: legacy
+# stuck-sentinels on pre-Phase-133 boxes are archaeology (D-21) and the operator's fresh
+# click drops a fresh .archive-requested that should retry regardless.
 scan_archive_requested_sentinels() {
   local d name
   for d in "$IDENTITIES_DIR"/*/; do
@@ -955,44 +1011,19 @@ scan_archive_requested_sentinels() {
     name="$(basename "$d")"
     [ -f "$d/.archive-requested" ] || continue
 
-    # Phase 115 hotfix (2026-09-17 sky-UAT): if retire-stuck sentinel is already dropped for
-    # this identity, SKIP retry — do not hammer a known-broken retire every 15s tick. The
-    # sentinel is a manual-intervention signal; clearing it (rm the sentinel + fail counter)
-    # is the operator's decision to retry, not an automated one.
-    if [ -f "$IDENTITIES_ARCHIVE_DIR/$name/retire-stuck" ]; then
-      continue
-    fi
-
     # D-11: BYPASS guards. Do NOT check .pinned, .no-dormancy, is_coordinator, or freshness.
     # A direct user click is not automated — the guards exist to protect against AUTOMATED
     # retire surprises. If the user clicked archive on a pinned identity, they meant it.
     log "'$name' user-initiated archive: .archive-requested detected, invoking retire_identity"
 
+    # Phase 133 D-14: no cross-tick counter, no stuck-sentinel drop. retire_identity is atomic
+    # from this caller's POV — it either succeeds outright (having recovered inline from
+    # transient failures per D-13a) or fails terminally in one call. A terminal failure keeps
+    # the .archive-requested sentinel in place, so the next reconcile tick retries naturally.
     if retire_identity "$name"; then
-      # Success — the sentinel was already deleted by retire_identity step 4a. Clear the
-      # user-initiated fail counter (D-15). This does NOT touch the daily path's counter
-      # (retire-fail-count-<name>) — they're independent per RESEARCH §3.
-      rm -f "$DORMANCY_STATE_DIR/retire-fail-count-user-$name" 2>/dev/null
       log "'$name' user-initiated archive: retire_identity succeeded"
     else
-      # Failure — sentinel stays in place (retire_identity's step 4a wasn't reached, or the
-      # move failed before delete). Increment the user-initiated per-tick counter.
-      mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null
-      local count
-      count=$(grep -E '^[0-9]+$' "$DORMANCY_STATE_DIR/retire-fail-count-user-$name" 2>/dev/null || echo 0)
-      count=$((count + 1))
-      printf '%s' "$count" > "$DORMANCY_STATE_DIR/retire-fail-count-user-$name"
-      log "ERROR: '$name' user-initiated archive: retire_identity FAILED — fail count=$count (sentinel retained)"
-
-      if [ "$count" -ge 3 ]; then
-        # Same retire-stuck semantics as the daily path (unified sentinel per D-15). mkdir -p
-        # defends the case where step 1 failed 3x and archdir was never created (matrix-first
-        # order can hit retire-stuck without ever reaching step 4b).
-        mkdir -p "$IDENTITIES_ARCHIVE_DIR/$name" 2>/dev/null
-        touch "$IDENTITIES_ARCHIVE_DIR/$name/retire-stuck" 2>/dev/null \
-          || log "ERROR: '$name' user-initiated archive: could not write retire-stuck sentinel"
-        log "ERROR: '$name' user-initiated archive: STUCK after $count consecutive per-tick failures — retire-stuck sentinel dropped"
-      fi
+      log "ERROR: '$name' user-initiated archive: retire_identity FAILED — sentinel retained; next tick will retry"
     fi
   done
 }
