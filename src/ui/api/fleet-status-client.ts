@@ -79,13 +79,18 @@ export interface FleetStatusClientOptions {
    * Phase 117 Plan 117-06 (D-37): fired on every `project-list-changed`
    * frame from the backend (published by
    * subscription-registry.publishProjectListChanged after every project
-   * create / archive / session project assignment; also re-emitted on WS
-   * reconnect via the registry snapshot replay). AppShell routes these into
-   * conversation-store's projects slice (setProjects) so the sidebar
-   * re-derives its per-project buckets. Optional for backward-compat with
-   * tests that don't need the callback.
+   * create / archive; also re-emitted on WS reconnect via the registry
+   * snapshot replay — one frame per host that has ever published).
+   * Frames are SCOPED to one hostId — the array carries the full projects
+   * list for that host only. AppShell routes these into
+   * conversation-store's mergeProjectsForHost so the sidebar drops
+   * existing entries for hostId and splices in the incoming rows.
+   * Optional for backward-compat with tests that don't need the callback.
    */
-  onProjectListChanged?: (projects: ProjectListEntry[]) => void;
+  onProjectListChanged?: (
+    hostId: string,
+    projects: ProjectListEntry[],
+  ) => void;
   /**
    * Fired on every `session-project-changed` frame — a per-identity delta
    * emitted by the backend when an identity's `project:` frontmatter is
@@ -286,20 +291,32 @@ export function createFleetStatusClient(
         case "project-list-changed":
           // Phase 117 Plan 117-06 (D-37): distinct wire message published by
           // subscription-registry.publishProjectListChanged after every
-          // project create / archive / session-project assignment (117-04 +
-          // 117-05). Routes into the frontend's projects store slice via
-          // the AppShell-provided onProjectListChanged callback
-          // (setProjects on conversation-store — sidebar re-derives buckets).
+          // project create / archive. Frames are SCOPED to one hostId
+          // (top-level `hostId` field) — the projects[] carries the full
+          // list for that host only. Routes into the frontend's projects
+          // store slice via the AppShell-provided onProjectListChanged
+          // callback (mergeProjectsForHost on conversation-store — sidebar
+          // drops entries for hostId and splices in the incoming rows).
           //
-          // Rule-2 correctness guard (Phase 117 Plan 117-06): the browser
-          // skips zod validation on inbound frames per fleet-status-types.ts,
-          // so a malformed frame with `projects` set to a non-array would
+          // Rule-2 correctness guard: the browser skips zod validation on
+          // inbound frames per fleet-status-types.ts, so a malformed frame
+          // with `projects` set to a non-array or missing `hostId` would
           // reach here after JSON.parse. Short-circuit before invoking the
           // callback so consumers cannot observe garbage payloads.
+          if (typeof parsed.hostId !== "string" || parsed.hostId.length === 0) {
+            console.warn({
+              operation: "fleet_status_client_project_list_changed_malformed",
+              url,
+              reason: "missing_or_empty_hostId",
+              hostIdType: typeof parsed.hostId,
+            });
+            break;
+          }
           if (!Array.isArray(parsed.projects)) {
             console.warn({
               operation: "fleet_status_client_project_list_changed_malformed",
               url,
+              reason: "projects_not_array",
               projectsType: typeof parsed.projects,
             });
             break;
@@ -307,9 +324,10 @@ export function createFleetStatusClient(
           console.info({
             operation: "fleet_status_client_project_list_changed",
             url,
+            hostId: parsed.hostId,
             projectCount: parsed.projects.length,
           });
-          onProjectListChanged?.(parsed.projects);
+          onProjectListChanged?.(parsed.hostId, parsed.projects);
           break;
         case "session-project-changed":
           // Per-identity delta from backend session-project-write. The frame

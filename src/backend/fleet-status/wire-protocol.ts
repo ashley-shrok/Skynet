@@ -586,6 +586,12 @@ const FrontendPongFrameSchema = z.object({
 export const FrontendProjectListChangedFrameSchema = z.object({
   schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
   type: z.literal("project-list-changed"),
+  // hostId scopes this frame to ONE host — the frame carries the full
+  // projects list FOR THAT HOST, not the whole fleet. Client merges by
+  // dropping existing entries with matching hostId and splicing the
+  // incoming rows. Empty projects[] means "this host has zero projects
+  // now" (last-project-archived case) and is a legitimate delta.
+  hostId: z.string(),
   projects: z.array(
     z.object({
       slug: z.string(),
@@ -775,11 +781,13 @@ export function makePongFrame(): FrontendOutboundFrameType {
 
 /**
  * Phase 117 Plan 117-03 (D-37): construct a `project-list-changed` frame
- * carrying the FULL projects array. Called by subscription-registry's
- * publishProjectListChanged after cache-hit deduplication. Wave 2 write
- * routes invoke publishProjectListChanged (not this helper directly).
+ * carrying the projects array FOR ONE HOST (scoped by hostId — see schema
+ * comment). Called by subscription-registry's publishProjectListChanged
+ * after cache-hit deduplication. Wave 2 write routes invoke
+ * publishProjectListChanged (not this helper directly).
  */
 export function makeProjectListChangedFrame(
+  hostId: string,
   projects: Array<{
     slug: string;
     displayName: string;
@@ -801,6 +809,7 @@ export function makeProjectListChangedFrame(
   return {
     schemaVersion: FRAME_SCHEMA_VERSION,
     type: "project-list-changed",
+    hostId,
     projects,
   };
 }

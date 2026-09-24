@@ -161,21 +161,25 @@ export interface SubscriptionRegistry {
 
   /**
    * Phase 117 Plan 117-03 (D-37): publish a project-list-changed frame
-   * carrying the FULL projects array (not a delta — per RESEARCH § Open Q #4,
-   * projects are cheap and full-replace matches the registry-cache-then-fanout
-   * discipline).
+   * carrying the projects array FOR ONE HOST (scoped by hostId). Client
+   * merges by dropping existing entries with matching hostId and splicing
+   * in the incoming rows.
    *
-   * Snapshot-on-subscribe: reconnecting clients get the cached array
-   * replayed on subscribe.
+   * Snapshot-on-subscribe: reconnecting clients get one project-list-changed
+   * frame per host that has been published to (iterates the per-host cache).
    *
-   * Idempotent: byte-identical array replay is a no-op via JSON.stringify
-   * canonicalization compare against a single-cell cache. Cache-hit → no
-   * fanout; cache-miss → cache is replaced and the frame fans out.
+   * Idempotent: byte-identical array replay for the SAME hostId is a no-op
+   * via JSON.stringify compare against that host's cache entry. Cache-miss
+   * for that hostId → entry replaced and the frame fans out.
    *
-   * Empty array is a valid state (represents "no projects on any host") —
-   * publishing [] after a non-empty cache IS a delta and DOES fan out.
+   * Empty projects[] is a valid state for a hostId ("this host has zero
+   * projects now" — e.g. last project archived) and IS a delta if the
+   * previous cache for that hostId was non-empty.
    */
-  publishProjectListChanged(projects: ProjectListEntry[]): void;
+  publishProjectListChanged(
+    hostId: string,
+    projects: ProjectListEntry[],
+  ): void;
 
   /**
    * Publish a `session-project-changed` frame carrying the delta from a
@@ -483,14 +487,15 @@ export function createSubscriptionRegistry(
   // (Phase 115 Plan 115-06 archivedIdentities cache retired in the Phase 122
   //  shape follow-up alongside publishIdentityArchived + wire frame.)
 
-  // Phase 117 Plan 117-03 (D-37): single-cell cache for the projects pool.
-  // The wire event carries the WHOLE array on every emit (per RESEARCH §
-  // Open Q #4 — full-replace, not delta), so a single nullable cell is
-  // enough. `null` means "no publish has occurred yet" — snapshot-on-
-  // subscribe skips the project-list replay in that state. Idempotent-skip
-  // in publishProjectListChanged compares JSON.stringify(projects) against
-  // JSON.stringify(projectListCache) to drop no-op republishes at cache-hit.
-  let projectListCache: ProjectListEntry[] | null = null;
+  // Phase 117 Plan 117-03 (D-37): per-host cache for the projects pool.
+  // Each hostId → the projects[] published for that host. Map absence
+  // means "no publish has occurred yet for that hostId" — snapshot-on-
+  // subscribe iterates the map and emits ONE project-list-changed frame
+  // per hostId that has been published to. Idempotent-skip in
+  // publishProjectListChanged compares JSON.stringify(projects) against
+  // JSON.stringify of the cache entry for that hostId to drop no-op
+  // republishes at cache-hit.
+  const projectListCache = new Map<string, ProjectListEntry[]>();
   // Phase 118 Plan 118-03 (D-09): sibling map for source-C apps, indexed by
   // `${hostId}:${slug}` via makeAppKey. Populated by publishAppUpdate, drained
   // by publishAppGoneByHostSlug, and re-emitted to every new subscriber via
@@ -583,26 +588,27 @@ export function createSubscriptionRegistry(
 
       // Replay the cached project list on subscribe (unfiltered path only).
       // Filtered subscribers get the projected version inside the fire-and-
-      // forget block below. Guarded on non-null cache so a fresh registry
-      // (no publish yet) does NOT fan out a spurious empty frame — the
-      // frontend must not learn "no projects" from a registry that has
-      // never been told what the projects ARE. When the first publish
-      // lands it will carry the real array (which may legitimately be
-      // empty for a host with no projects on disk).
-      if (
-        projectListCache !== null &&
-        (appFrameFilter === undefined || ctx?.userId === undefined)
-      ) {
-        try {
-          sendFrame(makeProjectListChangedFrame(projectListCache));
-        } catch (err) {
-          systemLogger.warn(
-            "Fleet-status project-list snapshot delivery failed",
-            {
-              operation: "fleet_status_project_list_snapshot_failed",
-              error: err instanceof Error ? err.message : "unknown",
-            },
-          );
+      // forget block below. One frame emitted per hostId in the per-host
+      // cache. An empty map means no publish has occurred yet — no frames
+      // fan out (the frontend must not learn "no projects" from a registry
+      // that has never been told what the projects ARE); once the first
+      // publish for a hostId lands, subsequent subscribes replay it.
+      if (appFrameFilter === undefined || ctx?.userId === undefined) {
+        for (const [cachedHostId, cachedProjects] of projectListCache) {
+          try {
+            sendFrame(
+              makeProjectListChangedFrame(cachedHostId, cachedProjects),
+            );
+          } catch (err) {
+            systemLogger.warn(
+              "Fleet-status project-list snapshot delivery failed",
+              {
+                operation: "fleet_status_project_list_snapshot_failed",
+                scopeHostId: cachedHostId,
+                error: err instanceof Error ? err.message : "unknown",
+              },
+            );
+          }
         }
       }
 
@@ -670,12 +676,12 @@ export function createSubscriptionRegistry(
             // (Phase 115 archived-identity re-emit retired in Phase 122 follow-up.)
 
             // Replay the cached project list, projected per subscriber.
-            // Guarded on non-null cache (same reason as the sync path
-            // above — a fresh registry that has never been told the
-            // projects must NOT fan out an empty frame).
-            if (projectListCache !== null) {
+            // One frame per hostId in the per-host cache (empty map =
+            // nothing to replay; same guarantee as the sync path).
+            for (const [cachedHostId, cachedProjects] of projectListCache) {
               const projectListFrame = makeProjectListChangedFrame(
-                projectListCache,
+                cachedHostId,
+                cachedProjects,
               );
               try {
                 const projectedProjects = await appFrameFilter(
@@ -690,6 +696,7 @@ export function createSubscriptionRegistry(
                   "Fleet-status project-list snapshot delivery failed",
                   {
                     operation: "fleet_status_project_list_snapshot_failed",
+                    scopeHostId: cachedHostId,
                     error: err instanceof Error ? err.message : "unknown",
                   },
                 );
@@ -876,25 +883,26 @@ export function createSubscriptionRegistry(
       }
     },
 
-    publishProjectListChanged(projects: ProjectListEntry[]): void {
-      // Deep-equal skip via JSON.stringify canonicalization. Field types
-      // are small strings + booleans; stringify cost is O(N × avg field
-      // size) which for realistic N (< 20 projects) is negligible per
-      // RESEARCH § Pitfall 4. `null` cache serializes to the literal
-      // string "null" which cannot collide with any valid array
-      // serialization ("[...]"), so a first publish after registry
-      // creation always fans out.
+    publishProjectListChanged(
+      hostId: string,
+      projects: ProjectListEntry[],
+    ): void {
+      // Deep-equal skip via JSON.stringify canonicalization, scoped to the
+      // per-host cache entry. Field types are small strings + booleans;
+      // stringify cost is O(N × avg field size) which for realistic N
+      // (< 20 projects/host) is negligible per RESEARCH § Pitfall 4. A
+      // first publish for a hostId has no entry and always fans out.
       const nextSerialized = JSON.stringify(projects);
-      const prevSerialized =
-        projectListCache === null ? null : JSON.stringify(projectListCache);
+      const prev = projectListCache.get(hostId);
+      const prevSerialized = prev === undefined ? null : JSON.stringify(prev);
       if (prevSerialized === nextSerialized) {
         return;
       }
       // Defensive copy so a caller mutating the array post-publish cannot
       // silently corrupt the cache (and thus poison future idempotent-skip
       // comparisons and snapshot-on-subscribe replays).
-      projectListCache = projects.slice();
-      const frame = makeProjectListChangedFrame(projects);
+      projectListCache.set(hostId, projects.slice());
+      const frame = makeProjectListChangedFrame(hostId, projects);
       if (appFrameFilter !== undefined) {
         void fanOutApp(subscribers, frame, appFrameFilter);
       } else {

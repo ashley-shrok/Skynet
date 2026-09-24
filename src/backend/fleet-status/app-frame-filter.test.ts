@@ -558,10 +558,17 @@ describe("app-frame-filter", () => {
   // project-list-changed frame filtering (surface migration — publishProjectListChanged)
   // -------------------------------------------------------------------------
 
-  it("Test 21: project-list-changed with three hosts — U sees H1 + H3, H2 dropped → projected", async () => {
-    const frame = makeProjectListChangedFrame([
+  it("Test 21: project-list-changed frames are scoped to one hostId — visible hosts pass, invisible hosts return null", async () => {
+    // Under the per-host-scope wire contract, each frame carries a
+    // single hostId. Publish three separate frames (one per host);
+    // filter returns the frame for visible hosts and null for hidden.
+    const frameH1 = makeProjectListChangedFrame("h1", [
       { slug: "a", displayName: "A", hostId: "h1", hostname: "one", archived: false },
+    ]);
+    const frameH2 = makeProjectListChangedFrame("h2", [
       { slug: "b", displayName: "B", hostId: "h2", hostname: "two", archived: false },
+    ]);
+    const frameH3 = makeProjectListChangedFrame("h3", [
       { slug: "c", displayName: "C", hostId: "h3", hostname: "three", archived: false },
     ]);
 
@@ -584,54 +591,68 @@ describe("app-frame-filter", () => {
     const ctx: AppFrameFilterCtx = {
       userId: "U",
       resolveHostOwnerById: resolver,
-      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
-      // Pre-129 tests are agnostic to the identity gate; stub returns true so
-      // the intersection reduces to the host gate under test. Regression lock
-      // for Test K.
       resolveIdentityGate: async () => true,
     };
-    const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
-    expect(result).not.toBeNull();
-    if (result && result.type === "project-list-changed") {
-      const slugs = result.projects.map((p) => p.slug).sort();
-      expect(slugs).toEqual(["a", "c"]);
-    } else {
-      throw new Error("expected project-list-changed frame");
+    const resultH1 = await filterAppFrame(frameH1, ctx, undefined, checkAccessMock);
+    const resultH2 = await filterAppFrame(frameH2, ctx, undefined, checkAccessMock);
+    const resultH3 = await filterAppFrame(frameH3, ctx, undefined, checkAccessMock);
+
+    expect(resultH1).not.toBeNull();
+    if (resultH1 && resultH1.type === "project-list-changed") {
+      expect(resultH1.hostId).toBe("h1");
+      expect(resultH1.projects.map((p) => p.slug)).toEqual(["a"]);
+    }
+    // h2 is invisible → whole frame dropped (returns null).
+    expect(resultH2).toBeNull();
+    expect(resultH3).not.toBeNull();
+    if (resultH3 && resultH3.type === "project-list-changed") {
+      expect(resultH3.hostId).toBe("h3");
+      expect(resultH3.projects.map((p) => p.slug)).toEqual(["c"]);
     }
   });
 
-  it("Test 22: empty project-list-changed short-circuits — zero filter calls, frame verbatim", async () => {
-    const frame = makeProjectListChangedFrame([]);
-    const resolver = vi.fn();
+  it("Test 22: empty project-list-changed for a visible host short-circuits — no per-project filter work, frame verbatim (hostId preserved)", async () => {
+    const frame = makeProjectListChangedFrame("h1", []);
+    const resolver = vi.fn(async () => ({ hostIdNum: 1, hostUserId: "U" }));
     const checkAccessMock = vi.fn(async () => true);
 
     const ctx: AppFrameFilterCtx = {
       userId: "U",
       resolveHostOwnerById: resolver,
-      // Phase 129 Plan 129-05: identity-gate dep required on AppFrameFilterCtx.
-      // Pre-129 tests are agnostic to the identity gate; stub returns true so
-      // the intersection reduces to the host gate under test. Regression lock
-      // for Test K.
       resolveIdentityGate: async () => true,
     };
     const result = await filterAppFrame(frame, ctx, undefined, checkAccessMock);
 
     expect(result).not.toBeNull();
     if (result && result.type === "project-list-changed") {
+      expect(result.hostId).toBe("h1");
       expect(result.projects).toEqual([]);
     }
-    expect(checkAccessMock).not.toHaveBeenCalled();
-    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("Test 22-scoped: project-list-changed for an INVISIBLE host with empty projects → dropped (returns null, no hostId leak)", async () => {
+    // Regression: pre-scope-gate an empty frame short-circuited before the
+    // host check. Under scoped semantics an empty frame for an invisible
+    // host still leaks the hostId's existence — must be dropped.
+    const frame = makeProjectListChangedFrame("h2", []);
+
+    const ctx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => ({ hostIdNum: 2, hostUserId: "OTHER" }),
+      resolveIdentityGate: async () => true,
+    };
+    const result = await filterAppFrame(frame, ctx, undefined, async (_n, u, h) => u === h);
+    expect(result).toBeNull();
   });
 
   // -------------------------------------------------------------------------
   // Phase 130: per-user project gate + users-strip on project-list-changed
   // -------------------------------------------------------------------------
   it("Test 22a (Phase 130): project-list-changed with per-project users → filtered by caller username", async () => {
-    // Two hosts both host-accessible to caller "alice". Filter differs
-    // per-project by the users list.
-    const frame = makeProjectListChangedFrame([
+    // Single-host scope (per per-host wire contract). Filter differs
+    // per-project by the users list within the scoped host.
+    const frame = makeProjectListChangedFrame("h1", [
       {
         slug: "alpha",
         displayName: "Alpha",
@@ -688,7 +709,7 @@ describe("app-frame-filter", () => {
   });
 
   it("Test 22b (Phase 130): resolveCallerUsername returns null → project user gate disabled (fail-open)", async () => {
-    const frame = makeProjectListChangedFrame([
+    const frame = makeProjectListChangedFrame("h1", [
       {
         slug: "alpha",
         displayName: "Alpha",
@@ -726,7 +747,7 @@ describe("app-frame-filter", () => {
   });
 
   it("Test 22c (Phase 130): resolveCallerUsername throws → gate disabled + warn logged (fail-open)", async () => {
-    const frame = makeProjectListChangedFrame([
+    const frame = makeProjectListChangedFrame("h1", [
       {
         slug: "alpha",
         displayName: "Alpha",
@@ -894,10 +915,11 @@ describe("app-frame-filter", () => {
     expect(usernameSpy).not.toHaveBeenCalled();
   });
 
-  it("Test 22d (Phase 130): absent resolveCallerUsername ctx field → project user gate skipped (host gate still applies)", async () => {
+  it("Test 22d (Phase 130): absent resolveCallerUsername ctx field → project user gate skipped (host-scope frame still passes verbatim on a visible host)", async () => {
     // Backward-compat: pre-130 ctx without resolveCallerUsername should
     // degrade to host-gate-only behavior for project-list-changed frames.
-    const frame = makeProjectListChangedFrame([
+    // Frame is scoped to one host under the per-host wire contract.
+    const frame = makeProjectListChangedFrame("h1", [
       {
         slug: "alpha",
         displayName: "Alpha",
@@ -906,23 +928,11 @@ describe("app-frame-filter", () => {
         archived: false,
         users: ["zoey"], // caller shouldn't match, but no resolver → gate skipped
       },
-      {
-        slug: "beta",
-        displayName: "Beta",
-        hostId: "h2",
-        hostname: "two",
-        archived: false,
-        users: ["alice"],
-      },
     ]);
 
-    // h1 accessible, h2 not.
     const ctx: AppFrameFilterCtx = {
       userId: "U",
-      resolveHostOwnerById: async (hid) =>
-        hid === "h1"
-          ? { hostIdNum: 1, hostUserId: "U" }
-          : { hostIdNum: 2, hostUserId: "OTHER" },
+      resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
       resolveIdentityGate: async () => true,
       // resolveCallerUsername INTENTIONALLY absent
     };
@@ -935,12 +945,36 @@ describe("app-frame-filter", () => {
 
     expect(result).not.toBeNull();
     if (result && result.type === "project-list-changed") {
-      // Only h1's alpha survives — host gate drops h2's beta; user gate is
-      // no-op because no resolver was provided.
+      // alpha survives — host gate open; user gate is a no-op because no
+      // resolver was provided.
       expect(result.projects.map((p) => p.slug)).toEqual(["alpha"]);
     } else {
       throw new Error("expected project-list-changed frame");
     }
+
+    // Companion: same alpha on a NON-visible host is dropped entirely.
+    const hiddenFrame = makeProjectListChangedFrame("h2", [
+      {
+        slug: "beta",
+        displayName: "Beta",
+        hostId: "h2",
+        hostname: "two",
+        archived: false,
+        users: ["alice"],
+      },
+    ]);
+    const hiddenCtx: AppFrameFilterCtx = {
+      userId: "U",
+      resolveHostOwnerById: async () => ({ hostIdNum: 2, hostUserId: "OTHER" }),
+      resolveIdentityGate: async () => true,
+    };
+    const hiddenResult = await filterAppFrame(
+      hiddenFrame,
+      hiddenCtx,
+      undefined,
+      async (_n, u, h) => u === h,
+    );
+    expect(hiddenResult).toBeNull();
   });
 
   // -------------------------------------------------------------------------

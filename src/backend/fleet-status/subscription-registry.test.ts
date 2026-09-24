@@ -605,14 +605,22 @@ describe("subscription-registry", () => {
   //  Phase 122 shape follow-up alongside the wire frame + registry cache.)
 
   // ─── Phase 117 Plan 117-03 — publishProjectListChanged (D-37) ──────────────
-  // Wire event for the projects pool. Full-array-replace on every emit;
-  // idempotent byte-identity skip via JSON.stringify canonicalization.
-  // Snapshot-on-subscribe replays the cached array to reconnecting clients.
+  // Wire event for the projects pool. Frames are SCOPED to one hostId; per-
+  // host cache with byte-identity skip via JSON.stringify canonicalization.
+  // Snapshot-on-subscribe replays ONE cached frame per host that has been
+  // published to.
 
   describe("publishProjectListChanged (Phase 117 Plan 117-03)", () => {
     const projectA = {
       slug: "alpha",
       displayName: "Alpha",
+      hostId: "1",
+      hostname: "t1000",
+      archived: false,
+    };
+    const projectA2 = {
+      slug: "alpha2",
+      displayName: "Alpha 2",
       hostId: "1",
       hostname: "t1000",
       archived: false,
@@ -625,14 +633,14 @@ describe("subscription-registry", () => {
       archived: false,
     };
 
-    it("Test P117-03-1: publishProjectListChanged fans out on delta — subscribers receive a project-list-changed frame with the full array", () => {
+    it("Test P117-03-1: publishProjectListChanged fans out on delta — subscribers receive a project-list-changed frame with the scoped hostId + projects array", () => {
       const registry = createSubscriptionRegistry();
       const receivedFrames: FrontendOutboundFrameType[] = [];
       registry.subscribe((f) => receivedFrames.push(f));
       // Drop the initial snapshot frame.
       receivedFrames.length = 0;
 
-      registry.publishProjectListChanged([projectA]);
+      registry.publishProjectListChanged("1", [projectA]);
 
       const projectFrames = receivedFrames.filter(
         (f) => f.type === "project-list-changed",
@@ -641,19 +649,20 @@ describe("subscription-registry", () => {
       const frame = projectFrames[0];
       if (frame.type === "project-list-changed") {
         expect(frame.schemaVersion).toBe(FRAME_SCHEMA_VERSION);
+        expect(frame.hostId).toBe("1");
         expect(frame.projects).toEqual([projectA]);
       }
     });
 
-    it("Test P117-03-2: publishProjectListChanged is idempotent on byte-identical repeat — second call is a no-op", () => {
+    it("Test P117-03-2: publishProjectListChanged is idempotent on byte-identical repeat for the same hostId — second call is a no-op", () => {
       const registry = createSubscriptionRegistry();
       const receivedFrames: FrontendOutboundFrameType[] = [];
       registry.subscribe((f) => receivedFrames.push(f));
       receivedFrames.length = 0;
 
-      registry.publishProjectListChanged([projectA]);
-      registry.publishProjectListChanged([projectA]);
-      registry.publishProjectListChanged([projectA]);
+      registry.publishProjectListChanged("1", [projectA]);
+      registry.publishProjectListChanged("1", [projectA]);
+      registry.publishProjectListChanged("1", [projectA]);
 
       const projectFrames = receivedFrames.filter(
         (f) => f.type === "project-list-changed",
@@ -661,14 +670,14 @@ describe("subscription-registry", () => {
       expect(projectFrames).toHaveLength(1);
     });
 
-    it("Test P117-03-3: publishProjectListChanged fires on delta after cached state — [a] → [a, b] produces a second frame", () => {
+    it("Test P117-03-3: publishProjectListChanged fires on delta after cached state (same host) — [a] → [a, a2] produces a second frame", () => {
       const registry = createSubscriptionRegistry();
       const receivedFrames: FrontendOutboundFrameType[] = [];
       registry.subscribe((f) => receivedFrames.push(f));
       receivedFrames.length = 0;
 
-      registry.publishProjectListChanged([projectA]);
-      registry.publishProjectListChanged([projectA, projectB]);
+      registry.publishProjectListChanged("1", [projectA]);
+      registry.publishProjectListChanged("1", [projectA, projectA2]);
 
       const projectFrames = receivedFrames.filter(
         (f) => f.type === "project-list-changed",
@@ -676,18 +685,19 @@ describe("subscription-registry", () => {
       expect(projectFrames).toHaveLength(2);
       const secondFrame = projectFrames[1];
       if (secondFrame.type === "project-list-changed") {
-        expect(secondFrame.projects).toEqual([projectA, projectB]);
+        expect(secondFrame.hostId).toBe("1");
+        expect(secondFrame.projects).toEqual([projectA, projectA2]);
       }
     });
 
-    it("Test P117-03-4: publishProjectListChanged with empty array from cached non-empty state — subscribers receive a real delta with projects: []", () => {
+    it("Test P117-03-4: publishProjectListChanged with empty array from cached non-empty state (last project archived on this host) — subscribers receive a real delta with projects: []", () => {
       const registry = createSubscriptionRegistry();
       const receivedFrames: FrontendOutboundFrameType[] = [];
       registry.subscribe((f) => receivedFrames.push(f));
       receivedFrames.length = 0;
 
-      registry.publishProjectListChanged([projectA]);
-      registry.publishProjectListChanged([]);
+      registry.publishProjectListChanged("1", [projectA]);
+      registry.publishProjectListChanged("1", []);
 
       const projectFrames = receivedFrames.filter(
         (f) => f.type === "project-list-changed",
@@ -695,38 +705,33 @@ describe("subscription-registry", () => {
       expect(projectFrames).toHaveLength(2);
       const emptyFrame = projectFrames[1];
       if (emptyFrame.type === "project-list-changed") {
+        expect(emptyFrame.hostId).toBe("1");
         expect(emptyFrame.projects).toEqual([]);
       }
     });
 
-    it("Test P117-03-5: snapshot-on-subscribe replay — pre-seed the registry, then subscribe a new client; new client receives the cached array", () => {
+    it("Test P117-03-5: snapshot-on-subscribe replay — pre-seed the registry with two hosts, then subscribe a new client; new client receives ONE frame per host", () => {
       const registry = createSubscriptionRegistry();
 
-      registry.publishProjectListChanged([projectA, projectB]);
+      registry.publishProjectListChanged("1", [projectA]);
+      registry.publishProjectListChanged("2", [projectB]);
 
-      // Subscribe AFTER the publish — the replay frame arrives on subscribe.
+      // Subscribe AFTER the publishes — the replay frames arrive on subscribe.
       const receivedFrames: FrontendOutboundFrameType[] = [];
       registry.subscribe((f) => receivedFrames.push(f));
 
       const projectFrames = receivedFrames.filter(
         (f) => f.type === "project-list-changed",
       );
-      expect(projectFrames).toHaveLength(1);
-      const frame = projectFrames[0];
-      if (frame.type === "project-list-changed") {
-        expect(frame.projects).toEqual([projectA, projectB]);
+      expect(projectFrames).toHaveLength(2);
+      const byHost = new Map<string, typeof projectA[]>();
+      for (const f of projectFrames) {
+        if (f.type === "project-list-changed") {
+          byHost.set(f.hostId, [...f.projects] as typeof projectA[]);
+        }
       }
-
-      // (Phase 115 archived-identities replay regression check retired with
-      //  the Phase 122 shape follow-up.)
-      const registry2 = createSubscriptionRegistry();
-      registry2.publishProjectListChanged([projectA]);
-
-      const received2: FrontendOutboundFrameType[] = [];
-      registry2.subscribe((f) => received2.push(f));
-
-      const proj = received2.filter((f) => f.type === "project-list-changed");
-      expect(proj).toHaveLength(1);
+      expect(byHost.get("1")).toEqual([projectA]);
+      expect(byHost.get("2")).toEqual([projectB]);
     });
 
     it("Test P117-03-6: snapshot replay when no publish has occurred — no project-list-changed frame is fanned out", () => {
@@ -741,7 +746,7 @@ describe("subscription-registry", () => {
       expect(projectFrames).toHaveLength(0);
     });
 
-    it("Test P117-03-7: idempotent-skip compares deeply (JSON.stringify canonicalization) — distinct arrays with identical field values do NOT re-fan", () => {
+    it("Test P117-03-7: idempotent-skip compares deeply (JSON.stringify canonicalization) — distinct arrays with identical field values do NOT re-fan for same hostId", () => {
       const registry = createSubscriptionRegistry();
       const receivedFrames: FrontendOutboundFrameType[] = [];
       registry.subscribe((f) => receivedFrames.push(f));
@@ -767,13 +772,46 @@ describe("subscription-registry", () => {
         },
       ];
 
-      registry.publishProjectListChanged(arr1);
-      registry.publishProjectListChanged(arr2);
+      registry.publishProjectListChanged("1", arr1);
+      registry.publishProjectListChanged("1", arr2);
 
       const projectFrames = receivedFrames.filter(
         (f) => f.type === "project-list-changed",
       );
       expect(projectFrames).toHaveLength(1);
+    });
+
+    it("Test P117-03-8: per-host cache scoping — a publish on hostId 2 does NOT invalidate the hostId 1 cache; subscribing after both sees BOTH cached frames", () => {
+      const registry = createSubscriptionRegistry();
+      const receivedFrames: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => receivedFrames.push(f));
+      receivedFrames.length = 0;
+
+      // Publish on host 1, then host 2, then repeat host 1 with same data —
+      // last should be a no-op due to per-host idempotency.
+      registry.publishProjectListChanged("1", [projectA]);
+      registry.publishProjectListChanged("2", [projectB]);
+      registry.publishProjectListChanged("1", [projectA]);
+
+      const projectFrames = receivedFrames.filter(
+        (f) => f.type === "project-list-changed",
+      );
+      expect(projectFrames).toHaveLength(2);
+
+      // Subscribe a second client — replays one frame per cached host.
+      const received2: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => received2.push(f));
+
+      const proj = received2.filter((f) => f.type === "project-list-changed");
+      expect(proj).toHaveLength(2);
+      const byHost = new Map<string, typeof projectA[]>();
+      for (const f of proj) {
+        if (f.type === "project-list-changed") {
+          byHost.set(f.hostId, [...f.projects] as typeof projectA[]);
+        }
+      }
+      expect(byHost.get("1")).toEqual([projectA]);
+      expect(byHost.get("2")).toEqual([projectB]);
     });
   });
 
@@ -1167,14 +1205,15 @@ describe("subscription-registry", () => {
       }
     });
 
-    it("Filter-14: publishProjectListChanged routes through filter — U1 sees full list, U2 sees only accessible hosts", async () => {
+    it("Filter-14: publishProjectListChanged routes through filter — U1 sees both host frames, U2 sees only accessible host frames", async () => {
+      // Mock: for U2, drop any project-list-changed frame whose scoped
+      // hostId isn't "99" (return null = frame dropped). For U1, pass
+      // through unchanged. Matches the real app-frame-filter's new
+      // per-scope gate.
       const filterMock = vi.fn(
         async (frame: FrontendOutboundFrameType, userId?: string) => {
           if (userId === "U2" && frame.type === "project-list-changed") {
-            return {
-              ...frame,
-              projects: frame.projects.filter((p) => p.hostId === "99"),
-            };
+            if (frame.hostId !== "99") return null;
           }
           return frame;
         },
@@ -1189,42 +1228,41 @@ describe("subscription-registry", () => {
       framesU1.length = 0;
       framesU2.length = 0;
 
-      registry.publishProjectListChanged([
+      registry.publishProjectListChanged("42", [
         { slug: "a", displayName: "A", hostId: "42", hostname: "thenasty", archived: false },
+      ]);
+      registry.publishProjectListChanged("99", [
         { slug: "b", displayName: "B", hostId: "99", hostname: "workstation", archived: false },
       ]);
       await tick();
 
       const listU1 = framesU1.filter((f) => f.type === "project-list-changed");
       const listU2 = framesU2.filter((f) => f.type === "project-list-changed");
-      expect(listU1).toHaveLength(1);
+      expect(listU1).toHaveLength(2);
       expect(listU2).toHaveLength(1);
-      if (listU1[0].type === "project-list-changed") {
-        expect(listU1[0].projects).toHaveLength(2);
-      }
       if (listU2[0].type === "project-list-changed") {
+        expect(listU2[0].hostId).toBe("99");
         expect(listU2[0].projects).toHaveLength(1);
         expect(listU2[0].projects[0].hostId).toBe("99");
       }
     });
 
-    it("Filter-15: subscribe-time project-list re-emit is filtered per subscriber (projected)", async () => {
+    it("Filter-15: subscribe-time project-list re-emit is filtered per subscriber (per-host frames replayed, gate applied)", async () => {
       const filterMock = vi.fn(
         async (frame: FrontendOutboundFrameType, userId?: string) => {
           if (userId === "U2" && frame.type === "project-list-changed") {
-            return {
-              ...frame,
-              projects: frame.projects.filter((p) => p.hostId === "99"),
-            };
+            if (frame.hostId !== "99") return null;
           }
           return frame;
         },
       );
       const registry = createSubscriptionRegistry({ appFrameFilter: filterMock });
 
-      // Seed the project list BEFORE any subscribe.
-      registry.publishProjectListChanged([
+      // Seed the project list BEFORE any subscribe — one publish per host.
+      registry.publishProjectListChanged("42", [
         { slug: "a", displayName: "A", hostId: "42", hostname: "thenasty", archived: false },
+      ]);
+      registry.publishProjectListChanged("99", [
         { slug: "b", displayName: "B", hostId: "99", hostname: "workstation", archived: false },
       ]);
 
@@ -1236,14 +1274,10 @@ describe("subscription-registry", () => {
 
       const listU1 = framesU1.filter((f) => f.type === "project-list-changed");
       const listU2 = framesU2.filter((f) => f.type === "project-list-changed");
-      expect(listU1).toHaveLength(1);
+      expect(listU1).toHaveLength(2);
       expect(listU2).toHaveLength(1);
-      if (listU1[0].type === "project-list-changed") {
-        expect(listU1[0].projects).toHaveLength(2);
-      }
       if (listU2[0].type === "project-list-changed") {
-        expect(listU2[0].projects).toHaveLength(1);
-        expect(listU2[0].projects[0].hostId).toBe("99");
+        expect(listU2[0].hostId).toBe("99");
       }
     });
 

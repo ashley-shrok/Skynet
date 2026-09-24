@@ -422,12 +422,15 @@ router.post(
       }
 
       // 6. Post-write wire event (D-37) — rebuild the full projects list
-      // for this host and hand it to the singleton registry.
+      // for this host and hand it to the singleton registry, scoped to
+      // this hostId (client merges by dropping existing entries for
+      // this hostId and splicing in the incoming rows).
       try {
         const registry = getSubscriptionRegistry();
         if (registry) {
           const current = await listProjects(conn);
           registry.publishProjectListChanged(
+            String(hostId),
             enrichForWire(current, hostId, host.name ?? String(hostId)),
           );
         } else {
@@ -534,12 +537,15 @@ router.post(
       }
 
       // 5. Post-write wire event (D-37) — rebuild the projects list
-      // (which now excludes the just-archived slug) and publish.
+      // (which now excludes the just-archived slug) and publish, scoped
+      // to this hostId. If the archived slug was the LAST project on
+      // this host, current is [] — a legitimate per-host delta.
       try {
         const registry = getSubscriptionRegistry();
         if (registry) {
           const current = await listProjects(conn);
           registry.publishProjectListChanged(
+            String(hostId),
             enrichForWire(current, hostId, host.name ?? String(hostId)),
           );
         } else {

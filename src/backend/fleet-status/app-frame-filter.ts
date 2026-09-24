@@ -457,6 +457,14 @@ export async function filterAppFrame(
   }
 
   if (frame.type === "project-list-changed") {
+    // Scoped-hostId gate FIRST. The frame's top-level hostId (added in
+    // the per-host-scope fix) names the ONE host this frame's delta
+    // applies to. If the user cannot see that host, drop the whole
+    // frame — otherwise even an empty projects[] leaks the hostId's
+    // existence to an unauthorized subscriber, and a non-empty list
+    // (all same hostId) would be entirely filtered out anyway.
+    if (!(await canUserSee(frame.hostId))) return null;
+
     // Phase 130: cast the frame's projects entries to include the optional
     // `users` gate list. `makeProjectListChangedFrame` accepts users on the
     // input type (wire-protocol.ts) but the Zod wire schema deliberately has
@@ -471,33 +479,25 @@ export async function filterAppFrame(
       return frame;
     }
 
-    const uniqueHostIds = Array.from(new Set(projects.map((p) => p.hostId)));
-    const visibility = await Promise.all(
-      uniqueHostIds.map(async (hid) => [hid, await canUserSee(hid)] as const),
-    );
-    const visible = new Set(
-      visibility.filter(([, ok]) => ok).map(([hid]) => hid),
-    );
-
     // Phase 130: per-project user gate. Reuse the shared getCallerUsername
     // memo so a filter call that touches multiple gated branches only
     // resolves the DB round-trip once (project + app). Fail-OPEN on null
     // resolver or null username — see getCallerUsername JSDoc.
     const callerUsername = await getCallerUsername();
 
-    // Filter: host gate + user gate. Strip `users` from every survivor
-    // before emit — Phase 129 HIGH-1 mirror. The field is gate-only.
+    // Per-project user gate. The scoped-hostId visibility check above
+    // already covers the host gate — every entry in this frame carries
+    // the same hostId as the scope, which is already known visible.
+    // Strip `users` from every survivor before emit — Phase 129 HIGH-1
+    // mirror. The field is gate-only.
     const projectedProjects = projects
-      .filter((p) => {
-        if (!visible.has(p.hostId)) return false;
-        return isProjectVisibleToUser(p.users ?? null, callerUsername);
-      })
+      .filter((p) => isProjectVisibleToUser(p.users ?? null, callerUsername))
       .map((p) => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { users: _users, ...rest } = p;
         return rest;
       });
-    return makeProjectListChangedFrame(projectedProjects);
+    return makeProjectListChangedFrame(frame.hostId, projectedProjects);
   }
 
   if (frame.type === "session-project-changed") {

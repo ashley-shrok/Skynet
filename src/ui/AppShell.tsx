@@ -96,11 +96,15 @@ import {
   readFleetSessionsCache,
   writeFleetSessionsCache,
   useRelayRoomTitles,
-  // Phase 117 Plan 117-07 (D-37 / D-39): projects slice mutator + relay-room
-  // and identity project-assignment map setters. Fed by the fleet-status
-  // client's onProjectListChanged callback (wire event from 117-03) AND the
-  // boot-time hydration path (listProjects + listRelayRoomProjectTags).
+  // Phase 117 Plan 117-07 (D-37 / D-39): projects slice mutators + relay-room
+  // and identity project-assignment map setters. setProjects is used by the
+  // boot-time hydration path (aggregate across all hosts).
+  // mergeProjectsForHost is used by the fleet-status client's
+  // onProjectListChanged callback — the wire frame is scoped to one host,
+  // so the client merges per-host instead of wholesale-replacing (which
+  // used to vaporize other hosts' projects from client state).
   setProjects,
+  mergeProjectsForHost,
   setRoomProjectAssignments,
   // Phase 117 H1 fix (2026-09-18): identity-project map setter fed by an
   // AppShell effect that derives the Map from useIdentities() on every
@@ -732,15 +736,15 @@ export function AppShell({
       },
       // Phase 117 Plan 117-07 (D-37): project-list-changed wire frame from
       // 117-03's registry.publishProjectListChanged. Backend fires this on
-      // every project create / archive / session-project reassignment; the
-      // frame carries the FULL project list on every emit (registry
-      // idempotent-skip absorbs no-op fanouts). We pass the array verbatim
-      // to setProjects — its identity-equal-skip absorbs churn on WS reconnect.
-      // The wire type `ProjectListEntry` on fleet-status-types.ts mirrors
-      // ProjectRow byte-for-byte (both are {slug, displayName, hostId,
-      // hostname, archived}), so no field massaging is required at the
-      // adapter boundary.
-      onProjectListChanged: (projects) => setProjects(projects),
+      // every project create / archive. The frame is SCOPED to one hostId
+      // (see wire-protocol.ts) and carries the full projects list for THAT
+      // host only. We merge per-host via mergeProjectsForHost so entries
+      // for other hosts survive unchanged. The wire type `ProjectListEntry`
+      // on fleet-status-types.ts mirrors ProjectRow byte-for-byte (both
+      // are {slug, displayName, hostId, hostname, archived}), so no field
+      // massaging is required at the adapter boundary.
+      onProjectListChanged: (hostId, projects) =>
+        mergeProjectsForHost(hostId, projects),
       // Per-identity project delta from the backend's session-project write
       // path — patch the affected row's `project` field in place so the
       // sidebar reflects the new bucket without a full /identities refetch.

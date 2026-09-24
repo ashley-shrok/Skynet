@@ -367,6 +367,11 @@ export interface ProjectListEntry {
 export interface FrontendProjectListChangedFrame {
   schemaVersion: typeof FRAME_SCHEMA_VERSION;
   type: "project-list-changed";
+  // hostId scopes this frame to ONE host — client merges by dropping
+  // existing state.projects entries with matching hostId and splicing in
+  // the incoming rows. Empty projects[] is a legitimate "this host now
+  // has zero projects" delta.
+  hostId: string;
   projects: ProjectListEntry[];
 }
 

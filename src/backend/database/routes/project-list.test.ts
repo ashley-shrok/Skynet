@@ -487,11 +487,13 @@ describe("POST /projects", () => {
     );
     // publishProjectListChanged should fire exactly once after successful write.
     expect(mockPublishProjectListChanged).toHaveBeenCalledTimes(1);
-    // The published array reflects the just-created projects with wire-event
-    // enrichment (hostId as string + hostname from resolveHostById + archived).
-    const callArg = mockPublishProjectListChanged.mock.calls[0][0];
-    expect(Array.isArray(callArg)).toBe(true);
-    expect(callArg).toEqual([
+    // First arg is the scoped hostId (string). Second arg is the projects
+    // array with wire-event enrichment (hostId as string + hostname from
+    // resolveHostById + archived).
+    const call = mockPublishProjectListChanged.mock.calls[0];
+    expect(call[0]).toBe("5");
+    expect(Array.isArray(call[1])).toBe(true);
+    expect(call[1]).toEqual([
       {
         slug: "my-project",
         displayName: "My Project",
@@ -748,9 +750,12 @@ describe("POST /projects/:slug/archive", () => {
     expect(archiveProject).toHaveBeenCalledTimes(1);
     expect(archiveProject).toHaveBeenCalledWith(null, "my-project");
     expect(mockPublishProjectListChanged).toHaveBeenCalledTimes(1);
-    // Post-archive, the enriched wire event carries the current (post-archive)
-    // list — in this test the list is empty (project just archived).
-    expect(mockPublishProjectListChanged.mock.calls[0][0]).toEqual([]);
+    // Post-archive, the enriched wire event is scoped to this hostId and
+    // carries the current (post-archive) list — empty in this test since
+    // the only project was just archived.
+    const call = mockPublishProjectListChanged.mock.calls[0];
+    expect(call[0]).toBe("5");
+    expect(call[1]).toEqual([]);
   });
 
   // Phase 117 M8 fix (2026-09-18): null-registry on archive path also logs.

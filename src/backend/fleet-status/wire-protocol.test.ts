@@ -775,6 +775,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
     const frame = {
       schemaVersion: FRAME_SCHEMA_VERSION,
       type: "project-list-changed",
+      hostId: "1",
       projects: [
         {
           slug: "alpha",
@@ -789,18 +790,20 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.type).toBe("project-list-changed");
+      expect(result.data.hostId).toBe("1");
       expect(result.data.projects).toHaveLength(1);
       expect(result.data.projects[0].slug).toBe("alpha");
     }
   });
 
-  it("Test P117-03-2 (empty projects array is valid): parse with `projects: []` succeeds — represents 'no projects on any host'", async () => {
+  it("Test P117-03-2 (empty projects array is valid): parse with `projects: []` succeeds — represents 'this host now has zero projects'", async () => {
     const { FrontendProjectListChangedFrameSchema } = await import(
       "./wire-protocol.js"
     );
     const frame = {
       schemaVersion: FRAME_SCHEMA_VERSION,
       type: "project-list-changed",
+      hostId: "1",
       projects: [],
     };
     const result = FrontendProjectListChangedFrameSchema.safeParse(frame);
@@ -817,6 +820,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
     const frame = {
       schemaVersion: FRAME_SCHEMA_VERSION,
       type: "snapshot",
+      hostId: "1",
       projects: [],
     };
     const result = FrontendProjectListChangedFrameSchema.safeParse(frame);
@@ -830,6 +834,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
     const frame = {
       schemaVersion: 99,
       type: "project-list-changed",
+      hostId: "1",
       projects: [],
     };
     const result = FrontendProjectListChangedFrameSchema.safeParse(frame);
@@ -843,6 +848,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
     const frame = {
       schemaVersion: FRAME_SCHEMA_VERSION,
       type: "project-list-changed",
+      hostId: "1",
       projects: [
         {
           // slug: missing
@@ -868,6 +874,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
     const frame = {
       schemaVersion: FRAME_SCHEMA_VERSION,
       type: "project-list-changed",
+      hostId: "1",
       projects: [
         {
           slug: "alpha",
@@ -890,6 +897,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
     const projectFrame = {
       schemaVersion: FRAME_SCHEMA_VERSION,
       type: "project-list-changed",
+      hostId: "1",
       projects: [
         {
           slug: "alpha",
@@ -914,7 +922,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
     expect(FrontendOutboundFrame.safeParse(archivedFrame).success).toBe(false);
   });
 
-  it("Test P117-03-8 (makeProjectListChangedFrame builder + round-trip): returns a frame with schemaVersion+type+projects; parses cleanly through FrontendOutboundFrame", async () => {
+  it("Test P117-03-8 (makeProjectListChangedFrame builder + round-trip): returns a frame with schemaVersion+type+hostId+projects; parses cleanly through FrontendOutboundFrame", async () => {
     const { makeProjectListChangedFrame } = await import("./wire-protocol.js");
     const projects = [
       {
@@ -927,21 +935,40 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
       {
         slug: "beta",
         displayName: "Beta",
-        hostId: "2",
-        hostname: "workstation",
+        hostId: "1",
+        hostname: "t1000",
         archived: true,
       },
     ];
-    const frame = makeProjectListChangedFrame(projects);
+    const frame = makeProjectListChangedFrame("1", projects);
     expect(frame.schemaVersion).toBe(FRAME_SCHEMA_VERSION);
     expect(frame.type).toBe("project-list-changed");
     if (frame.type === "project-list-changed") {
+      expect(frame.hostId).toBe("1");
       expect(frame.projects).toEqual(projects);
     }
 
     // Round-trip: builder output MUST parse via FrontendOutboundFrame.
     const parsed = FrontendOutboundFrame.safeParse(frame);
     expect(parsed.success).toBe(true);
+  });
+
+  it("Test P117-03-10 (schema requires top-level hostId scope field): parse with hostId missing fails", async () => {
+    const { FrontendProjectListChangedFrameSchema } = await import(
+      "./wire-protocol.js"
+    );
+    const frame = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "project-list-changed",
+      // hostId: missing
+      projects: [],
+    };
+    const result = FrontendProjectListChangedFrameSchema.safeParse(frame);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p === "hostId")).toBe(true);
+    }
   });
 
   it("Test P117-03-9 (FRAME_SCHEMA_VERSION unchanged): adding a discriminated-union entry does NOT bump the version — additive-optional invariant", () => {

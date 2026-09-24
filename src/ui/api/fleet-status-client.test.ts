@@ -1205,8 +1205,8 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
     MockWebSocket.instances = [];
   });
 
-  // Test P117-06-1 — onProjectListChanged callback fires with the projects array
-  it("Test 1 (project-list-changed callback fires): valid frame invokes onProjectListChanged once with parsed.projects", () => {
+  // Test P117-06-1 — onProjectListChanged callback fires with hostId + projects
+  it("Test 1 (project-list-changed callback fires): valid frame invokes onProjectListChanged once with (hostId, projects)", () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -1242,12 +1242,13 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
       data: JSON.stringify({
         schemaVersion: FRAME_SCHEMA_VERSION,
         type: "project-list-changed",
+        hostId: "1",
         projects,
       }),
     });
 
     expect(onProjectListChanged).toHaveBeenCalledTimes(1);
-    expect(onProjectListChanged).toHaveBeenCalledWith(projects);
+    expect(onProjectListChanged).toHaveBeenCalledWith("1", projects);
   });
 
   // Test P117-06-2 — missing callback is a no-op (no throw, no crash);
@@ -1271,6 +1272,7 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
         data: JSON.stringify({
           schemaVersion: FRAME_SCHEMA_VERSION,
           type: "project-list-changed",
+          hostId: "1",
           projects: [
             {
               slug: "alpha",
@@ -1365,11 +1367,25 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
         data: JSON.stringify({
           schemaVersion: FRAME_SCHEMA_VERSION,
           type: "project-list-changed",
+          hostId: "1",
           projects: "not-an-array",
         }),
       });
     }).not.toThrow();
 
+    expect(onProjectListChanged).not.toHaveBeenCalled();
+
+    // Regression: missing hostId is ALSO a malformed frame — callback
+    // must not fire even with a well-formed projects array.
+    expect(() => {
+      ws.onmessage?.({
+        data: JSON.stringify({
+          schemaVersion: FRAME_SCHEMA_VERSION,
+          type: "project-list-changed",
+          projects: [],
+        }),
+      });
+    }).not.toThrow();
     expect(onProjectListChanged).not.toHaveBeenCalled();
   });
 
@@ -1420,6 +1436,7 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
       data: JSON.stringify({
         schemaVersion: FRAME_SCHEMA_VERSION,
         type: "project-list-changed",
+        hostId: "1",
         projects,
       }),
     });
@@ -1437,6 +1454,7 @@ describe("fleet-status-client: Phase 117 Plan 117-06 — project-list-changed di
       ) as Array<Record<string, unknown>>;
 
     expect(logEntries.length).toBe(1);
+    expect(logEntries[0].hostId).toBe("1");
     expect(logEntries[0].projectCount).toBe(3);
   });
 });

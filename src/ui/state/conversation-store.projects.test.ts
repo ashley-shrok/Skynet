@@ -44,6 +44,7 @@ import {
   useConversations,
   useProjects,
   setProjects,
+  mergeProjectsForHost,
   setRoomProjectAssignments,
   setIdentityProjectAssignments,
   readProjectsCache,
@@ -645,6 +646,150 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
     });
     expect(readProjectsCache().projects).toEqual([]);
     expect(localStorage.getItem(PROJECTS_CACHE_KEY)).toBeNull();
+  });
+});
+
+// ─── mergeProjectsForHost — per-host wire-event merge ─────────────────────────
+// Bootstrap uses setProjects with the flat multi-host aggregate; the wire
+// event `project-list-changed` is scoped to ONE hostId and must NOT wipe
+// projects on other hosts. mergeProjectsForHost drops entries for that
+// hostId and splices in the incoming rows.
+
+describe("conversation-store: mergeProjectsForHost", () => {
+  beforeEach(() => {
+    __resetProjectsForTest();
+  });
+
+  const hostA1: ProjectRow = {
+    slug: "alpha",
+    displayName: "Alpha",
+    hostId: "1",
+    hostname: "t1000",
+    archived: false,
+  };
+  const hostA2: ProjectRow = {
+    slug: "alpha2",
+    displayName: "Alpha 2",
+    hostId: "1",
+    hostname: "t1000",
+    archived: false,
+  };
+  const hostB1: ProjectRow = {
+    slug: "beta",
+    displayName: "Beta",
+    hostId: "2",
+    hostname: "workstation",
+    archived: false,
+  };
+  const hostB2: ProjectRow = {
+    slug: "beta2",
+    displayName: "Beta 2",
+    hostId: "2",
+    hostname: "workstation",
+    archived: false,
+  };
+
+  it("replaces entries for the scoped hostId while leaving other hosts untouched (regression: adjacent-project vanish bug)", () => {
+    act(() => {
+      setProjects([hostA1, hostA2, hostB1, hostB2]);
+    });
+
+    // Wire event arrives: host 1's list is now [alpha] (alpha2 archived).
+    // BEFORE the fix, this call was setProjects([hostA1]) which wiped
+    // host 2's projects entirely — the adjacent-project vanish bug the
+    // per-host scope fix is preventing.
+    act(() => {
+      mergeProjectsForHost("1", [hostA1]);
+    });
+
+    const { result } = renderHook(() => useProjects());
+    // Host 2's entries survive; host 1 collapses to [hostA1].
+    expect(result.current.map((p) => p.slug).sort()).toEqual([
+      "alpha",
+      "beta",
+      "beta2",
+    ]);
+    expect(result.current.filter((p) => p.hostId === "2")).toEqual([
+      hostB1,
+      hostB2,
+    ]);
+  });
+
+  it("empty rows for a scoped hostId drops all entries for that host (last-project-archived)", () => {
+    act(() => {
+      setProjects([hostA1, hostB1]);
+    });
+
+    act(() => {
+      mergeProjectsForHost("1", []);
+    });
+
+    const { result } = renderHook(() => useProjects());
+    expect(result.current).toEqual([hostB1]);
+  });
+
+  it("adds entries for a new hostId that had none before", () => {
+    act(() => {
+      setProjects([hostA1]);
+    });
+
+    act(() => {
+      mergeProjectsForHost("2", [hostB1, hostB2]);
+    });
+
+    const { result } = renderHook(() => useProjects());
+    expect(result.current.map((p) => p.slug).sort()).toEqual([
+      "alpha",
+      "beta",
+      "beta2",
+    ]);
+  });
+
+  it("no-op skip: mergeProjectsForHost with byte-identical rows for the same hostId does NOT notify", () => {
+    act(() => {
+      setProjects([hostA1, hostB1]);
+    });
+
+    const spy = vi.fn();
+    const unsub = __subscribeForTest(spy);
+    try {
+      act(() => {
+        mergeProjectsForHost("1", [hostA1]);
+      });
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      unsub();
+    }
+  });
+
+  it("delta notify: mergeProjectsForHost with a real change notifies exactly once", () => {
+    act(() => {
+      setProjects([hostA1, hostB1]);
+    });
+
+    const spy = vi.fn();
+    const unsub = __subscribeForTest(spy);
+    try {
+      act(() => {
+        mergeProjectsForHost("1", [hostA1, hostA2]);
+      });
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      unsub();
+    }
+  });
+
+  it("persists to localStorage cache on real delta", () => {
+    act(() => {
+      setProjects([hostA1, hostB1]);
+    });
+
+    act(() => {
+      mergeProjectsForHost("1", []);
+    });
+
+    const cached = readProjectsCache();
+    expect(cached.projects).toEqual([hostB1]);
   });
 });
 

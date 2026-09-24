@@ -2357,6 +2357,56 @@ export function useProjects(): readonly ProjectRow[] {
 }
 
 /**
+ * Per-host merge on the projects list. Called from AppShell's wire
+ * `onProjectListChanged` callback — the wire frame is scoped to one
+ * hostId and carries the FULL projects list for that host only. Drops
+ * every existing state.projects entry with matching hostId and splices
+ * in `rows`. Entries for other hosts are left untouched.
+ *
+ * Pre-fix, the wire handler called setProjects(rows) with a per-host
+ * payload, which wholesale-replaced state.projects and vaporized every
+ * project on every OTHER host from the client until the next bootstrap
+ * refetch — see the visual-bug incident where archiving one project
+ * caused an adjacent-host project section to disappear + its
+ * conversations to fall into the unassigned bucket until refresh.
+ *
+ * Empty `rows` is a legitimate delta ("this host now has zero projects"
+ * — e.g. last project archived) and DOES drop this host's entries.
+ *
+ * Field-equal skip: if the current entries for hostId already match rows
+ * byte-for-byte in shape and order, no mutation and no notify.
+ */
+export function mergeProjectsForHost(
+  hostId: string,
+  rows: readonly ProjectRow[],
+): void {
+  const cur = state.projects;
+  const currentForHost = cur.filter((p) => p.hostId === hostId);
+  if (currentForHost.length === rows.length) {
+    let equal = true;
+    for (let i = 0; i < rows.length; i++) {
+      const a = rows[i];
+      const b = currentForHost[i];
+      if (
+        a.slug !== b.slug ||
+        a.displayName !== b.displayName ||
+        a.hostId !== b.hostId ||
+        a.hostname !== b.hostname ||
+        a.archived !== b.archived
+      ) {
+        equal = false;
+        break;
+      }
+    }
+    if (equal) return;
+  }
+  const preserved = cur.filter((p) => p.hostId !== hostId);
+  state = { ...state, projects: [...preserved, ...rows] };
+  persistProjectsSlice();
+  notify();
+}
+
+/**
  * Replace the identity → project map with `map` (D-05 identity carrier).
  * Keyed on `${hostId}::${identityKey}`. Called by AppShell's identity
  * hydration path after listIdentities resolves. Same-content skip via
