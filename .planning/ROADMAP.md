@@ -2896,3 +2896,23 @@ Plans:
 Plans:
 - [x] 135-01-PLAN.md — Wave 1: `wakeups-api.ts` frontend client (5 REST helpers + `GlobalWakeupSpecWire` + `WakeupListItem` types with DELETE-with-body pattern per RESEARCH Pitfall #4) + `WakeupsModalRow.tsx` presentational component + `WakeupsModal.tsx` shell with fetch-on-open + reset-on-close + filter bar + Skeleton loading + empty state + footer count + AlarmClock header button + modal mount in `PrettyConversationsPanel.tsx`. Wave 1 leaves form view as stub.
 - [x] 135-02-PLAN.md — Wave 2 (depends on 135-01): `WakeupsModalForm.tsx` (5 form fields per D-20; Name+Host disabled on edit per Pitfall #5 + D-21; Weekly single-day segmented per Assumption A4; round-trip preservation Option B — preserve `skills` + `schedule.timezone` + `schedule.days` untouched). Replace wave-1 handler stubs with real pessimistic-toggle (D-12), native `window.confirm()` delete (D-14), inline-error-banner save (D-25). 25 tests (6 api + 15 modal + 4 panel-button). Plus /close-driven follow-ups (hide 1-host picker, preserve `schedule.days` on round-trip) + code-review fixes (filter reconciliation, safer ALL sentinel, toggle in-flight guard, refetch load-error surface, T-15 filter reset test extension, filter parseInt gate).
+
+
+### Phase 136: Retire bounties concept from Skynet — remove RoleModal bounties tab + companion UI components, backend identity-artifact-reader bounty methods, associated tests, and axios call sites. Bounties were retired in id-skill on 2026-09-20 (fc98066d); Skynet still carries the dead code.
+
+**Goal:** Fully retire the bounty concept from Skynet source: RoleModal Bounties tab and companion UI (`RoleBountiesTab.tsx`, `BountyCard.tsx`); frontend WS API layer (`listBountiesForRoleName` + all `Bounty*` wire types in `claude-session-api.ts`); backend WS routes and handlers in `claude-session-server.ts`; backend reader/writer methods in `identity-artifact-reader.ts`; substrate `SKILL.md` + `POST /roles` no longer create orphan `bounties/` folders on new-role setup. Preserve: `readIdentityHistory`, `readIdentityHandoff`, `writeIdentityHandoff` (A4 out-of-scope).
+
+**Rescue-rebased from Phase 133 → 136** on 2026-09-24 after peer identity's Phase 133 (role archival) shipped first on origin as part of a 42-commit batch, and peer's wake-ups-redesign campaign took slots 134 + 135 in a companion rescue. Source-file overlap on 9 files (RoleModal + PrettyView + PrettyConversationsPanel test + claude-session-api + claude-session-server + identity-artifact-reader) — resolved via `git apply --3way` on my source-only delta (retirement of both bounty and wakeup surfaces merged cleanly; both feature areas were being removed by both sides).
+
+**Requirements**: N/A (code-cleanup phase, no REQ-XX IDs)
+**Depends on:** Phase 135
+**Plans:** 7/7 plans complete
+
+Plans:
+- [x] 136-01-PLAN.md — Wave 0 foundation: stop the bleeding by removing the two code sites that CREATE `bounties/` folders on new-role setup (`substrate/skills/role/SKILL.md` + `POST /roles` handler)
+- [x] 136-02-PLAN.md — Wave 1: delete 7 leaf bounty-only test files (6 backend `identity-artifact-reader.*bounty*.test.ts` + `RoleBountiesTab.test.tsx`)
+- [x] 136-03-PLAN.md — Wave 2: UI surgery — RoleModal loses Bounties nav entry + TabsContent + import; RoleModal test + PrettyView role-modal-swap test + PrettyConversationsPanel dead filterLabel cleanup
+- [x] 136-04-PLAN.md — Wave 3: delete `RoleBountiesTab.tsx` + `BountyCard.tsx` source components (1946 lines)
+- [x] 136-05-PLAN.md — Wave 4: strip frontend WS API bounty surface (`listBountiesForRoleName` + all `Bounty*` types from `claude-session-api.ts` + role-reads test)
+- [x] 136-06-PLAN.md — Wave 5: delete all bounty WS handlers/routes/imports from `claude-session-server.ts` + role-reads test
+- [x] 136-07-PLAN.md — Wave 6: amputate bounty readers/writers/types from `identity-artifact-reader.ts` (preserve history/handoff) + edit two-step shared-fixture test + phase-wide audit

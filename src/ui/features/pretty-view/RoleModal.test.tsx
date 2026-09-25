@@ -1,17 +1,17 @@
 /**
  * Phase 90 Plan 90-04 Task 3 — RoleModal component tests (Plan 90-10 refactor;
- * Phase 134 Plan 134-02 role-wakeup retirement).
+ * Phase 134 Plan 134-02 role-wakeup retirement; Phase 136 bounty retirement).
  *
  * Plan 90-10 changes: RoleModal reads role file via getRoleFileByName from
- * claude-session-api.ts (Plan 90-09). Bounties tab consumes
- * listBountiesForRoleName. Avatar upload routes through
+ * claude-session-api.ts (Plan 90-09). Avatar upload routes through
  * updateRoleAvatarByName (identities-api.ts) BEFORE the markdown write. Tests
  * mock those helpers directly rather than mocking openClaudeSessionSocket.
- * Phase 134 Plan 134-02: role-scope wake-up CRUD retired top-to-bottom —
- * Test A now expects 3 tabs (role / runbooks / bounties), no Wakeups.
+ * Phase 134 Plan 134-02 retired role-scope wake-up CRUD top-to-bottom;
+ * Phase 136 retired the bounties tab. Test A now expects 2 tabs
+ * (role / runbooks).
  *
  * Tests:
- *   A. renders 3 tabs — Role file / Runbooks / Bounties; default active tab = "role"
+ *   A. renders 2 tabs — Role file / Runbooks; default active tab = "role"
  *   B. hue chrome applied — role.colorHue 320 → DialogContent style contains hsla(320, ...)
  *   C. fallback hue — colorHue undefined → hue 190 (D-05 fallback)
  *   D. no scope switch — role=group aria-label=scope absent (this is IdentityModal's)
@@ -79,9 +79,6 @@ const mockUpdateRoleFileByName = vi.fn().mockResolvedValue({ markdown: "" });
 const mockGetRoleFileByName = vi
   .fn()
   .mockResolvedValue({ markdown: "" });
-const mockListBountiesForRoleName = vi
-  .fn()
-  .mockResolvedValue({ bounties: [], archivedBounties: [] });
 const mockUpdateRoleAvatarByName = vi
   .fn()
   .mockResolvedValue({ filename: "box-maintainer.png", avatarUrl: "/x" });
@@ -93,11 +90,10 @@ vi.mock("@/api/claude-session-api", async (importOriginal) => {
     updateRoleFileByName: (...args: unknown[]) =>
       mockUpdateRoleFileByName(...args),
     getRoleFileByName: (...args: unknown[]) => mockGetRoleFileByName(...args),
-    // Phase 134 Plan 134-02: the four role-scope wakeup helpers
+    // Phase 134 Plan 134-02 retired the role-scope wakeup helpers
     // (listRoleWakeupsByName / createRoleWakeupByName / updateRoleWakeupByName /
-    // deleteRoleWakeupByName) that once needed mocks here are retired.
-    listBountiesForRoleName: (...args: unknown[]) =>
-      mockListBountiesForRoleName(...args),
+    // deleteRoleWakeupByName); Phase 136 retired listBountiesForRoleName.
+    // Nothing else needs a mock here.
   };
 });
 
@@ -150,10 +146,6 @@ beforeEach(() => {
   // Restore default resolutions after each test's clearAllMocks.
   mockUpdateRoleFileByName.mockResolvedValue({ markdown: "" });
   mockGetRoleFileByName.mockResolvedValue({ markdown: "" });
-  mockListBountiesForRoleName.mockResolvedValue({
-    bounties: [],
-    archivedBounties: [],
-  });
   mockUpdateRoleAvatarByName.mockResolvedValue({
     filename: "box-maintainer.png",
     avatarUrl: "/x",
@@ -165,19 +157,18 @@ afterEach(() => {
 });
 
 describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
-  it("Test A: renders 3 tabs — Role file / Runbooks / Bounties; default active tab = 'role'", () => {
+  it("Test A: renders 2 tabs — Role file / Runbooks; default active tab = 'role'", () => {
     renderModal();
 
-    // Bottom nav bar renders 3 buttons (Phase 134 Plan 134-02: role-wakeups
-    // tab retired top-to-bottom).
+    // Bottom nav bar renders 2 buttons. Phase 134 Plan 134-02 retired the
+    // role-wakeups tab; Phase 136 retired the bounties tab.
     const navButtons = document
       .querySelector(".shrink-0.flex.items-stretch")
       ?.querySelectorAll("button");
     expect(navButtons).toBeDefined();
-    expect(navButtons!.length).toBe(3);
+    expect(navButtons!.length).toBe(2);
     expect(navButtons![0].textContent).toContain("Role file");
     expect(navButtons![1].textContent).toContain("Runbooks");
-    expect(navButtons![2].textContent).toContain("Bounties");
 
     // Default active TabsContent id ends in "content-role" (Radix pattern).
     const tabPanels = document.querySelectorAll('[role="tabpanel"]');

@@ -2378,9 +2378,6 @@ export function PrettyConversationsPanel({
   const rdpSectionLabel = t("nav.conversations.rdpSection", {
     defaultValue: "Remote desktop",
   });
-  const filterLabel = t("nav.conversations.filterPinnedBounties", {
-    defaultValue: "Filter by pinned bounties",
-  });
   const loadingLabel = t("nav.conversations.loading", {
     defaultValue: "Loading conversations…",
   });

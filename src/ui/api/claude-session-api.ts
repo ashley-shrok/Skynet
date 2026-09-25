@@ -492,7 +492,6 @@ export type ClaudeSessionServerEvent =
   | DormantEvent
   // Phase 30 (PS30-01 + PS30-04) — backend-authoritative pane-entry verdict
   | PaneStateEvent
-  | IdentityBountiesEvent
   | IdentityIdentityFileEvent
   // Phase 22 SRIC-06 / Plan 22-06: role-file read + update events (mirror
   // shape of IdentityIdentityFileEvent + IdentityIdentityFileUpdatedEvent)
@@ -508,11 +507,6 @@ export type ClaudeSessionServerEvent =
   // IdentityRoleWakeupCreatedEvent + IdentityRoleWakeupDeletedEvent).
   | IdentityWakeupCreatedEvent
   | IdentityWakeupDeletedEvent
-  | IdentityBountyPriorityUpdatedEvent
-  | IdentityBountyStatusUpdatedEvent
-  | IdentityBountyPinnedUpdatedEvent
-  | IdentityBountyArchivedEvent
-  | IdentityBountyDeletedEvent
   // Phase 17 relay events — handlers added in plan 17-03; PrettyView's
   // non-exhaustive switch silently ignores these until then.
   | RelayOutboundEvent
@@ -598,72 +592,6 @@ export type FetchOlderRangePayload = {
   count: number;
 };
 
-// Patch #87: identity bounties WS wire types.
-//
-//   client -> server:
-//     { type: "identity:list-bounties", identityKey: string }
-//
-//   server -> client:
-//     { type: "identity:bounties", bounties: Bounty[], archivedBounties: Bounty[], error?: string }
-//
-// `identityKey` is the lowercased identity name (matches the identity dir under
-// ~/fleet/identities/<key>/bounties/). The client passes it from the resolved
-// `identity.identityKey` from `useSessionIdentity()` — no additional backend
-// resolution needed (D-01).
-
-export type Bounty = {
-  /** Patch #109: folder basename. bounty.json's `id` field is a UUID —
-   *  useless for humans. The FOLDER name is what user references bounties
-   *  by in conversation. Backend injects this from the directory listing;
-   *  frontend renders it alongside `title` in BountyCard. Always present. */
-  slug: string;
-  id: string;
-  title: string;
-  premise: string;
-  status: string;
-  priority: string;
-  /** Patch #168 / #172: independent of status; true if pinned. Backend
-   *  normalizeBounty defaults to false when the field is absent from
-   *  bounty.json. Flipped via identity:update-bounty-pinned WS write. */
-  pinned: boolean;
-  /** Phase 26 / this quick: independent user-reserved boolean — true when
-   *  user flagged the bounty as needing a desk (real browser/keyboard) to
-   *  work on next. Orthogonal to status and pinned. Backend normalizeBounty
-   *  defaults to false when absent. Flipped via identity:update-bounty-
-   *  needs-desk WS write. */
-  needs_desk: boolean;
-  keywords: string[];
-  requested_by: string | null;
-  created_at: string;
-  updated_at: string;
-  timeline: string[];
-  todos: { text: string; done: boolean }[];
-  // Phase 18 / IDMEDIT-04: three new fields for the bounty field editor
-  // (Plan 18-04/18-05). Populated by normalizeBounty with safe defaults
-  // ([] / null) so pre-existing bounty.json files without these fields
-  // still produce a valid Bounty on reads. Additive — existing consumers
-  // continue to work unchanged.
-  source_links: string[];
-  deadline: string | null;
-  meeting_questions: { text: string; answered: boolean }[];
-};
-
-export type IdentityListBountiesPayload = {
-  type: "identity:list-bounties";
-  identityKey: string;
-  /** patch #92: pane's SSH host id — backend routes reads to the pane's box (local bind-mount when hostId is in IDENTITIES_LOCAL_HOST_IDS). */
-  hostId: number;
-  /** Quick 260823-80r: opt-in archive read. Backend runs the archive shell command (a `for`-loop cat'ing every bounty.json in `bounties/archive`) ONLY when true. Default false skips the expensive walk for roles with hundreds of archived bounties. */
-  includeArchived?: boolean;
-};
-
-export type IdentityBountiesEvent = {
-  type: "identity:bounties";
-  bounties: Bounty[];
-  archivedBounties: Bounty[];
-  error?: string;
-};
-
 // Patch #17g/#92: identity artifact WS wire types.
 // Phase 89 Plan 05: history + handoff frontend wire types removed per D-12 —
 // frontend consumers deleted; backend WS handlers still handle these types for now.
@@ -744,30 +672,6 @@ export type IdentityWakeupsEvent = { type: "identity:wakeups"; wakeups: Wakeup[]
 // in WakeupsTab.tsx writes the full spec on Save (all four fields), so the
 // wire type has to allow all four. Backend server + WakeupUpdate type mirror
 // the widening.
-
-export const BOUNTY_PRIORITY_VALUES = [
-  "urgent",
-  "high",
-  "medium",
-  "low",
-  "unprioritized",
-] as const;
-export type BountyPriority = (typeof BOUNTY_PRIORITY_VALUES)[number];
-
-// Quick 260727-v0b: allowed status set for bounty-status updates. Mirrors
-// BOUNTY_PRIORITY_VALUES's shape — a const tuple + derived union — so the
-// StatusRow editor and the WS validation guard reference the same source.
-// Order here is the order pills render in BountyCard (done/dropped last
-// since they're the terminal states).
-// Patch #168: "pinned" removed — it is now an independent boolean field
-// orthogonal to the lifecycle status (fleet schema migration 2026-07-28).
-export const BOUNTY_STATUS_VALUES = [
-  "in_progress",
-  "waiting_on_someone_else",
-  "done",
-  "dropped",
-] as const;
-export type BountyStatus = (typeof BOUNTY_STATUS_VALUES)[number];
 
 export type IdentityUpdateWakeupPayload = {
   type: "identity:update-wakeup";
@@ -905,175 +809,6 @@ export type RoleFileUpdatedEvent = {
   type: "role:file-updated";
   /** Server-echoed confirmed markdown post-write (via readRoleFileByName). */
   markdown: string;
-  error?: string;
-};
-
-export type IdentityUpdateBountyPriorityPayload = {
-  type: "identity:update-bounty-priority";
-  identityKey: string;
-  hostId: number;
-  bountySlug: string;
-  priority: BountyPriority;
-  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded, so the refetch matches what's on screen. */
-  includeArchived?: boolean;
-};
-export type IdentityBountyPriorityUpdatedEvent = {
-  type: "identity:bounty-priority-updated";
-  bounties: Bounty[];
-  archivedBounties: Bounty[];
-  error?: string;
-};
-
-// Quick 260727-v0b: byte-shape mirror of the priority payload/event pair
-// above, for the parallel `status` write surface. Same one-shot request /
-// fresh-list response convention — server patches bounty.json in place
-// (folder NOT moved even when transitioning to/from done/dropped) and
-// returns both bounty lists so the modal atomically re-renders.
-export type IdentityUpdateBountyStatusPayload = {
-  type: "identity:update-bounty-status";
-  identityKey: string;
-  hostId: number;
-  bountySlug: string;
-  status: BountyStatus;
-  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
-  includeArchived?: boolean;
-};
-export type IdentityBountyStatusUpdatedEvent = {
-  type: "identity:bounty-status-updated";
-  bounties: Bounty[];
-  archivedBounties: Bounty[];
-  error?: string;
-};
-
-// Quick 260728-sqk / patch #172: byte-shape mirror of the status payload
-// above for the parallel `pinned` write surface. `pinned` is an independent
-// boolean orthogonal to lifecycle `status` (fleet schema post-#168 by Nelly
-// 2026-07-28). Same one-shot request / fresh-list response convention —
-// server patches bounty.json in place (folder NOT moved) and returns both
-// bounty lists so the modal atomically re-renders.
-export type IdentityUpdateBountyPinnedPayload = {
-  type: "identity:update-bounty-pinned";
-  identityKey: string;
-  hostId: number;
-  bountySlug: string;
-  pinned: boolean;
-  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
-  includeArchived?: boolean;
-};
-export type IdentityBountyPinnedUpdatedEvent = {
-  type: "identity:bounty-pinned-updated";
-  bounties: Bounty[];
-  archivedBounties: Bounty[];
-  error?: string;
-};
-
-// This quick: byte-shape mirror of the pinned payload above for the parallel
-// `needs_desk` write surface. Independent user-reserved boolean orthogonal
-// to both `status` and `pinned`. Same one-shot request / fresh-list response
-// convention — server patches bounty.json in place (folder NOT moved) and
-// returns both bounty lists so the modal atomically re-renders.
-export type IdentityUpdateBountyNeedsDeskPayload = {
-  type: "identity:update-bounty-needs-desk";
-  identityKey: string;
-  hostId: number;
-  bountySlug: string;
-  needs_desk: boolean;
-  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
-  includeArchived?: boolean;
-};
-export type IdentityBountyNeedsDeskUpdatedEvent = {
-  type: "identity:bounty-needs-desk-updated";
-  bounties: Bounty[];
-  archivedBounties: Bounty[];
-  error?: string;
-};
-
-// Phase 18 / IDMEDIT-04: partial-JSON-patch write surface for bounty fields.
-//
-// Partial patch semantics (not full-object replacement): only the keys present
-// in the `patch` object are written; unmentioned fields are untouched. This
-// avoids races with server-owned fields (updated_at, timeline) that the client
-// never holds a complete view of.
-//
-// Server-side behavior (writeIdentityBountyFields in identity-artifact-reader.ts):
-//   - changedFields enumerated from patch's own keys (id/created_at/updated_at/
-//     timeline/pinned/requested_by are never writable via this handler)
-//   - updated_at bumped unconditionally to new Date().toISOString()
-//   - One timeline entry appended per changed field key:
-//     `${nowIso} ${field} updated via identity modal`
-//   - Byte-cap: IDMEDIT_MAX_BOUNTY_JSON_BYTES = 100_000 before write
-//   - pinned explicitly rejected (use identity:update-bounty-pinned instead)
-//
-// `meeting_questions` writes are accepted from any authenticated WS caller;
-// user-only-authored semantics are a UI convention, not wire enforcement
-// (IDMEDIT-08 semantics locked in SCRATCH-REPORT.md).
-export type BountyFieldsPatch = {
-  title?: string;
-  premise?: string;
-  todos?: { text: string; done: boolean }[];
-  keywords?: string[];
-  source_links?: string[];
-  deadline?: string | null;
-  meeting_questions?: { text: string; answered: boolean }[];
-};
-
-export type IdentityUpdateBountyFieldsPayload = {
-  type: "identity:update-bounty-fields";
-  identityKey: string;
-  hostId: number;
-  bountySlug: string;
-  /** Partial JSON patch — only fields present are written; unmentioned fields untouched. */
-  patch: BountyFieldsPatch;
-  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
-  includeArchived?: boolean;
-};
-
-export type IdentityBountyFieldsUpdatedEvent = {
-  type: "identity:bounty-fields-updated";
-  bounties: Bounty[];         // fresh open list — rehydrate BountyCard from server truth
-  archivedBounties: Bounty[]; // fresh archive list
-  error?: string;
-};
-
-// Quick 260727-wd0: archive is a one-way write surface. Server decides the
-// new status internally (flip live→done, preserve done/dropped) — payload
-// has no client-supplied status field. Same one-shot request / fresh-list
-// response convention; the writer atomically patches bounty.json in place
-// at the CURRENT path, then mv's bounties/<slug>/ under bounties/archive/
-// <slug>/ (mkdir -p archive/ if absent). See PLAN's locked semantics.
-export type IdentityArchiveBountyPayload = {
-  type: "identity:archive-bounty";
-  identityKey: string;
-  hostId: number;
-  bountySlug: string;
-  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
-  includeArchived?: boolean;
-};
-export type IdentityBountyArchivedEvent = {
-  type: "identity:bounty-archived";
-  bounties: Bounty[];
-  archivedBounties: Bounty[];
-  error?: string;
-};
-
-// Quick 260729-g5r: delete is a hard rm -rf of the bounty folder. Applies
-// to BOTH open and archived cards (contrast with archive which only applies
-// to open). Server returns fresh {bounties, archivedBounties} so the modal
-// atomically re-renders and the deleted card unmounts naturally when its
-// slug drops out of both lists. window.confirm() gate lives in BountyCard,
-// not here.
-export type IdentityDeleteBountyPayload = {
-  type: "identity:delete-bounty";
-  identityKey: string;
-  hostId: number;
-  bountySlug: string;
-  /** Quick 260823-80r: opt-in archive read on write-then-refetch — set true only when the modal already has the archive loaded. */
-  includeArchived?: boolean;
-};
-export type IdentityBountyDeletedEvent = {
-  type: "identity:bounty-deleted";
-  bounties: Bounty[];
-  archivedBounties: Bounty[];
   error?: string;
 };
 
@@ -1336,20 +1071,12 @@ export type RoleFileLoadedEvent = {
   error?: string;
 };
 
-export type RoleListBountiesPayload = {
-  type: "role:list-bounties";
-  roleName: string;
-  hostId?: number;
-  /** Opt-in archive read on write-then-refetch (defaults to false server-side). */
-  includeArchived?: boolean;
-};
-export type RoleBountiesLoadedEvent = {
-  type: "role:bounties-loaded";
-  bounties: unknown[];
-  /** Always present; empty array when includeArchived omitted. */
-  archivedBounties: unknown[];
-  error?: string;
-};
+// Phase 134 Plan 134-02 retired role-scope wakeup wire types
+// (RoleListWakeupsPayload / RoleWakeupsLoadedEvent / RoleCreateWakeupPayload /
+// RoleWakeupCreatedEvent / RoleUpdateWakeupPayload / RoleWakeupUpdatedEvent /
+// RoleDeleteWakeupPayload / RoleWakeupDeletedEvent).
+// Phase 136 retired the role-scope bounty wire types
+// (RoleListBountiesPayload / RoleBountiesLoadedEvent).
 
 /**
  * Read ~/fleet/roles/<roleName>/<roleName>.md. Resolves `{markdown}` on
@@ -1408,70 +1135,9 @@ export function getRoleFileByName(args: {
   });
 }
 
-/**
- * List ~/fleet/roles/<roleName>/bounties/. Resolves
- * `{bounties, archivedBounties}` on success — archivedBounties is always
- * present; empty when includeArchived is omitted.
- */
-export function listBountiesForRoleName(args: {
-  roleName: string;
-  hostId?: number;
-  includeArchived?: boolean;
-}): Promise<{ bounties: unknown[]; archivedBounties: unknown[] }> {
-  return new Promise((resolve, reject) => {
-    let responded = false;
-    const sock = openClaudeSessionSocket();
-    sock.onopen = () => {
-      const payload: RoleListBountiesPayload = {
-        type: "role:list-bounties",
-        roleName: args.roleName,
-        hostId: args.hostId,
-        includeArchived: args.includeArchived,
-      };
-      try {
-        sock.send(JSON.stringify(payload));
-      } catch {
-        /* ws may be mid-close */
-      }
-    };
-    sock.onmessage = (event: MessageEvent<string>) => {
-      if (responded) return;
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== "role:bounties-loaded") return;
-        responded = true;
-        const env = raw as RoleBountiesLoadedEvent;
-        try {
-          sock.close();
-        } catch {
-          /* ignore */
-        }
-        if (env.error) {
-          reject(new Error(env.error));
-        } else {
-          resolve({
-            bounties: env.bounties,
-            archivedBounties: env.archivedBounties,
-          });
-        }
-      } catch {
-        /* ignore parse errors */
-      }
-    };
-    const handleFail = () => {
-      if (responded) return;
-      responded = true;
-      reject(new Error("Connection failed"));
-    };
-    sock.onerror = handleFail;
-    sock.onclose = () => {
-      if (!responded) handleFail();
-    };
-  });
-}
-
-// Phase 134 Plan 134-02: the four role-scope wakeup helpers
+// Phase 136 retired listBountiesForRoleName.
+// Phase 134 Plan 134-02 retired the four role-scope wakeup helpers
 // (listRoleWakeupsByName, createRoleWakeupByName, updateRoleWakeupByName,
-// deleteRoleWakeupByName) were retired here alongside their payload/event
-// type declarations above. The per-identity wakeup helpers + WakeupSpecWire
-// type stay live.
+// deleteRoleWakeupByName) alongside their payload/event type declarations
+// above. The per-identity wakeup helpers + WakeupSpecWire type stay live.
+

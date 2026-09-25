@@ -8,12 +8,11 @@
 // Test map:
 //   R1. getRoleFileByName happy path — sends role:get-file; resolves {markdown}.
 //   R2. getRoleFileByName error envelope — rejects Error(env.error).
-//   R3. listBountiesForRoleName happy path — sends role:list-bounties; resolves
-//       {bounties, archivedBounties}; includeArchived threads through.
-//   R4. listBountiesForRoleName error envelope — rejects Error(env.error).
 //
-// Phase 134 Plan 134-02: R5+R6 (listRoleWakeupsByName happy path + error
-// envelope) removed together with the retired listRoleWakeupsByName helper.
+// Phase 134 Plan 134-02 retired R5+R6 (listRoleWakeupsByName happy path +
+// error envelope) together with the listRoleWakeupsByName helper.
+// Phase 136 retired R3+R4 (listBountiesForRoleName happy path + error
+// envelope) together with the listBountiesForRoleName helper.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -112,70 +111,3 @@ describe("getRoleFileByName one-shot helper", () => {
   });
 });
 
-// ─── listBountiesForRoleName ─────────────────────────────────────────────
-describe("listBountiesForRoleName one-shot helper", () => {
-  it("R3: sends role:list-bounties (with includeArchived); resolves {bounties, archivedBounties}", async () => {
-    const { listBountiesForRoleName } = await import("./claude-session-api.js");
-
-    const promise = listBountiesForRoleName({
-      roleName: "box-maintainer",
-      hostId: 3,
-      includeArchived: true,
-    });
-    lastSocket!.onopen?.call(
-      lastSocket as unknown as WebSocket,
-      new Event("open"),
-    );
-    const sentPayload = JSON.parse(lastSocket!.send.mock.calls[0][0] as string);
-    expect(sentPayload).toEqual({
-      type: "role:list-bounties",
-      roleName: "box-maintainer",
-      hostId: 3,
-      includeArchived: true,
-    });
-
-    const bounties = [{ slug: "b1" }, { slug: "b2" }];
-    const archivedBounties = [{ slug: "a1" }];
-    const responsePayload = {
-      type: "role:bounties-loaded",
-      bounties,
-      archivedBounties,
-    };
-    lastSocket!.onmessage?.call(
-      lastSocket as unknown as WebSocket,
-      new MessageEvent("message", { data: JSON.stringify(responsePayload) }),
-    );
-
-    const resolved = await promise;
-    expect(resolved).toEqual({ bounties, archivedBounties });
-    expect(lastSocket!.close).toHaveBeenCalledTimes(1);
-  });
-
-  it("R4: rejects with Error(env.error) on role:bounties-loaded envelope carrying `error`", async () => {
-    const { listBountiesForRoleName } = await import("./claude-session-api.js");
-
-    const promise = listBountiesForRoleName({ roleName: "box-maintainer", hostId: 999 });
-    lastSocket!.onopen?.call(
-      lastSocket as unknown as WebSocket,
-      new Event("open"),
-    );
-
-    lastSocket!.onmessage?.call(
-      lastSocket as unknown as WebSocket,
-      new MessageEvent("message", {
-        data: JSON.stringify({
-          type: "role:bounties-loaded",
-          bounties: [],
-          archivedBounties: [],
-          error: "host not found",
-        }),
-      }),
-    );
-
-    await expect(promise).rejects.toThrow(/host not found/);
-    expect(lastSocket!.close).toHaveBeenCalledTimes(1);
-  });
-});
-
-// Phase 134 Plan 134-02: listRoleWakeupsByName one-shot describe block
-// (R5+R6) removed here alongside the retired helper.

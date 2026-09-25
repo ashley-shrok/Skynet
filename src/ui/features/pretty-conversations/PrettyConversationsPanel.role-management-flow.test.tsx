@@ -240,15 +240,12 @@ vi.mock("@/api/claude-session-api", async (importOriginal) => {
     ...orig,
     openClaudeSessionSocket: () => makeFakeWs(),
     updateRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
-    // Plan 90-10: RoleModal + RoleBountiesTab consume role-name-keyed helpers
-    // from Plan 90-09. Stub each so the modal renders cleanly. Phase 128
-    // Plan 128-02: the four role-scope wakeup helpers that once needed stubs
-    // here (listRoleWakeupsByName / createRoleWakeupByName /
-    // updateRoleWakeupByName / deleteRoleWakeupByName) are retired.
+    // Plan 90-10: RoleModal consumes role-name-keyed helpers from Plan 90-09.
+    // Phase 136 retired listBountiesForRoleName alongside the Bounties tab.
+    // Phase 128 Plan 128-02 retired the four role-scope wakeup helpers
+    // (listRoleWakeupsByName / createRoleWakeupByName / updateRoleWakeupByName
+    // / deleteRoleWakeupByName). Only getRoleFileByName still needs a stub.
     getRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
-    listBountiesForRoleName: vi
-      .fn()
-      .mockResolvedValue({ bounties: [], archivedBounties: [] }),
   };
 });
 

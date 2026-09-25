@@ -71,18 +71,14 @@ import {
   isLocalHostId,
   IDENTITY_KEY_RE,
   IDENTITY_SLUG_RE,
-  BOUNTY_PRIORITY_VALUES,
-  BOUNTY_STATUS_VALUES,
   humanizeWakeupSchedule,
   readIdentityFile,
   readIdentityHistory,
   readIdentityWakeups,
   readIdentityHandoff,
-  readIdentityBounties,
   readIdentityTrappedWork,
   readRoleFile,
   readRoleFileByName,
-  readRoleBountiesByName,
   writeIdentityWakeupUpdate,
   writeIdentityWakeupCreate,
   writeIdentityWakeupDelete,
@@ -91,16 +87,6 @@ import {
   writeIdentityHandoff,
   writeRoleFile,
   writeRoleFileByName,
-  writeIdentityBountyPriority,
-  writeIdentityBountyStatus,
-  writeIdentityBountyPinned,
-  writeIdentityBountyNeedsDesk,
-  writeIdentityBountyFields,
-  archiveIdentityBounty,
-  deleteIdentityBounty,
-  type BountyPriority,
-  type BountyStatus,
-  type BountyFieldsPatch,
   type WakeupSpec,
 } from "./identity-artifact-reader.js";
 import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrator.js";
@@ -113,7 +99,6 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *
  *   client -> server:
  *     { type: "connectToPane", hostId: number, tmuxSession: string }
- *     { type: "identity:list-bounties", identityKey: string, hostId?: number }    // patch #87/#92: fetch identity bounties; hostId routes to pane's box (omit = local bind-mount)
  *     { type: "identity:probe-trapped-work", targets: Array<{ identityKey: string; hostId: number | null }> } // Phase 104 Plan 01: batched per-identity trapped-work probe (~/fleet/identities/<key>/workspace/ walk) for the trapped-work indicator
  *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
  *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
@@ -125,19 +110,17 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "identity:update-wakeup", identityKey: string, hostId?: number, wakeupSlug: string, updates: { enabled?: boolean, schedule?: object } } // patch #154: patch wakeups/<slug>.json
  *     { type: "identity:create-wakeup", identityKey: string, hostId?: number, spec: { name, enabled, schedule, instruction } } // Phase 72 Plan 01: identity-scope create — full CRUD on ~/fleet/identities/<key>/wakeups/<slug>.json. Slug derived from spec.name (kebab-case). Throws "wakeup with this name already exists" on clobber.
  *     { type: "identity:delete-wakeup", identityKey: string, hostId?: number, wakeupSlug: string } // Phase 72 Plan 01: identity-scope delete (idempotent).
- *     { type: "identity:update-bounty-priority", identityKey: string, hostId?: number, bountySlug: string, priority: "urgent"|"high"|"medium"|"low"|"unprioritized" } // patch #154: patch bounties/<slug>/bounty.json
- *     { type: "identity:update-bounty-status", identityKey: string, hostId?: number, bountySlug: string, status: "in_progress"|"waiting_on_someone_else"|"done"|"dropped" } // quick 260727-v0b / patch #168: patch bounties/<slug>/bounty.json status field. Allowed values: in_progress, waiting_on_someone_else, done, dropped. "pinned" removed from enum (now an independent boolean field). Folder NOT moved even for done/dropped — supports user's resurrect flow via a pure JSON patch.
- *     { type: "identity:update-bounty-pinned", identityKey: string, hostId?: number, bountySlug: string, pinned: boolean } // quick 260728-sqk / patch #172: patch bounties/<slug>/bounty.json pinned field. `pinned` is an independent boolean orthogonal to status per fleet migration #168. Byte-shape mirror of update-bounty-status — flips the boolean, bumps updated_at, appends timeline line, folder untouched.
- *     { type: "identity:update-bounty-fields", identityKey: string, hostId: number, bountySlug: string, patch: BountyFieldsPatch } // Phase 18 / IDMEDIT-04: partial-JSON-patch write for bounty fields (title/premise/todos/keywords/source_links/deadline/meeting_questions). Only fields present in `patch` are written; server-owned fields (id/created_at/updated_at/timeline/pinned/requested_by) are protected. updated_at bumped unconditionally; one timeline entry per changed field. pinned rejected — use update-bounty-pinned. Returns fresh {bounties,archivedBounties} for BountyCard rehydration.
- *     { type: "identity:archive-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260727-wd0: server decides new status internally (flip live→done or preserve terminal), then mv bounties/<slug>/ under bounties/archive/<slug>/ (mkdir -p archive/ if absent). No client-supplied status field.
- *     { type: "identity:delete-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260729-g5r / patch #183: permanent rm -rf of a bounty folder. Applies to BOTH open (bounties/<slug>/) AND archived (bounties/archive/<slug>/) cards — server rm's both candidate paths with force:true so one call covers both locations. No confirmation gate here; window.confirm() lives in BountyCard.
+ *     // Phase 136 retired identity:update-bounty-priority / update-bounty-status /
+ *     // update-bounty-pinned / update-bounty-fields / archive-bounty /
+ *     // delete-bounty wire types alongside the bounty concept retirement.
  *     // Phase 18 / IDMEDIT-06: markdown write surfaces (full-overwrite, tmp+rename atomic):
  *     { type: "identity:update-identity-file", identityKey: string, hostId: number, contents: string } // Phase 18: full-overwrite <key>/<key>.md via SFTP tmp+rename (REMOTE) or fs tmp+rename (LOCAL)
  *     { type: "identity:update-role-file", identityKey: string, hostId: number, contents: string }     // Phase 22 SRIC-06: full-overwrite ~/fleet/roles/<role>/<role>.md via backend two-step
  *     { type: "role:update-file", roleName: string, hostId?: number, contents: string }                 // Phase 90 Plan 90-03: role-name-keyed companion of identity:update-role-file — full-overwrite ~/fleet/roles/<roleName>/<roleName>.md without the identity two-step. Consumed by the RoleModal (Plan 90-04) which has no identity context.
  *     // Phase 90 Plan 90-07: role-name-keyed READ variants (D-08.3). Byte-shape mirrors of identity-keyed handlers MINUS identity two-step. RoleModal has role-name context, not identity. Phase 134 Plan 134-02: role-scope wakeup CRUD variants retired.
  *     { type: "role:get-file", roleName: string, hostId?: number }                                          // Phase 90 Plan 90-07: role-name-keyed companion of identity:get-role-file — read ~/fleet/roles/<roleName>/<roleName>.md directly.
- *     { type: "role:list-bounties", roleName: string, hostId?: number, includeArchived?: boolean }          // Phase 90 Plan 90-07: role-name-keyed companion of identity:list-bounties — list ~/fleet/roles/<roleName>/bounties/. Opt-in archive read (default false).
+ *     // Phase 134 Plan 134-02 retired role:list-wakeups / create-wakeup /
+ *     // update-wakeup / delete-wakeup. Phase 136 retired role:list-bounties.
  *     { type: "identity:update-history", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/history.md
  *     { type: "identity:update-handoff", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/handoff.md
  *     // hostId routing (patch #92): when omitted OR when the hostId is in IDENTITIES_LOCAL_HOST_IDS,
@@ -166,7 +149,6 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "inactive", reason }                               // FALLBACK-01: send once, then silent
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
- *     { type: "identity:bounties", bounties, archivedBounties, error? } // patch #87: response to identity:list-bounties (one-shot; WS closed by client after receipt)
  *     { type: "identity:trapped-work", results: Array<{ identityKey, hostId, hasTrappedWork, error? }> } // Phase 104 Plan 01: response to identity:probe-trapped-work (one-shot; WS closed by client after receipt)
  *     // patch #17g: identity artifact responses (one-shot; WS closed by client after receipt):
  *     { type: "identity:identity-file", markdown: string, error?: string } // patch #17g: response to identity:get-identity-file
@@ -178,19 +160,14 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "identity:wakeup-updated", wakeups: Wakeup[], error?: string }  // patch #154: response to identity:update-wakeup (includes refreshed list)
  *     { type: "identity:wakeup-created", wakeups: Wakeup[], error?: string } // Phase 72 Plan 01: response to identity:create-wakeup (fresh identity-scope list)
  *     { type: "identity:wakeup-deleted", wakeups: Wakeup[], error?: string } // Phase 72 Plan 01: response to identity:delete-wakeup (fresh identity-scope list)
- *     { type: "identity:bounty-priority-updated", bounties, archivedBounties, error?: string } // patch #154: response to identity:update-bounty-priority (includes refreshed lists)
- *     { type: "identity:bounty-status-updated", bounties, archivedBounties, error?: string } // quick 260727-v0b: response to identity:update-bounty-status (includes refreshed lists)
- *     { type: "identity:bounty-pinned-updated", bounties, archivedBounties, error?: string } // quick 260728-sqk / patch #172: response to identity:update-bounty-pinned (includes refreshed lists — normalizeBounty carries `pinned:boolean` on every bounty)
- *     { type: "identity:bounty-fields-updated", bounties, archivedBounties, error?: string } // Phase 18 / IDMEDIT-04: response to identity:update-bounty-fields (fresh bounty lists for BountyCard rehydration — same convention as priority/status/pinned echoes)
- *     { type: "identity:bounty-archived", bounties, archivedBounties, error?: string } // quick 260727-wd0: response to identity:archive-bounty (includes refreshed lists — bounty moved from `bounties` list to `archivedBounties` list)
- *     { type: "identity:bounty-deleted", bounties, archivedBounties, error?: string } // quick 260729-g5r / patch #183: response to identity:delete-bounty (includes refreshed lists — bounty drops out of BOTH lists since its folder is gone)
  *     // Phase 18 / IDMEDIT-06: post-write echoes — server re-reads after write so client rehydrates from server-side truth:
  *     { type: "identity:identity-file-updated", markdown: string, error?: string } // Phase 18: response to identity:update-identity-file (confirmed markdown post-write)
  *     { type: "identity:role-file-updated", markdown: string, error?: string }      // Phase 22 SRIC-06: response to identity:update-role-file (confirmed markdown post-write, re-read via two-step)
  *     { type: "role:file-updated", markdown: string, error?: string }                // Phase 90 Plan 90-03: response to role:update-file (confirmed markdown post-write, re-read via readRoleFileByName)
  *     // Phase 90 Plan 90-07: response envelopes for the role-name-keyed READ variants (D-08.3). Phase 134 Plan 134-02: role-scope wakeup CRUD retired.
  *     { type: "role:file-loaded", markdown: string, error?: string }                                        // Phase 90 Plan 90-07: response to role:get-file
- *     { type: "role:bounties-loaded", bounties: unknown[], archivedBounties: unknown[], error?: string }    // Phase 90 Plan 90-07: response to role:list-bounties (archivedBounties always present; empty array when includeArchived omitted)
+ *     // Phase 134 Plan 134-02 retired role:wakeups-loaded / wakeup-created /
+ *     // wakeup-updated / wakeup-deleted. Phase 136 retired role:bounties-loaded.
  *     { type: "identity:history-updated", entries: string[], error?: string }       // Phase 18: response to identity:update-history (server re-reads + re-parses entries)
  *     { type: "identity:handoff-updated", markdown: string, error?: string }        // Phase 18: response to identity:update-handoff (confirmed markdown post-write)
  *
@@ -348,7 +325,7 @@ export function reshapeParsedLineToWireFrame(
         line,
       };
     case "relay_outbound":
-      // bounty pretty-view-outgoing-relay-render: body ?? null so JSON.stringify
+      // Diagnostic drop pretty-view-outgoing-relay-render: body ?? null so JSON.stringify
       // emits an explicit null; the frontend's `body !== null` check would take
       // the pretty branch on undefined and produce an invisible bubble.
       return {
@@ -843,8 +820,8 @@ async function injectBtw(
     // BTW_PROMPT burst as a paste and absorbs the trailing Enter into the
     // paste buffer — /btw overlay never opens. Two calls + delay lets the
     // paste buffer flush before Enter arrives as a distinct keystroke.
-    // See ~/fleet/identities/tina/bounties/aside-btw-enter-not-submitting/
-    // for the live reproduction + fix verification against v2.1.150.
+    // See historical diagnostic drop aside-btw-enter-not-submitting for the
+    // live reproduction + fix verification against v2.1.150.
     await execCommand(
       conn,
       `tmux send-keys -t ${shellQuote(tmuxSession)} ${shellQuote(BTW_PROMPT)}`,
@@ -1188,7 +1165,7 @@ export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 //   in:  { type: "identity:probe-trapped-work", targets: [{identityKey, hostId}, ...] }
 //   out: { type: "identity:trapped-work", results:  [{identityKey, hostId, hasTrappedWork, error?}, ...] }
 //
-// Same batching semantics as bounty-counts:
+// Same batching semantics as the retired per-host list-counts probe:
 //   - hostId=null OR in IDENTITIES_LOCAL_HOST_IDS → local (bind-mount) branch.
 //   - Otherwise: group by hostId, connectOneShot ONCE per hostId group,
 //     run every identity in the group through that single conn, close in
@@ -1285,11 +1262,11 @@ export async function handleIdentityProbeTrappedWork(
       );
     } else {
       const hostIdNum = groupKey as number;
-      // Semaphore wrap (Phase 104 /close follow-up, bounty
+      // Semaphore wrap (Phase 104 /close follow-up, diagnostic drop
       // outbound-ssh-exec-semaphore-coverage-gaps): every SSH exec against a
       // managed host must go through getHostSemaphore(hostId).run(...) so
       // concurrent probes cannot push the target's ssh2 connection past
-      // MaxSessions=10. Improves on the retired handleIdentityCountBounties
+      // MaxSessions=10. Improves on the retired handleIdentityCountArtifacts
       // pattern, which did NOT acquire the semaphore.
       groupPromises.push(
         getHostSemaphore(hostIdNum).run(async () => {
@@ -1606,19 +1583,19 @@ export const __handleRoleUpdateFileForTests = handleRoleUpdateFile;
 
 // ─── Phase 90 Plan 90-07: role-name-keyed READ WS handlers ────────────────────
 //
-// Two handlers close the D-08.3 divergence between the identity-keyed handlers
-// (which require identity two-step) and the RoleModal's role-name context.
-// Byte-shape mirrors of identity:get-role-file + identity:list-bounties MINUS
-// the identity two-step — each dispatches to a role-name-keyed reader from
-// identity-artifact-reader.ts (readRoleFileByName, readRoleBountiesByName).
+// Closes the D-08.3 divergence between the identity-keyed handlers (which
+// require identity two-step) and the RoleModal's role-name context.
+// Byte-shape mirror of identity:get-role-file MINUS the identity two-step —
+// dispatches to a role-name-keyed reader from identity-artifact-reader.ts
+// (readRoleFileByName).
 //
-// Wire shapes:
+// Wire shape:
 //   role:get-file        {roleName, hostId?}                       -> role:file-loaded     {markdown, error?}
-//   role:list-bounties   {roleName, hostId?, includeArchived?}     -> role:bounties-loaded {bounties, archivedBounties, error?}
 //
-// Phase 134 Plan 134-02: the four role-scope wakeup CRUD handlers that once
-// lived alongside these (role:list-wakeups, role:create-wakeup,
-// role:update-wakeup, role:delete-wakeup) have been retired top-to-bottom.
+// Phase 134 Plan 134-02 retired the role-scope wakeup CRUD handlers
+// (role:list-wakeups / role:create-wakeup / role:update-wakeup /
+// role:delete-wakeup); Phase 136 retired the role-scope bounty handler
+// (role:list-bounties). Only role:get-file remains.
 //
 // Guards: roleName via ROLE_NAME_PATTERN before any SSH work. hostId via
 // resolveHostById.
@@ -1680,70 +1657,9 @@ export async function handleRoleGetFile(
   }
 }
 
-export async function handleRoleListBounties(
-  ws: WebSocket,
-  msg: unknown,
-  userId: string | undefined,
-): Promise<void> {
-  const m = (msg ?? {}) as { roleName?: unknown; hostId?: unknown; includeArchived?: unknown };
-  const rawRoleName = m.roleName;
-  if (typeof rawRoleName !== "string" || !ROLE_NAME_PATTERN.test(rawRoleName)) {
-    try { ws.send(JSON.stringify({ type: "role:bounties-loaded", bounties: [], archivedBounties: [], error: "invalid roleName" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:bounties-loaded err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-    return;
-  }
-  const roleName = rawRoleName;
-  const rawHostId = m.hostId;
-  const hostIdNum =
-    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-      ? rawHostId
-      : undefined;
-  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-  const includeArchived = m.includeArchived === true;
-
-  try {
-    let bounties: unknown[];
-    let archivedBounties: unknown[];
-    if (useLocal) {
-      ({ bounties, archivedBounties } = await readRoleBountiesByName(null, roleName, includeArchived));
-      sshLogger.info("role:list-bounties", {
-        operation: "role_list_bounties",
-        userId, roleName, hostId: hostIdNum, useLocal: true, includeArchived,
-        openCount: bounties.length, archivedCount: archivedBounties.length,
-      });
-    } else {
-      const resolved = await resolveHostById(hostIdNum!, userId!);
-      if (!resolved) {
-        try { ws.send(JSON.stringify({ type: "role:bounties-loaded", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:bounties-loaded err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-      try {
-        ({ bounties, archivedBounties } = await readRoleBountiesByName(conn, roleName, includeArchived));
-        sshLogger.info("role:list-bounties", {
-          operation: "role_list_bounties",
-          userId, roleName, hostId: hostIdNum, useLocal: false, includeArchived,
-          openCount: bounties.length, archivedCount: archivedBounties.length,
-        });
-      } finally {
-        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-      }
-    }
-    try { ws.send(JSON.stringify({ type: "role:bounties-loaded", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:bounties-loaded err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-  } catch (err) {
-    sshLogger.error(
-      "role:list-bounties unexpected error",
-      err instanceof Error ? err : new Error(String(err)),
-      { operation: "role_list_bounties_error", userId, roleName, hostId: hostIdNum },
-    );
-    try {
-      ws.send(JSON.stringify({ type: "role:bounties-loaded", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:bounties-loaded err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-  }
-}
 
 // Test seams — Phase 90 Plan 90-07. Same convention as __handleRoleUpdateFileForTests.
 export const __handleRoleGetFileForTests = handleRoleGetFile;
-export const __handleRoleListBountiesForTests = handleRoleListBounties;
 
 // ─── Phase 72 Plan 01: identity-scope wakeup create/delete parity-gap closure ─
 //
@@ -2550,7 +2466,7 @@ export async function __applyInputMessageForTests(deps: {
   now?: () => number;
 }): Promise<void> {
   const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
-  // Bounty: pv-claude-session-ws-zombie-after-tmux-teardown — forensic drop log
+  // Diagnostic drop: pv-claude-session-ws-zombie-after-tmux-teardown — forensic drop log
   // for the class of failure diagnosed 2026-09-07 (WS OPEN, currentTmuxSession
   // nulled server-side by tmux teardown, every subsequent input frame silently
   // returning here with no log/no ack). Symmetric outbound broadcaster does NOT
@@ -2984,7 +2900,7 @@ export function __applyQueueDedupForTests(deps: {
   //      command-attachment 2026-08-10). The user 2026-09-13 confirmed a live
   //      dormant-send repro where the same content lands as enqueue +
   //      attachment_queued_command, no user turn — two bubbles rendered
-  //      because this lookup only matched "user". Bounty:
+  //      because this lookup only matched "user". Diagnostic drop:
   //      pv-client-pending-send-timer-dormancy-blind — solstice follow-up.
   //
   // Both are the SAME logical send and MUST dedup against the earlier
@@ -3917,7 +3833,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let changeoverState: ChangeoverState = "active";
   let currentSessionFile: string | null = null; // set on first discovery success and each session_changed
   let sessionIdFromFile: string | null = null; // UUID basename of currentSessionFile; drives harness-tasks poller cmd (BLOCKER fix)
-  // Layer 1 tail-state (quick 260808-ohn / bounty
+  // Layer 1 tail-state (quick 260808-ohn / diagnostic drop
   // session-holding-layer1-detect-id-reset-not-exit): tracks whether the
   // most-recent user turn observed on this pane's session file is /id
   // reset. Reset to {mostRecentUserTurnIsIdReset: null} on teardownPane
@@ -3967,7 +3883,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let currentHostId: number | null = null;
   let currentTmuxSession: string | null = null;
 
-  // Bounty: pv-claude-session-ws-zombie-after-tmux-teardown.
+  // Diagnostic drop: pv-claude-session-ws-zombie-after-tmux-teardown.
   // Called by server-driven teardown paths BEFORE nulling currentTmuxSession
   // or sshConn so the client's onclose handler fires and reconnects into a
   // fresh session-bind. Guarded on ws.readyState so the ws.on("close")
@@ -4198,7 +4114,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // guard at L2232 in transitionFromHoldingToActiveSameFile that this
     // arm path is the sole producer of. Do NOT delete this branch.
 
-    // Phase 3 Layer 1 (rewired 2026-08-08, quick 260808-ohn / bounty
+    // Phase 3 Layer 1 (rewired 2026-08-08, quick 260808-ohn / diagnostic drop
     // session-holding-layer1-detect-id-reset-not-exit):
     //
     // Feed every raw JSONL line through the tail-state reducer in
@@ -4904,7 +4820,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       tmuxSession: currentTmuxSession,
       currentSessionFile: finalSessionFile,
     });
-    // Bounty: pv-claude-session-ws-zombie-after-tmux-teardown — close the WS
+    // Diagnostic drop: pv-claude-session-ws-zombie-after-tmux-teardown — close the WS
     // with 1011 so the client's onclose handler fires and reconnects into a
     // fresh session-bind. MUST be BEFORE teardownPane() nulls the bindings;
     // guarded internally on ws.readyState so we skip a redundant close if the
@@ -5144,104 +5060,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
       ws.send(
         JSON.stringify({ type: "error", message: "Malformed message" }),
       );
-      return;
-    }
-
-    // Patch #87/#92: identity:list-bounties — read-only bounty fetch, independent
-    // of connectToPane. Patch #92: routes via identity-artifact-reader.ts helper;
-    // local branch when hostId is in IDENTITIES_LOCAL_HOST_IDS, SSH branch otherwise.
-    if (msg.type === "identity:list-bounties") {
-      const rawKey = (msg as { type: unknown; identityKey?: unknown }).identityKey;
-      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try {
-          ws.send(
-            JSON.stringify({
-              type: "identity:bounties",
-              bounties: [],
-              archivedBounties: [],
-              error: "invalid identityKey",
-            }),
-          );
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounties err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      const identityKey = rawKey;
-      const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-      // Quick 260823-80r: opt-in archive read. Strict boolean check —
-      // anything not literally `true` becomes false, so unset/omitted field
-      // preserves the cheap single-round-trip path. See readIdentityBounties
-      // for the branch gating.
-      const includeArchived = (msg as { includeArchived?: unknown }).includeArchived === true;
-
-      try {
-        let bounties: unknown[];
-        let archivedBounties: unknown[];
-
-        if (useLocal) {
-          // LOCAL branch — bind-mount fast-path (patch #89, preserved byte-for-byte)
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
-          sshLogger.info("identity:list-bounties", {
-            operation: "identity_list_bounties",
-            userId,
-            identityKey,
-            hostId: hostIdNum,
-            useLocal: true,
-            includeArchived,
-            openCount: bounties.length,
-            archivedCount: archivedBounties.length,
-          });
-        } else {
-          // REMOTE branch — SSH to the pane's host
-          const resolved = await resolveHostById(hostIdNum!, userId!);
-          if (!resolved) {
-            try {
-              ws.send(JSON.stringify({ type: "identity:bounties", bounties: [], archivedBounties: [], error: "host not found" }));
-            } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounties err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-            return;
-          }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
-            sshLogger.info("identity:list-bounties", {
-              operation: "identity_list_bounties",
-              userId,
-              identityKey,
-              hostId: hostIdNum,
-              useLocal: false,
-              includeArchived,
-              openCount: bounties.length,
-              archivedCount: archivedBounties.length,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
-        }
-
-        try {
-          ws.send(JSON.stringify({ type: "identity:bounties", bounties, archivedBounties }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounties err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      } catch (err) {
-        sshLogger.error(
-          "identity:list-bounties unexpected error",
-          err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_list_bounties_error", userId, identityKey, hostId: hostIdNum },
-        );
-        try {
-          ws.send(
-            JSON.stringify({
-              type: "identity:bounties",
-              bounties: [],
-              archivedBounties: [],
-              error: err instanceof Error ? err.message : String(err),
-            }),
-          );
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounties err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      }
       return;
     }
 
@@ -5653,12 +5471,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       await handleRoleGetFile(ws, msg, userId);
       return;
     }
-    if (msg.type === "role:list-bounties") {
-      await handleRoleListBounties(ws, msg, userId);
-      return;
-    }
-    // Phase 134 Plan 134-02: the four role-name-keyed wakeup dispatchers
-    // (role:list-, create-, update-, delete-wakeup) were retired here.
+    // Phase 134 Plan 134-02 retired the role-name-keyed wakeup dispatchers
+    // (role:list-wakeups / role:create-wakeup / role:update-wakeup /
+    // role:delete-wakeup). Phase 136 retired the role:list-bounties
+    // dispatcher.
 
     // Phase 18 / IDMEDIT-06: identity:update-history — full-overwrite
     // <key>/history.md. After write, re-reads via readIdentityHistory so the
@@ -5791,535 +5607,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
         try {
           ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: err instanceof Error ? err.message : String(err) }));
         } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      }
-      return;
-    }
-
-    // Quick 260727-wd0: identity:archive-bounty — sibling of the v0b status
-    // handler below on the archive axis. Server decides the new status
-    // internally (flip live→done, or preserve done/dropped), tmp+rename
-    // patches bounty.json at the CURRENT (open) path, then mv's
-    // bounties/<slug>/ under bounties/archive/<slug>/ (mkdir -p archive/
-    // if absent). Returns the fresh bounty lists so the modal atomically
-    // re-renders — the archived bounty moves from `bounties` to
-    // `archivedBounties`. No client-supplied status field: semantics are
-    // fully server-locked per PLAN.md § Semantics.
-    if (msg.type === "identity:archive-bounty") {
-      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown };
-      const rawKey = raw.identityKey;
-      const rawSlug = raw.bountySlug;
-      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-archived err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-archived err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      const identityKey = rawKey;
-      const bountySlug = rawSlug;
-      const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-      // Quick 260823-80r: forward opt-in archive read flag.
-      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
-      try {
-        let bounties: unknown[];
-        let archivedBounties: unknown[];
-        if (useLocal) {
-          await archiveIdentityBounty(null, identityKey, bountySlug);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
-          sshLogger.info("identity:archive-bounty", {
-            operation: "identity_archive_bounty",
-            userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: true,
-          });
-        } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
-          if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-archived err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-            return;
-          }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await archiveIdentityBounty(conn, identityKey, bountySlug);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
-            sshLogger.info("identity:archive-bounty", {
-              operation: "identity_archive_bounty",
-              userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: false,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
-        }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-archived err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      } catch (err) {
-        sshLogger.error(
-          "identity:archive-bounty unexpected error",
-          err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_archive_bounty_error", userId, identityKey, bountySlug, hostId: hostIdNum },
-        );
-        try {
-          ws.send(JSON.stringify({ type: "identity:bounty-archived", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-archived err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      }
-      return;
-    }
-
-    // Quick 260729-g5r / patch #183: identity:delete-bounty — byte-shape
-    // mirror of the archive handler above but with rm -rf semantics
-    // (no JSON patch, no timeline entry, no status flip, no folder move).
-    // Applies to BOTH open AND archived cards — the writer rm's both
-    // candidate paths with force:true so one call covers both locations.
-    // Returns fresh {bounties, archivedBounties} so the modal atomically
-    // re-renders and the deleted card unmounts naturally when its slug
-    // drops out of both lists. window.confirm() gate lives in BountyCard.
-    if (msg.type === "identity:delete-bounty") {
-      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown };
-      const rawKey = raw.identityKey;
-      const rawSlug = raw.bountySlug;
-      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      const identityKey = rawKey;
-      const bountySlug = rawSlug;
-      const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-      // Quick 260823-80r: forward opt-in archive read flag.
-      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
-      try {
-        let bounties: unknown[];
-        let archivedBounties: unknown[];
-        if (useLocal) {
-          await deleteIdentityBounty(null, identityKey, bountySlug);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
-          sshLogger.info("identity:delete-bounty", {
-            operation: "identity_delete_bounty",
-            userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: true,
-          });
-        } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
-          if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-            return;
-          }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await deleteIdentityBounty(conn, identityKey, bountySlug);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
-            sshLogger.info("identity:delete-bounty", {
-              operation: "identity_delete_bounty",
-              userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: false,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
-        }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      } catch (err) {
-        sshLogger.error(
-          "identity:delete-bounty unexpected error",
-          err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_delete_bounty_error", userId, identityKey, bountySlug, hostId: hostIdNum },
-        );
-        try {
-          ws.send(JSON.stringify({ type: "identity:bounty-deleted", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      }
-      return;
-    }
-
-    // Quick 260727-v0b: identity:update-bounty-status — byte-shape mirror of
-    // the priority handler below for the `status` field. Server patches
-    // bounty.json IN PLACE (folder NOT moved even when transitioning to/from
-    // done/dropped) and returns the fresh bounty lists so the modal can
-    // atomically re-render. Editable for ALL bounties including archived —
-    // that IS the resurrect flow (click "pinned" on a done/dropped card to
-    // pull it back into working set).
-    if (msg.type === "identity:update-bounty-status") {
-      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown; status?: unknown };
-      const rawKey = raw.identityKey;
-      const rawSlug = raw.bountySlug;
-      const rawStatus = raw.status;
-      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawStatus !== "string" || !(BOUNTY_STATUS_VALUES as readonly string[]).includes(rawStatus)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "invalid status" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      const identityKey = rawKey;
-      const bountySlug = rawSlug;
-      const status = rawStatus as BountyStatus;
-      const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-      // Quick 260823-80r: forward opt-in archive read flag.
-      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
-      try {
-        let bounties: unknown[];
-        let archivedBounties: unknown[];
-        if (useLocal) {
-          await writeIdentityBountyStatus(null, identityKey, bountySlug, status);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
-          sshLogger.info("identity:update-bounty-status", {
-            operation: "identity_update_bounty_status",
-            userId, identityKey, bountySlug, status, hostId: hostIdNum, useLocal: true,
-          });
-        } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
-          if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-            return;
-          }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await writeIdentityBountyStatus(conn, identityKey, bountySlug, status);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
-            sshLogger.info("identity:update-bounty-status", {
-              operation: "identity_update_bounty_status",
-              userId, identityKey, bountySlug, status, hostId: hostIdNum, useLocal: false,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
-        }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      } catch (err) {
-        sshLogger.error(
-          "identity:update-bounty-status unexpected error",
-          err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_update_bounty_status_error", userId, identityKey, bountySlug, hostId: hostIdNum },
-        );
-        try {
-          ws.send(JSON.stringify({ type: "identity:bounty-status-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-status-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      }
-      return;
-    }
-
-    // Quick 260728-sqk / patch #172: identity:update-bounty-pinned —
-    // byte-shape mirror of the status handler above for the `pinned` boolean
-    // field. Post-Nelly-fleet-migration (#168, 2026-07-28), `pinned` is an
-    // independent boolean orthogonal to lifecycle `status`. Server patches
-    // bounty.json IN PLACE (folder NOT moved) and returns the fresh bounty
-    // lists so the modal can atomically re-render. Editable for ALL bounties
-    // including archived — unpinning an archived pinned bounty stays legal
-    // and re-pinning is the resurrect signal on the pinned axis.
-    if (msg.type === "identity:update-bounty-pinned") {
-      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown; pinned?: unknown };
-      const rawKey = raw.identityKey;
-      const rawSlug = raw.bountySlug;
-      const rawPinned = raw.pinned;
-      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawPinned !== "boolean") {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "invalid pinned" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      const identityKey = rawKey;
-      const bountySlug = rawSlug;
-      const pinned = rawPinned;
-      const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-      // Quick 260823-80r: forward opt-in archive read flag.
-      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
-      try {
-        let bounties: unknown[];
-        let archivedBounties: unknown[];
-        if (useLocal) {
-          await writeIdentityBountyPinned(null, identityKey, bountySlug, pinned);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
-          sshLogger.info("identity:update-bounty-pinned", {
-            operation: "identity_update_bounty_pinned",
-            userId, identityKey, bountySlug, pinned, hostId: hostIdNum, useLocal: true,
-          });
-        } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
-          if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-            return;
-          }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await writeIdentityBountyPinned(conn, identityKey, bountySlug, pinned);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
-            sshLogger.info("identity:update-bounty-pinned", {
-              operation: "identity_update_bounty_pinned",
-              userId, identityKey, bountySlug, pinned, hostId: hostIdNum, useLocal: false,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
-        }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      } catch (err) {
-        sshLogger.error(
-          "identity:update-bounty-pinned unexpected error",
-          err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_update_bounty_pinned_error", userId, identityKey, bountySlug, hostId: hostIdNum },
-        );
-        try {
-          ws.send(JSON.stringify({ type: "identity:bounty-pinned-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-pinned-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      }
-      return;
-    }
-
-    // This quick: identity:update-bounty-needs-desk — byte-shape mirror of the
-    // pinned handler above for the parallel `needs_desk` boolean field. User-
-    // reserved flag independent of both `status` and `pinned`. Server patches
-    // bounty.json IN PLACE (folder NOT moved) and returns fresh bounty lists
-    // so the modal atomically re-renders. Editable for ALL bounties including
-    // archived.
-    if (msg.type === "identity:update-bounty-needs-desk") {
-      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown; needs_desk?: unknown };
-      const rawKey = raw.identityKey;
-      const rawSlug = raw.bountySlug;
-      const rawNeedsDesk = raw.needs_desk;
-      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawNeedsDesk !== "boolean") {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties: [], archivedBounties: [], error: "invalid needs_desk" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      const identityKey = rawKey;
-      const bountySlug = rawSlug;
-      const needsDesk = rawNeedsDesk;
-      const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-      // Quick 260823-80r: forward opt-in archive read flag.
-      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
-      try {
-        let bounties: unknown[];
-        let archivedBounties: unknown[];
-        if (useLocal) {
-          await writeIdentityBountyNeedsDesk(null, identityKey, bountySlug, needsDesk);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
-          sshLogger.info("identity:update-bounty-needs-desk", {
-            operation: "identity_update_bounty_needs_desk",
-            userId, identityKey, bountySlug, needsDesk, hostId: hostIdNum, useLocal: true,
-          });
-        } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
-          if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-            return;
-          }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await writeIdentityBountyNeedsDesk(conn, identityKey, bountySlug, needsDesk);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
-            sshLogger.info("identity:update-bounty-needs-desk", {
-              operation: "identity_update_bounty_needs_desk",
-              userId, identityKey, bountySlug, needsDesk, hostId: hostIdNum, useLocal: false,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
-        }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      } catch (err) {
-        sshLogger.error(
-          "identity:update-bounty-needs-desk unexpected error",
-          err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_update_bounty_needs_desk_error", userId, identityKey, bountySlug, hostId: hostIdNum },
-        );
-        try {
-          ws.send(JSON.stringify({ type: "identity:bounty-needs-desk-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-needs-desk-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      }
-      return;
-    }
-
-    // Phase 18 / IDMEDIT-04: identity:update-bounty-fields — partial-JSON-patch
-    // writer for bounty fields. Accepts title/premise/todos/keywords/source_links/
-    // deadline/meeting_questions; rejects pinned (has its own handler). Per-field
-    // validation runs inside writeIdentityBountyFields — handler only validates the
-    // top-level shape. Returns fresh {bounties, archivedBounties} so BountyCard
-    // rehydrates from server truth (same convention as the priority/status/pinned echoes).
-    if (msg.type === "identity:update-bounty-fields") {
-      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown; patch?: unknown };
-      const rawKey = raw.identityKey;
-      const rawSlug = raw.bountySlug;
-      const rawPatch = raw.patch;
-      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawPatch !== "object" || rawPatch === null) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "invalid patch" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      // Per-field type validation (title length, todos shape, etc.) runs inside
-      // writeIdentityBountyFields. Handler-level check only ensures patch is an object.
-      const identityKey = rawKey;
-      const bountySlug = rawSlug;
-      const patch = rawPatch as BountyFieldsPatch;
-      const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-      // Quick 260823-80r: forward opt-in archive read flag.
-      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
-      try {
-        let bounties: unknown[];
-        let archivedBounties: unknown[];
-        if (useLocal) {
-          await writeIdentityBountyFields(null, identityKey, bountySlug, patch);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
-          sshLogger.info("identity:update-bounty-fields", {
-            operation: "identity_update_bounty_fields",
-            userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: true,
-            fields: Object.keys(patch).join(","),
-          });
-        } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
-          if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-            return;
-          }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await writeIdentityBountyFields(conn, identityKey, bountySlug, patch);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
-            sshLogger.info("identity:update-bounty-fields", {
-              operation: "identity_update_bounty_fields",
-              userId, identityKey, bountySlug, hostId: hostIdNum, useLocal: false,
-              fields: Object.keys(patch).join(","),
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
-        }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      } catch (err) {
-        sshLogger.error(
-          "identity:update-bounty-fields unexpected error",
-          err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_update_bounty_fields_error", userId, identityKey, bountySlug, hostId: hostIdNum },
-        );
-        try {
-          ws.send(JSON.stringify({ type: "identity:bounty-fields-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-fields-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      }
-      return;
-    }
-
-    // Patch #154: identity:update-bounty-priority — patch bounty.json's
-    // priority field, bump updated_at, append a timeline line. Returns the
-    // fresh bounty lists so the modal can atomically re-render.
-    if (msg.type === "identity:update-bounty-priority") {
-      const raw = msg as { identityKey?: unknown; hostId?: unknown; bountySlug?: unknown; priority?: unknown };
-      const rawKey = raw.identityKey;
-      const rawSlug = raw.bountySlug;
-      const rawPriority = raw.priority;
-      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "invalid bounty slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      if (typeof rawPriority !== "string" || !(BOUNTY_PRIORITY_VALUES as readonly string[]).includes(rawPriority)) {
-        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "invalid priority" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-        return;
-      }
-      const identityKey = rawKey;
-      const bountySlug = rawSlug;
-      const priority = rawPriority as BountyPriority;
-      const rawHostId = raw.hostId;
-      const hostIdNum =
-        typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
-          ? rawHostId
-          : undefined;
-      const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
-      // Quick 260823-80r: forward opt-in archive read flag.
-      const includeArchived = (raw as { includeArchived?: unknown }).includeArchived === true;
-      try {
-        let bounties: unknown[];
-        let archivedBounties: unknown[];
-        if (useLocal) {
-          await writeIdentityBountyPriority(null, identityKey, bountySlug, priority);
-          ({ bounties, archivedBounties } = await readIdentityBounties(null, identityKey, includeArchived));
-          sshLogger.info("identity:update-bounty-priority", {
-            operation: "identity_update_bounty_priority",
-            userId, identityKey, bountySlug, priority, hostId: hostIdNum, useLocal: true,
-          });
-        } else {
-          const resolved = await resolveHostById(hostIdNum!, userId!);
-          if (!resolved) {
-            try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-            return;
-          }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await writeIdentityBountyPriority(conn, identityKey, bountySlug, priority);
-            ({ bounties, archivedBounties } = await readIdentityBounties(conn, identityKey, includeArchived));
-            sshLogger.info("identity:update-bounty-priority", {
-              operation: "identity_update_bounty_priority",
-              userId, identityKey, bountySlug, priority, hostId: hostIdNum, useLocal: false,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
-        }
-        try { ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties, archivedBounties })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
-      } catch (err) {
-        sshLogger.error(
-          "identity:update-bounty-priority unexpected error",
-          err instanceof Error ? err : new Error(String(err)),
-          { operation: "identity_update_bounty_priority_error", userId, identityKey, bountySlug, hostId: hostIdNum },
-        );
-        try {
-          ws.send(JSON.stringify({ type: "identity:bounty-priority-updated", bounties: [], archivedBounties: [], error: err instanceof Error ? err.message : String(err) }));
-        } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-priority-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
       return;
     }
@@ -6460,7 +5747,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
 
     // Phase 35 — pretty-view compose-send owns its own WebSocket instead of
-    // borrowing the terminal SSH WS (see bounty: terminal-ws-silent-death-on-session-return).
+    // borrowing the terminal SSH WS (see diagnostic drop terminal-ws-silent-death-on-session-return).
     //
     // `input` handler: accepts the same payload shape as terminal.ts:499's split-send gate
     // ({ type: "input", data: string, messageQueueItemId?: string }) and replicates the
@@ -8019,7 +7306,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // no_pid_session_file, no_open_session_file, no_tmux_session,
       // exec_error), so no new information disclosure surface per T-30-01.
       paneStateEmitter.emit("inactive", result.reason);
-      // Bounty: pv-claude-session-ws-zombie-after-tmux-teardown — if the
+      // Diagnostic drop: pv-claude-session-ws-zombie-after-tmux-teardown — if the
       // reset-window branch above (L8121-8122) seeded currentHostId /
       // currentTmuxSession before falling through here, nulling sshConn below
       // leaves the WS with a bound tmuxSession but no live SSH conn — a

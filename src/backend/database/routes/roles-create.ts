@@ -41,7 +41,7 @@
  *      comes from MIME_TO_AVATAR_EXT[req.file.mimetype]. Set
  *      cosmetics.avatar = avatarFilename.
  *   7. resolveHostById + connectOneShot + collision probe (Phase 22, unchanged).
- *   8. Provision: mkdir -p bounties/, touch history.md (Phase 22, unchanged).
+ *   8. Provision: touch history.md (Phase 22, bounties/ removed Phase 133).
  *   9. Resolve remote $HOME.
  *   10. Build stub markdown — WITH frontmatter block when cosmetics has any
  *       keys (yaml.dump), WITHOUT frontmatter when empty (regression guard).
@@ -289,7 +289,7 @@ async function sftpWriteFileInline(
  * Content-Type: multipart/form-data
  * Fields: data (JSON blob), avatar (optional PNG/JPEG/WebP ≤ 10 MiB)
  *
- * Provisions ~/fleet/roles/<name>/ + bounties/ + history.md + <name>.md
+ * Provisions ~/fleet/roles/<name>/ + history.md + <name>.md
  * (with cosmetic frontmatter when supplied) + optional <name>.<ext> avatar
  * sibling file.
  */
@@ -497,8 +497,9 @@ router.post(
       //    then use plain (non-`-p`) `mkdir` on the target dir which is atomic
       //    at the syscall level and fails with "File exists" if the directory
       //    already exists. Race-loser hits the EEXIST branch → 409 without
-      //    touching the winner's file. The nested `bounties/` subdir is added
-      //    in the same exec so the winner still gets the full folder layout.
+      //    touching the winner's file. Only the CHILD dir is created atomically —
+      //    Phase 133 dropped the nested `bounties/` subdir; the bounties concept
+      //    was retired from Skynet in that phase.
       //
       //    `name` is pre-validated by ROLE_NAME_PATTERN so interpolation into
       //    the double-quoted path is shell-safe.
@@ -506,7 +507,7 @@ router.post(
       try {
         await execWithTimeout(
           conn,
-          `mkdir -p "$HOME/fleet/roles" && mkdir "$HOME/fleet/roles/${name}" && mkdir "$HOME/fleet/roles/${name}/bounties"`,
+          `mkdir -p "$HOME/fleet/roles" && mkdir "$HOME/fleet/roles/${name}"`,
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

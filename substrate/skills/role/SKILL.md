@@ -1,7 +1,7 @@
 ---
 name: role
 description: >-
-  Create a role — the shared knowledge/bounty/history home that
+  Create a role — the shared knowledge/history home that
   identities will adopt.
 distributed: true
 ---
@@ -15,7 +15,7 @@ will adopt.
 
 Under the fleet tree layout (see the id skill for the full picture):
 
-- `~/fleet/roles/<role>/` — the ROLE: role file, bounty pool, history, deeper
+- `~/fleet/roles/<role>/` — the ROLE: role file, history, deeper
   reference files. Shared across every identity holding this role.
 - `~/fleet/identities/<name>/` — the IDENTITY: slim per-clone state.
 
@@ -61,7 +61,7 @@ explicit call via `/id`.
 Create the folder + starter files, all empty of content the user didn't provide:
 
 ```bash
-mkdir -p "$ROLE_DIR/bounties"
+mkdir -p "$ROLE_DIR"
 touch "$ROLE_DIR/history.md"
 ```
 
@@ -86,14 +86,14 @@ Write `$ROLE_DIR/<name>.md` — the starter role file — using this **skeleton*
 ⚠️ **Do NOT seed content the user didn't provide.** Leave the placeholders as literal
 brackets. The user (via a `/id <name>` load + conversation) fills these in as the role
 develops. The id-skill's leanness rules apply — keep the role file lean; war-stories
-live in bounties, not here.
+live in the role file body, not here.
 
 ### 4. Confirm + point at next step
 
 Announce:
 
 > "Role **<name>** created at `~/fleet/roles/<name>/` (empty starter file + empty
-> bounties/ + empty history.md). Next step: run `/id <name>` to create an identity
+> history.md). Next step: run `/id <name>` to create an identity
 > that clones this role."
 
 Then stop — do NOT invoke `/id` yourself. The user runs it when ready.

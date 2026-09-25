@@ -1,20 +1,22 @@
 // ─── identity-artifact-reader — two-step (identity file → role frontmatter → role folder) ─
 //
-// Phase 22 SRIC-01: verifies the new helpers that unlock role-folder reads without
+// Phase 22 SRIC-01: verifies the helpers that unlock role-folder reads without
 // changing the (identityKey, hostId) frontend contract.
 //
-// The Bounties + History tabs on IdentityModal used to root at
-// ~/fleet/identities/<key>/{bounties,history.md}. Post the fleet role/identity
-// migration those folders are empty — the actual data lives at
-// ~/fleet/roles/<role>/{bounties,history.md}, and the role is discovered by
+// The History tab on IdentityModal used to root at ~/fleet/identities/<key>/history.md.
+// Post the fleet role/identity migration those folders are empty — the actual
+// data lives at ~/fleet/roles/<role>/history.md, and the role is discovered by
 // reading `role:` from the identity file's YAML frontmatter.
 //
 // This test file covers:
 //   Task 1 (tests 1-9):  extractRoleFromMarkdown, resolveRoleForIdentity,
 //                         getLocalRolesRoot — the three helpers Wave-2 plans reuse.
-//   Task 2 (tests 10-16): readIdentityBounties + readIdentityHistory now do the
-//                         two-step internally on both LOCAL and REMOTE branches;
-//                         signatures unchanged; throws propagate.
+//   Task 2 (tests 11/13/15): readIdentityHistory now does the two-step internally
+//                             on both LOCAL and REMOTE branches; signatures unchanged;
+//                             throws propagate.
+//                             (Note: former tests 10/12/14/16 covered a companion
+//                             reader that was removed in Phase 133 Plan 133-07;
+//                             test numbers preserved for git-blame continuity.)
 //
 // Test framework: vitest (matches every sibling test file in
 // src/backend/claude-session/*.test.ts).
@@ -25,10 +27,10 @@
 //   - Use fs + os.tmpdir + IDENTITIES_HOST_DIR / ROLES_HOST_DIR env vars for
 //     LOCAL-branch fixtures (test 9).
 //
-// Mock strategy for Task 2 (readIdentityBounties / readIdentityHistory):
+// Mock strategy for Task 2 (readIdentityHistory):
 //   - Same execCommand mock, but with an implementation that inspects the
 //     command string to route responses (identity-file read → frontmatter,
-//     bounties/history read → payload). This mirrors the same pattern used in
+//     history read → payload). This mirrors the same pattern used in
 //     identity-artifact-reader.remote-writes.test.ts but with a smarter router.
 //   - For LOCAL branch, temp filesystem fixtures at IDENTITIES_HOST_DIR +
 //     ROLES_HOST_DIR let the real fs paths flow through.
@@ -74,7 +76,6 @@ import {
   extractCosmeticsFromFrontmatter,
   resolveRoleForIdentity,
   getLocalRolesRoot,
-  readIdentityBounties,
   readIdentityHistory,
 } from "./identity-artifact-reader.js";
 
@@ -112,7 +113,7 @@ describe("extractRoleFromMarkdown", () => {
     expect(extractRoleFromMarkdown(md)).toBe("box-maintainer");
   });
 
-  // Regression coverage for the bounty
+  // Regression coverage for the
   // `fleet-status-orchestrator-coupling-with-spawn-request-scanning` e2e-test
   // incident: a hand-authored identity file with a bare `: ` (colon-space)
   // inside a plain YAML scalar in the `task:` value silently broke both the
@@ -155,7 +156,7 @@ describe("extractRoleFromMarkdown", () => {
   });
 });
 
-describe("extractCosmeticsFromFrontmatter (malformed-YAML logging — regression for bounty fleet-status-orchestrator-coupling-with-spawn-request-scanning)", () => {
+describe("extractCosmeticsFromFrontmatter (malformed-YAML logging — regression for fleet-status-orchestrator-coupling-with-spawn-request-scanning)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -341,37 +342,31 @@ describe("getLocalRolesRoot", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Task 2 — readIdentityBounties + readIdentityHistory two-step (tests 10-16)
+// Task 2 — readIdentityHistory two-step (tests 11 / 13 / 15)
 // ──────────────────────────────────────────────────────────────────────
+//
+// Note: former tests 10 / 12 / 14 / 16 covered a companion reader and were
+// removed in Phase 133 Plan 133-07 alongside the deletion of that reader.
+// Test numbers preserved to keep git-blame / historical-reference continuity.
 
-describe("readIdentityBounties + readIdentityHistory — two-step", () => {
+describe("readIdentityHistory — two-step", () => {
   // Router for the REMOTE-branch execCommand mock — inspects the command
   // string and returns the appropriate stubbed response. Order-agnostic so
   // the reader's internal call order can evolve without breaking tests.
   //
   // Contract:
   //   - `cat "$HOME/fleet/identities/<key>/<key>.md"` → identity file body
-  //   - `cd "$HOME/fleet/roles/<role>/bounties" ...` → bounties dir dump
-  //   - `cd "$HOME/fleet/roles/<role>/bounties/archive" ...` → archive dump
   //   - `cat "$HOME/fleet/roles/<role>/history.md"` → history body
   //
   // Tests assert on the command string via a captured spy so path substitution
   // is verified even when the response is a stub.
   function makeRouter(opts: {
     identityFile?: string;
-    bountiesOpen?: string;
-    bountiesArchive?: string;
     historyMd?: string;
   }): (conn: SSHClientType, cmd: string) => Promise<string> {
     return async (_conn, cmd) => {
       if (cmd.includes("fleet/identities/") && cmd.startsWith("cat ")) {
         return opts.identityFile ?? "";
-      }
-      if (cmd.includes("fleet/roles/") && cmd.includes("/bounties/archive")) {
-        return opts.bountiesArchive ?? "";
-      }
-      if (cmd.includes("fleet/roles/") && cmd.includes("/bounties")) {
-        return opts.bountiesOpen ?? "";
       }
       if (cmd.includes("fleet/roles/") && cmd.includes("/history.md")) {
         return opts.historyMd ?? "";
@@ -382,43 +377,6 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("test 10: readIdentityBounties (REMOTE) reads from $HOME/fleet/roles/<role>/bounties, not identity folder", async () => {
-    const identityMd = "---\nrole: box-maintainer\n---\n";
-    const bountyJson =
-      '{"id":"bounty-a","title":"A","priority":"medium","status":"in_progress"}';
-    const bountiesStdout = `===DIR:bounty-a===\n${bountyJson}`;
-    const capturedCommands: string[] = [];
-    (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      async (_conn: unknown, cmd: string) => {
-        capturedCommands.push(cmd);
-        if (cmd.includes("fleet/identities/")) return identityMd;
-        if (cmd.includes("/bounties/archive")) return "";
-        if (cmd.includes("/bounties")) return bountiesStdout;
-        return "";
-      },
-    );
-
-    const conn = {} as SSHClientType;
-    const result = await readIdentityBounties(conn, "moxie");
-
-    // Path substitution: role folder is queried, identity folder for bounties is NOT.
-    // Filter by the openCmd-only sentinel `[ "$d" = "archive" ] && continue`
-    // (matches the pattern used in include-archived.test.ts) — the archiveCmd
-    // omits this guard since it enumerates INSIDE the archive folder.
-    const bountiesCmd = capturedCommands.find(
-      (c) =>
-        c.includes("fleet/roles/box-maintainer/bounties") &&
-        c.includes('[ "$d" = "archive" ] && continue'),
-    );
-    expect(bountiesCmd).toBeDefined();
-    expect(bountiesCmd).toContain("$HOME/fleet/roles/box-maintainer/bounties");
-    expect(bountiesCmd).not.toContain("$HOME/fleet/identities/moxie/bounties");
-
-    // Content flowed through the parser
-    expect(result.bounties).toHaveLength(1);
-    expect((result.bounties[0] as { slug: string }).slug).toBe("bounty-a");
   });
 
   it("test 11: readIdentityHistory (REMOTE) reads $HOME/fleet/roles/<role>/history.md, not identity folder", async () => {
@@ -446,7 +404,7 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
     expect(result.entries).toEqual(["- entry two", "- entry one"]);
   });
 
-  // LOCAL-branch fixtures — write both identity file (with role: frontmatter)
+  // LOCAL-branch fixture — writes both the identity file (with role: frontmatter)
   // and the role folder into two separate temp roots pointed at by
   // IDENTITIES_HOST_DIR and ROLES_HOST_DIR env vars.
   describe("LOCAL branch (conn=null) — reads from role folder", () => {
@@ -472,17 +430,9 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
         "utf-8",
       );
 
-      // Role folder with bounties + history
+      // Role folder with history
       const roleDir = path.join(rolesRoot, ROLE);
-      const bountiesDir = path.join(roleDir, "bounties");
-      await fs.mkdir(bountiesDir, { recursive: true });
-      const bountyDir = path.join(bountiesDir, "bounty-a");
-      await fs.mkdir(bountyDir, { recursive: true });
-      await fs.writeFile(
-        path.join(bountyDir, "bounty.json"),
-        JSON.stringify({ id: "bounty-a", title: "A", status: "in_progress" }),
-        "utf-8",
-      );
+      await fs.mkdir(roleDir, { recursive: true });
       await fs.writeFile(
         path.join(roleDir, "history.md"),
         "# History\n\n- role entry one\n",
@@ -497,32 +447,11 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
       await fs.rm(rolesRoot, { recursive: true, force: true });
     });
 
-    it("test 12: readIdentityBounties (LOCAL) reads from ROLES_HOST_DIR/<role>/bounties", async () => {
-      const result = await readIdentityBounties(null, KEY);
-      expect(result.bounties).toHaveLength(1);
-      expect((result.bounties[0] as { slug: string }).slug).toBe("bounty-a");
-      // archive dir doesn't exist on disk → gracefully empty
-      expect(result.archivedBounties).toEqual([]);
-    });
-
     it("test 13: readIdentityHistory (LOCAL) reads from ROLES_HOST_DIR/<role>/history.md", async () => {
       const result = await readIdentityHistory(null, KEY);
       expect(result.markdown).toContain("- role entry one");
       expect(result.entries).toEqual(["- role entry one"]);
     });
-  });
-
-  it("test 14: readIdentityBounties propagates the throw from resolveRoleForIdentity when identity file is empty", async () => {
-    (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      async (_conn: unknown, cmd: string) => {
-        if (cmd.includes("fleet/identities/")) return ""; // no frontmatter
-        return "";
-      },
-    );
-    const conn = {} as SSHClientType;
-    await expect(readIdentityBounties(conn, "moxie")).rejects.toThrow(
-      /no role|moxie/,
-    );
   });
 
   it("test 15: readIdentityHistory propagates the throw when identity file has no role frontmatter", async () => {
@@ -540,25 +469,20 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
     );
   });
 
-  it("test 16: signatures unchanged — accepts (SSHClientType|null, string)", async () => {
-    // Compile-time smoke check: this test simply demonstrates the function
-    // types still accept the pre-Phase-22 (conn, identityKey) tuple. If a
-    // future edit widens the signature to (conn, identityKey, role), tsc
-    // --noEmit (run separately in the verification step) catches it; this
-    // runtime test just proves the call compiles + runs.
+  // Compile-time smoke check: signature stays (SSHClientType|null, string).
+  // If a future edit widens the readIdentityHistory signature to accept a
+  // third argument, tsc --noEmit (run separately in the verification step)
+  // catches it; this runtime test just proves the call compiles + runs.
+  it("test 16 (signature smoke): readIdentityHistory accepts (SSHClientType|null, string)", async () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       makeRouter({ identityFile: "---\nrole: box-maintainer\n---\n" }),
     );
     const conn = {} as SSHClientType;
     // Note: no third argument — proves the signature stays 2-ary.
-    const bountiesPromise: Promise<{
-      bounties: unknown[];
-      archivedBounties: unknown[];
-    }> = readIdentityBounties(conn, "moxie");
     const historyPromise: Promise<{
       entries: string[];
       markdown: string;
     }> = readIdentityHistory(conn, "moxie");
-    await Promise.all([bountiesPromise, historyPromise]);
+    await historyPromise;
   });
 });

@@ -403,11 +403,14 @@ describe("POST /roles — regression guards (multipart form)", () => {
 
   it("R-5: role folder already exists on host → 409 (atomic-mkdir EEXIST branch — Phase 129 MEDIUM-1)", async () => {
     // Phase 129 MEDIUM-1 fix: the probe → mkdir -p → write shape is gone.
-    // The race-safe atomic mkdir chain (`mkdir -p PARENT && mkdir CHILD &&
-    // mkdir CHILD/bounties`) throws "File exists" when CHILD already
-    // exists — that's the syscall-level guarantee that both concurrent
-    // creates cannot both succeed. Mock the exec to throw that error and
-    // assert the 409 branch fires without touching writeMarkdownFileAtomic.
+    // The race-safe atomic mkdir chain (`mkdir -p PARENT && mkdir CHILD`)
+    // throws "File exists" when CHILD already exists — that's the
+    // syscall-level guarantee that both concurrent creates cannot both
+    // succeed. Mock the exec to throw that error and assert the 409
+    // branch fires without touching writeMarkdownFileAtomic.
+    // Phase 133: the trailing `mkdir CHILD/bounties` step was removed
+    // when the bounties concept was retired; test behavior unchanged
+    // because EEXIST still trips at the CHILD mkdir step.
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("mkdir") && cmd.includes("fleet/roles")) {
         throw new Error("mkdir: cannot create directory '/home/ubuntu/fleet/roles/box-maintainer': File exists");

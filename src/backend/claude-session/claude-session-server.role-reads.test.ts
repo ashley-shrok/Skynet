@@ -1,12 +1,12 @@
 // ─── role-name-keyed READ WS handlers (Phase 90 Plan 90-07 Task 3) ─
 //
 // Byte-shape mirror of claude-session-server.role-update-file.test.ts (Plan
-// 90-03), covering the READ variants added in Plan 90-07:
+// 90-03), covering the READ variant surviving both retirements:
 //   - role:get-file       → readRoleFileByName
-//   - role:list-bounties  → readRoleBountiesByName
 //
-// Phase 134 Plan 134-02: role:list-wakeups is retired (its coverage lived
-// here in the third describe block). Removed along with the reader mock.
+// Phase 134 Plan 134-02 retired role:list-wakeups (its coverage lived here
+// in the third describe block); Phase 136 retired role:list-bounties. Both
+// were removed along with their reader mocks.
 //
 // Test strategy:
 //   - vi.mock the reader helpers so we control responses / surface throws.
@@ -30,7 +30,6 @@ vi.mock("./identity-artifact-reader.js", async (importOriginal) => {
   return {
     ...actual,
     readRoleFileByName: vi.fn(),
-    readRoleBountiesByName: vi.fn(),
   };
 });
 
@@ -38,11 +37,9 @@ import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import {
   readRoleFileByName,
-  readRoleBountiesByName,
 } from "./identity-artifact-reader.js";
 import {
   __handleRoleGetFileForTests,
-  __handleRoleListBountiesForTests,
 } from "./claude-session-server.js";
 
 // ──────────────────────────────────────────────────────────────────────
@@ -52,8 +49,6 @@ import {
 type AnyRoleReadResponse = {
   type: string;
   markdown?: string;
-  bounties?: unknown[];
-  archivedBounties?: unknown[];
   wakeups?: unknown[];
   error?: string;
 };
@@ -75,7 +70,6 @@ beforeEach(() => {
   vi.mocked(connectOneShot).mockReset();
   vi.mocked(resolveHostById).mockReset();
   vi.mocked(readRoleFileByName).mockReset();
-  vi.mocked(readRoleBountiesByName).mockReset();
 });
 
 afterEach(() => {
@@ -181,116 +175,6 @@ describe("role:get-file WS handler", () => {
   });
 });
 
-// ══════════════════════════════════════════════════════════════════════
-// role:list-bounties — happy paths + validation
-// ══════════════════════════════════════════════════════════════════════
-
-describe("role:list-bounties WS handler", () => {
-  it("LOCAL happy path (includeArchived omitted): calls reader with false, returns open list + empty archive", async () => {
-    vi.mocked(readRoleBountiesByName).mockResolvedValue({
-      bounties: [{ id: "b1", title: "bounty one" }],
-      archivedBounties: [],
-    });
-
-    await __handleRoleListBountiesForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-bounties", roleName: "box-maintainer" },
-      "1",
-    );
-
-    expect(readRoleBountiesByName).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(readRoleBountiesByName).mock.calls[0][0]).toBeNull();
-    expect(vi.mocked(readRoleBountiesByName).mock.calls[0][1]).toBe("box-maintainer");
-    expect(vi.mocked(readRoleBountiesByName).mock.calls[0][2]).toBe(false);
-
-    expect(sent[0].type).toBe("role:bounties-loaded");
-    expect(sent[0].bounties).toHaveLength(1);
-    expect(sent[0].archivedBounties).toHaveLength(0);
-    expect(sent[0].error).toBeUndefined();
-  });
-
-  it("LOCAL happy path (includeArchived: true): forwards flag; returns both lists", async () => {
-    vi.mocked(readRoleBountiesByName).mockResolvedValue({
-      bounties: [{ id: "b1" }],
-      archivedBounties: [{ id: "b0-archived" }],
-    });
-
-    await __handleRoleListBountiesForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-bounties", roleName: "box-maintainer", includeArchived: true },
-      "1",
-    );
-
-    expect(vi.mocked(readRoleBountiesByName).mock.calls[0][2]).toBe(true);
-    expect(sent[0].bounties).toHaveLength(1);
-    expect(sent[0].archivedBounties).toHaveLength(1);
-  });
-
-  it("REMOTE happy path: resolves host, opens conn, calls reader with conn, closes conn", async () => {
-    const fakeConn = makeFakeConn("hostY");
-    vi.mocked(resolveHostById).mockResolvedValue({ ip: "1.2.3.4" } as never);
-    vi.mocked(connectOneShot).mockResolvedValue(fakeConn as never);
-    vi.mocked(readRoleBountiesByName).mockResolvedValue({ bounties: [], archivedBounties: [] });
-
-    await __handleRoleListBountiesForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-bounties", roleName: "box-maintainer", hostId: 3 },
-      "1",
-    );
-
-    expect(vi.mocked(readRoleBountiesByName).mock.calls[0][0]).toBe(fakeConn);
-    expect(fakeConn.end).toHaveBeenCalledTimes(1);
-    expect(sent[0].type).toBe("role:bounties-loaded");
-  });
-
-  it("invalid roleName → error envelope with empty lists, no reader call", async () => {
-    await __handleRoleListBountiesForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-bounties", roleName: "BAD_NAME" },
-      "1",
-    );
-
-    expect(readRoleBountiesByName).not.toHaveBeenCalled();
-    expect(sent[0]).toEqual({
-      type: "role:bounties-loaded",
-      bounties: [],
-      archivedBounties: [],
-      error: "invalid roleName",
-    });
-  });
-
-  it("host not found → error envelope with empty lists", async () => {
-    vi.mocked(resolveHostById).mockResolvedValue(null as never);
-
-    await __handleRoleListBountiesForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-bounties", roleName: "box-maintainer", hostId: 999 },
-      "1",
-    );
-
-    expect(readRoleBountiesByName).not.toHaveBeenCalled();
-    expect(sent[0]).toEqual({
-      type: "role:bounties-loaded",
-      bounties: [],
-      archivedBounties: [],
-      error: "host not found",
-    });
-  });
-
-  it("reader throws (e.g. SSH fail) → error propagates on envelope", async () => {
-    vi.mocked(readRoleBountiesByName).mockRejectedValue(new Error("bounty read failed"));
-
-    await __handleRoleListBountiesForTests(
-      wsStub as unknown as import("ws").WebSocket,
-      { type: "role:list-bounties", roleName: "box-maintainer" },
-      "1",
-    );
-
-    expect(sent[0].type).toBe("role:bounties-loaded");
-    expect(sent[0].bounties).toEqual([]);
-    expect(sent[0].error).toBe("bounty read failed");
-  });
-});
-
-// Phase 134 Plan 134-02: the role:list-wakeups describe block was removed
-// here (D-11 wire-op retirement + D-13 test cleanup). See above header block.
+// Phase 134 Plan 134-02 retired the role:list-wakeups describe block;
+// Phase 136 retired the role:list-bounties describe block. Both wire ops
+// are gone — only role:get-file remains covered above.

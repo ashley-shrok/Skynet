@@ -15,8 +15,9 @@
  * D-09 (LOCKED SEMANTICS): RoleModal is a NEW component, not a re-
  *   parameterized IdentityModal. IdentityModal keeps identity-scope tabs
  *   only (post-Phase-90-06); RoleModal owns role-scope tabs (role file /
- *   runbooks / bounties). Phase 134 Plan 134-02: role-scope wakeups tab
- *   retired top-to-bottom (see D-09 in 128-CONTEXT.md).
+ *   runbooks). Phase 134 Plan 134-02 retired the role-scope wakeups tab
+ *   top-to-bottom (see D-09 in 128-CONTEXT.md); Phase 136 retired the
+ *   bounties tab alongside the wider bounty-concept retirement.
  *
  * D-08.3 (LOCKED — CONTEXT.md rejects the identity indirection): every
  *   read/write path on this modal is addressed BY ROLE NAME. Callers pass
@@ -45,7 +46,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
-  Target,
   Users,
   X,
 } from "lucide-react";
@@ -65,7 +65,6 @@ import {
 import type { TabState } from "./IdentityFileTab";
 import { RoleFileTab } from "./RoleFileTab";
 import { RunbooksTab } from "./RunbooksTab";
-import { RoleBountiesTab } from "./RoleBountiesTab";
 import { RoleCosmeticEditBlock } from "./RoleCosmeticEditBlock";
 import { roleDisplayName } from "@/lib/role-display-name";
 
@@ -75,12 +74,12 @@ const FALLBACK_HUE = 190;
 // Bottom-nav icon bar entries. Order + labels mirror IdentityModal
 // NAV_SECTIONS_ROLE (L351-361) but restated here to keep the file
 // standalone. Default landing tab = "role" (D-CONTEXT §UX rules).
-// Phase 134 Plan 134-02: `role-wakeups` entry removed alongside the
-// per-role wake-up CRUD retirement (D-09).
+// Phase 134 Plan 134-02 retired the `role-wakeups` entry alongside the
+// per-role wake-up CRUD retirement (D-09); Phase 136 retired the
+// `bounties` entry alongside the bounty-concept retirement.
 const NAV_SECTIONS = [
   { value: "role", label: "Role file", Icon: Users },
   { value: "runbooks", label: "Runbooks", Icon: BookOpen },
-  { value: "bounties", label: "Bounties", Icon: Target },
 ] as const;
 
 /**
@@ -199,11 +198,11 @@ export interface RoleModalProps {
    *  clean up their own state. */
   onOpenChange: (open: boolean) => void;
   /** Role slug (kebab-case). Addresses ALL of: header avatar, role-file
-   *  fetch/write, runbooks scoping, bounty read, avatar upload. Phase 90 Plan
-   *  90-10: this is the ONLY addressing prop for role-scope reads/writes —
-   *  the earlier Wave-2 identity prop was removed after Plan 90-09 shipped
-   *  the role-name-keyed API helpers (D-08.3 lock). Phase 134 Plan 134-02:
-   *  role-wakeups scoping retired. */
+   *  fetch/write, runbooks scoping, avatar upload. Phase 90 Plan 90-10:
+   *  this is the ONLY addressing prop for role-scope reads/writes — the
+   *  earlier Wave-2 identity prop was removed after Plan 90-09 shipped
+   *  the role-name-keyed API helpers (D-08.3 lock). Phase 134 Plan 134-02
+   *  retired role-wakeups scoping; Phase 136 retired bounty scoping. */
   roleName: string;
   /** Role cosmetics from Plan 90-01's RoleSummary. All keys optional. */
   roleCosmetics: {
@@ -555,21 +554,10 @@ export function RoleModal({
               />
             </TabsContent>
 
-            <TabsContent
-              value="bounties"
-              className="flex-1 min-h-0 flex flex-col"
-            >
-              <RoleBountiesTab
-                roleName={roleName}
-                hostId={hostId}
-                hue={hue}
-              />
-            </TabsContent>
-
             {/* Bottom icon-bar nav — mirrors IdentityModal L2557-2597
-                shape. 3 items keyed off NAV_SECTIONS above (role/runbooks/
-                bounties); the retired role-wakeups tab was removed here in
-                Phase 134 Plan 134-02. */}
+                shape. 2 items keyed off NAV_SECTIONS above (role/runbooks).
+                Phase 134 Plan 134-02 retired the role-wakeups tab; Phase
+                136 retired the bounties tab. */}
             <div
               className="shrink-0 flex items-stretch justify-around px-2 py-1 border-t"
               style={{
