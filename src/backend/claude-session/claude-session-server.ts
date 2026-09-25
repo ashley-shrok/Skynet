@@ -6940,7 +6940,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     __pvSweepSeamRegistry.set(ws, __pvSweepSeam);
 
     // Context-% poller: reads the context percentage from the JSONL every
-    // ~3s (authoritative, pane-width-independent). JSONL is the sole source
+    // ~15s (authoritative, pane-width-independent). JSONL is the sole source
     // of truth for context_pct post-Phase-95 Part B — the tmux capture-pane
     // scrape fallback and plan-pending detection are removed. On a fresh
     // session with no assistant turn yet, pct is null and the frontend
@@ -6955,7 +6955,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // for transient-recovery re-probe next tick). Schema-mismatch latches
     // sweepSchemaMismatch=true for the WS lifetime — falls back to legacy
     // without re-probing. Option 3 (per-WS) topology locked in Plan 04.
-    const CONTEXT_PCT_INTERVAL_MS = 3000;
+    const CONTEXT_PCT_INTERVAL_MS = 15000;
     contextPctTimer = setInterval(() => {
       if (stopped || ws.readyState !== WebSocket.OPEN) return;
       if (!sshConn) return;
