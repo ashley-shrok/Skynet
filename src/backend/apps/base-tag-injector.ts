@@ -10,10 +10,11 @@
  *      instead of the response URL's directory. Root-absolute URLs
  *      (leading `/`) bypass `<base>` per URL spec and still resolve
  *      against the document origin — so `<a href="/foo">` navigates
- *      the iframe to Skynet's own root, not into the app. Apps must
- *      write their own hrefs relative for the pane mount to be
- *      honored; the app-development skill's "Links inside the app"
- *      section covers this rule for app authors.
+ *      the iframe to Skynet's own root, not into the app. Apps handle
+ *      this by importing a scaffolded `PANE_BASE` constant and prefixing
+ *      every internal URL they emit; the app-development skill's
+ *      § How the pane mounts your app covers the rule + the scaffold
+ *      files that make it inert boilerplate for app authors.
  *
  *   2. `<style>html,body{background:#fff;color:#000}:root{color-scheme:light}</style>`
  *      — a low-specificity default so an app that doesn't declare its own
