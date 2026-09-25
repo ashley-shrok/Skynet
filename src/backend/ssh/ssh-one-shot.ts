@@ -84,6 +84,23 @@ export function connectOneShot(
       username: host.username,
       readyTimeout: timeoutMs,
       tcpKeepAlive: true,
+      // SSH-level keepalive (2026-09-25 tina): ssh2 sends a
+      // `keepalive@openssh.com` global request every 30s so the peer
+      // sshd doesn't kill the connection during idle periods. Without
+      // this, long-lived pooled connections (serve-url tunnels, video
+      // playback with `<video>` pause states, any workflow that leaves
+      // a tunnel idle for minutes) get silently reaped on the peer
+      // side and the next request through the pool hits
+      // `Error: Not connected` from `forwardOut`. `tcpKeepAlive` above
+      // is TCP-level (probes for a dead peer host); this is SSH-level
+      // (heartbeats the SSH channel itself). Matches docker-console.ts's
+      // long-standing shape.
+      keepaliveInterval: 30000,
+      // After 3 consecutive missed keepalives (~90s of unreachable peer
+      // at 30s interval), fail the connection fast rather than hanging
+      // waiting for eventual TCP timeout. Consumers already re-drive
+      // via the pool's health check + connectOneShot fallback.
+      keepaliveCountMax: 3,
       // Server-side query; no UI to verify host keys here. Anyone able
       // to spoof has already breached the tailnet.
       hostVerifier: () => true,
