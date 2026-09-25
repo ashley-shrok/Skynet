@@ -4,10 +4,16 @@
  * Pure Buffer transform: given a text/html response body from the upstream
  * app, prepend TWO elements inside (or before) the document's `<head>`:
  *
- *   1. `<base href="/apps/:hostId/:slug/pane/">` — so absolute-path
- *      references in the app's HTML/JS (`<script src="/app.js">`,
- *      `fetch("/api/foo")`, …) resolve against the pane's mount prefix
- *      instead of Skynet's own root.
+ *   1. `<base href="/apps/:hostId/:slug/pane/">` — so RELATIVE
+ *      references in the app's HTML/JS (`<script src="app.js">`,
+ *      `fetch("api/foo")`, …) resolve against the pane's mount prefix
+ *      instead of the response URL's directory. Root-absolute URLs
+ *      (leading `/`) bypass `<base>` per URL spec and still resolve
+ *      against the document origin — so `<a href="/foo">` navigates
+ *      the iframe to Skynet's own root, not into the app. Apps must
+ *      write their own hrefs relative for the pane mount to be
+ *      honored; the app-development skill's "Links inside the app"
+ *      section covers this rule for app authors.
  *
  *   2. `<style>html,body{background:#fff;color:#000}:root{color-scheme:light}</style>`
  *      — a low-specificity default so an app that doesn't declare its own
