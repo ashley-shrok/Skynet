@@ -1,7 +1,7 @@
 # Shape: Sidebar header/footer redesign
 
 **Opened:** 2026-09-25
-**Vehicle:** Inline — carefully, chunked commits, Ashley in-loop between chunks
+**Vehicle:** Inline — carefully, chunked commits, the user in-loop between chunks
 
 ## What this is
 
@@ -13,7 +13,7 @@ Two zones instead of one.
 
 **The top zone** is about acting on the conversation list — searching it, starting a new conversation in it, creating a project in it, checking or setting a wake-up, sending feedback about the app, and a catchall menu for less-common actions. Order: search, then the creation actions (new conversation, then create project), then wake-ups, then send feedback, then the catchall menu.
 
-**The bottom zone** is about the person using the app. It's anchored by an initials circle in warm tan with the username next to it, followed by two icons: the global files affordance (files all of Ashley's agents see), and a placeholder for user preferences (rendered visibly but inert until the preferences service ships in a follow-on shape). The initials circle is decorative for now — no click behavior, no pointer cursor, no hover treatment.
+**The bottom zone** is about the person using the app. It's anchored by an initials circle in warm tan with the username next to it, followed by two icons: the global files affordance (files all of the user's agents see), and a placeholder for user preferences (rendered visibly but inert until the preferences service ships in a follow-on shape). The initials circle is decorative for now — no click behavior, no pointer cursor, no hover treatment.
 
 **The catchall menu** hides three items that don't warrant top-level slots: create a group conversation, edit shared skills, edit shared roles. Order within the menu: new group conversation, then edit shared skills, then edit shared roles.
 
@@ -27,7 +27,7 @@ Nothing that isn't real gets faked. If a click leads somewhere that doesn't exis
 
 The logo lockup at the top-left stays exactly as it is — small icon, wordmark, home-link behavior. That's part of the app's brand identity; the redesign works around it, not through it.
 
-This is a step, not the destination. Ashley has a longer-term vision for this area that goes beyond what's in this shape. What's here should feel coherent as an interim state — not perfect, not final, but a clear improvement on today.
+This is a step, not the destination. the user has a longer-term vision for this area that goes beyond what's in this shape. What's here should feel coherent as an interim state — not perfect, not final, but a clear improvement on today.
 
 ## Prior context
 
@@ -47,7 +47,7 @@ The project this ships to is the app's beta, not the primary distribution. Beta 
 
 - If the bottom zone starts to feel like "a place for miscellaneous stuff that didn't fit above." It's specifically about the person. Anything that goes there needs to earn its place by being about the user, not by being homeless.
 - If the initials circle or the preferences gear develops a hover treatment or a pointer cursor without preferences being real. Faking clickability is the failure mode this shape rejects.
-- If the top zone's re-lay-out is subtle enough that Ashley can't tell it's been decrowded. The point is a felt change; if it lands as invisible polish, the redesign missed.
+- If the top zone's re-lay-out is subtle enough that the user can't tell it's been decrowded. The point is a felt change; if it lands as invisible polish, the redesign missed.
 - If the logo lockup gets replaced by text, moves elsewhere, or shrinks meaningfully. It's a fixed point.
 - If the mobile treatment quietly hides the footer or renders it differently in a way that leaves mobile users without access to global files. Mobile users get the same affordances as desktop users, at the scaled size the app already uses.
 - If the existing hard-order rule on the catchall menu's original pair is disturbed. The new item goes at the end of the menu; the existing pair stays exactly as it was.
@@ -85,14 +85,14 @@ The project this ships to is the app's beta, not the primary distribution. Beta 
 
 ## Vehicle notes
 
-Inline in this session, carefully. Ashley picked inline over a phase because the shape is fully defined and the change surface is bounded — one main sidebar component, one stylesheet, several test files. Tradeoff accepted: no phase-planner review, no automatic parallelization; Ashley and I stay in the loop between chunks.
+Inline in this session, carefully. the user picked inline over a phase because the shape is fully defined and the change surface is bounded — one main sidebar component, one stylesheet, several test files. Tradeoff accepted: no phase-planner review, no automatic parallelization; the user and I stay in the loop between chunks.
 
 Ship plan:
 - This shape file is the first artifact.
 - An internal task list for the change chunks so nothing gets missed.
 - Atomic commits by logical chunk: footer stylesheet scaffold → footer markup in the sidebar → top-zone button removals and reorder → catchall-menu reorder and guard-comment update → test updates.
 - Scoped tests after each chunk using the standard scoped-test pattern for touched files.
-- Stop at commit. No push, no build, no deploy without Ashley's explicit "push it" / "ship it" per fleet rule.
+- Stop at commit. No push, no build, no deploy without the user's explicit "push it" / "ship it" per fleet rule.
 - Pivot to a phase if scope reveals itself larger than this shape — e.g., a peer identity is racing the same sidebar file, or the mobile layout fix turns into a deeper restructure of the sidebar's clipping behavior.
 
 Beta context: the identity's project pointer moved to the beta project mid-session. This redesign ships to the beta; send feedback stays as a top-zone button specifically because it's beta.
@@ -104,7 +104,7 @@ Closed with `/close sidebar-header-footer-redesign` at the end.
 ## Close-Out
 
 **Closed:** 2026-09-25
-**Vehicle used:** Inline — chunked commits (footer CSS scaffold, footer JSX + Globe migration, Edit-roles migration to kebab), Ashley in-loop between chunks
+**Vehicle used:** Inline — chunked commits (footer CSS scaffold, footer JSX + Globe migration, Edit-roles migration to kebab), the user in-loop between chunks
 **Overall verdict:** closed-with-misses
 
 ### Shape features (conformance)
@@ -126,7 +126,7 @@ Closed with `/close sidebar-header-footer-redesign` at the end.
 - **Prior context — hard-order rule on original catchall pair preserved** — present · New group conversation then Edit global skills — pair kept intact; Edit roles appended after them, deliberately not extending the guard to the third item
 - **What would make it wrong: bottom zone becomes a miscellaneous drawer** — present · Footer holds only the anchor, global files (user-scope), and preferences placeholder (user-scope) — no non-user items snuck in
 - **What would make it wrong: initials circle or preferences gear develops hover/pointer while inert** — present · Initials has no cursor and no :hover rule; preferences gear has cursor:default and its hover rule zeroes out all hover effects
-- **What would make it wrong: top zone re-lay-out too subtle to feel decrowded** — drifted · Endorsed — decrowding-by-subtraction alone was Ashley's intent, consistent with the Out list excluding cluster-spacing changes
+- **What would make it wrong: top zone re-lay-out too subtle to feel decrowded** — drifted · Endorsed — decrowding-by-subtraction alone was the user's intent, consistent with the Out list excluding cluster-spacing changes
 - **What would make it wrong: logo lockup replaced/moved/shrunk** — present · Logo markup and CSS untouched
 - **What would make it wrong: mobile hides footer or leaves mobile users without global files** — present · Mobile media query bumps footer sizes; footer is a flex-shrink:0 sibling in the panel column, same as the header
 - **What would make it wrong: existing hard-order rule on catchall's original pair disturbed** — present · Original pair keeps its order; guard-comment updated to note Edit roles was appended as the third item and the guard does NOT extend to it
