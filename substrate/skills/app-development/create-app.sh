@@ -58,6 +58,21 @@ TEMPLATE_DIR="$SCRIPT_DIR/templates/app-starter"
 [ -d "$HOME/fleet/apps-backups" ] || die "~/fleet/apps-backups does not exist — run bootstrap.sh first"
 [ -d "$TEMPLATE_DIR" ]            || die "starter template not found at $TEMPLATE_DIR"
 [ ! -e "$APP_DIR" ]               || die "app already exists at $APP_DIR"
+
+# Read the numeric Skynet DB hostId from the distributor-written file so we
+# can bake PANE_BASE = '/apps/<HOSTID>/<SLUG>/pane' into scaffolded pane.ts
+# + server.js. The distributor writes this on every fleet-substrate sweep
+# (see run-bootstrap.ts Step 5b / local-fleet-install.ts Step 5b). If the
+# file is missing, this box hasn't been swept yet — surface the failure
+# rather than scaffolding an app with a bogus prefix.
+HOSTID_FILE="$HOME/.claude/skynet-hostid"
+if [ ! -f "$HOSTID_FILE" ]; then
+    die "$HOSTID_FILE missing — the fleet-substrate distributor hasn't swept this box yet. Wait a minute and retry, or ask the box-maintainer role to check the distributor. Do NOT scaffold without a real hostId; PANE_BASE would be wrong and the app would 404 in the pane iframe."
+fi
+HOSTID=$(cat "$HOSTID_FILE" | tr -d '[:space:]')
+if ! [[ "$HOSTID" =~ ^[1-9][0-9]{0,9}$ ]]; then
+    die "$HOSTID_FILE contains an invalid hostId ('$HOSTID') — expected a positive integer. Ask the box-maintainer role to check the distributor sweep."
+fi
 [ ! -e "$UNIT_FILE" ]             || die "systemd unit already exists at $UNIT_FILE"
 
 # Make bun discoverable even if this script runs from a shell that hasn't
@@ -178,6 +193,23 @@ p.write_text(json.dumps({"title": sys.argv[2], "description": ""}, indent=2) + "
 PYEOF
 log "wrote app.json.pending (title=\"$TITLE\", description empty)"
 log "  → sidebar will NOT show this app until you publish: mv app.json.pending app.json"
+
+# PANE_BASE substitution — src/lib/pane.ts + server.js carry literal
+# `/apps/__HOSTID__/__SLUG__/pane` strings that need to be rewritten to
+# `/apps/<hostid>/<slug>/pane` at scaffold time. The pane iframe route,
+# the .serve. tab route, the transformPageChunk rewrite, and the
+# server.js path-strip all rely on this being correct — a bogus prefix
+# 404s the whole app in-pane. Idempotent per-file sed with temp file +
+# atomic rename so a mid-write failure can't leave a partial file.
+for f in "$APP_DIR/src/lib/pane.ts" "$APP_DIR/server.js"; do
+    if [ ! -f "$f" ]; then
+        die "expected template file missing after copy: $f"
+    fi
+    tmp=$(mktemp "${f}.XXXXXX")
+    sed -e "s|__HOSTID__|$HOSTID|g" -e "s|__SLUG__|$SLUG|g" "$f" > "$tmp"
+    mv "$tmp" "$f"
+done
+log "substituted PANE_BASE = /apps/$HOSTID/$SLUG/pane in pane.ts + server.js"
 
 # package.json — set the "name" field to the slug so it doesn't collide
 # with the template's default name if bun install caches by name.

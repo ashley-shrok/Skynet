@@ -6,6 +6,17 @@ const config = {
     preprocess: vitePreprocess(),
     kit: {
         adapter: adapter(),
+        // Emit assets as absolute-from-root (/_app/immutable/...) instead of
+        // relative (../_app/...). Skynet's pane proxy injects a <base> tag
+        // whose depth doesn't match SvelteKit's route-URL depth, so relative
+        // asset URLs resolve incorrectly at deep pages (subdirectories,
+        // catch-all routes, etc.). src/hooks.server.ts's transformPageChunk
+        // then prefixes /_app/ with PANE_BASE so browser fetches route back
+        // through the proxy. Do NOT flip this to true without also removing
+        // the transformPageChunk rewrite — they're a matched pair.
+        paths: {
+            relative: false
+        },
         // Skynet's reverse-proxy at /apps/:hostId/:slug/pane/* enforces the
         // same-origin (CSRF) check at its boundary before forwarding requests
         // to this app — see src/backend/apps/app-proxy-csrf-check.ts in the

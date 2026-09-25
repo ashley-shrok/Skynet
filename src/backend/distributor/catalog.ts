@@ -589,6 +589,48 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
+  // Pane-safe starter files (2026-09-25) — Ivory's proven pattern packaged
+  // into the scaffold so a first-try agent gets pane-safety without knowing
+  // the mechanism. pane.ts + server.js carry `__HOSTID__` / `__SLUG__`
+  // markers that create-app.sh substitutes at scaffold time; the other
+  // files reference PANE_BASE symbolically. See substrate/skills/
+  // app-development/SKILL.md § How the pane mounts your app.
+  {
+    slug: "app-development-template-lib-pane",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/lib/pane.ts",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/lib/pane.ts",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-hooks",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/hooks.ts",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/hooks.ts",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-hooks-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/hooks.server.ts",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/hooks.server.ts",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-server-js",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/server.js",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/server.js",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-about-page",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/routes/about/+page.svelte",
+    installPath: "~/.claude/skills/app-development/templates/app-starter/src/routes/about/+page.svelte",
+    restartHook: null,
+  },
+
   // --- ambient-monitor (1 row: the single launcher that spawns the four ambient watchers) ---
   // Replaces what were once four separate Monitor invocations (relay receiver, wake-up scheduler,
   // context-watch, role-file-watch) with a single launch. The four watchers stay as their own

@@ -9,7 +9,7 @@ Environment=HOST=127.0.0.1
 Environment=PORT=__PORT__
 Environment=NODE_ENV=production
 Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.bun/bin/bun ./build/index.js
+ExecStart=%h/.bun/bin/bun ./server.js
 Restart=always
 RestartSec=2
 KillMode=control-group

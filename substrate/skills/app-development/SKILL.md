@@ -330,30 +330,78 @@ Common commands:
 
 Never `pkill bun` — it kills every app on the box.
 
-## Links inside the app — root-absolute paths break the pane
+## How the pane mounts your app — one rule to internalize
 
 When the user opens your app through its tile, the front-end client
-renders it in a proxied iframe pane mounted at a path prefix (something
-like `/apps/<hostId>/<slug>/pane/`). To make relative URLs resolve
-inside that prefix, the client's proxy injects `<base href="…/pane/">`
-into your HTML's `<head>` — so `<a href="page">` and `fetch("api/foo")`
-resolve into the app.
+renders it in a proxied iframe. The iframe URL is a mount PREFIX under
+the client's own origin — something like
+`/apps/<hostId>/<slug>/pane/`. The proxy strips that prefix before
+forwarding to your app's loopback port, so your route handlers see
+`/foo` even when the browser URL is `/apps/3/videos/pane/foo`.
 
-**The trap:** HTML `<base>` only affects RELATIVE URLs. Root-absolute
-URLs (leading `/`) are resolved against the document's ORIGIN per URL
-spec — they bypass `<base>` entirely. So `<a href="/settings">` navigates
-the iframe back to the CLIENT's root, not into your app.
+There is a SECOND mount context: right-clicking a tile offers "open in
+new tab," which opens the app at its own subdomain
+(`<host>-<port>.serve.<client-domain>`). That path doesn't strip the
+prefix — your app sees the full `/apps/<hostId>/<slug>/pane/foo` URL.
+Every URL your app emits has to work in BOTH.
 
-**Rule: never use a leading `/` on URLs that target your own app.**
-Write them relative:
+**The starter handles both contexts for you** via a set of inert
+scaffold files — you don't need to understand the plumbing to build an
+app, but the ONE thing you do need to know is the rule for internal
+URLs:
 
-- `<a href="settings">` — not `<a href="/settings">`
-- `fetch("api/foo")` — not `fetch("/api/foo")`
-- `<img src="logo.svg">` — not `<img src="/logo.svg">`
+**Rule: prefix every internal URL your app emits with `PANE_BASE`.**
 
-Same rule for `<script src>`, `<link href>`, `<form action>`, and every
-other URL-carrying attribute. If a URL targets your own app, no leading
-slash. External URLs (`https://…`, `//example.com/…`) work as-is.
+```svelte
+<script>
+    import { PANE_BASE } from '$lib/pane';
+</script>
+
+<a href="{PANE_BASE}/settings">Settings</a>
+<img src="{PANE_BASE}/logo.svg" alt="" />
+<video src="{PANE_BASE}/api/video/x.mp4" controls></video>
+```
+
+```ts
+fetch(`${PANE_BASE}/api/foo`);
+goto(`${PANE_BASE}/other-page`);
+```
+
+External URLs (`https://…`, `//example.com/…`) work as-is — no prefix.
+
+**Why the prefix is required (the mechanism, for when it matters):** the
+client's proxy injects `<base href="…/pane/">` into every HTML
+response, which handles RELATIVE URLs correctly. But root-absolute URLs
+(leading `/`) bypass `<base>` per URL spec — they resolve to the
+document origin, which is the client's own root, not your app. So
+`<a href="/settings">` navigates the iframe OUT of your app. Prefixing
+with `PANE_BASE` gives the browser a URL that resolves to a path the
+proxy recognizes and forwards to your app.
+
+**Under the hood** (you shouldn't need to touch any of this — it's
+already scaffolded and works):
+
+- `src/lib/pane.ts` — exports `PANE_BASE` with the numeric hostId +
+  slug baked at scaffold time (`create-app.sh` reads the numeric hostId
+  from `~/.claude/skynet-hostid`, a distributor-written file — you
+  never need to know the integer)
+- `src/hooks.ts` — a universal `reroute` hook strips `PANE_BASE` from
+  incoming request paths so both mount contexts land on the same
+  handlers
+- `src/hooks.server.ts` — rewrites SvelteKit's `/_app/` asset URLs +
+  the `Link:` preload header to include the prefix
+- `server.js` — custom Node entry that strips `PANE_BASE` at the HTTP
+  layer for the standalone-tab context so adapter-node's static-file
+  middleware finds files on disk
+- `svelte.config.js` — `paths.relative = false` (matched pair with the
+  transformPageChunk rewrite)
+- `src/app.html` — `data-sveltekit-reload` forces full page reloads on
+  every internal nav, sidestepping a SvelteKit-internal URIError in the
+  client-router URL-parse path that would otherwise silently abort
+  navigation
+
+Do not edit any of these files unless you know exactly what you're
+changing — they're a package.
 
 ## Authentication — the front-end client handles it, you don't
 
@@ -399,8 +447,22 @@ what you're doing — surprises here are worse than a moment of confirmation.
 
 ## Reflex triggers — when you catch yourself about to X, stop
 
-- About to write `localStorage.setItem("data", …)` for anything that
-  matters → **stop.** It goes in the SQLite database.
+- About to write a root-absolute URL (`<a href="/foo">`, `fetch("/api/…")`,
+  `<img src="/logo.svg">`) inside your app → **stop.** Import
+  `PANE_BASE` from `$lib/pane` and prefix it:
+  `<a href="{PANE_BASE}/foo">`. Root-absolute URLs bypass the injected
+  `<base>` tag per URL spec and navigate the iframe OUT of your app. See
+  § How the pane mounts your app for the mechanism.
+- About to reach for `localStorage`, `sessionStorage`, `IndexedDB`,
+  `document.cookie`, or ANY other browser-side persistence → **stop.**
+  Persistence goes in the SQLite database, accessed through your
+  server routes / form actions. Client-side storage is per-browser,
+  per-device, per-profile — it doesn't survive a user switching devices
+  or clearing storage, and it silently diverges between browser tabs.
+  Anything worth saving is worth saving server-side. (Read-only ephemeral
+  UI state — a "sidebar collapsed" toggle, a "last-visited tab" hint —
+  is the ONLY thing localStorage is acceptable for, and only if losing it
+  is a shrug.)
 - About to `npm install express` or `bun add express` → **stop.**
   SvelteKit's server handlers are the HTTP layer.
 - About to write a login form or wire up sessions → **stop.** The front-end

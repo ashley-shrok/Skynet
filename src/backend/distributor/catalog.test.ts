@@ -62,7 +62,11 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // ~/.claude/skills/app-development/ on managed boxes.
     // task-field-check adds 1 helper script (UserPromptSubmit hook for
     // the id-skill task: field nag).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(46);
+    // +5 rows 2026-09-25 for the pane-safe starter files (Ivory's scaffold
+    // packaged): src/lib/pane.ts, src/hooks.ts, src/hooks.server.ts,
+    // server.js, src/routes/about/+page.svelte — grew app-development from
+    // 26 to 31 rows.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(51);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -161,7 +165,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // 26 under app-development/ (SKILL.md + 5 helpers + 20 template files
     // including the 3-file pre-generated initial Drizzle migration,
     // first-class-apps shape 1)
-    expect(skillRows.length).toBe(32);
+    // +5 for pane-safe starter files (see Test 1 comment) — 32 → 37.
+    expect(skillRows.length).toBe(37);
     // 12 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
     // (distributor-shipped node POSTer — install-usage-reporter.sh was
@@ -271,7 +276,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     const runtime = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "runtime",
     );
-    expect(bundled.length).toBe(45);
+    // +5 for pane-safe starter files (see Test 1 comment) — 45 → 50.
+    expect(bundled.length).toBe(50);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

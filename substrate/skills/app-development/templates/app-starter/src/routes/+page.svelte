@@ -1,5 +1,9 @@
 <script lang="ts">
     import type { PageData, ActionData } from './$types';
+    // PANE_BASE — every internal URL your app emits into HTML needs this
+    // prefix (hrefs, fetch, <img src>, <video src>). See src/lib/pane.ts
+    // for the mechanism + SKILL.md § How the pane mounts your app.
+    import { PANE_BASE } from '$lib/pane';
 
     let { data, form }: { data: PageData; form: ActionData } = $props();
 </script>
@@ -63,4 +67,15 @@
             </li>
         {/if}
     </ul>
+
+    <!--
+      Demo of the PANE_BASE pattern for internal navigation. Every internal
+      <a href>, <img src>, <video src>, and fetch() URL must be prefixed
+      this way (see src/lib/pane.ts). Root-absolute hrefs like "/about"
+      would navigate the iframe to Skynet's root, not into this app.
+      Delete this section (and the /about route) when you customize.
+    -->
+    <p class="mt-8 text-center text-xs text-gray-400">
+        <a href="{PANE_BASE}/about" class="hover:underline">About this app</a>
+    </p>
 </div>

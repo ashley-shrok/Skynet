@@ -6,7 +6,21 @@
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         %sveltekit.head%
     </head>
-    <body data-sveltekit-preload-data="hover">
+    <!--
+      data-sveltekit-reload — force every internal navigation into a full
+      page load instead of client-side routing. Sidesteps a URIError from
+      decodeURI in SvelteKit's client-side URL-parse path that can silently
+      abort navigation with no user-visible signal in the pane iframe. See
+      the app-development SKILL.md § How the pane mounts your app for the
+      full mechanism. Tradeoff: transitions are ~200ms slower per click;
+      for utility-surface apps (the pane's design intent) this is fine.
+
+      data-sveltekit-preload-data="off" — preload-on-hover would issue an
+      HTTP prefetch for every hover, generating noisy 404s when hovers
+      target paths that reroute would rewrite. Off is the correct default
+      for pane-mounted apps.
+    -->
+    <body data-sveltekit-preload-data="off" data-sveltekit-reload>
         <div style="display: contents">%sveltekit.body%</div>
     </body>
 </html>
