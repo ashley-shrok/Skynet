@@ -279,10 +279,155 @@ def _matches_identity_first_turn(line, identity_name):
 # ---------------------------------------------------------------------------
 
 
+def _extract_id_name_from_first_turn(line):
+    """Extract the identity name from a user-role JSONL line's `<command-name>
+    /id</command-name><command-args>NAME<delim|EOL>` shape. Returns str or None.
+
+    Inverse of `_matches_identity_first_turn`: instead of asking "does this
+    line's args match a given identity_name?", this returns whatever name
+    appears at the args position (bounded by DISCOVERY_DELIMITER_SET or EOL).
+    Used by `discover_all_identity_jsonl_paths` to attribute each JSONL to at
+    most one identity in a single pass.
+
+    Correctness parity with the per-identity predicate:
+      * Same delimiter set — a name terminated by `<`, ` `, `\\r`, or EOL is
+        accepted verbatim; anything else means we're reading past the boundary
+        into the rest of the args content, so we truncate at the delimiter.
+      * Same guard against tool-result rows (`"tool_result"` present) and
+        non-user turns (`"type":"user"` absent).
+      * Extracted name must pass SAFE_NAME_RE — belt-and-suspenders against
+        oddball args content that happened to contain the tag literals.
+    """
+    if '"type":"user"' not in line:
+        return None
+    if '"tool_result"' in line:
+        return None
+    if "<command-name>/id</command-name>" not in line:
+        return None
+    args_tag = "<command-args>"
+    args_idx = line.find(args_tag)
+    if args_idx == -1:
+        return None
+    name_start = args_idx + len(args_tag)
+    i = name_start
+    while i < len(line) and line[i] not in DISCOVERY_DELIMITER_SET:
+        i += 1
+    name = line[name_start:i]
+    if not name:
+        return None
+    if not SAFE_NAME_RE.match(name):
+        return None
+    return name
+
+
+def discover_all_identity_jsonl_paths(identity_names, home):
+    """Single-pass inverted discovery — walks ~/.claude/projects/*/*.jsonl ONCE
+    and returns a dict {name: path_or_None} covering every name in
+    identity_names.
+
+    Replaces the pre-2026-09-25 per-identity call pattern where each identity
+    triggered an independent full walk of the projects tree (O(identities ×
+    jsonls) worst-case for identities with no matching JSONL — the pathological
+    shape on workstation-sized boxes with 100+ mostly-dormant identities).
+
+    Algorithm:
+      1. Enumerate every JSONL under ~/.claude/projects/*/ once.
+      2. Sort mtime-desc (same order as the per-identity path used).
+      3. For each JSONL in order: read its head (bounded by DISCOVERY_HEAD_BYTES),
+         find the first `"role":"user"` line, extract whatever identity name
+         appears in `<command-args>` at that position.
+      4. If the extracted name is in identity_names AND we haven't already
+         mapped it (i.e. an even more recent JSONL didn't beat this one), map it.
+      5. Early-out once every requested identity has been mapped.
+
+    First-hit-per-identity wins under mtime-desc = MOST RECENT session wins,
+    matching the semantics of the pre-inversion per-identity walk.
+
+    Correctness parity with the pre-inversion path:
+      * Delimiter guard — `tiff` will NOT match a JSONL whose `<command-args>`
+        starts with `tiffany` (that JSONL attributes to `tiffany`, not `tiff`,
+        because the extractor walks forward to a delimiter).
+      * Fail-safe — any OSError on a candidate file skips that file only;
+        FileNotFoundError on the projects dir returns the {name: None} map
+        as-is.
+
+    Fallback: the single-identity `discover_identity_jsonl_path` below stays
+    for `_build_pid_line` to handle the rare case where a live PID belongs
+    to an identity whose folder does not exist under ~/fleet/identities/ and
+    was not passed into this bulk call.
+    """
+    result = {name: None for name in identity_names}
+    if not result:
+        return result
+    identity_set = set(identity_names)
+    remaining = set(identity_names)
+
+    projects_root = os.path.join(home, ".claude", "projects")
+    candidates = []
+    try:
+        slug_entries = os.listdir(projects_root)
+    except FileNotFoundError:
+        return result
+    except OSError:
+        return result
+    for slug in slug_entries:
+        slug_dir = os.path.join(projects_root, slug)
+        try:
+            if not os.path.isdir(slug_dir):
+                continue
+            for fname in os.listdir(slug_dir):
+                if not fname.endswith(".jsonl"):
+                    continue
+                fpath = os.path.join(slug_dir, fname)
+                try:
+                    st = os.stat(fpath)
+                except OSError:
+                    continue
+                candidates.append((st.st_mtime, fpath))
+        except OSError:
+            continue
+    candidates.sort(key=lambda t: (-t[0], t[1]))
+
+    for _mtime, fpath in candidates:
+        if not remaining:
+            break
+        try:
+            with open(fpath, "rb") as fh:
+                head = fh.read(DISCOVERY_HEAD_BYTES)
+        except OSError:
+            continue
+        try:
+            text = head.decode("utf-8", errors="replace")
+        except Exception:
+            continue
+        first_user_role_line = None
+        for candidate_line in text.split("\n"):
+            if '"role":"user"' in candidate_line:
+                first_user_role_line = candidate_line
+                break
+        if first_user_role_line is None:
+            continue
+        name = _extract_id_name_from_first_turn(first_user_role_line)
+        if name is None:
+            continue
+        if name not in identity_set:
+            continue
+        if result[name] is not None:
+            continue
+        result[name] = fpath
+        remaining.discard(name)
+    return result
+
+
 def discover_identity_jsonl_path(identity_name, home):
     """Walk ~/.claude/projects/*/, mtime-desc, return first JSONL whose first
     user-role line matches `/id <identity_name>` (with the strict delimiter
     guard). Returns absolute path str or None.
+
+    Legacy single-identity path — retained for `_build_pid_line`'s fallback
+    lookup when a live PID belongs to an identity that was not enumerated in
+    the initial ~/fleet/identities/ scan. The main sweep loop uses the batch
+    inversion above (`discover_all_identity_jsonl_paths`).
 
     Mirrors the shell `buildDiscoveryScript` in discover-identity-session-file.ts:
       1. find ~/.claude/projects/ -maxdepth 2 -type f -name '*.jsonl'
@@ -1474,12 +1619,14 @@ def main():
         })
         known_names.add(identity)
 
-    # ---- Per-identity discovery (Phase 32 port, server-side). ----
-    identity_jsonl_paths = {}  # name -> str | None
-    for rec in identity_records:
-        identity_jsonl_paths[rec["name"]] = discover_identity_jsonl_path(
-            rec["name"], home,
-        )
+    # ---- Discovery: walk ~/.claude/projects/ ONCE, build identity → jsonl_path map.
+    #      Inverts the pre-2026-09-25 per-identity call pattern that walked the
+    #      full projects tree per identity — pathological on workstation-sized
+    #      boxes with 100+ mostly-dormant identities. First-hit-per-identity
+    #      wins under mtime-desc, same semantics as the legacy path. ----
+    identity_jsonl_paths = discover_all_identity_jsonl_paths(
+        [rec["name"] for rec in identity_records], home,
+    )
 
     # ---- Emit identity lines first (all Layer-1 tail scans run here). ----
     jsonl_tail_cache = {}  # name -> str | None (populated by _build_identity_line)
