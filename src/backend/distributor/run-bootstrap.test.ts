@@ -47,6 +47,17 @@
  *          happy path at the channel-mock level (both emit the sentinel); assert
  *          skynetHostnameOk=true with no error.
  *
+ * Step 6 additions (usage-reporter statusLine wire-up + legacy cleanup):
+ *   (sl-1) BootstrapResult has statusLineWireOk: boolean field.
+ *   (sl-2) Shell command shape — WRAPPER path, jq @sh raw mode, statusLine
+ *          jq write, cleanup rm -f for three legacy paths, sentinel.
+ *   (sl-3) Sentinel present → statusLineWireOk=true, hadError=false.
+ *   (sl-4) Channel returns null → hadError=true, statusLineWireOk=false,
+ *          logBootstrapFailed(statusline-wire, "channel returned null").
+ *   (sl-5) Missing sentinel → hadError=true with trimmed remote output.
+ *   (sl-6) Channel throws → hadError=true, function still resolves (NEVER-THROW).
+ *   (sl-7) logBootstrapResult payload includes statusLineWireOk field.
+ *
  * NEVER-THROW contract: every test calls runBootstrapForHost and awaits the
  * result with `resolves` — it must never reject.
  */
@@ -81,8 +92,17 @@ function makeChannel(
   handlers: Record<string, string | null>,
   defaultResponse: string | null = null,
 ): { channel: SshChannel; exec: ReturnType<typeof vi.fn> } {
+  // Seed handlers with happy-path sentinels for steps that most tests don't
+  // care about individually. Per-test handlers with the same key override
+  // (spread order: seeded first, user handlers second, later keys win in the
+  // Object.entries iteration order). Tests specifically about a seeded step
+  // override with their own value (including null for failure paths).
+  const seeded: Record<string, string | null> = {
+    __STATUSLINE_OK__: "__STATUSLINE_OK__",
+    ...handlers,
+  };
   const exec = vi.fn(async (cmd: string) => {
-    for (const [key, response] of Object.entries(handlers)) {
+    for (const [key, response] of Object.entries(seeded)) {
       if (cmd.includes(key)) return response;
     }
     return defaultResponse;
@@ -862,6 +882,194 @@ describe("runBootstrapForHost", () => {
 
       expect(result.skynetHostnameOk).toBe(true);
       expect(result.hadError).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Step 6: usage-reporter statusLine wire-up + legacy cleanup.
+  //   (sl-1) BootstrapResult has statusLineWireOk: boolean field.
+  //   (sl-2) Shell command shape — WRAPPER path, jq @sh, statusLine jq write,
+  //          cleanup rm -f for all three legacy paths, sentinel.
+  //   (sl-3) Sentinel present → statusLineWireOk=true, hadError=false.
+  //   (sl-4) Channel returns null → hadError=true, statusLineWireOk=false,
+  //          logBootstrapFailed(statusline-wire, "channel returned null").
+  //   (sl-5) Missing sentinel → hadError=true with trimmed remote output.
+  //   (sl-6) Channel throws → hadError=true, function still resolves (NEVER-THROW).
+  //   (sl-7) logBootstrapResult payload includes statusLineWireOk field.
+  //
+  // The seeded default in makeChannel supplies __STATUSLINE_OK__ so all
+  // pre-existing tests keep passing; these tests explicitly override.
+  // -------------------------------------------------------------------------
+  describe("step 6: usage-reporter statusLine wire-up + legacy cleanup", () => {
+    it("(sl-1) BootstrapResult has statusLineWireOk: boolean field", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        SETTINGS: "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+      });
+      const result = await runBootstrapForHost(channel, HOST);
+      expect(typeof result.statusLineWireOk).toBe("boolean");
+    });
+
+    it("(sl-2) shell command shape — WRAPPER path, jq @sh, statusLine write, cleanup rm -f, sentinel", async () => {
+      const { channel, exec } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        SETTINGS: "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+      });
+
+      await runBootstrapForHost(channel, HOST);
+
+      const cmds = captureCommands(exec);
+      const wireCmd = cmds.find((c) => c.includes("__STATUSLINE_OK__"));
+      expect(wireCmd).toBeDefined();
+      if (!wireCmd) return;
+
+      // Wrapper path (from USAGE_REPORTER_WRAPPER_PATH constant).
+      expect(wireCmd).toContain(`WRAPPER="$HOME/.local/bin/usage-reporter"`);
+      // Read current statusLine.command from settings.json via jq -r.
+      expect(wireCmd).toContain(`jq -r '.statusLine.command // ""' "$SETTINGS"`);
+      // Compare CUR to WRAPPER for idempotency.
+      expect(wireCmd).toContain(`if [ "$CUR" = "$WRAPPER" ]`);
+      // Use jq @sh in RAW mode (-rn) to shell-quote the original command.
+      expect(wireCmd).toContain(`jq -rn --arg s "$CUR" '$s | @sh'`);
+      // Atomic conf write (tmp file + mv).
+      expect(wireCmd).toContain(`> "$CONF.new"`);
+      expect(wireCmd).toContain(`mv "$CONF.new" "$CONF"`);
+      // Rewrite settings.json.statusLine via jq --arg cmd.
+      expect(wireCmd).toContain(
+        `jq --arg cmd "$WRAPPER" '.statusLine = {type:"command", command:$cmd}'`,
+      );
+      expect(wireCmd).toContain(`mv "$SETTINGS.new" "$SETTINGS"`);
+      // Cleanup all three legacy paths.
+      expect(wireCmd).toContain(`rm -f "$HOME/.local/bin/install-usage-reporter"`);
+      expect(wireCmd).toContain(`"$HOME/.claude/usage/usage-reporter.sh"`);
+      expect(wireCmd).toContain(`"$HOME/.claude/usage/usage-report.js"`);
+      // Sentinel.
+      expect(wireCmd).toContain(`echo "__STATUSLINE_OK__"`);
+    });
+
+    it("(sl-3) sentinel present → statusLineWireOk=true, hadError=false", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        SETTINGS: "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        __STATUSLINE_OK__: "some benign chatter\n__STATUSLINE_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.statusLineWireOk).toBe(true);
+      expect(result.hadError).toBe(false);
+    });
+
+    it("(sl-4) channel returns null on statusline-wire → hadError=true, statusLineWireOk=false, logBootstrapFailed called with 'channel returned null'", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        SETTINGS: "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        __STATUSLINE_OK__: null,
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.statusLineWireOk).toBe(false);
+      expect(result.hadError).toBe(true);
+
+      const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
+      const found = warnCalls.some(([msg, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return (
+          typeof msg === "string" &&
+          msg.includes("statusline-wire") &&
+          c.step === "statusline-wire" &&
+          c.errorMessage === "channel returned null"
+        );
+      });
+      expect(found).toBe(true);
+    });
+
+    it("(sl-5) missing sentinel → hadError=true, logBootstrapFailed called with trimmed output", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        SETTINGS: "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        __STATUSLINE_OK__: "jq: parse error at line 1\n",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.statusLineWireOk).toBe(false);
+      expect(result.hadError).toBe(true);
+
+      const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
+      const found = warnCalls.some(([msg, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return (
+          typeof msg === "string" &&
+          msg.includes("statusline-wire") &&
+          c.step === "statusline-wire" &&
+          typeof c.errorMessage === "string" &&
+          (c.errorMessage as string).includes("jq: parse error")
+        );
+      });
+      expect(found).toBe(true);
+    });
+
+    it("(sl-6) channel.exec throws during step 6 → hadError=true, function still resolves (NEVER-THROW)", async () => {
+      const exec = vi.fn(async (cmd: string) => {
+        if (cmd.includes("is-enabled")) return "enabled\nEXIT:0";
+        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
+        if (cmd.includes("SETTINGS=") && !cmd.includes("__STATUSLINE_OK__"))
+          return "__SETTINGS_OK__";
+        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
+        if (cmd.includes("skynet-hostname")) return "__SKYNET_HOSTNAME_OK__";
+        if (cmd.includes("__STATUSLINE_OK__")) {
+          throw new Error("boom");
+        }
+        return null;
+      });
+      const throwingChannel: SshChannel = { exec };
+
+      await expect(
+        runBootstrapForHost(throwingChannel, HOST),
+      ).resolves.toBeDefined();
+
+      const result = await runBootstrapForHost(throwingChannel, HOST);
+      expect(result.hadError).toBe(true);
+      expect(result.statusLineWireOk).toBe(false);
+    });
+
+    it("(sl-7) logBootstrapResult payload includes statusLineWireOk field", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        SETTINGS: "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+      });
+
+      await runBootstrapForHost(channel, HOST);
+
+      const infoCalls = vi.mocked(systemLogger.info).mock.calls;
+      const summary = infoCalls.find(([, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return c.operation === "fleet_substrate_bootstrap_result" && "statusLineWireOk" in c;
+      });
+      expect(summary).toBeDefined();
+      if (!summary) return;
+      const ctx = summary[1] as Record<string, unknown>;
+      expect(ctx.statusLineWireOk).toBe(true);
     });
   });
 });

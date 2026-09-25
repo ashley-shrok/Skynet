@@ -104,6 +104,27 @@ import {
   GSD_MONITOR_STRIP_JQ,
 } from "./run-bootstrap.js";
 
+/**
+ * Legacy paths cleaned up in Step 6 — the retired install script and two
+ * duplicate copies now shipped to ~/.local/bin/ by the distributor. Same
+ * three paths as the SSH-surface bootstrap.
+ */
+const STATUSLINE_LEGACY_PATHS = [
+  ".local/bin/install-usage-reporter",
+  ".claude/usage/usage-reporter.sh",
+  ".claude/usage/usage-report.js",
+] as const;
+
+/**
+ * Shell-quote a string for safe inclusion in a `WRAPPED='<...>'` conf line
+ * that will be sourced by `. "$CONF"`. Matches jq's `@sh` filter output —
+ * wraps in single quotes and escapes embedded single quotes via `'\''`.
+ * Byte-parallel with the SSH-surface's `jq -rn --arg s "$CUR" '$s | @sh'`.
+ */
+function shSingleQuote(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
 const execFile = promisify(execFileCb);
 
 // ---------------------------------------------------------------------------
@@ -983,6 +1004,160 @@ export async function installFleetSubstrateLocally(
  *   - "unchanged"   — file already matches; silent no-op (no mtime churn).
  *   - { error: string, site: string } — FS failure.
  */
+/**
+ * Local port of SSH-bootstrap Step 6 — usage-reporter statusLine wire-up +
+ * legacy cleanup. Idempotent:
+ *   - If settings.json.statusLine.command already equals the expanded wrapper
+ *     path (~/.local/bin/usage-reporter), skip the wrap. Preserves whatever
+ *     WRAPPED= was captured on the first wire-up (never re-wrap the wrapper).
+ *   - Otherwise: capture the current command (shell-safe quoted) into
+ *     ~/.claude/usage/usage-reporter.conf, patch settings.json.statusLine to
+ *     the wrapper, using writeContentDiffFile so mtime doesn't churn.
+ * Always runs the legacy cleanup regardless of wrap state — unlink of an
+ * absent path is a no-op (ENOENT tolerated).
+ *
+ * Returns true on success (wired + cleaned OR already-wired + cleaned),
+ * false on any failure. Never throws.
+ */
+async function wireStatusLineLocally(host: {
+  id: string;
+  name: string;
+}): Promise<boolean> {
+  const homeRoot = getLocalHomeRoot();
+  const claudeDir = path.join(homeRoot, ".claude");
+  const settingsPath = path.join(claudeDir, "settings.json");
+  const usageDir = path.join(claudeDir, "usage");
+  const confPath = path.join(usageDir, "usage-reporter.conf");
+  const wrapperPath = path.join(homeRoot, ".local", "bin", "usage-reporter");
+
+  // Read current statusLine.command from settings.json (empty if absent/malformed).
+  let currentCommand = "";
+  try {
+    const raw = await fs.readFile(settingsPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    const cmd = parsed?.statusLine?.command;
+    if (typeof cmd === "string") currentCommand = cmd;
+  } catch (err) {
+    const errno = (err as { code?: string } | undefined)?.code;
+    if (errno !== "ENOENT") {
+      // Non-ENOENT read/parse failure — log and continue (empty current
+      // command means we'll attempt to wire fresh).
+      systemLogger.warn(
+        `local-fleet-bootstrap: settings.json read/parse failed reading statusLine for ${host.name}`,
+        {
+          operation: "local_fleet_statusline_wire_error",
+          site: "read_settings",
+          fleetHostId: host.id,
+          hostName: host.name,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+      return false;
+    }
+  }
+
+  // Wrap-side work only if the wrap is not already in place.
+  if (currentCommand !== wrapperPath) {
+    try {
+      await fs.mkdir(usageDir, { recursive: true });
+      const confContent = `WRAPPED=${shSingleQuote(currentCommand)}\n`;
+      const confOutcome = await writeContentDiffFile(confPath, confContent);
+      if (typeof confOutcome === "object") {
+        systemLogger.warn(
+          `local-fleet-bootstrap: usage-reporter.conf write failed for ${host.name}`,
+          {
+            operation: "local_fleet_statusline_wire_error",
+            site: confOutcome.site,
+            fleetHostId: host.id,
+            hostName: host.name,
+            error: confOutcome.error,
+          },
+        );
+        return false;
+      }
+
+      // Patch settings.json.statusLine, preserving all other keys. Read-merge-
+      // write directly (no jq spawn) since Node already parsed JSON above.
+      let parsed: Record<string, unknown> = {};
+      try {
+        const raw = await fs.readFile(settingsPath, "utf-8");
+        parsed = JSON.parse(raw) as Record<string, unknown>;
+      } catch (err) {
+        const errno = (err as { code?: string } | undefined)?.code;
+        if (errno !== "ENOENT") {
+          systemLogger.warn(
+            `local-fleet-bootstrap: settings.json read failed for statusLine wire ${host.name}`,
+            {
+              operation: "local_fleet_statusline_wire_error",
+              site: "read_settings_for_merge",
+              fleetHostId: host.id,
+              hostName: host.name,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
+          return false;
+        }
+        // ENOENT — start from {}.
+      }
+      parsed.statusLine = { type: "command", command: wrapperPath };
+      const merged = JSON.stringify(parsed, null, 2) + "\n";
+      const settingsOutcome = await writeContentDiffFile(settingsPath, merged);
+      if (typeof settingsOutcome === "object") {
+        systemLogger.warn(
+          `local-fleet-bootstrap: settings.json statusLine write failed for ${host.name}`,
+          {
+            operation: "local_fleet_statusline_wire_error",
+            site: settingsOutcome.site,
+            fleetHostId: host.id,
+            hostName: host.name,
+            error: settingsOutcome.error,
+          },
+        );
+        return false;
+      }
+    } catch (err) {
+      systemLogger.warn(
+        `local-fleet-bootstrap: statusLine wire threw unexpectedly for ${host.name}`,
+        {
+          operation: "local_fleet_statusline_wire_error",
+          site: "wire_catchall",
+          fleetHostId: host.id,
+          hostName: host.name,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+      return false;
+    }
+  }
+
+  // Legacy cleanup — always run (idempotent; ENOENT tolerated). Failure to
+  // remove a legacy file is logged but does not fail the wire-up (the wrap
+  // is what matters; leftover dupes are cosmetic).
+  for (const rel of STATUSLINE_LEGACY_PATHS) {
+    const target = path.join(homeRoot, rel);
+    try {
+      await fs.unlink(target);
+    } catch (err) {
+      const errno = (err as { code?: string } | undefined)?.code;
+      if (errno !== "ENOENT") {
+        systemLogger.warn(
+          `local-fleet-bootstrap: legacy path cleanup unlink failed for ${host.name}`,
+          {
+            operation: "local_fleet_statusline_wire_error",
+            site: "legacy_unlink",
+            fleetHostId: host.id,
+            hostName: host.name,
+            path: target,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
+    }
+  }
+
+  return true;
+}
+
 async function writeContentDiffFile(
   finalPath: string,
   wantedContent: string,
@@ -1046,6 +1221,7 @@ export async function bootstrapFleetSubstrateLocally(
   let gsdContextMonitorCleanupOk = false;
   let skynetParentOk = false;
   let skynetHostnameOk = false;
+  let statusLineWireOk = false;
   let hadError = false;
 
   const claudeDir = path.join(getLocalHomeRoot(), ".claude");
@@ -1194,6 +1370,27 @@ export async function bootstrapFleetSubstrateLocally(
     );
   }
 
+  // ---- Step 6: usage-reporter statusLine wire-up + legacy cleanup ----
+  // Pure fs work — no systemd dependency. Byte-parallel with SSH surface
+  // (run-bootstrap.ts Step 6). Idempotent (no-op on already-wired boxes).
+  try {
+    statusLineWireOk = await wireStatusLineLocally(host);
+    if (!statusLineWireOk) hadError = true;
+  } catch (err) {
+    systemLogger.warn(
+      `local-fleet-bootstrap: statusLine wire step threw for ${host.name}`,
+      {
+        operation: "local_fleet_statusline_wire_error",
+        site: "outer_catch",
+        fleetHostId: host.id,
+        hostName: host.name,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
+    statusLineWireOk = false;
+    hadError = true;
+  }
+
   const result: BootstrapResult = {
     alreadyEnabled,
     bootstrapRan,
@@ -1202,6 +1399,7 @@ export async function bootstrapFleetSubstrateLocally(
     gsdContextMonitorCleanupOk,
     skynetParentOk,
     skynetHostnameOk,
+    statusLineWireOk,
     hadError,
   };
 

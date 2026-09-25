@@ -59,6 +59,20 @@
  *      Failure to write is logged and marked in hadError; the never-throw
  *      contract is preserved.
  *
+ *   6. usage-reporter statusLine wire-up + legacy cleanup:
+ *      Idempotently point ~/.claude/settings.json.statusLine at
+ *      ~/.local/bin/usage-reporter (distributor-shipped). If the current
+ *      statusLine.command is already the wrapper, no-op (preserves the
+ *      WRAPPED-original captured in ~/.claude/usage/usage-reporter.conf on
+ *      the first wrap). Otherwise: capture whatever the current command is
+ *      into the conf as WRAPPED=<shell-safe>, then rewrite statusLine to
+ *      the wrapper. Also removes three legacy paths that pre-dated the
+ *      distributor-owned pipeline: ~/.local/bin/install-usage-reporter
+ *      (retired install script), ~/.claude/usage/usage-reporter.sh (dup of
+ *      distributor copy), ~/.claude/usage/usage-report.js (dup of
+ *      distributor copy). Retires the previous manual install-usage-reporter
+ *      step — statusLine wire-up now runs automatically on every sweep.
+ *
  * NEVER-THROW CONTRACT:
  *   runBootstrapForHost NEVER rejects. All risky calls are wrapped in
  *   try/catch; failures are logged and the function resolves. The caller
@@ -98,6 +112,10 @@ export interface BootstrapResult {
   /** Whether the ~/.claude/skynet-hostname write succeeded. Step 5 always runs
    *  (host.name is always in scope); a false value here always implies hadError. */
   skynetHostnameOk: boolean;
+  /** Whether the statusLine wire-up + legacy-cleanup step succeeded. Step 6
+   *  is idempotent (no-op when statusLine is already the wrapper) and always
+   *  runs; a false value implies hadError. */
+  statusLineWireOk: boolean;
   /** True if any sub-step encountered an error. */
   hadError: boolean;
 }
@@ -185,6 +203,16 @@ export const GSD_MONITOR_DETECT_JQ =
  */
 export const GSD_MONITOR_STRIP_JQ =
   `.hooks.PostToolUse |= map(select(any(.hooks[]?.command // ""; test("gsd-context-monitor")) | not))`;
+
+/**
+ * Path of the distributor-shipped usage-reporter wrapper on managed hosts.
+ * Single source of truth for Step 6: settings.json.statusLine.command is
+ * wired to this exact string. Kept as a shell-expansion template ($HOME) so
+ * the SSH-exec surface (this file) and the local-fleet surface
+ * (local-fleet-install.ts, which resolves $HOME differently) each expand it
+ * with their own semantics before comparing / writing.
+ */
+export const USAGE_REPORTER_WRAPPER_PATH = "$HOME/.local/bin/usage-reporter";
 
 /**
  * Run idempotent pre-sweep bootstrap on a managed host.
@@ -570,6 +598,88 @@ export async function runBootstrapForHost(
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Step 6: usage-reporter statusLine wire-up + legacy cleanup.
+  //   (a) Read the current settings.json.statusLine.command.
+  //   (b) If already the distributor-shipped wrapper: no-op (preserves the
+  //       WRAPPED-original captured in ~/.claude/usage/usage-reporter.conf
+  //       on the first wrap — never re-wrap the wrapper).
+  //   (c) Otherwise: capture the current command into the conf as
+  //       WRAPPED=<shell-safe>, then rewrite settings.json.statusLine to
+  //       point at the wrapper. On a fresh box CUR is empty, WRAPPED="" is
+  //       correct (nothing to pass through).
+  //   (d) Remove three legacy paths that pre-dated the distributor-owned
+  //       pipeline: the retired install script + two dup copies of files
+  //       now shipped to ~/.local/bin/ by the distributor.
+  //
+  //   Idempotent: happy path on an already-wired box is a jq read + three
+  //   rm -f on absent files. No mtime churn on settings.json (jq write only
+  //   fires when CUR != WRAPPER).
+  // -------------------------------------------------------------------------
+  let statusLineWireOk = false;
+  try {
+    // Ordering: wrap-or-no-op FIRST (via && chain so a mid-block failure never
+    // reaches the sentinel), THEN legacy cleanup (rm -f is idempotent — never
+    // errors on absent files, so unconditional after wrap succeeds).
+    // Shell quoting: `printf %q` isn't POSIX, so use `jq @sh` to shell-quote
+    // CUR so a statusLine command containing spaces / quotes / $ round-trips
+    // safely through the conf file's `source`-based read (usage-reporter.sh:
+    // `[ -f "$CONF" ] && . "$CONF"`). WRAPPER assignment expands $HOME at
+    // shell time so both sides of the `[ "$CUR" != "$WRAPPER" ]` compare are
+    // absolute paths — jq stores the expanded value in settings.json on the
+    // wrap, so subsequent sweeps read back the same absolute path and the
+    // check idempotently short-circuits.
+    const wireCmd = [
+      `SETTINGS="$HOME/.claude/settings.json"`,
+      `WRAPPER="${USAGE_REPORTER_WRAPPER_PATH}"`,
+      `CONF="$HOME/.claude/usage/usage-reporter.conf"`,
+      `CUR=""`,
+      `if [ -f "$SETTINGS" ]; then`,
+      `  CUR=$(jq -r '.statusLine.command // ""' "$SETTINGS" 2>/dev/null || printf '')`,
+      `fi`,
+      `if [ "$CUR" = "$WRAPPER" ]; then`,
+      `  WROTE_OK=1`,
+      `else`,
+      `  WROTE_OK=0`,
+      `  mkdir -p "$HOME/.claude/usage" && \\`,
+      `    QUOTED=$(jq -rn --arg s "$CUR" '$s | @sh') && \\`,
+      `    printf 'WRAPPED=%s\\n' "$QUOTED" > "$CONF.new" && \\`,
+      `    mv "$CONF.new" "$CONF" && \\`,
+      `    { [ -f "$SETTINGS" ] || { mkdir -p "$(dirname "$SETTINGS")" && echo '{}' > "$SETTINGS"; }; } && \\`,
+      `    jq --arg cmd "$WRAPPER" '.statusLine = {type:"command", command:$cmd}' "$SETTINGS" > "$SETTINGS.new" && \\`,
+      `    mv "$SETTINGS.new" "$SETTINGS" && \\`,
+      `    WROTE_OK=1`,
+      `fi`,
+      `if [ "$WROTE_OK" = "1" ]; then`,
+      `  rm -f "$HOME/.local/bin/install-usage-reporter" "$HOME/.claude/usage/usage-reporter.sh" "$HOME/.claude/usage/usage-report.js"`,
+      `  echo "__STATUSLINE_OK__"`,
+      `fi`,
+    ].join("\n");
+
+    const raw = await channel.exec(wireCmd);
+
+    if (raw === null) {
+      hadError = true;
+      logBootstrapFailed(host, "statusline-wire", "channel returned null");
+    } else if (!raw.trimEnd().endsWith("__STATUSLINE_OK__")) {
+      hadError = true;
+      logBootstrapFailed(
+        host,
+        "statusline-wire",
+        raw.trimEnd().slice(0, 500) || "statusline wire-up failed",
+      );
+    } else {
+      statusLineWireOk = true;
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "statusline-wire",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
   const result: BootstrapResult = {
     alreadyEnabled,
     bootstrapRan,
@@ -578,6 +688,7 @@ export async function runBootstrapForHost(
     gsdContextMonitorCleanupOk,
     skynetParentOk,
     skynetHostnameOk,
+    statusLineWireOk,
     hadError,
   };
 
