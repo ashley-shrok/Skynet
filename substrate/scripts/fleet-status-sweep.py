@@ -929,7 +929,18 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
     cosmetics = {}
     role = None
 
-    for line in lines[fences[0] + 1: fences[1]]:
+    # Line-oriented scanner with a one-way lookahead cursor for multi-line YAML
+    # constructs (currently only the block-style `users:` list). All existing
+    # per-line branches remain single-line — the `skip_until_idx` gate lets a
+    # branch consume N following lines by advancing the cursor. The scanner
+    # never rewinds; index bookkeeping is monotonic.
+    body_lines = lines[fences[0] + 1: fences[1]]
+    skip_until_idx = -1  # inclusive — indices ≤ this were already consumed
+
+    for line_idx, line in enumerate(body_lines):
+        if line_idx <= skip_until_idx:
+            continue
+
         # Skip full-line comments (col-0-anchored check via lstrip).
         if line.lstrip().startswith("#"):
             continue
@@ -994,6 +1005,74 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
                     pass
                 continue
 
+        # --- users: per-user visibility gate list ---
+        # Mirrors extractCosmeticsFromFrontmatter's Array.isArray narrowing in
+        # identity-artifact-reader.ts L2641: array of non-empty strings; empty
+        # or absent → key omitted from cosmetics (absent-⇒-omit fallback per
+        # D-3 zero-migration invariant). Applied on BOTH identity and role
+        # sides — the gate helper intersects the two lists at apply time.
+        #
+        # Two supported YAML shapes, matching real on-disk usage:
+        #   1. Flow style, single line:  users: [alice, bob]
+        #      (Ashley's convention; also what MDXEditor's string-only
+        #       frontmatterPlugin round-trips as a quoted string that ends up
+        #       looking like a bracket list.)
+        #   2. Block style, multi-line:  users:
+        #                                  - alice
+        #                                  - bob
+        #      (What yaml.dump / hand-typed frontmatter produces by default.)
+        #
+        # Block style advances `skip_until_idx` past every consumed dash-item
+        # line, so subsequent parser branches don't see them. A malformed
+        # entry (empty after strip, or a non-string that couldn't have matched
+        # the dash regex anyway) is silently dropped — matches every other
+        # narrower's discipline in this function.
+        if "users" in allowed_keys:
+            m_flow = re.match(
+                r"^users:\s*\[(.*)\]\s*(#.*)?$", line.rstrip("\n")
+            )
+            if m_flow:
+                items = [
+                    x.strip().strip('"').strip("'").strip()
+                    for x in m_flow.group(1).split(",")
+                ]
+                items = [x for x in items if x]
+                if items:
+                    cosmetics["users"] = items
+                continue
+
+            m_block_hdr = re.match(
+                r"^users:\s*(#.*)?$", line.rstrip("\n")
+            )
+            if m_block_hdr:
+                collected = []
+                look_idx = line_idx + 1
+                last_consumed = line_idx
+                while look_idx < len(body_lines):
+                    nxt = body_lines[look_idx].rstrip("\n")
+                    m_item = re.match(
+                        r"^\s+-\s*(.+?)\s*(#.*)?$", nxt
+                    )
+                    if m_item:
+                        val = m_item.group(1).strip().strip('"').strip("'").strip()
+                        if val:
+                            collected.append(val)
+                        last_consumed = look_idx
+                        look_idx += 1
+                        continue
+                    if nxt.strip() == "":
+                        # Blank line inside the block — YAML tolerates it;
+                        # keep scanning, but do NOT count it as consumed
+                        # (a following non-item line still ends the block).
+                        look_idx += 1
+                        continue
+                    # Non-item, non-blank → block ends before this line.
+                    break
+                if collected:
+                    cosmetics["users"] = collected
+                skip_until_idx = last_consumed
+                continue
+
         # --- string fields: displayName, title, voice, avatar ---
         for key in ("displayName", "title", "voice", "avatar"):
             if key not in allowed_keys:
@@ -1035,7 +1114,8 @@ def _read_role_cosmetics(role, home, role_memo):
         return role_memo[role]
     role_path = os.path.join(home, "fleet", "roles", role, role + ".md")
     cosmetics, _ignored_role = _read_frontmatter_cosmetics(
-        role_path, ("title", "displayName", "colorHue", "voice", "avatar"),
+        role_path,
+        ("title", "displayName", "colorHue", "voice", "avatar", "users"),
     )
     if cosmetics is None:
         _log("role_cosmetics_unreadable", role=role[:40])
@@ -1136,7 +1216,14 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
             # propagate through the fleet-status pulse's identity_cosmetics
             # channel. Same discipline as `task` — per-identity, NOT
             # inherited from the role.
-            ("displayName", "title", "colorHue", "voice", "task", "coordinator", "project"),
+            #
+            # `users` (visibility-gate list) is extracted on BOTH identity and
+            # role sides; identity_visibility-gate.ts intersects the two lists
+            # at apply time. Absent-⇒-omit on either side falls open (D-3).
+            (
+                "displayName", "title", "colorHue", "voice",
+                "task", "coordinator", "project", "users",
+            ),
         )
         if identity_cosmetics is None:
             _log("identity_cosmetics_unreadable", identity=name[:40])

@@ -626,6 +626,91 @@ title: Traveler
   assert_identity_field "$out" "squoted" "identity_cosmetics.project" '"trip-planning"'
 }
 
+# Case 16: users list — flow style survives on identity + role sides.
+# Flow style `users: [alice, bob]` is Ashley's on-disk convention and what
+# MDXEditor's string-only frontmatterPlugin ends up round-tripping to.
+test_case_16_users_flow_style() {
+  make_identity "flowid" "---
+role: flowrole
+users: [alice, bob]
+---
+body
+"
+  make_role "flowrole" "---
+title: Flow Role
+users: [charlie]
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_field "$out" "flowid" "identity_cosmetics.users" '["alice", "bob"]'
+  assert_identity_field "$out" "flowid" "role_cosmetics.users" '["charlie"]'
+}
+
+# Case 17: users list — block style survives, AND subsequent frontmatter
+# keys after the block are still parsed (skip cursor stops at the last
+# dash-item, never overshoots into a following key line).
+test_case_17_users_block_style() {
+  make_identity "blockid" "---
+role: blockrole
+users:
+  - carol
+  - \"dave\"
+  - eve
+title: After Block
+---
+body
+"
+  make_role "blockrole" "---
+title: Block Role
+users:
+  - admin
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_field "$out" "blockid" "identity_cosmetics.users" '["carol", "dave", "eve"]'
+  # Load-bearing: the title line AFTER the block must still be picked up.
+  assert_identity_field "$out" "blockid" "identity_cosmetics.title" '"After Block"'
+  assert_identity_field "$out" "blockid" "role_cosmetics.users" '["admin"]'
+}
+
+# Case 18: absent users → key omitted from cosmetics (absent-⇒-omit D-3
+# fallback). Distinguishes "missing" from "present but empty".
+test_case_18_users_absent() {
+  make_identity "nousers" "---
+role: norole
+title: No Users Here
+---
+body
+"
+  make_role "norole" "---
+title: No Users Role
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_no_field "$out" "nousers" "identity_cosmetics.users"
+  assert_identity_no_field "$out" "nousers" "role_cosmetics.users"
+}
+
+# Case 19: empty flow list → key omitted (empty falls open per D-3).
+test_case_19_users_empty_flow() {
+  make_identity "emptyusers" "---
+role: emptyrole
+users: []
+---
+body
+"
+  make_role "emptyrole" "---
+title: Empty Role
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_no_field "$out" "emptyusers" "identity_cosmetics.users"
+}
+
 # Global stderr/stdout purity check:
 # Run the sweep with stderr redirected to a file; assert the file is allowed
 # to be non-empty while every stdout line still parses as JSON.
@@ -679,6 +764,10 @@ run_test test_case_12_project_absent
 run_test test_case_13_project_malformed_slug_dropped
 run_test test_case_14_project_not_inherited_from_role
 run_test test_case_15_project_quoted
+run_test test_case_16_users_flow_style
+run_test test_case_17_users_block_style
+run_test test_case_18_users_absent
+run_test test_case_19_users_empty_flow
 run_test test_global_stderr_stdout_separation
 
 printf '\n===============================\n'

@@ -93,6 +93,18 @@ export interface SweepRawCosmetics {
    * project-membership derivations on the resulting field.
    */
   project?: string;
+  /**
+   * Per-user visibility gate list — YAML list of Skynet usernames from
+   * frontmatter (`users: [alice, bob]` OR `users:\n  - alice\n  - bob`).
+   * Emitted on BOTH identity and role sides; `isIdentityVisibleToUser`
+   * (identity-visibility-gate.ts) intersects the two lists at gate-apply
+   * time. Empty / absent / non-array falls open per D-3 (zero-migration
+   * invariant — every user with host access sees the identity when either
+   * side omits `users`). Mirrors `users?: string[]` in
+   * extractCosmeticsFromFrontmatter (identity-artifact-reader.ts L2544)
+   * and the emission at fleet-status-sweep.py `_read_frontmatter_cosmetics`.
+   */
+  users?: string[];
 }
 
 // ---------------------------------------------------------------------------
