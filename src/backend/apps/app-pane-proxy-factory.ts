@@ -74,10 +74,10 @@
  */
 
 import type * as http from "node:http";
+import * as zlib from "node:zlib";
 import type { Request, Response } from "express";
 import {
   createProxyMiddleware,
-  responseInterceptor,
   type RequestHandler,
 } from "http-proxy-middleware";
 import { emitHeaderAudit } from "../serve-url/header-audit-sampler.js";
@@ -196,7 +196,9 @@ export function buildPaneMountPathRewrite(
  *  - changeOrigin: true (rewrites outgoing Host header — the app sees a
  *    clean loopback Host, not Skynet's own primary domain).
  *  - ws: true (WebSocket upgrade tunneling).
- *  - selfHandleResponse: true (REQUIRED for responseInterceptor to fire).
+ *  - selfHandleResponse: true (required for the on.proxyRes hook to own
+ *    response forwarding — see the hook doc for the streaming-vs-buffered
+ *    dispatch that lives there).
  *  - pathRewrite: strips the mount-relative `^/<hostId>/<slug>/pane`
  *    prefix — the app sees itself at root (per D-11: "apps don't know
  *    they're in-pane"). NOTE (HIGH-2 code-review fix, 2026-09-19): the
@@ -208,8 +210,14 @@ export function buildPaneMountPathRewrite(
  *    matched at runtime.
  *  - on.proxyReq: strip → emitHeaderAudit(target, 'req', proxyReq).
  *  - on.proxyReqWs: strip → RSV1 fix (setHeader → '') → emitHeaderAudit.
- *  - on.proxyRes: responseInterceptor wrapper that gates on Content-Type
- *    and delegates to injectBaseTag on text/html.
+ *  - on.proxyRes: dispatches on Content-Type — text/html and
+ *    application/xhtml+xml are buffered, decompressed, and passed to
+ *    injectBaseTag; every other response streams through via
+ *    proxyRes.pipe(res) with status + headers copied verbatim. HEAD
+ *    responses and bodyless statuses (1xx / 204 / 304) end after headers.
+ *    The streaming path preserves 206 Partial Content + Content-Range +
+ *    Accept-Ranges verbatim so `<video>` seeking works; upstream 4xx/5xx
+ *    also pass through unchanged (not classified as tunnel errors).
  *  - on.error: classify → warn-log with safe fields → writableEnded
  *    guard → write shared interstitial.
  */
@@ -252,50 +260,171 @@ export function getOrCreateAppPaneProxyForTarget(
         emitHeaderAudit(target, "ws", proxyReq);
       },
 
-      // Response transform — Content-Type gate delegates to injectBaseTag
-      // on text/html. All non-HTML responses (JSON, JS, images, WS
-      // upgrades — which bypass this hook anyway) pass through unchanged.
-      // The .startsWith("text/html") check matches "text/html" and
-      // "text/html; charset=utf-8" alike.
+      // Response dispatch — text/html + application/xhtml+xml are buffered,
+      // decompressed, and passed to injectBaseTag for the D-11 <base> tag.
+      // Everything else STREAMS through via proxyRes.pipe(res): status +
+      // headers copied verbatim (including 206 Partial Content +
+      // Content-Range + Accept-Ranges so <video> seek works), no buffering
+      // in Node memory. Rationale: the prior `responseInterceptor` wrapper
+      // unconditionally buffered the entire response body — including
+      // multi-GB video streams — before this callback fired, breaking
+      // Range requests and blowing HTTP/2 timeouts on large binaries.
+      // Upstream 4xx/5xx pass through as-is (they're app responses, not
+      // tunnel errors — the on.error hook handles the tunnel-side
+      // failures).
       //
-      // MEDIUM-1 code-review fix (2026-09-19): http-proxy-middleware's
-      // `responseInterceptor` invokes the library's `copyHeaders(proxyRes,
-      // res)` BEFORE this callback fires. `copyHeaders` iterates upstream
-      // response headers and calls `res.setHeader(key, value)` for each —
-      // so anti-clickjacking headers the router set before proxy handoff
-      // (X-Frame-Options / CSP frame-ancestors 'self', T-120-30) get
-      // OVERWRITTEN if the upstream emits its own version. Fix: re-set
-      // those two headers INSIDE this callback (post-copyHeaders) so
-      // ours win. Our headers take precedence over upstream.
+      // MEDIUM-1 code-review fix (2026-09-19) preserved: X-Frame-Options
+      // + CSP frame-ancestors 'self' are set on `res` BEFORE any header
+      // copy from `proxyRes`, and are NOT overwritten by upstream's own
+      // versions of those headers — Skynet's anti-clickjacking wins.
       //
-      // MEDIUM-2 code-review fix (2026-09-19): copyHeaders forwards
-      // upstream `Set-Cookie` (minus the `Domain=` attribute). Pane
-      // responses are served from Skynet's OWN primary origin, so an
-      // app-set cookie would land on that origin and be sent back on
-      // every subsequent request to Skynet's surfaces — cookie collision
-      // / shadow / leak risk. Fix: strip `Set-Cookie` from the response.
-      // Apps don't need cookies on the outer Skynet origin — Skynet's
-      // session already carries auth; if an app needs session state it
-      // can use in-memory or its own auth surface.
-      proxyRes: responseInterceptor(async (buffer, proxyRes, _req, res) => {
-        try {
-          res.setHeader("X-Frame-Options", "SAMEORIGIN");
-          res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
-        } catch {
-          // Response may already be past the header-writable window
-          // (rare — proxyRes fires while headers are still open). Non-fatal.
+      // MEDIUM-2 code-review fix (2026-09-19) preserved: upstream
+      // `Set-Cookie` is dropped on both paths. Pane responses share
+      // Skynet's primary origin, so an app-set cookie would collide with
+      // Skynet's own session; apps use in-memory / their own auth surface
+      // instead.
+      proxyRes: (proxyRes, req, res) => {
+        const contentType = String(
+          proxyRes.headers["content-type"] ?? "",
+        ).toLowerCase();
+        const isInjectableHtml =
+          contentType.startsWith("text/html") ||
+          contentType.startsWith("application/xhtml+xml");
+
+        // Bodyless per RFC 9110: HEAD, 1xx, 204, 304. No body flows,
+        // regardless of Content-Type.
+        const status = proxyRes.statusCode ?? 502;
+        const isBodyless =
+          req.method === "HEAD" ||
+          (status >= 100 && status < 200) ||
+          status === 204 ||
+          status === 304;
+
+        // Header-copy helper — writes upstream headers to `res` but never
+        // overwrites headers we've already set (X-Frame-Options / CSP /
+        // recomputed Content-Length on the buffered path). Also skips
+        // `set-cookie` per MEDIUM-2 above.
+        const copyHeaders = (skip: Set<string>) => {
+          for (const [key, value] of Object.entries(proxyRes.headers)) {
+            const lower = key.toLowerCase();
+            if (lower === "set-cookie") continue;
+            if (skip.has(lower)) continue;
+            if (value === undefined) continue;
+            if (res.hasHeader(key)) continue;
+            try {
+              res.setHeader(
+                key,
+                value as string | string[] | number,
+              );
+            } catch {
+              // Headers already sent — non-fatal.
+            }
+          }
+        };
+
+        // ── Streaming path (non-HTML, or HTML we can't inject into) ──
+        if (!isInjectableHtml) {
+          try {
+            res.setHeader("X-Frame-Options", "SAMEORIGIN");
+            res.setHeader(
+              "Content-Security-Policy",
+              "frame-ancestors 'self'",
+            );
+          } catch {
+            /* headers past writable window — non-fatal */
+          }
+          copyHeaders(new Set());
+          res.statusCode = status;
+          if (isBodyless) {
+            res.end();
+            // Drain any body bytes to avoid stalling the upstream socket.
+            proxyRes.resume();
+            return;
+          }
+          proxyRes.pipe(res);
+          proxyRes.on("error", () => {
+            // Upstream tore down mid-stream. Best-effort end; if the
+            // response is already writing chunks, Express/Node will close
+            // the connection when we return.
+            if (!res.writableEnded) {
+              try {
+                res.end();
+              } catch {
+                /* non-fatal */
+              }
+            }
+          });
+          return;
         }
-        try {
-          res.removeHeader("Set-Cookie");
-        } catch {
-          /* non-fatal (see try/catch note above) */
+
+        // ── Buffered path (text/html + application/xhtml+xml) ──
+        // Decompress if upstream sent gzip/deflate/br, then inject.
+        const contentEncoding = String(
+          proxyRes.headers["content-encoding"] ?? "",
+        ).toLowerCase();
+        let source: NodeJS.ReadableStream = proxyRes;
+        if (contentEncoding === "gzip" || contentEncoding === "x-gzip") {
+          source = proxyRes.pipe(zlib.createGunzip());
+        } else if (contentEncoding === "deflate") {
+          source = proxyRes.pipe(zlib.createInflate());
+        } else if (contentEncoding === "br") {
+          source = proxyRes.pipe(zlib.createBrotliDecompress());
         }
-        const contentType = String(proxyRes.headers["content-type"] ?? "");
-        if (!contentType.startsWith("text/html")) {
-          return buffer;
-        }
-        return injectBaseTag(buffer, hostId, slug);
-      }),
+
+        const chunks: Buffer[] = [];
+        let bufferLength = 0;
+        source.on("data", (chunk) => {
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          chunks.push(buf);
+          bufferLength += buf.length;
+        });
+        source.on("end", async () => {
+          try {
+            res.setHeader("X-Frame-Options", "SAMEORIGIN");
+            res.setHeader(
+              "Content-Security-Policy",
+              "frame-ancestors 'self'",
+            );
+          } catch {
+            /* headers past writable window — non-fatal */
+          }
+          const injected = isBodyless
+            ? Buffer.alloc(0)
+            : await injectBaseTag(
+                Buffer.concat(chunks, bufferLength),
+                hostId,
+                slug,
+              );
+          // Skip content-encoding (we decompressed) and content-length
+          // (recomputed below post-injection). Everything else copies.
+          copyHeaders(new Set(["content-encoding", "content-length"]));
+          if (!isBodyless) {
+            try {
+              res.setHeader("Content-Length", String(injected.length));
+            } catch {
+              /* non-fatal */
+            }
+          }
+          res.statusCode = status;
+          res.end(isBodyless ? undefined : injected);
+        });
+        source.on("error", () => {
+          if (!res.headersSent) {
+            try {
+              res.statusCode = 502;
+            } catch {
+              /* non-fatal */
+            }
+          }
+          if (!res.writableEnded) {
+            try {
+              res.end();
+            } catch {
+              /* non-fatal */
+            }
+          }
+        });
+      },
 
       // Proxy-time errors (ECONNREFUSED / ETIMEDOUT / ECONNRESET / ssh2
       // ClientError). Mirror of serve-url/proxy-factory.ts:236-263 —

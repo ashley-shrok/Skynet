@@ -8,9 +8,13 @@
  *   (a) Cache key includes `${hostId}:${slug}` per RESEARCH.md Pitfall 2 so
  *       different apps on the same host+tunnelPort get distinct middleware
  *       instances with distinct pathRewrite rules.
- *   (b) `selfHandleResponse: true` + `pathRewrite` + a `responseInterceptor`
- *       proxyRes hook that gates on Content-Type and delegates to Wave 1's
- *       `injectBaseTag` for the D-11 base-tag injection.
+ *   (b) `selfHandleResponse: true` + `pathRewrite` + a custom `proxyRes`
+ *       hook that dispatches on Content-Type: text/html + application/
+ *       xhtml+xml are buffered/decompressed/injected via `injectBaseTag`;
+ *       everything else STREAMS through via `proxyRes.pipe(res)` (no
+ *       buffering in Node memory — that fix landed 2026-09-25 after the
+ *       prior `responseInterceptor` wrapper broke video Range requests
+ *       and blew HTTP/2 timeouts on large binary responses).
  *   (c) `operation: "apps_pane_proxy"` log tag (differentiates from
  *       serve-url's `"serve_url_proxy"` for post-hoc filtering).
  *
@@ -22,10 +26,13 @@
  *   - `writableEnded` guard before writing the interstitial.
  *
  * Pattern reference: 120-PATTERNS.md § app-pane-proxy-factory,
- * 120-RESEARCH.md § Pattern 3 (responseInterceptor caveats), Pitfall 2.
+ * 120-RESEARCH.md § Pattern 3 (buffering caveats — historical, superseded
+ * by the 2026-09-25 streaming rewrite).
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import * as zlib from "node:zlib";
+import { PassThrough } from "node:stream";
 import type { Request, Response } from "express";
 import type * as http from "node:http";
 
@@ -38,9 +45,6 @@ const mocks = vi.hoisted(() => ({
   // options argument for inspection. Each call yields a FRESH handler
   // reference so cache-hit / cache-miss can be asserted on identity.
   createProxyMiddleware: vi.fn(),
-  // responseInterceptor returns the callback verbatim so the test can
-  // invoke it directly against a stubbed proxyRes/req/res.
-  responseInterceptor: vi.fn((cb: unknown) => cb),
   // injectBaseTag stub — capture calls, return a marker Buffer so the
   // caller-side test can assert the pass-through vs inject decision.
   injectBaseTag: vi.fn(),
@@ -62,7 +66,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("http-proxy-middleware", () => ({
   createProxyMiddleware: mocks.createProxyMiddleware,
-  responseInterceptor: mocks.responseInterceptor,
 }));
 
 vi.mock("../base-tag-injector.js", () => ({
@@ -123,32 +126,97 @@ function makeProxyReq(initialHeaders: Record<string, string> = {}) {
   return { req, headers, setHeaderCalls, removeHeaderCalls };
 }
 
-function makeProxyRes(contentType: string | undefined): http.IncomingMessage {
-  return {
-    headers: contentType !== undefined ? { "content-type": contentType } : {},
-  } as unknown as http.IncomingMessage;
+// Fake IncomingMessage-shaped stream. The proxyRes hook reads
+// `.headers`, `.statusCode`, and consumes the stream via `.pipe()`
+// (streaming path) or `.on("data"/"end")` (buffered path). PassThrough
+// gives us both event-emitter semantics AND a real pipe destination.
+function makeProxyResStream(
+  headers: Record<string, string | string[]> = {},
+  statusCode = 200,
+  body: Buffer | string = "",
+): http.IncomingMessage & PassThrough {
+  const stream = new PassThrough();
+  (stream as unknown as { headers: unknown }).headers = headers;
+  (stream as unknown as { statusCode: number }).statusCode = statusCode;
+  if (body) {
+    const buf = Buffer.isBuffer(body) ? body : Buffer.from(body, "utf8");
+    stream.end(buf);
+  } else {
+    stream.end();
+  }
+  return stream as unknown as http.IncomingMessage & PassThrough;
 }
 
-function makeExpressReq(): Request {
+function makeExpressReq(method = "GET"): Request {
   return {
+    method,
     headers: { host: "skynet.test" },
     originalUrl: "/apps/1/todo/pane/api/x",
   } as unknown as Request;
 }
 
-function makeExpressRes(writableEnded = false): Response {
-  return {
-    writableEnded,
-    setHeader: vi.fn(),
-    // MEDIUM-2 fix (2026-09-19): responseInterceptor callback strips
-    // upstream Set-Cookie via `res.removeHeader("Set-Cookie")` to prevent
-    // cookie bleed onto Skynet's primary origin. Add mock so it's callable
-    // and spy-able.
-    removeHeader: vi.fn(),
+// Fake ServerResponse that captures header/status/body writes AND acts as a
+// writable stream so `proxyRes.pipe(res)` works. Backed by PassThrough for
+// stream semantics — `writableEnded` is a native getter on Writable and
+// CANNOT be re-assigned, so we read the real one via the underlying
+// stream's own state. For the initialWritableEnded=true case (error-hook
+// guard test) we simply call end() right away, and native writableEnded
+// flips to true naturally.
+//
+// `Object.assign` adds our own spy properties (setHeader / removeHeader /
+// hasHeader / statusCode / send / status) — skipping writableEnded and
+// headersSent (both native getters).
+function makeExpressRes(initialWritableEnded = false) {
+  const bodyStream = new PassThrough();
+  const chunks: Buffer[] = [];
+  bodyStream.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+
+  const headers: Record<string, string | string[] | number> = {};
+  const setHeaderSpy = vi.fn((name: string, value: string | string[] | number) => {
+    headers[name.toLowerCase()] = value;
+  });
+  const removeHeaderSpy = vi.fn((name: string) => {
+    delete headers[name.toLowerCase()];
+  });
+
+  const res = Object.assign(bodyStream, {
+    statusCode: 200,
+    setHeader: setHeaderSpy,
+    removeHeader: removeHeaderSpy,
+    hasHeader: vi.fn((name: string) =>
+      Object.prototype.hasOwnProperty.call(headers, name.toLowerCase()),
+    ),
+    getHeader: vi.fn((name: string) => headers[name.toLowerCase()]),
+    getHeaders: vi.fn(() => headers),
     status: vi.fn().mockReturnThis(),
     send: vi.fn(),
-    end: vi.fn(),
-  } as unknown as Response;
+  });
+
+  // Wrap end() so we can capture the final chunk (native end() clears
+  // buffers before the data listener sees them for the last chunk).
+  const origEnd = bodyStream.end.bind(bodyStream);
+  res.end = ((chunk?: Buffer | string) => {
+    if (chunk) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      chunks.push(buf);
+    }
+    return origEnd();
+  }) as typeof res.end;
+
+  // Prime the stream to writableEnded=true if the test wants that starting
+  // state (the error-hook guard case).
+  if (initialWritableEnded) {
+    origEnd();
+  }
+
+  return {
+    res: res as unknown as Response,
+    headers,
+    setHeaderSpy,
+    removeHeaderSpy,
+    getBody: () => Buffer.concat(chunks),
+    isEnded: () => bodyStream.writableEnded,
+  };
 }
 
 // Grab the most-recent options arg from createProxyMiddleware. Each call to
@@ -157,6 +225,18 @@ type ProxyOptions = Parameters<typeof mocks.createProxyMiddleware>[0];
 function lastOptions(): ProxyOptions {
   const calls = mocks.createProxyMiddleware.mock.calls;
   return calls[calls.length - 1][0] as ProxyOptions;
+}
+
+// Wait for stream 'end' events + all chained async work (including native
+// zlib decompress callbacks — brotli takes several I/O ticks — and the
+// awaited injectBaseTag) to complete. Six setImmediate ticks + one
+// setTimeout(5) covers the worst observed case (brotli decompress); tests
+// still run in <100ms each.
+async function flush(): Promise<void> {
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+  await new Promise((r) => setTimeout(r, 5));
 }
 
 /* ------------------------------------------------------------------------ */
@@ -174,10 +254,8 @@ beforeEach(() => {
     // in cache-key tests are meaningful.
     return vi.fn();
   });
-  mocks.responseInterceptor.mockReset();
-  mocks.responseInterceptor.mockImplementation((cb: unknown) => cb);
   mocks.injectBaseTag.mockReset();
-  mocks.injectBaseTag.mockImplementation(async (buf: Buffer) =>
+  mocks.injectBaseTag.mockImplementation((buf: Buffer) =>
     Buffer.from(`INJECTED:${buf.toString("utf8")}`, "utf8"),
   );
   mocks.renderInterstitial.mockReset();
@@ -255,7 +333,7 @@ describe("cache-key", () => {
 /* ------------------------------------------------------------------------ */
 
 describe("middleware options", () => {
-  it("calls createProxyMiddleware with selfHandleResponse: true (required for responseInterceptor)", async () => {
+  it("calls createProxyMiddleware with selfHandleResponse: true", async () => {
     const { getOrCreateAppPaneProxyForTarget } = await import(
       "../app-pane-proxy-factory.js"
     );
@@ -289,27 +367,21 @@ describe("middleware options", () => {
     );
     getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
     const opts = lastOptions() as Record<string, unknown>;
-    // HIGH-2 code-review fix (2026-09-19): pathRewrite is now a function.
-    // The router mounts at `/apps`, so Express strips `/apps` from `req.url`
-    // before the proxy sees it — the rewrite works on `/5/todo/pane/...`,
-    // NOT `/apps/5/todo/pane/...`. Prior form was `{ "^/apps/5/todo/pane":
-    // "" }`, which never matched at runtime.
     expect(typeof opts.pathRewrite).toBe("function");
     const rewrite = opts.pathRewrite as (path: string) => string;
     expect(rewrite("/5/todo/pane/api/list")).toBe("/api/list");
     expect(rewrite("/5/todo/pane/")).toBe("/");
     expect(rewrite("/5/todo/pane")).toBe("/");
-    // Non-matching paths pass through unchanged (defence-in-depth).
     expect(rewrite("/other/path")).toBe("/other/path");
   });
 
-  it("wraps proxyRes with responseInterceptor (invoked once with the async callback)", async () => {
+  it("registers a plain proxyRes function (no responseInterceptor wrapper)", async () => {
     const { getOrCreateAppPaneProxyForTarget } = await import(
       "../app-pane-proxy-factory.js"
     );
     getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 1, "todo");
-    expect(mocks.responseInterceptor).toHaveBeenCalledTimes(1);
-    expect(mocks.responseInterceptor.mock.calls[0][0]).toBeTypeOf("function");
+    const opts = lastOptions() as { on: { proxyRes: unknown } };
+    expect(typeof opts.on.proxyRes).toBe("function");
   });
 });
 
@@ -331,11 +403,15 @@ describe("proxyReq hook (HEADER_ALLOWLIST strip on HTTP outbound)", () => {
       "x-skynet-user": "1",
       "content-type": "application/json",
     });
-    opts.on.proxyReq(req, {} as unknown as Request, {} as unknown as Response, {} as unknown as import("http-proxy-middleware").Options);
+    opts.on.proxyReq(
+      req,
+      {} as unknown as Request,
+      {} as unknown as Response,
+      {} as unknown as import("http-proxy-middleware").Options,
+    );
     expect(removeHeaderCalls).toContain("cookie");
     expect(removeHeaderCalls).toContain("authorization");
     expect(removeHeaderCalls).toContain("x-skynet-user");
-    // Allowlisted headers remain (not removed).
     expect(removeHeaderCalls).not.toContain("host");
     expect(removeHeaderCalls).not.toContain("content-type");
   });
@@ -363,206 +439,491 @@ describe("proxyReqWs hook (RSV1 WebSocket fix + allowlist strip)", () => {
       {} as unknown as Response,
       {} as unknown as import("http-proxy-middleware").Options,
     );
-    // Strip removed cookie and sec-websocket-extensions (both not in allowlist);
-    // then the RSV1 fix explicitly setHeader('sec-websocket-extensions', '').
     expect(removeHeaderCalls).toContain("cookie");
     expect(removeHeaderCalls).toContain("sec-websocket-extensions");
-    // The RSV1 fix: exactly one setHeader call for sec-websocket-extensions with "".
     const rsv1 = setHeaderCalls.filter(([k]) => k === "sec-websocket-extensions");
     expect(rsv1).toEqual([["sec-websocket-extensions", ""]]);
   });
 });
 
 /* ------------------------------------------------------------------------ */
-/*  responseInterceptor callback — Content-Type gate                         */
+/*  proxyRes buffered path — text/html injection                             */
 /* ------------------------------------------------------------------------ */
 
-describe("proxyRes content-type gating (responseInterceptor callback)", () => {
-  it("invokes injectBaseTag on text/html responses and returns its result", async () => {
+describe("proxyRes buffered path (text/html + application/xhtml+xml)", () => {
+  it("buffers text/html, calls injectBaseTag, writes result", async () => {
     const { getOrCreateAppPaneProxyForTarget } = await import(
       "../app-pane-proxy-factory.js"
     );
     getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
-    // The responseInterceptor mock returns the async callback verbatim; grab it.
-    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
-      buffer: Buffer,
-      proxyRes: http.IncomingMessage,
-      req: Request,
-      res: Response,
-    ) => Promise<Buffer>;
-    const input = Buffer.from("<html><head></head></html>", "utf8");
-    const proxyRes = makeProxyRes("text/html");
-    const result = await cb(input, proxyRes, makeExpressReq(), makeExpressRes());
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const bodyText = "<html><head></head></html>";
+    const proxyRes = makeProxyResStream(
+      { "content-type": "text/html" },
+      200,
+      bodyText,
+    );
+    const { res, getBody, isEnded } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
     expect(mocks.injectBaseTag).toHaveBeenCalledTimes(1);
-    expect(mocks.injectBaseTag).toHaveBeenCalledWith(input, 5, "todo");
-    // Stub returns Buffer("INJECTED:<html>...")
-    expect(result.toString("utf8")).toContain("INJECTED:");
+    expect(mocks.injectBaseTag).toHaveBeenCalledWith(
+      Buffer.from(bodyText, "utf8"),
+      5,
+      "todo",
+    );
+    expect(isEnded()).toBe(true);
+    expect(getBody().toString("utf8")).toContain("INJECTED:");
   });
 
-  it("fires injection on text/html with extra params like charset=utf-8 (.startsWith gate)", async () => {
+  it("buffers text/html; charset=utf-8 (startsWith match)", async () => {
     const { getOrCreateAppPaneProxyForTarget } = await import(
       "../app-pane-proxy-factory.js"
     );
     getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
-    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
-      buffer: Buffer,
-      proxyRes: http.IncomingMessage,
-      req: Request,
-      res: Response,
-    ) => Promise<Buffer>;
-    const input = Buffer.from("<html></html>", "utf8");
-    const proxyRes = makeProxyRes("text/html; charset=utf-8");
-    await cb(input, proxyRes, makeExpressReq(), makeExpressRes());
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      { "content-type": "text/html; charset=utf-8" },
+      200,
+      "<html></html>",
+    );
+    const { res } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
     expect(mocks.injectBaseTag).toHaveBeenCalledTimes(1);
   });
 
-  it("returns the input buffer UNCHANGED for application/json (pass-through invariant)", async () => {
+  it("buffers application/xhtml+xml (injection-eligible per RFC)", async () => {
     const { getOrCreateAppPaneProxyForTarget } = await import(
       "../app-pane-proxy-factory.js"
     );
     getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
-    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
-      buffer: Buffer,
-      proxyRes: http.IncomingMessage,
-      req: Request,
-      res: Response,
-    ) => Promise<Buffer>;
-    const input = Buffer.from(`{"foo":"<head>","bar":"baz"}`, "utf8");
-    const proxyRes = makeProxyRes("application/json");
-    const result = await cb(input, proxyRes, makeExpressReq(), makeExpressRes());
-    expect(mocks.injectBaseTag).not.toHaveBeenCalled();
-    // Identity check: pass-through returns the exact input buffer.
-    expect(result).toBe(input);
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      { "content-type": "application/xhtml+xml" },
+      200,
+      "<html></html>",
+    );
+    const { res } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(mocks.injectBaseTag).toHaveBeenCalledTimes(1);
   });
 
-  it("returns the input buffer UNCHANGED when Content-Type header is absent", async () => {
+  it("decompresses gzip-encoded html before injection", async () => {
     const { getOrCreateAppPaneProxyForTarget } = await import(
       "../app-pane-proxy-factory.js"
     );
     getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
-    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
-      buffer: Buffer,
-      proxyRes: http.IncomingMessage,
-      req: Request,
-      res: Response,
-    ) => Promise<Buffer>;
-    const input = Buffer.from("raw bytes", "utf8");
-    const proxyRes = makeProxyRes(undefined);
-    const result = await cb(input, proxyRes, makeExpressReq(), makeExpressRes());
-    expect(mocks.injectBaseTag).not.toHaveBeenCalled();
-    expect(result).toBe(input);
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const html = "<html><head></head></html>";
+    const gzipped = zlib.gzipSync(Buffer.from(html, "utf8"));
+    const proxyRes = makeProxyResStream(
+      { "content-type": "text/html", "content-encoding": "gzip" },
+      200,
+      gzipped,
+    );
+    const { res, headers } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    // injectBaseTag receives DECOMPRESSED bytes.
+    expect(mocks.injectBaseTag).toHaveBeenCalledWith(
+      Buffer.from(html, "utf8"),
+      5,
+      "todo",
+    );
+    // content-encoding is stripped on the response (we sent uncompressed).
+    expect(headers["content-encoding"]).toBeUndefined();
+  });
+
+  it("decompresses brotli-encoded html before injection", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const html = "<html><head></head></html>";
+    const brotlied = zlib.brotliCompressSync(Buffer.from(html, "utf8"));
+    const proxyRes = makeProxyResStream(
+      { "content-type": "text/html", "content-encoding": "br" },
+      200,
+      brotlied,
+    );
+    const { res } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(mocks.injectBaseTag).toHaveBeenCalledWith(
+      Buffer.from(html, "utf8"),
+      5,
+      "todo",
+    );
+  });
+
+  it("recomputes Content-Length after injection", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const bodyText = "<html></html>";
+    const proxyRes = makeProxyResStream(
+      { "content-type": "text/html", "content-length": String(bodyText.length) },
+      200,
+      bodyText,
+    );
+    const { res, headers } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    // Injection prepends "INJECTED:" (stub) — new length must reflect that,
+    // not the original body length.
+    expect(headers["content-length"]).toBe(
+      String(`INJECTED:${bodyText}`.length),
+    );
   });
 });
 
 /* ------------------------------------------------------------------------ */
-/*  MEDIUM-1 — anti-clickjacking headers survive upstream overwrite          */
+/*  proxyRes streaming path — non-HTML flows through without buffering       */
 /* ------------------------------------------------------------------------ */
 
-/**
- * MEDIUM-1 code-review fix (2026-09-19). http-proxy-middleware's
- * `responseInterceptor` calls `copyHeaders(proxyRes, res)` BEFORE the
- * callback fires; that function iterates upstream response headers and
- * calls `res.setHeader(key, upstreamValue)` for each, overwriting anything
- * the router set before proxy handoff (e.g. X-Frame-Options / CSP
- * frame-ancestors 'self'). The router at `app-pane-router.ts:222-223` sets
- * these headers assuming they survive; before the fix, an upstream that
- * emits its own CSP (Svelte's starter can) would strip our
- * frame-ancestors guard.
- *
- * Fix: re-set the two anti-clickjacking headers INSIDE the interceptor
- * callback (after copyHeaders). These tests exercise the callback
- * directly and assert `res.setHeader` was called with our authoritative
- * values regardless of upstream Content-Type.
- */
-describe("MEDIUM-1 — anti-clickjacking headers re-set after copyHeaders", () => {
-  it("re-sets X-Frame-Options=SAMEORIGIN inside the responseInterceptor callback", async () => {
+describe("proxyRes streaming path (non-HTML)", () => {
+  it("does NOT call injectBaseTag on application/json", async () => {
     const { getOrCreateAppPaneProxyForTarget } = await import(
       "../app-pane-proxy-factory.js"
     );
     getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
-    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
-      buffer: Buffer,
-      proxyRes: http.IncomingMessage,
-      req: Request,
-      res: Response,
-    ) => Promise<Buffer>;
-    const res = makeExpressRes();
-    await cb(
-      Buffer.from("<html></html>", "utf8"),
-      makeProxyRes("text/html"),
-      makeExpressReq(),
-      res,
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      { "content-type": "application/json" },
+      200,
+      `{"foo":"<head>"}`,
     );
-    const setHeader = (res as unknown as { setHeader: import("vitest").Mock })
-      .setHeader;
-    const xfoCalls = setHeader.mock.calls.filter(
-      (c: unknown[]) => c[0] === "X-Frame-Options",
-    );
-    expect(xfoCalls).toHaveLength(1);
-    expect(xfoCalls[0][1]).toBe("SAMEORIGIN");
+    const { res, getBody } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(mocks.injectBaseTag).not.toHaveBeenCalled();
+    expect(getBody().toString("utf8")).toBe(`{"foo":"<head>"}`);
   });
 
-  it("re-sets CSP frame-ancestors 'self' inside the responseInterceptor callback", async () => {
+  it("streams video/mp4 body through unchanged (no injection)", async () => {
     const { getOrCreateAppPaneProxyForTarget } = await import(
       "../app-pane-proxy-factory.js"
     );
-    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
-    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
-      buffer: Buffer,
-      proxyRes: http.IncomingMessage,
-      req: Request,
-      res: Response,
-    ) => Promise<Buffer>;
-    const res = makeExpressRes();
-    await cb(
-      Buffer.from("<html></html>", "utf8"),
-      makeProxyRes("text/html"),
-      makeExpressReq(),
-      res,
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "videos");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const videoBytes = Buffer.from([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]);
+    const proxyRes = makeProxyResStream(
+      { "content-type": "video/mp4" },
+      200,
+      videoBytes,
     );
-    const setHeader = (res as unknown as { setHeader: import("vitest").Mock })
-      .setHeader;
-    const cspCalls = setHeader.mock.calls.filter(
-      (c: unknown[]) => c[0] === "Content-Security-Policy",
-    );
-    expect(cspCalls).toHaveLength(1);
-    expect(cspCalls[0][1]).toBe("frame-ancestors 'self'");
+    const { res, getBody } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(mocks.injectBaseTag).not.toHaveBeenCalled();
+    expect(Buffer.compare(getBody(), videoBytes)).toBe(0);
   });
 
-  it("re-sets anti-clickjacking headers even for non-HTML responses (pass-through)", async () => {
-    // The headers apply to the whole response — not just text/html.
-    // Non-HTML upstream still gets our headers so an app-served JSON doc
-    // can't be reused as a frame-embed source.
+  it("passes upstream compressed responses through UNCHANGED on the streaming path (no decompression)", async () => {
+    // A gzipped JS bundle should reach the client still gzipped — the
+    // streaming path pipes bytes verbatim so the browser can decompress.
     const { getOrCreateAppPaneProxyForTarget } = await import(
       "../app-pane-proxy-factory.js"
     );
     getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
-    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
-      buffer: Buffer,
-      proxyRes: http.IncomingMessage,
-      req: Request,
-      res: Response,
-    ) => Promise<Buffer>;
-    const res = makeExpressRes();
-    await cb(
-      Buffer.from(`{"ok":true}`, "utf8"),
-      makeProxyRes("application/json"),
-      makeExpressReq(),
-      res,
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const jsBody = "console.log('hi');";
+    const gzipped = zlib.gzipSync(Buffer.from(jsBody, "utf8"));
+    const proxyRes = makeProxyResStream(
+      {
+        "content-type": "application/javascript",
+        "content-encoding": "gzip",
+      },
+      200,
+      gzipped,
     );
-    const setHeader = (res as unknown as { setHeader: import("vitest").Mock })
-      .setHeader;
-    expect(
-      setHeader.mock.calls.some((c: unknown[]) => c[0] === "X-Frame-Options"),
-    ).toBe(true);
-    expect(
-      setHeader.mock.calls.some(
-        (c: unknown[]) => c[0] === "Content-Security-Policy",
-      ),
-    ).toBe(true);
+    const { res, headers, getBody } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(headers["content-encoding"]).toBe("gzip");
+    expect(Buffer.compare(getBody(), gzipped)).toBe(0);
+  });
+
+  it("preserves 206 Partial Content + Content-Range + Accept-Ranges for video seek", async () => {
+    // <video> playback issues Range: bytes=X-Y and the response comes back
+    // as 206 with Content-Range: bytes X-Y/total. If ANY of these get
+    // mangled, seeking silently breaks.
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "videos");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const rangeBytes = Buffer.from("...partial video chunk...");
+    const proxyRes = makeProxyResStream(
+      {
+        "content-type": "video/mp4",
+        "content-range": "bytes 1024-2047/1048576",
+        "accept-ranges": "bytes",
+        "content-length": String(rangeBytes.length),
+      },
+      206,
+      rangeBytes,
+    );
+    const { res, headers, getBody } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(res.statusCode).toBe(206);
+    expect(headers["content-range"]).toBe("bytes 1024-2047/1048576");
+    expect(headers["accept-ranges"]).toBe("bytes");
+    expect(headers["content-length"]).toBe(String(rangeBytes.length));
+    expect(Buffer.compare(getBody(), rangeBytes)).toBe(0);
+  });
+
+  it("passes upstream 404 through with its body (app response, not tunnel error)", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      { "content-type": "text/plain" },
+      404,
+      "Not Found",
+    );
+    const { res, getBody } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(res.statusCode).toBe(404);
+    expect(getBody().toString("utf8")).toBe("Not Found");
+    // Not classified as a tunnel error — classifyTunnelError never called.
+    expect(mocks.classifyTunnelError).not.toHaveBeenCalled();
+    expect(mocks.writeInterstitial).not.toHaveBeenCalled();
+  });
+
+  it("passes upstream 500 through with its body", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      { "content-type": "application/json" },
+      500,
+      `{"error":"internal"}`,
+    );
+    const { res, getBody } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(res.statusCode).toBe(500);
+    expect(getBody().toString("utf8")).toBe(`{"error":"internal"}`);
+    expect(mocks.writeInterstitial).not.toHaveBeenCalled();
+  });
+
+  it("streams tiny single-chunk responses (no min-body-size assumption)", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      { "content-type": "application/json" },
+      200,
+      `{"ok":true}`,
+    );
+    const { res, getBody } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(getBody().toString("utf8")).toBe(`{"ok":true}`);
   });
 });
 
+/* ------------------------------------------------------------------------ */
+/*  proxyRes bodyless responses — HEAD, 1xx, 204, 304                        */
+/* ------------------------------------------------------------------------ */
+
+describe("proxyRes bodyless responses (HEAD / 1xx / 204 / 304)", () => {
+  it("ends with no body on HEAD requests (Content-Length preserved for probe)", async () => {
+    // Some players (Safari) issue HEAD to read Content-Length + Accept-Ranges
+    // before the range GET. HEAD must return headers only, empty body.
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "videos");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      {
+        "content-type": "video/mp4",
+        "content-length": "1048576",
+        "accept-ranges": "bytes",
+      },
+      200,
+      "", // upstream sends no body for HEAD anyway
+    );
+    const { res, headers, getBody } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq("HEAD"), res);
+    await flush();
+    expect(headers["content-length"]).toBe("1048576");
+    expect(headers["accept-ranges"]).toBe("bytes");
+    expect(getBody().length).toBe(0);
+  });
+
+  it("ends with no body on 304 Not Modified", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      { "content-type": "text/css" },
+      304,
+      "",
+    );
+    const { res, getBody } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(res.statusCode).toBe(304);
+    expect(getBody().length).toBe(0);
+  });
+
+  it("ends with no body on 204 No Content", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream({}, 204, "");
+    const { res, getBody } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(res.statusCode).toBe(204);
+    expect(getBody().length).toBe(0);
+  });
+});
+
+/* ------------------------------------------------------------------------ */
+/*  Security headers survive on both paths (MEDIUM-1 invariant)              */
+/* ------------------------------------------------------------------------ */
+
+describe("MEDIUM-1 — anti-clickjacking headers on both paths", () => {
+  it("sets X-Frame-Options=SAMEORIGIN + CSP frame-ancestors on the buffered (HTML) path", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      { "content-type": "text/html" },
+      200,
+      "<html></html>",
+    );
+    const { res, headers } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(headers["x-frame-options"]).toBe("SAMEORIGIN");
+    expect(headers["content-security-policy"]).toBe("frame-ancestors 'self'");
+  });
+
+  it("sets X-Frame-Options=SAMEORIGIN + CSP frame-ancestors on the streaming (non-HTML) path", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      { "content-type": "application/json" },
+      200,
+      `{"ok":true}`,
+    );
+    const { res, headers } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(headers["x-frame-options"]).toBe("SAMEORIGIN");
+    expect(headers["content-security-policy"]).toBe("frame-ancestors 'self'");
+  });
+
+  it("upstream X-Frame-Options DENY does NOT overwrite our SAMEORIGIN (buffered path)", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      { "content-type": "text/html", "x-frame-options": "DENY" },
+      200,
+      "<html></html>",
+    );
+    const { res, headers } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(headers["x-frame-options"]).toBe("SAMEORIGIN");
+  });
+
+  it("upstream CSP frame-ancestors DENY does NOT overwrite our 'self' (streaming path)", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      {
+        "content-type": "application/json",
+        "content-security-policy": "frame-ancestors 'none'",
+      },
+      200,
+      `{"ok":true}`,
+    );
+    const { res, headers } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(headers["content-security-policy"]).toBe("frame-ancestors 'self'");
+  });
+});
+
+/* ------------------------------------------------------------------------ */
+/*  MEDIUM-2 — upstream Set-Cookie dropped on both paths                     */
+/* ------------------------------------------------------------------------ */
+
+describe("MEDIUM-2 — upstream Set-Cookie dropped", () => {
+  it("does NOT forward upstream Set-Cookie on the buffered (HTML) path", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      {
+        "content-type": "text/html",
+        "set-cookie": "app_session=xyz; Path=/",
+      },
+      200,
+      "<html></html>",
+    );
+    const { res, headers } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("does NOT forward upstream Set-Cookie on the streaming (non-HTML) path", async () => {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
+    const opts = lastOptions() as { on: { proxyRes: Function } };
+    const proxyRes = makeProxyResStream(
+      {
+        "content-type": "application/json",
+        "set-cookie": "app_session=xyz; Path=/",
+      },
+      200,
+      `{"ok":true}`,
+    );
+    const { res, headers } = makeExpressRes();
+    opts.on.proxyRes(proxyRes, makeExpressReq(), res);
+    await flush();
+    expect(headers["set-cookie"]).toBeUndefined();
+  });
+});
 
 /* ------------------------------------------------------------------------ */
 /*  error hook — interstitial + writableEnded guard                          */
@@ -581,23 +942,19 @@ describe("error hook", () => {
       level: "",
     });
     const req = makeExpressReq();
-    const res = makeExpressRes(false);
+    const { res } = makeExpressRes(false);
     opts.on.error(err, req, res);
-    // Classified via classifyTunnelError.
     expect(mocks.classifyTunnelError).toHaveBeenCalledWith(err);
-    // Logged with the differentiating log-stream tag.
     expect(mocks.sshLogger.warn).toHaveBeenCalledTimes(1);
     const [, payload] = mocks.sshLogger.warn.mock.calls[0] as [
       string,
       Record<string, unknown>,
     ];
     expect(payload.operation).toBe("apps_pane_proxy");
-    // Only safe fields — no stack, no headers, no user data.
     const forbidden = ["stack", "cookie", "authorization", "userId", "req"];
     for (const k of forbidden) {
       expect(payload).not.toHaveProperty(k);
     }
-    // Interstitial was rendered + written.
     expect(mocks.renderInterstitial).toHaveBeenCalledTimes(1);
     expect(mocks.writeInterstitial).toHaveBeenCalledTimes(1);
   });
@@ -610,9 +967,8 @@ describe("error hook", () => {
     const opts = lastOptions() as { on: { error: Function } };
     const err = Object.assign(new Error("late error"), { code: "ECONNRESET" });
     const req = makeExpressReq();
-    const res = makeExpressRes(true); // client disconnected mid-error
+    const { res } = makeExpressRes(true);
     opts.on.error(err, req, res);
-    // No interstitial write attempted.
     expect(mocks.writeInterstitial).not.toHaveBeenCalled();
   });
 });
@@ -621,16 +977,6 @@ describe("error hook", () => {
 /*  buildPaneMountPathRewrite — HIGH-2 dedicated coverage                    */
 /* ------------------------------------------------------------------------ */
 
-/**
- * HIGH-2 code-review fix (2026-09-19). The router mounts under `/apps`,
- * so Express strips `/apps` from `req.url` before the proxy middleware
- * sees it. The rewrite therefore operates on `/<hostId>/<slug>/pane/...`,
- * not `/apps/<hostId>/<slug>/pane/...`. This suite exercises the exported
- * `buildPaneMountPathRewrite` factory directly with the exact URL shapes
- * Express would deliver post-mount — a regression against the pre-fix
- * regex (`^/apps/...`) fails these cases because none of them start with
- * `/apps`.
- */
 describe("buildPaneMountPathRewrite (HIGH-2 unit coverage)", () => {
   it("rewrites `/5/todo/pane/api/list` → `/api/list`", async () => {
     const { buildPaneMountPathRewrite } = await import(
@@ -661,8 +1007,6 @@ describe("buildPaneMountPathRewrite (HIGH-2 unit coverage)", () => {
       "../app-pane-proxy-factory.js"
     );
     const rewrite = buildPaneMountPathRewrite(5, "todo");
-    // http-proxy-middleware passes path+search to pathRewrite; the whole
-    // tail after `/pane` (including `?foo=bar`) belongs to the app.
     expect(rewrite("/5/todo/pane/api/x?foo=bar&baz=qux")).toBe(
       "/api/x?foo=bar&baz=qux",
     );
@@ -673,15 +1017,9 @@ describe("buildPaneMountPathRewrite (HIGH-2 unit coverage)", () => {
       "../app-pane-proxy-factory.js"
     );
     const rewrite = buildPaneMountPathRewrite(5, "todo");
-    // Different hostId — passthrough (upstream routing dispatch shouldn't
-    // send us this; defence-in-depth guarantees we don't accidentally
-    // strip the wrong prefix).
     expect(rewrite("/6/todo/pane/api/list")).toBe("/6/todo/pane/api/list");
-    // Different slug — passthrough.
     expect(rewrite("/5/timer/pane/api/list")).toBe("/5/timer/pane/api/list");
-    // No `/pane` segment — passthrough.
     expect(rewrite("/5/todo/other/x")).toBe("/5/todo/other/x");
-    // Missing leading slash — passthrough.
     expect(rewrite("5/todo/pane")).toBe("5/todo/pane");
   });
 
@@ -690,10 +1028,6 @@ describe("buildPaneMountPathRewrite (HIGH-2 unit coverage)", () => {
       "../app-pane-proxy-factory.js"
     );
     const rewrite = buildPaneMountPathRewrite(5, "todo");
-    // If someone reverts to `/apps/...` this passes through unchanged
-    // rather than stripping. In production this shape does not occur
-    // (Express mount-strips `/apps` first) — asserted here so the guard
-    // is explicit.
     expect(rewrite("/apps/5/todo/pane/api/list")).toBe(
       "/apps/5/todo/pane/api/list",
     );
@@ -705,73 +1039,5 @@ describe("buildPaneMountPathRewrite (HIGH-2 unit coverage)", () => {
     );
     const rewrite = buildPaneMountPathRewrite(5, "my-cool-app");
     expect(rewrite("/5/my-cool-app/pane/api/list")).toBe("/api/list");
-  });
-});
-
-/* ------------------------------------------------------------------------ */
-/*  MEDIUM-2 — upstream Set-Cookie stripped in responseInterceptor           */
-/* ------------------------------------------------------------------------ */
-
-/**
- * MEDIUM-2 code-review fix (2026-09-19). copyHeaders forwards `Set-Cookie`
- * from the upstream (only stripping the `Domain=` attribute). Because pane
- * responses are served from Skynet's primary origin, any app-set cookie
- * lands on that origin and is sent back on every subsequent request to
- * Skynet's own surfaces — cookie collision / shadow / leak risk. Fix
- * removes `Set-Cookie` in the responseInterceptor callback.
- *
- * Test: exercise the callback with an arbitrary upstream response and
- * assert `res.removeHeader("Set-Cookie")` was called. Coverage is
- * unconditional (the strip runs regardless of Content-Type or body shape).
- */
-describe("MEDIUM-2 — upstream Set-Cookie strip", () => {
-  it("removes Set-Cookie from the response inside the responseInterceptor callback", async () => {
-    const { getOrCreateAppPaneProxyForTarget } = await import(
-      "../app-pane-proxy-factory.js"
-    );
-    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
-    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
-      buffer: Buffer,
-      proxyRes: http.IncomingMessage,
-      req: Request,
-      res: Response,
-    ) => Promise<Buffer>;
-    const res = makeExpressRes();
-    await cb(
-      Buffer.from("<html></html>", "utf8"),
-      makeProxyRes("text/html"),
-      makeExpressReq(),
-      res,
-    );
-    const removeHeader = (res as unknown as {
-      removeHeader: import("vitest").Mock;
-    }).removeHeader;
-    expect(removeHeader).toHaveBeenCalledWith("Set-Cookie");
-  });
-
-  it("strips Set-Cookie for non-HTML responses too (unconditional)", async () => {
-    // The strip is unconditional — an app-set cookie on a JSON/JS/image
-    // response has the same origin-leak risk as one on an HTML doc.
-    const { getOrCreateAppPaneProxyForTarget } = await import(
-      "../app-pane-proxy-factory.js"
-    );
-    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 5, "todo");
-    const cb = mocks.responseInterceptor.mock.calls[0][0] as (
-      buffer: Buffer,
-      proxyRes: http.IncomingMessage,
-      req: Request,
-      res: Response,
-    ) => Promise<Buffer>;
-    const res = makeExpressRes();
-    await cb(
-      Buffer.from(`{"ok":true}`, "utf8"),
-      makeProxyRes("application/json"),
-      makeExpressReq(),
-      res,
-    );
-    const removeHeader = (res as unknown as {
-      removeHeader: import("vitest").Mock;
-    }).removeHeader;
-    expect(removeHeader).toHaveBeenCalledWith("Set-Cookie");
   });
 });
