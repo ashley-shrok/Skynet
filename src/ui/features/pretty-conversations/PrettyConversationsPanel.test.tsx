@@ -1450,9 +1450,6 @@ describe("PrettyConversationsPanel: all four header buttons gated on onCreateSes
     );
     expect(container.querySelector('[data-testid="pv-header-menu-button"]')).toBeNull();
     expect(container.querySelector('[data-testid="pv-header-new-agent-button"]')).toBeNull();
-    // pv-header-edit-roles-button retired at all render states — Edit roles
-    // moved into the kebab in shape-sidebar-header-footer-redesign. Still
-    // asserting null because it should never appear as a header button.
     expect(container.querySelector('[data-testid="pv-header-edit-roles-button"]')).toBeNull();
     // Footer's Globe renders regardless of the onCreateSession gate — it
     // lives in the "about me" zone, not the "act on the list" zone.
@@ -3692,14 +3689,11 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     expect(typeof onCreateRelayRoom).toBe("function");
   });
 
-  // Test 4: kebab holds three items in locked order.
+  // Test 4: kebab now holds exactly two items in locked order.
   // quick-260914-liu: New agent, Edit roles, Edit global files were promoted
-  // to dedicated header icon buttons. The original kebab survivors were:
-  // New group conversation → Edit global skills… (Phase 44 Pitfall 8 guard applies to that pair).
-  // shape-sidebar-header-footer-redesign: Edit roles was migrated BACK into
-  // the kebab as the THIRD item — appended after the guarded pair, so the
-  // pair's known order stays intact.
-  it("Test 4 (shape-redesign rewrite): kebab holds three items in locked order: 'New group conversation' → 'Edit global skills…' → 'Edit roles…'", () => {
+  // to dedicated header icon buttons. The kebab survivors are:
+  // New group conversation → Edit global skills… (Phase 44 Pitfall 8 guard still applies).
+  it("Test 4 (quick-260914-liu rewrite): kebab holds exactly two items in locked order: 'New group conversation' then 'Edit global skills…'", () => {
     renderPanelWithCreateRelayRoom();
     openThreeDotMenu();
 
@@ -3709,15 +3703,11 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     // Filter out the feature-detected "Enable notifications…" entry so this
     // assertion doesn't silently couple to JSDOM's lack of service-worker
     // support (a future test-env polyfill could otherwise flip this from
-    // three to four items and break the exact-match). The guarded three
-    // always render in this exact order.
+    // two to three items and break the exact-match). The guarded pair
+    // always renders in this exact order.
     const guardedLabels = labels.filter((l) => l !== "Enable notifications…");
 
-    expect(guardedLabels).toEqual([
-      "New group conversation",
-      "Edit global skills…",
-      "Edit roles…",
-    ]);
+    expect(guardedLabels).toEqual(["New group conversation", "Edit global skills…"]);
   });
 
   // Test 5: portal-mount pattern — NewConversationModal is sibling of GlobalFilesModal

@@ -33,7 +33,7 @@ import {
   afterEach,
   afterAll,
 } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import React from "react";
 import type { Host, HostFolder } from "@/types/ui-types";
 import type { Identity, RoleSummary } from "@/api/identities-api";
@@ -357,13 +357,8 @@ describe("Phase 90 role-management flow — panel-header entry point", () => {
       />,
     );
 
-    // shape-sidebar-header-footer-redesign: Edit roles migrated from the
-    // header into the kebab as the third item. Open the kebab, then click
-    // "Edit roles…".
-    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
-    fireEvent.click(
-      within(screen.getByRole("menu")).getByRole("menuitem", { name: /edit roles/i }),
-    );
+    // Click the dedicated Edit roles header button (quick-260914-liu).
+    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
 
     // RolesListModal renders with "Roles" DialogTitle.
     await waitFor(() => {
@@ -412,13 +407,8 @@ describe("Phase 90 role-management flow — RoleModal close", () => {
       />,
     );
 
-    // shape-sidebar-header-footer-redesign: Edit roles migrated from the
-    // header into the kebab as the third item. Open the kebab, then click
-    // "Edit roles…".
-    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
-    fireEvent.click(
-      within(screen.getByRole("menu")).getByRole("menuitem", { name: /edit roles/i }),
-    );
+    // Click the dedicated Edit roles header button (quick-260914-liu).
+    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
     await waitFor(() => {
       expect(screen.queryByText("Box Maintainer")).toBeTruthy();
     });
@@ -475,13 +465,8 @@ describe("Phase 90 role-management flow — RoleModal cosmetic edit", () => {
       />,
     );
 
-    // shape-sidebar-header-footer-redesign: Edit roles migrated from the
-    // header into the kebab as the third item. Open the kebab, then click
-    // "Edit roles…".
-    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
-    fireEvent.click(
-      within(screen.getByRole("menu")).getByRole("menuitem", { name: /edit roles/i }),
-    );
+    // Click the dedicated Edit roles header button (quick-260914-liu).
+    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
     await waitFor(() => {
       expect(screen.queryByText("Box Maintainer")).toBeTruthy();
     });
@@ -521,13 +506,8 @@ describe("Phase 90 role-management flow — CreateRoleDialog swap", () => {
       />,
     );
 
-    // shape-sidebar-header-footer-redesign: Edit roles migrated from the
-    // header into the kebab as the third item. Open the kebab, then click
-    // "Edit roles…".
-    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
-    fireEvent.click(
-      within(screen.getByRole("menu")).getByRole("menuitem", { name: /edit roles/i }),
-    );
+    // Click the dedicated Edit roles header button (quick-260914-liu).
+    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
 
     // Wait for RolesListModal — detectable via its "Roles" title.
     await waitFor(() => {
