@@ -62,7 +62,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // ~/.claude/skills/app-development/ on managed boxes.
     // task-field-check adds 1 helper script (UserPromptSubmit hook for
     // the id-skill task: field nag).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(46);
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(47);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -162,14 +162,15 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // including the 3-file pre-generated initial Drizzle migration,
     // first-class-apps shape 1)
     expect(skillRows.length).toBe(32);
-    // 12 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
-    // role-file-watch (4th ambient monitor) + usage-reporter + install-usage-reporter +
-    // claude-usage-collector + fleet-status-sweep (Phase 92 batch sweep) +
-    // pv-context-pct-sweep (Phase 95 PrettyView context-pct batch sweep) +
+    // 13 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
+    // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
+    // (distributor-shipped node POSTer, retires the hub-curl in install-usage-reporter) +
+    // install-usage-reporter + claude-usage-collector + fleet-status-sweep (Phase 92
+    // batch sweep) + pv-context-pct-sweep (Phase 95 PrettyView context-pct batch sweep) +
     // ambient-monitor (mega-monitor phase, single on-wake launcher) +
     // image-gen (Phase 116 file-drop broker helper) +
     // task-field-check (UserPromptSubmit hook for id skill task: field nag)
-    expect(scriptRows.length).toBe(12);
+    expect(scriptRows.length).toBe(13);
     // 1 user-onboarding file: agent-supervisor.service
     expect(userOnboardingRows.length).toBe(1);
 
@@ -268,7 +269,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     const runtime = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "runtime",
     );
-    expect(bundled.length).toBe(45);
+    expect(bundled.length).toBe(46);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

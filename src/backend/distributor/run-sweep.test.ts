@@ -165,7 +165,7 @@ describe("runSweepForHost", () => {
 
     expect(logSweepResult).toHaveBeenCalledTimes(1);
     const call = (logSweepResult as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.itemsChecked).toBe(46);
+    expect(call.itemsChecked).toBe(47);
     expect(call.itemsChanged).toBe(0);
     expect(call.itemsFailed).toBe(0);
     expect(logItemChanged).not.toHaveBeenCalled();

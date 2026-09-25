@@ -5,7 +5,12 @@
 CONF="${CLAUDE_USAGE_REPORTER_CONF:-$HOME/.claude/usage/usage-reporter.conf}"
 WRAPPED=""
 COLLECTOR="http://100.113.23.63:9421/report"
-REPORTER="$HOME/.claude/usage/usage-report.js"
+# Reporter ships via the fleet-substrate distributor (catalog slug: usage-report).
+# Old boxes may still have a copy at ~/.claude/usage/usage-report.js — fall back to
+# it so an out-of-order rollout (wrapper updates before install-usage-reporter reruns)
+# doesn't silently stop reporting. install-usage-reporter.sh cleans up the legacy path.
+REPORTER="$HOME/.local/bin/usage-report"
+[ -x "$REPORTER" ] || REPORTER="$HOME/.claude/usage/usage-report.js"
 [ -f "$CONF" ] && . "$CONF"
 INPUT=$(cat)
 # 1) original statusline output first (fast path)
