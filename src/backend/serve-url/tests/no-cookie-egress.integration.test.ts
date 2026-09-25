@@ -396,4 +396,36 @@ describe("Phase 103 D-05 — no cookie / authorization / x-skynet-* egress", () 
     // 127.0.0.1:${proxyPort}. Either way the Host header MUST be present.
     expect(h.host).toBeDefined();
   });
+
+  it("SANITY: Accept header passes through the allowlist strip (content negotiation)", async () => {
+    // Regression test for 2026-09-25 fix. Framework servers doing content
+    // negotiation (SvelteKit form actions, Rails respond_to) need Accept to
+    // pick the right response type. Missing Accept made SvelteKit default
+    // to application/json for form-action POSTs from the pane iframe.
+    const res = await fetch(`http://127.0.0.1:${proxyPort}/sanity-accept`, {
+      method: "GET",
+      headers: { Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8" },
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(recordedHeaders.length).toBeGreaterThanOrEqual(1);
+    const h = recordedHeaders[0] as HeaderRecord;
+    const accept = h.accept;
+    expect(accept).toBeDefined();
+    expect(String(accept)).toContain("text/html");
+  });
+
+  it("SANITY: Accept-Encoding header passes through the allowlist strip (compression negotiation)", async () => {
+    const res = await fetch(`http://127.0.0.1:${proxyPort}/sanity-accept-encoding`, {
+      method: "GET",
+      headers: { "Accept-Encoding": "gzip, br" },
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(recordedHeaders.length).toBeGreaterThanOrEqual(1);
+    const h = recordedHeaders[0] as HeaderRecord;
+    const encoding = h["accept-encoding"];
+    expect(encoding).toBeDefined();
+    expect(String(encoding)).toContain("gzip");
+  });
 });

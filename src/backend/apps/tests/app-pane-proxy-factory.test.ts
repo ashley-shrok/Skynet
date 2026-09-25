@@ -415,6 +415,30 @@ describe("proxyReq hook (HEADER_ALLOWLIST strip on HTTP outbound)", () => {
     expect(removeHeaderCalls).not.toContain("host");
     expect(removeHeaderCalls).not.toContain("content-type");
   });
+
+  it("preserves Accept + Accept-Encoding (content-negotiation headers, added 2026-09-25)", async () => {
+    // Regression coverage — SvelteKit form-action POSTs failed content
+    // negotiation without Accept, returning application/json action-result
+    // JSON instead of following a redirect(303, ...) as an HTTP 303.
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 1, "todo");
+    const opts = lastOptions() as { on: { proxyReq: Function } };
+    const { req, removeHeaderCalls } = makeProxyReq({
+      host: "127.0.0.1:12345",
+      accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+      "accept-encoding": "gzip, br",
+    });
+    opts.on.proxyReq(
+      req,
+      {} as unknown as Request,
+      {} as unknown as Response,
+      {} as unknown as import("http-proxy-middleware").Options,
+    );
+    expect(removeHeaderCalls).not.toContain("accept");
+    expect(removeHeaderCalls).not.toContain("accept-encoding");
+  });
 });
 
 /* ------------------------------------------------------------------------ */

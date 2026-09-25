@@ -98,7 +98,22 @@ export type ErrorClass =
  * - x-skynet-* (any Skynet-internal header)
  * - user-agent, referer, origin (upstream never sees browser identity)
  * - x-forwarded-* (Caddy stripped these already at the edge)
- * - accept, accept-*, cache-control, pragma, dnt, etc. (denied by omission)
+ * - accept-language, cache-control, pragma, dnt, etc. (denied by omission)
+ *
+ * Content-negotiation headers explicitly INCLUDED (2026-09-25):
+ * - accept — HTTP content negotiation. Without it, framework servers that
+ *   negotiate response type (SvelteKit form actions, Rails respond_to,
+ *   ASP.NET action results) cannot see the browser's preference and default
+ *   to whichever type is first in their internal priority list. Concrete
+ *   symptom: SvelteKit form-action POSTs returned `application/json`
+ *   action-result payloads instead of following a `redirect(303, ...)` as
+ *   an HTTP 303, rendering the JSON body as text in the iframe. Accept is
+ *   a content-negotiation signal, not a browser-identifier — every browser
+ *   sends similar Accept strings per request context — so this addition
+ *   does not weaken the "no browser identity" invariant meaningfully.
+ * - accept-encoding — response compression negotiation (gzip/br). Without
+ *   it, apps send uncompressed responses on every payload. Not a browser
+ *   identifier — every modern browser sends the same set.
  *
  * Lowercase because `proxyReq.getHeaderNames()` returns lowercase names in
  * Node; the allowlist check in Plan 03b's proxy-factory does a case-sensitive
@@ -120,4 +135,6 @@ export const HEADER_ALLOWLIST = [
   "content-length",
   "range",
   "if-range",
+  "accept",
+  "accept-encoding",
 ] as const;
