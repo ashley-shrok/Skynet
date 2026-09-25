@@ -186,9 +186,12 @@
 }
 
 /* Initials circle — decorative for now (no pointer, no hover, no click
-   affordance). Warm-tan tint on --color-pv-fg, mirrors button-chrome sizing
-   at 28x28. Nothing about this fakes clickability until preferences ships
-   in the follow-on shape and wires it. */
+   affordance). Warm-tan tint derived from --color-pv-fg-muted (#a89a80,
+   the genuinely warm beige-tan already in the palette) at low opacity for
+   the background + a slightly stronger warm-tan border. Text uses
+   --color-pv-fg (warm off-white) for contrast against the tan. Sizing
+   mirrors button-chrome at 28x28. Nothing about this fakes clickability
+   until preferences ships in the follow-on shape and wires it. */
 .pv-panel-footer .pv-footer-initials {
   width: 28px;
   height: 28px;
@@ -196,8 +199,8 @@
   align-items: center;
   justify-content: center;
   color: var(--color-pv-fg);
-  background: rgba(220, 225, 245, 0.08);
-  border: 1px solid var(--color-pv-border-quiet);
+  background: rgba(168, 154, 128, 0.2);
+  border: 1px solid rgba(168, 154, 128, 0.35);
   border-radius: 50%;
   font-size: 12px;
   font-weight: 700;

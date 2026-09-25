@@ -2461,22 +2461,15 @@ export function PrettyConversationsPanel({
             </a>
           </span>
           <div className="pv-header-actions">
-            {/* Header icon buttons, left-to-right (8 total):
-                (1) Search (Phase 122; opens ConversationSearchModal — prepended
-                    as the leftmost for discoverability per that phase's RESEARCH),
-                (2) New conversation, (3) Create project, (4) Edit roles,
-                (5) Edit global files, (6) Wake-ups (Phase 129 shape 3;
-                    opens WakeupsModal — added between Globe and feedback),
-                (7) Send feedback (Phase 124 shape 2; gates independently on
-                    useFeedbackEnabled per D-12, not on showPencilButton),
-                (8) kebab.
-                The Search + create/edit/wake-ups/kebab siblings all share
-                the `showPencilButton` guard (typeof onCreateSession ===
-                "function") and appear/disappear together. The kebab was
-                split out from this fragment in Phase 124 so the feedback
-                button can render between the guarded cluster and the kebab
-                regardless of showPencilButton. Only the feedback button
-                gates independently. */}
+            {/* Header icon buttons — see each button's own inline note for
+                its individual rationale. The showPencilButton-gated cluster
+                (Search, New conversation, Create project, Wake-ups, kebab)
+                appears/disappears together based on typeof onCreateSession
+                === "function". Send feedback is deliberately OUTSIDE that
+                guard — it renders on any header where feedback is configured
+                (its own feedbackEnabled gate, D-12). No numbered enumeration
+                here because it goes stale every time the shape shifts;
+                walking the JSX in order is authoritative. */}
             {showPencilButton && (
               <>
                 <button
@@ -2543,13 +2536,16 @@ export function PrettyConversationsPanel({
               </>
             )}
             {/* Phase 123 shape 2 (D-01/D-02/D-11/D-12): "Send feedback" header
-                button. Position: fifth of six (after Globe, before the kebab).
+                button. Position (as of shape-sidebar-header-footer-redesign):
+                after Wake-ups, before the kebab. Rationale for keeping it
+                top-level: feedback capability should always be surfaced to
+                users regardless of app state; do NOT fold it into the kebab.
                 Gate: feedbackEnabled ONLY — deliberately INDEPENDENT of the
                 showPencilButton fragment above and below so the button renders
                 on any header where feedback is configured, even when
-                onCreateSession is undefined (D-12). Chrome mirrors the five
-                siblings exactly: same .pv-pencil class, MessageSquare at
-                size 18, aria-label + title both "Send feedback" verbatim
+                onCreateSession is undefined (D-12). Chrome mirrors sibling
+                header buttons exactly: same .pv-pencil class, MessageSquare
+                at size 18, aria-label + title both "Send feedback" verbatim
                 (D-03/D-04/D-05/D-22). Click lifts AppShell's existing
                 feedbackOpen atom to "general" via the onOpenFeedback callback
                 (D-07/D-08); optional-chaining call is a silent no-op if the

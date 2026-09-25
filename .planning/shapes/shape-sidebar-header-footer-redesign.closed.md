@@ -98,3 +98,53 @@ Ship plan:
 Beta context: the identity's project pointer moved to the beta project mid-session. This redesign ships to the beta; send feedback stays as a top-zone button specifically because it's beta.
 
 Closed with `/close sidebar-header-footer-redesign` at the end.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-25
+**Vehicle used:** Inline — chunked commits (footer CSS scaffold, footer JSX + Globe migration, Edit-roles migration to kebab), Ashley in-loop between chunks
+**Overall verdict:** closed-with-misses
+
+### Shape features (conformance)
+
+- **What this is — two-zone split (header for acting on the list; footer for the person)** — present · Two zones exist as siblings in the panel's flex column; header keeps its action-on-the-list role, footer carries the 'about me' role
+- **Shape — top zone order (search → new conv → create project → wake-ups → send feedback → catchall)** — present · Order in the DOM matches the shape exactly
+- **Shape — bottom zone anchored by initials circle + username, then global files + inert preferences gear** — present · Anchor slot renders only when username is populated; actions slot always renders
+- **Shape — initials circle warm tan, decorative, no pointer/hover/click** — partial · Decorative behavior is honored (no cursor, no hover), but the actual color is a cool near-white tint at 8% opacity, not warm tan — the warm-tan intention got lost
+- **Shape — catchall menu holds new group conv, edit shared skills, edit shared roles in that order** — present · Three items in exactly that order; Edit roles appended as the third item after the guarded pair
+- **Shape — both zones share visual treatment (padding, border-color, typography, chrome); footer top hairline mirrors header bottom hairline** — present · Footer uses matching 14px 16px padding, same border-quiet hairline on top, footer-btn is chrome-identical to header pv-pencil
+- **Shape — mobile sizes scale up per the existing app pattern** — present · Footer inherits the mobile treatment: 48x48 buttons, 24px icons, 40x40 initials, 15px username
+- **Philosophy — two zones two purposes; nothing that isn't real gets faked** — present · Initials circle and preferences gear both render without cursor:pointer or hover treatment; preferences uses a semantic span not a button
+- **Philosophy — logo lockup stays exactly as it is** — present · No changes to the header-logo / header-wordmark markup or CSS
+- **Prior context — global files migrates from top to bottom** — present · Header Globe removed; footer Globe rendered with the new pv-footer-global-files-button test-id, click still opens GlobalFilesModal
+- **Prior context — edit shared roles migrates into the catchall menu** — present · Header Edit-roles button retired; menu item appended as third entry
+- **Prior context — send feedback stays visible (beta rationale)** — present · Button stays top-level, gating unchanged; the 'beta rationale' phrasing in the shape was a misread — real rationale is 'feedback should always be available'
+- **Prior context — wake-ups stays visible in top zone, before send feedback** — present · Wake-ups renders between create-project and send-feedback
+- **Prior context — weekly usage meter stays where it is** — present · No changes to usage-meter placement or gating
+- **Prior context — hard-order rule on original catchall pair preserved** — present · New group conversation then Edit global skills — pair kept intact; Edit roles appended after them, deliberately not extending the guard to the third item
+- **What would make it wrong: bottom zone becomes a miscellaneous drawer** — present · Footer holds only the anchor, global files (user-scope), and preferences placeholder (user-scope) — no non-user items snuck in
+- **What would make it wrong: initials circle or preferences gear develops hover/pointer while inert** — present · Initials has no cursor and no :hover rule; preferences gear has cursor:default and its hover rule zeroes out all hover effects
+- **What would make it wrong: top zone re-lay-out too subtle to feel decrowded** — drifted · Endorsed — decrowding-by-subtraction alone was Ashley's intent, consistent with the Out list excluding cluster-spacing changes
+- **What would make it wrong: logo lockup replaced/moved/shrunk** — present · Logo markup and CSS untouched
+- **What would make it wrong: mobile hides footer or leaves mobile users without global files** — present · Mobile media query bumps footer sizes; footer is a flex-shrink:0 sibling in the panel column, same as the header
+- **What would make it wrong: existing hard-order rule on catchall's original pair disturbed** — present · Original pair keeps its order; guard-comment updated to note Edit roles was appended as the third item and the guard does NOT extend to it
+- **What would make it wrong: beta rationale for send-feedback lost as a note** — drifted · Endorsed — the shape's beta framing was a misread; real rationale is general (feedback always available), no code note needed
+- **Scope edges — In: two-zone split, migrations, catchall gains one item, wake-ups position, footer contents, matched visual treatment, mobile scaling, test updates** — present · All In items present in the material
+- **Scope edges — Out: preferences modal not built; no avatar concept; anchor click still does nothing; usage meter untouched; send-feedback gating unchanged; no header cluster-spacing changes** — present · Nothing on the Out list crept in; preferences gear is a placeholder span; anchor has no onClick; no avatar work
+- **Scope edges — Deferred: real preferences modal (next shape)** — present · Correctly left unbuilt
+- **Scope edges — Tempting but no: no folding of wake-ups/feedback into catchall; no logo changes; no invented avatar; no viewport-fixed escape hatch** — present · Footer sits naturally in the panel's flex column, not fixed to the viewport
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+- Initials-circle background is a cool near-white tint, not warm tan — fix to actually render as warm tan — issue
+- Send-feedback button's inline position comment is stale (says 'fifth of six, after Globe') — Globe migrated to the footer; update the note so a future maintainer isn't misled — issue
+
+### Notes
+
+Two clean commits split the work well (CSS scaffold → JSX + Globe migration → Edit-roles kebab migration), and test updates are proportionate to the surface change. One code-hygiene observation worth carrying forward: the header's enumeration block-comment (numbered 1..8) survived through several shape changes accumulating staleness — after each header-composition shape, that enumeration comment needs a pass, or it should be retired in favor of individual per-button comments. The stale send-feedback position note is the same category. Also worth noting: the shape's 'beta rationale' framing for send-feedback was itself a shape-time misread — a useful reminder that shape rationales sometimes describe an intent-adjacent story that isn't the real one, and close-out is the moment that surfaces.
