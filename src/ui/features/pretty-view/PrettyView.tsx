@@ -4493,7 +4493,17 @@ export function PrettyView({
           holding branch must be reconsidered — otherwise a send armed during
           holding would take the 20s branch even though the pane is
           transiently unavailable. */}
-      {(onSend || source.kind === "relay") && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant" || renderedState === "active" || source.kind === "relay") && (
+      {/* 2026-09-25 (tina): added `renderedState === "inactive"` to unstrand
+          panes where backend discovery timed out (returns pane_state:"inactive"
+          → resolveRenderedState maps to "inactive"). Previously the gate
+          matched none of {active,dormant,error} so ComposeBox never mounted
+          (domNodeCount:6). On a busy target (workstation load 60+ / 1500+
+          shells / 750+ claude procs) 7 of 8 concurrent discoveries hit the
+          15s timeout on rapid multi-pane reload, leaving those panes
+          permanently uncomposable. Treating "inactive" the same as "dormant"
+          for the mount decision is correct: both are "backend says no live
+          claude for this pane"; on send, the invisible-wake path handles it. */}
+      {(onSend || source.kind === "relay") && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant" || renderedState === "active" || renderedState === "inactive" || source.kind === "relay") && (
         <ComposeBox
           // Phase 93 D-11: pass mode based on source.kind — "relay" hides
           // Row 1 + Paperclip monolithically; "harness" (default) preserves
@@ -4543,10 +4553,17 @@ export function PrettyView({
             // the Send button rendered visually disabled. Enter-to-send still
             // fired via ComposeBox.handleKeyDown (which bypasses canSend),
             // which is why the relay-source tests didn't catch it.
+            // 2026-09-25 (tina): `inactive` mirrors `dormant` in the mount
+            // gate above (see comment there), so also enable Send here so
+            // the user can type/send even when discovery is inactive —
+            // otherwise mounting the ComposeBox with a disabled Send button
+            // partially re-creates the "can't compose" trap the mount-gate
+            // widening was meant to close.
             source.kind === "relay" ||
             status === "streaming" ||
             renderedState === "dormant" ||
-            renderedState === "active"
+            renderedState === "active" ||
+            renderedState === "inactive"
           }
           // Phase 53 Plan 03 — isHolding now derives from `isRecycling`
           // (working-store Axis E) — one source for all three ComposeBox +
