@@ -162,6 +162,111 @@
   -webkit-user-drag: none;
 }
 
+/* Sidebar footer — mirrors .pv-panel-header treatment. Sibling of
+   .pv-panel-header and .pv-panel-scroll at the bottom of the panel.
+   Carries the "about me" zone: initials-circle anchor + username on the
+   left, migrated global-files affordance + inert preferences-placeholder
+   gear on the right. Border-TOP mirrors the header's border-bottom, using
+   the same --color-pv-border-quiet hairline. */
+.pv-panel-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--color-pv-border-quiet);
+  flex-shrink: 0;
+}
+
+.pv-panel-footer .pv-footer-anchor {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Initials circle — decorative for now (no pointer, no hover, no click
+   affordance). Warm-tan tint on --color-pv-fg, mirrors button-chrome sizing
+   at 28x28. Nothing about this fakes clickability until preferences ships
+   in the follow-on shape and wires it. */
+.pv-panel-footer .pv-footer-initials {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-pv-fg);
+  background: rgba(220, 225, 245, 0.08);
+  border: 1px solid var(--color-pv-border-quiet);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.pv-panel-footer .pv-footer-username {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-pv-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-panel-footer .pv-footer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Footer button — chrome-identical to .pv-panel-header .pv-pencil so the
+   two zones share the same visual language. Kept as a separate selector so
+   test-ids and event wiring are unambiguous, not because the styling
+   differs. */
+.pv-panel-footer .pv-footer-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-pv-fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.pv-panel-footer .pv-footer-btn:hover {
+  background: rgba(220, 225, 245, 0.06);
+  border-color: var(--color-pv-border-quiet);
+  color: var(--color-pv-fg);
+}
+
+.pv-panel-footer .pv-footer-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
+/* Inert modifier — the preferences-placeholder gear renders visually but
+   is not wired to anything yet (preferences ships in a follow-on shape).
+   Removes pointer cursor and hover treatment so it doesn't fake
+   clickability. */
+.pv-panel-footer .pv-footer-btn.pv-footer-btn-inert {
+  cursor: default;
+}
+
+.pv-panel-footer .pv-footer-btn.pv-footer-btn-inert:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-pv-fg-muted);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    USAGE METER — single-bar fill+tick (user 2026-07-29 pick, B variant from
    the tune-meter picker with a slight prominence bump before lock-in).
@@ -1291,6 +1396,36 @@
   }
   .pv-panel-header .pv-header-wordmark {
     height: 18px;
+  }
+
+  /* Sidebar footer — mobile bump. Mirrors the header's mobile treatment:
+     48x48 touch targets, 24px icons, tighter vertical padding to match the
+     8px top/bottom the header uses on mobile. Anchor initials bump to 40x40
+     to stay visually proportionate against the larger buttons; username
+     type-scales to match. */
+  .pv-panel-footer {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .pv-panel-footer .pv-footer-initials {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+  .pv-panel-footer .pv-footer-username {
+    font-size: 15px;
+  }
+  .pv-panel-footer .pv-footer-actions {
+    gap: 10px;
+  }
+  .pv-panel-footer .pv-footer-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+  .pv-panel-footer .pv-footer-btn svg {
+    width: 24px;
+    height: 24px;
   }
 
   /* Phase 104 Plan 02 — trapped-work indicator mobile bump. Scales to ~28px
