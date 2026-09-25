@@ -110,6 +110,14 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 // re-validates before any SSH/SFTP work.
 export const ROLE_NAME_PATTERN = /^[a-z0-9-]+$/;
 
+// Strict segment shape — every dash-separated segment must start with a
+// letter. Matches backend ROLE_NAME_RE (identity-birth-orchestrator.ts:838),
+// the regex identity-birth uses when poolPicked=true. Enforced here at
+// CREATE so we don't ship roles that pass the permissive create-gate but
+// reliably 400 on every subsequent birth with a generic "agent creation
+// failed" alert.
+export const ROLE_NAME_STRICT = /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/;
+
 // The Name field accepts free text (any capitalization/spacing) and drives BOTH
 // the on-disk role slug and the `title:` cosmetic. Slugification happens here so
 // the backend keeps receiving a kebab-case `name` and its ROLE_NAME_PATTERN gate
@@ -297,8 +305,13 @@ export function CreateRoleDialog({
   // spaces are expected input, not errors.
   const title = name.trim();
   const slug = slugifyRoleName(name);
-  const nameValid = slug.length > 0 && ROLE_NAME_PATTERN.test(slug);
+  const slugKebabValid = slug.length > 0 && ROLE_NAME_PATTERN.test(slug);
+  const nameValid = slugKebabValid && ROLE_NAME_STRICT.test(slug);
   const nameShowError = name.trim().length > 0 && !nameValid;
+  // Distinguish "no usable characters" from "leading-digit segment" so the
+  // inline error tells the user what to actually change.
+  const nameErrorReason: "empty-slug" | "segment-shape" =
+    !slugKebabValid ? "empty-slug" : "segment-shape";
   const descriptionValid = description.trim().length > 0;
   const hostValid = selectedHost !== null;
   // Phase 86 (D-CTX-86-empty-not-scenario): cosmetic fields are REQUIRED.
@@ -501,9 +514,15 @@ export function CreateRoleDialog({
   const namePlaceholder = t("nav.createRoleNamePlaceholder", {
     defaultValue: "Meal Planner",
   });
-  const nameErrorText = t("nav.createRoleNameError", {
-    defaultValue: "Name must contain at least one letter or number",
-  });
+  const nameErrorText =
+    nameErrorReason === "empty-slug"
+      ? t("nav.createRoleNameError", {
+          defaultValue: "Name must contain at least one letter or number",
+        })
+      : t("nav.createRoleNameErrorSegmentShape", {
+          defaultValue:
+            "Each dash-separated part must start with a letter (e.g., 'meal-planner-two', not 'meal-planner-2')",
+        });
   const descriptionLabel = t("nav.createRoleDescriptionLabel", {
     defaultValue: "Description",
   });

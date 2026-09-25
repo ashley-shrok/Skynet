@@ -346,6 +346,41 @@ describe("CreateRoleDialog", () => {
     expect(screen.queryByText(/at least one letter or number/i)).toBeNull();
   });
 
+  it("Test 12b: Name validation — leading-digit segment ('Meal Planner 2' → 'meal-planner-2') triggers the segment-shape error and disables Create", () => {
+    render(
+      <CreateRoleDialog
+        open={true}
+        onClose={() => {}}
+        hostTree={makeHostTree([makeHost("h1", "hostA")])}
+      />,
+    );
+
+    const nameInput = screen.getByLabelText(/name/i) as HTMLInputElement;
+
+    // Trailing digit slugifies to a segment starting with a digit — fails the
+    // strict segment-shape gate that mirrors backend ROLE_NAME_RE. Without
+    // this frontend gate, the role would be created but every subsequent
+    // agent birth with this role would 400 with an opaque generic alert.
+    fireEvent.change(nameInput, { target: { value: "Meal Planner 2" } });
+    expect(
+      screen.getByText(/each dash-separated part must start with a letter/i),
+    ).toBeTruthy();
+    const createBtn = screen.getByRole("button", { name: /create/i }) as HTMLButtonElement;
+    expect(createBtn.disabled).toBe(true);
+
+    // Same failure for a leading-digit at the start ("3D Artist" → "3d-artist").
+    fireEvent.change(nameInput, { target: { value: "3D Artist" } });
+    expect(
+      screen.getByText(/each dash-separated part must start with a letter/i),
+    ).toBeTruthy();
+
+    // Spelling out the number recovers.
+    fireEvent.change(nameInput, { target: { value: "Meal Planner Two" } });
+    expect(
+      screen.queryByText(/each dash-separated part must start with a letter/i),
+    ).toBeNull();
+  });
+
   it("Test 13 (Phase 86 Plan 06): Description validation — empty description disables Create even when name+host+cosmetics are all valid", async () => {
     render(
       <CreateRoleDialog

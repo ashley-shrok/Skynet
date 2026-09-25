@@ -384,6 +384,29 @@ describe("POST /roles — regression guards (multipart form)", () => {
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
+  it("R-2c: leading-digit segment (`meal-planner-2`) → 400 (ROLE_NAME_RE segment gate)", async () => {
+    // The permissive ROLE_NAME_PATTERN accepts this; the strict ROLE_NAME_RE
+    // gate rejects it because the trailing `2` segment has no leading letter.
+    // Without this gate, the role would be created successfully but every
+    // subsequent identity birth with poolPicked=true would 400 opaquely
+    // (identity-birth.ts strict-role check).
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { name: "meal-planner-2", description: "irrelevant", hostId: 5 },
+    }));
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/segment must start with a letter/i);
+    expect(connectOneShot).not.toHaveBeenCalled();
+  });
+
+  it("R-2d: leading-digit at start (`3d-artist`) → 400 (ROLE_NAME_RE segment gate)", async () => {
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { name: "3d-artist", description: "irrelevant", hostId: 5 },
+    }));
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/segment must start with a letter/i);
+    expect(connectOneShot).not.toHaveBeenCalled();
+  });
+
   it("R-3: empty description → 400", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: { name: "box-maintainer", description: "", hostId: 5 },

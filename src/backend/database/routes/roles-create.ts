@@ -103,7 +103,7 @@ import {
   MIME_TO_AVATAR_EXT,
   stringifyColorHueForYaml,
 } from "../../claude-session/identity-artifact-reader.js";
-import { ROLE_NAME_PATTERN } from "./identity-birth-orchestrator.js";
+import { ROLE_NAME_PATTERN, ROLE_NAME_RE } from "./identity-birth-orchestrator.js";
 import { sshLogger } from "../../utils/logger.js";
 // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
@@ -346,6 +346,21 @@ router.post(
     if (!ROLE_NAME_PATTERN.test(rawName)) {
       res.status(400).json({
         error: "name must be kebab-case-lowercase (a-z, 0-9, hyphen only)",
+      });
+      return;
+    }
+    // Strict segment gate: every dash-separated segment must start with a
+    // letter. Enforced at CREATE (not at list/archive) because identity-birth
+    // with poolPicked=true runs the SAME regex on the role (identity-birth.ts
+    // strict-role gate); a leading-digit segment gets past the permissive
+    // gate at create-time but reliably fails birth later with an opaque
+    // generic "agent creation failed" alert. Closing the gap here means the
+    // failure surfaces at the creation site instead of the birth site.
+    // Pre-existing roles that fail this gate (created before tightening)
+    // stay readable/archivable via the permissive gates in roles.ts et al.
+    if (!ROLE_NAME_RE.test(rawName)) {
+      res.status(400).json({
+        error: "each dash-separated segment must start with a letter (e.g., 'meal-planner-two', not 'meal-planner-2')",
       });
       return;
     }
