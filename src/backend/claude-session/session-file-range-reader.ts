@@ -64,6 +64,7 @@
 import { promises as fs } from "node:fs";
 import type { Client } from "ssh2";
 import { execCommand } from "../ssh/tmux-helper.js";
+import { sshLogger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // File-local helpers (COPY-NOT-SHARE convention — see module JSDoc)
@@ -208,7 +209,26 @@ export async function readSessionFileRange(
     shellEscape(sessionFilePath) +
     " && printf '\\n---TOTAL---\\n' && wc -l < " +
     shellEscape(sessionFilePath);
-  const stdout = await execWithTimeout(conn, cmd, RANGE_READ_TIMEOUT_MS);
+  // Time the SSH exec — bubble-load bottleneck diagnostic (2026-09-25).
+  // Emits `[range-read] duration_ms bytes startLine count` on every call so
+  // slow bubble-loads are attributable to SSH-exec time vs downstream parse.
+  const rangeReadStartNs = performance.now();
+  let stdout: string;
+  try {
+    stdout = await execWithTimeout(conn, cmd, RANGE_READ_TIMEOUT_MS);
+  } catch (err) {
+    const durationMs = Math.round(performance.now() - rangeReadStartNs);
+    sshLogger.warn(
+      `[range-read] err path=${sessionFilePath} startLine=${startLine} count=${count} duration_ms=${durationMs} error="${err instanceof Error ? err.message : String(err)}"`,
+      { operation: "range_read_ssh_exec_err", durationMs, startLine, count },
+    );
+    throw err;
+  }
+  const durationMs = Math.round(performance.now() - rangeReadStartNs);
+  sshLogger.info(
+    `[range-read] ok path=${sessionFilePath} startLine=${startLine} count=${count} duration_ms=${durationMs} bytes=${stdout.length}`,
+    { operation: "range_read_ssh_exec_ok", durationMs, startLine, count, bytes: stdout.length },
+  );
 
   // Split on the sentinel. Missing sentinel → file didn't exist / sed
   // errored → mirror readIdentityFile's ENOENT-empty-response posture.

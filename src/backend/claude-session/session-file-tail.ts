@@ -56,6 +56,13 @@ export function tailSessionFile(
   onError: (err: Error) => void,
 ): TailHandle {
   let stopped = false;
+  // Bubble-load diagnostic (2026-09-25): track TTFB + streaming progress so
+  // slow bubble-loads are attributable to SSH-side transport vs downstream
+  // Skynet-side parse/emit. Zero cost when the tail runs healthy.
+  const tailOpenAtMs = performance.now();
+  let firstLineAtMs: number | null = null;
+  let lineCount = 0;
+  let nextProgressCheckpointAt = 500;
   // The ssh2 ClientChannel type is not re-exported at this level; we retain
   // the loose reference so the stop() helper can call close/signal
   // without pulling ClientChannel into this file's public surface.
@@ -70,9 +77,15 @@ export function tailSessionFile(
   const stop = () => {
     if (stopped) return;
     stopped = true;
+    // Bubble-load diagnostic (2026-09-25): stop-time summary with total lines
+    // + total open duration + TTFB. Complements the [tail-ttfb] + [tail-progress]
+    // pair so a full grep-lifecycle of one tail shows start, first-data, N
+    // progress checkpoints, and this stop.
+    const totalMs = Math.round(performance.now() - tailOpenAtMs);
+    const ttfbMs = firstLineAtMs === null ? null : Math.round(firstLineAtMs - tailOpenAtMs);
     sshLogger.info(
-      `[session-file-tail] stop: closing channel + signaling remote path=${absolutePath} anyStdout=${anyStdout}`,
-      { operation: "session_file_tail_stop" },
+      `[session-file-tail] stop: closing channel + signaling remote path=${absolutePath} anyStdout=${anyStdout} lines=${lineCount} total_ms=${totalMs} ttfb_ms=${ttfbMs}`,
+      { operation: "session_file_tail_stop", lineCount, totalMs, ttfbMs },
     );
     if (!stream) return;
     try {
@@ -125,6 +138,14 @@ export function tailSessionFile(
 
     s.on("data", (buf: Buffer) => {
       if (stopped) return;
+      // Bubble-load diagnostic (2026-09-25): first-data timestamp.
+      if (!anyStdout) {
+        firstLineAtMs = performance.now();
+        sshLogger.info(
+          `[tail-ttfb] path=${absolutePath} first_data_ms=${Math.round(firstLineAtMs - tailOpenAtMs)} chunk_bytes=${buf.length}`,
+          { operation: "session_file_tail_first_data", firstDataMs: Math.round(firstLineAtMs - tailOpenAtMs) },
+        );
+      }
       anyStdout = true;
       buffer += buf.toString("utf-8");
       // Extract every complete line; leave any partial trailing chunk in
@@ -134,6 +155,16 @@ export function tailSessionFile(
         if (nl === -1) break;
         const line = buffer.slice(0, nl);
         buffer = buffer.slice(nl + 1);
+        lineCount++;
+        // Bubble-load diagnostic: log progress checkpoints at 500/1000/2000/...
+        // lines so we can see the streaming curve on slow tails.
+        if (lineCount === nextProgressCheckpointAt) {
+          sshLogger.info(
+            `[tail-progress] path=${absolutePath} lines=${lineCount} elapsed_ms=${Math.round(performance.now() - tailOpenAtMs)}`,
+            { operation: "session_file_tail_progress", lineCount, elapsedMs: Math.round(performance.now() - tailOpenAtMs) },
+          );
+          nextProgressCheckpointAt = lineCount < 2000 ? lineCount + 500 : lineCount * 2;
+        }
         try {
           onLine(line);
         } catch (cbErr) {

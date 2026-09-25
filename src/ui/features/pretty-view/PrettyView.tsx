@@ -720,6 +720,56 @@ export function PrettyView({
   const viewingUserMxid = useViewingUserMxid();
   const fleetIdentityHosts = useFleetIdentityHosts();
   const [messages, setMessages] = useState<StreamEvent[]>([]);
+
+  // Bubble-load diagnostic (2026-09-25): mount → first-frame → settled logs.
+  // Correlates with backend [tail-ttfb] / [tail-progress] / [session-file-tail]
+  // logs (same hostId + tmuxSession) so we can attribute slow renders to
+  // SSH-side transport vs WS delivery vs frontend render time.
+  const bubbleViewMountRef = useRef<{ atMs: number; firstFrameLogged: boolean; settledTimer: ReturnType<typeof setTimeout> | null } | null>(null);
+  useEffect(() => {
+    const mountAtMs = performance.now();
+    bubbleViewMountRef.current = { atMs: mountAtMs, firstFrameLogged: false, settledTimer: null };
+    // eslint-disable-next-line no-console
+    console.info({
+      operation: "bubble_view_mount",
+      hostId,
+      tmuxSession,
+      atEpochMs: Date.now(),
+    });
+    return () => {
+      const ref = bubbleViewMountRef.current;
+      if (ref?.settledTimer) clearTimeout(ref.settledTimer);
+      bubbleViewMountRef.current = null;
+    };
+  }, [hostId, tmuxSession]);
+  useEffect(() => {
+    const ref = bubbleViewMountRef.current;
+    if (!ref) return;
+    if (messages.length === 0) return;
+    if (!ref.firstFrameLogged) {
+      ref.firstFrameLogged = true;
+      // eslint-disable-next-line no-console
+      console.info({
+        operation: "bubble_view_first_frame",
+        hostId,
+        tmuxSession,
+        elapsedMs: Math.round(performance.now() - ref.atMs),
+        messagesLen: messages.length,
+      });
+    }
+    if (ref.settledTimer) clearTimeout(ref.settledTimer);
+    ref.settledTimer = setTimeout(() => {
+      // eslint-disable-next-line no-console
+      console.info({
+        operation: "bubble_view_settled",
+        hostId,
+        tmuxSession,
+        elapsedMs: Math.round(performance.now() - ref.atMs),
+        messagesLen: messages.length,
+      });
+      ref.settledTimer = null;
+    }, 2000);
+  }, [messages.length, hostId, tmuxSession]);
   // Phase 93 Slice 3 (D-09): shared message store reads either from the
   // adapter (relay case) or from PrettyView's internal `messages` state
   // (harness case, populated by the ingestion effect gated at L~1969+).
