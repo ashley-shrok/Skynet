@@ -366,6 +366,30 @@ describe("app-pane-router", () => {
       }
     });
 
+    it("forwards a POST with Origin: \"null\" (pane iframe form nav)", async () => {
+      // AppPane.tsx sets referrerPolicy="no-referrer" per D-20 discipline;
+      // browsers serialize the origin as the literal string "null" on
+      // form-action POST navigations from that iframe. The CSRF check
+      // must accept it — see app-proxy-csrf-check.ts § Origin: "null".
+      const { port, close } = await makeServer(false);
+      try {
+        const res = await sendHttp(
+          port,
+          "POST",
+          "/apps/5/todo/pane/api/create",
+          {
+            "content-type": "application/json",
+            origin: "null",
+          },
+          JSON.stringify({ x: 1 }),
+        );
+        expect(res.status).toBe(200);
+        expect(mocks.getOrCreateAppPaneProxyForTarget).toHaveBeenCalledTimes(1);
+      } finally {
+        await close();
+      }
+    });
+
     /* -------------------- HTTP POST mismatched Origin (case c) -------------------- */
 
     it("refuses a POST with mismatched Origin (403 CSRF failure body)", async () => {

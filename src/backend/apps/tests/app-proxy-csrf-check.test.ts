@@ -162,6 +162,43 @@ describe("appProxyCsrfCheck", () => {
     });
   });
 
+  describe("Origin: \"null\" from pane iframe (referrerPolicy=no-referrer form POST)", () => {
+    // See module header § Origin: "null" for the security argument. Browsers
+    // serialize origin as the literal string "null" on form-action navigations
+    // from an iframe with referrerPolicy="no-referrer" (per Fetch spec §3.5).
+    // The pane iframe deliberately sets that policy per D-20; refusing this
+    // would break every scaffolded app that uses raw form-action POSTs.
+    it("returns true for POST with Origin: \"null\" (pane iframe form nav)", async () => {
+      const mod = await import("../app-proxy-csrf-check.js");
+      expect(mod.appProxyCsrfCheck(makeReq("POST", "null"), PRIMARY_HOSTNAME)).toBe(true);
+    });
+
+    it("returns true for PUT with Origin: \"null\"", async () => {
+      const mod = await import("../app-proxy-csrf-check.js");
+      expect(mod.appProxyCsrfCheck(makeReq("PUT", "null"), PRIMARY_HOSTNAME)).toBe(true);
+    });
+
+    it("returns true for PATCH with Origin: \"null\"", async () => {
+      const mod = await import("../app-proxy-csrf-check.js");
+      expect(mod.appProxyCsrfCheck(makeReq("PATCH", "null"), PRIMARY_HOSTNAME)).toBe(true);
+    });
+
+    it("returns true for DELETE with Origin: \"null\"", async () => {
+      const mod = await import("../app-proxy-csrf-check.js");
+      expect(mod.appProxyCsrfCheck(makeReq("DELETE", "null"), PRIMARY_HOSTNAME)).toBe(true);
+    });
+
+    it("still refuses missing Origin (distinct from the string \"null\")", async () => {
+      const mod = await import("../app-proxy-csrf-check.js");
+      expect(mod.appProxyCsrfCheck(makeReq("POST"), PRIMARY_HOSTNAME)).toBe(false);
+    });
+
+    it("still refuses empty-string Origin (distinct from the string \"null\")", async () => {
+      const mod = await import("../app-proxy-csrf-check.js");
+      expect(mod.appProxyCsrfCheck(makeReq("POST", ""), PRIMARY_HOSTNAME)).toBe(false);
+    });
+  });
+
   describe("method casing (normalized to uppercase before check)", () => {
     it("returns true for lowercase 'post' with matching Origin", async () => {
       const mod = await import("../app-proxy-csrf-check.js");

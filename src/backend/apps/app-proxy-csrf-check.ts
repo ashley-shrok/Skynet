@@ -42,6 +42,8 @@
  *                          default CSRF check which ignores these methods).
  *   - POST/PUT/PATCH/DELETE with Origin.hostname exactly matching
  *     PRIMARY_DOMAIN → pass.
+ *   - POST/PUT/PATCH/DELETE with the literal string `"null"` as Origin
+ *                                                                → pass (see below).
  *   - POST/PUT/PATCH/DELETE with a missing Origin header             → refuse.
  *   - POST/PUT/PATCH/DELETE with an empty-string Origin              → refuse.
  *   - POST/PUT/PATCH/DELETE with a malformed Origin (non-URL)        → refuse.
@@ -50,6 +52,41 @@
  * Missing Origin on a state-changing request is anomalous — browsers
  * always send Origin on cross-origin POST/PUT/PATCH/DELETE. Safer to
  * refuse than to pass.
+ *
+ * ---
+ *
+ * Origin: "null" — accepted (2026-09-25):
+ *
+ * The app-pane iframe (`src/ui/shell/AppPane.tsx`) declares
+ * `referrerPolicy="no-referrer"` per D-20 discipline (don't leak the
+ * parent Skynet URL to the embedded app). With that policy, browsers
+ * per HTML spec serialize the request's origin as the literal string
+ * `"null"` on `<form method="POST">` navigations — even same-origin ones.
+ * (Confirmed live on iOS Safari 18; matches Fetch spec §3.5 origin
+ * serialization under `no-referrer` policy.) Requests via `fetch()`
+ * still carry a proper Origin, so this only affected raw form-action
+ * POSTs; the failure mode was latent until an app used one.
+ *
+ * Accepting `Origin: "null"` here is safe because the pane path's CSRF
+ * check is defense-in-depth over three layers that already close the
+ * only realistic attacker vector:
+ *
+ *   1. The JWT session cookie is `SameSite=Lax`
+ *      (`src/backend/utils/auth-manager.ts:710`), so a genuinely
+ *      cross-site attacker's POST cannot carry the session at all.
+ *   2. `authenticateJWT` runs BEFORE this check in the pane router
+ *      middleware chain (`app-pane-router.ts:122`); by the time we're
+ *      here the request is proven authenticated.
+ *   3. A same-site attacker (subdomain of `<PRIMARY_DOMAIN>`'s
+ *      registrable domain) whose page fires the POST sends
+ *      `Origin: https://<their-subdomain>` — hostname mismatch, still
+ *      refused. To produce `Origin: "null"` a same-site attacker would
+ *      have to embed a sandboxed iframe on our OWN origin, which they
+ *      cannot do without first compromising us.
+ *
+ * Net: no realistic attacker vector produces `Origin: "null"` + valid
+ * session cookie on this path. Refusing it would only break legitimate
+ * scaffolded apps that use raw form-action POSTs from inside the pane.
  */
 
 import type { Request } from "express";
@@ -117,6 +154,12 @@ export function appProxyCsrfCheck(
   if (!STATE_CHANGING_METHODS.has(method)) return true;
   const origin = req.headers.origin;
   if (typeof origin !== "string" || origin.length === 0) return false;
+  // Accept the literal string "null" produced by browsers for form-action
+  // POST navigations from the pane iframe (referrerPolicy="no-referrer",
+  // per D-20). See module header for the security argument — the pane's
+  // JWT/SameSite=Lax + auth-first middleware already close every realistic
+  // attacker vector that could produce Origin:"null" with a valid session.
+  if (origin === "null") return true;
   // HIGH-1 fix: parse the browser-sent Origin as a URL and compare its
   // hostname. A malformed Origin (rare — browsers always send well-formed
   // scheme+host+port) refuses fail-closed.
