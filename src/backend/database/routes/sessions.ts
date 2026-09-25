@@ -16,7 +16,6 @@ import {
   extractRoleFromMarkdown,
   extractCosmeticsFromFrontmatter,
 } from "../../claude-session/identity-artifact-reader.js";
-import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
 // Phase 129 Plan 129-03: per-user visibility gate on GET /sessions/list —
 // D-7 deep-gate seam #2 (identities/ was #1 in Plan 129-02). The gate lives
 // in a companion pure function (identity-visibility-gate.ts) per the Phase
@@ -235,51 +234,6 @@ export function __scanTailForNewestMessageAtForTests(
   return scanTailForNewestMessageAt(tailContents);
 }
 
-// ---------------------------------------------------------------------------
-// Phase 47 Plan 02 — dormant-side aiTitle derivation
-// ---------------------------------------------------------------------------
-//
-// Harness ai-title source per Phase 47 CONTEXT.md § Backend scraper mechanics:
-// Claude Code appends `{"type":"ai-title","aiTitle":"…","sessionId":"…"}` lines
-// to the session JSONL as the topic drifts. Multiple such lines can exist in a
-// single JSONL — the LAST one in file order is the current title (last-wins
-// semantics, distinct from Phase 44's max-wins lastMessageAt).
-//
-// This helper takes the same tail buffer that scanTailForNewestMessageAt
-// consumes (see recencySignalsBlock below — OPTION A per 47-02-PLAN.md Task 1:
-// one `tail -c 262144` exec feeds BOTH signals to avoid a duplicate discovery
-// + tail round-trip per row). Filtering strategy: cheap `line.includes(...)`
-// substring pre-filter, then in-process JSON.parse (matches the parseSessionLine
-// in-process pattern the Phase 44 Plan 01 scanner uses — no jq subprocess).
-//
-// Failure model matches scanTailForNewestMessageAt: empty tail, malformed JSON,
-// missing aiTitle field, wrong-type aiTitle value → return null (best-effort
-// sampling, not validation).
-function scanTailForLatestAiTitle(tailContents: string): string | null {
-  let latest: string | null = null;
-  const lines = tailContents.split("\n");
-  for (const line of lines) {
-    // Cheap substring pre-filter — avoids JSON.parse on every message line.
-    if (!line.includes('"type":"ai-title"')) continue;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      if (
-        parsed !== null &&
-        typeof parsed === "object" &&
-        typeof (parsed as { aiTitle?: unknown }).aiTitle === "string"
-      ) {
-        // Last-wins: update sticky `latest` on every valid match. File order
-        // is the definitive last-wins order (topic drift moves forward).
-        latest = (parsed as { aiTitle: string }).aiTitle;
-      }
-    } catch {
-      // Malformed JSON — skip silently.
-      continue;
-    }
-  }
-  return latest;
-}
-
 interface TmuxSessionRow {
   // Phase 89 Plan 04 (D-15) — kind discriminator. Every construction site
   // inside the Promise.all block MUST set `kind: "harness" as const` (the
@@ -295,11 +249,10 @@ interface TmuxSessionRow {
   created: number;
   role: string | null;
   lastMessageAt: number | null;
-  // Phase 47 Plan 02 — required-on-server-but-null-when-unknown, matching
-  // Phase 44 Plan 01's invariant for lastMessageAt. The route always emits
-  // this key; the value is either the harness's latest ai-title string OR
-  // null on any failure path (no discovery, empty tail, malformed line,
-  // timeout, throw). See scanTailForLatestAiTitle helper docblock above.
+  // Kept on the wire shape for backward compatibility with the frontend's
+  // FleetSession row (removing it would fan out through the working-store
+  // schema-version dance). Always null from this route now — live-session
+  // aiTitle continues to flow via the fleet-status WS pump.
   aiTitle: string | null;
 }
 
@@ -663,86 +616,25 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                   }
                 })();
 
-                // Per-session ai-title derivation.
-                // Phase 47 Plan 02 semantics preserved — ONE discovery +
-                // ONE tail read to feed `scanTailForLatestAiTitle`. Phase
-                // 79 (D-07) retired the sibling `scanTailForNewestMessageAt`
-                // call from this block; `lastMessageAt` now sources from
-                // the store lookup above. Tail width stays at 256KB
-                // (`tail -c 262144`) per Phase 47 CONTEXT.md § Backend
-                // scraper mechanics — an ai-title line older than the last
-                // handful of message-bearing lines is still captured.
-                //
-                // On any failure (discovery null, tail empty, timeout,
-                // throw): row.aiTitle stays null and siblings are
-                // unaffected. `row.lastMessageAt` is NOT touched by this
-                // block — it was set independently by the store lookup
-                // above and cannot be regressed by an SSH failure here.
-                //
-                // The log-operation tag preserves the historical
-                // `sessions_list_recency_signals_skip` string so post-deploy
-                // log-tailing dashboards continue to match. Semantic scope
-                // has narrowed to the aiTitle axis only.
-                const aiTitleBlock = (async () => {
-                  try {
-                    const resolved = await Promise.race([
-                      (async (): Promise<{ aiTitle: string | null }> => {
-                        const jsonlPath = await discoverIdentitySessionFile(
-                          conn,
-                          row.sessionName,
-                        );
-                        if (jsonlPath === null) {
-                          return { aiTitle: null };
-                        }
-                        // jsonlPath is an absolute path shape returned by the
-                        // discovery module (~/.claude/projects/<slug>/<uuid>.jsonl).
-                        // Single-quote-wrap defensively (mirrors
-                        // ssh-poll-orchestrator's fail-open path validation)
-                        // even though the discovery module's output has no
-                        // shell-special chars by construction.
-                        const tailRaw = await execCommand(
-                          conn,
-                          `tail -c 262144 '${jsonlPath}' 2>/dev/null || true`,
-                        );
-                        if (!tailRaw || tailRaw.trim() === "") {
-                          return { aiTitle: null };
-                        }
-                        return {
-                          aiTitle: scanTailForLatestAiTitle(tailRaw),
-                        };
-                      })(),
-                      new Promise<{ aiTitle: string | null }>((_, reject) =>
-                        setTimeout(
-                          () =>
-                            reject(
-                              new Error(
-                                "per-session recency-signals discovery timeout",
-                              ),
-                            ),
-                          PER_HOST_TIMEOUT_MS,
-                        ),
-                      ),
-                    ]);
-                    row.aiTitle = resolved.aiTitle;
-                  } catch (e) {
-                    sshLogger.debug(
-                      "sessions/list: recency-signals derivation skipped for session",
-                      {
-                        operation: "sessions_list_recency_signals_skip",
-                        hostId,
-                        hostName,
-                        sessionName: row.sessionName,
-                        error: e instanceof Error ? e.message : "unknown",
-                      },
-                    );
-                    row.aiTitle = null;
-                  }
-                })();
+                // Per-session ai-title derivation retired here — it fired
+                // a discover + `tail -c 262144` SSH exec pair per row, which
+                // on a 200-session host doubled workstation's page-load
+                // SSH-scope pressure alongside the readIdentityFile fanout
+                // (that one moved to sweep-cache lookup in the sibling
+                // chunk). Live sessions still populate aiTitle via the
+                // fleet-status WS pump (SweepPidLine.jsonl_tail → orch's
+                // per-PID compose path); dormant sessions surface with
+                // row.aiTitle = null and the frontend's PrettyConversation
+                // Row subtitle falls back to its null-placeholder shape.
+                // The subtitle line only renders on mobile and is going
+                // away in a near-term UI cut — accepting the null shape
+                // now avoids sustaining a per-page-load SSH amplifier for
+                // a decoration whose lifetime is shorter than the fix's.
+                row.aiTitle = null;
 
                 await Promise.all([
                   roleResolveBlock,
                   sendLogLookupBlock,
-                  aiTitleBlock,
                 ]);
               }),
             );

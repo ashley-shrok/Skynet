@@ -610,13 +610,9 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     expect(tiffany?.lastMessageAt).toBeNull();
 
     // Phase 47 Plan 02 — server always emits aiTitle. Tail here has no
-    // ai-title lines, so aiTitle is null on both rows.
+    // aiTitle derivation retired from this route — always null now.
     expect(tanya?.aiTitle).toBeNull();
     expect(tiffany?.aiTitle).toBeNull();
-
-    // Discovery called on the SAME conn for each identity.
-    expect(mockedDiscover).toHaveBeenCalledWith(fakeConn, "tanya");
-    expect(mockedDiscover).toHaveBeenCalledWith(fakeConn, "tiffany");
   });
 
   it("Test 2 (discovery returns null): dormant identity with no /id-first-turn JSONL → lastMessageAt:null, siblings unaffected", async () => {
@@ -1142,335 +1138,6 @@ describe("isRealUserTurn — user 2026-08-23 lock predicate matrix", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Phase 47 Plan 02 — /sessions/list aiTitle derivation coverage
-//
-// Mirrors the 7 test cases enumerated in 47-02-PLAN.md Task 1 <behavior>.
-// discoverIdentitySessionFile is MOCKED here so these tests exercise the
-// route's dispatch + per-session failure isolation for the new ai-title
-// axis. scanTailForLatestAiTitle in sessions.ts filters lines containing
-// the substring `"type":"ai-title"`, in-process JSON.parses each match,
-// and returns the LAST match's aiTitle string (last-wins per CONTEXT.md).
-//
-// The tail buffer is shared between scanTailForNewestMessageAt and
-// scanTailForLatestAiTitle — one `tail -c 262144` exec per session-row
-// feeds BOTH signals (OPTION A per 47-02-PLAN.md Task 1 <action>).
-// ---------------------------------------------------------------------------
-
-describe("GET /sessions/list — aiTitle derivation (Phase 47 Plan 02)", () => {
-  const TANYA_JSONL = "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/abc.jsonl";
-  const TIFFANY_JSONL = "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tiffany/def.jsonl";
-
-  it("Test 1 (happy path): single ai-title line in tail → row.aiTitle equals the string", async () => {
-    const fakeConn = { end: vi.fn(), exec: vi.fn() };
-    (connectOneShot as Mock).mockResolvedValue(fakeConn);
-
-    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
-      if (identityName === "tanya") return TANYA_JSONL;
-      return null;
-    });
-
-    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
-      if (cmd.includes("tmux list-sessions")) {
-        return Promise.resolve("tanya|1000");
-      }
-      if (cmd.includes("identities/tanya/tanya.md")) {
-        return Promise.resolve("---\nrole: box-maintainer\n---\n# Tanya\n");
-      }
-      if (cmd.includes(TANYA_JSONL)) {
-        return Promise.resolve(
-          jsonlMessageLine(4000, "assistant", "hi") +
-            "\n" +
-            jsonlAiTitleLine("sess-tanya", "Fix bug X") +
-            "\n",
-        );
-      }
-      return Promise.resolve("");
-    });
-
-    makeApp();
-    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
-
-    expect(res.status).toBe(200);
-    const rows = res.body as Array<{
-      sessionName: string;
-      aiTitle: string | null;
-    }>;
-    expect(rows).toHaveLength(1);
-
-    const tanya = rows.find((r) => r.sessionName === "tanya");
-    expect(tanya?.aiTitle).toBe("Fix bug X");
-  });
-
-  it("Test 2 (last-wins on multiple ai-title lines): three ai-title lines → row.aiTitle equals the LAST one in file order", async () => {
-    const fakeConn = { end: vi.fn(), exec: vi.fn() };
-    (connectOneShot as Mock).mockResolvedValue(fakeConn);
-
-    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
-      if (identityName === "tanya") return TANYA_JSONL;
-      return null;
-    });
-
-    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
-      if (cmd.includes("tmux list-sessions")) {
-        return Promise.resolve("tanya|1000");
-      }
-      if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
-      }
-      if (cmd.includes(TANYA_JSONL)) {
-        // Three ai-title lines — LAST one wins per CONTEXT.md § working-store
-        // third axis (topic drifts across a session; last-wins reflects the
-        // freshest topic).
-        return Promise.resolve(
-          jsonlAiTitleLine("sess-tanya", "Investigating segfault") +
-            "\n" +
-            jsonlMessageLine(1500, "user", "actually let's rebuild") +
-            "\n" +
-            jsonlAiTitleLine("sess-tanya", "Rebuilding parser") +
-            "\n" +
-            jsonlMessageLine(2500, "assistant", "done") +
-            "\n" +
-            jsonlAiTitleLine("sess-tanya", "Reviewing test coverage") +
-            "\n",
-        );
-      }
-      return Promise.resolve("");
-    });
-
-    makeApp();
-    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
-
-    expect(res.status).toBe(200);
-    const rows = res.body as Array<{
-      sessionName: string;
-      aiTitle: string | null;
-    }>;
-    expect(rows).toHaveLength(1);
-
-    const tanya = rows.find((r) => r.sessionName === "tanya");
-    expect(tanya?.aiTitle).toBe("Reviewing test coverage");
-  });
-
-  it("Test 3 (discovery-null cascade): one row has discovery success + ai-title, sibling has discovery null → sibling aiTitle:null, first row keeps string", async () => {
-    const fakeConn = { end: vi.fn(), exec: vi.fn() };
-    (connectOneShot as Mock).mockResolvedValue(fakeConn);
-
-    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
-      if (identityName === "tanya") return TANYA_JSONL;
-      if (identityName === "tiffany") return null; // dormant
-      return null;
-    });
-
-    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
-      if (cmd.includes("tmux list-sessions")) {
-        return Promise.resolve("tanya|1000\ntiffany|2000");
-      }
-      if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
-      }
-      if (cmd.includes(TANYA_JSONL)) {
-        return Promise.resolve(
-          jsonlAiTitleLine("sess-tanya", "Migrating auth flow") + "\n",
-        );
-      }
-      return Promise.resolve("");
-    });
-
-    makeApp();
-    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
-
-    expect(res.status).toBe(200);
-    const rows = res.body as Array<{
-      sessionName: string;
-      aiTitle: string | null;
-    }>;
-    expect(rows).toHaveLength(2);
-
-    const tanya = rows.find((r) => r.sessionName === "tanya");
-    expect(tanya?.aiTitle).toBe("Migrating auth flow");
-
-    const tiffany = rows.find((r) => r.sessionName === "tiffany");
-    expect(tiffany?.aiTitle).toBeNull(); // discovery-null → no scan → null
-  });
-
-  it("Test 4 (no ai-title lines in tail): discovery succeeds, tail has messages + tool_use only → aiTitle:null", async () => {
-    const fakeConn = { end: vi.fn(), exec: vi.fn() };
-    (connectOneShot as Mock).mockResolvedValue(fakeConn);
-
-    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
-      if (identityName === "tanya") return TANYA_JSONL;
-      return null;
-    });
-
-    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
-      if (cmd.includes("tmux list-sessions")) {
-        return Promise.resolve("tanya|1000");
-      }
-      if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
-      }
-      if (cmd.includes(TANYA_JSONL)) {
-        // Real messages + tool_use — NO ai-title lines.
-        return Promise.resolve(
-          jsonlMessageLine(1000, "user", "let's start") +
-            "\n" +
-            jsonlToolUseLine(1500) +
-            "\n" +
-            jsonlMessageLine(2000, "assistant", "on it") +
-            "\n",
-        );
-      }
-      return Promise.resolve("");
-    });
-
-    makeApp();
-    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
-
-    expect(res.status).toBe(200);
-    const rows = res.body as Array<{
-      sessionName: string;
-      aiTitle: string | null;
-    }>;
-    expect(rows).toHaveLength(1);
-
-    const tanya = rows.find((r) => r.sessionName === "tanya");
-    expect(tanya?.aiTitle).toBeNull();
-  });
-
-  it("Test 5 (malformed ai-title JSON): line matches substring but JSON.parse fails / missing aiTitle field → aiTitle:null, no throw", async () => {
-    const fakeConn = { end: vi.fn(), exec: vi.fn() };
-    (connectOneShot as Mock).mockResolvedValue(fakeConn);
-
-    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
-      if (identityName === "tanya") return TANYA_JSONL;
-      return null;
-    });
-
-    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
-      if (cmd.includes("tmux list-sessions")) {
-        return Promise.resolve("tanya|1000");
-      }
-      if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
-      }
-      if (cmd.includes(TANYA_JSONL)) {
-        // Line 1: substring matches `"type":"ai-title"` but is not valid JSON
-        //         (trailing garbage after the closing brace) — JSON.parse throws.
-        // Line 2: valid JSON, matches `"type":"ai-title"` substring, but has
-        //         no `aiTitle` field — filtered by the typeof check.
-        // Line 3: valid JSON, matches, but aiTitle is a number (wrong type)
-        //         — filtered by the typeof check.
-        // Overall: zero valid ai-title lines → scanTailForLatestAiTitle
-        // returns null → row.aiTitle = null.
-        return Promise.resolve(
-          `{"type":"ai-title","aiTitle":"malformed}} garbage\n` +
-            JSON.stringify({ type: "ai-title", sessionId: "sess-tanya" }) +
-            "\n" +
-            JSON.stringify({ type: "ai-title", aiTitle: 42, sessionId: "sess-tanya" }) +
-            "\n",
-        );
-      }
-      return Promise.resolve("");
-    });
-
-    makeApp();
-    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
-
-    expect(res.status).toBe(200);
-    const rows = res.body as Array<{
-      sessionName: string;
-      aiTitle: string | null;
-    }>;
-    expect(rows).toHaveLength(1);
-
-    const tanya = rows.find((r) => r.sessionName === "tanya");
-    // No throw — malformed lines are silently skipped (matches Phase 44's
-    // scanTailForNewestMessageAt best-effort semantics).
-    expect(tanya?.aiTitle).toBeNull();
-  });
-
-  it("Test 6 (timeout): discovery hangs → Promise.race trips → aiTitle:null, sibling unaffected, response bounded", async () => {
-    const fakeConn = { end: vi.fn(), exec: vi.fn() };
-    (connectOneShot as Mock).mockResolvedValue(fakeConn);
-
-    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
-      if (identityName === "tanya") {
-        // Hang forever — PER_HOST_TIMEOUT_MS trip on the recency-signal race.
-        return new Promise<string | null>(() => undefined);
-      }
-      if (identityName === "tiffany") return TIFFANY_JSONL;
-      return null;
-    });
-
-    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
-      if (cmd.includes("tmux list-sessions")) {
-        return Promise.resolve("tanya|1000\ntiffany|2000");
-      }
-      if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
-      }
-      if (cmd.includes(TIFFANY_JSONL)) {
-        return Promise.resolve(
-          jsonlAiTitleLine("sess-tiffany", "Debugging websocket") + "\n",
-        );
-      }
-      return Promise.resolve("");
-    });
-
-    makeApp();
-    const startMs = Date.now();
-    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
-    const elapsedMs = Date.now() - startMs;
-
-    expect(res.status).toBe(200);
-    const rows = res.body as Array<{
-      sessionName: string;
-      aiTitle: string | null;
-    }>;
-    expect(rows).toHaveLength(2);
-
-    const tanya = rows.find((r) => r.sessionName === "tanya");
-    expect(tanya?.aiTitle).toBeNull(); // hung → race timed out → null
-
-    const tiffany = rows.find((r) => r.sessionName === "tiffany");
-    expect(tiffany?.aiTitle).toBe("Debugging websocket"); // sibling unaffected
-
-    // Bounded by PER_HOST_TIMEOUT_MS (30_000ms).
-    expect(elapsedMs).toBeLessThan(35_000);
-  }, 40_000);
-
-  it("Test 7 (contract lock): every row has aiTitle key present (server-always-emits, null-when-unknown)", async () => {
-    const fakeConn = { end: vi.fn(), exec: vi.fn() };
-    (connectOneShot as Mock).mockResolvedValue(fakeConn);
-
-    // Default beforeEach: mockedDiscover.mockResolvedValue(null) — no override.
-
-    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
-      if (cmd.includes("tmux list-sessions")) {
-        return Promise.resolve("tanya|1000\ntiffany|2000\npatricia|3000");
-      }
-      if (cmd.includes("identities/")) {
-        return Promise.resolve("---\nrole: chef\n---\n# X\n");
-      }
-      return Promise.resolve("");
-    });
-
-    makeApp();
-    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
-
-    expect(res.status).toBe(200);
-    const rows = res.body as Array<Record<string, unknown>>;
-    expect(rows).toHaveLength(3);
-
-    // Phase 47 Plan 02 — aiTitle contract: present-on-every-row, null-when-unknown.
-    for (const row of rows) {
-      expect("aiTitle" in row).toBe(true);
-      expect(row.aiTitle).toBeNull();
-    }
-  });
-});
-
 // ─────────────────────────────────────────────────────────────────────────────
 // quick-260821-m36 — connect vs discovery timeout split
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1621,12 +1288,13 @@ describe("GET /sessions/list — lastMessageAt from send-log store (Phase 85 Pla
     expect(lulabelle?.lastMessageAt).toBeNull();
   });
 
-  it("Test 85-05-03 (aiTitle unaffected by swap): tail carries ai-title → row.aiTitle preserved alongside store-sourced lastMessageAt", async () => {
+  it("Test 85-05-03 (aiTitle retired from route): row.aiTitle is always null, store-sourced lastMessageAt still lands", async () => {
     const fakeConn = { end: vi.fn(), exec: vi.fn() };
     (connectOneShot as Mock).mockResolvedValue(fakeConn);
 
-    // Store: tanya → 8500. AiTitle path unchanged; must still be scanned
-    // from the JSONL tail.
+    // Store: tanya → 8500. aiTitle derivation was retired from this route
+    // — the field ships as null even when the tail carries ai-title lines.
+    // Live-session aiTitle continues to flow via the fleet-status WS pump.
     mockedGetIdentityLastSend.mockImplementation(
       async (identityName: string): Promise<number | null> => {
         if (identityName === "tanya") return 8500;
@@ -1634,24 +1302,12 @@ describe("GET /sessions/list — lastMessageAt from send-log store (Phase 85 Pla
       },
     );
 
-    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
-      if (identityName === "tanya") return TANYA_JSONL;
-      return null;
-    });
-
     (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
       if (cmd.includes("tmux list-sessions")) {
         return Promise.resolve("tanya|1000");
       }
       if (cmd.includes("identities/")) {
         return Promise.resolve("---\nrole: chef\n---\n# X\n");
-      }
-      if (cmd.includes(TANYA_JSONL)) {
-        // Tail with a single ai-title line — scanTailForLatestAiTitle must
-        // still fire and populate row.aiTitle.
-        return Promise.resolve(
-          jsonlAiTitleLine("sess-tanya", "Debugging websocket") + "\n",
-        );
       }
       return Promise.resolve("");
     });
@@ -1670,8 +1326,9 @@ describe("GET /sessions/list — lastMessageAt from send-log store (Phase 85 Pla
     const tanya = rows.find((r) => r.sessionName === "tanya");
     // Store-sourced lastMessageAt.
     expect(tanya?.lastMessageAt).toBe(8500);
-    // Tail-sourced aiTitle (unaffected by D-07 swap).
-    expect(tanya?.aiTitle).toBe("Debugging websocket");
+    // aiTitle field still present on the wire shape — always null now.
+    expect("aiTitle" in (tanya ?? {})).toBe(true);
+    expect(tanya?.aiTitle).toBeNull();
   });
 
   it("Test 85-05-04 (SSH tail timeout does NOT null row.lastMessageAt): store lookup is independent of SSH pathway", async () => {
