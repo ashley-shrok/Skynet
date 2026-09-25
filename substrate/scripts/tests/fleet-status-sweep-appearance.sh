@@ -694,6 +694,37 @@ title: No Users Role
   assert_identity_no_field "$out" "nousers" "role_cosmetics.users"
 }
 
+# Case 19a: block-style users list with an inline comment between items.
+# Load-bearing regression for the gate-side security concern — an internal
+# comment must NOT prematurely end the block and silently drop subsequent
+# dash-items (falls open would leak the identity to every user).
+test_case_19a_users_block_with_inline_comment() {
+  make_identity "commentid" "---
+role: commentrole
+users:
+  # ashley's team
+  - alice
+  - bob
+title: After Block With Comment
+---
+body
+"
+  make_role "commentrole" "---
+title: Comment Role
+users:
+  - admin
+  # trailing note
+  - other-admin
+---
+"
+  local out
+  out=$(run_sweep)
+  assert_identity_field "$out" "commentid" "identity_cosmetics.users" '["alice", "bob"]'
+  # Following-key parity — the block's skip cursor must NOT overshoot.
+  assert_identity_field "$out" "commentid" "identity_cosmetics.title" '"After Block With Comment"'
+  assert_identity_field "$out" "commentid" "role_cosmetics.users" '["admin", "other-admin"]'
+}
+
 # Case 19: empty flow list → key omitted (empty falls open per D-3).
 test_case_19_users_empty_flow() {
   make_identity "emptyusers" "---
@@ -768,6 +799,7 @@ run_test test_case_16_users_flow_style
 run_test test_case_17_users_block_style
 run_test test_case_18_users_absent
 run_test test_case_19_users_empty_flow
+run_test test_case_19a_users_block_with_inline_comment
 run_test test_global_stderr_stdout_separation
 
 printf '\n===============================\n'

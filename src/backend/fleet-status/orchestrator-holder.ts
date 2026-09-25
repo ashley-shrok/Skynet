@@ -1,75 +1,77 @@
 /**
  * orchestrator-holder.ts
  *
- * Module-scope singleton holder for the fleet-status SshPollOrchestrator
- * instance. Mirrors registry-holder.ts's pattern verbatim (set-once slot
- * populated at boot, read-only accessor for the HTTP surface).
+ * Per-user holder for the fleet-status SshPollOrchestrator instances. Each
+ * Skynet user gets their own orchestrator (their own SSH pool, their own
+ * host set, their own subscription lifecycle — see
+ * `createUserFleetStatusWatcher` in starter.ts). This module exposes those
+ * instances to HTTP route handlers and WS gate closures by userId so
+ * per-user code paths can consult the sweep-populated per-identity
+ * cosmetics cache without doing their own SSH read.
  *
- * Purpose: expose `getCachedIdentityCosmetics` to HTTP route handlers so
- * they can consult the sweep-populated per-identity cosmetics cache without
- * doing their own SSH read per row. The route surface (sessions.ts,
- * identities.ts, conversation-search.ts) sits in a context with no
- * ergonomic path to the closure-scoped orchestrator reference inside
- * starter.ts's boot lambda.
+ * Purpose: routes like /sessions/list and the WS identity-gate closure sit
+ * outside the closure that owns each user's orchestrator reference. Passing
+ * userId + calling `getOrchestrator(userId)` lets them reach the right
+ * user's cache without threading references through Express router
+ * construction or WS filter injection.
  *
- * Discipline (matches registry-holder.ts):
- *   - `setOrchestrator` is called by the boot code immediately after
- *     `createSshPollOrchestrator` returns. Re-setting with a DIFFERENT
- *     reference throws (belt-and-suspenders against accidental double-init).
- *     Re-setting with the SAME reference is a no-op — starter.ts's
- *     start/stop lambda may re-invoke createSshPollOrchestrator across
- *     subscriber-count transitions, and each new instance rebinds through
- *     `setOrchestrator` cleanly.
- *   - `getOrchestrator` returns null when the holder is empty (orchestrator
- *     hasn't been started, or was stopped). Route callers treat null as
- *     "cache miss" — fall through to whatever their pre-cache path was.
+ * Discipline:
+ *   - `setOrchestrator(userId, orch)` — publish. Called by
+ *     createUserFleetStatusWatcher when a user's watcher spins up (first
+ *     subscriber). Overwrites any previous entry for the same userId
+ *     (a watcher may restart across subscriber-count transitions and land
+ *     a fresh orchestrator instance).
+ *   - `setOrchestrator(userId, null)` — clear. Called on watcher stop
+ *     (last-unsubscriber) so subsequent lookups return null and callers
+ *     fall through to their pre-cache path.
+ *   - `getOrchestrator(userId)` — read. Returns null when no watcher is
+ *     running for this user; caller MUST handle this by falling back to
+ *     the SSH-read path.
  *   - Test-only reset for hermetic test scoping.
+ *
+ * Explicitly NOT a single-slot singleton — an earlier iteration was and
+ * it broke on the second concurrent user because a per-user watcher
+ * factory tried to re-set with a different reference. The multi-tenant
+ * design lands here.
  */
 
 import type { SshPollOrchestrator } from "./ssh-poll-orchestrator.js";
 
-let orchestratorRef: SshPollOrchestrator | null = null;
+const orchestratorsByUserId = new Map<string, SshPollOrchestrator>();
 
 /**
- * Publish the process-wide orchestrator reference. Called by starter.ts
- * after `createSshPollOrchestrator` returns; may also be called by tests
- * that inject a mock. Passing the same reference twice is a no-op;
- * passing a different reference while one is set throws.
- *
- * Passing `null` explicitly clears the reference (used by starter.ts on
- * orchestrator.stop() so route handlers fall back to their pre-cache
- * behavior when no orchestrator is running).
+ * Publish (or clear) a user's orchestrator reference. Passing `null` for
+ * `orchestrator` removes the entry — used by watcher.stop() so cache
+ * lookups after teardown return null and callers fall back correctly.
  */
 export function setOrchestrator(
+  userId: string,
   orchestrator: SshPollOrchestrator | null,
 ): void {
   if (orchestrator === null) {
-    orchestratorRef = null;
+    orchestratorsByUserId.delete(userId);
     return;
   }
-  if (orchestratorRef !== null && orchestratorRef !== orchestrator) {
-    throw new Error(
-      "fleet-status orchestrator-holder: setOrchestrator called twice with different references",
-    );
-  }
-  orchestratorRef = orchestrator;
+  orchestratorsByUserId.set(userId, orchestrator);
 }
 
 /**
- * Read the process-wide orchestrator reference. Returns null when the
- * orchestrator has not been started, or has been stopped. Route handlers
- * that use this to consult the cosmetics cache MUST handle null by falling
- * through to their pre-cache SSH-read path.
+ * Look up a user's orchestrator. Returns null when the user has no
+ * running watcher (no active WS subscriber, or the watcher has been
+ * torn down). Callers MUST handle null by falling back to their pre-
+ * cache SSH-read path.
  */
-export function getOrchestrator(): SshPollOrchestrator | null {
-  return orchestratorRef;
+export function getOrchestrator(
+  userId: string,
+): SshPollOrchestrator | null {
+  return orchestratorsByUserId.get(userId) ?? null;
 }
 
 /**
- * Test-only reset. Vitest suites that inject a mock orchestrator via
+ * Test-only reset. Vitest suites that inject mock orchestrators via
  * setOrchestrator MUST call this in afterEach so the next test starts
- * with a clean holder.
+ * with an empty map.
  */
 export function _resetOrchestratorForTesting(): void {
-  orchestratorRef = null;
+  orchestratorsByUserId.clear();
 }

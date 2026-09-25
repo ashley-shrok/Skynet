@@ -78,20 +78,18 @@ const authenticateJWT = authManager.createAuthMiddleware();
 // single dead host contributes at most ~5s to the aggregate.
 const CONNECT_TIMEOUT_MS = 5_000;
 
-// Per-block timeout for the /sessions/list handler — bumped 3000 → 30000
-// (user 2026-08-20 UAT) matching DISCOVERY_EXEC_TIMEOUT_MS. Wraps the
-// connectOneShot + `tmux list-sessions` + per-session `discoverIdentitySessionFile`
-// + `tail -c 262144` execs. On a ~5-identity host the concurrent-discovery
-// wall-clock hits ~5s; 3s tripped every /sessions/list call and null'd both
-// row.lastMessageAt and row.aiTitle for every local session. See
-// DISCOVERY_EXEC_TIMEOUT_MS docblock in discover-identity-session-file.ts.
+// Per-block timeout for the /sessions/list handler. Historically wrapped
+// the tmux list-sessions Promise.race, the per-session role-resolve
+// fallback path (readIdentityFile), and the (now-retired) per-session
+// aiTitle discovery + tail chain. With the cosmetics-cache fast path and
+// the aiTitle retirement, only the tmux list-sessions race and the SSH-
+// fallback readIdentityFile race still consume this budget. Kept at 30s
+// so the fallback path — which fires on cold cache and reads identity
+// files serially over one connection — has the same headroom the
+// concurrent-discovery era needed.
 //
-// quick-260821-m36 note: connectOneShot is NO LONGER wrapped by this cap —
-// it uses CONNECT_TIMEOUT_MS (5_000) above. The three setTimeout(...,
-// PER_HOST_TIMEOUT_MS) call sites below (tmux list-sessions Promise.race,
-// per-session role-resolve Promise.race, per-session recency-signals
-// Promise.race) still consume the full 30s budget — tanya's rationale
-// applies to concurrent-discovery, not the connect handshake.
+// quick-260821-m36 note: connectOneShot is NO LONGER wrapped by this cap
+// — it uses CONNECT_TIMEOUT_MS (5_000) above.
 const PER_HOST_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
@@ -483,14 +481,17 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                 // row visible. Converting a read failure into a HIDE would
                 // be a permission-system behavior forbidden by D-8.
                 const roleResolveBlock = (async () => {
-                  // FAST PATH — consult the fleet-status sweep's cosmetics
-                  // cache first. When the sweep has run for this host and
-                  // this identity is in its live tree, we get role +
-                  // identity_cosmetics + role_cosmetics without any SSH
-                  // read. On cache miss (orchestrator down, first tick
-                  // hasn't run, identity not enumerated), fall through to
-                  // the SSH path below unchanged.
-                  const orch = getOrchestrator();
+                  // FAST PATH — consult THIS user's fleet-status sweep
+                  // cosmetics cache. Each Skynet user has their own
+                  // orchestrator (per-user watcher factory in starter.ts)
+                  // so the holder lookup is keyed on `userId`. When the
+                  // user's watcher is running and the sweep has enumerated
+                  // this identity, we get role + identity_cosmetics +
+                  // role_cosmetics without any SSH read. On cache miss
+                  // (no watcher yet, first tick hasn't run, identity not
+                  // enumerated), fall through to the SSH path below
+                  // unchanged.
+                  const orch = getOrchestrator(userId);
                   if (orch !== null) {
                     const cached = orch.getCachedIdentityCosmetics(
                       String(hostId),

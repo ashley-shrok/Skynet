@@ -1066,7 +1066,23 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
                         # (a following non-item line still ends the block).
                         look_idx += 1
                         continue
-                    # Non-item, non-blank → block ends before this line.
+                    if nxt.lstrip().startswith("#"):
+                        # Comment line inside the block — same treatment as
+                        # blank. Load-bearing on the SECURITY side of the
+                        # gate: without this branch, a role file with
+                        #   users:
+                        #     # ashley's team
+                        #     - alice
+                        #     - bob
+                        # would break here, hand '- alice' / '- bob' to
+                        # the outer for-loop (which has no dash-item
+                        # branch), silently drop both, and land users=[]
+                        # → falls open per D-3 → gate leaks the role to
+                        # every user. Skip comments uniformly.
+                        look_idx += 1
+                        continue
+                    # Non-item, non-blank, non-comment → block ends before
+                    # this line.
                     break
                 if collected:
                     cosmetics["users"] = collected

@@ -22,15 +22,15 @@ import {
 } from "./utils/logger.js";
 import { flushBackendLogs } from "./utils/console-forward-transport.js";
 import { isLocalHostId } from "./claude-session/identity-artifact-reader.js";
-import type {
-  SshChannel,
-  SshPollOrchestrator,
-} from "./fleet-status/ssh-poll-orchestrator.js";
-// Set-once/read-many holder for the orchestrator instance. Static import
-// is safe — the module is tiny (~50 lines) with no heavy transitive
-// dependencies, and it's needed inside the synchronous
-// createUserFleetStatusWatcher factory (not the outer async IIFE).
-import { setOrchestrator } from "./fleet-status/orchestrator-holder.js";
+import type { SshChannel } from "./fleet-status/ssh-poll-orchestrator.js";
+// Per-user holder for orchestrator instances — the WS gate closure and
+// route handlers reach the right user's sweep-populated cosmetics cache
+// via getOrchestrator(userId). Static import is safe — tiny module with
+// no heavy transitive dependencies.
+import {
+  setOrchestrator,
+  getOrchestrator,
+} from "./fleet-status/orchestrator-holder.js";
 import { enqueue as enqueueSpawnRequest, setProcessBirth as setSpawnRequestProcessBirth } from "./spawn-requests/queue.js";
 import { processBirth as processSpawnRequestBirth, buildProductionDeps as buildSpawnRequestWorkerDeps } from "./spawn-requests/worker.js";
 
@@ -672,15 +672,6 @@ if (process.env.VITEST !== "true") {
       //
       // D-10 (this-file discipline mirrors resolveHostOwnerById): READ-
       // ONLY. No writes anywhere in this closure.
-
-      // Mutable ref populated when the orchestrator is instantiated below
-      // (createSshPollOrchestrator sits inside a later lambda that runs on
-      // first-subscriber start, so a direct closure capture isn't possible).
-      // Null-guarded at read time: cache miss on null ref = fall through to
-      // SSH read, exactly the same shape as an orchestrator that's up but
-      // has no cache entry for this identity yet.
-      let orchestratorForGateRef: SshPollOrchestrator | null = null;
-
       async function resolveIdentityGate(
         identityName: string,
         hostIdStr: string,
@@ -720,17 +711,21 @@ if (process.env.VITEST !== "true") {
           return true;
         }
 
-        // FAST PATH — try the orchestrator's sweep-populated cosmetics
-        // cache first. When present, apply the SAME gate helper on
-        // sweep-fresh cosmetics without opening an SSH connection.
-        // Cache miss OR orchestrator-not-up returns null → fall through to
-        // the SSH-read slow path below (unchanged behaviour on cold start).
+        // FAST PATH — try THIS user's orchestrator's sweep-populated
+        // cosmetics cache. Looked up by userId because each Skynet user
+        // has their own orchestrator (per-user watcher factory, see
+        // createUserFleetStatusWatcher below). When present, apply the
+        // SAME gate helper on sweep-fresh cosmetics without opening an
+        // SSH connection. Cache miss OR user has no running orchestrator
+        // yet returns null → fall through to the SSH-read slow path
+        // below (unchanged behaviour on cold start).
         //
         // Do NOT log per-hit — this closure fires per WS frame, and a hot
-        // sidebar can produce many hits per second. Only log at construction
-        // (orchestrator ref wiring below) and on the slow-path branch.
-        if (orchestratorForGateRef !== null) {
-          const cached = orchestratorForGateRef.getCachedIdentityCosmetics(
+        // sidebar can produce many hits per second. Only log on the
+        // slow-path branch.
+        const userOrch = getOrchestrator(userId);
+        if (userOrch !== null) {
+          const cached = userOrch.getCachedIdentityCosmetics(
             hostIdStr,
             identityName,
           );
@@ -1181,39 +1176,32 @@ if (process.env.VITEST !== "true") {
           // and owns spawn-request scanning independently of browser presence.
         });
 
-        // Publish the orchestrator instance to the WS gate closure's ref so
-        // per-frame gate lookups can consult the sweep-populated cosmetics
-        // cache without an SSH read. Re-assigned on every restart of this
-        // lambda (first-subscriber transitions); ref remains valid until
-        // orchestrator.stop() clears its per-host state — after which the
-        // cache lookup returns null and the SSH fallback engages again.
-        orchestratorForGateRef = orchestrator;
-
-        // Also publish to the process-wide holder so HTTP route handlers
-        // (sessions.ts et al.) can consult the same cache without
-        // threading a reference through Express router construction.
-        // Mirrors the setRegistry pattern used for SubscriptionRegistry
-        // earlier in this file (registry-holder.ts).
-        setOrchestrator(orchestrator);
+        // Publish this user's orchestrator to the per-user holder so
+        // route handlers (sessions.ts) and the WS gate closure can consult
+        // its sweep-populated cosmetics cache without threading a
+        // reference through Express router construction or WS filter
+        // injection. Keyed by userId — each Skynet user has their own
+        // watcher and thus their own orchestrator instance. Overwrites
+        // any previous entry for the same user (a watcher may restart
+        // across subscriber-count transitions).
+        setOrchestrator(userId, orchestrator);
 
         systemLogger.info(
           "Fleet-status identity gate: wired to orchestrator cosmetics cache",
-          { operation: "fleet_status_identity_gate_cache_wired" },
+          {
+            operation: "fleet_status_identity_gate_cache_wired",
+            userId,
+          },
         );
 
         return {
           start: () => orchestrator.start(),
           stop: () => {
             orchestrator.stop();
-            // Clear the WS-gate cache ref alongside the orchestrator stop.
-            // Not strictly required (the stopped orchestrator's cache is
-            // empty and lookups return null), but keeps the ref honest
-            // when a subsequent start creates a fresh instance.
-            orchestratorForGateRef = null;
-            // Clear the process-wide holder too so HTTP route handlers
-            // fall back to their pre-cache SSH-read path while the
-            // orchestrator is down.
-            setOrchestrator(null);
+            // Clear the per-user holder entry so cache lookups after
+            // teardown return null and callers fall through to their
+            // pre-cache SSH-read path.
+            setOrchestrator(userId, null);
             // Close the long-lived ssh2 Clients so we don't leak the very TCP
             // connections we said "no user watching = no work" — orchestrator.stop()
             // only clears perHostState (channel wrappers), not the underlying
