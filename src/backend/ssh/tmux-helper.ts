@@ -32,33 +32,87 @@ export interface TmuxDetectionResult {
  * regression coverage.
  */
 export function execCommand(conn: Client, command: string): Promise<string> {
-  sshLogger.info(`[tmux-helper] exec command="${command.slice(0, 80)}"`, { operation: "tmux_exec" });
+  const cmdPreview = command.slice(0, 80);
+  // 2026-09-25 (tina): lifecycle timing to attribute where slow execs spend
+  // time. Under a rapid multi-pane reload, workstation execs hit the 5s
+  // per-attempt retry ceiling (see session-file-discovery.ts) but direct
+  // OpenSSH client execs to the same host complete in <200ms. Need to
+  // pinpoint whether the delay is:
+  //   (a) conn.exec callback slow → channel-open latency (SSH multiplex layer)
+  //   (b) exec cb → first stdout data slow → workstation-side fork/exec slow
+  //   (c) first data → stream close slow → command run itself slow
+  //   (d) never got to close → channel torn down mid-flight (code=undefined)
+  // One summary log at close (or on early error) with all four phases.
+  const tExecStart = Date.now();
+  // Try to read the peer address so we can filter by host. `_sock` is a private
+  // ssh2 internal (a Node net.Socket); grabbing it defensively — if the shape
+  // changes in a future ssh2 rev, silent-null keeps the diag off the crash
+  // path.
+  let peer = "";
+  try {
+    const sock = (conn as unknown as { _sock?: { remoteAddress?: string; remotePort?: number } })._sock;
+    if (sock?.remoteAddress) peer = `${sock.remoteAddress}:${sock.remotePort ?? "?"}`;
+  } catch {
+    /* ignore */
+  }
+  sshLogger.info(`[tmux-helper] exec command="${cmdPreview}"`, { operation: "tmux_exec" });
   const p = new Promise<string>((resolve, reject) => {
+    let tExecCb = 0;
+    let tFirstData = 0;
     conn.exec(command, (err, stream) => {
+      tExecCb = Date.now();
       if (err) {
-        sshLogger.error(`[tmux-helper] exec-failed command="${command.slice(0, 80)}"`, err, { operation: "tmux_exec_failed" });
+        sshLogger.error(
+          `[tmux-helper] exec-failed command="${cmdPreview}" peer=${peer} openMs=${tExecCb - tExecStart}`,
+          err,
+          { operation: "tmux_exec_failed", peer, openMs: tExecCb - tExecStart },
+        );
         reject(err);
         return;
       }
       let stdout = "";
       let stderr = "";
       stream.on("data", (data: Buffer) => {
+        if (tFirstData === 0) tFirstData = Date.now();
         stdout += data.toString("utf-8");
       });
       stream.stderr.on("data", (data: Buffer) => {
         stderr += data.toString("utf-8");
       });
       stream.on("error", (err: Error) => {
-        sshLogger.error(`[tmux-helper] exec-failed command="${command.slice(0, 80)}"`, err, { operation: "tmux_exec_failed" });
+        const tEnd = Date.now();
+        sshLogger.error(
+          `[tmux-helper] exec-failed command="${cmdPreview}" peer=${peer} openMs=${tExecCb - tExecStart} totalMs=${tEnd - tExecStart}`,
+          err,
+          { operation: "tmux_exec_failed", peer, openMs: tExecCb - tExecStart, totalMs: tEnd - tExecStart },
+        );
         reject(err);
       });
       stream.on("close", (code: number) => {
+        const tClose = Date.now();
+        const openMs = tExecCb - tExecStart;
+        const ttfbMs = tFirstData > 0 ? tFirstData - tExecCb : -1;
+        const dataMs = tFirstData > 0 ? tClose - tFirstData : -1;
+        const totalMs = tClose - tExecStart;
         if (code !== 0 && stdout === "") {
-          sshLogger.warn(`[tmux-helper] exec-nonzero command="${command.slice(0, 80)}" code=${code} stderrLen=${stderr.length}`, { operation: "tmux_exec_nonzero" });
+          sshLogger.warn(
+            `[tmux-helper] exec-nonzero command="${cmdPreview}" peer=${peer} code=${code} stderrLen=${stderr.length} openMs=${openMs} ttfbMs=${ttfbMs} dataMs=${dataMs} totalMs=${totalMs}`,
+            { operation: "tmux_exec_nonzero", peer, openMs, ttfbMs, dataMs, totalMs, stderrLen: stderr.length },
+          );
           reject(
             new Error(stderr.trim() || `Command exited with code ${code}`),
           );
         } else {
+          // Only emit the timing summary for non-trivial execs — under normal
+          // load these fire hundreds of times per minute. Threshold matches
+          // the observed pathology (5s+ ceilings) with headroom for tail
+          // signals (>500ms is already interesting on a healthy path).
+          if (totalMs >= 500) {
+            sshLogger.info(
+              `[tmux-helper] exec-slow command="${cmdPreview}" peer=${peer} openMs=${openMs} ttfbMs=${ttfbMs} dataMs=${dataMs} totalMs=${totalMs} bytes=${stdout.length}`,
+              { operation: "tmux_exec_slow", peer, openMs, ttfbMs, dataMs, totalMs, bytes: stdout.length },
+            );
+          }
           resolve(stdout.trim());
         }
       });

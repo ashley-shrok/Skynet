@@ -1,5 +1,6 @@
 import ssh2Pkg from "ssh2";
 import type { Client as SSHClient } from "ssh2";
+import { sshLogger } from "../utils/logger.js";
 
 const { Client } = ssh2Pkg;
 
@@ -30,13 +31,26 @@ export function connectOneShot(
   timeoutMs: number,
 ): Promise<SSHClient> {
   return new Promise((resolve, reject) => {
+    // 2026-09-25 (tina): timing diag — paired with execCommand's phase timing
+    // in tmux-helper.ts. On workstation cold-attach bursts the discovery exec
+    // hits 5s ceilings per attempt; we don't yet know whether the SSH connect
+    // itself is what's slow or the subsequent exec on an established
+    // connection. Emit a single connect-summary log so a reload burst
+    // produces one line per pane with the peer + duration.
+    const tStart = Date.now();
+    const peer = `${host.ip}:${host.sshPort ?? host.port ?? 22}`;
     const conn = new Client();
     let settled = false;
     const finish = (err?: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      const durationMs = Date.now() - tStart;
       if (err) {
+        sshLogger.warn(
+          `[ssh-one-shot] connect-failed peer=${peer} durationMs=${durationMs} err="${err.message}"`,
+          { operation: "ssh_one_shot_connect_failed", peer, durationMs, error: err.message },
+        );
         try {
           conn.end();
         } catch {
@@ -44,6 +58,14 @@ export function connectOneShot(
         }
         reject(err);
       } else {
+        // Only log slow-side connects — a healthy connect is <200ms; anything
+        // >500ms is worth eyeballing in a reload-burst trace.
+        if (durationMs >= 500) {
+          sshLogger.info(
+            `[ssh-one-shot] connect-slow peer=${peer} durationMs=${durationMs}`,
+            { operation: "ssh_one_shot_connect_slow", peer, durationMs },
+          );
+        }
         resolve(conn);
       }
     };
