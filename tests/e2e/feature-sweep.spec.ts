@@ -88,8 +88,9 @@ test("feature sweep — exercise every visible affordance for a fresh user", asy
     await page.waitForTimeout(500);
   }
 
-  // 7. Edit global files — now a dedicated header icon button (quick-260914-liu)
-  const editGlobalBtn = page.locator('[data-testid="pv-header-global-files-button"]');
+  // 7. Edit global files — migrated to the sidebar footer in
+  //    shape-sidebar-header-footer-redesign. Test-id: pv-footer-global-files-button.
+  const editGlobalBtn = page.locator('[data-testid="pv-footer-global-files-button"]');
   if (await editGlobalBtn.isVisible().catch(() => false)) {
     await editGlobalBtn.click();
     await page.waitForTimeout(1500);

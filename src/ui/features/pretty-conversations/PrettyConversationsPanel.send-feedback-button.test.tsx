@@ -288,12 +288,15 @@ describe("PrettyConversationsPanel: Send feedback header button (Phase 123 Plan 
         onOpenFeedback={vi.fn()}
       />,
     );
-    // All five siblings are absent (showPencilButton === false because
-    // typeof onCreateSession !== "function").
+    // The showPencilButton siblings are absent (showPencilButton === false
+    // because typeof onCreateSession !== "function"). Globe is no longer in
+    // this list — it migrated to the sidebar footer in
+    // shape-sidebar-header-footer-redesign and its test-id changed to
+    // pv-footer-global-files-button. The footer is not under the
+    // showPencilButton gate.
     expect(screen.queryByTestId("pv-header-new-agent-button")).toBeNull();
     expect(screen.queryByTestId("pv-header-create-project-button")).toBeNull();
     expect(screen.queryByTestId("pv-header-edit-roles-button")).toBeNull();
-    expect(screen.queryByTestId("pv-header-global-files-button")).toBeNull();
     expect(screen.queryByTestId("pv-header-menu-button")).toBeNull();
     // …but the feedback button IS present because its gate is independent
     // per D-12 — this is the whole point of the shape's placement choice.

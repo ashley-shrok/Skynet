@@ -49,11 +49,13 @@ test("golden: create a new agent — New agent header button → pick host → n
   //    the first host row. If the test user has no hosts, skip.
   //    Host rows have role=option or role=button; the search input is
   //    labeled with a placeholder like "Search hosts…".
-  //    Exclude all four header icon buttons from the candidate list so the
-  //    host-picker click cannot land on a header button.
+  //    Exclude all header/footer icon buttons from the candidate list so
+  //    the host-picker click cannot land on one. Globe migrated to the
+  //    sidebar footer in shape-sidebar-header-footer-redesign; the
+  //    pv-footer-global-files-button test-id is included here too.
   const hostCandidates = page
     .locator('[role="option"], [role="button"][data-host-id], button[data-host-id]')
-    .filter({ hasNot: page.locator('[data-testid="pv-header-menu-button"], [data-testid="pv-header-new-agent-button"], [data-testid="pv-header-edit-roles-button"], [data-testid="pv-header-global-files-button"]') });
+    .filter({ hasNot: page.locator('[data-testid="pv-header-menu-button"], [data-testid="pv-header-new-agent-button"], [data-testid="pv-header-edit-roles-button"], [data-testid="pv-footer-global-files-button"]') });
 
   const hostCount = await hostCandidates.count();
   test.skip(

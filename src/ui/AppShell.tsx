@@ -434,6 +434,11 @@ export function AppShell({
   const [hostsLoading, setHostsLoading] = useState(true);
   const [allHosts, setAllHosts] = useState<Host[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  // Sidebar-footer "you" anchor: current username from /users/me. Held here
+  // alongside isAdmin because both come from the same fetch and both feed
+  // PrettyConversationsPanel. Null until the fetch resolves (footer's anchor
+  // slot renders empty; action affordances still render).
+  const [username, setUsername] = useState<string | null>(null);
   const [backgroundTabRecords, setBackgroundTabRecords] = useState<
     OpenTabRecord[]
   >([]);
@@ -517,8 +522,14 @@ export function AppShell({
 
   useEffect(() => {
     getUserInfo()
-      .then((info) => setIsAdmin(info.is_admin))
-      .catch(() => setIsAdmin(false));
+      .then((info) => {
+        setIsAdmin(info.is_admin);
+        setUsername(info.username || null);
+      })
+      .catch(() => {
+        setIsAdmin(false);
+        setUsername(null);
+      });
   }, []);
 
   // Phase 126 Plan 02 (D-18): install first-gesture AudioContext unlock so
@@ -3137,6 +3148,7 @@ export function AppShell({
           sidebarToggleOverlaps={isMobile && !isTouchDevice && sidebarOpen}
           visibleInSplitTreeTabIds={visibleInSplitTreeTabIds}
           isAdmin={isAdmin}
+          username={username}
           onOpenApp={onOpenApp}
           // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE + PV58-DOCLOSETAB-TREE-
           // RECONCILE: badge drop on the conv-list panel closes the tab.

@@ -252,7 +252,12 @@ describe("PrettyConversationsPanel: Wake-ups header button", () => {
     });
   });
 
-  it("Test 4: button position — appears after Globe, before kebab", () => {
+  it("Test 4: button position — appears after Create project, before kebab", () => {
+    // shape-sidebar-header-footer-redesign: Globe migrated to the sidebar
+    // footer, so wake-ups' "after Globe" anchor was replaced by "after
+    // Create project" — its actual position in the header after the
+    // migration. Kebab remains the trailing anchor. Wake-ups still slots
+    // between the creation actions and the catchall menu.
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -261,12 +266,12 @@ describe("PrettyConversationsPanel: Wake-ups header button", () => {
         onDeactivateRow={() => {}}
       />,
     );
-    const globe = screen.getByTestId("pv-header-global-files-button");
+    const createProject = screen.getByTestId("pv-header-create-project-button");
     const wakeup = screen.getByTestId("pv-header-wakeups-button");
     const kebab = screen.getByTestId("pv-header-menu-button");
     // Node.DOCUMENT_POSITION_FOLLOWING = 4
     expect(
-      globe.compareDocumentPosition(wakeup) & Node.DOCUMENT_POSITION_FOLLOWING,
+      createProject.compareDocumentPosition(wakeup) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
       wakeup.compareDocumentPosition(kebab) & Node.DOCUMENT_POSITION_FOLLOWING,

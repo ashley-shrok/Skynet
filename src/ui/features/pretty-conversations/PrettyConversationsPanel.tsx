@@ -62,7 +62,7 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AlarmClock, AppWindow, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, SquarePen, X } from "lucide-react";
+import { AlarmClock, AppWindow, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -444,6 +444,7 @@ export function PrettyConversationsPanel({
   onCloseSession,
   openTabIds = [],
   isAdmin = false,
+  username = null,
   onCreateRelayRoom,
   onOpenApp,
   onOpenFeedback,
@@ -544,6 +545,11 @@ export function PrettyConversationsPanel({
   // Sourced from /users/me.is_admin (AppShell state); default false so tests
   // and any non-AppShell caller render as non-admin (meter hidden).
   isAdmin?: boolean;
+  // Sidebar-footer "you" anchor — current user's username, sourced from
+  // /users/me.username (AppShell state). Feeds both the display name and
+  // the initials-circle glyph. Null/undefined/empty → footer renders
+  // without the anchor slot; footer action affordances still render.
+  username?: string | null;
   /**
    * Phase 91 Plan 05 — Fired when the user successfully creates a relay room
    * via NewConversationModal. AppShell wires this to open the relay-room tab
@@ -2520,25 +2526,15 @@ export function PrettyConversationsPanel({
                 >
                   <Drama size={18} />
                 </button>
-                <button
-                  type="button"
-                  className="pv-pencil"
-                  aria-label="Edit global files"
-                  title="Edit global files"
-                  data-testid="pv-header-global-files-button"
-                  onClick={() => setGlobalFilesModalOpen(true)}
-                >
-                  <Globe size={18} />
-                </button>
+                {/* Edit global files (Globe) migrated to the sidebar footer
+                    in shape-sidebar-header-footer-redesign — files scoped to
+                    the whole account belong in the "about me" zone, not the
+                    "act on this conversation list" zone. Now rendered as
+                    pv-footer-global-files-button at the bottom of the panel. */}
                 {/* Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4
-                    — Wake-ups header button. Position: sixth of the guarded
-                    cluster (after Edit-global-files Globe, before the
-                    feedback + kebab). Chrome mirrors the five siblings
-                    verbatim: same .pv-pencil class, AlarmClock at size 18,
-                    aria-label + title both "Wake-ups". No dashed-border
-                    accent (RESEARCH Assumption A7 — the prototype's dashed
-                    accent was a tasting artifact; v1 ships without it,
-                    matching neighbor buttons). Opens the new WakeupsModal
+                    — Wake-ups header button. Chrome mirrors sibling
+                    .pv-pencil buttons verbatim: AlarmClock at size 18,
+                    aria-label + title both "Wake-ups". Opens the WakeupsModal
                     mounted alongside the sibling modals below. */}
                 <button
                   type="button"
@@ -3021,6 +3017,57 @@ export function PrettyConversationsPanel({
                 Phase 122 shape follow-up — archived identities are now
                 surfaced exclusively via the ConversationSearchModal.) */}
         </>
+      </div>
+
+      {/* Sidebar footer — the "about me" zone. Sibling of .pv-panel-header
+          and .pv-panel-scroll in the panel's flex column. Left slot: initials
+          circle (decorative, no click behavior) + username. Right slot: the
+          Globe (migrated from the header — files scoped to the whole account
+          belong here) and the inert Settings-gear placeholder (rendered as a
+          <span> so it's semantically not-interactive; preferences service
+          ships in a follow-on shape). The anchor slot renders only when
+          username is populated; the actions slot always renders. */}
+      <div className="pv-panel-footer" data-testid="pv-panel-footer">
+        <div className="pv-footer-anchor">
+          {username ? (
+            <>
+              <span
+                className="pv-footer-initials"
+                aria-hidden="true"
+                data-testid="pv-footer-initials"
+              >
+                {username.trim().charAt(0).toUpperCase()}
+              </span>
+              <span
+                className="pv-footer-username"
+                data-testid="pv-footer-username"
+              >
+                {username}
+              </span>
+            </>
+          ) : null}
+        </div>
+        <div className="pv-footer-actions">
+          <button
+            type="button"
+            className="pv-footer-btn"
+            aria-label="Edit global files"
+            title="Edit global files"
+            data-testid="pv-footer-global-files-button"
+            onClick={() => setGlobalFilesModalOpen(true)}
+          >
+            <Globe size={18} />
+          </button>
+          <span
+            className="pv-footer-btn pv-footer-btn-inert"
+            aria-label="User preferences (coming soon)"
+            title="User preferences (coming soon)"
+            data-testid="pv-footer-preferences-placeholder"
+            aria-disabled="true"
+          >
+            <Settings size={18} />
+          </span>
+        </div>
       </div>
 
       {/* NewSessionDialog VERBATIM from ConversationsPanel.tsx lines

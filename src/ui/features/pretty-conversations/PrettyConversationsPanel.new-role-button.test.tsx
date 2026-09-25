@@ -243,7 +243,10 @@ describe("PrettyConversationsPanel: Edit roles header button (quick-260914-liu r
     expect(screen.queryByTestId("pv-header-menu-button")).toBeNull();
     expect(screen.queryByTestId("pv-header-new-agent-button")).toBeNull();
     expect(screen.queryByTestId("pv-header-edit-roles-button")).toBeNull();
-    expect(screen.queryByTestId("pv-header-global-files-button")).toBeNull();
+    // Globe migrated to the sidebar footer in
+    // shape-sidebar-header-footer-redesign; new test-id
+    // pv-footer-global-files-button lives on the footer, which is NOT
+    // under the showPencilButton gate.
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
