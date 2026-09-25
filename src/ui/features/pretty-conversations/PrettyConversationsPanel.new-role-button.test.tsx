@@ -6,9 +6,13 @@
 // tests keep the file name for git-blame continuity but swap all assertions
 // from the old "New role" surface to the new "Edit roles…" surface.
 //
-// quick-260914-liu: "Edit roles" has since been promoted out of the kebab
-// into a dedicated header icon button (pv-header-edit-roles-button). Tests
-// 21a / 21b / 21c are repointed at the new header button entry point.
+// quick-260914-liu: "Edit roles" was promoted out of the kebab into a
+// dedicated header icon button (pv-header-edit-roles-button).
+//
+// shape-sidebar-header-footer-redesign: "Edit roles" was migrated BACK into
+// the kebab menu as the third item (after the Phase-44-guarded pair). The
+// dedicated header button was retired. Tests 21a / 21b / 21c are re-anchored
+// at the kebab entry point.
 //
 // Kept as a sibling test file (not appended to PrettyConversationsPanel.test.tsx)
 // so the surface stays isolated from the 25+ pre-existing tests in the main
@@ -199,8 +203,8 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("PrettyConversationsPanel: Edit roles header button (quick-260914-liu repoint)", () => {
-  it("Test 21a (quick-260914-liu repoint): pv-header-edit-roles-button exists with correct chrome when onCreateSession is wired; Edit roles is NOT in the kebab; kebab holds only two items", () => {
+describe("PrettyConversationsPanel: Edit roles kebab menu item (shape-sidebar-header-footer-redesign)", () => {
+  it("Test 21a (shape-redesign): Edit roles is NOT a header button; it lives in the kebab as the third item (after the guarded pair)", () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -210,29 +214,30 @@ describe("PrettyConversationsPanel: Edit roles header button (quick-260914-liu r
       />,
     );
 
-    // Dedicated header button exists.
-    const editRolesBtn = screen.getByTestId("pv-header-edit-roles-button");
-    expect(editRolesBtn).toBeTruthy();
-    expect(editRolesBtn.getAttribute("aria-label")).toBe("Edit roles");
-    expect(editRolesBtn.getAttribute("title")).toBe("Edit roles");
+    // No dedicated header button any more.
+    expect(screen.queryByTestId("pv-header-edit-roles-button")).toBeNull();
 
-    // Open the kebab to verify Edit roles is gone from the menu.
+    // Open the kebab and verify Edit roles is present as the third item.
     fireEvent.click(screen.getByTestId("pv-header-menu-button"));
     const menu = screen.getByRole("menu");
     const kebabItems = within(menu).getAllByRole("menuitem").map((el) =>
       el.textContent?.trim() ?? "",
     );
-    // The old "New role" entry is GONE (D-07). Edit roles is also gone from the kebab (quick-260914-liu).
+    // The old "New role" entry is GONE (D-07). Edit roles is back — appended
+    // as the third item after the Phase-44-guarded pair, whose order is
+    // preserved.
     expect(within(menu).queryByRole("menuitem", { name: /^new role$/i })).toBeNull();
-    expect(within(menu).queryByRole("menuitem", { name: /edit roles/i })).toBeNull();
-    // Kebab now holds exactly two survivors in locked order.
-    expect(kebabItems).toEqual(["New group conversation", "Edit global skills…"]);
+    expect(within(menu).queryByRole("menuitem", { name: /edit roles/i })).toBeTruthy();
+    expect(kebabItems).toEqual([
+      "New group conversation",
+      "Edit global skills…",
+      "Edit roles…",
+    ]);
   });
 
-  it("Test 21b (quick-260914-liu extend): all four header buttons absent when onCreateSession is undefined — they share one showPencilButton guard", () => {
+  it("Test 21b (shape-redesign): showPencilButton siblings absent when onCreateSession is undefined — Edit roles is no longer a header button, so no explicit assertion", () => {
     // Phase 23 gate carries over unchanged — the whole menu vanishes when
-    // the panel has no onCreateSession callback wired. quick-260914-liu: three
-    // new header buttons join the kebab under the same guard.
+    // the panel has no onCreateSession callback wired.
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -242,15 +247,16 @@ describe("PrettyConversationsPanel: Edit roles header button (quick-260914-liu r
 
     expect(screen.queryByTestId("pv-header-menu-button")).toBeNull();
     expect(screen.queryByTestId("pv-header-new-agent-button")).toBeNull();
+    // pv-header-edit-roles-button is retired at all render states — the
+    // migration to the kebab means it's not a header button in any gate.
     expect(screen.queryByTestId("pv-header-edit-roles-button")).toBeNull();
-    // Globe migrated to the sidebar footer in
-    // shape-sidebar-header-footer-redesign; new test-id
-    // pv-footer-global-files-button lives on the footer, which is NOT
-    // under the showPencilButton gate.
+    // Globe migrated to the sidebar footer; new test-id
+    // pv-footer-global-files-button lives on the footer, NOT under the
+    // showPencilButton gate.
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("Test 21c (quick-260914-liu repoint): clicking pv-header-edit-roles-button opens RolesListModal (detection signal: the modal's 'Roles' title)", async () => {
+  it("Test 21c (shape-redesign): clicking the kebab's Edit roles item opens RolesListModal (detection signal: the modal's 'Roles' title)", async () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -263,8 +269,10 @@ describe("PrettyConversationsPanel: Edit roles header button (quick-260914-liu r
     // Dialog is not open before click.
     expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
 
-    // Click the dedicated Edit roles header button (no kebab open needed).
-    fireEvent.click(screen.getByTestId("pv-header-edit-roles-button"));
+    // Open the kebab, then click Edit roles inside.
+    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
+    const menu = screen.getByRole("menu");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: /edit roles/i }));
 
     // RolesListModal is now rendered — assert on its "Roles" DialogTitle.
     await waitFor(() => {

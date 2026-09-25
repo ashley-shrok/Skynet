@@ -62,7 +62,7 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AlarmClock, AppWindow, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
+import { AlarmClock, AppWindow, ChevronDown, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
@@ -2516,16 +2516,10 @@ export function PrettyConversationsPanel({
                 >
                   <FolderOpen size={18} />
                 </button>
-                <button
-                  type="button"
-                  className="pv-pencil"
-                  aria-label="Edit roles"
-                  title="Edit roles"
-                  data-testid="pv-header-edit-roles-button"
-                  onClick={() => setRolesListModalOpen(true)}
-                >
-                  <Drama size={18} />
-                </button>
+                {/* Edit roles migrated into the catchall (kebab) menu in
+                    shape-sidebar-header-footer-redesign — occasional-use
+                    action, pairs semantically with Edit global skills below.
+                    Now rendered as the third item in the kebab list. */}
                 {/* Edit global files (Globe) migrated to the sidebar footer
                     in shape-sidebar-header-footer-redesign — files scoped to
                     the whole account belong in the "about me" zone, not the
@@ -3374,11 +3368,18 @@ export function PrettyConversationsPanel({
           {/* KEEP ORDER: New group conversation → Edit global skills… (Phase 44 Pitfall 8 guard —
               do not alphabetize or reshuffle these two survivors). quick-260914-liu moved
               New agent, Edit roles, and Edit global files into dedicated header icon buttons;
-              those three entries are gone from this list. The Phase 44 no-reshuffle guard still
-              applies to the two items that remain. */}
+              those three entries were gone from this list at the time. The Phase 44 no-reshuffle
+              guard still applies to the original pair.
+              shape-sidebar-header-footer-redesign: Edit roles came back into this list as the
+              THIRD item, appended after the guarded pair (which keeps its order). Rationale:
+              occasional-use action; pairs semantically with Edit global skills (both are
+              edit-shared-things). The Phase 44 guard on the first two items is NOT extended to
+              cover Edit roles — Edit roles is deliberately at the end so future re-ordering of
+              its position doesn't disturb the original pair. */}
           {[
             { label: "New group conversation", onClick: () => setNewConversationModalOpen(true) }, // Phase 91 Plan 05
             { label: "Edit global skills…", onClick: () => setSkillsEditorModalOpen(true) },
+            { label: "Edit roles…", onClick: () => setRolesListModalOpen(true) }, // shape-sidebar-header-footer-redesign
             // Feature-detected — omitted entirely when the browser can't do Web Push.
             ...(notificationsSupported
               ? [{ label: "Enable notifications…", onClick: () => setEnableNotificationsModalOpen(true) }]
