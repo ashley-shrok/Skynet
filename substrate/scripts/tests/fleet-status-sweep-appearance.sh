@@ -627,7 +627,7 @@ title: Traveler
 }
 
 # Case 16: users list — flow style survives on identity + role sides.
-# Flow style `users: [alice, bob]` is Ashley's on-disk convention and what
+# Flow style `users: [alice, bob]` is the on-disk convention and what
 # MDXEditor's string-only frontmatterPlugin ends up round-tripping to.
 test_case_16_users_flow_style() {
   make_identity "flowid" "---
@@ -702,7 +702,7 @@ test_case_19a_users_block_with_inline_comment() {
   make_identity "commentid" "---
 role: commentrole
 users:
-  # ashley's team
+  # operator team
   - alice
   - bob
 title: After Block With Comment

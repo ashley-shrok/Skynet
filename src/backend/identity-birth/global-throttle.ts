@@ -23,7 +23,7 @@
  * Env var backward-compat: `IDENTITY_BIRTH_MAX_CONCURRENT` retains its name
  * (default bumped 1 → 2 as part of the reshape — same-host serialization is
  * still enforced by the target's supervisor's serial launch queue, so two
- * concurrent births on one host is safe and unlocks the Ashley-modal + a
+ * concurrent births on one host is safe and unlocks the operator-modal + a
  * peer-coordinator scenario). Queue depth is per-host too.
  *
  * Bounty: identity-creation-flow-global-throttle

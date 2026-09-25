@@ -1014,7 +1014,7 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
         #
         # Two supported YAML shapes, matching real on-disk usage:
         #   1. Flow style, single line:  users: [alice, bob]
-        #      (Ashley's convention; also what MDXEditor's string-only
+        #      (the operator convention; also what MDXEditor's string-only
         #       frontmatterPlugin round-trips as a quoted string that ends up
         #       looking like a bracket list.)
         #   2. Block style, multi-line:  users:
@@ -1071,7 +1071,7 @@ def _read_frontmatter_cosmetics(path, allowed_keys):
                         # blank. Load-bearing on the SECURITY side of the
                         # gate: without this branch, a role file with
                         #   users:
-                        #     # ashley's team
+                        #     # operator team
                         #     - alice
                         #     - bob
                         # would break here, hand '- alice' / '- bob' to
