@@ -330,6 +330,31 @@ Common commands:
 
 Never `pkill bun` — it kills every app on the box.
 
+## Links inside the app — root-absolute paths break the pane
+
+When the user opens your app through its tile, the front-end client
+renders it in a proxied iframe pane mounted at a path prefix (something
+like `/apps/<hostId>/<slug>/pane/`). To make relative URLs resolve
+inside that prefix, the client's proxy injects `<base href="…/pane/">`
+into your HTML's `<head>` — so `<a href="page">` and `fetch("api/foo")`
+resolve into the app.
+
+**The trap:** HTML `<base>` only affects RELATIVE URLs. Root-absolute
+URLs (leading `/`) are resolved against the document's ORIGIN per URL
+spec — they bypass `<base>` entirely. So `<a href="/settings">` navigates
+the iframe back to the CLIENT's root, not into your app.
+
+**Rule: never use a leading `/` on URLs that target your own app.**
+Write them relative:
+
+- `<a href="settings">` — not `<a href="/settings">`
+- `fetch("api/foo")` — not `fetch("/api/foo")`
+- `<img src="logo.svg">` — not `<img src="/logo.svg">`
+
+Same rule for `<script src>`, `<link href>`, `<form action>`, and every
+other URL-carrying attribute. If a URL targets your own app, no leading
+slash. External URLs (`https://…`, `//example.com/…`) work as-is.
+
 ## Authentication — the front-end client handles it, you don't
 
 The user reaches the app through the front-end client she's using, which
