@@ -28,6 +28,13 @@ import { discoverIdentitySessionFile } from "../../claude-session/discover-ident
 // Pitfall 7 lock; see 129-01 SUMMARY for the design rationale).
 import { isIdentityVisibleToUser } from "../../fleet-status/identity-visibility-gate.js";
 import { getUsernameForUserId } from "../../utils/host-user-counter.js";
+// Orchestrator holder — used to short-circuit the per-row readIdentityFile
+// SSH read when the fleet-status sweep has already populated cosmetics for
+// this identity on this host. On cache miss (orchestrator not up, or the
+// sweep hasn't seen the identity yet), we fall through to the existing SSH
+// read path unchanged. Cuts the workstation per-page-load fanout from ~200
+// readIdentityFile execs to zero when the cache is warm.
+import { getOrchestrator } from "../../fleet-status/orchestrator-holder.js";
 // Phase 85 (D-07): identity-name-keyed send-log store — replaces the
 // byte-parallel `scanTailForNewestMessageAt` call for `/sessions/list`'s
 // `lastMessageAt` seed. AppShell reads `/sessions/list` on page load to
@@ -523,6 +530,46 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                 // row visible. Converting a read failure into a HIDE would
                 // be a permission-system behavior forbidden by D-8.
                 const roleResolveBlock = (async () => {
+                  // FAST PATH — consult the fleet-status sweep's cosmetics
+                  // cache first. When the sweep has run for this host and
+                  // this identity is in its live tree, we get role +
+                  // identity_cosmetics + role_cosmetics without any SSH
+                  // read. On cache miss (orchestrator down, first tick
+                  // hasn't run, identity not enumerated), fall through to
+                  // the SSH path below unchanged.
+                  const orch = getOrchestrator();
+                  if (orch !== null) {
+                    const cached = orch.getCachedIdentityCosmetics(
+                      String(hostId),
+                      row.sessionName,
+                    );
+                    if (cached !== null) {
+                      row.role = cached.role;
+                      const visible = isIdentityVisibleToUser(
+                        cached.identityCosmetics,
+                        cached.roleCosmetics,
+                        callerUsername,
+                      );
+                      visibleMap.set(row.sessionName, visible);
+                      if (!visible) {
+                        systemLogger.debug(
+                          "Phase 129: session hidden by visibility gate (sweep cache)",
+                          {
+                            operation: "sessions_gate_hidden",
+                            sessionName: row.sessionName,
+                            hostId,
+                            callerUsername,
+                            source: "sweep_cache",
+                          },
+                        );
+                      }
+                      return;
+                    }
+                  }
+
+                  // SLOW PATH — original per-row SSH read. Kicks in on
+                  // cache miss (fresh boot, orchestrator stopped between
+                  // subscribers, host not in the identity-hosting set).
                   try {
                     const { markdown } = await Promise.race([
                       readIdentityFile(conn, row.sessionName),

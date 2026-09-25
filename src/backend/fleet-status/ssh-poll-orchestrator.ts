@@ -160,6 +160,7 @@ export interface SshPollOrchestrator {
   ): {
     identityCosmetics: RawCosmetics | null;
     roleCosmetics: RawCosmetics | null;
+    role: string | null;
   } | null;
 }
 
@@ -550,6 +551,14 @@ interface PerHostState {
     {
       identityCosmetics: RawCosmetics | null;
       roleCosmetics: RawCosmetics | null;
+      /**
+       * The identity's `role:` frontmatter value as emitted by the sweep,
+       * carried alongside cosmetics so consumers can look up role without
+       * a second SSH read. `null` when the identity file has no valid
+       * `role:` frontmatter (matches the sweep's ROLE_NAME_OK-validated
+       * emission — malformed or absent → null).
+       */
+      role: string | null;
     }
   >;
 }
@@ -2036,6 +2045,7 @@ export function createSshPollOrchestrator(
         roleCosmetics:
           (identityLine.role_cosmetics as RawCosmetics | null | undefined) ??
           null,
+        role: identityLine.role ?? null,
       });
       const fetched = identityLineToPerIdentityFetched(identityLine, hostState);
       const cached = hostState.identityRecycleState.get(identityLine.identity);
@@ -3544,6 +3554,7 @@ export function createSshPollOrchestrator(
     ): {
       identityCosmetics: RawCosmetics | null;
       roleCosmetics: RawCosmetics | null;
+      role: string | null;
     } | null {
       const hostState = perHostState.get(hostIdStr);
       if (hostState === undefined) return null;

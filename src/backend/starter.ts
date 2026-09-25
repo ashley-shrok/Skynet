@@ -26,6 +26,11 @@ import type {
   SshChannel,
   SshPollOrchestrator,
 } from "./fleet-status/ssh-poll-orchestrator.js";
+// Set-once/read-many holder for the orchestrator instance. Static import
+// is safe — the module is tiny (~50 lines) with no heavy transitive
+// dependencies, and it's needed inside the synchronous
+// createUserFleetStatusWatcher factory (not the outer async IIFE).
+import { setOrchestrator } from "./fleet-status/orchestrator-holder.js";
 import { enqueue as enqueueSpawnRequest, setProcessBirth as setSpawnRequestProcessBirth } from "./spawn-requests/queue.js";
 import { processBirth as processSpawnRequestBirth, buildProductionDeps as buildSpawnRequestWorkerDeps } from "./spawn-requests/worker.js";
 
@@ -1183,6 +1188,14 @@ if (process.env.VITEST !== "true") {
         // orchestrator.stop() clears its per-host state — after which the
         // cache lookup returns null and the SSH fallback engages again.
         orchestratorForGateRef = orchestrator;
+
+        // Also publish to the process-wide holder so HTTP route handlers
+        // (sessions.ts et al.) can consult the same cache without
+        // threading a reference through Express router construction.
+        // Mirrors the setRegistry pattern used for SubscriptionRegistry
+        // earlier in this file (registry-holder.ts).
+        setOrchestrator(orchestrator);
+
         systemLogger.info(
           "Fleet-status identity gate: wired to orchestrator cosmetics cache",
           { operation: "fleet_status_identity_gate_cache_wired" },
@@ -1197,6 +1210,10 @@ if (process.env.VITEST !== "true") {
             // empty and lookups return null), but keeps the ref honest
             // when a subsequent start creates a fresh instance.
             orchestratorForGateRef = null;
+            // Clear the process-wide holder too so HTTP route handlers
+            // fall back to their pre-cache SSH-read path while the
+            // orchestrator is down.
+            setOrchestrator(null);
             // Close the long-lived ssh2 Clients so we don't leak the very TCP
             // connections we said "no user watching = no work" — orchestrator.stop()
             // only clears perHostState (channel wrappers), not the underlying
