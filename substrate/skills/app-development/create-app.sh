@@ -180,6 +180,14 @@ rm -f "$APP_DIR/app-SLUG.service.template"
 # explicit publish step once the app is actually complete + verified.
 rm -f "$APP_DIR/app.json"
 
+# Rename the starter README to README.md.pending — same shape as
+# app.json.pending. The template README is a placeholder meant to be
+# customized (top description replaced) not shipped as-is; the .pending
+# suffix signals "scaffold placeholder, rename to publish" and removes
+# the Read-before-Write friction agents hit when overwriting a file that
+# already exists on disk.
+mv "$APP_DIR/README.md" "$APP_DIR/README.md.pending"
+
 # --- Substitutions ---------------------------------------------------------
 
 # app.json.pending — same shape as the final app.json (two fields: title,
@@ -281,7 +289,7 @@ Next: edit the starter down to your app's actual shape.
   - src/lib/server/db/schema.ts  — the Drizzle schema (replace the starter table)
   - src/routes/+page.svelte       — the UI
   - src/routes/+page.server.ts    — server logic (load + form actions)
-  - README.md                     — describe the app for future maintainers
+  - README.md.pending             — describe the app; rename to README.md when done
   - app.json.pending              — fill in the "description" field
 
 Iterate in dev mode:

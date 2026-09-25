@@ -188,8 +188,12 @@ everything else.
      UI. Tailwind is loaded and configured; use it.
    - `src/routes/+page.server.ts` — replace the starter's load function
      and form actions with your app's real server logic.
-   - `README.md` — write what the app is, in one paragraph. Aimed at a
-     future agent who might edit it.
+   - `README.md.pending` — the starter ships a template README as
+     `.pending` so overwriting it is friction-free (no Read-before-Write).
+     Replace the top `<replace with your app's name>` header + description
+     paragraph with your app's actual purpose; keep the ops boilerplate
+     below. Rename `README.md.pending` → `README.md` when you're done
+     tweaking it (any time before step 8 is fine).
    - `app.json.pending` — fill in the `description` field. Leave the
      filename as `.pending` for now; it gets renamed at publish (step 8).
 6. **Iterate.** See § Iteration workflow.
