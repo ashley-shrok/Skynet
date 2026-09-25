@@ -503,6 +503,74 @@ describe("app-pane-router", () => {
       }
     }, 15_000);
 
+    it("forwards a WS upgrade with Origin: \"null\" (pane iframe under referrerPolicy=no-referrer)", async () => {
+      // Mirrors the HTTP-path Origin:"null" acceptance. The pane iframe
+      // sets referrerPolicy="no-referrer" per D-20; browsers per Fetch
+      // spec serialize origin as the literal string "null" in some
+      // browser/context combinations even for same-origin upgrades. Safe
+      // for the same three-layer reasons as the HTTP path (see the
+      // dispatcher's CSRF-gate docblock).
+      const upgradeSpy = vi.fn();
+      const proxyMw = Object.assign(
+        (_req: Request, res: Response, _next: NextFunction) => {
+          res.status(200).end();
+        },
+        { upgrade: upgradeSpy },
+      );
+      mocks.getOrCreateAppPaneProxyForTarget.mockReturnValue(proxyMw);
+
+      const { server, port, close } = await makeServer(true);
+      let clientSock: net.Socket | null = null;
+      try {
+        clientSock = net.connect(port, "127.0.0.1");
+        await new Promise<void>((resolve, reject) => {
+          clientSock!.once("connect", () => {
+            const req = [
+              "GET /apps/5/todo/pane/ws HTTP/1.1",
+              `Host: 127.0.0.1:${port}`,
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+              "Sec-WebSocket-Version: 13",
+              "Origin: null",
+              "Cookie: jwt=fake.jwt.token",
+              "",
+              "",
+            ].join("\r\n");
+            clientSock!.write(req);
+            resolve();
+          });
+          clientSock!.once("error", reject);
+        });
+
+        const start = Date.now();
+        while (upgradeSpy.mock.calls.length === 0 && Date.now() - start < 2000) {
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        expect(upgradeSpy).toHaveBeenCalledTimes(1);
+
+        const upgradeArgs = upgradeSpy.mock.calls[0];
+        try {
+          (upgradeArgs[1] as net.Socket).destroy();
+        } catch {
+          /* ignore */
+        }
+      } finally {
+        try {
+          clientSock?.destroy();
+        } catch {
+          /* ignore */
+        }
+        try {
+          (server as unknown as { closeAllConnections?: () => void })
+            .closeAllConnections?.();
+        } catch {
+          /* ignore */
+        }
+        await close();
+      }
+    }, 10_000);
+
     it("rejects a WS upgrade with mismatched Origin", async () => {
       const upgradeSpy = vi.fn();
       const proxyMw = Object.assign(

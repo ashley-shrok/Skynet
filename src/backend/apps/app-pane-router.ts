@@ -457,6 +457,14 @@ export async function handleAppPaneUpgrade(
     // hostname against PRIMARY_DOMAIN (which the module normalizes to a
     // bare hostname). Prior form compared the full URL string against a
     // bare-hostname env value and refused every real browser upgrade.
+    // Origin: "null" accepted (2026-09-25): mirrors the HTTP-path fix in
+    // app-proxy-csrf-check.ts. The pane iframe's referrerPolicy=no-referrer
+    // per D-20 makes browsers serialize origin as the string "null" in
+    // some contexts (form-nav POSTs today; WS upgrades from certain
+    // browser/context combinations tomorrow). Safe here for the same
+    // three-layer reasons — SameSite=Lax JWT cookie prevents cross-site
+    // sessions, authenticateJWT above proved the request is authed,
+    // same-site attackers still hit the hostname-mismatch branch below.
     const originHeader = req.headers.origin;
     if (typeof originHeader !== "string" || originHeader.length === 0) {
       rejectUpgrade(
@@ -466,24 +474,26 @@ export async function handleAppPaneUpgrade(
       );
       return;
     }
-    let originHostname: string;
-    try {
-      originHostname = new URL(originHeader).hostname;
-    } catch {
-      rejectUpgrade(
-        socket,
-        "HTTP/1.1 403 Forbidden",
-        "X-Skynet-Reason: cross-origin",
-      );
-      return;
-    }
-    if (originHostname.length === 0 || originHostname !== PRIMARY_DOMAIN) {
-      rejectUpgrade(
-        socket,
-        "HTTP/1.1 403 Forbidden",
-        "X-Skynet-Reason: cross-origin",
-      );
-      return;
+    if (originHeader !== "null") {
+      let originHostname: string;
+      try {
+        originHostname = new URL(originHeader).hostname;
+      } catch {
+        rejectUpgrade(
+          socket,
+          "HTTP/1.1 403 Forbidden",
+          "X-Skynet-Reason: cross-origin",
+        );
+        return;
+      }
+      if (originHostname.length === 0 || originHostname !== PRIMARY_DOMAIN) {
+        rejectUpgrade(
+          socket,
+          "HTTP/1.1 403 Forbidden",
+          "X-Skynet-Reason: cross-origin",
+        );
+        return;
+      }
     }
 
     // Port lookup — same as HTTP path.
