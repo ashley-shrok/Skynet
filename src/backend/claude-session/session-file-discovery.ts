@@ -16,6 +16,59 @@ import { shellSingleQuote } from "./discover-identity-session-file.js";
 // skipped the dormancy probe → blank surfaces.
 const DISCOVERY_EXEC_TIMEOUT_MS = 15000;
 
+// Retry ladder for a single discovery call (2026-09-25). The mainScript and
+// testScript are both idempotent read-only shell probes, so retrying on
+// timeout is safe. Under a rapid multi-pane reload, N concurrent discoveries
+// pile onto the same host's SSH channel queue on a busy target (workstation
+// load 47, 1500+ shells); a single 15s attempt was hitting the ceiling and
+// returning {status:inactive}, which strands the pane in a state PrettyView
+// cannot render a ComposeBox for (see PrettyView.tsx L4496 mount gate — the
+// gate requires renderedState ∈ {active,dormant,error}; inactive matches none).
+// Split the same 15s budget into 3 × 5s attempts so a first-attempt loser
+// gets 2 more chances to succeed before we give up. Short backoff between
+// attempts to let the queue drain.
+const DISCOVERY_ATTEMPT_TIMEOUT_MS = 5000;
+const DISCOVERY_MAX_ATTEMPTS = 3;
+const DISCOVERY_RETRY_BACKOFF_MS = 250;
+
+/**
+ * Run an idempotent SSH exec with a per-attempt timeout and bounded retry.
+ * Returns the exec output on the first successful attempt, or null if all
+ * attempts timed out or threw. Total worst-case latency:
+ *   DISCOVERY_MAX_ATTEMPTS × DISCOVERY_ATTEMPT_TIMEOUT_MS
+ *   + (DISCOVERY_MAX_ATTEMPTS - 1) × DISCOVERY_RETRY_BACKOFF_MS
+ */
+async function execWithRetryOnTimeout(
+  conn: Client,
+  script: string,
+): Promise<string | null> {
+  for (let attempt = 1; attempt <= DISCOVERY_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await Promise.race([
+        execCommand(conn, script),
+        new Promise<string>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `discovery-exec attempt ${attempt}/${DISCOVERY_MAX_ATTEMPTS} timeout after ${DISCOVERY_ATTEMPT_TIMEOUT_MS}ms`,
+                ),
+              ),
+            DISCOVERY_ATTEMPT_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+    } catch {
+      if (attempt < DISCOVERY_MAX_ATTEMPTS) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, DISCOVERY_RETRY_BACKOFF_MS),
+        );
+      }
+    }
+  }
+  return null;
+}
+
 export type ClaudeSessionDiscoveryResult =
   | { status: "active"; pid: number; sessionFile: string }
   | {
@@ -354,21 +407,11 @@ export async function discoverClaudeSessionBatched(
     `echo "---SESSION-JSON---"; ` +
     `printf '%s' "$SESSION_JSON"`;
 
-  let mainOutput: string;
-  try {
-    const raced = await Promise.race([
-      execCommand(conn, mainScript),
-      new Promise<string>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`batched-main timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
-          DISCOVERY_EXEC_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-    mainOutput = raced.trim();
-  } catch {
+  const mainRaw = await execWithRetryOnTimeout(conn, mainScript);
+  if (mainRaw === null) {
     return { status: "inactive", reason: "exec_error" };
   }
+  const mainOutput = mainRaw.trim();
 
   // Parse early-exit markers
   if (mainOutput === "NO_TMUX_SESSION") {
@@ -440,21 +483,11 @@ export async function discoverClaudeSessionBatched(
     `printf '%s' "${constructedPath}"; ` +
     `fi`;
 
-  let testOutput: string;
-  try {
-    const raced = await Promise.race([
-      execCommand(conn, testScript),
-      new Promise<string>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`batched-testf timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`)),
-          DISCOVERY_EXEC_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-    testOutput = raced.trim();
-  } catch {
+  const testRaw = await execWithRetryOnTimeout(conn, testScript);
+  if (testRaw === null) {
     return { status: "inactive", reason: "exec_error" };
   }
+  const testOutput = testRaw.trim();
 
   if (testOutput === "") {
     return { status: "inactive", reason: "no_open_session_file" };

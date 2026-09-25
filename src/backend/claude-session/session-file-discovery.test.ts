@@ -544,8 +544,11 @@ describe("discoverClaudeSessionBatched — single-exec discovery", () => {
     expect(result).toEqual({ status: "inactive", reason: "exec_error" });
   });
 
-  // Test batched-10: main exec times out (>15s per DISCOVERY_EXEC_TIMEOUT_MS) → exec_error
-  it("batched-10: main exec times out (>15s) → exec_error", async () => {
+  // Test batched-10: main exec times out on every retry attempt → exec_error.
+  // Post-2026-09-25 retry ladder: 3 × 5s attempts + 2 × 250ms backoff = 15.5s
+  // worst case (was single 15s attempt pre-retry). Same 15s budget, split so
+  // a first-attempt SSH-channel-contention loser gets 2 more chances.
+  it("batched-10: main exec times out on every attempt → exec_error", async () => {
     vi.useFakeTimers();
     vi.mocked(execCommand).mockImplementation(
       (_conn: import("ssh2").Client, script: string): Promise<string> => {
@@ -561,7 +564,8 @@ describe("discoverClaudeSessionBatched — single-exec discovery", () => {
     );
 
     const resultPromise = discoverClaudeSessionBatched(fakeConn, "test-session");
-    await vi.advanceTimersByTimeAsync(15100);
+    // Advance past 3 × 5000ms attempts + 2 × 250ms backoff = 15500ms.
+    await vi.advanceTimersByTimeAsync(16000);
 
     const result = await resultPromise;
     expect(result).toEqual({ status: "inactive", reason: "exec_error" });
