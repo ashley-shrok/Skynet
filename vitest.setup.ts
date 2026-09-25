@@ -7,6 +7,14 @@ import { afterEach, vi } from "vitest";
 // or delete this env explicitly and are unaffected by the ??=.
 process.env.SKYNET_COOKIE_DOMAIN ??= "test.example.com";
 
+// 2026-09-25: fleet-status legacy per-identity fan-out is disabled in
+// production (see src/backend/fleet-status/ssh-poll-orchestrator.ts dispatch
+// site). Tests still exercise the legacy path — 100+ tests wire per-identity
+// SSH responses and rely on the fallthrough. Default the flag to "true" here
+// so the existing suite passes unchanged. Production docker-compose does NOT
+// set it, so production skips the tick and forces re-probe on batch failure.
+process.env.SKYNET_FLEET_STATUS_LEGACY_ENABLED ??= "true";
+
 // jsdom does not implement matchMedia; provide a minimal stub so hooks that
 // read media queries (e.g. useIsMobile) can run. Individual tests override
 // window.innerWidth / matchMedia as needed.

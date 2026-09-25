@@ -1635,7 +1635,25 @@ export function createSshPollOrchestrator(
       }
     }
 
-    // Dispatch: batch first, legacy fallback on failure.
+    // Legacy per-identity fan-out is DISABLED in production (2026-09-25).
+    //
+    // Rationale: a one-off sweep-script presence probe failure at boot was
+    // pinning workstation (host 7) on the legacy path, and legacy's ~200
+    // concurrent SSH exec channels per tick (one per identity on a 150-
+    // identity box) saturated the SSH connection pool. Every pane subscribe's
+    // discovery exec then queued behind that saturation and hit the 15s
+    // ssh2 timeout, so message-bubble loads on workstation-hosted panes
+    // broke uniformly.
+    //
+    // The env var `SKYNET_FLEET_STATUS_LEGACY_ENABLED === "true"` re-enables
+    // the fallthrough — set by vitest.setup.ts so the existing 100+ tests
+    // that exercise the legacy path keep passing. Production docker-compose
+    // does NOT set it, so production skips the tick and forces re-probe.
+    // Full legacy removal (function + tests migration) tracked separately.
+    const legacyEnabled = process.env.SKYNET_FLEET_STATUS_LEGACY_ENABLED === "true";
+
+    // Dispatch: batch first; on unavailability/failure, either fall through
+    // to legacy (tests) or skip-and-reprobe (production).
     if (
       hostState.sweepScriptPresent &&
       !hostState.sweepSchemaMismatchThisConnection
@@ -1658,7 +1676,7 @@ export function createSshPollOrchestrator(
         });
         return;
       }
-      // Failure — log why and fall through to legacy for this tick.
+      // Failure — log why. Fallthrough (tests) or skip (production).
       // tsconfig.node.json has strict:false, so TS can't narrow the discriminated
       // union via `if (result.ok) return`; access .reason via a typed cast.
       const failed = result as {
@@ -1666,9 +1684,11 @@ export function createSshPollOrchestrator(
         reason: "null-exec" | "schema-mismatch" | "empty-output-on-nonempty-box";
       };
       systemLogger.warn(
-        "Fleet-status: batch path failed, falling back to legacy this tick",
+        legacyEnabled
+          ? "Fleet-status: batch path failed, falling back to legacy this tick"
+          : "Fleet-status: batch path failed, skipping tick (legacy disabled)",
         {
-          operation: "fleet_status_batch_fallback",
+          operation: legacyEnabled ? "fleet_status_batch_fallback" : "fleet_status_batch_skip",
           fleetHostId: host.id,
           reason: failed.reason,
         },
@@ -1683,6 +1703,27 @@ export function createSshPollOrchestrator(
       if (failed.reason === "schema-mismatch") {
         hostState.sweepSchemaMismatchThisConnection = true;
       }
+      if (!legacyEnabled) {
+        return;
+      }
+    } else if (!legacyEnabled) {
+      // Batch dispatch was skipped (sweep script absent OR schema mismatch
+      // this connection). In production (legacy disabled), skip the tick
+      // and force re-probe next tick so a stale `sweepScriptPresent === false`
+      // from a boot-time probe race doesn't pin the host on skip-forever.
+      systemLogger.warn("Fleet-status: batch unavailable, skipping tick (legacy disabled)", {
+        operation: "fleet_status_batch_unavailable_skip",
+        fleetHostId: host.id,
+        tick: pollTickCount,
+        sweepScriptPresent: hostState.sweepScriptPresent,
+        sweepSchemaMismatchThisConnection: hostState.sweepSchemaMismatchThisConnection,
+      });
+      // Reset ONLY sweepScriptPresent (not schema-mismatch — that's genuine
+      // drift signal, resets only on channel reconnect).
+      if (hostState.sweepScriptPresent === false) {
+        hostState.sweepScriptPresent = null;
+      }
+      return;
     }
 
     // Wrap the legacy branch in a wall-time bound so a wedged `channel.exec`
