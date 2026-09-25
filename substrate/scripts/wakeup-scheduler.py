@@ -482,6 +482,8 @@ def main():
                         # Use spec["_path"] directly rather than the flat-glob path.
                         try:
                             os.unlink(spec["_path"])
+                            try: os.rmdir(os.path.dirname(spec["_path"]))
+                            except OSError: pass
                         except FileNotFoundError:
                             # Spec may have been renamed/moved; fallback scan by slug.
                             for p in glob.glob(os.path.join(wdir, "*/wakeup.json")):
@@ -492,6 +494,8 @@ def main():
                                 if (s.get("name") or os.path.basename(os.path.dirname(p))) == key:
                                     try:
                                         os.unlink(p)
+                                        try: os.rmdir(os.path.dirname(p))
+                                        except OSError: pass
                                     except OSError:
                                         pass
                                     break
