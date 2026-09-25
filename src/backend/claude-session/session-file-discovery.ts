@@ -328,28 +328,19 @@ export async function discoverClaudeSessionBatched(
     `if [ -z "$PANE_PID" ] || ! [ "$PANE_PID" -gt 0 ] 2>/dev/null; then ` +
     `echo NO_TMUX_SESSION; exit 0; ` +
     `fi; ` +
-    // Step 2: BFS descendant walk — verbatim awk from walkScript, but PANE_PID is a shell var.
-    // NB: `awk -v root="$PANE_PID"` passes the shell variable as the awk root.
-    `CLAUDE_PID=$(ps -eo pid=,ppid=,comm= 2>/dev/null | awk -v root="$PANE_PID" '` +
-    `BEGIN { valid[root] = 1 } ` +
-    `{ pid[NR] = $1; ppid[NR] = $2; comm[NR] = $3; n = NR } ` +
-    `END { ` +
-    `  changed = 1; ` +
-    `  while (changed) { ` +
-    `    changed = 0; ` +
-    `    for (i = 1; i <= n; i++) { ` +
-    `      if (!valid[pid[i]] && valid[ppid[i]]) { ` +
-    `        valid[pid[i]] = 1; ` +
-    `        changed = 1; ` +
-    `      } ` +
-    `    } ` +
-    `  } ` +
-    `  for (i = 1; i <= n; i++) { ` +
-    `    if (valid[pid[i]] && comm[i] == "claude") { ` +
-    `      print pid[i]; exit; ` +
-    `    } ` +
-    `  } ` +
-    `}'); ` +
+    // Step 2: session-scoped descendant walk. tmux calls setsid() when creating
+    // a pane, so the pane's shell gets a fresh session ID (SID) that all its
+    // descendants inherit unless they setsid themselves. claude does NOT
+    // setsid (it needs TTY control), so ps --sid filtered by the pane's SID
+    // returns exactly this pane's process tree — typically 2-4 rows. This
+    // replaces the pre-2026-09-25 `ps -eo pid,ppid,comm | awk BFS` full-box
+    // scan that on workstation (150 tmux sessions, thousands of processes)
+    // hit ~12s per pane and serialized N-pane reloads into 12N-second
+    // stalls on cold boot. Cost is now O(N_processes_in_pane_session)
+    // regardless of how many other sessions the box hosts.
+    `PANE_SID=$(ps -o sid= -p "$PANE_PID" 2>/dev/null | tr -d ' '); ` +
+    `if [ -z "$PANE_SID" ]; then echo NOT_CLAUDE; exit 0; fi; ` +
+    `CLAUDE_PID=$(ps --sid "$PANE_SID" -o pid=,comm= 2>/dev/null | awk '$2=="claude" {print $1; exit}'); ` +
     `if [ -z "$CLAUDE_PID" ]; then echo NOT_CLAUDE; exit 0; fi; ` +
     // Step 3: read PID file
     `PID_FILE=$HOME/.claude/sessions/$CLAUDE_PID.json; ` +

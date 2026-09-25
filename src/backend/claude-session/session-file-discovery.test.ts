@@ -392,7 +392,9 @@ describe("discoverClaudeSession — PID-file-based lookup", () => {
 // Helper to build mock execCommand dispatcher for the batched helper.
 // The batched helper calls execCommand TWICE:
 //   1. Main batched script — identified by containing BOTH "tmux display-message"
-//      AND "awk -v root=" AND "---SESSION-JSON---"
+//      AND "ps --sid" AND "---SESSION-JSON---" (2026-09-25: `ps --sid` marker
+//      replaces the pre-inversion `awk -v root=` marker after the process-walk
+//      rewrite that dropped the full-box `ps -eo | awk BFS`)
 //   2. Test-f script — identified by containing `'if [ -f "' and not the batched markers
 //
 // On each call, the mock returns the value for the call index.
@@ -401,7 +403,7 @@ function mockBatchedExecCommand(mainOutput: string | (() => Promise<string>), te
     (_conn: import("ssh2").Client, script: string): Promise<string> => {
       const isMainScript =
         script.includes("tmux display-message") &&
-        script.includes("awk -v root=") &&
+        script.includes("ps --sid") &&
         script.includes("---SESSION-JSON---");
       const isTestFScript = script.includes('if [ -f "') && !isMainScript;
 
@@ -525,7 +527,7 @@ describe("discoverClaudeSessionBatched — single-exec discovery", () => {
         callCount++;
         const isMainScript =
           script.includes("tmux display-message") &&
-          script.includes("awk -v root=") &&
+          script.includes("ps --sid") &&
           script.includes("---SESSION-JSON---");
         if (isMainScript) {
           return Promise.resolve(
@@ -549,7 +551,7 @@ describe("discoverClaudeSessionBatched — single-exec discovery", () => {
       (_conn: import("ssh2").Client, script: string): Promise<string> => {
         const isMainScript =
           script.includes("tmux display-message") &&
-          script.includes("awk -v root=") &&
+          script.includes("ps --sid") &&
           script.includes("---SESSION-JSON---");
         if (isMainScript) {
           return new Promise(() => {}); // never resolves
@@ -651,7 +653,7 @@ describe("Phase 55: connectToPane cache-hit vs batched-fresh integration", () =>
     // The first call arg should contain the batched script markers
     const firstCallArg = vi.mocked(execCommand).mock.calls[0][1] as string;
     expect(firstCallArg).toContain("tmux display-message");
-    expect(firstCallArg).toContain("awk -v root=");
+    expect(firstCallArg).toContain("ps --sid");
     expect(firstCallArg).toContain("---SESSION-JSON---");
 
     // Result is active — the cache-miss path succeeded via batched discovery
