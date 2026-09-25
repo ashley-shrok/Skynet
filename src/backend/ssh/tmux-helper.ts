@@ -17,10 +17,23 @@ export interface TmuxDetectionResult {
 /**
  * Run a command on the remote host via a separate exec channel.
  * Returns stdout as a string. Does not pollute the interactive shell.
+ *
+ * Unhandled-rejection guard: the returned promise gets a synchronous no-op
+ * `.catch()` so it is always "handled" for Node's tracker. Callers that
+ * await still receive the rejection through their own await handler; this
+ * only prevents unhandledRejection from firing when a caller uses this
+ * fire-and-forget (no await, no `.catch`, e.g. `void execCommand(...)`),
+ * or ignores the returned promise on a synchronous cleanup path.
+ * Concrete crash it prevents: a mid-flight SSH channel teardown (channel
+ * closes with `code=undefined` — normal during peer disconnect) rejects
+ * with "Command exited with code undefined"; if that promise is orphaned,
+ * starter.ts's unhandledRejection handler calls process.exit(1) and Docker
+ * restarts the container. See tmux-helper.test.ts for the fire-and-forget
+ * regression coverage.
  */
 export function execCommand(conn: Client, command: string): Promise<string> {
   sshLogger.info(`[tmux-helper] exec command="${command.slice(0, 80)}"`, { operation: "tmux_exec" });
-  return new Promise((resolve, reject) => {
+  const p = new Promise<string>((resolve, reject) => {
     conn.exec(command, (err, stream) => {
       if (err) {
         sshLogger.error(`[tmux-helper] exec-failed command="${command.slice(0, 80)}"`, err, { operation: "tmux_exec_failed" });
@@ -51,6 +64,8 @@ export function execCommand(conn: Client, command: string): Promise<string> {
       });
     });
   });
+  p.catch(() => {});
+  return p;
 }
 
 /**
@@ -73,7 +88,7 @@ export function execCommandWithStdin(
   stdinBody: Buffer,
 ): Promise<string> {
   sshLogger.info(`[tmux-helper] exec-stdin command="${command.slice(0, 80)}" bodyLen=${stdinBody.length}`, { operation: "tmux_exec_stdin" });
-  return new Promise((resolve, reject) => {
+  const p = new Promise<string>((resolve, reject) => {
     conn.exec(command, (err, stream) => {
       if (err) {
         sshLogger.error(`[tmux-helper] exec-stdin-failed command="${command.slice(0, 80)}"`, err, { operation: "tmux_exec_stdin_failed" });
@@ -105,6 +120,9 @@ export function execCommandWithStdin(
       stream.end(stdinBody);
     });
   });
+  // See execCommand's unhandled-rejection guard docblock — same rationale.
+  p.catch(() => {});
+  return p;
 }
 
 /**
