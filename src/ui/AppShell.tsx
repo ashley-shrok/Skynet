@@ -438,7 +438,15 @@ export function AppShell({
   // alongside isAdmin because both come from the same fetch and both feed
   // PrettyConversationsPanel. Null until the fetch resolves (footer's anchor
   // slot renders empty; action affordances still render).
-  const [username, setUsername] = useState<string | null>(null);
+  //
+  // Renamed 2026-09-25 (tina) — the previous `[username, setUsername]` name
+  // collided with the outer AppShell({ username }) prop declaration and
+  // failed the rolldown parse gate at docker-build time (rolldown is
+  // stricter than tsc/vite-dev, catches the redeclare rolldown-side). The
+  // local state is a distinct concept (fresh from /users/me alongside
+  // isAdmin) from the prop (passed from the Auth wrapper at mount time) —
+  // renamed rather than merged to avoid touching the outer prop shape.
+  const [meUsername, setMeUsername] = useState<string | null>(null);
   const [backgroundTabRecords, setBackgroundTabRecords] = useState<
     OpenTabRecord[]
   >([]);
@@ -524,11 +532,11 @@ export function AppShell({
     getUserInfo()
       .then((info) => {
         setIsAdmin(info.is_admin);
-        setUsername(info.username || null);
+        setMeUsername(info.username || null);
       })
       .catch(() => {
         setIsAdmin(false);
-        setUsername(null);
+        setMeUsername(null);
       });
   }, []);
 
@@ -3148,7 +3156,7 @@ export function AppShell({
           sidebarToggleOverlaps={isMobile && !isTouchDevice && sidebarOpen}
           visibleInSplitTreeTabIds={visibleInSplitTreeTabIds}
           isAdmin={isAdmin}
-          username={username}
+          username={meUsername}
           onOpenApp={onOpenApp}
           // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE + PV58-DOCLOSETAB-TREE-
           // RECONCILE: badge drop on the conv-list panel closes the tab.
