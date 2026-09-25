@@ -99,6 +99,10 @@ function makeChannel(
   // override with their own value (including null for failure paths).
   const seeded: Record<string, string | null> = {
     __STATUSLINE_OK__: "__STATUSLINE_OK__",
+    // Default happy-path for Step 5b (skynet-hostid). Tests specifically
+    // exercising the hostid step override this key with their own value.
+    // Same shape as tests explicitly seeding "skynet-hostname" for Step 5.
+    "skynet-hostid": "__SKYNET_HOSTID_OK__",
     ...handlers,
   };
   const exec = vi.fn(async (cmd: string) => {
@@ -882,6 +886,197 @@ describe("runBootstrapForHost", () => {
 
       expect(result.skynetHostnameOk).toBe(true);
       expect(result.hadError).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Step 5b: write ~/.claude/skynet-hostid
+  //
+  // Numeric Skynet DB id, written on every sweep with content-diff
+  // idempotency. Same fail-soft shape as Step 5 (skynet-hostname).
+  // Consumer: app-development skill's create-app.sh reads this at scaffold
+  // time to burn the numeric hostId into PANE_BASE.
+  //
+  // The seeded default in makeChannel supplies __SKYNET_HOSTID_OK__ so all
+  // pre-existing tests keep passing; these tests explicitly override.
+  // -------------------------------------------------------------------------
+
+  describe("step 5b: skynet-hostid write", () => {
+    it("(hid-1) BootstrapResult has skynetHostidOk: boolean field", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "__SKYNET_PARENT_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        "skynet-hostid": "__SKYNET_HOSTID_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result).toHaveProperty("skynetHostidOk");
+      expect(typeof result.skynetHostidOk).toBe("boolean");
+    });
+
+    it("(hid-2) logBootstrapResult payload includes skynetHostidOk field", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "__SKYNET_PARENT_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        "skynet-hostid": "__SKYNET_HOSTID_OK__",
+      });
+
+      await runBootstrapForHost(channel, HOST);
+
+      const infoCalls = vi.mocked(systemLogger.info).mock.calls;
+      const summary = infoCalls.find(([_msg, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return c.operation === "fleet_substrate_bootstrap_result" && "hadError" in c;
+      });
+      expect(summary).toBeDefined();
+      if (!summary) return;
+      const ctx = summary[1] as Record<string, unknown>;
+      expect(ctx).toHaveProperty("skynetHostidOk");
+      expect(ctx.skynetHostidOk).toBe(true);
+    });
+
+    it("(hid-3) sentinel present → skynetHostidOk=true, hadError=false", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "__SKYNET_PARENT_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        "skynet-hostid": "some benign chatter\n__SKYNET_HOSTID_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.skynetHostidOk).toBe(true);
+      expect(result.hadError).toBe(false);
+    });
+
+    it("(hid-4) channel returns null on skynet-hostid write → hadError=true, skynetHostidOk=false, logBootstrapFailed called with 'channel returned null'", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "__SKYNET_PARENT_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        "skynet-hostid": null,
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.skynetHostidOk).toBe(false);
+      expect(result.hadError).toBe(true);
+
+      const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
+      const found = warnCalls.some(([msg, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return (
+          typeof msg === "string" &&
+          msg.includes("skynet-hostid-write") &&
+          c.step === "skynet-hostid-write" &&
+          c.errorMessage === "channel returned null"
+        );
+      });
+      expect(found).toBe(true);
+    });
+
+    it("(hid-5) missing sentinel → hadError=true, logBootstrapFailed called with trimmed output", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "__SKYNET_PARENT_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        "skynet-hostid": "mv: cannot move: Read-only file system\n",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.skynetHostidOk).toBe(false);
+      expect(result.hadError).toBe(true);
+
+      const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
+      const found = warnCalls.some(([msg, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return (
+          typeof msg === "string" &&
+          msg.includes("skynet-hostid-write") &&
+          c.step === "skynet-hostid-write" &&
+          typeof c.errorMessage === "string" &&
+          (c.errorMessage as string).includes("Read-only file system")
+        );
+      });
+      expect(found).toBe(true);
+    });
+
+    it("(hid-6) channel.exec throws during step 5b → hadError=true, function still resolves (NEVER-THROW)", async () => {
+      const exec = vi.fn(async (cmd: string) => {
+        if (cmd.includes("is-enabled")) return "enabled\nEXIT:0";
+        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
+        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
+        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
+        if (cmd.includes("skynet-parent")) return "__SKYNET_PARENT_OK__";
+        if (cmd.includes("skynet-hostname")) return "__SKYNET_HOSTNAME_OK__";
+        if (cmd.includes("skynet-hostid")) {
+          throw new Error("boom");
+        }
+        return null;
+      });
+      const throwingChannel: SshChannel = { exec };
+
+      const result = await runBootstrapForHost(throwingChannel, HOST);
+
+      expect(result.skynetHostidOk).toBe(false);
+      expect(result.hadError).toBe(true);
+
+      const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
+      const found = warnCalls.some(([msg, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return (
+          typeof msg === "string" &&
+          msg.includes("skynet-hostid-write") &&
+          c.step === "skynet-hostid-write" &&
+          c.errorMessage === "boom"
+        );
+      });
+      expect(found).toBe(true);
+    });
+
+    it("(hid-7) writes host.id (numeric string) as the file content", async () => {
+      const HOST_NUM = { id: "42", name: "the-nasty" };
+      const { channel, exec } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "__SKYNET_PARENT_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        "skynet-hostid": "__SKYNET_HOSTID_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST_NUM);
+      expect(result.skynetHostidOk).toBe(true);
+
+      const cmds = captureCommands(exec);
+      const shCmd = cmds.find((c) => c.includes("__SKYNET_HOSTID_OK__"));
+      expect(shCmd).toBeDefined();
+      if (!shCmd) return;
+
+      // host.id "42" gets shell-escaped (no-op — pure digits) into NEW='42'.
+      expect(shCmd).toContain(`NEW='42'`);
+      // Target path is ~/.claude/skynet-hostid.
+      expect(shCmd).toContain(`SH="$HOME/.claude/skynet-hostid"`);
     });
   });
 

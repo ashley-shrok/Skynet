@@ -1221,6 +1221,7 @@ export async function bootstrapFleetSubstrateLocally(
   let gsdContextMonitorCleanupOk = false;
   let skynetParentOk = false;
   let skynetHostnameOk = false;
+  let skynetHostidOk = false;
   let statusLineWireOk = false;
   let hadError = false;
 
@@ -1370,6 +1371,43 @@ export async function bootstrapFleetSubstrateLocally(
     );
   }
 
+  // ---- Step 5b: skynet-hostid ----
+  //   Numeric Skynet DB id as string. Consumers: app-development skill's
+  //   create-app.sh reads this at scaffold time to burn PANE_BASE. Same
+  //   fail-soft shape as Step 5.
+  try {
+    const target = path.join(claudeDir, "skynet-hostid");
+    const outcome = await writeContentDiffFile(target, host.id + "\n");
+    if (typeof outcome === "object") {
+      hadError = true;
+      systemLogger.warn(
+        `local-fleet-bootstrap: skynet-hostid write failed for ${host.name}`,
+        {
+          operation: "local_fleet_bootstrap_error",
+          site: outcome.site,
+          fleetHostId: host.id,
+          hostName: host.name,
+          finalPath: target,
+          error: outcome.error,
+        },
+      );
+    } else {
+      skynetHostidOk = true;
+    }
+  } catch (err) {
+    hadError = true;
+    systemLogger.warn(
+      `local-fleet-bootstrap: skynet-hostid step threw unexpectedly for ${host.name}`,
+      {
+        operation: "local_fleet_bootstrap_error",
+        site: "skynet_hostid_catchall",
+        fleetHostId: host.id,
+        hostName: host.name,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
+  }
+
   // ---- Step 6: usage-reporter statusLine wire-up + legacy cleanup ----
   // Pure fs work — no systemd dependency. Byte-parallel with SSH surface
   // (run-bootstrap.ts Step 6). Idempotent (no-op on already-wired boxes).
@@ -1399,6 +1437,7 @@ export async function bootstrapFleetSubstrateLocally(
     gsdContextMonitorCleanupOk,
     skynetParentOk,
     skynetHostnameOk,
+    skynetHostidOk,
     statusLineWireOk,
     hadError,
   };

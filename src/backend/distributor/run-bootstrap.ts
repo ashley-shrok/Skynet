@@ -112,6 +112,12 @@ export interface BootstrapResult {
   /** Whether the ~/.claude/skynet-hostname write succeeded. Step 5 always runs
    *  (host.name is always in scope); a false value here always implies hadError. */
   skynetHostnameOk: boolean;
+  /** Whether the ~/.claude/skynet-hostid write succeeded. Step 5b always runs
+   *  (host.id is always in scope); a false value here always implies hadError.
+   *  Consumers: create-app.sh (app-development skill) reads this file to burn
+   *  the numeric Skynet DB hostId into PANE_BASE at scaffold time — agents
+   *  never need to know or look up the integer themselves. */
+  skynetHostidOk: boolean;
   /** Whether the statusLine wire-up + legacy-cleanup step succeeded. Step 6
    *  is idempotent (no-op when statusLine is already the wrapper) and always
    *  runs; a false value implies hadError. */
@@ -243,6 +249,7 @@ export async function runBootstrapForHost(
   let gsdContextMonitorCleanupOk = false;
   let skynetParentOk = false;
   let skynetHostnameOk = false;
+  let skynetHostidOk = false;
   let hadError = false;
 
   // -------------------------------------------------------------------------
@@ -599,6 +606,53 @@ export async function runBootstrapForHost(
   }
 
   // -------------------------------------------------------------------------
+  // Step 5b: Write ~/.claude/skynet-hostid — Skynet's numeric DB id for this
+  //          box. Written on every sweep (host.id is always in scope) with
+  //          content-diff idempotency. Consumers: the app-development skill's
+  //          create-app.sh reads this file to burn the numeric hostId into
+  //          scaffolded PANE_BASE at scaffold time, so agents never need to
+  //          know or look up the integer themselves. Same fail-soft shape as
+  //          Step 5 (skynet-hostname).
+  // -------------------------------------------------------------------------
+  try {
+    const safeHostid = host.id.replace(/'/g, "'\\''");
+    const cmd = [
+      `SH="$HOME/.claude/skynet-hostid"`,
+      `mkdir -p "$HOME/.claude"`,
+      `NEW='${safeHostid}'`,
+      `if [ -f "$SH" ] && [ "$(cat "$SH")" = "$NEW" ]; then`,
+      `  :  # idempotent no-op (same rationale as Step 5)`,
+      `else`,
+      `  printf '%s\\n' "$NEW" > "$SH.new" && mv "$SH.new" "$SH"`,
+      `fi`,
+      `echo "__SKYNET_HOSTID_OK__"`,
+    ].join("\n");
+
+    const raw = await channel.exec(cmd);
+
+    if (raw === null) {
+      hadError = true;
+      logBootstrapFailed(host, "skynet-hostid-write", "channel returned null");
+    } else if (!raw.trimEnd().endsWith("__SKYNET_HOSTID_OK__")) {
+      hadError = true;
+      logBootstrapFailed(
+        host,
+        "skynet-hostid-write",
+        raw.trimEnd().slice(0, 500) || "skynet-hostid write failed",
+      );
+    } else {
+      skynetHostidOk = true;
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "skynet-hostid-write",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Step 6: usage-reporter statusLine wire-up + legacy cleanup.
   //   (a) Read the current settings.json.statusLine.command.
   //   (b) If already the distributor-shipped wrapper: no-op (preserves the
@@ -688,6 +742,7 @@ export async function runBootstrapForHost(
     gsdContextMonitorCleanupOk,
     skynetParentOk,
     skynetHostnameOk,
+    skynetHostidOk,
     statusLineWireOk,
     hadError,
   };
