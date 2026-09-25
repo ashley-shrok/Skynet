@@ -137,6 +137,30 @@ export interface SshPollOrchestrator {
   start(): Promise<void>;
   stop(): void;
   getPollTickCount(): number;
+  /**
+   * Look up the sweep-populated raw cosmetics for an identity on a host.
+   *
+   * Returns `null` when there is no live entry — either the host has no
+   * orchestrator state yet (SSH channel not up, first tick hasn't run), or
+   * the identity was not present in the last successful sweep's identity
+   * lines (folder missing, archived, reconciled away). Callers treat null as
+   * "cache miss" and fall through to their own SSH read.
+   *
+   * The `identityCosmetics` and `roleCosmetics` inside a returned object may
+   * each independently be null when the sweep saw no frontmatter on that
+   * side — passed unchanged to `isIdentityVisibleToUser` where absent = falls
+   * open per D-3.
+   *
+   * `hostIdStr` is the string host id used on the wire (matches the shape
+   * WS-frame filter callers already have). Non-numeric strings return null.
+   */
+  getCachedIdentityCosmetics(
+    hostIdStr: string,
+    identityName: string,
+  ): {
+    identityCosmetics: RawCosmetics | null;
+    roleCosmetics: RawCosmetics | null;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -502,6 +526,32 @@ interface PerHostState {
   // so transient SSH failures don't flap the sidebar). Matches the identity
   // reconciliation guard.
   lastTickLiveApps: Set<string>;
+
+  // Per-identity raw cosmetics cache — populated by the source-B loop on every
+  // successful sweep tick for EVERY live-tree identity (before the skip-and-
+  // evict branch that trims `identityRecycleState`). Consumers query it via
+  // `getCachedIdentityCosmetics` on the orchestrator's public surface to gate
+  // WS frames without doing their own SSH read per frame.
+  //
+  // Distinct from `identityRecycleState` because that map's lifetime is tied
+  // to the recycle pipeline (live-and-not-recycling identities get evicted).
+  // This map's lifetime is tied to the live tree: an identity present in the
+  // last sweep's identity lines has an entry; an identity that dropped off
+  // the live tree has its entry removed alongside the `lastTickLiveTreeIdentities`
+  // reconciliation. That way the WS gate closure sees "sweep-fresh cosmetics
+  // for every present identity" without accidentally reading stale data for
+  // an identity that no longer exists.
+  //
+  // A `null` on either side means "sweep saw no frontmatter cosmetics on that
+  // side" — passed unchanged to `isIdentityVisibleToUser`, which treats it as
+  // an absent gate list (falls open per D-3).
+  identityCosmeticsCache: Map<
+    string,
+    {
+      identityCosmetics: RawCosmetics | null;
+      roleCosmetics: RawCosmetics | null;
+    }
+  >;
 }
 
 // ---------------------------------------------------------------------------
@@ -1973,6 +2023,20 @@ export function createSshPollOrchestrator(
     //  a rolling deploy window.)
     for (const identityLine of parsed.identityLines) {
       if (identityLine.archived === true) continue;
+      // Populate the per-host cosmetics cache BEFORE compose+publish. Must
+      // happen unconditionally — the compose branch below evicts
+      // `identityRecycleState` for live-and-not-recycling identities (the
+      // common case), so we cannot piggyback on that map's lifetime for the
+      // WS gate lookup. This map's lifetime is tied to the live tree, not the
+      // recycle pipeline.
+      hostState.identityCosmeticsCache.set(identityLine.identity, {
+        identityCosmetics:
+          (identityLine.identity_cosmetics as RawCosmetics | null | undefined) ??
+          null,
+        roleCosmetics:
+          (identityLine.role_cosmetics as RawCosmetics | null | undefined) ??
+          null,
+      });
       const fetched = identityLineToPerIdentityFetched(identityLine, hostState);
       const cached = hostState.identityRecycleState.get(identityLine.identity);
       composeAndPublishPerIdentity(hostState, liveTmuxSet, fetched, cached);
@@ -2002,6 +2066,17 @@ export function createSshPollOrchestrator(
       }
     }
     hostState.lastTickLiveTreeIdentities = thisTickLiveTreeIdentities;
+
+    // Drop cosmetics-cache entries for identities that left the live tree in
+    // the same tick. Keeps the cache aligned with `lastTickLiveTreeIdentities`
+    // so the WS gate closure never reads back stale cosmetics for an identity
+    // whose files are no longer on disk (that would silently keep an
+    // identity visible-in-cache after its `users:` list was tightened).
+    for (const cachedName of hostState.identityCosmeticsCache.keys()) {
+      if (!thisTickLiveTreeIdentities.has(cachedName)) {
+        hostState.identityCosmeticsCache.delete(cachedName);
+      }
+    }
 
     // Phase 118 Plan 118-04 (D-01, D-02, D-11) — source-C compose+publish for
     // apps. Each SweepAppLine that reached this scope has already passed the
@@ -3295,6 +3370,9 @@ export function createSshPollOrchestrator(
         sweepScriptPresent: null,
         sweepSchemaMismatchThisConnection: false,
         lastProbeChannelRef: null,
+        // Per-identity raw cosmetics cache — see PerHostState docblock.
+        // Initialized empty; populated on every successful sweep tick.
+        identityCosmeticsCache: new Map(),
       });
     } catch (err) {
       noteSshFailure(host.id);
@@ -3458,6 +3536,19 @@ export function createSshPollOrchestrator(
 
     getPollTickCount(): number {
       return pollTickCount;
+    },
+
+    getCachedIdentityCosmetics(
+      hostIdStr: string,
+      identityName: string,
+    ): {
+      identityCosmetics: RawCosmetics | null;
+      roleCosmetics: RawCosmetics | null;
+    } | null {
+      const hostState = perHostState.get(hostIdStr);
+      if (hostState === undefined) return null;
+      const entry = hostState.identityCosmeticsCache.get(identityName);
+      return entry ?? null;
     },
   };
 }

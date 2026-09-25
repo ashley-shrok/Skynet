@@ -22,7 +22,10 @@ import {
 } from "./utils/logger.js";
 import { flushBackendLogs } from "./utils/console-forward-transport.js";
 import { isLocalHostId } from "./claude-session/identity-artifact-reader.js";
-import type { SshChannel } from "./fleet-status/ssh-poll-orchestrator.js";
+import type {
+  SshChannel,
+  SshPollOrchestrator,
+} from "./fleet-status/ssh-poll-orchestrator.js";
 import { enqueue as enqueueSpawnRequest, setProcessBirth as setSpawnRequestProcessBirth } from "./spawn-requests/queue.js";
 import { processBirth as processSpawnRequestBirth, buildProductionDeps as buildSpawnRequestWorkerDeps } from "./spawn-requests/worker.js";
 
@@ -629,7 +632,19 @@ if (process.env.VITEST !== "true") {
       // status heartbeat leak — every frame that carries an identityKey /
       // tmuxSession is filtered through this closure before fan-out.
       //
-      // Composition:
+      // FAST PATH — the orchestrator's sweep-populated cosmetics cache.
+      // The fleet-status sweep reads `identity_cosmetics.users` +
+      // `role_cosmetics.users` every 2s per identity per host (Phase 130+)
+      // and caches the result per-host. Consulting that cache eliminates the
+      // per-frame SSH read that this closure did originally. Behaviour on
+      // cache miss: fall through to the SSH read below unchanged — cold
+      // starts before the first sweep tick lands still resolve correctly.
+      //
+      // A3 "picked up on next read" is preserved because the sweep cadence
+      // (2s) is comparable to the SSH-read path's own latency; a `users:`
+      // frontmatter edit propagates within one sweep interval either way.
+      //
+      // SLOW PATH — original SSH read composition:
       //   1. Resolve hostIdStr → SSHHost (owner-scoped decrypt via
       //      resolveHostById; matches the pattern the pre-existing
       //      resolveHostOwnerById uses for the numeric hostId + owner userId).
@@ -650,14 +665,17 @@ if (process.env.VITEST !== "true") {
       // leaked live-status frame is more visible than a dropped one in a
       // real-time sidebar.
       //
-      // NO CACHE per Assumption A3: the shape file requires that a
-      // `users:` frontmatter edit propagates on next read; a stale cache
-      // would visibly regress that promise. If SSH profiling shows the
-      // per-call cost is prohibitive under load, revisit with a 2-5s TTL
-      // cache in a follow-up phase — not this one.
-      //
       // D-10 (this-file discipline mirrors resolveHostOwnerById): READ-
       // ONLY. No writes anywhere in this closure.
+
+      // Mutable ref populated when the orchestrator is instantiated below
+      // (createSshPollOrchestrator sits inside a later lambda that runs on
+      // first-subscriber start, so a direct closure capture isn't possible).
+      // Null-guarded at read time: cache miss on null ref = fall through to
+      // SSH read, exactly the same shape as an orchestrator that's up but
+      // has no cache entry for this identity yet.
+      let orchestratorForGateRef: SshPollOrchestrator | null = null;
+
       async function resolveIdentityGate(
         identityName: string,
         hostIdStr: string,
@@ -695,6 +713,29 @@ if (process.env.VITEST !== "true") {
             },
           );
           return true;
+        }
+
+        // FAST PATH — try the orchestrator's sweep-populated cosmetics
+        // cache first. When present, apply the SAME gate helper on
+        // sweep-fresh cosmetics without opening an SSH connection.
+        // Cache miss OR orchestrator-not-up returns null → fall through to
+        // the SSH-read slow path below (unchanged behaviour on cold start).
+        //
+        // Do NOT log per-hit — this closure fires per WS frame, and a hot
+        // sidebar can produce many hits per second. Only log at construction
+        // (orchestrator ref wiring below) and on the slow-path branch.
+        if (orchestratorForGateRef !== null) {
+          const cached = orchestratorForGateRef.getCachedIdentityCosmetics(
+            hostIdStr,
+            identityName,
+          );
+          if (cached !== null) {
+            return isIdentityVisibleToUser(
+              cached.identityCosmetics,
+              cached.roleCosmetics,
+              callerUsername,
+            );
+          }
         }
         // Resolve host (decrypts SSH credentials for the OWNER user).
         // Local-host branch bypasses SSH entirely — readIdentityFile /
@@ -1135,10 +1176,27 @@ if (process.env.VITEST !== "true") {
           // and owns spawn-request scanning independently of browser presence.
         });
 
+        // Publish the orchestrator instance to the WS gate closure's ref so
+        // per-frame gate lookups can consult the sweep-populated cosmetics
+        // cache without an SSH read. Re-assigned on every restart of this
+        // lambda (first-subscriber transitions); ref remains valid until
+        // orchestrator.stop() clears its per-host state — after which the
+        // cache lookup returns null and the SSH fallback engages again.
+        orchestratorForGateRef = orchestrator;
+        systemLogger.info(
+          "Fleet-status identity gate: wired to orchestrator cosmetics cache",
+          { operation: "fleet_status_identity_gate_cache_wired" },
+        );
+
         return {
           start: () => orchestrator.start(),
           stop: () => {
             orchestrator.stop();
+            // Clear the WS-gate cache ref alongside the orchestrator stop.
+            // Not strictly required (the stopped orchestrator's cache is
+            // empty and lookups return null), but keeps the ref honest
+            // when a subsequent start creates a fresh instance.
+            orchestratorForGateRef = null;
             // Close the long-lived ssh2 Clients so we don't leak the very TCP
             // connections we said "no user watching = no work" — orchestrator.stop()
             // only clears perHostState (channel wrappers), not the underlying
