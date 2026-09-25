@@ -327,13 +327,6 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
   {
-    slug: "install-usage-reporter",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/scripts/install-usage-reporter.sh",
-    installPath: "~/.local/bin/install-usage-reporter",
-    restartHook: null,
-  },
-  {
     slug: "claude-usage-collector",
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/claude-usage-collector.py",
