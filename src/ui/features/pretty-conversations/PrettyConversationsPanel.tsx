@@ -3019,23 +3019,34 @@ export function PrettyConversationsPanel({
           username is populated; the actions slot always renders. */}
       <div className="pv-panel-footer" data-testid="pv-panel-footer">
         <div className="pv-footer-anchor">
-          {username ? (
-            <>
-              <span
-                className="pv-footer-initials"
-                aria-hidden="true"
-                data-testid="pv-footer-initials"
-              >
-                {username.trim().charAt(0).toUpperCase()}
-              </span>
-              <span
-                className="pv-footer-username"
-                data-testid="pv-footer-username"
-              >
-                {username}
-              </span>
-            </>
-          ) : null}
+          {(() => {
+            // Trim first so whitespace-only usernames collapse to no-anchor
+            // (they don't produce a visible circle with an empty glyph +
+            // a blank username line — the anchor slot silently omits).
+            // Spread-index the first character so astral/emoji-first
+            // usernames get a full code point in the circle, not a lone
+            // UTF-16 surrogate half.
+            const name = username?.trim();
+            if (!name) return null;
+            const initial = [...name][0]?.toUpperCase() ?? "";
+            return (
+              <>
+                <span
+                  className="pv-footer-initials"
+                  aria-hidden="true"
+                  data-testid="pv-footer-initials"
+                >
+                  {initial}
+                </span>
+                <span
+                  className="pv-footer-username"
+                  data-testid="pv-footer-username"
+                >
+                  {name}
+                </span>
+              </>
+            );
+          })()}
         </div>
         <div className="pv-footer-actions">
           <button
@@ -3048,12 +3059,15 @@ export function PrettyConversationsPanel({
           >
             <Globe size={18} />
           </button>
+          {/* Preferences placeholder — decorative until the follow-on shape
+              wires it up. aria-hidden so screen readers skip it entirely
+              (no false "coming soon" promise); title stays for the seeing-
+              user hover tooltip. */}
           <span
             className="pv-footer-btn pv-footer-btn-inert"
-            aria-label="User preferences (coming soon)"
             title="User preferences (coming soon)"
             data-testid="pv-footer-preferences-placeholder"
-            aria-disabled="true"
+            aria-hidden="true"
           >
             <Settings size={18} />
           </span>

@@ -3706,7 +3706,14 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     const items = screen.getAllByRole("menuitem");
     const labels = items.map((el) => el.textContent?.trim() ?? "");
 
-    expect(labels).toEqual([
+    // Filter out the feature-detected "Enable notifications…" entry so this
+    // assertion doesn't silently couple to JSDOM's lack of service-worker
+    // support (a future test-env polyfill could otherwise flip this from
+    // three to four items and break the exact-match). The guarded three
+    // always render in this exact order.
+    const guardedLabels = labels.filter((l) => l !== "Enable notifications…");
+
+    expect(guardedLabels).toEqual([
       "New group conversation",
       "Edit global skills…",
       "Edit roles…",

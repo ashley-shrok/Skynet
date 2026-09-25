@@ -225,9 +225,11 @@
 }
 
 /* Footer button — chrome-identical to .pv-panel-header .pv-pencil so the
-   two zones share the same visual language. Kept as a separate selector so
-   test-ids and event wiring are unambiguous, not because the styling
-   differs. */
+   two zones share the same visual language. Default cursor is `default`
+   (safe default: no clickability advertised); interactive footer buttons
+   get cursor:pointer + hover treatment via the :not(.pv-footer-btn-inert)
+   modifier below. This way a future footer button that forgets the inert
+   class doesn't falsely advertise clickability by default. */
 .pv-panel-footer .pv-footer-btn {
   width: 32px;
   height: 32px;
@@ -238,13 +240,19 @@
   background: transparent;
   border: 1px solid transparent;
   border-radius: 8px;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
-.pv-panel-footer .pv-footer-btn:hover {
+/* Interactive footer buttons — inherit clickability + hover treatment.
+   Everything without .pv-footer-btn-inert is treated as clickable. */
+.pv-panel-footer .pv-footer-btn:not(.pv-footer-btn-inert) {
+  cursor: pointer;
+}
+
+.pv-panel-footer .pv-footer-btn:not(.pv-footer-btn-inert):hover {
   background: rgba(220, 225, 245, 0.06);
   border-color: var(--color-pv-border-quiet);
   color: var(--color-pv-fg);
@@ -256,18 +264,14 @@
   stroke-width: 2;
 }
 
-/* Inert modifier — the preferences-placeholder gear renders visually but
-   is not wired to anything yet (preferences ships in a follow-on shape).
-   Removes pointer cursor and hover treatment so it doesn't fake
-   clickability. */
+/* Inert modifier — kept explicit (paired with the :not() rules above) so
+   greppability wins and future readers see there's an "inert" state.
+   The preferences-placeholder gear uses this until preferences ships in
+   a follow-on shape. */
 .pv-panel-footer .pv-footer-btn.pv-footer-btn-inert {
-  cursor: default;
-}
-
-.pv-panel-footer .pv-footer-btn.pv-footer-btn-inert:hover {
-  background: transparent;
-  border-color: transparent;
-  color: var(--color-pv-fg-muted);
+  /* Intentionally empty — the safe defaults on .pv-footer-btn already
+     produce the desired "no clickability" appearance. Kept as a hook
+     for future style adjustments specific to inert placeholders. */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
