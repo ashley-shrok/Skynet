@@ -791,5 +791,57 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       // Modal must NOT be told to close (browse-and-act semantics per plan).
       expect(onOpenChange).not.toHaveBeenCalledWith(false);
     });
+
+    it("12: optimistic removal — archived row disappears from list immediately after second confirm", async () => {
+      // Fixture has two roles so we can assert the archived one is gone and the other stays.
+      const TWO_ROLE_FIXTURE: RoleSummary[] = [
+        {
+          name: "role-a",
+          description: "the test role",
+          displayName: "Role A",
+          colorHue: 100,
+        },
+        {
+          name: "role-b",
+          description: "the sibling role",
+          displayName: "Role B",
+          colorHue: 200,
+        },
+      ];
+      listRolesForHost.mockImplementation(async () => TWO_ROLE_FIXTURE);
+      // Never-resolving promise so we assert the optimistic removal, not the settled state.
+      archiveRoleMock.mockReturnValueOnce(new Promise(() => {}));
+      const row = await renderModalAndGetRow();
+      // Sanity: both rows present before archive.
+      expect(await screen.findByRole("button", { name: /Role A/ })).toBeDefined();
+      expect(await screen.findByRole("button", { name: /Role B/ })).toBeDefined();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      // Role A optimistically gone; Role B still present. No round-trip needed.
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: /Role A/ })).toBeNull(),
+      );
+      expect(screen.getByRole("button", { name: /Role B/ })).toBeDefined();
+    });
+
+    it("13: failure alert — window.alert fires when archiveRole rejects", async () => {
+      archiveRoleMock.mockRejectedValueOnce(new Error("network gone"));
+      const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+      const row = await renderModalAndGetRow();
+      fireEvent.contextMenu(row, { clientX: 100, clientY: 100 });
+      const archiveItem = await screen.findByRole("menuitem", {
+        name: /^Archive$/,
+      });
+      fireEvent.click(archiveItem);
+      await waitFor(() => expect(alertSpy).toHaveBeenCalled(), {
+        timeout: 2000,
+      });
+      const alertMsg = alertSpy.mock.calls[0][0];
+      expect(alertMsg).toContain("Role A");
+      expect(alertMsg).toContain("network gone");
+    });
   });
 });

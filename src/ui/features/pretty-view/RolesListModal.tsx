@@ -175,14 +175,28 @@ export function RolesListModal({
     // D-03 second confirm: sanity tap. Byte-identical to identity-archive's
     // sanity-tap copy at IdentitySessionPane.tsx:227.
     if (!window.confirm("are you sure? this can't be undone.")) return;
-    // D-01 fire-and-forget with structured console.warn on failure.
+    // Optimistic removal: drop the row from the local list immediately so the
+    // operator sees the archive take effect. If the API call fails, the alert
+    // below tells them, and the next modal open / host switch fetches fresh
+    // state from disk (which is authoritative) — no need to restore the row
+    // by hand.
+    setRolesState((prev) =>
+      prev.status === "ready"
+        ? { status: "ready", data: prev.data.filter((r) => r.name !== roleName) }
+        : prev,
+    );
+    // D-01 fire-and-forget with structured console.warn + user-facing alert on failure.
     void archiveRole(hostId, roleName).catch((err) => {
+      const errMessage = err instanceof Error ? err.message : String(err);
       console.warn({
         operation: "role_archive_failed",
         hostId,
         roleName,
-        errMessage: err instanceof Error ? err.message : String(err),
+        errMessage,
       });
+      window.alert(
+        `Failed to archive role "${roleDisplayLabel}": ${errMessage}\n\nThe role may still be present. Close and reopen the roles list to see current state.`,
+      );
     });
   };
 
