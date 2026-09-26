@@ -189,6 +189,35 @@ function getLocalHomeRoot(): string {
 }
 
 /**
+ * Return the HOST-side user-home root — the path as the host filesystem
+ * sees it (typically `/home/ubuntu`), NOT the container-side bind-mount
+ * point (`/host-home`).
+ *
+ * Read from `SKYNET_HOME_MOUNT_SRC` (the same env var that
+ * docker-compose interpolates as the LEFT side of the bind mount:
+ * `${SKYNET_HOME_MOUNT_SRC}:/host-home`). Falls back to `os.homedir()`
+ * for dev / non-container contexts where the two are the same path.
+ *
+ * When to use vs `getLocalHomeRoot()`:
+ *   - `getLocalHomeRoot()` — path THIS PROCESS reads/writes files at
+ *     (files are opened inside the container, so container-side path).
+ *   - `getHostExecHomeRoot()` — path a HOST-SIDE PROCESS will exec /
+ *     resolve later (the value goes into a file that another program
+ *     on the HOST will read, e.g. `~/.claude/settings.json.statusLine.command`
+ *     which Claude Code on the HOST execs).
+ *
+ * Reported by Stacy (T800 maintainer) 2026-09-25: the pre-fix
+ * `wireStatusLineLocally` wrote `/host-home/.local/bin/usage-reporter`
+ * into `settings.json.statusLine.command`, breaking statusLine for every
+ * agent on every co-located host (Claude Code runs on the HOST where
+ * `/host-home` does not exist). SSH-branch unaffected (remote shell
+ * expands `$HOME` to the remote user's real home).
+ */
+function getHostExecHomeRoot(): string {
+  return process.env.SKYNET_HOME_MOUNT_SRC || os.homedir();
+}
+
+/**
  * Restart a host user unit from inside the container by calling
  * `org.freedesktop.systemd1.Manager.RestartUnit` via `busctl --user call`
  * against the host's user DBus session bus. Mirrors `restartUserUnit` in
@@ -1028,7 +1057,17 @@ async function wireStatusLineLocally(host: {
   const settingsPath = path.join(claudeDir, "settings.json");
   const usageDir = path.join(claudeDir, "usage");
   const confPath = path.join(usageDir, "usage-reporter.conf");
-  const wrapperPath = path.join(homeRoot, ".local", "bin", "usage-reporter");
+  // wrapperPath goes INTO settings.json.statusLine.command — Claude Code
+  // on the HOST reads this and execs it, so the path must be host-side
+  // (`/home/ubuntu/.local/bin/usage-reporter`) not container-side
+  // (`/host-home/.local/bin/usage-reporter`). See getHostExecHomeRoot()
+  // docblock for the full container-vs-host path discipline.
+  const wrapperPath = path.join(
+    getHostExecHomeRoot(),
+    ".local",
+    "bin",
+    "usage-reporter",
+  );
 
   // Read current statusLine.command from settings.json (empty if absent/malformed).
   let currentCommand = "";

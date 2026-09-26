@@ -147,6 +147,14 @@ services:
     environment:
       PORT: "8080"
       SKYNET_CONSOLE_FORWARD_LOG_PATH: "/var/log/skynet/console-forward/console-forward.log"
+      # Host-side path of the bind mount at /host-home (LEFT side of the
+      # `${SKYNET_HOME_MOUNT_SRC}:/host-home` volume above). Propagated into
+      # the container runtime env so LOCAL-branch bootstrap can distinguish
+      # container-side write paths from host-side exec paths (the value
+      # written into ~/.claude/settings.json.statusLine.command is exec'd
+      # by Claude Code on the HOST, where /host-home does not exist —
+      # Stacy 2026-09-25). Same fail-loud guard as the bind above.
+      SKYNET_HOME_MOUNT_SRC: ${SKYNET_HOME_MOUNT_SRC:?SKYNET_HOME_MOUNT_SRC must be set — pass --env-file /opt/skynet/.env to docker compose}
     depends_on:
       - guacd
     networks:

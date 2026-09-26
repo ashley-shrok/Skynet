@@ -56,8 +56,13 @@ vi.mock("../utils/logger.js", () => ({
 }));
 
 // A fresh tmpdir per test; env var swapped so getLocalHomeRoot points here.
+// A SEPARATE `hostExecRoot` env pins the HOST-side path getHostExecHomeRoot()
+// returns — kept distinct from tmpRoot so tests can assert wire values that
+// depend on the container-vs-host path split (Stacy 2026-09-25 bug).
 let tmpRoot: string;
+let hostExecRoot: string;
 let originalHomeEnv: string | undefined;
+let originalHostMountSrcEnv: string | undefined;
 let originalSkynetUrlEnv: string | undefined;
 let originalXdgEnv: string | undefined;
 
@@ -69,10 +74,16 @@ async function importFresh() {
 beforeEach(async () => {
   vi.clearAllMocks();
   tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "local-fleet-install-test-"));
+  // Distinct path — never accidentally equal to tmpRoot, so any test that
+  // expects host-exec path but gets container path (or vice versa) fails
+  // loudly instead of silently passing.
+  hostExecRoot = "/nonexistent/host-home-test";
   originalHomeEnv = process.env.HOME_HOST_DIR;
+  originalHostMountSrcEnv = process.env.SKYNET_HOME_MOUNT_SRC;
   originalSkynetUrlEnv = process.env.SKYNET_PUBLIC_URL;
   originalXdgEnv = process.env.XDG_RUNTIME_DIR;
   process.env.HOME_HOST_DIR = tmpRoot;
+  process.env.SKYNET_HOME_MOUNT_SRC = hostExecRoot;
   // Default to no systemd — the test box likely has no user session.
   delete process.env.XDG_RUNTIME_DIR;
 });
@@ -82,6 +93,11 @@ afterEach(async () => {
     delete process.env.HOME_HOST_DIR;
   } else {
     process.env.HOME_HOST_DIR = originalHomeEnv;
+  }
+  if (originalHostMountSrcEnv === undefined) {
+    delete process.env.SKYNET_HOME_MOUNT_SRC;
+  } else {
+    process.env.SKYNET_HOME_MOUNT_SRC = originalHostMountSrcEnv;
   }
   if (originalSkynetUrlEnv === undefined) {
     delete process.env.SKYNET_PUBLIC_URL;
@@ -829,8 +845,10 @@ describe("BR3 — bootstrap wires usage-reporter statusLine + cleans up legacy p
     const settingsPath = path.join(tmpRoot, ".claude/settings.json");
     const parsed = JSON.parse(await fs.readFile(settingsPath, "utf-8"));
     expect(parsed.statusLine.type).toBe("command");
+    // Wire value must be the HOST-side exec path (hostExecRoot), NOT the
+    // container-side write path (tmpRoot) — Stacy's bug fix, 2026-09-25.
     expect(parsed.statusLine.command).toBe(
-      path.join(tmpRoot, ".local/bin/usage-reporter"),
+      path.join(hostExecRoot, ".local/bin/usage-reporter"),
     );
 
     // Conf holds an empty WRAPPED that round-trips through shell source.
@@ -864,8 +882,10 @@ describe("BR3 — bootstrap wires usage-reporter statusLine + cleans up legacy p
     const parsed = JSON.parse(
       await fs.readFile(path.join(claudeDir, "settings.json"), "utf-8"),
     );
+    // Wire value must be the HOST-side exec path (hostExecRoot), NOT the
+    // container-side write path (tmpRoot) — Stacy's bug fix, 2026-09-25.
     expect(parsed.statusLine.command).toBe(
-      path.join(tmpRoot, ".local/bin/usage-reporter"),
+      path.join(hostExecRoot, ".local/bin/usage-reporter"),
     );
     // Other keys preserved.
     expect(parsed.theme).toBe("dark");
