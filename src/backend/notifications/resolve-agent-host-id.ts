@@ -28,15 +28,15 @@
  * treats null as "cannot route, drop the push."
  */
 
-import { stat as fspStat } from "fs/promises";
+import { lstat as fspLstat } from "fs/promises";
 import path from "path";
-import { getLocalIdentitiesRoot } from "../claude-session/identity-artifact-reader.js";
+import {
+  getLocalIdentitiesRoot,
+  IDENTITY_KEY_RE,
+} from "../claude-session/identity-artifact-reader.js";
 import { databaseLogger } from "../utils/logger.js";
 
 const MXID_PATTERN = /^@([^:]+):(.+)$/;
-
-/** Same shape as identity-artifact-reader.ts's IDENTITY_KEY_RE. */
-const IDENTITY_KEY_RE = /^[a-z0-9._=/+-]+$/;
 
 /** Parsed once at module load. Same env var as identity-artifact-reader.ts. */
 const LOCAL_HOST_IDS: number[] = (() => {
@@ -51,6 +51,22 @@ const LOCAL_HOST_IDS: number[] = (() => {
   }
   return parsed;
 })();
+
+// If the env var contains multiple hostIds, we still pick the FIRST for
+// routing (the classifier is local-only per D-01/D-02 and production has
+// exactly one entry per box). Warn once at module load so ops sees the
+// ambiguity — a legitimately-multi-hostId deploy would need a per-hostId
+// probe here, not the current first-wins fallback.
+if (LOCAL_HOST_IDS.length > 1) {
+  databaseLogger.warn(
+    "resolveAgentHostId — IDENTITIES_LOCAL_HOST_IDS has multiple entries; first-wins used for push routing",
+    {
+      operation: "resolve_agent_host_id_multi_entry_env",
+      count: LOCAL_HOST_IDS.length,
+      chosenHostId: LOCAL_HOST_IDS[0],
+    },
+  );
+}
 
 /**
  * Resolve a sender mxid to the local fleet hostId whose identity folder
@@ -75,9 +91,27 @@ export async function resolveAgentHostId(mxid: string): Promise<number | null> {
     return null;
   }
 
-  const identityDir = path.join(getLocalIdentitiesRoot(), localpart);
+  const identitiesRoot = getLocalIdentitiesRoot();
+  const identityDir = path.join(identitiesRoot, localpart);
+
+  // Belt-and-suspenders against a hypothetical classifier regression: even
+  // though IDENTITY_KEY_RE already rules out `.` and `/` so path.join
+  // cannot escape the identities root, we still normalize the resolved
+  // path and prefix-check it before touching the filesystem — if either
+  // ever loosens, the check fails closed rather than following a symlink
+  // or traversal out of the root. lstat (not stat) additionally refuses
+  // to follow a symlinked identity folder.
+  const resolvedRoot = path.resolve(identitiesRoot);
+  const resolvedDir = path.resolve(identityDir);
+  if (
+    resolvedDir !== resolvedRoot &&
+    !resolvedDir.startsWith(resolvedRoot + path.sep)
+  ) {
+    return null;
+  }
+
   try {
-    const stats = await fspStat(identityDir);
+    const stats = await fspLstat(identityDir);
     if (!stats.isDirectory()) return null;
   } catch {
     return null;

@@ -205,7 +205,10 @@ import {
 // strips both params via replaceState (a copied URL after arrival
 // doesn't embed routing information; a reload doesn't re-trigger the
 // deep-link).
-import { parseAndOpenHarnessFromUrl } from "@/features/notifications/open-harness-deep-link";
+import {
+  parseAndOpenHarnessFromUrl,
+  type HarnessOpenTarget,
+} from "@/features/notifications/open-harness-deep-link";
 // Phase 11 Plan 03 (user "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -480,7 +483,7 @@ export function AppShell({
 
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
-  const { byKey: identitiesByKey } = useIdentities();
+  const { byKey: identitiesByKey, loaded: identitiesLoaded } = useIdentities();
   // quick-260829-ih3: window-scoped hook — returns the tabId of the currently-
   // in-flight identity badge drag (via IdentityBadge dragstart payload MIME
   // application/x-skynet-badge), or null if none is in flight. Feeds the
@@ -2239,76 +2242,95 @@ export function AppShell({
   // shape-notifications-to-harness — openHarness deep-link handler.
   //
   // The public/sw.js notificationclick handler navigates the client to
-  // `/?openHarness=<mxid>&host=<hostId>`. This mount-only effect delegates
-  // to parseAndOpenHarnessFromUrl, which reads + validates the URL params
-  // and fires the injected open-callback below. The parser strips both
-  // params via history.replaceState so a reload doesn't re-fire and a
-  // copied URL doesn't embed routing information.
+  // `/?openHarness=<mxid>&host=<hostId>`. Because the app is very likely
+  // mounting from cold on that navigation, hostsById, identitiesByKey,
+  // and persistence-restored tabs are all populated by later async work.
+  // Two effects, one shared ref:
+  //   (1) Mount-only capture — reads the URL param via
+  //       parseAndOpenHarnessFromUrl. The parser strips the params on
+  //       success so a reload doesn't re-fire and a copied URL doesn't
+  //       embed routing information. Captured target is stashed in
+  //       state for the dispatch effect.
+  //   (2) Dispatch — waits until (hostsLoaded && identitiesLoaded &&
+  //       tabsReady) are ALL true, then resolves the harness view for
+  //       the captured target (focus-if-exists / spawn parity with
+  //       sidebar-row-tap; toast on unreachable). Guarded by
+  //       openHarnessDispatchedRef so it runs exactly once.
   //
-  // The open-callback resolves the target agent's harness tab:
-  //   1. mxid → identity localpart (lowercased per identityKey convention).
-  //   2. hostId → Host via hostsById (fleet-status snapshot). If missing,
-  //      surface a toast naming the agent and land on the default view.
-  //   3. Find an existing tab whose (host.id, type "terminal",
-  //      targetTmuxSession) matches — if so, focus it. This preserves
-  //      sidebar-row-tap parity (never opens a duplicate tab for an
-  //      agent that's already open).
-  //   4. Otherwise openTab(host, "terminal", { targetTmuxSession }) with
-  //      the same shape sidebar's onDetachedRowClick uses.
-  //   5. On any unexpected failure, toast the fallback message.
-  //
-  // Runs once per mount: guarded by openHarnessFiredRef so a store-driven
-  // re-render doesn't re-trigger. No auto-prompt for notification
-  // permission on mount — the opt-in surface is the modal opened from
-  // the PrettyConversationsPanel kebab menu.
-  const openHarnessFiredRef = useRef(false);
+  // Splitting capture from dispatch is what makes the routing
+  // deterministic on cold boot (shape philosophy: "the payload carries
+  // what the phone needs to route; we do not depend on the phone's
+  // cached identity list being loaded at click time" — same principle
+  // applies to the local host list and tab list).
+  const [pendingHarnessTarget, setPendingHarnessTarget] =
+    useState<HarnessOpenTarget | null>(null);
+  const openHarnessCapturedRef = useRef(false);
+  const openHarnessDispatchedRef = useRef(false);
+
   useEffect(() => {
-    if (openHarnessFiredRef.current) return;
-    openHarnessFiredRef.current = true;
-    parseAndOpenHarnessFromUrl(({ mxid, hostId }) => {
-      // Resolve mxid → identity by localpart (identity keys are always
-      // lowercase per IDENTITY_KEY_RE; mirrors relay-mxid-resolve.ts).
-      const localpartMatch = mxid.match(/^@([^:]+):(.+)$/);
-      const identityKey =
-        localpartMatch !== null ? localpartMatch[1].toLowerCase() : null;
-      const identity =
-        identityKey !== null ? identitiesByKey.get(identityKey) ?? null : null;
-      const displayLabel = identity?.displayName ?? identityKey ?? mxid;
-
-      const host = hostsById.get(hostId);
-      if (!host || identityKey === null) {
-        toast.error(`Couldn't open ${displayLabel}`);
-        return;
-      }
-
-      const existing = tabs.find(
-        (t) =>
-          t.host?.id === host.id &&
-          t.type === "terminal" &&
-          (t.targetTmuxSession ?? null) === identityKey,
-      );
-      if (existing) {
-        selectConversationDeferred(existing.id);
-        return;
-      }
-
-      try {
-        const newTabId = openTab(host, "terminal", undefined, {
-          targetTmuxSession: identityKey,
-          label: identity?.displayName ?? identityKey,
-          allowCreateTmux: false,
-        });
-        selectConversationDeferred(newTabId);
-      } catch {
-        toast.error(`Couldn't open ${displayLabel}`);
-      }
+    if (openHarnessCapturedRef.current) return;
+    openHarnessCapturedRef.current = true;
+    parseAndOpenHarnessFromUrl((target) => {
+      setPendingHarnessTarget(target);
     });
-    // Deliberately mount-only — the sw.js navigation reloads the SPA (or
-    // navigates the existing client via .navigate), so a fresh AppShell
-    // mount is exactly when the param is meaningful. Later re-renders
-    // must not fire this again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (pendingHarnessTarget === null) return;
+    if (openHarnessDispatchedRef.current) return;
+    if (!hostsLoaded || !identitiesLoaded || !tabsReady) return;
+    openHarnessDispatchedRef.current = true;
+
+    const { mxid, hostId } = pendingHarnessTarget;
+
+    // Resolve mxid → identity by localpart (identity keys are always
+    // lowercase per IDENTITY_KEY_RE; mirrors relay-mxid-resolve.ts).
+    const localpartMatch = mxid.match(/^@([^:]+):(.+)$/);
+    const identityKey =
+      localpartMatch !== null ? localpartMatch[1].toLowerCase() : null;
+    const identity =
+      identityKey !== null ? identitiesByKey.get(identityKey) ?? null : null;
+    const displayLabel = identity?.displayName ?? identityKey ?? mxid;
+
+    const host = hostsById.get(hostId);
+    if (!host || identityKey === null) {
+      toast.error(`Couldn't open ${displayLabel}`);
+      return;
+    }
+
+    const existing = tabs.find(
+      (t) =>
+        t.host?.id === host.id &&
+        t.type === "terminal" &&
+        (t.targetTmuxSession ?? null) === identityKey,
+    );
+    if (existing) {
+      selectConversationDeferred(existing.id);
+      return;
+    }
+
+    try {
+      const newTabId = openTab(host, "terminal", undefined, {
+        targetTmuxSession: identityKey,
+        label: identity?.displayName ?? identityKey,
+        allowCreateTmux: false,
+      });
+      selectConversationDeferred(newTabId);
+    } catch {
+      toast.error(`Couldn't open ${displayLabel}`);
+    }
+  }, [
+    pendingHarnessTarget,
+    hostsLoaded,
+    identitiesLoaded,
+    tabsReady,
+    hostsById,
+    identitiesByKey,
+    tabs,
+    openTab,
+    selectConversationDeferred,
+  ]);
 
   function connectHost(host: Host, preferredType?: TabType) {
     const type: TabType =

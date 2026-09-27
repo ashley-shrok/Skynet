@@ -13,9 +13,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("fs/promises", () => ({
   default: {
-    stat: vi.fn(),
+    lstat: vi.fn(),
   },
-  stat: vi.fn(),
+  lstat: vi.fn(),
 }));
 
 vi.mock("../utils/logger.js", () => ({
@@ -33,10 +33,10 @@ vi.mock("../utils/logger.js", () => ({
   },
 }));
 
-import { stat as fspStat } from "fs/promises";
+import { lstat as fspLstat } from "fs/promises";
 import { databaseLogger } from "../utils/logger.js";
 
-const statMock = fspStat as unknown as ReturnType<typeof vi.fn>;
+const statMock = fspLstat as unknown as ReturnType<typeof vi.fn>;
 const warnSpy = databaseLogger.warn as ReturnType<typeof vi.fn>;
 
 // ---------------------------------------------------------------------------
@@ -99,9 +99,31 @@ describe("resolveAgentHostId — env populated with a single hostId", () => {
     expect(statMock).not.toHaveBeenCalled();
   });
 
-  it("mxid with disallowed localpart chars (uppercase → normalized; symbols → rejected) → null, no disk call", async () => {
-    // IDENTITY_KEY_RE only permits `[a-z0-9._=/+-]`; `#` is rejected after lowercasing.
+  it("mxid with disallowed localpart chars → null, no disk call", async () => {
+    // Canonical IDENTITY_KEY_RE only permits `[a-z0-9_-]{1,64}`; anything
+    // else is rejected before the disk probe.
     const result = await resolveAgentHostId("@zulu#bad:server.example.net");
+    expect(result).toBeNull();
+    expect(statMock).not.toHaveBeenCalled();
+  });
+
+  it("mxid with `.` in localpart → null, no disk call (path-traversal defense)", async () => {
+    const result = await resolveAgentHostId("@..:server.example.net");
+    expect(result).toBeNull();
+    expect(statMock).not.toHaveBeenCalled();
+  });
+
+  it("mxid with `/` in localpart → null, no disk call (path-traversal defense)", async () => {
+    const result = await resolveAgentHostId("@a/b:server.example.net");
+    expect(result).toBeNull();
+    expect(statMock).not.toHaveBeenCalled();
+  });
+
+  it("mxid localpart longer than 64 chars → null, no disk call", async () => {
+    const longLocalpart = "a".repeat(65);
+    const result = await resolveAgentHostId(
+      `@${longLocalpart}:server.example.net`,
+    );
     expect(result).toBeNull();
     expect(statMock).not.toHaveBeenCalled();
   });
@@ -169,5 +191,22 @@ describe("resolveAgentHostId — multi-entry IDENTITIES_LOCAL_HOST_IDS", () => {
     statMock.mockResolvedValue({ isDirectory: () => true });
     const result = await resolveAgentHostId("@zulu:t1000.example.net");
     expect(result).toBe(42);
+  });
+
+  it("multi-entry env logs a warn at module load naming the ambiguity", async () => {
+    // The module has already loaded via beforeEach's dynamic import — the
+    // warn call must have fired then, not on the first resolveAgentHostId
+    // invocation.
+    const multiWarn = warnSpy.mock.calls.find(([msg]) =>
+      String(msg).includes("multiple entries"),
+    );
+    expect(multiWarn).toBeDefined();
+    expect((multiWarn?.[1] as { operation: string }).operation).toBe(
+      "resolve_agent_host_id_multi_entry_env",
+    );
+    expect((multiWarn?.[1] as { count: number }).count).toBe(3);
+    expect((multiWarn?.[1] as { chosenHostId: number }).chosenHostId).toBe(
+      42,
+    );
   });
 });

@@ -338,6 +338,61 @@ describe("sw.js pushsubscriptionchange handler (M-3 hardening)", () => {
     );
   });
 
+  it("notificationclick: stringified agentHostId is coerced and routes normally", async () => {
+    const { handlers, self } = evaluateSwWithBasePath("/skynet");
+    const clientFocus = vi.fn(async () => {});
+    const clientNavigate = vi.fn(async () => {});
+    self.clients.matchAll = vi.fn(async () => [
+      { focus: clientFocus, navigate: clientNavigate },
+    ]);
+
+    let waitUntilPromise: Promise<unknown> | null = null;
+    const event = {
+      notification: {
+        close: vi.fn(),
+        // Some push relays stringify numeric fields; SW must tolerate.
+        data: { agentMxid: "@fanny:server", agentHostId: "42" },
+      },
+      waitUntil: (p: Promise<unknown>) => {
+        waitUntilPromise = p;
+      },
+    };
+
+    handlers.get("notificationclick")!(event);
+    await waitUntilPromise;
+
+    expect(clientNavigate).toHaveBeenCalledTimes(1);
+    expect(clientNavigate.mock.calls[0][0]).toBe(
+      "/skynet/?openHarness=%40fanny%3Aserver&host=42",
+    );
+  });
+
+  it("notificationclick: non-numeric string agentHostId → falls back to app root", async () => {
+    const { handlers, self } = evaluateSwWithBasePath("/skynet");
+    const clientFocus = vi.fn(async () => {});
+    const clientNavigate = vi.fn(async () => {});
+    self.clients.matchAll = vi.fn(async () => [
+      { focus: clientFocus, navigate: clientNavigate },
+    ]);
+
+    let waitUntilPromise: Promise<unknown> | null = null;
+    const event = {
+      notification: {
+        close: vi.fn(),
+        data: { agentMxid: "@fanny:server", agentHostId: "not-a-number" },
+      },
+      waitUntil: (p: Promise<unknown>) => {
+        waitUntilPromise = p;
+      },
+    };
+
+    handlers.get("notificationclick")!(event);
+    await waitUntilPromise;
+
+    expect(clientNavigate).toHaveBeenCalledTimes(1);
+    expect(clientNavigate.mock.calls[0][0]).toBe("/skynet/");
+  });
+
   it("notificationclick: missing agentHostId → falls back to app root, no openHarness param", async () => {
     const { handlers, self } = evaluateSwWithBasePath("/skynet");
     const clientFocus = vi.fn(async () => {});

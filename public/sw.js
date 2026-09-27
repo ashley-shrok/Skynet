@@ -133,7 +133,7 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const agentMxid = event.notification.data?.agentMxid;
-  const agentHostId = event.notification.data?.agentHostId;
+  const rawAgentHostId = event.notification.data?.agentHostId;
   // shape-notifications-to-harness.md: tap opens the sender agent's
   // harness view, not the relay-room mirror of the underlying DM. The
   // BASE_PATH prefix keeps non-root deploys landing on the PWA (mirrors
@@ -142,13 +142,26 @@ self.addEventListener("notificationclick", (event) => {
   // Only route when both fields are present — a payload missing either
   // one cannot be routed deterministically; fall back to the app root
   // and let the AppShell mount on its default view.
+  //
+  // The push-payload contract types agentHostId as `number`, and
+  // event.data.json() deserializes JSON so numbers stay numbers end-to-
+  // end. Some push relays stringify numeric payload fields in transit
+  // though, so we defensively coerce a string form (`Number("42")` = 42)
+  // before the positive-integer gate. A malformed string coerces to NaN
+  // which the gate rejects.
+  const coercedHostId =
+    typeof rawAgentHostId === "number"
+      ? rawAgentHostId
+      : typeof rawAgentHostId === "string"
+        ? Number(rawAgentHostId)
+        : NaN;
   const canRoute =
     typeof agentMxid === "string" &&
     agentMxid.length > 0 &&
-    typeof agentHostId === "number" &&
-    Number.isFinite(agentHostId);
+    Number.isInteger(coercedHostId) &&
+    coercedHostId > 0;
   const targetUrl = canRoute
-    ? `${BASE_PATH}/?openHarness=${encodeURIComponent(agentMxid)}&host=${agentHostId}`
+    ? `${BASE_PATH}/?openHarness=${encodeURIComponent(agentMxid)}&host=${coercedHostId}`
     : `${BASE_PATH}/`;
   event.waitUntil((async () => {
     const clientsList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
