@@ -78,3 +78,43 @@ Inline, working through the pieces one at a time with harness tasks tracking eac
 The Skynet repo working tree lives under this identity's workspace; the current branch carries other in-flight work from peers, so `git pull --rebase` before every push per the multi-identity discipline. Nothing here mutates container state — `docker build` and container restart only happen on Ashley's deploy greenlight, separate from the code commits.
 
 `/close notifications-to-harness` closes the arc at the end.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-27
+**Vehicle used:** inline (harness tasks tracking pieces of work) — matches what the shape recorded at open time
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · tap now writes/reads openHarness=mxid&host=hostId instead of the old openRoom=roomId scheme end-to-end
+- **Shape: routing chain steps 1-6** — present · payload carries agentMxid + agentHostId; SW writes openHarness URL; AppShell parses + resolves + focuses or spawns; replaceState strips both params post-arrival
+- **Philosophy: harness view is the destination, not relay-room** — present · no code path routes to relay-room view from a notification tap; openTab call opens a terminal tab keyed on identityKey
+- **Philosophy: tap parity with sidebar rows** — present · same allowCreateTmux:false + targetTmuxSession=identityKey shape onDetachedRowClick uses; existing-tab focus preserves no-duplicate-tab rule
+- **Philosophy: deterministic tap (no dependence on identity list)** — present · identityKey derived from mxid regex; host from hostsById; identitiesByKey only used for display label with mxid-localpart fallback
+- **Philosophy: failures honest + lightweight** — present · toast.error names the agent; non-blocking; no modal; no silent no-op
+- **Philosophy: same behavior phone + desktop** — present · single SW handler + single AppShell parser fire on either platform
+- **Prior context: payload carries home host** — present · PushPayload extended with agentHostId; resolveAgentHostId reads IDENTITIES_LOCAL_HOST_IDS and confirms identity folder on disk
+- **What would make it wrong: tap lands on relay-room view** — present · no openRoom code remains; SW writes only openHarness; AppShell reads only openHarness
+- **What would make it wrong: duplicate harness tab for already-open agent** — present · tabs.find matches (host.id, terminal, targetTmuxSession=identityKey) then selectConversationDeferred; only falls through to openTab when no match
+- **What would make it wrong: routing depends on stale identity list** — present · routing key is (mxid, hostId) both carried on payload; identitiesByKey only affects display label with an identityKey fallback
+- **What would make it wrong: failure surface is blocking modal or silent** — present · toast.error via Sonner is non-blocking; failure branches are explicit and never silent-drop
+- **What would make it wrong: routing info stays in URL after arrival** — present · history.replaceState(null, '', pathname) strips both params on success; BASE_PATH preserved (test case 10)
+- **What would make it wrong: phone/desktop drift** — present · single SW handler + single AppShell effect; no platform branching
+- **Scope edges: In** — present · notification click routing, payload shape change, focus-if-exists/spawn-if-not, toast surface, URL cleanup, tests across all touched surfaces — all delivered
+- **Scope edges: Out** — present · group relay rooms untouched; sidebar visibility + click behavior untouched; trigger loop unchanged (only payload extended); no unread/badge changes; no per-agent prefs changes
+- **Scope edges: Deferred** — present · no deep-link-to-message (openHarness carries mxid + host only); no rich actions on notification
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The material also removed the retired open-room-deep-link module + its tests as the shape implied (successor swap). AppShell open-callback resolves mxid → identityKey via the same lowercased-localpart convention used elsewhere in the fleet (IDENTITY_KEY_RE). Backend resolver has a belt-and-suspenders fs.stat check of the identity folder in case the classifier ever regresses on the local-only gate. Tests cover: happy path, missing/empty/malformed mxid, missing/non-numeric/negative/zero host, callback-throw, BASE_PATH preservation on URL cleanup, SW notificationclick routable vs unroutable, push handler shape (no tag, correct data trio), and the resolver's env-populated / empty-env / multi-entry branches.
