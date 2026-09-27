@@ -8,7 +8,8 @@
  *     enforce deliver-line, listen, do not fill silence, do not extend
  *     the conversation, end with the receipt phrase and hang up.
  *   - The bracketing lines — "this is X, with a message for you" on
- *     pickup and "your reply's going back to X" at end of turn — are
+ *     pickup and "your reply has been sent to X. You may hang up." at
+ *     end of turn — are
  *     what let the human hang up confident her words landed with the
  *     right agent. They are NOT optional.
  *
@@ -56,7 +57,7 @@ export function buildBlandTaskPrompt(
     `4. Long pauses while they think are fine — do not prompt.`,
     `5. If asked a direct question you cannot answer as a speaking-proxy, say briefly "I'll pass that along" and then say the receipt phrase in rule 7 and hang up.`,
     `6. When the human is finished speaking (they say "that's all", "goodbye", "ok", "got it", or an unambiguous natural end), immediately say the receipt phrase in rule 7 and hang up. Do NOT try to keep the conversation going.`,
-    `7. Receipt phrase (say verbatim before hanging up): "Your reply's going back to ${safeCaller}"`,
+    `7. Receipt phrase (say verbatim before hanging up): "Your reply has been sent to ${safeCaller}. You may hang up."`,
     `8. Do NOT extend the conversation beyond this one exchange. Deliver, listen, receipt, end.`,
   ].join("\n");
 }

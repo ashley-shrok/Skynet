@@ -34,7 +34,8 @@
  * `caller_name` — TTS-friendly agent identifier composed by the caller
  *   (e.g. "Clipper the Box Maintainer"). Interpolated into the Bland task
  *   prompt at the pickup line ("Hi, this is X, with a message for you")
- *   and the end-of-turn receipt ("Your reply's going back to X"). Kept
+ *   and the end-of-turn receipt ("Your reply has been sent to X. You
+ *   may hang up."). Kept
  *   verbatim — the backend does no formatting or sanitization beyond
  *   basic type/length validation.
  *

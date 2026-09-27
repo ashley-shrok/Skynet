@@ -15,7 +15,7 @@ describe("buildBlandTaskPrompt", () => {
     // Opener quoted verbatim
     expect(p).toContain('"Hi, this is Clipper the Box Maintainer, with a message for you: hello world"');
     // Receipt phrase quoted verbatim
-    expect(p).toContain('"Your reply\'s going back to Clipper the Box Maintainer"');
+    expect(p).toContain('"Your reply has been sent to Clipper the Box Maintainer. You may hang up."');
   });
 
   it("enforces the deliver-listen-end discipline via explicit numbered rules", () => {
@@ -53,7 +53,7 @@ describe("buildBlandTaskPrompt", () => {
   it("trims surrounding whitespace on both fields", () => {
     const p = buildBlandTaskPrompt("  Clipper  ", "  hello  ");
     expect(p).toContain('"Hi, this is Clipper, with a message for you: hello"');
-    expect(p).toContain('"Your reply\'s going back to Clipper"');
+    expect(p).toContain('"Your reply has been sent to Clipper. You may hang up."');
   });
 });
 
