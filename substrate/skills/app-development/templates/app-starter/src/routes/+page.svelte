@@ -20,7 +20,7 @@
             name="text"
             required
             placeholder="What needs doing?"
-            class="flex-1 rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            class="flex-1 rounded border border-gray-700 bg-gray-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <button
             type="submit"
@@ -36,25 +36,25 @@
 
     <ul class="space-y-2">
         {#each data.items as item (item.id)}
-            <li class="flex items-center gap-3 rounded border border-gray-200 bg-white px-3 py-2">
+            <li class="flex items-center gap-3 rounded border border-gray-800 bg-gray-900 px-3 py-2">
                 <form method="post" action="?/toggle" class="flex items-center">
                     <input type="hidden" name="id" value={item.id} />
                     <button
                         type="submit"
-                        class="flex h-5 w-5 items-center justify-center rounded border border-gray-400 hover:bg-gray-100"
+                        class="flex h-5 w-5 items-center justify-center rounded border border-gray-600 hover:bg-gray-800"
                         aria-label={item.done ? 'Mark undone' : 'Mark done'}
                     >
-                        {#if item.done}<span class="text-green-600">✓</span>{/if}
+                        {#if item.done}<span class="text-green-400">✓</span>{/if}
                     </button>
                 </form>
 
-                <span class="flex-1" class:line-through={item.done} class:text-gray-400={item.done}>
+                <span class="flex-1" class:line-through={item.done} class:text-gray-500={item.done}>
                     {item.text}
                 </span>
 
                 <form method="post" action="?/delete">
                     <input type="hidden" name="id" value={item.id} />
-                    <button type="submit" class="text-sm text-gray-400 hover:text-red-600">
+                    <button type="submit" class="text-sm text-gray-500 hover:text-red-400">
                         Remove
                     </button>
                 </form>
