@@ -3119,6 +3119,36 @@ export function AppShell({
       }
     }
 
+    // Preserve scroll positions across an appendChild-move reparent. Browser
+    // reparent drops the container's scrollTop to 0; without this, panes
+    // pinned to the bottom lose their pin AND useAutoScroll's stateRef stays
+    // stuck at "at-bottom" (in equal-size split-view swaps neither the MO nor
+    // the RO fires, so nothing chases and the jump-pill won't appear until
+    // the user scrolls). Tolerance matches BOTTOM_TOLERANCE_PX in
+    // src/ui/features/pretty-view/auto-scroll-machine.ts.
+    const reparent = (target: HTMLElement, moving: HTMLElement): void => {
+      if (moving.parentElement === target) return;
+      const scrollables: Array<{
+        el: HTMLElement;
+        wasAtBottom: boolean;
+        savedTop: number;
+      }> = [];
+      for (const el of moving.querySelectorAll<HTMLElement>("*")) {
+        if (el.scrollHeight > el.clientHeight) {
+          const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+          scrollables.push({
+            el,
+            wasAtBottom: dist <= 28,
+            savedTop: el.scrollTop,
+          });
+        }
+      }
+      target.appendChild(moving);
+      for (const s of scrollables) {
+        s.el.scrollTop = s.wasAtBottom ? s.el.scrollHeight : s.savedTop;
+      }
+    };
+
     for (const tab of tabs) {
       // Phase 41 Plan 02: identity terminal panes get the pv-base background
       // (like non-terminal tabs) since PrettyView is the primary surface.
@@ -3155,13 +3185,13 @@ export function AppShell({
       const activeInline = !inPane && tab.id === effectiveSelectedTabId;
 
       if (inPane && paneEl) {
-        if (node.parentElement !== paneEl) paneEl.appendChild(node);
+        reparent(paneEl, node);
         node.style.visibility = "visible";
         node.style.pointerEvents = "auto";
         node.style.display = "";
         node.style.zIndex = "";
       } else {
-        if (node.parentElement !== normalView) normalView.appendChild(node);
+        reparent(normalView, node);
         if (isTerminal) {
           node.style.display = "";
           node.style.visibility = activeInline ? "visible" : "hidden";
