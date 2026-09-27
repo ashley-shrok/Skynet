@@ -26,7 +26,7 @@
 
 import { describe, it, expect, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
-import { AppPane } from "./AppPane";
+import { AppPane, injectDarkViewerStylesheetIfApplicable } from "./AppPane";
 
 // Map-backed DataTransfer stub. Mirrors the shape used in
 // SplitView.text-selection-drag.test.tsx so the type-gate check
@@ -220,5 +220,74 @@ describe("AppPane drag-passthrough", () => {
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     fireWindowDragEvent("dragstart", null);
     expect(iframe.style.pointerEvents).toBe("");
+  });
+});
+
+// ─── Chrome auto-rendered-viewer dark-mode injection ──────────────────────
+// The helper injects a dark stylesheet into iframe.contentDocument when the
+// iframe's document is Chrome's built-in JSON viewer (Content-Type:
+// application/json) or its text/plain viewer. Real app HTML routes pass
+// through untouched — D-20 pane-transparency to the app.
+describe("AppPane auto-rendered-viewer dark-mode injection", () => {
+  function makeFakeDoc(contentType: string): {
+    doc: Document;
+    appended: HTMLStyleElement[];
+  } {
+    const appended: HTMLStyleElement[] = [];
+    const head = {
+      appendChild: (el: HTMLStyleElement) => {
+        appended.push(el);
+        return el;
+      },
+    } as unknown as HTMLHeadElement;
+    const doc = {
+      contentType,
+      head,
+      createElement: (tag: string) => {
+        // Real jsdom document.createElement so the returned node behaves like
+        // a real HTMLStyleElement (textContent, tagName, etc).
+        return document.createElement(tag);
+      },
+    } as unknown as Document;
+    return { doc, appended };
+  }
+
+  it("injects a <style> for Content-Type: application/json", () => {
+    const { doc, appended } = makeFakeDoc("application/json");
+    injectDarkViewerStylesheetIfApplicable(doc);
+    expect(appended.length).toBe(1);
+    expect(appended[0]?.tagName).toBe("STYLE");
+    expect(appended[0]?.textContent).toContain("color-scheme: dark");
+    expect(appended[0]?.textContent).toContain("#141520");
+  });
+
+  it("injects a <style> for Content-Type: application/json; charset=utf-8", () => {
+    const { doc, appended } = makeFakeDoc("application/json; charset=utf-8");
+    injectDarkViewerStylesheetIfApplicable(doc);
+    expect(appended.length).toBe(1);
+  });
+
+  it("injects a <style> for Content-Type: text/plain", () => {
+    const { doc, appended } = makeFakeDoc("text/plain");
+    injectDarkViewerStylesheetIfApplicable(doc);
+    expect(appended.length).toBe(1);
+  });
+
+  it("does NOT inject for Content-Type: text/html (D-20 pane transparency)", () => {
+    const { doc, appended } = makeFakeDoc("text/html");
+    injectDarkViewerStylesheetIfApplicable(doc);
+    expect(appended.length).toBe(0);
+  });
+
+  it("does NOT inject for Content-Type: image/png", () => {
+    const { doc, appended } = makeFakeDoc("image/png");
+    injectDarkViewerStylesheetIfApplicable(doc);
+    expect(appended.length).toBe(0);
+  });
+
+  it("does not throw when contentDocument is null (cross-origin)", () => {
+    expect(() => {
+      injectDarkViewerStylesheetIfApplicable(null);
+    }).not.toThrow();
   });
 });

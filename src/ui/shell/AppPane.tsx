@@ -52,6 +52,36 @@ import { hasSkynetDragPayload } from "./SplitView";
 // pointer-events to "none" so those events pass through to the pane element
 // underneath; dragend/drop restore. Gated on hasSkynetDragPayload so browser
 // text-selection drags and OS file drags leave the iframe interactive.
+//
+// ─── Chrome auto-rendered-viewer dark-mode injection ──────────────────────
+// When an app route returns Content-Type: application/json or text/plain,
+// Chrome hands the response to its built-in viewer (JSON tree + Pretty-print
+// checkbox for JSON; plain <pre> for text). Those viewers have minimal
+// styling — transparent body bg + black text in light mode — so they render
+// as near-invisible-black-text against Skynet's dark pane. Real app HTML is
+// left untouched (D-20 pane-transparency to the app).
+//
+// The injected stylesheet flips html.color-scheme to dark (so Chrome remaps
+// its own syntax-color palette to the dark variants) and paints an explicit
+// bg matching --color-pv-base so the viewer blends into the pane chrome.
+// Kept as a stylesheet-only injection (no JS side effects); the app can
+// still respond to any programmatic-client Accept: application/json request
+// exactly as before — this only touches what the human sees inside the pane.
+
+const AUTO_RENDERED_VIEWER_STYLESHEET = `
+  html { color-scheme: dark; background-color: #141520; }
+  body { background-color: #141520; }
+`;
+
+// Exported for unit tests — the load handler wires this to iframe.contentDocument.
+export function injectDarkViewerStylesheetIfApplicable(doc: Document | null): void {
+  if (doc === null) return;
+  const ct = doc.contentType ?? "";
+  if (!ct.startsWith("application/json") && !ct.startsWith("text/plain")) return;
+  const style = doc.createElement("style");
+  style.textContent = AUTO_RENDERED_VIEWER_STYLESHEET;
+  doc.head.appendChild(style);
+}
 
 export interface AppPaneProps {
   hostId: number;
@@ -93,6 +123,24 @@ export function AppPane({
       window.removeEventListener("dragstart", onDragStart);
       window.removeEventListener("dragend", restore);
       window.removeEventListener("drop", restore);
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = iframeRef.current;
+    if (el === null) return;
+    const onLoad = () => {
+      try {
+        injectDarkViewerStylesheetIfApplicable(el.contentDocument);
+      } catch {
+        // Cross-origin access will throw a SecurityError; transient DOM
+        // states can also raise here. Both are safe to swallow — the app
+        // simply renders without the dark-viewer injection.
+      }
+    };
+    el.addEventListener("load", onLoad);
+    return () => {
+      el.removeEventListener("load", onLoad);
     };
   }, []);
 
