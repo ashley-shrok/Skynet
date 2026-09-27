@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { CircleHelp, Paperclip, Plus, RefreshCw, RotateCcw, RotateCwFadingClock, Square, ThumbsUp, X } from "lucide-react";
+import { CircleHelp, Paperclip, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -18,7 +18,6 @@ import { stampIdentitySendLog } from "@/api/identity-send-log-api";
 // target changes. Plan 06's relay-pane badge appendage will hit the SAME
 // endpoint as a first-class caller (single seam for both surfaces).
 import { authApi } from "@/main-axios";
-import { publishSessionQueuePending } from "@/state/session-queue-pending-store";
 import { seedSessionLastMessageAt } from "@/state/session-working-store";
 import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChipStrip";
 // Quick 260823-8ji: attachment-path awaits the batch outcome to gate the
@@ -62,7 +61,7 @@ import { RecordingControls } from "./RecordingControls";
 //
 // Phase 16 (voice input, plan 03): Mic button lives in the SAME slot as the
 // send button (D-16-01). Visibility rule (computed as `showMicButton`):
-//   voice.state === "idle" && text.trim() === "" && !asideActive && !queueArmed && !hasAttachments
+//   voice.state === "idle" && text.trim() === "" && !asideActive && !hasAttachments
 // In every other idle scenario the existing send/X-for-Resume button renders.
 // While `voice.state === "recording"`, RecordingControls own the slot.
 // While `voice.state === "transcribing"`, the existing send button renders disabled.
@@ -291,18 +290,6 @@ export interface ComposeBoxProps {
   tmuxSession?: string | null;
   // Optional: pane's registered identity displayName (e.g. "Tina"). Used to personalize the "Message …" textarea placeholder. Falls back to "Claude" when omitted or empty.
   identityName?: string;
-  // Patch #84: PTY-side "Claude is currently working" signal from the
-  // terminal WebSocket (patch #13 mechanism). `false` = Claude quiet
-  // ≥4s AND foreground = claude → session idle. `true` = actively
-  // working. `null` = backend has not spoken yet on the current
-  // attach → do not treat as idle.
-  //
-  // Used by the Queue (Hourglass) button watchdog: while a message is
-  // queued, we wait for isIdle === true to hold continuously for 3s
-  // before dispatching. Combined with the backend's ~4s isIdle
-  // debounce this yields ~7s effective delay from Claude's last
-  // output — locked with user 2026-07-19.
-  isIdle?: boolean | null;
   // ============================================================
   // Phase 05 upload wiring — all optional so existing read-only /
   // no-uploads callers stay backward-compatible.
@@ -590,7 +577,6 @@ export function ComposeBox({
   hostId,
   tmuxSession,
   identityName,
-  isIdle,
   onGoodToGo,
   onInterrupt,
   stagedAttachments,
@@ -736,49 +722,6 @@ export function ComposeBox({
   // keyword branch where parseFloat resolves to NaN.
   const maxHeightPxRef = useRef<number | null>(null);
 
-  // Vehicle C v2 (2026-08-01): per-source FIFO queue for "send when idle".
-  // Each entry pairs a source key ("primary" for the main textarea, or a
-  // queueSlot id string) with the trimmed text captured at arm-time.
-  // Idle watchdog fires ONE head entry per idle event — sequential cadence
-  // across N armed textareas emerges naturally from the session cycling
-  // working→idle between dispatches. Retires patch #84's single-slot
-  // `queuedText: string | null` — that design blocked "arm N textareas and
-  // walk away" because arming a second textarea would overwrite the first.
-  // 3s idle threshold + strict `isIdle !== true` gate carry over unchanged.
-  type QueueEntry = { source: "primary" | string; text: string };
-  const [queue, setQueue] = useState<QueueEntry[]>([]);
-  const dispatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Helpers for the per-source queue. `isSourceArmed` answers the
-  // per-textarea overlay/disabled-gate questions. `queueArmed` is the
-  // any-armed roll-up (mostly for the idle watchdog effect's gate).
-  // `armSourceForIdle` trims the text, no-ops on empty, upserts in place
-  // on an existing source (preserves FIFO position — user retype does
-  // NOT jump the queue), and clears errorMessage. `cancelSourceArmed`
-  // filters out one source (source-scoped cancel; other armed sources
-  // persist).
-  function isSourceArmed(source: "primary" | string): boolean {
-    return queue.some((e) => e.source === source);
-  }
-  const queueArmed = queue.length > 0;
-  function armSourceForIdle(source: "primary" | string, sourceText: string): void {
-    const trimmed = sourceText.trim();
-    if (!trimmed) return;
-    setErrorMessage(null);
-    setQueue((prev) => {
-      const existingIdx = prev.findIndex((e) => e.source === source);
-      if (existingIdx >= 0) {
-        const next = prev.slice();
-        next[existingIdx] = { source, text: trimmed };
-        return next;
-      }
-      return [...prev, { source, text: trimmed }];
-    });
-  }
-  function cancelSourceArmed(source: "primary" | string): void {
-    setQueue((prev) => prev.filter((e) => e.source !== source));
-  }
-
   // Bounty message-queue-in-pretty-view: per-slot message queue state.
   // queueSlots: array of {id, text} objects rendered as stacked textareas
   // above Row 2. micTarget tracks which slot (or "primary") owns the mic.
@@ -898,17 +841,6 @@ export function ComposeBox({
 
   // Normalize the nullable prop for storage-boundary calls.
   const tmuxSessionKey: string | null = tmuxSession ?? null;
-
-  // quick-260802-w9e: composite key for the session-queue-pending-store.
-  // Shape `${hostId}:${tmuxSession ?? ""}` MATCHES sessionWorkingKey() at
-  // PrettyConversationsPanel.tsx:95-98 verbatim so both the working-store
-  // and the queue-pending-store are looked up with the SAME string. Guarded
-  // on `hostId` truthiness — 0 is not a valid host id in the fork's schema
-  // but the extra guard covers the "props not yet wired" edge case at zero
-  // cost. Nullish when unable to publish; the effects below early-return.
-  const sessionKey: string | null = hostId
-    ? `${hostId}:${tmuxSession ?? ""}`
-    : null;
 
   const clearDebounce = useCallback(() => {
     if (debounceTimerRef.current) {
@@ -1331,173 +1263,7 @@ export function ComposeBox({
     });
   }, [clearDebounce, hostId, tmuxSessionKey]);
 
-  // Vehicle C v2 (2026-08-01): dispatch queue[0] (head-of-FIFO) when the
-  // idle watchdog fires. Only ONE entry per idle event — sequential cadence
-  // across N armed textareas emerges from the session cycling working→idle
-  // between dispatches. Ink safety: normalize newlines (CR out, LF kept)
-  // before send, matching handleSend. Fail-loud on dispatch failure per user
-  // 2026-07-19 (do NOT retry silently). Source-specific cleanup on success:
-  // primary → clear text + clearAfterSend(); slot → drop slot from
-  // queueSlots + scheduleAutosave. useCallback is REQUIRED — the watchdog
-  // effect keeps a ref via its dependency array; a bare function decl would
-  // capture a stale `queue` between arm and timer fire.
-  // Phase 68 follow-up: hoist funnel declaration above fireNextQueued so the
-  // arm-idle drainer can route through funnel.send. React hook-order rules
-  // remain satisfied (useComposeSend's inner useCallback fires before
-  // fireNextQueued's useCallback in the same consistent order every render).
   const funnel = useComposeSend({ hostId, tmuxSession, identityName, onSend, onOptimisticSend });
-
-  const fireNextQueued = useCallback(() => {
-    if (queue.length === 0) return;
-    const head = queue[0];
-
-    // quick-260829-nt9: attachment branch for cadence-fired slot sends.
-    // If the head-of-queue entry is a slot (not "primary") and has staged
-    // attachments, route through onSendWithAttachments and await the outcome
-    // before removing the slot. On failure: preserve the slot + surface error
-    // (the next idle=true tick will re-arm the watchdog if the slot is still
-    // in the queue, so user can retry by either re-sending or letting the
-    // cadence re-fire). Wraps in an async IIFE — the outer useCallback returns
-    // void.
-    if (head.source !== "primary" && onSendWithAttachments) {
-      const slotId = head.source;
-      const slotTarget = `queued:${slotId}`;
-      const slotAttachments = getStagedAttachmentsForTarget?.(slotTarget) ?? [];
-      if (slotAttachments.length > 0) {
-        const captionPayload = normalizeNewlinesForSend(head.text);
-        console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${head.text.length} attachmentCount=${slotAttachments.length} trigger=queue-item path=attachment mqid=pending target=${slotTarget}`);
-        void (async () => {
-          const outcome = await onSendWithAttachments!(captionPayload, slotTarget);
-          if (outcome.ok) {
-            console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${head.text.length} path=attachment target=${slotTarget}`);
-            setQueue((prev) => prev.filter((_, i) => i !== 0));
-            const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== slotId);
-            setQueueSlots(nextSlots);
-            scheduleAutosave(latestBodyRef.current, nextSlots);
-            clearStagedForTarget?.(slotTarget);
-            return;
-          }
-          if (outcome.reason === "superseded") return;
-          const userMessage = getBatchFailureUserMessage(outcome.reason);
-          console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${head.text.length} path=attachment target=${slotTarget} reason=${outcome.reason} message=${outcome.message ?? ""}`);
-          setErrorMessage(userMessage);
-          // Deliberately do NOT shift head from queue or filter slot — failure
-          // preservation posture. The next idle=true cycle will re-arm the
-          // watchdog, and user can intervene (clear slot or hit Send).
-        })();
-        return;
-      }
-    }
-
-    const payload = normalizeNewlinesForSend(head.text);
-    // Phase 68 follow-up: route the arm-idle drainer's text-only branch through
-    // the funnel so cadence-fired queue sends get optimistic bubbles + dormancy
-    // wake, matching every other user-initiated send affordance.
-    const dispatched = funnel.send(payload, { trigger: "queue-item" });
-    if (dispatched) {
-      setQueue((prev) => prev.filter((_, i) => i !== 0));
-      if (head.source === "primary") {
-        setText("");
-        clearAfterSend();
-      } else {
-        const slotId = head.source;
-        const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== slotId);
-        setQueueSlots(nextSlots);
-        scheduleAutosave(latestBodyRef.current, nextSlots);
-      }
-    } else {
-      setQueue((prev) => prev.filter((_, i) => i !== 0));
-      setErrorMessage("Not connected — queued send failed");
-    }
-  }, [queue, funnel, clearAfterSend, onSendWithAttachments, getStagedAttachmentsForTarget, clearStagedForTarget, hostId, tmuxSession, scheduleAutosave]);
-
-  // Vehicle C v2 (2026-08-01): FIFO-aware idle watchdog. Gate on
-  // `queue.length === 0` (no armed sources → nothing to fire). Strict
-  // `isIdle !== true` — `null` (unknown / backend hasn't spoken) does NOT
-  // trigger, matching the ergonomic contract that the queue only fires when
-  // we KNOW the session went idle. Combined with the backend's ~4s isIdle
-  // debounce this yields ~7s effective delay from Claude's last output.
-  // 3s idle threshold preserved from patch #84 (user 2026-07-19 lock).
-  // fireNextQueued() dispatches ONE head entry per firing — the session's
-  // subsequent working→idle cycle re-runs this effect to fire the next.
-  useEffect(() => {
-    if (queue.length === 0) return;
-    if (isIdle !== true) {
-      // Session is working (or unknown) — cancel any pending fire so
-      // the 3s window resets from the NEXT idle=true transition.
-      if (dispatchTimerRef.current) {
-        clearTimeout(dispatchTimerRef.current);
-        dispatchTimerRef.current = null;
-      }
-      return;
-    }
-    // Idle. If a timer is already pending, keep it — this effect is
-    // idempotent; do NOT restart the countdown just because the deps
-    // rerendered (e.g. via a parent-driven re-render carrying the same
-    // isIdle=true).
-    if (dispatchTimerRef.current !== null) return;
-    dispatchTimerRef.current = setTimeout(() => {
-      dispatchTimerRef.current = null;
-      fireNextQueued();
-    }, 3000);
-    return () => {
-      if (dispatchTimerRef.current) {
-        clearTimeout(dispatchTimerRef.current);
-        dispatchTimerRef.current = null;
-      }
-    };
-  }, [queue, isIdle, fireNextQueued]);
-
-  // Patch #84: unmount cleanup — belt-and-suspenders against the
-  // unmount-while-idle-transitioning race. The watchdog effect's own
-  // cleanup fires on every deps change and would already handle the
-  // common case; this extra effect (empty deps) guarantees a final
-  // timer clear if the component unmounts between deps ticks.
-  useEffect(() => {
-    return () => {
-      if (dispatchTimerRef.current) {
-        clearTimeout(dispatchTimerRef.current);
-        dispatchTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  // ─── session-queue-pending-store publishers (quick-260802-w9e) ─────────────
-  // These two effects publish to `session-queue-pending-store` so
-  // PrettyConversationRow can suppress its patch #137 ready-dot when this
-  // ComposeBox has any armed idle-send messages. Extends the dot predicate at
-  // PrettyConversationRow.tsx:507 with the fourth gate `!hasQueuePending`.
-  // Closes pinned bounty `hide-idle-dot-when-queued-message-waiting-to-send`.
-  //
-  // Key shape (`${hostId}:${tmuxSession ?? ""}`) mirrors sessionWorkingKey()
-  // at PrettyConversationsPanel.tsx:95-98 verbatim so both stores share the
-  // same lookup string.
-  //
-  // We publish `queue` (the armed-for-idle FIFO at line 358) — NOT
-  // `queueSlots` (visual textareas; not all are armed for idle-send). The
-  // bounty targets user's exact ask: "if a queued message is armed to
-  // auto-send the moment the agent goes idle."
-  //
-  // Two separate effects:
-  //   (a) publish effect: deps `[queue, sessionKey]` — fires on every queue
-  //       mutation. The store's own no-op notify guard dedupes redundant
-  //       publishes (e.g. re-renders that don't change queue.length > 0's
-  //       boolean value).
-  //   (b) cleanup effect: deps `[sessionKey]` — fires the cleanup on unmount
-  //       AND on sessionKey changes (host/tmux switch). Kept separate from
-  //       the publish effect so unmount cleanup fires exactly ONCE with the
-  //       final state, not per-mutation.
-  useEffect(() => {
-    if (sessionKey === null) return;
-    publishSessionQueuePending(sessionKey, queue.length > 0);
-  }, [queue, sessionKey]);
-
-  useEffect(() => {
-    if (sessionKey === null) return;
-    return () => {
-      publishSessionQueuePending(sessionKey, false);
-    };
-  }, [sessionKey]);
 
   // Patch #135: auto-grow the textarea with its CONTENTS (not just newlines).
   // The prior newline-count `rows` heuristic left long single-line messages
@@ -1565,12 +1331,6 @@ export function ComposeBox({
     void flushDirty();
   }
 
-  // Vehicle C v2 (2026-08-01): the aux-row Queue (Hourglass) button and
-  // its handleQueue click handler were retired. Arm-idle is now per-
-  // textarea via `armSourceForIdle(source, text)` (see the state block
-  // above); each textarea has its own Arm button and click-to-cancel
-  // overlay. See the primary/queueSlot render blocks below for wiring.
-
   // Newline policy helper: preserve LF, eliminate CR. Ink safety.
   // Extracted from handleSend so queue-slot sends reuse the same logic.
   //
@@ -1612,12 +1372,6 @@ export function ComposeBox({
   // - On success: remove slot from state + trigger autosave
   // - On failure: keep slot + surface errorMessage (mirrors primary handleSend)
   function handleQueueSlotSend(slotId: string) {
-    // Vehicle C v2: source-scoped cancel — send-on-X dequeues X only;
-    // other armed sources persist through the cadence.
-    if (isSourceArmed(slotId)) {
-      cancelSourceArmed(slotId);
-    }
-
     const slot = queueSlots.find((s) => s.id === slotId);
     if (!slot) return;
     const trimmed = slot.text.trim();
@@ -1680,12 +1434,6 @@ export function ComposeBox({
   // branching, newline normalization, Phase 50 D-18 optimistic-bubble
   // seeding) still applies.
   function handleSend(overridePayload?: string, trigger: "enter-key" | "send-button" | "queue-item" | "unknown" = "unknown") {
-    // Vehicle C v2: source-scoped cancel — send on primary dequeues
-    // primary only; other armed sources persist through the cadence.
-    if (isSourceArmed("primary")) {
-      cancelSourceArmed("primary");
-    }
-
     // D-16-05: use override payload if provided (voice send path), otherwise
     // derive from current text state (normal typed-send path).
     const trimmed = overridePayload !== undefined ? overridePayload.trim() : text.trim();
@@ -1956,13 +1704,6 @@ export function ComposeBox({
   // the overlay for 10 minutes. The drain-sweep / pulse animation below
   // still fires unconditionally on click as an always-fire visual affordance.
   function fireResetSyncFx() {
-    // Vehicle C v2: source-scoped cancel — reset dequeues primary only
-    // (reset acts on the primary textarea's context). Other armed
-    // sources persist through the cadence.
-    if (isSourceArmed("primary")) {
-      cancelSourceArmed("primary");
-    }
-
     setErrorMessage(null);
 
     // Patch #83: fire the drain-sweep animation IMMEDIATELY on click,
@@ -2108,11 +1849,6 @@ export function ComposeBox({
   // draft resets to '' so a reload doesn't resurrect it. Failed
   // dispatch leaves both intact.
   function handleQuickSend(quickText: string, options?: { bubbleTextOverride?: string }) {
-    // Vehicle C v2: quick-reply (thumbs-up, recap) is textarea-independent —
-    // it does NOT touch the per-source queue. Armed sources persist across
-    // quick-replies so user can fire a canned reply without losing any
-    // arm-idle state on the primary or queueSlots.
-
     setErrorMessage(null);
     // Phase 68 Plan 02: route through the funnel so quick-replies carry an
     // mqid (D-03 invariant) and seed an optimistic bubble (D-01). The
@@ -2140,13 +1876,6 @@ export function ComposeBox({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Vehicle C v2: while primary is armed the textarea is disabled
-    // (`disabled={primaryArmed}` on the primary Textarea below), so
-    // keydown normally cannot reach us. Defense in depth against any
-    // focus-restoration race — swallow all keys silently while the
-    // primary source is armed. Slot arm state is orthogonal and does
-    // NOT gate the primary textarea's key handling.
-    if (isSourceArmed("primary")) return;
     // Quick 260729-j8l: during session recycle the Send button is
     // disabled (via sendDisabled below) but the textarea stays typeable
     // so user can pre-draft the next message. Swallow the Enter-send
@@ -2169,18 +1898,6 @@ export function ComposeBox({
     // textarea is focused.
   }
 
-  // Vehicle C v2 (2026-08-01): the derived queueArmed / queueDisabled
-  // block for the retired aux-row Queue (Hourglass) button was removed.
-  // The `queueArmed` roll-up is declared once inside the per-source
-  // state block above (const queueArmed = queue.length > 0) and is used
-  // by the idle watchdog. Per-textarea gates use `isSourceArmed(source)`.
-
-  // Vehicle C v2 (2026-08-01): send-button slot visibility gates. Mic and
-  // arm-idle COEXIST — 260729-3y1 lock: mic stays reachable regardless of
-  // textarea contents. Mic hides only while the PRIMARY source is armed
-  // (the overlay covers the slot). Arm-idle button appears only when there
-  // IS text to arm and the primary is not already armed.
-  //
   // showMicButton: mic CO-RENDERS beside the send button when:
   //   - navigator.mediaDevices is available (browser supports getUserMedia;
   //     JSDOM guard so tests that don't mock mediaDevices still see Send)
@@ -2189,24 +1906,6 @@ export function ComposeBox({
   //     disabled via the disabled prop so a second concurrent recording
   //     cannot start — Quick 260802-uow bounty 1)
   //   - aside-morph is NOT active (X-for-Resume owns the slot when true)
-  //   - primary source is NOT armed (armed overlay covers the slot)
-  //
-  // showPrimaryArmButton: per-textarea arm-idle button appears at right-21
-  // (one slot LEFT of Mic at right-11) when:
-  //   - aside-morph is NOT active
-  //   - primary is NOT already armed (would be redundant)
-  //   - textarea has trimmed content to arm
-  //   - recycle is NOT active (recycle disables all WS-side-effect actions)
-  //   Quick 260802-uow bounty 1: voice.state is INTENTIONALLY not gated
-  //   here — send-when-idle while recording on another textarea is a
-  //   valid workflow (user).
-  //   Phase 56 (2026-08-23): the former dormancy-gate prop is removed
-  //   everywhere in this file; this comment kept as historical trace of the
-  //   arm-idle-during-waking bounty that predated the invisible-dormancy
-  //   shape (user 2026-08-10 — arm-idle was pure client-state, no WS
-  //   touching, isIdle-gated; the invisible-dormancy shape supersedes this
-  //   design decision by removing the concept of "dormant/waking" from the
-  //   UI entirely).
   //
   // showRecordingControls: while recording, the three-button controls own the slot.
   //   MicButton and send button are both hidden. Gated on isPrimaryRecording
@@ -2218,18 +1917,12 @@ export function ComposeBox({
   //   (T-16-16 mitigation). Quick 260802-uow bounty 2: also gated on
   //   micTarget === "primary" so a slot's transcribing spinner doesn't
   //   render on the primary send button.
-  const primaryArmed = isSourceArmed("primary");
   const isPrimaryRecording = voice.state === "recording" && micTarget === "primary";
   const isPrimaryTranscribing = voice.state === "transcribing" && micTarget === "primary";
   const showTranscribingSend = isPrimaryTranscribing;
 
   // Patch #129: inside-textarea Send button disabled predicate. Locked with
-  // user 2026-07-23 (console-iterated visual). Vehicle C v2 (2026-08-01):
-  // gate on `primaryArmed` (source-scoped) instead of `queueArmed` — Send
-  // lives on the primary textarea, so a slot being armed must NOT disable
-  // the primary Send. Truth table:
-  //   - primaryArmed → disabled (button lives under the primary armed overlay
-  //     but native disabled is belt-and-suspenders vs any pointer-events edge).
+  // user 2026-07-23 (console-iterated visual). Truth table:
   //   - canSend === false && !hasAttachments → disabled (text-only send
   //     would fail with no transport; attachment path routes independently
   //     via onSendWithAttachments so it survives a canSend===false WS state).
@@ -2243,7 +1936,6 @@ export function ComposeBox({
   // for the primaryHold construction (which itself moved up so its
   // holdInitiatedRef can be read inside showMicButton).
   const sendDisabled =
-    primaryArmed ||
     recycleActive === true ||
     reconnectingActive === true ||
     (canSend === false && !hasAttachments) ||
@@ -2318,20 +2010,7 @@ export function ComposeBox({
     navigator.mediaDevices != null &&
     (!isPrimaryRecording || primaryHold.holdInitiatedRef.current) &&
     (!isPrimaryTranscribing || primaryHold.holdInitiatedRef.current) &&
-    !asideActive &&
-    !primaryArmed;
-  const showPrimaryArmButton =
-    !asideActive &&
-    !primaryArmed &&
-    text.trim() !== "" &&
-    !recycleActive &&
-    !reconnectingActive;
-  // Quick 260802-uow bounty 3: when 3 buttons render on the primary
-  // (send at right-1 + mic at right-11 + arm-idle at right-21), pr-10
-  // is undersized — typed text visually crowds under the mic and
-  // arm-idle icons. Bump right padding to pr-32 (128px) only when the
-  // 3-button state is active. 2-button states keep pr-10.
-  const primaryThreeButtonState = showMicButton && showPrimaryArmButton;
+    !asideActive;
 
   // Phase 16: merge voice.errorMessage into the existing displayError. The error
   // display block renders only one message at a time; voice errors are transient
@@ -2626,8 +2305,7 @@ export function ComposeBox({
             this row — the queue-a-message affordance is now the pebble-
             notch QueuePlusTab that rides on the topmost textarea's top
             edge. Vehicle B (quick 260801-62m) stripped the /queue and
-            /bounty prefix-send buttons formerly between Recap and
-            Hourglass.
+            /bounty prefix-send buttons.
             Patch #83 marker: RotateCcw lives in the meter's reset cell. */}
         <div className="flex flex-row gap-1">
           {/* Quick 260909-cdi: the aux-row Queue-a-message ListPlus button
@@ -2741,13 +2419,6 @@ export function ComposeBox({
           >
             <CircleHelp className="size-4" />
           </Button>
-          {/* Vehicle C: the aux-row Queue (Hourglass) button was retired —
-              send-when-idle is now per-textarea. See per-textarea Arm
-              button in the queueSlot map below AND in the primary
-              textarea's send-button slot further down (at right-21, one
-              slot LEFT of mic at right-11). Mic and Arm-idle COEXIST —
-              260729-3y1 lock: mic stays reachable regardless of text
-              content. */}
         </div>
       </div>
       )}
@@ -2772,7 +2443,6 @@ export function ComposeBox({
               voice={voice}
               micTarget={micTarget}
               setMicTarget={setMicTarget}
-              isSourceArmed={isSourceArmed}
               asideActive={asideActive}
               recycleActive={recycleActive}
               reconnectingActive={reconnectingActive}
@@ -2784,10 +2454,7 @@ export function ComposeBox({
               }}
               scheduleAutosave={scheduleAutosave}
               latestBody={latestBodyRef.current}
-              queue={queue}
               handleQueueSlotSend={handleQueueSlotSend}
-              armSourceForIdle={armSourceForIdle}
-              cancelSourceArmed={cancelSourceArmed}
               handleVoiceCancel={handleVoiceCancel}
               handleVoiceAppend={handleVoiceAppend}
               handleVoiceSend={handleVoiceSend}
@@ -2897,7 +2564,6 @@ export function ComposeBox({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          disabled={primaryArmed}
           placeholder={`Message ${identityName || "Claude"}…`}
           rows={1}
           // Quick 260802-wxy: dynamic paddingTop grows with the overlaid
@@ -2982,11 +2648,6 @@ export function ComposeBox({
             // 40px right padding while the 16px left padding survives.
             // No `!` needed — no dark: variant conflict on padding.
             "pr-10",
-            // Quick 260802-uow bounty 3: bump right padding to clear
-            // mic (right-11) + arm-idle (right-21) when all 3 buttons
-            // render on the primary. tailwind-merge later-wins dedupes
-            // pr-10 vs pr-32. 2-button states keep pr-10.
-            primaryThreeButtonState && "pr-32",
             // Quick 260730-vtk: mirrors the `pr-10` above on the LEFT
             // when the inside-textarea Paperclip is present
             // (showPaperclip=true → 44px matching left padding on the
@@ -3010,57 +2671,7 @@ export function ComposeBox({
           // Note: NOT disabled when canSend===false — user can compose
           // during a transient disconnect and send when WS reconnects.
           // The send button is disabled; the error will surface on attempt.
-          // (Vehicle C v2 DOES disable via `disabled={primaryArmed}` above —
-          // that gate is orthogonal: it applies only while the PRIMARY source
-          // is armed, restoring editability the instant the primary clears
-          // or is cancelled via the overlay click below.)
         />
-        {/* Vehicle C v2 (2026-08-01): primary armed overlay. Rendered as a
-            <button> with pointer-events-auto so the entire scrim is
-            click-to-cancel (source-scoped — cancels ONLY the primary
-            source; slot arm states persist). `rounded-[10px]` matches the
-            Textarea's rounded-[10px] so corners align. Dark warm-cool
-            scrim + tight blur reads as "held, waiting" without hiding
-            whatever the user composed. */}
-        {primaryArmed && (
-          /* Quick 260803-05i (Task 3, bounty adjust-visual-on-queued-
-             messages): restructured from a vertical icon-above-label stack
-             to a single inline row: icon + label + fire-order badge (when
-             queueSlots.length >= 2) + literal lowercase "click to cancel"
-             copy. Unified gate `queueSlots.length >= 2` on both primary
-             and queued overlays for visual consistency (see plan
-             deviation note). Icon shrunk from size-5 → size-4 to sit
-             inline. Cancel onClick unchanged. */
-          <button
-            type="button"
-            onClick={() => cancelSourceArmed("primary")}
-            aria-label="Cancel queued send"
-            title="Cancel queued send"
-            className={cn(
-              "absolute inset-0 flex flex-row items-center justify-center gap-2 px-3",
-              "rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]",
-              "cursor-pointer",
-            )}
-          >
-            <RotateCwFadingClock className="size-4 text-[hsla(38,70%,72%,0.9)]" />
-            <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
-              Queued — waiting for idle
-            </span>
-            {queueSlots.length >= 2 && (() => {
-              const idx = queue.findIndex((e) => e.source === "primary");
-              if (idx < 0) return null;
-              return (
-                <span
-                  data-testid="fire-order-badge"
-                  className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[rgba(220,225,245,0.10)] text-[hsla(38,60%,80%,0.9)]"
-                >
-                  {idx + 1}/{queueSlots.length}
-                </span>
-              );
-            })()}
-            <span className="text-xs text-[hsla(38,60%,80%,0.7)]">click to cancel</span>
-          </button>
-        )}
         {/* Quick 260730-vtk: Paperclip attach button moved from Row 1
             aux group to here per user 2026-07-30. Mirrors Send's
             inside-textarea pattern on the LEFT (Send is right-1
@@ -3244,14 +2855,9 @@ export function ComposeBox({
                 right-1 anchor). voice.start() is passed directly (NOT wrapped
                 in async) so the first statement inside is the synchronous
                 getUserMedia call (D-16-02 iOS Safari constraint). Guards are
-                mediaDevices + voice.state==="idle" + !asideActive + !primaryArmed
-                (see the showMicButton predicate above) — text length and
-                attachment presence no longer factor in.
-                Vehicle C v2 (2026-08-01): mic + arm-idle COEXIST on the
-                primary textarea. Arm-idle sits at right-21 bottom-0.5 —
-                one slot LEFT of mic (right-11) — gated on non-empty text
-                and !primaryArmed. Both are absolutely positioned inside
-                the same relative parent (40px separation). */}
+                mediaDevices + voice.state==="idle" + !asideActive (see the
+                showMicButton predicate above) — text length and attachment
+                presence no longer factor in. */}
             {showMicButton && (
               <MicButton
                 // Quick 260814-1hz: hold-to-record now lives on MicButton.
@@ -3285,24 +2891,6 @@ export function ComposeBox({
                 title="Record voice"
                 positionClass="right-11 bottom-0.5"
               />
-            )}
-            {showPrimaryArmButton && (
-              <button
-                type="button"
-                onClick={() => armSourceForIdle("primary", text)}
-                aria-label="Send when idle"
-                title="Send when idle"
-                className={cn(
-                  "absolute right-21 bottom-0.5",
-                  "p-2",
-                  "text-[#f0ebe0] opacity-30 hover:opacity-90",
-                  "transition-[color,opacity,transform] duration-120",
-                  "active:scale-95",
-                  "cursor-pointer",
-                )}
-              >
-                <RotateCwFadingClock className="size-6" aria-hidden="true" />
-              </button>
             )}
           </>
         )}
@@ -3396,7 +2984,6 @@ interface QueuedRowProps {
   // the synthesized click on iOS Safari, so beginRecord(slot.id)'s onClick
   // never runs — the pointerdown wrapper is the only reliable seam).
   setMicTarget: React.Dispatch<React.SetStateAction<"primary" | string>>;
-  isSourceArmed: (source: "primary" | string) => boolean;
   asideActive?: boolean;
   recycleActive?: boolean;
   // Reconnect window: same OR-in treatment — queued-row Send is disabled
@@ -3410,12 +2997,7 @@ interface QueuedRowProps {
   onSlotsChange: (next: Array<{ id: string; text: string }>) => void;
   scheduleAutosave: (nextBody: string, nextSlots?: Array<{ id: string; text: string }>) => void;
   latestBody: string;
-  // Quick 260803-05i (Task 3): queue FIFO — used to compute this slot's
-  // fire-order badge index inside the armed overlay.
-  queue: Array<{ source: "primary" | string; text: string }>;
   handleQueueSlotSend: (slotId: string) => void;
-  armSourceForIdle: (source: "primary" | string, sourceText: string) => void;
-  cancelSourceArmed: (source: "primary" | string) => void;
   handleVoiceCancel: () => void;
   handleVoiceAppend: (target: "primary" | string) => void | Promise<void>;
   handleVoiceSend: (target: "primary" | string) => void | Promise<void>;
@@ -3437,17 +3019,13 @@ function QueuedRow(props: QueuedRowProps) {
     voice,
     micTarget,
     setMicTarget,
-    isSourceArmed,
     asideActive,
     recycleActive,
     reconnectingActive,
     canSend,
     queueSlots,
     onSlotsChange,
-    queue,
     handleQueueSlotSend,
-    armSourceForIdle,
-    cancelSourceArmed,
     handleVoiceCancel,
     handleVoiceAppend,
     handleVoiceSend,
@@ -3515,8 +3093,6 @@ function QueuedRow(props: QueuedRowProps) {
 
   const isSlotRecording = voice.state === "recording" && micTarget === slot.id;
   const isSlotTranscribing = voice.state === "transcribing" && micTarget === slot.id;
-  const slotArmed = isSourceArmed(slot.id);
-  const slotHasText = slot.text.trim() !== "";
   const isSlotActiveMic = isSlotRecording || isSlotTranscribing;
   const showSlotTranscribingSend = isSlotTranscribing;
   // M-2 (Phase 32): extract disabled predicate as a shared local so the JSX
@@ -3528,7 +3104,6 @@ function QueuedRow(props: QueuedRowProps) {
   const slotSendDisabled =
     showSlotTranscribingSend ||
     slot.text.trim() === "" ||
-    slotArmed ||
     recycleActive === true ||
     reconnectingActive === true;
   // Quick 260814-1hz: hold-to-record gesture MOVED from the slot send button
@@ -3585,22 +3160,7 @@ function QueuedRow(props: QueuedRowProps) {
     typeof navigator !== "undefined" &&
     navigator.mediaDevices != null &&
     (!isSlotActiveMic || slotHold.holdInitiatedRef.current) &&
-    !asideActive &&
-    !slotArmed;
-  // Phase 56 (2026-08-23): the former dormancy-gate boolean prop is fully
-  // deleted; this comment preserved as historical trace of the arm-idle-
-  // during-waking design decision that predated the invisible-dormancy
-  // shape (user 2026-08-10 — arm is pure client state, dispatch is
-  // isIdle-gated). Sibling recycle/plan/reconnect gates preserved as
-  // intended.
-  const showSlotArmButton =
-    !asideActive &&
-    !slotArmed &&
-    slotHasText &&
-    !reconnectingActive;
-  // Quick 260802-uow bounty 3 (parity with primary): bump right padding
-  // when send + mic + arm-idle all render together.
-  const slotThreeButtonState = showSlotMic && showSlotArmButton;
+    !asideActive;
   // B-3 (Phase 32, slot variant): gate on !holdInitiatedRef so a hold-initiated
   // slot recording does NOT swap in RecordingControls under the pointer
   // (CONTEXT.md § Visual during hold — LOCKED). Mic-tap slot path leaves
@@ -3673,7 +3233,6 @@ function QueuedRow(props: QueuedRowProps) {
         </div>
         <Textarea
           value={slot.text}
-          disabled={slotArmed}
           onChange={(e) => {
             const nextText = e.target.value;
             const nextSlots = queueSlots.map((s) =>
@@ -3691,8 +3250,7 @@ function QueuedRow(props: QueuedRowProps) {
             // Shift+Enter falls through to the browser default (newline
             // insertion). Gated on `slotSendDisabled` — the same predicate
             // that disables the slot Send button — so transcribing / empty
-            // text / slotArmed / recycle / reconnecting all
-            // no-op via one source of truth.
+            // text / recycle / reconnecting all no-op via one source of truth.
             if (e.key !== "Enter" || e.shiftKey) return;
             e.preventDefault();
             if (slotSendDisabled) return;
@@ -3722,9 +3280,6 @@ function QueuedRow(props: QueuedRowProps) {
             "rounded-[10px] px-4 py-3",
             // Quick 260803-05i (Task 1): paperclip clearance parity.
             "pr-10 pl-11",
-            // Quick 260802-uow bounty 3: bump right padding when
-            // send + mic + arm-idle all render.
-            slotThreeButtonState && "pr-32",
             "placeholder:text-[var(--color-pv-fg-dim)]",
             "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
             "transition-[box-shadow,border-color] duration-200",
@@ -3733,49 +3288,6 @@ function QueuedRow(props: QueuedRowProps) {
             "focus-visible:ring-0 focus-visible:outline-none",
           )}
         />
-        {/* Vehicle C v2 (2026-08-01): per-slot armed overlay. Rendered as
-            a <button> with pointer-events-auto so the entire scrim is
-            click-to-cancel (source-scoped — cancels ONLY this slot).
-            rounded-[10px] matches the slot Textarea's rounding so
-            corners align.
-            Quick 260803-05i (Task 3, bounty adjust-visual-on-queued-
-            messages): restructured from a vertical icon-above-label stack
-            to a single inline row: icon + label + fire-order badge (when
-            queueSlots.length >= 2) + literal lowercase "click to cancel"
-            copy. Icon shrunk from size-5 → size-4 to sit inline. Cancel
-            onClick unchanged — the entire scrim is still the cancel
-            affordance. */}
-        {slotArmed && (
-          <button
-            type="button"
-            onClick={() => cancelSourceArmed(slot.id)}
-            aria-label="Cancel queued send"
-            title="Cancel queued send"
-            className={cn(
-              "absolute inset-0 flex flex-row items-center justify-center gap-2 px-3",
-              "rounded-[10px] bg-[rgba(10,12,20,0.72)] backdrop-blur-[2px]",
-              "cursor-pointer",
-            )}
-          >
-            <RotateCwFadingClock className="size-4 text-[hsla(38,70%,72%,0.9)]" />
-            <span className="text-sm text-[hsla(38,60%,80%,0.85)] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]">
-              Queued — waiting for idle
-            </span>
-            {queueSlots.length >= 2 && (() => {
-              const idx = queue.findIndex((e) => e.source === slot.id);
-              if (idx < 0) return null;
-              return (
-                <span
-                  data-testid="fire-order-badge"
-                  className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[rgba(220,225,245,0.10)] text-[hsla(38,60%,80%,0.9)]"
-                >
-                  {idx + 1}/{queueSlots.length}
-                </span>
-              );
-            })()}
-            <span className="text-xs text-[hsla(38,60%,80%,0.7)]">click to cancel</span>
-          </button>
-        )}
         {/* Quick 260803-05i (Task 1): Paperclip attach button — absolute
             left-1 bottom-0.5. Routes to onAttachFilesForTarget via
             handleOpenFilePicker(`queued:${slot.id}`).
@@ -3890,24 +3402,6 @@ function QueuedRow(props: QueuedRowProps) {
                 title="Record voice"
                 positionClass="right-11 bottom-0.5"
               />
-            )}
-            {showSlotArmButton && (
-              <button
-                type="button"
-                onClick={() => armSourceForIdle(slot.id, slot.text)}
-                aria-label="Send when idle"
-                title="Send when idle"
-                className={cn(
-                  "absolute right-21 bottom-0.5",
-                  "p-2",
-                  "text-[#f0ebe0] opacity-30 hover:opacity-90",
-                  "transition-[color,opacity,transform] duration-120",
-                  "active:scale-95",
-                  "cursor-pointer",
-                )}
-              >
-                <RotateCwFadingClock className="size-6" aria-hidden="true" />
-              </button>
             )}
           </>
         )}

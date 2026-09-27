@@ -1026,9 +1026,9 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
   // user 2026-09-21 decouple: idle rows have NOTHING; working rows get a
   // slow dashed spinner ring on the avatar via `.pv-row.spinner-on
   // .pv-avatar::before`. The `spinner-on` class is JS-emitted by the
-  // decoupled gate `isWorking===true || isRecycling || hasQueuePending` —
-  // no `inActiveSet` conjunct. For a non-working row (regardless of
-  // active-set membership), all three predicates are false → NO spinner-on.
+  // decoupled gate `isWorking===true || isRecycling` — no `inActiveSet`
+  // conjunct. For a non-working row (regardless of active-set membership),
+  // both predicates are false → NO spinner-on.
   // This test locks that panel-level integration for the idle-ambient case
   // — the row-level P47-15 lock covers the WORKING-ambient case (ambient
   // working rows now DO spin, decoupled from client-side active-set state).

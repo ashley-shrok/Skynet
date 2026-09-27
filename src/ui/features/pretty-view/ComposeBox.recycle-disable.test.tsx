@@ -83,7 +83,7 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
     expect(screen.queryByLabelText("Resume")).toBeNull();
   });
 
-  it("B2: recycleActive=true — aux WS-side-effect buttons (reset, thumbs-up, recap) disabled; aux Queue button removed per Vehicle C", () => {
+  it("B2: recycleActive=true — aux WS-side-effect buttons (reset, thumbs-up, recap) disabled", () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -99,8 +99,6 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
     expect(resetBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);
     expect(explainBtn.disabled).toBe(true);
-    expect(screen.queryByLabelText("Queue send for when session goes idle")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Send when idle" })).toBeNull();
   });
 
   it("B3: recycleActive=true — textarea stays typeable", () => {

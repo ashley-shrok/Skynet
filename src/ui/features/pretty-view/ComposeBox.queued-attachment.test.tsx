@@ -1,16 +1,11 @@
 // Regression suite: queued-slot attachment send (quick-260829-nt9).
 //
-// 6 tests covering three queued-slot send entry points + two guardrails:
+// 5 tests covering queued-slot send entry points + guardrails:
 //   Test 1 — handleQueueSlotSend WITH attachment → onSendWithAttachments
 //   Test 2 — handleQueueSlotSend WITH attachment, outcome.ok=false → slot + chips preserved, error shown
-//   Test 3 — fireNextQueued (cadence) WITH attachment → onSendWithAttachments
 //   Test 4 — handleVoiceSend slot-target WITH attachment → onSendWithAttachments
 //   Test 5 — handleQueueSlotSend with NO attachment → text-only onSend path preserved
 //   Test 6 — primary compose send with attachment still works (backward-compat)
-//
-// Tests 1-4 fail RED before the production changes in Task 2 land (those entry
-// points currently route through text-only onSend and discard staged
-// attachments). Tests 5-6 pass from the start (guardrails — preserved paths).
 //
 // Voice mock choice (Test 4): uses full MediaRecorder + fetch stub matching
 // ComposeBox.voice.test.tsx. Reason: the voice-send path in ComposeBox calls
@@ -19,11 +14,6 @@
 // the MediaRecorder + fetch stub approach exercises the real hook and keeps
 // this suite consistent with the adjacent voice test.
 //
-// Cadence mock choice (Test 3): uses isIdle=true prop + vi.useFakeTimers() +
-// vi.advanceTimersByTime(3001) — the same seam the idle watchdog effect
-// uses. The slot is armed via its "Send when idle" button before advancing
-// time. This mirrors how ComposeBox.test.tsx exercises the arm-idle feature.
-
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import type { StagedAttachmentLike } from "./AttachmentChipStrip";
@@ -302,109 +292,6 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
     await waitFor(() => {
       expect(screen.getByText("Upload failed — try again.")).toBeTruthy();
     });
-  });
-
-  it("Test 3: fireNextQueued WITH attachment on head-of-queue routes to onSendWithAttachments", async () => {
-    vi.useFakeTimers();
-    // Note: Test 3 uses fake timers specifically to advance the 3000ms idle
-    // watchdog timer. waitFor calls in this test use flushMicrotasks/act
-    // instead of waitFor so there is no fake-timer / waitFor conflict.
-
-    const onSend = vi.fn(() => true);
-    const clearStagedForTarget = vi.fn();
-    const onSendWithAttachments = vi.fn(() =>
-      Promise.resolve({ ok: true as const }),
-    );
-
-    // We don't know the auto-generated slot IDs ahead of time, so we
-    // capture the slot IDs after adding slots and return an attachment
-    // for the head slot only — the topmost row, which under quick 260909-cdi
-    // prepend semantics is the MOST RECENTLY created slot (index 0 of
-    // queueSlots after two plus-tab clicks). The getStagedAttachmentsForTarget
-    // mock is set up dynamically after slots are rendered.
-    // Start with an empty implementation; we'll update it after rendering.
-    let headSlotTarget = "";
-    const getStagedAttachmentsForTarget = vi.fn((target: string) =>
-      target === headSlotTarget ? [mkAtt("f1", "doc.pdf")] : [],
-    );
-
-    render(
-      <ComposeBox
-        {...baseProps({
-          onSend,
-          onSendWithAttachments,
-          getStagedAttachmentsForTarget,
-          clearStagedForTarget,
-          onRemoveAttachment: vi.fn(),
-          // isIdle=true enables the idle watchdog once queue is armed.
-          isIdle: true,
-        })}
-      />,
-    );
-    await flushMountEffect();
-
-    // Add two slots.
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
-
-    // Capture the auto-generated slot IDs via data-slot-id so we can configure
-    // getStagedAttachmentsForTarget to return an attachment for the head slot.
-    const slotContainers = document.querySelectorAll("[data-slot-id]");
-    expect(slotContainers.length).toBeGreaterThanOrEqual(2);
-    // slots render above primary; queue-260909-cdi prepend semantics mean
-    // index 0 = topmost row = most recently created ("head" here is
-    // POSITIONAL, not temporal).
-    headSlotTarget = `queued:${slotContainers[0].getAttribute("data-slot-id")}`;
-
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    // index 0 = topmost (newest) slot's textarea, index 1 = second slot's
-    // textarea (older), index 2 = primary. "head"/"tail" naming below is
-    // POSITIONAL only.
-    const headTextarea = allTextareas[0];
-    const tailTextarea = allTextareas[1];
-
-    await act(async () => {
-      fireEvent.change(headTextarea, { target: { value: "first" } });
-    });
-    await act(async () => {
-      fireEvent.change(tailTextarea, { target: { value: "second" } });
-    });
-
-    // Arm the head slot for idle-send by clicking its "Send when idle" button.
-    const armButtons = screen.getAllByRole("button", { name: /send when idle/i });
-    // The first arm button corresponds to the first (head) slot.
-    await act(async () => {
-      fireEvent.click(armButtons[0]);
-    });
-
-    // Advance 3001ms to fire the idle watchdog timer.
-    await act(async () => {
-      vi.advanceTimersByTime(3001);
-    });
-    await flushMicrotasks();
-
-    // onSendWithAttachments called for the head slot.
-    expect(onSendWithAttachments).toHaveBeenCalledTimes(1);
-    const [captionArg, targetArg] = onSendWithAttachments.mock.calls[0] as [string, string];
-    expect(captionArg).toBe("first");
-    // target must be the queued slot target for head.
-    expect(targetArg).toMatch(/^queued:/);
-
-    // text-only onSend NOT called.
-    expect(onSend).not.toHaveBeenCalled();
-
-    // Head slot removed (was armed; tail still present + primary = 2 textareas).
-    // Use act+microtask flush instead of waitFor to avoid fake-timer conflict.
-    await flushMicrotasks();
-    expect(screen.getAllByRole("textbox").length).toBe(2); // tail + primary
-
-    // clearStagedForTarget called for the head slot's target.
-    expect(clearStagedForTarget).toHaveBeenCalledTimes(1);
-    expect(clearStagedForTarget.mock.calls[0][0]).toBe(headSlotTarget);
-
-    vi.useRealTimers();
   });
 
   it("Test 4: handleVoiceSend slot-target WITH attachment routes to onSendWithAttachments", async () => {

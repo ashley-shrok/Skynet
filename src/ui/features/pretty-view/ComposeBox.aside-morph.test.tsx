@@ -10,7 +10,6 @@
  *     - reset button (leftmost cell of the meter well) — disabled when asideActive
  *     - paperclip button — disabled when asideActive
  *     - thumbs-up (Send 'thumbs up') button — disabled when asideActive
- *     - queue (Hourglass) button — disabled when asideActive
  *     - textarea's own `disabled` prop is NOT extended (per CONTEXT.md § ComposeBox morph:
  *       "Textarea remains editable. Any partial draft text is preserved verbatim")
  *

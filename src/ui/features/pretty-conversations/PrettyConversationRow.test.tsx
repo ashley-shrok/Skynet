@@ -529,9 +529,9 @@ describe("PrettyConversationRow: Phase 48 Plan 05 idle-affordance retirement (wa
     // class. Phase 48 Plan 05 retires the ready-dot entirely (user 2026-
     // 08-19 verbatim: "make the spinner work on the same logic as the idle
     // indicator, except you invert it as the final step of logic there").
-    // The 4-input gate `!(inActiveSet && isWorking===false && !isRecycling
-    // && !hasQueuePending)` evaluates to `!(true && true && true && true)`
-    // = `!true` = `false` for this input combination → NO `spinner-on` on
+    // The gate `!(inActiveSet && isWorking===false && !isRecycling)`
+    // evaluates to `!(true && true && true)` = `!true` = `false` for this
+    // input combination → NO `spinner-on` on
     // the row. This test locks BOTH: ready-dot fully absent + row has no
     // spinner-on class (idle-in-active-set is the ONE combination that
     // suppresses the spinner).
@@ -653,19 +653,19 @@ describe("PrettyConversationRow: Phase 13 ready-dot suppression — unknown", ()
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 17 — Ambient (!inActiveSet) IDLE row never spins. user 2026-09-21
 //           decouple: the spinner is gated on the fleet-authoritative work
-//           axis alone (isWorking || isRecycling || hasQueuePending), no
-//           active-set conjunct. An idle row (all three predicates false)
-//           never spins, regardless of active-set membership. Ambient
-//           WORKING rows now DO spin — see P47-15 for that lock.
+//           axis alone (isWorking || isRecycling), no active-set conjunct.
+//           An idle row (both predicates false) never spins, regardless of
+//           active-set membership. Ambient WORKING rows now DO spin — see
+//           P47-15 for that lock.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: idle rows never spin (post-2026-09-21 decouple)", () => {
   it("Test 17: !inActiveSet+isWorking===false has NO ready-dot AND NO `spinner-on` class (idle rows never spin)", () => {
-    // Under the decoupled gate `isWorking===true || isRecycling ||
-    // hasQueuePending`, all three predicates false/undefined collapse the
-    // expression to `false` → no spinner-on. The retired ready-dot is
-    // absent as well. See P47-15 for the working-ambient case (ambient
-    // working rows DO spin under decouple).
+    // Under the decoupled gate `isWorking===true || isRecycling`, both
+    // predicates false/undefined collapse the expression to `false` →
+    // no spinner-on. The retired ready-dot is absent as well. See P47-15
+    // for the working-ambient case (ambient working rows DO spin under
+    // decouple).
     currentIdentity = makeIdentity(210);
     const { container, queryByLabelText } = render(
       <PrettyConversationRow
@@ -726,44 +726,11 @@ describe("PrettyConversationRow: quick-260730-qbl ready-dot suppression — recy
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 15c — [quick-260802-w9e] inActiveSet + isWorking===false +
-//            hasQueuePending===true renders NO ready-dot
-//            (JS gate; extends the row-level dot predicate with the fourth
-//            conjunct `!hasQueuePending` for the pinned bounty
-//            `hide-idle-dot-when-queued-message-waiting-to-send`).
+// Test 15c-guard — idle row with no positive spinner triggers stays quiet
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationRow: quick-260802-w9e ready-dot suppression — queue armed", () => {
-  it("Test 15c: inActiveSet+isWorking===false+hasQueuePending===true renders NO ready-dot (JS gate)", () => {
-    currentIdentity = makeIdentity(210);
-    const { queryByLabelText } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={true}
-        isWorking={false}
-        hasQueuePending={true}
-      />,
-    );
-    // JS gate: `!hasQueuePending` suppresses the ready-dot span entirely
-    // even though the row would otherwise satisfy the pre-w9e predicate
-    // (inActiveSet && isWorking===false && !isRecycling).
-    expect(queryByLabelText("ready")).toBeNull();
-  });
-
-  it("Test 15c-guard (Phase 48 Plan 05 rewrite): hasQueuePending default (false) preserves the READY branch — no ready-dot in DOM + no spinner-on class on row", () => {
-    // Pre-Phase-48 this asserted the ready-dot rendered when hasQueuePending
-    // was omitted (default false). Phase 48 Plan 05 retires the ready-dot;
-    // the READY branch of user's 4-input gate now suppresses the
-    // spinner-on class instead of rendering a positive dot. The guard's
-    // spirit — "the omitted hasQueuePending prop defaults to false and does
-    // NOT accidentally trip the spinner ON" — is preserved by asserting the
-    // spinner-on class stays absent when the other three predicates are
-    // satisfied.
+describe("PrettyConversationRow: idle-in-active-set never spins", () => {
+  it("Test 15c-guard: inActiveSet+isWorking===false renders no ready-dot AND no `spinner-on` class", () => {
     currentIdentity = makeIdentity(210);
     const { container, queryByLabelText } = render(
       <PrettyConversationRow
@@ -775,7 +742,6 @@ describe("PrettyConversationRow: quick-260802-w9e ready-dot suppression — queu
         onTogglePin={vi.fn()}
         inActiveSet={true}
         isWorking={false}
-        /* hasQueuePending omitted — must default to false → no spinner-on */
       />,
     );
     expect(queryByLabelText("ready")).toBeNull();
@@ -838,8 +804,8 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
 
   // isWorking===false on BOTH inActiveSet=true and =false yields NO spinner-on
   // under the decoupled gate (user 2026-09-21 decouple from active-set):
-  //   `showSpinnerOn = isWorking === true || isRecycling || hasQueuePending`
-  //   — with all three predicates false/undefined, the expression collapses
+  //   `showSpinnerOn = isWorking === true || isRecycling`
+  //   — with both predicates false/undefined, the expression collapses
   //   to `false` regardless of `inActiveSet`. Idle rows never spin, whether
   //   ambient or active-set. This invariant held under the prior 2026-08-20
   //   active-set-scoped gate and still holds under the decouple (the two
@@ -2224,18 +2190,15 @@ describe("PrettyConversationRow: Phase 115 Plan 115-06 Archive menu item", () =>
 // suffix; subtitle line = aiTitle (or muted italic ellipsis placeholder
 // when null); Server icon fully retired; ready-dot fully retired; .pv-meta
 // wrapper fully retired; bounty badges relocated to avatar corners; spinner-
-// on className emitted per the decoupled 3-input boolean (user 2026-09-21):
+// on className emitted per the decoupled boolean (user 2026-09-21):
 //
-//   showSpinnerOn = isWorking===true || isRecycling || hasQueuePending
+//   showSpinnerOn = isWorking===true || isRecycling
 //
-// P47-14 and P47-15 are LOAD-BEARING regression guards. P47-14 locks
-// hasQueuePending as a first-class positive trigger. P47-15 locks the
-// decouple — ambient (non-active-set) working rows DO spin, because
-// agent-readiness is client-scope-independent. Together they guard against
-// BOTH the pre-Phase-48 CSS-only gate `.pv-row.active-set:is(.working,
-// .recycling)` (which dropped hasQueuePending) AND the 2026-08-20 active-
-// set-scoped shape (which made the same agent's readiness client-dependent).
-// Do NOT weaken or delete either.
+// P47-15 is a LOAD-BEARING regression guard locking the decouple — ambient
+// (non-active-set) working rows DO spin, because agent-readiness is
+// client-scope-independent. It guards against a regression back to the
+// 2026-08-20 active-set-scoped shape (which made the same agent's readiness
+// client-dependent). Do NOT weaken or delete.
 describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   it("Test P48-01: title line renders identityName + ' (hostname)' suffix (parens contain hostname, single space between name and parens)", () => {
     currentIdentity = { ...makeIdentity(210, "Tanya") };
@@ -2347,7 +2310,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     expect(container.querySelector('svg[width="11"]')).toBeNull();
   });
 
-  it("Test P47-06: `.pv-ready-dot` and `[data-pv-conv-ready-dot]` are ABSENT from the DOM across all four (inActiveSet, isWorking, isRecycling, hasQueuePending) combos", () => {
+  it("Test P47-06: `.pv-ready-dot` and `[data-pv-conv-ready-dot]` are ABSENT from the DOM across all (inActiveSet, isWorking, isRecycling) combos", () => {
     // The ready-dot element is fully retired. Iterating multiple state
     // combinations guards against any residual JSX branch that would emit
     // a `.pv-ready-dot` span under some input combination.
@@ -2355,14 +2318,12 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
       inActiveSet: boolean;
       isWorking: boolean | null;
       isRecycling: boolean;
-      hasQueuePending: boolean;
       label: string;
     }> = [
-      { inActiveSet: true, isWorking: false, isRecycling: false, hasQueuePending: false, label: "READY" },
-      { inActiveSet: true, isWorking: true, isRecycling: false, hasQueuePending: false, label: "working-in-set" },
-      { inActiveSet: false, isWorking: false, isRecycling: false, hasQueuePending: false, label: "idle-out-of-set" },
-      { inActiveSet: true, isWorking: false, isRecycling: true, hasQueuePending: false, label: "recycling" },
-      { inActiveSet: true, isWorking: false, isRecycling: false, hasQueuePending: true, label: "queue-pending" },
+      { inActiveSet: true, isWorking: false, isRecycling: false, label: "READY" },
+      { inActiveSet: true, isWorking: true, isRecycling: false, label: "working-in-set" },
+      { inActiveSet: false, isWorking: false, isRecycling: false, label: "idle-out-of-set" },
+      { inActiveSet: true, isWorking: false, isRecycling: true, label: "recycling" },
     ];
     for (const c of combos) {
       currentIdentity = makeIdentity(210, "tanya");
@@ -2377,7 +2338,6 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
           inActiveSet={c.inActiveSet}
           isWorking={c.isWorking}
           isRecycling={c.isRecycling}
-          hasQueuePending={c.hasQueuePending}
           aiTitle={null}
         />,
       );
@@ -2436,10 +2396,8 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   });
 
   it("Test P47-11: idle-in-active-set row is the READY branch — no `.spinner-on`, no `.working`, no `.recycling` (locks the ONE combination that suppresses the spinner)", () => {
-    // user's 4-input gate: `!(true && true && true && true)` = `!true`
-    // = `false` → no spinner-on emission. This is the ONE and ONLY input
-    // combination that suppresses the spinner. Any other combination
-    // yields spinner-on = true.
+    // Gate: `!(isWorking===true || isRecycling)` — with both false the
+    // expression collapses to false → no spinner-on emission.
     currentIdentity = makeIdentity(210, "tanya");
     const { container } = render(
       <PrettyConversationRow
@@ -2452,7 +2410,6 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
         inActiveSet={true}
         isWorking={false}
         isRecycling={false}
-        hasQueuePending={false}
       />,
     );
     const wrapper = container.querySelector(
@@ -2467,50 +2424,16 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   // Tests P47-12 and P47-13 (both badge wraps render / neither renders — zero-null
   // contract) — RETIRED in Phase 104 Plan 03 alongside the bounty-count wire.
 
-  it("Test P47-14 (LOAD-BEARING): inActiveSet=true + isWorking=false + hasQueuePending=true → row HAS `spinner-on` class (queue-pending trips the spinner even when the row would otherwise satisfy the pre-Phase-48 ready condition)", () => {
-    // user's 4-input gate: `!(true && true && true && false)` =
-    // `!false` = `true` → spinner-on. Under the pre-revision CSS-only
-    // gate `.pv-row.active-set:is(.working, .recycling)` this row would
-    // have failed (it has neither `.working` nor `.recycling` — 2 of the
-    // 4 inputs, hasQueuePending in particular, were invisible to CSS).
-    // This test guards against regression back to the CSS-only shape.
-    currentIdentity = makeIdentity(210, "tanya");
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={true}
-        isWorking={false}
-        isRecycling={false}
-        hasQueuePending={true}
-      />,
-    );
-    const wrapper = container.querySelector(
-      '[data-conversation-id="conv-1"]',
-    ) as HTMLElement;
-    const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    expect(body.className).toContain("spinner-on");
-    // Row does NOT carry `.working` or `.recycling` — the pre-revision
-    // CSS-only gate would have MISSED this row. The JS gate catches it.
-    expect(body.className).not.toContain("working");
-    expect(body.className).not.toContain("recycling");
-  });
-
   it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row HAS `spinner-on` class (agent-readiness is client-scope-independent, user 2026-09-21 decouple)", () => {
-    // Decoupled gate: `showSpinnerOn = isWorking === true || isRecycling ||
-    // hasQueuePending`. `activeSet` is a per-tab client-side artifact and
-    // the wrong axis to gate on — the same agent's readiness must not
-    // appear or disappear depending on which client has the tab open.
-    // `isWorking` and `isRecycling` are backend-authoritative via the
-    // fleet-status poller (Plan 53-03); the spinner lights whenever the
-    // agent is working regardless of active-set membership. This test
-    // locks the decouple — if a future change re-scoped the gate back to
-    // `inActiveSet && ...`, this test would fail. Paired with P47-14
-    // which locks queue-pending as a first-class positive trigger.
+    // Decoupled gate: `showSpinnerOn = isWorking === true || isRecycling`.
+    // `activeSet` is a per-tab client-side artifact and the wrong axis to
+    // gate on — the same agent's readiness must not appear or disappear
+    // depending on which client has the tab open. `isWorking` and
+    // `isRecycling` are backend-authoritative via the fleet-status poller
+    // (Plan 53-03); the spinner lights whenever the agent is working
+    // regardless of active-set membership. This test locks the decouple —
+    // if a future change re-scoped the gate back to `inActiveSet && ...`,
+    // this test would fail.
     currentIdentity = makeIdentity(210, "tanya");
     const { container } = render(
       <PrettyConversationRow
@@ -2523,7 +2446,6 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
         inActiveSet={false}
         isWorking={true}
         isRecycling={false}
-        hasQueuePending={false}
       />,
     );
     const wrapper = container.querySelector(

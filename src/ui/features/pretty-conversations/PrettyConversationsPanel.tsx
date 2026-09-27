@@ -184,7 +184,6 @@ import {
 // Phase 53 Plan 03 — the retired recycling-bridge hook import is REMOVED;
 // now using useSessionIsRecycling from the working-store above
 // (backend-authoritative via Plan 53-01 + Plan 53-02).
-import { useSessionQueuePending } from "@/state/session-queue-pending-store";
 // Phase 92 Plan 04: panel hydrate effect derives pinnedIds from the
 // identities-store's `pinned: boolean` field (populated on-demand from disk
 // by the backend per Plan 92-02) rather than fetching from GET /user-
@@ -353,10 +352,6 @@ function canonicalArchiveIdForRow(row: ConversationRowShape): string | null {
 // reason for the swap. All working-store hooks share the exact same
 // `${hostId}:${tmuxSession ?? ""}` key shape via `sessionWorkingKey()` at
 // line ~162.
-// quick-260802-w9e added the session-queue-pending-store subscription — the
-// row's ready-dot is now suppressed by a FOURTH gate `!hasQueuePending` when
-// this session has an armed idle-send queue in its ComposeBox. Both working-
-// store and queue-pending-store share the same key shape.
 function PrettyConversationRowLive(props: {
   row: ConversationRowShape;
   selected: boolean;
@@ -414,13 +409,6 @@ function PrettyConversationRowLive(props: {
   // null) — the `=== true` coercion at the prop site below is now redundant
   // but simplified to `isRecycling={isRecycling}` for readability.
   const isRecycling = useSessionIsRecycling(sessionKey);
-  // quick-260802-w9e: queue-pending-store consumption. Same key shape as
-  // both stores above. Published by ComposeBox from a useEffect on
-  // `[queue, sessionKey]`; the row-level ready-dot render at
-  // PrettyConversationRow.tsx:507 gates on `!hasQueuePending` as the fourth
-  // predicate so a session with an armed idle-send queue does NOT paint the
-  // dot (the session is spoken-for pending idle; NOT ready for input).
-  const hasQueuePending = useSessionQueuePending(sessionKey);
   // Phase 47 Plan 04 — subscribes to the working-store's aiTitle axis
   // (Plan 47-03 chokepoint) for the row's (host, tmuxSession) key. Same
   // key shape as the other three working-store hooks above. Returns
@@ -433,7 +421,6 @@ function PrettyConversationRowLive(props: {
       {...rowProps}
       isWorking={isWorking}
       isRecycling={isRecycling}
-      hasQueuePending={hasQueuePending}
       inActiveSet={inActiveSet}
       aiTitle={aiTitle}
     />

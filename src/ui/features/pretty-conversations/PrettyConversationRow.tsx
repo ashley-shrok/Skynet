@@ -8,8 +8,8 @@
 //     bounty-count wire; the trapped-work indicator (Phase 104 Plan 02) is now
 //     the sole avatar-corner affordance.
 //   * The pre-Phase-48 ready-dot span (with its inline display-block hack)
-//     plus the 4-input `isWorking-false + !isRecycling + !hasQueuePending`
-//     JSX render gate — the "come look" cue is now INVERTED: idle rows have
+//     plus the 4-input `isWorking-false + !isRecycling` JSX render gate — the
+//     "come look" cue is now INVERTED: idle rows have
 //     NOTHING; working rows get a slow dashed spinner ring painted on
 //     `.pv-avatar::before` (CSS only; no JSX element for the spinner).
 //   * `.pv-host` Server-icon rendering — hostname migrates to the title line
@@ -36,17 +36,14 @@
 //   * `showSpinnerOn` JS-computed boolean (user 2026-09-21 decouple from
 //     active-set, superseding the 2026-08-20 active-set-scoped shape). The
 //     spinner is a pure agent-readiness signal: ON when the agent is
-//     working, recycling, or has a queued send pending, regardless of
-//     whether this client happens to have the tab open. `activeSet` is a
-//     per-tab client-side artifact and was the wrong axis to gate on — the
-//     same agent's readiness appeared or disappeared depending on the
-//     client's tab history. Concretely:
-//     `showSpinnerOn = isWorking === true || isRecycling || hasQueuePending`.
-//     `isWorking` and `isRecycling` are backend-authoritative via the fleet-
-//     status poller (Plan 53-03); `hasQueuePending` is a per-client
-//     ComposeBox signal that is only `true` for sessions this client has
-//     open, which is fine as a positive trigger. Emitted as the `spinner-on`
-//     className on `.pv-row` (see className composition below). CSS keys off
+//     working or recycling, regardless of whether this client happens to
+//     have the tab open. `activeSet` is a per-tab client-side artifact and
+//     was the wrong axis to gate on — the same agent's readiness appeared
+//     or disappeared depending on the client's tab history. Concretely:
+//     `showSpinnerOn = isWorking === true || isRecycling`.
+//     Both are backend-authoritative via the fleet-status poller (Plan
+//     53-03). Emitted as the `spinner-on` className on `.pv-row` (see
+//     className composition below). CSS keys off
 //     `.pv-row.spinner-on .pv-avatar::before` — single class match; all
 //     inputs live in JS, CSS is the paint layer only.
 //
@@ -67,12 +64,11 @@
 // This component keeps only the surviving JS-only concerns:
 //
 //   - Working-spinner gate (user 2026-09-21 decouple from active-set):
-//     JS computes `showSpinnerOn = isWorking === true || isRecycling ||
-//     hasQueuePending`. Backend-authoritative via the fleet-status poller;
-//     no client-side scope. Emitted as the `spinner-on` className on
-//     `.pv-row`; CSS at `.pv-row.spinner-on .pv-avatar::before` paints the
-//     slow dashed spinner ring. All inputs live in JS; CSS is the paint
-//     layer only.
+//     JS computes `showSpinnerOn = isWorking === true || isRecycling`.
+//     Backend-authoritative via the fleet-status poller; no client-side
+//     scope. Emitted as the `spinner-on` className on `.pv-row`; CSS at
+//     `.pv-row.spinner-on .pv-avatar::before` paints the slow dashed
+//     spinner ring. All inputs live in JS; CSS is the paint layer only.
 //   - Avatar image src selection (identity.avatarUrl vs initial letter vs
 //     tabIcon fallback).
 //   - Click / keyboard / touch handlers, aria-labels, `--pv-hue` custom
@@ -240,7 +236,6 @@ export function PrettyConversationRow({
   currentProjectSlug = null,
   isWorking = null,
   isRecycling = false,
-  hasQueuePending = false,
   inActiveSet = false,
   subtitleMode = "hostname",
   aiTitle = null,
@@ -323,23 +318,13 @@ export function PrettyConversationRow({
   // (working-store Axis E, backend-authoritative) — keyed identically
   // to useSessionIsWorking: `${hostId}:${tmuxSession ?? ""}`.
   isRecycling?: boolean;
-  // quick-260802-w9e: true when this row's ComposeBox has at least one
-  // message armed to auto-send on the next agent-idle window (Vehicle C v2
-  // per-source FIFO at ComposeBox.tsx:358). Suppresses the ready-dot as the
-  // fourth predicate gate — if a queued message is armed to auto-send the
-  // moment the agent goes idle, the agent is effectively already spoken-for
-  // and NOT ready for user's next instruction (which IS the meaning of
-  // the dot). Panel resolves via useSessionQueuePending(sessionWorkingKey(row))
-  // — all three stores (working / recycling / queue-pending) share the
-  // exact same `${hostId}:${tmuxSession ?? ""}` key shape.
-  hasQueuePending?: boolean;
   // Phase 47 Plan 04 — the identity's freshest ai-title sourced from the
   // working-store's aiTitle axis (Plan 47-03 LAST-WINS chokepoint). Null
   // when no ai-title has been published yet, or when this row has no
   // working-store key (RDP rows via sessionKey === null → hook short-
   // circuits). Panel resolves via useSessionAiTitle(sessionWorkingKey(row))
-  // — keyed identically to the isWorking / isRecycling / hasQueuePending
-  // stores. Consumed in Plan 47-05 as the row's subtitle content; NOT yet
+  // — keyed identically to the isWorking / isRecycling stores. Consumed
+  // in Plan 47-05 as the row's subtitle content; NOT yet
   // rendered by this component's tree — the prop is accepted here so the
   // type surface is stable before Plan 47-05 wires the visual. Default
   // null so tests constructing the row without the prop keep working.
@@ -701,12 +686,9 @@ export function PrettyConversationRow({
   // is the wrong axis. `isWorking` and `isRecycling` are already backend-
   // authoritative via the fleet-status poller (Plan 53-03), so the spinner
   // now lights on the fleet signal alone regardless of which client has
-  // the tab open. `hasQueuePending` remains a first-class positive trigger;
-  // it's a per-client ComposeBox signal, so it can only be `true` when
-  // this client has the session open — which is fine as a positive trigger
-  // and matches the pre-decouple behavior for that predicate.
+  // the tab open.
   //
-  //   showSpinnerOn = isWorking === true || isRecycling || hasQueuePending
+  //   showSpinnerOn = isWorking === true || isRecycling
   //
   // Emitted as the `spinner-on` className on `.pv-row`; CSS matches on that
   // single class alone at `.pv-row.spinner-on .pv-avatar::before`. The
@@ -714,8 +696,7 @@ export function PrettyConversationRow({
   // things active-set legitimately drives (deactivate hover-reveal,
   // "Open in new window" menu behavior) — it just no longer gates the
   // spinner.
-  const showSpinnerOn =
-    isWorking === true || isRecycling || hasQueuePending;
+  const showSpinnerOn = isWorking === true || isRecycling;
 
   const rowClassName = cn(
     "pv-row",

@@ -4600,7 +4600,6 @@ export function PrettyView({
           // enabled on dormant panes — send triggers invisible wake at the
           // backend send-path (Plan 56-01) with widened watchdog (Plan 56-02).
           contextPct={contextPct}
-          isIdle={isIdleDerived}
           hostId={hostId}
           tmuxSession={tmuxSession}
           // Phase 97 Finding 6 (D-14): in the relay case, pvIdentity is

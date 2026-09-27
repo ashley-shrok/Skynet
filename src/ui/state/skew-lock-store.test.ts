@@ -3,10 +3,8 @@
 // wins idempotency (Test 3), exact-one notify on transition (Test 4), listener
 // disposer semantics (Test 5), __resetForTest guard (Test 6).
 //
-// Store is roll-your-own per Skynet convention (see the six precedents in
-// src/ui/state/ — session-queue-pending-store.ts:58 documents the shape:
-// "subscribe() returns disposer. No zustand / jotai / redux — the fork rolls
-// its own.").
+// Store is roll-your-own per Skynet convention (subscribe() returns a
+// disposer; no zustand / jotai / redux).
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 

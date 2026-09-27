@@ -182,31 +182,22 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
   });
 
-  it("Test 2 (Vehicle C v2 2026-08-01): mic and arm-idle COEXIST on non-empty text (user 260729-3y1 lock: mic always reachable)", async () => {
-    // Vehicle C v2 (260801-75z): arm-idle affordance moved off the aux row
-    // and onto each textarea. On non-empty primary text, three buttons
-    // coexist: Mic (right-11), Arm-idle (right-21, one slot LEFT of mic),
-    // and Send (right-1). user UX rule: mic must stay reachable
-    // regardless of textarea contents so voice capture can start without
-    // clearing input first. Empty text hides ONLY the arm-idle button —
-    // mic and Send still render (Send disabled when nothing to send).
+  it("Test 2 (user 260729-3y1 lock: mic always reachable): mic + Send coexist regardless of textarea content", async () => {
+    // user UX rule: mic must stay reachable regardless of textarea contents
+    // so voice capture can start without clearing input first.
     render(<ComposeBox {...baseProps()} />);
     const textarea = screen.getByPlaceholderText(/message/i);
 
-    // Non-empty text → mic + arm-idle + Send all visible.
     fireEvent.change(textarea, { target: { value: "hello" } });
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Send when idle" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
     });
 
-    // Clear the text → mic + Send still visible; arm-idle hidden.
     fireEvent.change(textarea, { target: { value: "" } });
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
-      expect(screen.queryByRole("button", { name: "Send when idle" })).toBeNull();
     });
   });
 
@@ -304,15 +295,12 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     // onSend from props was NOT called — append does not send.
     expect(onSend).not.toHaveBeenCalled();
 
-    // State returns to idle — MicButton + arm-idle + Send are ALL visible
+    // State returns to idle — MicButton + Send are both visible
     // after the append completes. Quick 260729-3y1: MicButton is no longer
     // gated by text length, so it co-renders alongside Send at right-11
     // bottom-0.5 even though the textarea now contains "hello world".
-    // Vehicle C v2 (260801-75z): arm-idle button also renders on the
-    // primary at right-21 bottom-0.5 whenever text.trim() !== "".
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Send when idle" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
     });
   });
@@ -384,30 +372,21 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     });
   });
 
-  it("Test 10 (Vehicle C v2 2026-08-01): mic + arm-idle + Send all coexist on non-empty text; empty text hides only arm-idle", async () => {
-    // Vehicle C v2 (260801-75z) regression guard: the swap-in-single-slot
-    // pattern (mic OR send depending on text length) was replaced by a
-    // co-render pattern in patch 260729-3y1, and Vehicle C v2 adds a
-    // third coexisting button (arm-idle) that appears whenever the
-    // textarea has non-empty text. Empty text: mic + Send only. Non-empty
-    // text: mic + arm-idle + Send. A future regression that
-    // reintroduces mutual-exclusion between any of the three would fail
-    // loudly here.
+  it("Test 10: mic + Send coexist regardless of text length (260729-3y1 lock)", async () => {
+    // Regression guard against the pre-260729-3y1 swap-in-single-slot
+    // pattern (mic OR send depending on text length) — both must coexist
+    // whether the textarea is empty or non-empty.
     render(<ComposeBox {...baseProps()} />);
     const textarea = screen.getByPlaceholderText(/message/i);
 
-    // Empty text case: mic + Send visible, arm-idle hidden.
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
-      expect(screen.queryByRole("button", { name: "Send when idle" })).toBeNull();
     });
 
-    // Non-empty text case: all three visible.
     fireEvent.change(textarea, { target: { value: "hello" } });
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Send when idle" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
     });
   });

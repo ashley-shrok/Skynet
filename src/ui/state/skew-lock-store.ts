@@ -15,10 +15,8 @@
 //   - src/ui/features/pretty-view/…/relay*       (Plan 06)
 //   - src/ui/features/terminal/Terminal.tsx      (Plan 06)
 //
-// Store follows Skynet's roll-your-own convention documented at
-// src/ui/state/session-queue-pending-store.ts:58:
-//   "subscribe() returns disposer. No zustand / jotai / redux — the fork
-//    rolls its own."
+// Store follows Skynet's roll-your-own convention (subscribe() returns a
+// disposer; no zustand / jotai / redux — the fork rolls its own).
 //
 // Semantics (per Phase 111 CONTEXT.md D-11 through D-14):
 //   - Idempotent: first drift signal wins. Subsequent `lockSkewedSession`

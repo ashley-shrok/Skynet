@@ -36,11 +36,9 @@ import { cn } from "@/lib/utils";
 //   - Paperclip attach button (relay pane passes `attachButton={null}` per
 //     D-05: attach HIDDEN entirely for v1, not disabled-with-tooltip).
 //   - MicButton / voice recording / RecordingControls.
-//   - Vehicle C v2 primary-armed overlay (queued-send affordance).
 //   - Aside-active X-morph, showTranscribingSend spinner branch,
-//     showPrimaryArmButton overlay, `handlePaste` file-drop, chip strip
-//     staged-attachment display.
-//   - onBlur handler, primaryArmed disable, `handleTextChange` growth logic,
+//     `handlePaste` file-drop, chip strip staged-attachment display.
+//   - onBlur handler, `handleTextChange` growth logic,
 //     `useLayoutEffect` auto-grow (this primitive is the visual shell; the
 //     pane orchestrator owns state, growth, and any advanced compose behavior).
 //
