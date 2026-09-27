@@ -283,6 +283,12 @@ export function PrettyConversationContextMenu({
         backdropFilter: "blur(20px) saturate(1.6)",
         WebkitBackdropFilter: "blur(20px) saturate(1.6)",
         color: "#e8e4d8",
+        // Same rationale as .pv-row / PrettyProjectSectionHeader: when the
+        // menu opens under a long-pressing finger, block iOS Safari from
+        // highlighting the item text via its native tap-and-hold callout.
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        WebkitTouchCallout: "none",
         ...hueVarStyle,
       }}
     >

@@ -328,6 +328,16 @@ export function PrettyProjectSectionHeader({
         onTouchMove={isTouchDevice ? onTouchMove : undefined}
         onTouchEnd={isTouchDevice ? onTouchEnd : undefined}
         onTouchCancel={isTouchDevice ? onTouchEnd : undefined}
+        style={{
+          // Mirror .pv-row (pretty-conversations.css § .pv-row): the 500ms
+          // long-press → context-menu timer must not fight iOS Safari's
+          // native tap-and-hold text-selection UI, which would otherwise
+          // highlight "Project: <name>" underneath the opening menu.
+          userSelect: "none",
+          WebkitUserSelect: "none",
+          WebkitTouchCallout: "none",
+          WebkitTapHighlightColor: "transparent",
+        }}
         className="flex items-center gap-2 pl-1 pr-4 pt-3 pb-0 w-full text-left cursor-pointer"
         data-testid={`pv-project-section-header-${slug}`}
         aria-expanded={!collapsed}
