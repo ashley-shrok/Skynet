@@ -23,7 +23,7 @@
  *   - Different parser output (PendingPhoneCall vs PendingImageGen).
  *
  * Cadence: default 10s tick, matching image-gen. Phone calls aren't more
- * time-sensitive than image generation, and the 15-minute agent-side wait
+ * time-sensitive than image generation, and the 9-minute agent-side wait
  * sits well above any 10-second-scale scan latency.
  */
 

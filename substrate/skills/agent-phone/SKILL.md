@@ -42,7 +42,7 @@ agent-phone --to alice --from "Clipper the Box Maintainer" \
 5. The backend polls for the transcript and drops a `~/fleet/phone-call-requests/<uuid>.response.json` back onto your host.
 6. The helper prints the outcome + transcript to stdout and exits.
 
-You should expect a response within about **15 minutes** in the worst case (the backend waits up to 12 minutes for the call to complete). Most successful calls come back in under 2 minutes.
+You should expect a response within about **9 minutes** in the worst case (the backend waits up to 8 minutes for the call to complete). Most successful calls come back in under 2 minutes.
 
 ## Response shape
 
@@ -69,7 +69,7 @@ Every response file carries exactly one `outcome`. Successful transcripts land u
 | canceled           | Rare — the provider canceled the call mid-flight. Retry. |
 | placement_error    | The provider refused to place the call. Check `message` for the reason (bad phone shape, service down, misconfigured API key). Not agent-retriable — escalate to the operator. |
 | queue_error        | The call was accepted but never actually connected. Usually a transient provider issue; retry. |
-| timeout            | The backend waited 12 minutes for a terminal state and gave up. Rare. Retry. |
+| timeout            | The backend waited 8 minutes for a terminal state and gave up. Rare. Retry. |
 | unknown            | Defensive fallback — the provider returned a state the backend couldn't classify. Treat as a failure and escalate. |
 | malformed          | Your request file was malformed. Check `message` for the specific field problem, fix, and retry. |
 | unknown_user       | No Skynet user by that username. Check the username you passed to `--to`. |

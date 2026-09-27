@@ -15,8 +15,10 @@
  *   - Bland auth uses raw key ("Authorization: <key>") — NOT bearer.
  *     George's POC + Bland's docs both confirm this. Do NOT prefix "Bearer".
  *   - AbortController on the placement call (60s timeout).
- *   - Poll deadline is 12 minutes wall-clock; caller passes `nowMs` +
- *     `deadlineMs` so tests can control the clock.
+ *   - Poll deadline is 8 minutes wall-clock (comfortably below the
+ *     agent-side Bash tool's 10-min max — see § BLAND_POLL_DEADLINE_MS
+ *     for rationale); caller passes `nowMs` + `deadlineMs` so tests can
+ *     control the clock.
  *   - Poll cadence: 5s intervals matching George's POC. Fast enough to catch
  *     terminal state within 5s of Bland's state transition, slow enough to
  *     not hammer the API for a call that's most-of-a-minute long.
@@ -49,10 +51,19 @@ const POLL_TIMEOUT_MS = 30_000;
 const BLAND_BASE_URL = "https://api.bland.ai";
 
 /**
- * Backend poll deadline for a single call — 12 min matches the shape doc's
- * timeout (12-min backend poll vs 15-min agent-side skill wait).
+ * Backend poll deadline for a single call — 8 minutes.
+ *
+ * Constraint: the calling agent's Bash tool caps at 10 minutes. The full
+ * caller-side wait stack must fit under that:
+ *   backend poll deadline (8 min) < CLI helper poll (9 min) < Bash max (10 min)
+ *
+ * Realistic single-turn calls take 30s–2 min end-to-end; 8 min is 4× the
+ * realistic max, and Bland's own `max_duration=10` will end any run-on
+ * call before the poll deadline hits anyway. The 8-min ceiling gives the
+ * caller a clean `timeout` outcome instead of a raw Bash-tool abort on
+ * pathological slow calls.
  */
-export const BLAND_POLL_DEADLINE_MS = 12 * 60 * 1000;
+export const BLAND_POLL_DEADLINE_MS = 8 * 60 * 1000;
 
 /** Poll interval between GET /v1/calls/:id checks. */
 export const BLAND_POLL_INTERVAL_MS = 5_000;

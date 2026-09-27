@@ -16,7 +16,8 @@
 #   agent-phone --to <username> --from "<caller name>" "<message>"
 #
 # Env overrides (for tests / operator tuning):
-#   AGENT_PHONE_TIMEOUT_SEC   poll deadline in seconds (default 900 = 15 min).
+#   AGENT_PHONE_TIMEOUT_SEC   poll deadline in seconds (default 540 = 9 min).
+#                             Fits under Claude Code's 10-min Bash-tool max.
 #
 # Exit status:
 #   0 — success. Transcript printed on stdout (one line per speaker turn);
@@ -44,7 +45,7 @@ REQ_DIR="${HOME}/fleet/phone-call-requests"
 POLL_INTERVAL_FAST="1"        # first 30s — call setup + queue transitions
 POLL_INTERVAL_SLOW="5"        # after 30s — steady poll cadence
 FAST_POLL_WINDOW_SEC=30
-TIMEOUT_SEC="${AGENT_PHONE_TIMEOUT_SEC:-900}"   # 15 min matches SKILL.md
+TIMEOUT_SEC="${AGENT_PHONE_TIMEOUT_SEC:-540}"   # 9 min — under Claude Code Bash-tool 10-min max
 
 usage() {
   cat >&2 <<'USAGE'
