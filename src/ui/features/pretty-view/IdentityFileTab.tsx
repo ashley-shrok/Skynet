@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
+import { stripFrontmatter } from "@/lib/strip-frontmatter";
 import { MarkdownEditor } from "./MarkdownEditor";
 
 // Patch #17g: tab renderer for the identity's <key>.md file.
@@ -184,7 +185,7 @@ export function IdentityFileTab({
               ),
             }}
           >
-            {state.data}
+            {stripFrontmatter(state.data)}
           </ReactMarkdown>
         </div>
       )}

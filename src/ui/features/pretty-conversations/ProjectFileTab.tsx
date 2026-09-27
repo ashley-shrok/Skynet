@@ -18,6 +18,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
+import { stripFrontmatter } from "@/lib/strip-frontmatter";
 import type { TabState } from "@/features/pretty-view/IdentityFileTab";
 import { MarkdownEditor } from "@/features/pretty-view/MarkdownEditor";
 
@@ -174,7 +175,7 @@ export function ProjectFileTab({
               ),
             }}
           >
-            {state.data}
+            {stripFrontmatter(state.data)}
           </ReactMarkdown>
         </div>
       )}
