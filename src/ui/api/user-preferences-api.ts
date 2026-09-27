@@ -79,3 +79,50 @@ export async function putPinnedIds(
 
 // (Phase 115 Plan 115-02: putHiddenIds retired per D-21 alongside the
 //  backend HIDDEN FANOUT block. The archive gesture ships in 115-06.)
+
+/**
+ * Phase 137 D-10 / D-30 — upload a user avatar.
+ *
+ * PUTs multipart form-data to /users/:id/avatar (PUT /users/:id/avatar —
+ * fully built in Phase 85; guarded by multipartOriginGuard +
+ * authenticateJWT + assertOwnOrAdminForAvatarChange + userAvatarUpload).
+ * The backend mints a new random filename per upload (writeUserAvatar),
+ * which is the mechanism that makes the ?f={avatarPath} cache-buster on
+ * the sidebar footer work naturally without manual invalidation.
+ *
+ * Uses authApi (not raw axios/fetch) so X-Skynet-Client-Build is stamped
+ * on every request (version-drift hard-lock).
+ */
+export async function uploadUserAvatar(
+  userId: string,
+  file: File,
+): Promise<{ avatarPath: string }> {
+  try {
+    const fd = new FormData();
+    fd.append("avatar", file);
+    const response = await authApi.put(
+      `/users/${encodeURIComponent(userId)}/avatar`,
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    return response.data as { id: string; avatarPath: string };
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}
+
+/**
+ * Phase 137 D-11 / D-30 — remove a user avatar.
+ *
+ * DELETEs /users/:id/avatar. On success the backend clears users.avatar_path
+ * and removes the file from disk. The onAvatarChanged(null) callback in the
+ * pane ensures the sidebar footer reverts to the initials-circle without a
+ * page refresh.
+ */
+export async function removeUserAvatar(userId: string): Promise<void> {
+  try {
+    await authApi.delete(`/users/${encodeURIComponent(userId)}/avatar`);
+  } catch (error) {
+    throw new Error(handleApiError(error));
+  }
+}
