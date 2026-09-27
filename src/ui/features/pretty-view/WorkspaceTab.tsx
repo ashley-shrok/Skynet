@@ -236,8 +236,12 @@ function WorkspaceFileViewer({
   // Unsaved-edit tracking so back-nav can confirm before discarding.
   // mdOriginalRef holds the last fetched/saved content for markdown-mode
   // dirty comparison. textDirty is fed by GlobalFileTab.onDraftChange.
+  // textDraft mirrors GlobalFileTab's internal draft via onDraftContentChange —
+  // needed because the outer Save button (below) lives in WorkspaceTab's own
+  // chrome and can't reach into GlobalFileTab's state directly.
   const mdOriginalRef = useRef<string>("");
   const [textDirty, setTextDirty] = useState(false);
+  const [textDraft, setTextDraft] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
   // Helper to decode base64 to UTF-8 string
@@ -432,7 +436,7 @@ function WorkspaceFileViewer({
       {(file.type === "markdown" || file.type === "text") && (
         <button
           type="button"
-          onClick={() => { void handleSave(file.type === "markdown" ? mdContent : (tabState.status === "ready" ? tabState.data.content : "")); }}
+          onClick={() => { void handleSave(file.type === "markdown" ? mdContent : textDraft); }}
           disabled={
             saving ||
             fetchState.status !== "ready" ||
@@ -671,6 +675,7 @@ function WorkspaceFileViewer({
           state={tabState}
           onSave={globalFileSave}
           onDraftChange={setTextDirty}
+          onDraftContentChange={setTextDraft}
           filename={file.name}
           hideSaveButton
         />

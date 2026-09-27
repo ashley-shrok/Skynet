@@ -92,16 +92,7 @@ export function CodeEditorImpl({
         wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
-            const next = update.state.doc.toString();
-            // Diagnostic: save-failure investigation.
-            // eslint-disable-next-line no-console
-            console.log("[CodeEditor] doc changed", {
-              filename,
-              op: "code_editor_doc_change",
-              docLen: next.length,
-              head: next.slice(0, 40),
-            });
-            onChangeRef.current(next);
+            onChangeRef.current(update.state.doc.toString());
           }
         }),
         ...(placeholder ? [placeholderExt(placeholder)] : []),
@@ -136,18 +127,6 @@ export function CodeEditorImpl({
     if (!view) return;
     const current = view.state.doc.toString();
     if (current === content) return;
-    // Diagnostic: save-failure investigation. Content-sync only fires
-    // when parent's content prop differs from the editor's own doc —
-    // if this fires MID-typing it means the parent reset draft under us.
-    // eslint-disable-next-line no-console
-    console.log("[CodeEditor] content-sync forcing doc replacement", {
-      filename,
-      op: "code_editor_content_sync",
-      currentLen: current.length,
-      currentHead: current.slice(0, 40),
-      incomingLen: content.length,
-      incomingHead: content.slice(0, 40),
-    });
     const oldSel = view.state.selection.main;
     const newLen = content.length;
     const clamp = (n: number): number => Math.min(Math.max(n, 0), newLen);
@@ -155,7 +134,7 @@ export function CodeEditorImpl({
       changes: { from: 0, to: current.length, insert: content },
       selection: { anchor: clamp(oldSel.anchor), head: clamp(oldSel.head) },
     });
-  }, [content, filename]);
+  }, [content]);
 
   // Filename → language reconfigure (no remount, cursor + doc preserved).
   useEffect(() => {

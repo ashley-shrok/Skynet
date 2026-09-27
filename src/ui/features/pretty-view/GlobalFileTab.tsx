@@ -31,6 +31,7 @@ export default function GlobalFileTab({
   state,
   onSave,
   onDraftChange,
+  onDraftContentChange,
   filename,
   hideSaveButton = false,
 }: {
@@ -44,6 +45,16 @@ export default function GlobalFileTab({
    * pass no prop and see zero behavior change.
    */
   onDraftChange?: (dirty: boolean) => void;
+  /**
+   * Optional callback that fires whenever the internal draft string changes.
+   * Used by consumers that host their own top-chrome Save button and need
+   * access to the actual draft (not just the dirty flag). WorkspaceTab
+   * uses this because the file-tab's own Save button is hidden via
+   * `hideSaveButton` and the outer chrome fires save on the user's behalf.
+   * Without this the outer button would save `state.data.content` (the
+   * original fetched content) and silently no-op the user's edits.
+   */
+  onDraftContentChange?: (draft: string) => void;
   /**
    * Phase 112 Plan 02a: file path/name (with extension) — drives the D-06
    * filetype gate inside MarkdownEditor (.md → pretty MDXEditor, else →
@@ -84,6 +95,15 @@ export default function GlobalFileTab({
     if (state.status !== "ready") return;
     onDraftChange(draft !== state.data.content);
   }, [draft, state, onDraftChange]);
+
+  // Fire the raw draft string to consumers that own their own outer Save
+  // button. Guarded by `state.status === "ready"` for the same reason as
+  // above — pre-ready there's nothing to sync. Runs after every keystroke.
+  useEffect(() => {
+    if (!onDraftContentChange) return;
+    if (state.status !== "ready") return;
+    onDraftContentChange(draft);
+  }, [draft, state, onDraftContentChange]);
 
   const handleSave = useCallback(async () => {
     if (state.status !== "ready") return;
