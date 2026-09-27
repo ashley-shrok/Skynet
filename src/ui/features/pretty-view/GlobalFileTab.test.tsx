@@ -55,6 +55,28 @@ vi.mock("@mdxeditor/editor", () => ({
   InsertFrontmatter: () => null,
 }));
 
+// Stub CodeEditorImpl (mirrors MarkdownEditor.test.tsx). Mock renders a
+// controlled <textarea> so existing `getByRole("textbox")` assertions on
+// non-markdown paths continue to work.
+vi.mock("./CodeEditorImpl", () => ({
+  CodeEditorImpl: (props: {
+    filename: string;
+    content: string;
+    onChange: (next: string) => void;
+    disabled?: boolean;
+    placeholder?: string;
+  }) => (
+    <textarea
+      data-testid="code-editor"
+      data-filename={props.filename}
+      value={props.content}
+      onChange={(e) => props.onChange(e.target.value)}
+      disabled={props.disabled}
+      placeholder={props.placeholder}
+    />
+  ),
+}));
+
 import GlobalFileTab from "./GlobalFileTab";
 
 describe("GlobalFileTab — render branches", () => {
@@ -87,7 +109,7 @@ describe("GlobalFileTab — render branches", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 
-  it("test 3: ready with non-empty content → textarea seeded with content, save disabled until edit", () => {
+  it("test 3: ready with non-empty content → textarea seeded with content, save disabled until edit", async () => {
     render(
       <GlobalFileTab
         state={{ status: "ready", data: { content: "hello", mtime: 42 } }}
@@ -95,7 +117,8 @@ describe("GlobalFileTab — render branches", () => {
         filename="settings.json"
       />,
     );
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    // CodeEditor lands via Suspense → await first grab.
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     expect(ta.value).toBe("hello");
     const saveBtn = screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement;
     expect(saveBtn.disabled).toBe(true);
@@ -114,7 +137,7 @@ describe("GlobalFileTab — render branches", () => {
     );
 
     // Textarea is present and empty (NOT the "No content in this file yet." dead-end).
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     expect(ta.value).toBe("");
 
     // Save button starts disabled (draft === state.data.content, both "").
@@ -151,7 +174,7 @@ describe("GlobalFileTab — render branches", () => {
   // by EditableFileModal's draft-guard confirm gate. Existing callers
   // (GlobalFilesModal) omit the prop → hook is a no-op.
 
-  it("test 6 (Plan 40-03): backward-compat — no onDraftChange passed → existing behavior, no throw", () => {
+  it("test 6 (Plan 40-03): backward-compat — no onDraftChange passed → existing behavior, no throw", async () => {
     // Regression gate: GlobalFilesModal never passes onDraftChange. If the
     // hook throws or misbehaves when the prop is undefined, every Global
     // Files modal user is affected.
@@ -163,7 +186,7 @@ describe("GlobalFileTab — render branches", () => {
         filename="settings.json"
       />,
     );
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     expect(ta.value).toBe("hi");
     // Typing should not throw — existing tests already verify the wiring;
     // this test asserts prop-omitted no-op semantics.
@@ -174,7 +197,7 @@ describe("GlobalFileTab — render branches", () => {
     expect(saveBtn.disabled).toBe(false);
   });
 
-  it("test 7 (Plan 40-03): onDraftChange fires false→true→false as draft diverges/converges", () => {
+  it("test 7 (Plan 40-03): onDraftChange fires false→true→false as draft diverges/converges", async () => {
     const onDraftChange = vi.fn<(dirty: boolean) => void>();
     render(
       <GlobalFileTab
@@ -184,6 +207,9 @@ describe("GlobalFileTab — render branches", () => {
         filename="settings.json"
       />,
     );
+    // Await the CodeEditor Suspense boundary before probing.
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+
     // Mount-time: draft = "" briefly (from useState), then the mtime effect
     // seeds it to "hi" → the onDraftChange effect fires with false (matches).
     // We wait for at least one call to have been made ending in false.
@@ -195,7 +221,6 @@ describe("GlobalFileTab — render branches", () => {
     onDraftChange.mockClear();
 
     // Diverge → dirty=true
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "hi world" } });
     expect(onDraftChange).toHaveBeenCalledWith(true);
 
@@ -207,17 +232,17 @@ describe("GlobalFileTab — render branches", () => {
   });
 });
 
-// ── Phase 112 Plan 02a: filetype gate integration (D-06 / D-15) ──────────
-// GlobalFileTab is now a thin wrapper over MarkdownEditor — the same D-06
-// filetype gate that MarkdownEditor.test.tsx covers in isolation must fire
-// end-to-end when the tab hosts it. .md filename → mocked MDXEditor renders;
-// .json filename → raw <textarea> renders.
-describe("GlobalFileTab — filetype gate integration (D-06)", () => {
+// ── Filetype gate integration ────────────────────────────────────────────
+// GlobalFileTab is a thin wrapper over MarkdownEditor — the same filetype
+// gate MarkdownEditor.test.tsx covers in isolation must fire end-to-end
+// when the tab hosts it. .md filename → mocked MDXEditor renders;
+// non-markdown filename → mocked CodeEditor renders.
+describe("GlobalFileTab — filetype gate integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("test A: filename='notes.md' + ready → renders MDXEditor (pretty branch), no raw textarea", async () => {
+  it("test A: filename='notes.md' + ready → renders MDXEditor (pretty branch), no CodeEditor", async () => {
     render(
       <GlobalFileTab
         state={{ status: "ready", data: { content: "# hi", mtime: 1 } }}
@@ -228,11 +253,10 @@ describe("GlobalFileTab — filetype gate integration (D-06)", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("mdxeditor")).toBeTruthy();
     });
-    // Pretty branch replaces the raw <textarea>.
-    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByTestId("code-editor")).toBeNull();
   });
 
-  it("test B: filename='settings.json' + ready → renders raw <textarea>, no MDXEditor", () => {
+  it("test B: filename='settings.json' + ready → renders CodeEditor, no MDXEditor", async () => {
     render(
       <GlobalFileTab
         state={{ status: "ready", data: { content: '{"a":1}', mtime: 1 } }}
@@ -241,7 +265,8 @@ describe("GlobalFileTab — filetype gate integration (D-06)", () => {
       />,
     );
     expect(screen.queryByTestId("mdxeditor")).toBeNull();
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = (await screen.findByTestId("code-editor")) as HTMLTextAreaElement;
     expect(ta.value).toBe('{"a":1}');
+    expect(ta.getAttribute("data-filename")).toBe("settings.json");
   });
 });

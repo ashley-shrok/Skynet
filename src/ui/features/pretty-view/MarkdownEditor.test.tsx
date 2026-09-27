@@ -1,16 +1,18 @@
 /**
- * MarkdownEditor component tests — phase 111, plan 01.
+ * MarkdownEditor component tests.
  *
- * Covers the D-06 filetype gate (`.md` case-insensitive → MDXEditor;
- * anything else → raw <textarea>), the D-08 controlled-input contract
- * (`content` prop mirrors into the child, `onChange` fires on user input),
- * disabled-state propagation, and a link-scheme sanitisation canary
- * (javascript: URLs must never surface as href on rendered anchors).
+ * Covers the filetype gate (`.md` case-insensitive → MDXEditor; anything
+ * else → real code editor with a raw-<textarea> load-failure fallback),
+ * the controlled-input contract (`content` prop mirrors into the child,
+ * `onChange` fires on user input), disabled-state propagation, and a
+ * link-scheme sanitisation canary (javascript: URLs must never surface as
+ * href on rendered anchors).
  *
- * `@mdxeditor/editor` is `vi.mock`'d so vitest + jsdom don't collide with
- * Lexical's contentEditable behaviour (RESEARCH.md §Pitfall 5). Every named
- * export the impl imports gets a stub — MDXEditor itself renders a
- * `<div data-testid="mdxeditor">` so we can assert the pretty branch fired.
+ * Both lazy-loaded editors are `vi.mock`'d so vitest + jsdom don't collide
+ * with their heavy DOM (Lexical contentEditable for MDXEditor, CodeMirror
+ * 6 contentEditable for CodeEditor). Each mock renders a testid'd stand-in
+ * that faithfully implements the controlled-input contract so callers can
+ * still exercise onChange / disabled / content.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -44,6 +46,30 @@ vi.mock("@mdxeditor/editor", () => ({
   InsertFrontmatter: () => null,
 }));
 
+// Stub CodeEditorImpl so tests don't need a real CM6 contentEditable in
+// jsdom. The mock renders a controlled <textarea data-testid="code-editor">
+// so existing tests that use `getByRole("textbox")` on the non-markdown
+// branch continue to work. The mock preserves the controlled-input
+// contract (value + onChange + disabled + placeholder).
+vi.mock("./CodeEditorImpl", () => ({
+  CodeEditorImpl: (props: {
+    filename: string;
+    content: string;
+    onChange: (next: string) => void;
+    disabled?: boolean;
+    placeholder?: string;
+  }) => (
+    <textarea
+      data-testid="code-editor"
+      data-filename={props.filename}
+      value={props.content}
+      onChange={(e) => props.onChange(e.target.value)}
+      disabled={props.disabled}
+      placeholder={props.placeholder}
+    />
+  ),
+}));
+
 import { MarkdownEditor } from "./MarkdownEditor";
 
 describe("MarkdownEditor — filetype gate (D-06) + controlled-input contract", () => {
@@ -75,7 +101,7 @@ describe("MarkdownEditor — filetype gate (D-06) + controlled-input contract", 
     });
   });
 
-  it("test 3: filename='settings.json' → raw <textarea> seeded with content, no MDXEditor", () => {
+  it("test 3: filename='settings.json' → CodeEditor seeded with content, no MDXEditor", async () => {
     render(
       <MarkdownEditor
         filename="settings.json"
@@ -84,11 +110,13 @@ describe("MarkdownEditor — filetype gate (D-06) + controlled-input contract", 
       />,
     );
     expect(screen.queryByTestId("mdxeditor")).toBeNull();
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    // Suspense boundary — findByTestId awaits resolution of the lazy child.
+    const ta = (await screen.findByTestId("code-editor")) as HTMLTextAreaElement;
     expect(ta.value).toBe('{"a":1}');
+    expect(ta.getAttribute("data-filename")).toBe("settings.json");
   });
 
-  it("test 4: filename='Dockerfile' (no extension) → raw <textarea>, no MDXEditor", () => {
+  it("test 4: filename='Dockerfile' (no extension) → CodeEditor, no MDXEditor", async () => {
     render(
       <MarkdownEditor
         filename="Dockerfile"
@@ -97,10 +125,10 @@ describe("MarkdownEditor — filetype gate (D-06) + controlled-input contract", 
       />,
     );
     expect(screen.queryByTestId("mdxeditor")).toBeNull();
-    expect(screen.getByRole("textbox")).toBeTruthy();
+    expect(await screen.findByTestId("code-editor")).toBeTruthy();
   });
 
-  it("test 5: filename='deploy.sh' → raw <textarea>, no MDXEditor", () => {
+  it("test 5: filename='deploy.sh' → CodeEditor, no MDXEditor", async () => {
     render(
       <MarkdownEditor
         filename="deploy.sh"
@@ -109,10 +137,10 @@ describe("MarkdownEditor — filetype gate (D-06) + controlled-input contract", 
       />,
     );
     expect(screen.queryByTestId("mdxeditor")).toBeNull();
-    expect(screen.getByRole("textbox")).toBeTruthy();
+    expect(await screen.findByTestId("code-editor")).toBeTruthy();
   });
 
-  it("test 6: raw-textarea branch — onChange propagates to prop.onChange", () => {
+  it("test 6: CodeEditor branch — onChange propagates to prop.onChange", async () => {
     const onChange = vi.fn<(next: string) => void>();
     render(
       <MarkdownEditor
@@ -121,12 +149,12 @@ describe("MarkdownEditor — filetype gate (D-06) + controlled-input contract", 
         onChange={onChange}
       />,
     );
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = (await screen.findByTestId("code-editor")) as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "alpha beta" } });
     expect(onChange).toHaveBeenCalledWith("alpha beta");
   });
 
-  it("test 7: raw-textarea branch — disabled=true sets the textarea's disabled attribute", () => {
+  it("test 7: CodeEditor branch — disabled=true propagates through to the editor", async () => {
     render(
       <MarkdownEditor
         filename="notes.txt"
@@ -135,11 +163,57 @@ describe("MarkdownEditor — filetype gate (D-06) + controlled-input contract", 
         disabled
       />,
     );
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = (await screen.findByTestId("code-editor")) as HTMLTextAreaElement;
     expect(ta.disabled).toBe(true);
   });
 
-  it("test 8 (security): javascript: URL in markdown content does NOT surface as href in rendered DOM", async () => {
+  it("test 8: CodeEditor load failure falls back to raw <textarea> preserving content + onChange + disabled", async () => {
+    // Simulate the load-failure path: the error boundary catches the
+    // thrown error and renders the raw-textarea fallback. We isolate the
+    // failure to this test by throwing from the mocked CodeEditorImpl.
+    vi.doMock("./CodeEditorImpl", () => ({
+      CodeEditorImpl: () => {
+        throw new Error("simulated bundle load failure");
+      },
+    }));
+    // Silence the boundary's console.error for this test — otherwise the
+    // expected error dominates the test output.
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      // Fresh import so the doMock takes effect for the lazy child.
+      vi.resetModules();
+      const mod = await import("./MarkdownEditor");
+      const onChange = vi.fn<(next: string) => void>();
+      const { container } = render(
+        <mod.MarkdownEditor
+          filename="fallback-test.txt"
+          content="alpha"
+          onChange={onChange}
+          disabled
+          placeholder="type something"
+        />,
+      );
+      // Falls back to the raw <textarea>. Look up by role/attributes since
+      // the mock CodeEditor won't render (it throws) and the boundary
+      // renders the RawTextarea component.
+      const ta = await waitFor(() => {
+        const el = container.querySelector<HTMLTextAreaElement>("textarea");
+        if (!el) throw new Error("no textarea yet");
+        return el;
+      });
+      expect(ta.value).toBe("alpha");
+      expect(ta.disabled).toBe(true);
+      expect(ta.placeholder).toBe("type something");
+      fireEvent.change(ta, { target: { value: "changed" } });
+      expect(onChange).toHaveBeenCalledWith("changed");
+    } finally {
+      errSpy.mockRestore();
+      vi.doUnmock("./CodeEditorImpl");
+      vi.resetModules();
+    }
+  });
+
+  it("test 9 (security): javascript: URL in markdown content does NOT surface as href in rendered DOM", async () => {
     // Canary for future regression if the impl ever bypasses MDXEditor's
     // Lexical sanitiser. The mocked MDXEditor renders props.markdown as text
     // only (not as a link), so a javascript: URL in the raw markdown string

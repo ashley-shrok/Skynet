@@ -57,6 +57,28 @@ vi.mock("@mdxeditor/editor", () => ({
   InsertFrontmatter: () => null,
 }));
 
+// Stub CodeEditorImpl so jsdom doesn't need to render a real CodeMirror 6
+// contentEditable. The mock renders a controlled <textarea> so existing
+// non-.md-branch assertions on `getByRole("textbox")` keep working.
+vi.mock("./CodeEditorImpl", () => ({
+  CodeEditorImpl: (props: {
+    filename: string;
+    content: string;
+    onChange: (next: string) => void;
+    disabled?: boolean;
+    placeholder?: string;
+  }) => (
+    <textarea
+      data-testid="code-editor"
+      data-filename={props.filename}
+      value={props.content}
+      onChange={(e) => props.onChange(e.target.value)}
+      disabled={props.disabled}
+      placeholder={props.placeholder}
+    />
+  ),
+}));
+
 import SkillFileTab from "./SkillFileTab";
 
 describe("SkillFileTab — render branches", () => {
@@ -89,7 +111,7 @@ describe("SkillFileTab — render branches", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 
-  it("test 3: ready with non-empty text content → textarea seeded with content, save disabled until edit", () => {
+  it("test 3: ready with non-empty text content → textarea seeded with content, save disabled until edit", async () => {
     render(
       <SkillFileTab
         state={{
@@ -100,7 +122,7 @@ describe("SkillFileTab — render branches", () => {
         filename="script.sh"
       />,
     );
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     expect(ta.value).toBe("hello");
     const saveBtn = screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement;
     expect(saveBtn.disabled).toBe(true);
@@ -121,7 +143,7 @@ describe("SkillFileTab — render branches", () => {
       />,
     );
 
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     expect(ta.value).toBe("");
 
     const saveBtn = screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement;
@@ -167,7 +189,7 @@ describe("SkillFileTab — render branches", () => {
     expect(saveBtn.disabled).toBe(true);
   });
 
-  it("test 7: save enabled after edit", () => {
+  it("test 7: save enabled after edit", async () => {
     render(
       <SkillFileTab
         state={{
@@ -178,7 +200,7 @@ describe("SkillFileTab — render branches", () => {
         filename="script.sh"
       />,
     );
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "base+edit" } });
     const saveBtn = screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement;
     expect(saveBtn.disabled).toBe(false);
@@ -221,7 +243,7 @@ describe("SkillFileTab — render branches", () => {
     expect(onRequestDelete).toHaveBeenCalledTimes(1);
   });
 
-  it("test 10: mtime reseed on data.mtime change replaces draft", () => {
+  it("test 10: mtime reseed on data.mtime change replaces draft", async () => {
     const { rerender } = render(
       <SkillFileTab
         state={{
@@ -232,7 +254,7 @@ describe("SkillFileTab — render branches", () => {
         filename="script.sh"
       />,
     );
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     expect(ta.value).toBe("original");
 
     // User edits — draft diverges from state.data.content.
@@ -251,22 +273,22 @@ describe("SkillFileTab — render branches", () => {
       />,
     );
     // Draft reseeds because mtime changed (the eslint-disabled effect key).
-    const ta2 = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta2 = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     expect(ta2.value).toBe("server-authoritative");
   });
 });
 
-// ── Phase 112 Plan 02a: filetype gate integration (D-06 / D-15) ──────────
-// SkillFileTab is now a thin wrapper over MarkdownEditor — the same D-06
-// filetype gate that MarkdownEditor.test.tsx covers in isolation must fire
-// end-to-end when the tab hosts it. .md filename → mocked MDXEditor renders;
-// .sh filename → raw <textarea> renders.
-describe("SkillFileTab — filetype gate integration (D-06)", () => {
+// ── Filetype gate integration ────────────────────────────────────────────
+// SkillFileTab is a thin wrapper over MarkdownEditor — the same filetype
+// gate MarkdownEditor.test.tsx covers in isolation must fire end-to-end
+// when the tab hosts it. .md filename → mocked MDXEditor renders;
+// non-markdown filename → mocked CodeEditor renders.
+describe("SkillFileTab — filetype gate integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("test A: filename='notes.md' + ready + isText=true → renders MDXEditor (pretty branch), no raw textarea", async () => {
+  it("test A: filename='notes.md' + ready + isText=true → renders MDXEditor (pretty branch), no CodeEditor", async () => {
     render(
       <SkillFileTab
         state={{
@@ -280,11 +302,10 @@ describe("SkillFileTab — filetype gate integration (D-06)", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("mdxeditor")).toBeTruthy();
     });
-    // Pretty branch replaces the raw <textarea>.
-    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByTestId("code-editor")).toBeNull();
   });
 
-  it("test B: filename='deploy.sh' + ready + isText=true → renders raw <textarea>, no MDXEditor", () => {
+  it("test B: filename='deploy.sh' + ready + isText=true → renders CodeEditor, no MDXEditor", async () => {
     render(
       <SkillFileTab
         state={{
@@ -296,7 +317,8 @@ describe("SkillFileTab — filetype gate integration (D-06)", () => {
       />,
     );
     expect(screen.queryByTestId("mdxeditor")).toBeNull();
-    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const ta = (await screen.findByTestId("code-editor")) as HTMLTextAreaElement;
     expect(ta.value).toBe("#!/bin/bash");
+    expect(ta.getAttribute("data-filename")).toBe("deploy.sh");
   });
 });
