@@ -328,7 +328,7 @@ export function PrettyProjectSectionHeader({
         onTouchMove={isTouchDevice ? onTouchMove : undefined}
         onTouchEnd={isTouchDevice ? onTouchEnd : undefined}
         onTouchCancel={isTouchDevice ? onTouchEnd : undefined}
-        className="flex items-center gap-2 px-4 pt-3 pb-1.5 w-full text-left cursor-pointer"
+        className="flex items-center gap-2 pl-1 pr-4 pt-3 pb-1.5 w-full text-left cursor-pointer"
         data-testid={`pv-project-section-header-${slug}`}
         aria-expanded={!collapsed}
         aria-controls={`pv-project-section-content-${slug}`}
@@ -371,7 +371,7 @@ export function PrettyProjectSectionHeader({
         />
       </div>
       {!collapsed && (
-        <div id={`pv-project-section-content-${slug}`}>{rows}</div>
+        <div id={`pv-project-section-content-${slug}`} className="pl-3.5">{rows}</div>
       )}
     </div>
   );

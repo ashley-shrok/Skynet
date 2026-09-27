@@ -2655,7 +2655,7 @@ export function PrettyConversationsPanel({
           <button
             type="button"
             onClick={() => setAppsExpanded((v) => !v)}
-            className="flex items-center gap-2 px-4 pt-1 pb-1.5 w-full text-left"
+            className="flex items-center gap-2 pl-1 pr-4 pt-1 pb-1.5 w-full text-left"
             data-testid="pretty-conversations-apps-header"
             aria-expanded={appsExpanded}
             aria-controls="pv-apps-section-content"
@@ -2748,7 +2748,7 @@ export function PrettyConversationsPanel({
                 />
               )}
               <div
-                className="flex items-center gap-2 px-4 pt-1 pb-1.5"
+                className="flex items-center gap-2 pl-1 pr-4 pt-1 pb-1.5"
                 data-testid="pretty-conversations-pinned-header"
               >
                 <Pin
@@ -2900,7 +2900,7 @@ export function PrettyConversationsPanel({
                     follows so the section reads as a real fixture, not a
                     stray label. */}
                 <div
-                  className="flex items-center gap-2 px-4 pt-3 pb-1.5"
+                  className="flex items-center gap-2 pl-1 pr-4 pt-3 pb-1.5"
                   data-testid="pv-flat-middle-section-header"
                 >
                   <MessagesSquare
@@ -2965,7 +2965,7 @@ export function PrettyConversationsPanel({
                     muted label + gradient rule. Rendered ONCE above the
                     RDP row cluster regardless of how many RDP rows exist. */}
                 <div
-                  className="flex items-center gap-2 px-4 pt-3 pb-1.5"
+                  className="flex items-center gap-2 pl-1 pr-4 pt-3 pb-1.5"
                   data-testid="rdp-divider"
                 >
                   {/* quick-260727-f9v: brightness bumped from /50 → /85
