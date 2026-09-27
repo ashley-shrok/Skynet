@@ -1,4 +1,7 @@
-// Phase 135 Plan 135-01 Task 3 — WakeupsModal (wave 1: list view only).
+// ScheduledAgentsModal — fleet-wide list/edit modal for scheduled agents
+// (entries that spawn a new identity on each firing; distinct from
+// per-identity wake-ups, which fire an instruction into an already-running
+// identity).
 //
 // Radix Dialog shell mirroring ConversationSearchModal.tsx's chrome
 // (glass-morphism, 24px rounded, blue-hue gradient, backdrop blur, warm
@@ -6,30 +9,28 @@
 // `md:max-w-[560px]` per the settled prototype + RESEARCH § Chrome Token
 // Dictionary.
 //
-// Wave 1 scope: fetch-on-open + reset-on-close, filter bar (search / role /
-// host), row rendering via WakeupsModalRow, three Skeleton bars during
-// loading, dim helper text on empty, footer count. Wave 1 stubs the form
-// view — the state machine (view="list"|"form", editingSlug, kebabOpen)
-// is fully wired, but the "form" branch just renders a placeholder that
-// wave 2 replaces.
+// Scope: fetch-on-open + reset-on-close, filter bar (search / role / host),
+// row rendering via ScheduledAgentsModalRow, three Skeleton bars during
+// loading, dim helper text on empty, footer count. Two internal views:
+// list ↔ form (state machine wires view="list"|"form", editingSlug,
+// kebabOpen).
 //
 // D-XX contract:
 //   D-03: no client cache — refetch every open.
 //   D-06: chrome mirrors ConversationSearchModal recipe at 640×720.
 //   D-08: default state on open is list.
-//   D-09: host chip in metadata line (rendered by WakeupsModalRow).
+//   D-09: host chip in metadata line (rendered by ScheduledAgentsModalRow).
 //   D-10: filter bar = search + role + host, "ALL" sentinels default.
 //   D-11: row click enters edit mode; toggle + kebab stopPropagation.
-//   D-12: pessimistic toggle — wave 2 wires the writer; wave 1 renders
-//         the banner slot but the handler is a stub.
-//   D-15: loading = 3 Skeleton bars (matches shipped WakeupsTab /
-//         RoleFileTab pattern per RESEARCH Pitfall #1). NOT loading text.
+//   D-12: pessimistic toggle — writer confirmed via API ack before flipping.
+//   D-15: loading = 3 Skeleton bars (matches shipped RoleFileTab pattern per
+//         RESEARCH Pitfall #1). NOT loading text.
 //   D-16: empty state = centered dim helper text (fleet-wide zero vs
 //         filter-narrows-to-zero copy).
 //   D-17: filter state resets on close.
 //   D-18: footer = live count of visible rows + how many enabled.
 //   D-26: controlled open state lifted to PrettyConversationsPanel.
-//   D-27: internal state machine — list ↔ form (form is a wave-2 stub).
+//   D-27: internal state machine — list ↔ form.
 //   D-28: no streaming affordances (no lingering spinners).
 //
 // RESEARCH Pitfalls mitigated:
@@ -51,21 +52,21 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/skeleton";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
-  deleteWakeup,
-  listWakeups,
-  toggleWakeupEnabled,
-  type WakeupListItem,
-} from "@/api/wakeups-api";
-import { WakeupsModalRow } from "./WakeupsModalRow";
-import { WakeupsModalForm } from "./WakeupsModalForm";
+  deleteScheduledAgent,
+  listScheduledAgents,
+  toggleScheduledAgentEnabled,
+  type ScheduledAgentListItem,
+} from "@/api/scheduled-agents-api";
+import { ScheduledAgentsModalRow } from "./ScheduledAgentsModalRow";
+import { ScheduledAgentsModalForm } from "./ScheduledAgentsModalForm";
 
 // ---------------------------------------------------------------------------
 // Host-tree flatten helpers
 //
 // Inlined verbatim from CreateProjectModal.tsx:55-69 (small enough that a
 // shared util is not worth the migration cost — three copies exist across
-// modals). Filters out RDP-only hosts so the wake-ups host dropdown mirrors
-// the shape of every other host picker in the panel cluster.
+// modals). Filters out RDP-only hosts so the scheduled-agents host dropdown
+// mirrors the shape of every other host picker in the panel cluster.
 // ---------------------------------------------------------------------------
 
 function isFolder(item: Host | HostFolder): item is HostFolder {
@@ -88,7 +89,7 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 // Props
 // ---------------------------------------------------------------------------
 
-export interface WakeupsModalProps {
+export interface ScheduledAgentsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   hostTree: HostFolder | null;
@@ -107,15 +108,15 @@ const ALL_SENTINEL = "__ALL__" as const;
 // Component
 // ---------------------------------------------------------------------------
 
-export function WakeupsModal({
+export function ScheduledAgentsModal({
   open,
   onOpenChange,
   hostTree,
-}: WakeupsModalProps): JSX.Element {
+}: ScheduledAgentsModalProps): JSX.Element {
   // ─── State ────────────────────────────────────────────────────────────
   // items === null → loading; items === [] → empty (either fleet-wide zero
-  // or load error); items non-empty → rendered by WakeupsModalRow.
-  const [items, setItems] = useState<WakeupListItem[] | null>(null);
+  // or load error); items non-empty → rendered by ScheduledAgentsModalRow.
+  const [items, setItems] = useState<ScheduledAgentListItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Filter state (D-10). "ALL" sentinels mean "no filter". Reset on close
@@ -171,7 +172,7 @@ export function WakeupsModal({
     }
 
     const controller = new AbortController();
-    listWakeups()
+    listScheduledAgents()
       .then((rows) => {
         if (controller.signal.aborted) return;
         setItems(rows);
@@ -180,7 +181,7 @@ export function WakeupsModal({
         if (controller.signal.aborted) return;
         setItems([]);
         setLoadError(
-          err instanceof Error ? err.message : "Couldn't load wake-ups",
+          err instanceof Error ? err.message : "Couldn't load scheduled agents",
         );
       });
     return () => controller.abort();
@@ -192,11 +193,11 @@ export function WakeupsModal({
   // failure so a stale-fetch banner surfaces at the top of the list.
   const refetch = useCallback(async (): Promise<void> => {
     try {
-      const rows = await listWakeups();
+      const rows = await listScheduledAgents();
       setItems(rows);
     } catch (err) {
       setLoadError(
-        err instanceof Error ? err.message : "Couldn't refresh wake-ups",
+        err instanceof Error ? err.message : "Couldn't refresh scheduled agents",
       );
     }
   }, []);
@@ -211,7 +212,7 @@ export function WakeupsModal({
   );
 
   // Role filter dropdown population strategy (RESEARCH Assumption A1): use
-  // the union of roles across every WakeupListItem returned by the LIST
+  // the union of roles across every ScheduledAgentListItem returned by the LIST
   // response. Simpler than per-host `listRolesForHost` fan-out; wave 2 may
   // revisit if users report missing-role frustration.
   const availableRoles = useMemo<string[]>(() => {
@@ -225,7 +226,7 @@ export function WakeupsModal({
 
   // Filter reconciliation (fixed post-/close code review — M1). If the user
   // has selected a role or host that no longer exists in the fresh option
-  // set (because the wake-up carrying it was deleted, or the host was
+  // set (because the scheduled agent carrying it was deleted, or the host was
   // withdrawn from access), reset the filter to "no filter" so the list
   // doesn't silently narrow to zero with a stale selection.
   useEffect(() => {
@@ -250,7 +251,7 @@ export function WakeupsModal({
   // Client-side filter application (D-10). Search matches on name + prompt
   // case-insensitive; role filter matches when the item's roles include
   // the picked role; host filter matches by hostId.
-  const visibleItems = useMemo<WakeupListItem[]>(() => {
+  const visibleItems = useMemo<ScheduledAgentListItem[]>(() => {
     if (items === null) return [];
     const q = search.trim().toLowerCase();
     return items.filter((row) => {
@@ -277,8 +278,8 @@ export function WakeupsModal({
 
   // ─── Wave-2 handlers ──────────────────────────────────────────────────
   // Row click → edit mode. The form-view branch renders the real
-  // WakeupsModalForm; on save/cancel the parent refetches + swaps back.
-  function handleRowClick(row: WakeupListItem): void {
+  // ScheduledAgentsModalForm; on save/cancel the parent refetches + swaps back.
+  function handleRowClick(row: ScheduledAgentListItem): void {
     setKebabOpen(null);
     setEditingSlug(row.slug);
     setView("form");
@@ -291,12 +292,12 @@ export function WakeupsModal({
   // In-flight guard (fixed post-/close code review — M3): rage-click on the
   // same row's toggle is a no-op until the first request resolves. Prevents
   // double-fire races that ping-pong the enabled state.
-  async function handleToggleClick(row: WakeupListItem): Promise<void> {
+  async function handleToggleClick(row: ScheduledAgentListItem): Promise<void> {
     if (toggleInFlightRef.current.has(row.slug)) return;
     toggleInFlightRef.current.add(row.slug);
     setToggleError(null);
     try {
-      await toggleWakeupEnabled(row.slug, row.hostId, !row.enabled);
+      await toggleScheduledAgentEnabled(row.slug, row.hostId, !row.enabled);
       await refetch(); // D-03: refetch after write
     } catch (err) {
       setToggleError(err instanceof Error ? err.message : "Toggle failed");
@@ -307,11 +308,11 @@ export function WakeupsModal({
     }
   }
 
-  function handleKebabClick(row: WakeupListItem): void {
+  function handleKebabClick(row: ScheduledAgentListItem): void {
     setKebabOpen((current) => (current === row.slug ? null : row.slug));
   }
 
-  function handleEditFromKebab(row: WakeupListItem): void {
+  function handleEditFromKebab(row: ScheduledAgentListItem): void {
     setKebabOpen(null);
     setEditingSlug(row.slug);
     setView("form");
@@ -319,14 +320,14 @@ export function WakeupsModal({
 
   // Delete with native window.confirm (D-14). On OK, call DELETE API +
   // refetch. On Cancel, no-op. On failure, banner slot surfaces error.
-  async function handleDeleteFromKebab(row: WakeupListItem): Promise<void> {
+  async function handleDeleteFromKebab(row: ScheduledAgentListItem): Promise<void> {
     setKebabOpen(null);
     // eslint-disable-next-line no-alert
-    const ok = window.confirm(`Delete wake-up "${row.name}"?`);
+    const ok = window.confirm(`Delete scheduled agent "${row.name}"?`);
     if (!ok) return;
     setDeleteError(null);
     try {
-      await deleteWakeup(row.slug, row.hostId);
+      await deleteScheduledAgent(row.slug, row.hostId);
       await refetch();
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Delete failed");
@@ -347,10 +348,10 @@ export function WakeupsModal({
   // ─── Render ───────────────────────────────────────────────────────────
   const headerTitle =
     view === "list"
-      ? "Wake-ups"
+      ? "Scheduled Agents"
       : editingSlug !== null
-        ? "Edit wake-up"
-        : "New wake-up";
+        ? "Edit scheduled agent"
+        : "New scheduled agent";
 
   return (
     <DialogPrimitive.Root
@@ -407,7 +408,7 @@ export function WakeupsModal({
           }}
         >
           <DialogPrimitive.Title className="sr-only">
-            Wake-ups
+            Scheduled Agents
           </DialogPrimitive.Title>
 
           {/* ─── Header (title + [+] + close X) ──────────────────────── */}
@@ -421,9 +422,9 @@ export function WakeupsModal({
             {view === "list" && (
               <button
                 type="button"
-                aria-label="New wake-up"
-                title="New wake-up"
-                data-testid="wakeups-modal-add-button"
+                aria-label="New scheduled agent"
+                title="New scheduled agent"
+                data-testid="scheduled-agents-modal-add-button"
                 onClick={() => enterCreateMode()}
                 className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-colors duration-150"
                 style={{
@@ -439,7 +440,7 @@ export function WakeupsModal({
               aria-label="Close"
               title="Close"
               onClick={() => onOpenChange(false)}
-              data-testid="wakeups-modal-close-button"
+              data-testid="scheduled-agents-modal-close-button"
               className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-colors duration-150"
               style={{
                 background: "rgba(255, 255, 255, 0.04)",
@@ -469,7 +470,7 @@ export function WakeupsModal({
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search name or prompt..."
-                    data-testid="wakeups-modal-filter-search"
+                    data-testid="scheduled-agents-modal-filter-search"
                     className={cn(
                       "flex-1 min-w-0 bg-transparent text-sm text-[#e8e4d8] outline-none",
                       "placeholder:text-[color:var(--color-pv-fg-dim)]",
@@ -479,7 +480,7 @@ export function WakeupsModal({
                 <select
                   value={roleFilter}
                   onChange={(e) => setRoleFilter(e.target.value)}
-                  data-testid="wakeups-modal-filter-role"
+                  data-testid="scheduled-agents-modal-filter-role"
                   className="text-xs px-2 py-1.5 rounded-md outline-none cursor-pointer"
                   style={{
                     background: "rgba(0, 0, 0, 0.2)",
@@ -504,7 +505,7 @@ export function WakeupsModal({
                       setHostFilter(ALL_SENTINEL);
                     } else {
                       // Fixed post-/close code review — L1: gate on parsed > 0
-                      // to match WakeupsModalForm's host-id validation, which
+                      // to match ScheduledAgentsModalForm's host-id validation, which
                       // rejects 0/negative as an invalid Skynet host id.
                       const parsed = parseInt(raw, 10);
                       if (Number.isFinite(parsed) && parsed > 0) {
@@ -512,7 +513,7 @@ export function WakeupsModal({
                       }
                     }
                   }}
-                  data-testid="wakeups-modal-filter-host"
+                  data-testid="scheduled-agents-modal-filter-host"
                   className="text-xs px-2 py-1.5 rounded-md outline-none cursor-pointer"
                   style={{
                     background: "rgba(0, 0, 0, 0.2)",
@@ -537,7 +538,7 @@ export function WakeupsModal({
               {toggleError !== null && (
                 <div
                   role="alert"
-                  data-testid="wakeups-modal-toggle-error"
+                  data-testid="scheduled-agents-modal-toggle-error"
                   className="mx-4 mt-3 shrink-0 px-3 py-2 text-xs rounded-md"
                   style={{
                     background: "hsla(0, 60%, 40%, 0.14)",
@@ -553,7 +554,7 @@ export function WakeupsModal({
               {deleteError !== null && (
                 <div
                   role="alert"
-                  data-testid="wakeups-modal-delete-error"
+                  data-testid="scheduled-agents-modal-delete-error"
                   className="mx-4 mt-3 shrink-0 px-3 py-2 text-xs rounded-md"
                   style={{
                     background: "hsla(0, 60%, 40%, 0.14)",
@@ -575,7 +576,7 @@ export function WakeupsModal({
               {loadError !== null && (
                 <div
                   role="alert"
-                  data-testid="wakeups-modal-load-error"
+                  data-testid="scheduled-agents-modal-load-error"
                   className="mx-4 mt-3 shrink-0 px-3 py-2 text-xs rounded-md"
                   style={{
                     background: "hsla(0, 60%, 40%, 0.14)",
@@ -590,11 +591,13 @@ export function WakeupsModal({
               {/* Scrollable rows region. */}
               <div
                 className="flex flex-col flex-1 min-h-0 overflow-y-auto px-3 py-3 gap-1"
-                data-testid="wakeups-modal-list"
+                data-testid="scheduled-agents-modal-list"
               >
                 {items === null ? (
                   // D-15 corrected via RESEARCH Pitfall #1: 3 Skeleton bars,
                   // matches shipped WakeupsTab / RoleFileTab / IdentityFileTab.
+                  // (WakeupsTab here is the per-identity kind — different
+                  // concept, kept named as-is.)
                   <div className="flex flex-col gap-3">
                     <Skeleton className="h-24 w-full rounded-[var(--radius-pv-bubble)]" />
                     <Skeleton className="h-24 w-full rounded-[var(--radius-pv-bubble)]" />
@@ -606,15 +609,15 @@ export function WakeupsModal({
                   <div
                     className="flex items-center justify-center h-full min-h-[120px] px-6 py-8 text-center text-sm"
                     style={{ color: "var(--color-pv-fg-dim)" }}
-                    data-testid="wakeups-modal-empty-state"
+                    data-testid="scheduled-agents-modal-empty-state"
                   >
                     {totalItems.length === 0
-                      ? "No wake-ups on any host. Click + to create one."
-                      : "No wake-ups match this filter."}
+                      ? "No scheduled agents on any host. Click + to create one."
+                      : "No scheduled agents match this filter."}
                   </div>
                 ) : (
                   visibleItems.map((row) => (
-                    <WakeupsModalRow
+                    <ScheduledAgentsModalRow
                       key={`${row.hostId}::${row.slug}`}
                       row={row}
                       onRowClick={handleRowClick}
@@ -641,10 +644,10 @@ export function WakeupsModal({
                 }}
               >
                 {items !== null && (
-                  <div data-testid="wakeups-modal-footer-count">
+                  <div data-testid="scheduled-agents-modal-footer-count">
                     {isFiltered && visibleItems.length !== totalItems.length
                       ? `${visibleItems.length} of ${totalItems.length} · ${visibleItems.filter((i) => i.enabled).length} enabled`
-                      : `${totalItems.length} wake-up${totalItems.length === 1 ? "" : "s"} · ${totalItems.filter((i) => i.enabled).length} enabled`}
+                      : `${totalItems.length} scheduled agent${totalItems.length === 1 ? "" : "s"} · ${totalItems.filter((i) => i.enabled).length} enabled`}
                   </div>
                 )}
               </div>
@@ -654,7 +657,7 @@ export function WakeupsModal({
                initialSpec is resolved from `items` via editingSlug; on
                create-mode it is null (form starts empty). Cancel + Save
                both trigger a refetch (D-03) and return to list view. */
-            <WakeupsModalForm
+            <ScheduledAgentsModalForm
               mode={editingSlug !== null ? "edit" : "create"}
               initialSpec={
                 editingSlug !== null

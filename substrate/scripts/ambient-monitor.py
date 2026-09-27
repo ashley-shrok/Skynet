@@ -323,7 +323,7 @@ CHILDREN.append({
     "critical": False,
 })
 
-# Phase 126: per-role wakeup-scheduler spawn removed — global scheduler in agent-supervisor.sh handles role-general wake-ups at host scope (D-16(a)). role-file-watch runs for BOTH coordinators and actors now.
+# Phase 126: per-role wakeup-scheduler spawn removed — scheduled-agents scheduler in agent-supervisor.sh handles role-general schedules at host scope (D-16(a)). role-file-watch runs for BOTH coordinators and actors now.
 CHILDREN.append({
     "name": "role-file-watch",
     "cmd": ["python3", str(HOME / ".local/bin/role-file-watch"), str(IDENTITY_DIR)],

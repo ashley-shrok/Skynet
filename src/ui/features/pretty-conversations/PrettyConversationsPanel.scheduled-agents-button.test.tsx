@@ -1,13 +1,13 @@
-// Phase 135 Plan 135-02 Task 5 — PrettyConversationsPanel wake-ups button.
+// Phase 135 Plan 135-02 Task 5 — PrettyConversationsPanel scheduled-agents button.
 //
 // 4 tests mirroring PrettyConversationsPanel.new-role-button.test.tsx's
 // panel-button-test pattern (~140 lines of shared vi.mock boilerplate for
 // stores + sibling modals, then a focused describe on the new button).
 //
 // Coverage:
-//   Test 1: pv-header-wakeups-button renders with correct chrome + a11y attrs
+//   Test 1: pv-header-scheduled-agents-button renders with correct chrome + a11y attrs
 //   Test 2: button absent when onCreateSession is undefined (showPencilButton guard)
-//   Test 3: clicking the button opens WakeupsModal (stubbed)
+//   Test 3: clicking the button opens ScheduledAgentsModal (stubbed)
 //   Test 4: button position — after Globe, before feedback + kebab
 //
 // Kept as a sibling test file (not appended to the main panel test) so the
@@ -130,18 +130,18 @@ vi.mock("@/features/pretty-view/RunbookEditorModal", () => ({
     props.open ? <div data-testid="runbook-editor-modal-stub" /> : null,
 }));
 
-// Additional wake-ups-specific mocks.
-vi.mock("./WakeupsModal", () => ({
-  WakeupsModal: (props: { open: boolean }) =>
-    props.open ? <div data-testid="wakeups-modal-stub" /> : null,
+// Additional scheduled-agents-specific mocks.
+vi.mock("./ScheduledAgentsModal", () => ({
+  ScheduledAgentsModal: (props: { open: boolean }) =>
+    props.open ? <div data-testid="scheduled-agents-modal-stub" /> : null,
 }));
 
-vi.mock("@/api/wakeups-api", () => ({
-  listWakeups: vi.fn().mockResolvedValue([]),
-  createWakeup: vi.fn(),
-  updateWakeup: vi.fn(),
-  toggleWakeupEnabled: vi.fn(),
-  deleteWakeup: vi.fn(),
+vi.mock("@/api/scheduled-agents-api", () => ({
+  listScheduledAgents: vi.fn().mockResolvedValue([]),
+  createScheduledAgent: vi.fn(),
+  updateScheduledAgent: vi.fn(),
+  toggleScheduledAgentEnabled: vi.fn(),
+  deleteScheduledAgent: vi.fn(),
 }));
 
 vi.mock("@/api/identities-api", async (importOriginal) => {
@@ -205,8 +205,8 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("PrettyConversationsPanel: Wake-ups header button", () => {
-  it("Test 1: pv-header-wakeups-button renders with correct chrome + a11y attrs", () => {
+describe("PrettyConversationsPanel: Scheduled Agents header button", () => {
+  it("Test 1: pv-header-scheduled-agents-button renders with correct chrome + a11y attrs", () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -215,10 +215,10 @@ describe("PrettyConversationsPanel: Wake-ups header button", () => {
         onDeactivateRow={() => {}}
       />,
     );
-    const btn = screen.getByTestId("pv-header-wakeups-button");
+    const btn = screen.getByTestId("pv-header-scheduled-agents-button");
     expect(btn).toBeTruthy();
-    expect(btn.getAttribute("aria-label")).toBe("Wake-ups");
-    expect(btn.getAttribute("title")).toBe("Wake-ups");
+    expect(btn.getAttribute("aria-label")).toBe("Scheduled Agents");
+    expect(btn.getAttribute("title")).toBe("Scheduled Agents");
     // Shares the .pv-pencil chrome with siblings.
     expect(btn.classList.contains("pv-pencil")).toBe(true);
   });
@@ -230,10 +230,10 @@ describe("PrettyConversationsPanel: Wake-ups header button", () => {
         onDeactivateRow={() => {}}
       />,
     );
-    expect(screen.queryByTestId("pv-header-wakeups-button")).toBeNull();
+    expect(screen.queryByTestId("pv-header-scheduled-agents-button")).toBeNull();
   });
 
-  it("Test 3: clicking pv-header-wakeups-button opens WakeupsModal (stub visible)", async () => {
+  it("Test 3: clicking pv-header-scheduled-agents-button opens ScheduledAgentsModal (stub visible)", async () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -243,20 +243,20 @@ describe("PrettyConversationsPanel: Wake-ups header button", () => {
       />,
     );
     // Stub is not in doc before click.
-    expect(screen.queryByTestId("wakeups-modal-stub")).toBeNull();
+    expect(screen.queryByTestId("scheduled-agents-modal-stub")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("pv-header-wakeups-button"));
+    fireEvent.click(screen.getByTestId("pv-header-scheduled-agents-button"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("wakeups-modal-stub")).toBeInTheDocument();
+      expect(screen.getByTestId("scheduled-agents-modal-stub")).toBeInTheDocument();
     });
   });
 
   it("Test 4: button position — appears after Create project, before kebab", () => {
     // shape-sidebar-header-footer-redesign: Globe migrated to the sidebar
-    // footer, so wake-ups' "after Globe" anchor was replaced by "after
+    // footer, so scheduled-agents' "after Globe" anchor was replaced by "after
     // Create project" — its actual position in the header after the
-    // migration. Kebab remains the trailing anchor. Wake-ups still slots
+    // migration. Kebab remains the trailing anchor. Scheduled Agents still slots
     // between the creation actions and the catchall menu.
     render(
       <PrettyConversationsPanel
@@ -267,14 +267,14 @@ describe("PrettyConversationsPanel: Wake-ups header button", () => {
       />,
     );
     const createProject = screen.getByTestId("pv-header-create-project-button");
-    const wakeup = screen.getByTestId("pv-header-wakeups-button");
+    const scheduledAgents = screen.getByTestId("pv-header-scheduled-agents-button");
     const kebab = screen.getByTestId("pv-header-menu-button");
     // Node.DOCUMENT_POSITION_FOLLOWING = 4
     expect(
-      createProject.compareDocumentPosition(wakeup) & Node.DOCUMENT_POSITION_FOLLOWING,
+      createProject.compareDocumentPosition(scheduledAgents) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      wakeup.compareDocumentPosition(kebab) & Node.DOCUMENT_POSITION_FOLLOWING,
+      scheduledAgents.compareDocumentPosition(kebab) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 });

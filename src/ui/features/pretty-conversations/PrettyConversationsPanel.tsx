@@ -142,15 +142,15 @@ import { ProjectFileModal } from "./ProjectFileModal";
 // NOT remove the existing filter-as-you-type — that lands in Plan 04
 // (D-18 ordering: modal usable BEFORE filter removed).
 import { ConversationSearchModal } from "./ConversationSearchModal";
-// Phase 135 Plan 135-01 Task 4 (shape 3, wake-ups-redesign) — WakeupsModal:
+// Phase 135 Plan 135-01 Task 4 (shape 3, wake-ups-redesign) — ScheduledAgentsModal:
 // portal-mounted sibling of ConversationSearchModal, opened via the new
 // AlarmClock header button below (position 6 in the .pv-header-actions
 // cluster, between Edit-global-files and the feedback + kebab buttons).
 // Owns its own list + form + refetch lifecycle (D-03 no client cache);
 // controlled open state lifted to this panel per D-26 (mirrors sibling
 // modals). Consumes the fleet-wide LIST + CRUD helpers from
-// src/ui/api/wakeups-api.ts, which layer over shape 2's REST endpoints.
-import { WakeupsModal } from "./WakeupsModal";
+// src/ui/api/scheduled-agents-api.ts, which layer over shape 2's REST endpoints.
+import { ScheduledAgentsModal } from "./ScheduledAgentsModal";
 import type { ConversationSearchResult } from "@/api/conversation-search-api";
 import {
   useSessionIsWorking,
@@ -919,12 +919,12 @@ export function PrettyConversationsPanel({
   // the header's Edit roles icon button (Drama). See <RolesListModal> mount below.
   const [rolesListModalOpen, setRolesListModalOpen] = useState(false);
   // Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4 — controlled
-  // open state for the new WakeupsModal. Opened via the AlarmClock button
+  // open state for the new ScheduledAgentsModal. Opened via the AlarmClock button
   // in .pv-header-actions below (inserted after the Edit-global-files
   // Globe, before the feedback + kebab buttons). No preserved query
   // state — modal refetches every open (D-03) and resets filter state on
   // close (D-17). Sibling of ConversationSearchModal's controlled state.
-  const [wakeupsModalOpen, setWakeupsModalOpen] = useState(false);
+  const [scheduledAgentsModalOpen, setScheduledAgentsModalOpen] = useState(false);
   // Phase 90 Plan 90-06 (D-04): role modal swap-not-stack coordination. Set by
   // RolesListModal's onSelectRole (row click closes list + opens role modal).
   // Also used by the nested RoleModal → RunbookEditorModal swap through
@@ -2462,7 +2462,7 @@ export function PrettyConversationsPanel({
           <div className="pv-header-actions">
             {/* Header icon buttons — see each button's own inline note for
                 its individual rationale. The showPencilButton-gated cluster
-                (Search, New conversation, Create project, Wake-ups, kebab)
+                (Search, New conversation, Create project, Scheduled Agents, kebab)
                 appears/disappears together based on typeof onCreateSession
                 === "function". Send feedback is deliberately OUTSIDE that
                 guard — it renders on any header where feedback is configured
@@ -2524,17 +2524,17 @@ export function PrettyConversationsPanel({
                     "act on this conversation list" zone. Now rendered as
                     pv-footer-global-files-button at the bottom of the panel. */}
                 {/* Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4
-                    — Wake-ups header button. Chrome mirrors sibling
+                    — Scheduled-Agents header button. Chrome mirrors sibling
                     .pv-pencil buttons verbatim: AlarmClock at size 18,
-                    aria-label + title both "Wake-ups". Opens the WakeupsModal
+                    aria-label + title both "Scheduled Agents". Opens the ScheduledAgentsModal
                     mounted alongside the sibling modals below. */}
                 <button
                   type="button"
                   className="pv-pencil"
-                  aria-label="Wake-ups"
-                  title="Wake-ups"
-                  data-testid="pv-header-wakeups-button"
-                  onClick={() => setWakeupsModalOpen(true)}
+                  aria-label="Scheduled Agents"
+                  title="Scheduled Agents"
+                  data-testid="pv-header-scheduled-agents-button"
+                  onClick={() => setScheduledAgentsModalOpen(true)}
                 >
                   <AlarmClock size={18} />
                 </button>
@@ -2542,7 +2542,7 @@ export function PrettyConversationsPanel({
             )}
             {/* Phase 123 shape 2 (D-01/D-02/D-11/D-12): "Send feedback" header
                 button. Position (as of shape-sidebar-header-footer-redesign):
-                after Wake-ups, before the kebab. Rationale for keeping it
+                after Scheduled Agents, before the kebab. Rationale for keeping it
                 top-level: feedback capability should always be surfaced to
                 users regardless of app state; do NOT fold it into the kebab.
                 Gate: feedbackEnabled ONLY — deliberately INDEPENDENT of the
@@ -3273,7 +3273,7 @@ export function PrettyConversationsPanel({
         }}
       />
       {/* Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4 —
-          WakeupsModal: portal-mounted sibling of ConversationSearchModal.
+          ScheduledAgentsModal: portal-mounted sibling of ConversationSearchModal.
           Opened via the AlarmClock button in .pv-header-actions above
           (position 6 in the guarded cluster — after Edit-global-files
           Globe, before feedback + kebab). Owns its own list + form +
@@ -3282,9 +3282,9 @@ export function PrettyConversationsPanel({
           filter-bar host dropdown + wave-2 host chip-picker can render
           the same user-scoped host set every other modal in this cluster
           uses. */}
-      <WakeupsModal
-        open={wakeupsModalOpen}
-        onOpenChange={setWakeupsModalOpen}
+      <ScheduledAgentsModal
+        open={scheduledAgentsModalOpen}
+        onOpenChange={setScheduledAgentsModalOpen}
         hostTree={hostTree ?? null}
       />
       {/* Phase 90 Plan 90-06 (D-07): RolesListModal — portal-mounted sibling of

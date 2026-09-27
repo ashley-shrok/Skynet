@@ -991,6 +991,13 @@ Under **`~/fleet/identities/<name>/`** — per-identity:
 - `relay.json` — durable per-identity Matrix account credentials
 - `relay-state/` — per-identity relay cursor + token
 
+Under **`~/fleet/scheduled-agents/`** — fleet-level (not per-identity):
+
+- `<slug>/scheduled-agent.json` — one folder per scheduled agent (see
+  § Scheduled agents (fleet-level))
+- `.state/` — scheduler state (`<slug>.last`, `<slug>.fired`)
+- `scheduler.log` — scheduler's own stdout/stderr
+
 ---
 
 ## Runbooks — role-scope named playbooks for repeated operational work
@@ -1103,6 +1110,74 @@ One JSON file per wake-up at
   already in the past when the spec is first seen (e.g. the user wrote a
   spec for 15 minutes ago), it fires immediately. This matches the
   intent: "fire on or after `at`", full stop.
+
+---
+
+## Scheduled agents (fleet-level) — the fleet's schedule
+
+Distinct concept from the scheduled wake-ups above. Wake-ups fire an
+instruction into an **already-running** identity's session; **scheduled
+agents** fire on a clock and **spawn a brand-new identity** to handle the
+prompt. Same primitive (a schedule on disk) — different consequence.
+
+Whereas a wake-up spec belongs to one identity and lives inside that
+identity's folder, a scheduled agent spec is a fleet-level thing that
+lives on the box, not on any identity. When it fires, the identity that
+carries out its prompt did not exist a moment ago.
+
+### On-disk shape
+
+Specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json`:
+
+```jsonc
+{
+  "name": "morning triage",       // human name; slug is kebab-cased from this
+  "enabled": true,
+  "roles": ["box-maintainer"],    // one or more role names the newborn takes on
+  "skills": ["id"],               // optional list of skill slugs ready in the newborn's context
+  "prompt": "Check the work Kanban and triage any unassigned cards.",
+  "schedule": { "type": "interval", "every": "2h" }  // same schedule kinds as per-identity wake-ups
+}
+```
+
+Schedule kinds (interval / daily / weekly / one_shot) and firing semantics
+(first-sight anchor, one catch-up on a missed slot, one-shot self-delete)
+mirror the wake-ups section above — same underlying scheduler. The
+difference is what happens on fire.
+
+### What happens on fire
+
+The scheduler drops a create-identity request at
+`~/fleet/spawn-requests/<uuid>.json` for Skynet's identity-birthing
+pipeline. That pipeline creates a fresh identity, sets its role to the
+`roles` listed, has whatever `skills` were named ready in context, and
+kicks it off with `prompt` as its first user turn. The newborn does the
+work and typically exits. No ⏰ line prints anywhere — there is no running
+harness to receive one.
+
+### Governance — user-reserved
+
+Same rule as wake-ups. An agent may **suggest** a scheduled agent, but
+only the user creates one — she says yes to a suggestion, or asks for it
+directly. Agents never self-schedule.
+
+### Two things a scheduled agent is NOT to be confused with
+
+Both look superficially similar; neither is what a scheduled agent is.
+
+- **Per-identity wake-ups** (the section above). Fire an instruction into
+  your OWN running session. You are the target. A wake-up does not spawn
+  anything.
+
+- **The harness `/schedule` slash-command.** This is a Claude Code
+  built-in that talks about "scheduled remote agents (routines)" — cron'd
+  remote Claude Code sessions run on Anthropic's infrastructure, a
+  completely different mechanism from the fleet's spawn-request pipeline.
+  It cannot be cleanly removed from the harness surface, so agents will
+  sometimes see it listed. **When the fleet's version of a concept and
+  the harness's version of a concept exist for the same-sounding thing,
+  agents choose the fleet's version — always.** For "scheduled
+  something": that means scheduled agents (this section), not `/schedule`.
 
 ---
 

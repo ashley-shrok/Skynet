@@ -1,5 +1,5 @@
-// Phase 135 Plan 135-02 Task 1 — WakeupsModalForm: create/edit form
-// subcomponent rendered when WakeupsModal is in the "form" view (D-19, D-27).
+// Phase 135 Plan 135-02 Task 1 — ScheduledAgentsModalForm: create/edit form
+// subcomponent rendered when ScheduledAgentsModal is in the "form" view (D-19, D-27).
 //
 // Locked field layout (D-20 + prototype § C, in order):
 //   1) Name (single-line input) — disabled on edit-mode per RESEARCH Pitfall
@@ -34,8 +34,8 @@
 // untouched. Matches the shape's "two paths in, one truth out" spirit —
 // agents editing on disk and the UI editing through the modal are peers.
 // (Amended 2026-09-24 during /close per user call: "agents are the only
-// ones who are going to be editing wake-ups on disk, so whatever would
-// cause less problems here" → preserve everything the UI doesn't touch.)
+// ones who are going to be editing scheduled agents on disk, so whatever
+// would cause less problems here" → preserve everything the UI doesn't touch.)
 //
 // Threat mitigations (from 129-02-PLAN.md § threat_model):
 //   - T-129-06 (XSS via error banner): server errors are React text-children
@@ -59,17 +59,17 @@ import {
   type Weekday,
 } from "@/features/pretty-view/WakeupFormShared";
 import {
-  createWakeup,
-  updateWakeup,
-  type GlobalWakeupSpecWire,
-  type WakeupListItem,
-} from "@/api/wakeups-api";
+  createScheduledAgent,
+  updateScheduledAgent,
+  type ScheduledAgentSpecWire,
+  type ScheduledAgentListItem,
+} from "@/api/scheduled-agents-api";
 import { listRolesForHost, type RoleSummary } from "@/api/identities-api";
 import type { Host } from "@/types/ui-types";
 
 // ---------------------------------------------------------------------------
-// Error mapping (verbatim adapt of CreateProjectModal.tsx:76-97, wake-ups
-// framing per PATTERNS.md § Error mapping and D-25).
+// Error mapping (verbatim adapt of CreateProjectModal.tsx:76-97,
+// scheduled-agents framing per PATTERNS.md § Error mapping and D-25).
 // ---------------------------------------------------------------------------
 
 function statusOf(err: unknown): number | undefined {
@@ -83,20 +83,20 @@ function statusOf(err: unknown): number | undefined {
 function interpretError(err: unknown, rawName: string): string {
   const status = statusOf(err);
   if (status === 409) {
-    return `A wake-up named "${rawName}" already exists on this host — pick a different name.`;
+    return `A scheduled agent named "${rawName}" already exists on this host — pick a different name.`;
   }
   if (status === 400) {
     const msg = err instanceof Error ? err.message : "";
-    return msg || "Wake-up schedule is malformed — check the fields.";
+    return msg || "Scheduled-agent schedule is malformed — check the fields.";
   }
   return err instanceof Error && err.message.length > 0
     ? err.message
-    : "Couldn't save wake-up — try again.";
+    : "Couldn't save scheduled agent — try again.";
 }
 
 // ---------------------------------------------------------------------------
 // Chip-picker chrome tokens (magenta = selected, dim = addable). Mirrors
-// the row's role-chip tokens from WakeupsModalRow.tsx.
+// the row's role-chip tokens from ScheduledAgentsModalRow.tsx.
 // ---------------------------------------------------------------------------
 
 const ROLE_CHIP_SELECTED = {
@@ -153,9 +153,9 @@ const WEEKDAY_LABELS: Record<Weekday, string> = {
 // Props
 // ---------------------------------------------------------------------------
 
-export interface WakeupsModalFormProps {
+export interface ScheduledAgentsModalFormProps {
   mode: "create" | "edit";
-  initialSpec: WakeupListItem | null;
+  initialSpec: ScheduledAgentListItem | null;
   flatHosts: Host[];
   onCancel: () => void;
   onSaved: () => void;
@@ -165,13 +165,13 @@ export interface WakeupsModalFormProps {
 // Component
 // ---------------------------------------------------------------------------
 
-export function WakeupsModalForm({
+export function ScheduledAgentsModalForm({
   mode,
   initialSpec,
   flatHosts,
   onCancel,
   onSaved,
-}: WakeupsModalFormProps): JSX.Element {
+}: ScheduledAgentsModalFormProps): JSX.Element {
   // ─── Form state ──────────────────────────────────────────────────────
   const [name, setName] = useState<string>(initialSpec?.name ?? "");
   const [prompt, setPrompt] = useState<string>(initialSpec?.prompt ?? "");
@@ -201,7 +201,7 @@ export function WakeupsModalForm({
 
   // Round-trip preservation slot (Option C): keep the raw initialSpec so
   // `skills` and `schedule.timezone` survive an edit-save round-trip.
-  const initialSpecRef = useRef<WakeupListItem | null>(initialSpec);
+  const initialSpecRef = useRef<ScheduledAgentListItem | null>(initialSpec);
 
   // Available roles for the currently-selected host (chip-picker source).
   const [availableRoles, setAvailableRoles] = useState<RoleSummary[]>([]);
@@ -331,7 +331,7 @@ export function WakeupsModalForm({
           ? initialSpecRef.current.enabled
           : true;
 
-      const spec: GlobalWakeupSpecWire = {
+      const spec: ScheduledAgentSpecWire = {
         name: mode === "edit" ? initialSpecRef.current!.name : trimmedName,
         prompt: trimmedPrompt,
         schedule: scheduleObj,
@@ -341,9 +341,9 @@ export function WakeupsModalForm({
       };
 
       if (mode === "create") {
-        await createWakeup(hostIdNum, spec);
+        await createScheduledAgent(hostIdNum, spec);
       } else {
-        await updateWakeup(initialSpecRef.current!.slug, hostIdNum, spec);
+        await updateScheduledAgent(initialSpecRef.current!.slug, hostIdNum, spec);
       }
 
       onSaved();
@@ -390,7 +390,7 @@ export function WakeupsModalForm({
   // Hide the host picker entirely in create mode when the user has access
   // to only one host — auto-select handles it, and rendering a picker for
   // a single option is noise. Edit mode always shows the locked chip so
-  // the user knows which host owns the wake-up they're editing.
+  // the user knows which host owns the scheduled agent they're editing.
   const hostFieldHidden = mode === "create" && flatHosts.length === 1;
   const scheduleValidationMsg = validateForm(formSchedule);
   const saveDisabled =
@@ -403,7 +403,7 @@ export function WakeupsModalForm({
   return (
     <div
       className="flex flex-col flex-1 min-h-0"
-      data-testid="wakeups-modal-form"
+      data-testid="scheduled-agents-modal-form"
     >
       {/* ─── Body (scrollable form column) ─────────────────────────── */}
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-4">
@@ -411,7 +411,7 @@ export function WakeupsModalForm({
         {error !== null && (
           <div
             role="alert"
-            data-testid="wakeups-modal-form-error"
+            data-testid="scheduled-agents-modal-form-error"
             className="px-3 py-2 text-xs rounded-md flex flex-row items-start gap-2"
             style={{
               background: "hsla(0, 60%, 40%, 0.14)",
@@ -434,20 +434,20 @@ export function WakeupsModalForm({
         {/* Field 1: Name (D-20 order 1) */}
         <div className="flex flex-col gap-1">
           <label
-            htmlFor="wakeups-modal-form-name-input"
+            htmlFor="scheduled-agents-modal-form-name-input"
             className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]"
           >
             Name
           </label>
           <input
-            id="wakeups-modal-form-name-input"
+            id="scheduled-agents-modal-form-name-input"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="morning-triage"
             disabled={nameDisabled}
             maxLength={120}
-            data-testid="wakeups-modal-form-name"
+            data-testid="scheduled-agents-modal-form-name"
             className={cn(
               "w-full px-3 py-2 rounded-lg text-sm text-[#e8e4d8]",
               "bg-black/20 border border-white/10 outline-none",
@@ -459,7 +459,7 @@ export function WakeupsModalForm({
           />
           {nameDisabled && (
             <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-              To rename, delete this wake-up and create a new one.
+              To rename, delete this scheduled agent and create a new one.
             </p>
           )}
         </div>
@@ -467,18 +467,18 @@ export function WakeupsModalForm({
         {/* Field 2: Prompt (D-20 order 2) */}
         <div className="flex flex-col gap-1">
           <label
-            htmlFor="wakeups-modal-form-prompt-input"
+            htmlFor="scheduled-agents-modal-form-prompt-input"
             className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]"
           >
             Prompt
           </label>
           <textarea
-            id="wakeups-modal-form-prompt-input"
+            id="scheduled-agents-modal-form-prompt-input"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="What should this wake-up do?"
+            placeholder="What should this scheduled agent do?"
             rows={4}
-            data-testid="wakeups-modal-form-prompt"
+            data-testid="scheduled-agents-modal-form-prompt"
             className={cn(
               "w-full px-3 py-2 rounded-lg text-sm text-[#e8e4d8] resize-y",
               "bg-black/20 border border-white/10 outline-none min-h-[96px]",
@@ -497,7 +497,7 @@ export function WakeupsModalForm({
         {/* Field 3: Roles (D-20 order 3) */}
         <div
           className="flex flex-col gap-2"
-          data-testid="wakeups-modal-form-roles"
+          data-testid="scheduled-agents-modal-form-roles"
         >
           <label className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]">
             Roles
@@ -518,7 +518,7 @@ export function WakeupsModalForm({
                       onClick={() => removeRole(r)}
                       className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[11px] font-medium leading-[16px] cursor-pointer"
                       style={ROLE_CHIP_SELECTED}
-                      data-testid={`wakeups-modal-form-role-selected-${r}`}
+                      data-testid={`scheduled-agents-modal-form-role-selected-${r}`}
                     >
                       <span>{r}</span>
                       <X size={10} />
@@ -536,7 +536,7 @@ export function WakeupsModalForm({
                       onClick={() => toggleRole(r)}
                       className="inline-flex items-center rounded-full px-2 py-[2px] text-[11px] font-medium leading-[16px] cursor-pointer"
                       style={ROLE_CHIP_ADDABLE}
-                      data-testid={`wakeups-modal-form-role-addable-${r}`}
+                      data-testid={`scheduled-agents-modal-form-role-addable-${r}`}
                     >
                       {r}
                     </button>
@@ -558,7 +558,7 @@ export function WakeupsModalForm({
         {!hostFieldHidden && (
         <div
           className="flex flex-col gap-2"
-          data-testid="wakeups-modal-form-host"
+          data-testid="scheduled-agents-modal-form-host"
         >
           <label className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]">
             Host
@@ -572,13 +572,13 @@ export function WakeupsModalForm({
                     ...HOST_CHIP_SELECTED,
                     opacity: 0.75,
                   }}
-                  data-testid="wakeups-modal-form-host-locked"
+                  data-testid="scheduled-agents-modal-form-host-locked"
                 >
                   {selectedHost?.name ?? initialSpec?.host ?? "unknown"}
                 </span>
               </div>
               <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-                Host cannot be changed on an existing wake-up. Delete and
+                Host cannot be changed on an existing scheduled agent. Delete and
                 recreate on the target host if needed.
               </p>
             </>
@@ -598,7 +598,7 @@ export function WakeupsModalForm({
                     onClick={() => setSelectedHost(h)}
                     className="inline-flex items-center rounded-full px-3 py-1 text-[12px] font-medium leading-[16px] cursor-pointer"
                     style={active ? HOST_CHIP_SELECTED : HOST_CHIP_ADDABLE}
-                    data-testid={`wakeups-modal-form-host-option-${h.id}`}
+                    data-testid={`scheduled-agents-modal-form-host-option-${h.id}`}
                   >
                     {h.name}
                   </button>
@@ -618,7 +618,7 @@ export function WakeupsModalForm({
           {/* Segmented control — kind picker */}
           <div
             className="flex flex-row gap-1 rounded-md p-1"
-            data-testid="wakeups-modal-form-schedule-kind"
+            data-testid="scheduled-agents-modal-form-schedule-kind"
             style={{
               background: "rgba(0, 0, 0, 0.20)",
               border: "1px solid rgba(220, 225, 245, 0.10)",
@@ -669,7 +669,7 @@ export function WakeupsModalForm({
                   }}
                   className="flex-1 px-2 py-1 rounded text-[11px] font-medium cursor-pointer transition-colors duration-150"
                   style={active ? SCHEDULE_KIND_ACTIVE : SCHEDULE_KIND_INACTIVE}
-                  data-testid={`wakeups-modal-form-schedule-kind-${key}`}
+                  data-testid={`scheduled-agents-modal-form-schedule-kind-${key}`}
                 >
                   {label}
                 </button>
@@ -689,7 +689,7 @@ export function WakeupsModalForm({
                 onChange={(e) =>
                   setFormSchedule({ type: "daily", at: e.target.value })
                 }
-                data-testid="wakeups-modal-form-schedule-daily-at"
+                data-testid="scheduled-agents-modal-form-schedule-daily-at"
                 className={cn(
                   "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
                   "bg-black/20 border border-white/10 outline-none",
@@ -703,7 +703,7 @@ export function WakeupsModalForm({
             <div className="flex flex-col gap-2">
               <div
                 className="flex flex-row gap-1 rounded-md p-1"
-                data-testid="wakeups-modal-form-schedule-weekly-day"
+                data-testid="scheduled-agents-modal-form-schedule-weekly-day"
                 style={{
                   background: "rgba(0, 0, 0, 0.20)",
                   border: "1px solid rgba(220, 225, 245, 0.10)",
@@ -724,7 +724,7 @@ export function WakeupsModalForm({
                       }
                       className="flex-1 px-1 py-1 rounded text-[10px] font-medium uppercase tracking-wide cursor-pointer transition-colors duration-150"
                       style={active ? SCHEDULE_KIND_ACTIVE : SCHEDULE_KIND_INACTIVE}
-                      data-testid={`wakeups-modal-form-schedule-weekly-day-${d}`}
+                      data-testid={`scheduled-agents-modal-form-schedule-weekly-day-${d}`}
                     >
                       {WEEKDAY_LABELS[d]}
                     </button>
@@ -745,7 +745,7 @@ export function WakeupsModalForm({
                       at: e.target.value,
                     })
                   }
-                  data-testid="wakeups-modal-form-schedule-weekly-at"
+                  data-testid="scheduled-agents-modal-form-schedule-weekly-at"
                   className={cn(
                     "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
                     "bg-black/20 border border-white/10 outline-none",
@@ -773,7 +773,7 @@ export function WakeupsModalForm({
                     u: formSchedule.u,
                   });
                 }}
-                data-testid="wakeups-modal-form-schedule-interval-n"
+                data-testid="scheduled-agents-modal-form-schedule-interval-n"
                 className={cn(
                   "w-20 px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
                   "bg-black/20 border border-white/10 outline-none",
@@ -789,7 +789,7 @@ export function WakeupsModalForm({
                     u: e.target.value as "s" | "m" | "h" | "d",
                   })
                 }
-                data-testid="wakeups-modal-form-schedule-interval-u"
+                data-testid="scheduled-agents-modal-form-schedule-interval-u"
                 className="px-2 py-1 rounded-md text-sm text-[#e8e4d8] bg-black/20 border border-white/10 outline-none cursor-pointer"
               >
                 <option value="s">seconds</option>
@@ -811,7 +811,7 @@ export function WakeupsModalForm({
                 onChange={(e) =>
                   setFormSchedule({ type: "one_shot", at: e.target.value })
                 }
-                data-testid="wakeups-modal-form-schedule-oneshot-at"
+                data-testid="scheduled-agents-modal-form-schedule-oneshot-at"
                 className={cn(
                   "px-2 py-1 rounded-md text-sm text-[#e8e4d8]",
                   "bg-black/20 border border-white/10 outline-none",
@@ -835,7 +835,7 @@ export function WakeupsModalForm({
         <button
           type="button"
           onClick={onCancel}
-          data-testid="wakeups-modal-form-cancel"
+          data-testid="scheduled-agents-modal-form-cancel"
           className="px-3 py-1.5 rounded-md text-xs cursor-pointer transition-colors duration-150"
           style={{
             background: "rgba(255, 255, 255, 0.04)",
@@ -851,7 +851,7 @@ export function WakeupsModalForm({
             void onSave();
           }}
           disabled={saveDisabled}
-          data-testid="wakeups-modal-form-save"
+          data-testid="scheduled-agents-modal-form-save"
           className={cn(
             "px-4 py-1.5 rounded-md text-xs font-medium cursor-pointer transition-colors duration-150",
             "disabled:opacity-50 disabled:cursor-not-allowed",

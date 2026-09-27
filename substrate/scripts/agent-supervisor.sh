@@ -2684,16 +2684,16 @@ ensure_agent_teams_env
 ensure_inotifywait
 resolve_memory_wrapper
 
-# Phase 126: global wake-up scheduler — session-independent, one per host, spawned once at supervisor startup (D-09). Reads specs from $HOME/fleet/wakeups/<slug>/wakeup.json (D-01, D-08); self-guards via _single_instance in the scheduler.
-GLOBAL_WAKEUPS_DIR="$HOME/fleet/wakeups"
-GLOBAL_WAKEUPS_LOG="$GLOBAL_WAKEUPS_DIR/global-scheduler.log"
-mkdir -p "$GLOBAL_WAKEUPS_DIR/.state"
+# Phase 126: scheduled-agents scheduler — session-independent, one per host, spawned once at supervisor startup (D-09). Reads specs from $HOME/fleet/scheduled-agents/<slug>/scheduled-agent.json (D-01, D-08); self-guards via _single_instance in the scheduler.
+SCHEDULED_AGENTS_DIR="$HOME/fleet/scheduled-agents"
+SCHEDULED_AGENTS_LOG="$SCHEDULED_AGENTS_DIR/scheduler.log"
+mkdir -p "$SCHEDULED_AGENTS_DIR/.state"
 if [ -x "$HOME/.local/bin/wakeup-scheduler" ]; then
-  setsid nohup python3 "$HOME/.local/bin/wakeup-scheduler" "$GLOBAL_WAKEUPS_DIR" --mode global \
-    > "$GLOBAL_WAKEUPS_LOG" 2>&1 < /dev/null & disown
-  log "global wake-up scheduler started (dir=$GLOBAL_WAKEUPS_DIR, log=$GLOBAL_WAKEUPS_LOG)"
+  setsid nohup python3 "$HOME/.local/bin/wakeup-scheduler" "$SCHEDULED_AGENTS_DIR" --mode scheduled-agents \
+    > "$SCHEDULED_AGENTS_LOG" 2>&1 < /dev/null & disown
+  log "scheduled-agents scheduler started (dir=$SCHEDULED_AGENTS_DIR, log=$SCHEDULED_AGENTS_LOG)"
 else
-  log "WARNING: global wake-up scheduler NOT started — $HOME/.local/bin/wakeup-scheduler missing"
+  log "WARNING: scheduled-agents scheduler NOT started — $HOME/.local/bin/wakeup-scheduler missing"
 fi
 
 case "${1:-}" in

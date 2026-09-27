@@ -1,5 +1,19 @@
-"""wakeup-scheduler.py — scheduled wake-ups for a fleet /id agent, with a
-global mode that births new identities instead of waking running ones.
+"""wakeup-scheduler.py — hybrid scheduler serving two distinct fleet concepts
+from one process file:
+
+  (1) PER-IDENTITY wake-ups (default mode, no flag) — a running identity's
+      own clock-scheduled instructions to itself. Fires an instruction into
+      an already-running agent's session by printing a ⏰ line.
+
+  (2) SCHEDULED AGENTS (--mode scheduled-agents) — fleet-level clock-scheduled
+      entries that SPAWN a fresh identity per firing. No ⏰ line is printed;
+      instead a spawn-request file is dropped for Skynet's identity-birthing
+      pipeline to consume.
+
+The two concepts historically shared the "wake-up" name; the fleet-level kind
+was renamed to "scheduled agents" to disambiguate. This script keeps its
+"wakeup-scheduler.py" filename because it genuinely serves both, but its
+--mode flag and internal identifiers name the two modes distinctly.
 
 The sibling of the relay receiver. The receiver wakes an agent when a MESSAGE
 wants its attention; this wakes it when the CLOCK does. Same primitive: it's
@@ -60,9 +74,10 @@ Semantics:
 - After it has fired once, a MISSED slot (box/session was down at the scheduled
   time) fires ONCE as catch-up on the next run — never a backlog storm.
 
---- Global mode (--mode global) ---
+--- Scheduled-agents mode (--mode scheduled-agents) ---
 
-Schedule specs live at `~/fleet/wakeups/<slug>/wakeup.json` (D-01, D-03):
+Schedule specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json`
+(D-01, D-03):
 
     {"name": "standup-spawn", "enabled": true,
      "roles": ["box-maintainer"],   # one or more role names the newborn takes on (D-04)
@@ -70,24 +85,25 @@ Schedule specs live at `~/fleet/wakeups/<slug>/wakeup.json` (D-01, D-03):
      "prompt": "Check the work Kanban and triage any unassigned cards.",  # newborn's first turn (D-05)
      "schedule": {"type": "interval", "every": "2h"}}  # same schedule kinds as per-identity
 
-On a due entry the global scheduler drops a create-identity request file at
-`~/fleet/spawn-requests/<uuid>.json` (D-11) for Skynet's existing coordinator-
-birthing pipeline to consume:
+On a due entry the scheduled-agents scheduler drops a create-identity request
+file at `~/fleet/spawn-requests/<uuid>.json` (D-11) for Skynet's existing
+coordinator-birthing pipeline to consume:
     {"roles": [...], "skills": [...], "prompt": "...", "task": null,
      "requested_at": "<ISO-8601 Z-suffixed>"}
 
 No ⏰ lines are printed; there is no running harness to receive them. The spawn-
 requests pipeline handles the actual identity birth.
 
-State dir is `~/fleet/wakeups/.state/` (D-10). All sentinel semantics (first-
-sight anchor, one-catch-up-on-missed-slot, `.fired` before delete for one-shot)
-carry over verbatim. One-shot spec self-delete unlinks the nested wakeup.json
-path directly (D-08).
+State dir is `~/fleet/scheduled-agents/.state/` (D-10). All sentinel semantics
+(first-sight anchor, one-catch-up-on-missed-slot, `.fired` before delete for
+one-shot) carry over verbatim. One-shot spec self-delete unlinks the nested
+scheduled-agent.json path directly (D-08).
 
-The orphan-monitor guard is DISABLED in global mode — no harness owns this
-process; agent-supervisor.sh spawns it session-independently (D-09, Plan 03).
+The orphan-monitor guard is DISABLED in scheduled-agents mode — no harness
+owns this process; agent-supervisor.sh spawns it session-independently (D-09,
+Plan 03).
 
-Usage:  python3 wakeup-scheduler.py <folder> [--mode global]
+Usage:  python3 wakeup-scheduler.py <folder> [--mode scheduled-agents]
 Env:    WAKEUP_POLL_SEC (default 30) — loop granularity.
 """
 
@@ -221,18 +237,19 @@ def _load_specs(wdir):
     return out
 
 
-def _load_specs_global(wakeups_root):
-    """Load wake-up specs from the global nested slug-folder layout.
+def _load_specs_scheduled_agents(scheduled_agents_root):
+    """Load scheduled-agent specs from the nested slug-folder layout.
 
-    Reads ~/fleet/wakeups/<slug>/wakeup.json for each slug (D-01, D-03 — slug is
-    kebab-case folder name). Consumes `prompt` field (D-05, not `instruction`).
-    Specs must have both `prompt` and `schedule` to be loaded; specs without either
-    are silently skipped (mirrors per-identity `instruction`/`schedule` gate).
+    Reads ~/fleet/scheduled-agents/<slug>/scheduled-agent.json for each slug
+    (D-01, D-03 — slug is kebab-case folder name). Consumes `prompt` field
+    (D-05, not `instruction`). Specs must have both `prompt` and `schedule`
+    to be loaded; specs without either are silently skipped (mirrors
+    per-identity `instruction`/`schedule` gate).
 
     Populates `_key`, `_slug`, and `_path` on each spec dict.
     """
     out = []
-    for p in sorted(glob.glob(os.path.join(wakeups_root, "*/wakeup.json"))):
+    for p in sorted(glob.glob(os.path.join(scheduled_agents_root, "*/scheduled-agent.json"))):
         try:
             spec = json.load(open(p))
         except Exception:
@@ -252,7 +269,7 @@ def _drop_spawn_request(spec, state_dir):
     """Drop a create-identity request file for the spawn-requests pipeline (D-11).
 
     Writes ~/fleet/spawn-requests/<uuid>.json with the extended schema fields:
-    roles, skills, prompt, task (null for wake fires), requested_at (ISO-Z).
+    roles, skills, prompt, task (null for scheduled-agent fires), requested_at (ISO-Z).
     The UUID is 36 chars (standard uuid4) matching the scan-orchestrator's
     ${#base} -eq 36 bash filter. The directory is created if absent (D-03 guard).
 
@@ -265,7 +282,7 @@ def _drop_spawn_request(spec, state_dir):
         "roles": spec.get("roles", []),
         "skills": spec.get("skills", []),
         "prompt": spec.get("prompt", ""),
-        # task carries the wake-up spec's `name` so the newborn's `task:`
+        # task carries the scheduled-agent spec's `name` so the newborn's `task:`
         # frontmatter surfaces "what is this identity for?" in the UI on
         # birth (existing BirthOptions.task plumbing, Phase 80). Empty/absent
         # name → None → absent-⇒-omit at buildIdentityFileBody.
@@ -285,8 +302,8 @@ def _single_instance(state_dir, ident_dir):
     """Newest-wins guard: kill any prior scheduler for THIS identity, claim the pidfile.
 
     Uniqueness assumes ident_dir string uniquely identifies this scheduler instance —
-    for global mode ident_dir = ~/fleet/wakeups which cannot collide with any identity
-    folder (no identity may be named "wakeups").
+    for global mode ident_dir = ~/fleet/scheduled-agents which cannot collide with any identity
+    folder (no identity may be named "scheduled-agents").
     """
     pf = os.path.join(state_dir, "scheduler.pid")
     try:
@@ -306,34 +323,37 @@ def _single_instance(state_dir, ident_dir):
 def main():
     parser = argparse.ArgumentParser(
         prog="wakeup-scheduler.py",
-        description="Scheduled wake-ups for a fleet /id agent (per-identity) or "
-                    "global identity-birthing scheduler (--mode global).",
-        usage="python3 wakeup-scheduler.py <folder> [--mode global]",
+        description="Per-identity wake-ups (default) OR scheduled agents "
+                    "(--mode scheduled-agents) — clock-scheduled fleet-level "
+                    "entries that spawn a new identity per firing.",
+        usage="python3 wakeup-scheduler.py <folder> [--mode scheduled-agents]",
     )
     parser.add_argument("folder", help="Identity directory (per-identity mode) or "
-                        "~/fleet/wakeups root (global mode)")
-    parser.add_argument("--mode", choices=["global"], default=None,
-                        help="Run in global mode: reads nested slug-folder specs and "
-                             "drops spawn-request files on fire instead of printing "
-                             "⏰ lines to a harness.")
+                        "~/fleet/scheduled-agents root (scheduled-agents mode)")
+    parser.add_argument("--mode", choices=["scheduled-agents"], default=None,
+                        help="Run in scheduled-agents mode: reads nested "
+                             "slug-folder specs and drops spawn-request files "
+                             "on fire instead of printing ⏰ lines to a harness.")
     # Replicate the original sys.exit(2) on missing positional arg — argparse already
     # exits 2 with usage on missing required positional, so no extra logic needed.
     args = parser.parse_args()
 
-    is_global = args.mode == "global"
+    is_scheduled_agents_mode = args.mode == "scheduled-agents"
     folder = os.path.abspath(os.path.expanduser(args.folder))
 
-    if is_global:
-        # In global mode the positional arg IS the wakeups root (~/fleet/wakeups).
-        # wdir = that root; specs are at wdir/<slug>/wakeup.json (D-08).
+    if is_scheduled_agents_mode:
+        # In scheduled-agents mode the positional arg IS the scheduled-agents
+        # root (~/fleet/scheduled-agents). wdir = that root; specs are at
+        # wdir/<slug>/scheduled-agent.json (D-08).
         wdir = folder
     else:
         # Per-identity mode: wdir = <identity_dir>/wakeups (existing behavior).
         wdir = os.path.join(folder, "wakeups")
 
     # ident_dir is used by _single_instance for per-instance uniqueness keying.
-    # In global mode, ident_dir = ~/fleet/wakeups (the CLI arg); the existing
-    # `ident_dir in cmd` uniqueness check works because no identity is named "wakeups".
+    # In scheduled-agents mode, ident_dir = ~/fleet/scheduled-agents (the CLI
+    # arg); the existing `ident_dir in cmd` uniqueness check works because no
+    # identity is named "scheduled-agents".
     ident_dir = folder
 
     state_dir = os.path.join(wdir, ".state")
@@ -368,13 +388,13 @@ def main():
     #      Claude dies. See bounty orphan-monitor-self-suicide-check.
     # Check per iteration below; if Claude is gone, exit(0) BEFORE any spec fires.
     harness_pid = None
-    if is_global:
+    if is_scheduled_agents_mode:
         # Global mode: no harness owns this process — agent-supervisor.sh spawns it
         # session-independently. Skip all harness-PID resolution unconditionally.
         # (RESEARCH § Anti-pattern 1: grandparent in global mode is agent-supervisor's
         # bash process, which eventually vanishes on supervisor restart — that would
         # cause spurious exits if the orphan-check were left active.)
-        print("wakeup-scheduler: running in global mode — orphan-check disabled (no harness)",
+        print("wakeup-scheduler: running in scheduled-agents mode — orphan-check disabled (no harness)",
               file=sys.stderr, flush=True)
     else:
         env_override = os.environ.get("AMBIENT_MONITOR_HARNESS_PID")
@@ -407,7 +427,7 @@ def main():
             except OSError:
                 sys.exit(0)              # harness gone — self-exit before firing anything
         now_ts = time.time()
-        specs = _load_specs_global(wdir) if is_global else _load_specs(wdir)
+        specs = _load_specs_scheduled_agents(wdir) if is_scheduled_agents_mode else _load_specs(wdir)
         for spec in specs:
             key = spec["_key"]
             zi, tz_err = _zone(spec)
@@ -472,13 +492,13 @@ def main():
                     warned.add((key, "tz_on_offset"))
                 if now_ts >= at_ts:
                     utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    if is_global:
+                    if is_scheduled_agents_mode:
                         _drop_spawn_request(spec, state_dir)
                     else:
                         _emit_wake(key, utc, spec["instruction"], state_dir)
                     open(fired_path, "w").write(str(now_ts))     # sentinel first
-                    if is_global:
-                        # Global mode: spec path is the nested wakeup.json (D-08).
+                    if is_scheduled_agents_mode:
+                        # Scheduled-agents mode: spec path is the nested scheduled-agent.json (D-08).
                         # Use spec["_path"] directly rather than the flat-glob path.
                         try:
                             os.unlink(spec["_path"])
@@ -486,7 +506,7 @@ def main():
                             except OSError: pass
                         except FileNotFoundError:
                             # Spec may have been renamed/moved; fallback scan by slug.
-                            for p in glob.glob(os.path.join(wdir, "*/wakeup.json")):
+                            for p in glob.glob(os.path.join(wdir, "*/scheduled-agent.json")):
                                 try:
                                     s = json.load(open(p))
                                 except Exception:
@@ -530,7 +550,7 @@ def main():
                 continue
             if _due(spec, last, now_ts, zi):
                 utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                if is_global:
+                if is_scheduled_agents_mode:
                     _drop_spawn_request(spec, state_dir)
                 else:
                     _emit_wake(key, utc, spec["instruction"], state_dir)

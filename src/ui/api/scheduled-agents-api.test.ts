@@ -1,8 +1,8 @@
-// Phase 135 Plan 135-02 Task 3 — wakeups-api.test.ts
+// Phase 135 Plan 135-02 Task 3 — scheduled-agents-api.test.ts
 //
 // Six unit tests, one per helper + one error-propagation test, mocking the
 // authApi + handleApiError module at the module level BEFORE importing
-// wakeups-api. Follows the vi.mock-before-import convention documented in
+// scheduled-agents-api. Follows the vi.mock-before-import convention documented in
 // PATTERNS.md § test structure and mirrored from
 // ConversationSearchModal.test.tsx / CreateProjectModal.test.tsx.
 //
@@ -17,7 +17,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// ─── Module-level mocks (BEFORE the wakeups-api import) ─────────────────────
+// ─── Module-level mocks (BEFORE the scheduled-agents-api import) ─────────────────────
 
 const getMock = vi.fn();
 const postMock = vi.fn();
@@ -44,20 +44,20 @@ vi.mock("@/main-axios", () => ({
   },
 }));
 
-// Import AFTER the mock so wakeups-api picks up the stubbed authApi.
+// Import AFTER the mock so scheduled-agents-api picks up the stubbed authApi.
 import {
-  listWakeups,
-  createWakeup,
-  updateWakeup,
-  toggleWakeupEnabled,
-  deleteWakeup,
-  type GlobalWakeupSpecWire,
-  type WakeupListItem,
-} from "./wakeups-api";
+  listScheduledAgents,
+  createScheduledAgent,
+  updateScheduledAgent,
+  toggleScheduledAgentEnabled,
+  deleteScheduledAgent,
+  type ScheduledAgentSpecWire,
+  type ScheduledAgentListItem,
+} from "./scheduled-agents-api";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
-function makeItem(overrides: Partial<WakeupListItem> = {}): WakeupListItem {
+function makeItem(overrides: Partial<ScheduledAgentListItem> = {}): ScheduledAgentListItem {
   return {
     slug: "morning-triage",
     host: "host-a",
@@ -73,7 +73,7 @@ function makeItem(overrides: Partial<WakeupListItem> = {}): WakeupListItem {
   };
 }
 
-function makeSpec(overrides: Partial<GlobalWakeupSpecWire> = {}): GlobalWakeupSpecWire {
+function makeSpec(overrides: Partial<ScheduledAgentSpecWire> = {}): ScheduledAgentSpecWire {
   return {
     name: "morning-triage",
     prompt: "check inbox",
@@ -96,32 +96,32 @@ beforeEach(() => {
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-describe("wakeups-api", () => {
-  it("T-01: listWakeups() calls GET /wakeups and unwraps {items}", async () => {
+describe("scheduled-agents-api", () => {
+  it("T-01: listScheduledAgents() calls GET /scheduled-agents and unwraps {items}", async () => {
     const rows = [makeItem({ slug: "a" }), makeItem({ slug: "b" })];
     getMock.mockResolvedValueOnce({ data: { items: rows } });
 
-    const result = await listWakeups();
+    const result = await listScheduledAgents();
 
     expect(getMock).toHaveBeenCalledTimes(1);
-    expect(getMock).toHaveBeenCalledWith("/wakeups");
+    expect(getMock).toHaveBeenCalledWith("/scheduled-agents");
     expect(result).toEqual(rows);
   });
 
-  it("T-02: createWakeup(host, spec) POSTs /wakeups with {host, spec} body", async () => {
+  it("T-02: createScheduledAgent(host, spec) POSTs /scheduled-agents with {host, spec} body", async () => {
     const spec = makeSpec();
     postMock.mockResolvedValueOnce({
       data: { slug: "morning-triage", host: 1, spec },
     });
 
-    const result = await createWakeup(1, spec);
+    const result = await createScheduledAgent(1, spec);
 
     expect(postMock).toHaveBeenCalledTimes(1);
-    expect(postMock).toHaveBeenCalledWith("/wakeups", { host: 1, spec });
+    expect(postMock).toHaveBeenCalledWith("/scheduled-agents", { host: 1, spec });
     expect(result).toEqual({ slug: "morning-triage", host: 1, spec });
   });
 
-  it("T-03: updateWakeup(slug, host, spec) PATCHes /wakeups/:slug with URL-encoded slug", async () => {
+  it("T-03: updateScheduledAgent(slug, host, spec) PATCHes /scheduled-agents/:slug with URL-encoded slug", async () => {
     const spec = makeSpec({ name: "morning triage" });
     // Slug containing a space — encodeURIComponent should escape it as %20.
     const slug = "morning triage";
@@ -129,26 +129,26 @@ describe("wakeups-api", () => {
       data: { slug, host: 1, spec },
     });
 
-    await updateWakeup(slug, 1, spec);
+    await updateScheduledAgent(slug, 1, spec);
 
     expect(patchMock).toHaveBeenCalledTimes(1);
     // Assert the URL was URL-encoded (space → %20).
     expect(patchMock).toHaveBeenCalledWith(
-      "/wakeups/morning%20triage",
+      "/scheduled-agents/morning%20triage",
       { host: 1, spec },
     );
   });
 
-  it("T-04: toggleWakeupEnabled(slug, host, enabled) PATCHes /wakeups/:slug/toggle-enabled with {host, enabled} body", async () => {
+  it("T-04: toggleScheduledAgentEnabled(slug, host, enabled) PATCHes /scheduled-agents/:slug/toggle-enabled with {host, enabled} body", async () => {
     patchMock.mockResolvedValueOnce({
       data: { slug: "morning-triage", host: 1, enabled: false },
     });
 
-    const result = await toggleWakeupEnabled("morning-triage", 1, false);
+    const result = await toggleScheduledAgentEnabled("morning-triage", 1, false);
 
     expect(patchMock).toHaveBeenCalledTimes(1);
     expect(patchMock).toHaveBeenCalledWith(
-      "/wakeups/morning-triage/toggle-enabled",
+      "/scheduled-agents/morning-triage/toggle-enabled",
       { host: 1, enabled: false },
     );
     expect(result).toEqual({
@@ -158,15 +158,15 @@ describe("wakeups-api", () => {
     });
   });
 
-  it("T-05: deleteWakeup(slug, host) uses axios data:{} config for the body (DELETE-with-body per RESEARCH Pitfall #4)", async () => {
+  it("T-05: deleteScheduledAgent(slug, host) uses axios data:{} config for the body (DELETE-with-body per RESEARCH Pitfall #4)", async () => {
     deleteMock.mockResolvedValueOnce({ data: undefined });
 
-    await deleteWakeup("morning-triage", 1);
+    await deleteScheduledAgent("morning-triage", 1);
 
     expect(deleteMock).toHaveBeenCalledTimes(1);
     // The critical gate: the config object's `data` key carries the body.
     expect(deleteMock).toHaveBeenCalledWith(
-      "/wakeups/morning-triage",
+      "/scheduled-agents/morning-triage",
       { data: { host: 1 } },
     );
   });
@@ -180,7 +180,7 @@ describe("wakeups-api", () => {
 
     let caught: unknown = null;
     try {
-      await createWakeup(1, makeSpec());
+      await createScheduledAgent(1, makeSpec());
     } catch (err) {
       caught = err;
     }

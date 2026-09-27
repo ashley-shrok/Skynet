@@ -1,5 +1,5 @@
 /**
- * Phase 134 Plan 134-01 Task 3 — tests for POST/PATCH/DELETE /wakeups.
+ * Phase 134 Plan 134-01 Task 3 — tests for POST/PATCH/DELETE /scheduled-agents.
  *
  * Test coverage (15+ cases, mirrors plan Task 3 <behavior>):
  *   1: 401 without JWT
@@ -86,16 +86,16 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 
 // ---------------------------------------------------------------------------
 // identity-artifact-reader mock — writeMarkdownFileAtomic +
-// normalizeWakeupSlug + IDENTITY_SLUG_RE + isLocalHostId + getLocalWakeupsRoot
+// normalizeSpecSlug + IDENTITY_SLUG_RE + isLocalHostId + getLocalScheduledAgentsRoot
 // ---------------------------------------------------------------------------
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   writeMarkdownFileAtomic: vi.fn(),
-  normalizeWakeupSlug: (name: string) =>
+  normalizeSpecSlug: (name: string) =>
     name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
   IDENTITY_SLUG_RE: /^[a-z0-9_-]{1,80}$/i,
   isLocalHostId: vi.fn().mockReturnValue(false),
-  getLocalWakeupsRoot: vi.fn().mockReturnValue("/tmp/test-fleet/wakeups"),
+  getLocalScheduledAgentsRoot: vi.fn().mockReturnValue("/tmp/test-fleet/scheduled-agents"),
 }));
 
 // ---------------------------------------------------------------------------
@@ -108,7 +108,7 @@ vi.mock("../../ssh/host-semaphore-registry.js", () => {
     string,
     Promise<unknown>
   >();
-  // Fix #1 followup: wakeups-write.ts also imports `makeSemaphore` +
+  // Fix #1 followup: scheduled-agents-write.ts also imports `makeSemaphore` +
   // `HostSemaphore` for its per-slug mutex registry. The mock must expose
   // makeSemaphore so `getSlugMutex` can build slot-1 semaphores. Serial
   // chain-of-promises pattern mirrors getHostSemaphore's mock semantics.
@@ -247,7 +247,7 @@ function httpRequest(
 // Import router UNDER TEST
 // ---------------------------------------------------------------------------
 
-import router, { __resetSlugMutexRegistryForTests } from "./wakeups-write.js";
+import router, { __resetSlugMutexRegistryForTests } from "./scheduled-agents-write.js";
 
 // ---------------------------------------------------------------------------
 // Stubs
@@ -301,7 +301,7 @@ beforeEach(() => {
   (isLocalHostId as Mock).mockReturnValue(false);
 
   const app = express();
-  app.use("/wakeups", router);
+  app.use("/scheduled-agents", router);
   server = http.createServer(app);
   server.listen(0);
 });
@@ -323,12 +323,12 @@ const validSpec = {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("POST /wakeups (CREATE)", () => {
+describe("POST /scheduled-agents (CREATE)", () => {
   it("Test 1: 401 without JWT", async () => {
     mockUserId = null;
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/wakeups",
+      path: "/scheduled-agents",
       body: { host: 7, spec: validSpec },
     });
     expect(res.status).toBe(401);
@@ -338,7 +338,7 @@ describe("POST /wakeups (CREATE)", () => {
   it("Test 2: missing host → 400", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/wakeups",
+      path: "/scheduled-agents",
       body: { spec: validSpec },
     });
     expect(res.status).toBe(400);
@@ -348,7 +348,7 @@ describe("POST /wakeups (CREATE)", () => {
   it("Test 3: unknown host → 404", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/wakeups",
+      path: "/scheduled-agents",
       body: { host: 99999, spec: validSpec },
     });
     expect(res.status).toBe(404);
@@ -358,7 +358,7 @@ describe("POST /wakeups (CREATE)", () => {
   it("Test 4: spec.name normalizes to empty slug → 400", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/wakeups",
+      path: "/scheduled-agents",
       body: { host: 7, spec: { ...validSpec, name: "!!!" } },
     });
     expect(res.status).toBe(400);
@@ -370,7 +370,7 @@ describe("POST /wakeups (CREATE)", () => {
     const { prompt: _p, ...noPrompt } = validSpec;
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/wakeups",
+      path: "/scheduled-agents",
       body: { host: 7, spec: noPrompt },
     });
     expect(res.status).toBe(400);
@@ -382,7 +382,7 @@ describe("POST /wakeups (CREATE)", () => {
     const { schedule: _s, ...noSched } = validSpec;
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/wakeups",
+      path: "/scheduled-agents",
       body: { host: 7, spec: noSched },
     });
     expect(res.status).toBe(400);
@@ -393,7 +393,7 @@ describe("POST /wakeups (CREATE)", () => {
   it("Test 7: unknown schedule.type → 400", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/wakeups",
+      path: "/scheduled-agents",
       body: {
         host: 7,
         spec: { ...validSpec, schedule: { type: "custom-experimental" } },
@@ -412,7 +412,7 @@ describe("POST /wakeups (CREATE)", () => {
 
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/wakeups",
+      path: "/scheduled-agents",
       body: { host: 7, spec: validSpec },
     });
     expect(res.status).toBe(409);
@@ -427,7 +427,7 @@ describe("POST /wakeups (CREATE)", () => {
 
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/wakeups",
+      path: "/scheduled-agents",
       body: { host: 7, spec: validSpec },
     });
     expect(res.status).toBe(201);
@@ -438,7 +438,7 @@ describe("POST /wakeups (CREATE)", () => {
     // First arg = conn (not null → REMOTE); second arg = target path with slug;
     // third arg = JSON body containing the spec.
     const callArgs = (writeMarkdownFileAtomic as Mock).mock.calls[0];
-    expect(callArgs[1]).toContain("morning-digest/wakeup.json");
+    expect(callArgs[1]).toContain("morning-digest/scheduled-agent.json");
     expect(callArgs[2]).toContain('"prompt": "Summarize overnight events"');
     // Pitfall #1 regression pin — sftp.rename never invoked.
     expect(sftpRenameTrap).not.toHaveBeenCalled();
@@ -454,7 +454,7 @@ describe("POST /wakeups (CREATE)", () => {
 
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/wakeups",
+      path: "/scheduled-agents",
       body: { host: 1, spec: validSpec },
     });
     expect(res.status).toBe(201);
@@ -483,12 +483,12 @@ describe("POST /wakeups (CREATE)", () => {
     const [resA, resB] = await Promise.all([
       httpRequest(server, {
         method: "POST",
-        path: "/wakeups",
+        path: "/scheduled-agents",
         body: { host: 7, spec: validSpec },
       }),
       httpRequest(server, {
         method: "POST",
-        path: "/wakeups",
+        path: "/scheduled-agents",
         body: { host: 7, spec: validSpec },
       }),
     ]);
@@ -501,17 +501,17 @@ describe("POST /wakeups (CREATE)", () => {
   });
 });
 
-describe("PATCH /wakeups/:slug (UPDATE)", () => {
+describe("PATCH /scheduled-agents/:slug (UPDATE)", () => {
   it("Test 11: happy PATCH REMOTE — 200 + writeMarkdownFileAtomic called", async () => {
     const res = await httpRequest(server, {
       method: "PATCH",
-      path: "/wakeups/morning-digest",
+      path: "/scheduled-agents/morning-digest",
       body: { host: 7, spec: { ...validSpec, prompt: "updated prompt" } },
     });
     expect(res.status).toBe(200);
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
     const callArgs = (writeMarkdownFileAtomic as Mock).mock.calls[0];
-    expect(callArgs[1]).toContain("morning-digest/wakeup.json");
+    expect(callArgs[1]).toContain("morning-digest/scheduled-agent.json");
     expect(callArgs[2]).toContain("updated prompt");
     // UPDATE MUST NOT invoke sftp.rename via any code path
     expect(sftpRenameTrap).not.toHaveBeenCalled();
@@ -523,7 +523,7 @@ describe("PATCH /wakeups/:slug (UPDATE)", () => {
 
     const res = await httpRequest(server, {
       method: "PATCH",
-      path: "/wakeups/morning-digest",
+      path: "/scheduled-agents/morning-digest",
       body: { host: 1, spec: { ...validSpec, prompt: "local updated prompt" } },
     });
     expect(res.status).toBe(200);
@@ -545,7 +545,7 @@ describe("PATCH /wakeups/:slug (UPDATE)", () => {
     // `evening-review` — mismatch is a 400 without touching disk.
     const res = await httpRequest(server, {
       method: "PATCH",
-      path: "/wakeups/morning-digest",
+      path: "/scheduled-agents/morning-digest",
       body: { host: 7, spec: { ...validSpec, name: "Evening Review" } },
     });
     expect(res.status).toBe(400);
@@ -555,10 +555,10 @@ describe("PATCH /wakeups/:slug (UPDATE)", () => {
   });
 });
 
-describe("PATCH /wakeups/:slug/toggle-enabled", () => {
+describe("PATCH /scheduled-agents/:slug/toggle-enabled", () => {
   it("Test 12: toggle happy REMOTE — 200 + writeMarkdownFileAtomic with enabled flipped", async () => {
     (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
-      if (cmd.includes("cat ") && cmd.includes("wakeup.json")) {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
         return JSON.stringify({ ...validSpec, enabled: true });
       }
       return "";
@@ -566,7 +566,7 @@ describe("PATCH /wakeups/:slug/toggle-enabled", () => {
 
     const res = await httpRequest(server, {
       method: "PATCH",
-      path: "/wakeups/morning-digest/toggle-enabled",
+      path: "/scheduled-agents/morning-digest/toggle-enabled",
       body: { host: 7, enabled: false },
     });
     expect(res.status).toBe(200);
@@ -579,15 +579,15 @@ describe("PATCH /wakeups/:slug/toggle-enabled", () => {
 
   it("Test 15: toggle on missing spec → 404", async () => {
     (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
-      if (cmd.includes("cat ") && cmd.includes("wakeup.json")) {
-        return "__WAKEUP_MISSING__\n";
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
+        return "__SCHEDULED_AGENT_MISSING__\n";
       }
       return "";
     });
 
     const res = await httpRequest(server, {
       method: "PATCH",
-      path: "/wakeups/does-not-exist/toggle-enabled",
+      path: "/scheduled-agents/does-not-exist/toggle-enabled",
       body: { host: 7, enabled: true },
     });
     expect(res.status).toBe(404);
@@ -595,13 +595,13 @@ describe("PATCH /wakeups/:slug/toggle-enabled", () => {
   });
 });
 
-describe("DELETE /wakeups/:slug", () => {
+describe("DELETE /scheduled-agents/:slug", () => {
   it("Test 13: DELETE + sentinel cleanup — single execCommand includes BOTH rm -rf AND rm -f .fired", async () => {
     (execCommand as Mock).mockResolvedValue("");
 
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/wakeups/morning-digest",
+      path: "/scheduled-agents/morning-digest",
       body: { host: 7 },
     });
     expect(res.status).toBe(204);
@@ -622,7 +622,7 @@ describe("DELETE /wakeups/:slug", () => {
   it("Test 16: DELETE happy REMOTE — 204 no content", async () => {
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/wakeups/morning-digest",
+      path: "/scheduled-agents/morning-digest",
       body: { host: 7 },
     });
     expect(res.status).toBe(204);
@@ -637,13 +637,13 @@ describe("DELETE /wakeups/:slug", () => {
 
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/wakeups/morning-digest",
+      path: "/scheduled-agents/morning-digest",
       body: { host: 1 },
     });
     expect(res.status).toBe(204);
     // LOCAL DELETE must call BOTH fs.rm (folder) AND fs.unlink (sentinel).
     // D-06 + Pitfall #2: orphaned .fired sentinel would inherit "already
-    // fired" state onto a future wake-up with the same slug.
+    // fired" state onto a future scheduled agent with the same slug.
     expect(fsRmMock).toHaveBeenCalledTimes(1);
     const rmPath = fsRmMock.mock.calls[0][0] as string;
     expect(rmPath).toContain("morning-digest");

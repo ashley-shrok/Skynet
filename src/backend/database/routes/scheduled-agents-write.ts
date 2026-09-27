@@ -1,7 +1,8 @@
 /**
  * Phase 134 Plan 134-01 (wake-ups-redesign campaign shape 2 — CRUD API):
- * POST / PATCH / DELETE /wakeups — per-host writes over the fleet's global
- * wake-up spec convention (~/fleet/wakeups/<slug>/wakeup.json).
+ * POST / PATCH / DELETE /scheduled-agents — per-host writes over the
+ * fleet's scheduled-agent spec convention
+ * (~/fleet/scheduled-agents/<slug>/scheduled-agent.json).
  *
  * Endpoints:
  *   POST   /                          → CREATE (409 on slug collision)
@@ -18,16 +19,16 @@
  * D-06: HARD DELETE — combined `rm -rf <dir> && rm -f <.state/<slug>.fired>`
  *       in ONE execCommand call (Pitfall #2). Orphan sentinel is a silent-
  *       fail failure mode; cleanup MUST accompany folder removal.
- * D-07: Slug derived kebab-case from spec.name via normalizeWakeupSlug; 409
+ * D-07: Slug derived kebab-case from spec.name via normalizeSpecSlug; 409
  *       on collision. IDENTITY_SLUG_RE re-check as shell-safety gate before
  *       any interpolation.
- * D-08: Validation MIRRORS wakeup-scheduler.py `_load_specs_global()` at
- *       L224-248 exactly — spec is accepted iff dict-shaped, enabled !== false,
+ * D-08: Validation MIRRORS wakeup-scheduler.py `_load_specs_scheduled_agents()`
+ *       at L224-248 exactly — spec is accepted iff dict-shaped, enabled !== false,
  *       has truthy `prompt` string, has truthy `schedule` object with a valid
  *       `type` (interval | daily | weekly | one_shot) and its type-specific
  *       required fields. NO additional gates (no prompt-cap, no roles-min).
  *       Drift-flavored test names are grep-banned in acceptance criteria.
- * D-16: LOCAL branch uses getLocalWakeupsRoot() for Skynet's own host.
+ * D-16: LOCAL branch uses getLocalScheduledAgentsRoot() for Skynet's own host.
  *
  * Security posture (STRIDE T-128-01..08):
  *   - authenticateJWT on every handler.
@@ -47,7 +48,7 @@
  *   - Generic 5xx error bodies ("SSH connect failed" / "SSH exec failed" /
  *     "SFTP write failed"); upstream detail goes to sshLogger only (T-128-08).
  *
- * Route mount: chained with wakeupsListRoutes at "/wakeups" in database.ts.
+ * Route mount: chained with scheduledAgentsListRoutes at "/scheduled-agents" in database.ts.
  * Matching nginx location blocks in BOTH docker/nginx.conf and
  * docker/nginx-https.conf (D-17 — CLAUDE.md load-bearing rule).
  */
@@ -65,10 +66,10 @@ import { sshLogger } from "../../utils/logger.js";
 import { getHostSemaphore, makeSemaphore, type HostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import {
   writeMarkdownFileAtomic,
-  normalizeWakeupSlug,
+  normalizeSpecSlug,
   IDENTITY_SLUG_RE,
   isLocalHostId,
-  getLocalWakeupsRoot,
+  getLocalScheduledAgentsRoot,
 } from "../../claude-session/identity-artifact-reader.js";
 
 const router = express.Router();
@@ -129,17 +130,18 @@ export function __resetSlugMutexRegistryForTests(): void {
 // Types
 // ---------------------------------------------------------------------------
 
-type WakeupScheduleType = "interval" | "daily" | "weekly" | "one_shot";
+type ScheduledAgentScheduleType = "interval" | "daily" | "weekly" | "one_shot";
 
-/** Global wake-up spec shape — mirrors Phase 127 D-04 + wakeup-scheduler.py
- *  `_load_specs_global` acceptance criteria. */
-export type GlobalWakeupSpec = {
+/** Scheduled-agent spec shape — mirrors Phase 127 D-04 + wakeup-scheduler.py's
+ *  scheduled-agents-mode acceptance criteria (the substrate scheduler file is
+ *  hybrid: it also serves per-identity wake-ups). */
+export type ScheduledAgentSpec = {
   name: string;
   enabled?: boolean;
   prompt: string;
   schedule: {
-    type: WakeupScheduleType;
-    // Type-specific fields — validated by validateGlobalWakeupSpec below,
+    type: ScheduledAgentScheduleType;
+    // Type-specific fields — validated by validateScheduledAgentSpec below,
     // NOT tightened at TS type level (D-08: mirror the scheduler's runtime
     // acceptance, don't opinion-ate at compile time).
     every?: string | number;
@@ -152,11 +154,11 @@ export type GlobalWakeupSpec = {
 };
 
 // ---------------------------------------------------------------------------
-// Validation — MIRRORS wakeup-scheduler.py::_load_specs_global (D-08)
+// Validation — MIRRORS wakeup-scheduler.py's scheduled-agents-mode parser (D-08)
 // ---------------------------------------------------------------------------
 
 /**
- * Validate a global wake-up spec against wakeup-scheduler.py's parser at
+ * Validate a scheduled-agent spec against wakeup-scheduler.py's parser at
  * substrate/scripts/wakeup-scheduler.py:224-248 exactly.
  *
  * ACCEPTS iff:
@@ -177,7 +179,7 @@ export type GlobalWakeupSpec = {
  * length, no roles-min-count, no arbitrary field caps). Any drift-flavored
  * validation is a bug.
  */
-export function validateGlobalWakeupSpec(spec: unknown): string | null {
+export function validateScheduledAgentSpec(spec: unknown): string | null {
   if (spec === null || typeof spec !== "object" || Array.isArray(spec)) {
     return "spec must be a JSON object";
   }
@@ -283,18 +285,18 @@ function requirePositiveIntegerHost(
   return rawHost;
 }
 
-/** Absolute local path for a slug's wakeup.json file. LOCAL branch. */
+/** Absolute local path for a slug's scheduled-agent.json file. LOCAL branch. */
 function localSpecPath(slug: string): string {
-  return path.join(getLocalWakeupsRoot(), slug, "wakeup.json");
+  return path.join(getLocalScheduledAgentsRoot(), slug, "scheduled-agent.json");
 }
 
 /** Absolute local path for a slug's .fired sentinel. LOCAL branch. */
 function localSentinelPath(slug: string): string {
-  return path.join(getLocalWakeupsRoot(), ".state", `${slug}.fired`);
+  return path.join(getLocalScheduledAgentsRoot(), ".state", `${slug}.fired`);
 }
 
 // ---------------------------------------------------------------------------
-// POST /wakeups — CREATE
+// POST /scheduled-agents — CREATE
 // ---------------------------------------------------------------------------
 
 router.post(
@@ -307,14 +309,14 @@ router.post(
     const hostId = requirePositiveIntegerHost(req.body, res);
     if (hostId === null) return;
     const spec = (req.body as { spec?: unknown }).spec;
-    const validationError = validateGlobalWakeupSpec(spec);
+    const validationError = validateScheduledAgentSpec(spec);
     if (validationError !== null) {
       res.status(400).json({ error: validationError });
       return;
     }
-    const validSpec = spec as GlobalWakeupSpec;
+    const validSpec = spec as ScheduledAgentSpec;
 
-    const slug = normalizeWakeupSlug(validSpec.name);
+    const slug = normalizeSpecSlug(validSpec.name);
     if (!slug || !IDENTITY_SLUG_RE.test(slug)) {
       res.status(400).json({ error: "name normalizes to empty or invalid slug" });
       return;
@@ -343,7 +345,7 @@ router.post(
           // Clobber probe — LOCAL. fs.access resolves iff file exists.
           try {
             await fs.access(targetPath);
-            res.status(409).json({ error: "wakeup with this name already exists" });
+            res.status(409).json({ error: "scheduled agent with this name already exists" });
             responded = true;
             return;
           } catch {
@@ -357,9 +359,9 @@ router.post(
             await writeMarkdownFileAtomic(null, targetPath, body);
           } catch (err) {
             sshLogger.error(
-              "wakeups-create: local write failed",
+              "scheduled-agents-create: local write failed",
               err instanceof Error ? err : new Error(String(err)),
-              { operation: "wakeups_create_local_write", hostId, slug, targetPath },
+              { operation: "scheduled_agents_create_local_write", hostId, slug, targetPath },
             );
             res.status(502).json({ error: "SFTP write failed" });
             responded = true;
@@ -377,8 +379,8 @@ router.post(
             SSH_CONNECT_TIMEOUT_MS,
           );
         } catch (err) {
-          sshLogger.warn("wakeups-create: SSH connect failed", {
-            operation: "wakeups_create_connect",
+          sshLogger.warn("scheduled-agents-create: SSH connect failed", {
+            operation: "scheduled_agents_create_connect",
             hostId,
             error: err instanceof Error ? err.message : "Unknown",
           });
@@ -393,12 +395,12 @@ router.post(
           probe = (
             await execWithTimeout(
               conn,
-              `[ -e "$HOME/fleet/wakeups/${slug}/wakeup.json" ] && echo EXISTS || echo OK`,
+              `[ -e "$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json" ] && echo EXISTS || echo OK`,
             )
           ).trim();
         } catch (err) {
-          sshLogger.warn("wakeups-create: existence probe exec failed", {
-            operation: "wakeups_create_exists_probe",
+          sshLogger.warn("scheduled-agents-create: existence probe exec failed", {
+            operation: "scheduled_agents_create_exists_probe",
             hostId,
             slug,
             error: err instanceof Error ? err.message : "Unknown",
@@ -408,7 +410,7 @@ router.post(
           return;
         }
         if (probe === "EXISTS") {
-          res.status(409).json({ error: "wakeup with this name already exists" });
+          res.status(409).json({ error: "scheduled agent with this name already exists" });
           responded = true;
           return;
         }
@@ -416,11 +418,11 @@ router.post(
         try {
           await execWithTimeout(
             conn,
-            `mkdir -p "$HOME/fleet/wakeups/${slug}"`,
+            `mkdir -p "$HOME/fleet/scheduled-agents/${slug}"`,
           );
         } catch (err) {
-          sshLogger.warn("wakeups-create: mkdir exec failed", {
-            operation: "wakeups_create_mkdir",
+          sshLogger.warn("scheduled-agents-create: mkdir exec failed", {
+            operation: "scheduled_agents_create_mkdir",
             hostId,
             slug,
             error: err instanceof Error ? err.message : "Unknown",
@@ -430,7 +432,7 @@ router.post(
           return;
         }
 
-        const targetPath = `$HOME/fleet/wakeups/${slug}/wakeup.json`;
+        const targetPath = `$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json`;
         const body = JSON.stringify(validSpec, null, 2) + "\n";
         try {
           // writeMarkdownFileAtomic is byte-agnostic despite the name —
@@ -441,10 +443,10 @@ router.post(
           await writeMarkdownFileAtomic(conn, targetPath, body);
         } catch (err) {
           sshLogger.error(
-            "wakeups-create: SFTP write failed",
+            "scheduled-agents-create: SFTP write failed",
             err instanceof Error ? err : new Error(String(err)),
             {
-              operation: "wakeups_create_sftp_write",
+              operation: "scheduled_agents_create_sftp_write",
               hostId,
               slug,
               targetPath,
@@ -462,9 +464,9 @@ router.post(
     } catch (err) {
       if (!responded) {
         sshLogger.error(
-          "wakeups-create: unhandled error",
+          "scheduled-agents-create: unhandled error",
           err instanceof Error ? err : new Error(String(err)),
-          { operation: "wakeups_create_unhandled", hostId, slug },
+          { operation: "scheduled_agents_create_unhandled", hostId, slug },
         );
         res.status(500).json({ error: "internal" });
       }
@@ -481,7 +483,7 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// PATCH /wakeups/:slug — UPDATE (full-spec overwrite)
+// PATCH /scheduled-agents/:slug — UPDATE (full-spec overwrite)
 // ---------------------------------------------------------------------------
 
 router.patch(
@@ -507,19 +509,19 @@ router.patch(
     const hostId = requirePositiveIntegerHost(req.body, res);
     if (hostId === null) return;
     const spec = (req.body as { spec?: unknown }).spec;
-    const validationError = validateGlobalWakeupSpec(spec);
+    const validationError = validateScheduledAgentSpec(spec);
     if (validationError !== null) {
       res.status(400).json({ error: validationError });
       return;
     }
-    const validSpec = spec as GlobalWakeupSpec;
+    const validSpec = spec as ScheduledAgentSpec;
 
     // Code-review fix #4: URL slug and body spec.name must agree. Without
-    // this gate, PATCH /wakeups/morning-digest with {name: "Evening Review"}
+    // this gate, PATCH /scheduled-agents/morning-digest with {name: "Evening Review"}
     // would leave folder `morning-digest/` containing `name: "Evening Review"`
     // — LIST shows one thing, scheduler's spawn-request uses the other.
     // Renames must go through DELETE + CREATE, not silent rename-via-PATCH.
-    const nameSlug = normalizeWakeupSlug(validSpec.name);
+    const nameSlug = normalizeSpecSlug(validSpec.name);
     if (nameSlug !== slug) {
       res.status(400).json({
         error:
@@ -549,9 +551,9 @@ router.patch(
             await writeMarkdownFileAtomic(null, targetPath, body);
           } catch (err) {
             sshLogger.error(
-              "wakeups-update: local write failed",
+              "scheduled-agents-update: local write failed",
               err instanceof Error ? err : new Error(String(err)),
-              { operation: "wakeups_update_local_write", hostId, slug, targetPath },
+              { operation: "scheduled_agents_update_local_write", hostId, slug, targetPath },
             );
             res.status(502).json({ error: "SFTP write failed" });
             responded = true;
@@ -568,8 +570,8 @@ router.patch(
             SSH_CONNECT_TIMEOUT_MS,
           );
         } catch (err) {
-          sshLogger.warn("wakeups-update: SSH connect failed", {
-            operation: "wakeups_update_connect",
+          sshLogger.warn("scheduled-agents-update: SSH connect failed", {
+            operation: "scheduled_agents_update_connect",
             hostId,
             error: err instanceof Error ? err.message : "Unknown",
           });
@@ -581,11 +583,11 @@ router.patch(
         try {
           await execWithTimeout(
             conn,
-            `mkdir -p "$HOME/fleet/wakeups/${slug}"`,
+            `mkdir -p "$HOME/fleet/scheduled-agents/${slug}"`,
           );
         } catch (err) {
-          sshLogger.warn("wakeups-update: mkdir exec failed", {
-            operation: "wakeups_update_mkdir",
+          sshLogger.warn("scheduled-agents-update: mkdir exec failed", {
+            operation: "scheduled_agents_update_mkdir",
             hostId,
             slug,
             error: err instanceof Error ? err.message : "Unknown",
@@ -595,16 +597,16 @@ router.patch(
           return;
         }
 
-        const targetPath = `$HOME/fleet/wakeups/${slug}/wakeup.json`;
+        const targetPath = `$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json`;
         try {
           // writeMarkdownFileAtomic is byte-agnostic despite the name —
           // JSON body passes through unchanged (RESEARCH § Anti-patterns).
           await writeMarkdownFileAtomic(conn, targetPath, body);
         } catch (err) {
           sshLogger.error(
-            "wakeups-update: SFTP write failed",
+            "scheduled-agents-update: SFTP write failed",
             err instanceof Error ? err : new Error(String(err)),
-            { operation: "wakeups_update_sftp_write", hostId, slug, targetPath },
+            { operation: "scheduled_agents_update_sftp_write", hostId, slug, targetPath },
           );
           res.status(502).json({ error: "SFTP write failed" });
           responded = true;
@@ -618,9 +620,9 @@ router.patch(
     } catch (err) {
       if (!responded) {
         sshLogger.error(
-          "wakeups-update: unhandled error",
+          "scheduled-agents-update: unhandled error",
           err instanceof Error ? err : new Error(String(err)),
-          { operation: "wakeups_update_unhandled", hostId, slug },
+          { operation: "scheduled_agents_update_unhandled", hostId, slug },
         );
         res.status(500).json({ error: "internal" });
       }
@@ -637,7 +639,7 @@ router.patch(
 );
 
 // ---------------------------------------------------------------------------
-// PATCH /wakeups/:slug/toggle-enabled — flip enabled bit only
+// PATCH /scheduled-agents/:slug/toggle-enabled — flip enabled bit only
 // ---------------------------------------------------------------------------
 
 router.patch(
@@ -683,14 +685,14 @@ router.patch(
             raw = await fs.readFile(targetPath, "utf-8");
           } catch (err: unknown) {
             if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-              res.status(404).json({ error: "wakeup not found" });
+              res.status(404).json({ error: "scheduled agent not found" });
               responded = true;
               return;
             }
             sshLogger.error(
-              "wakeups-toggle: local read failed",
+              "scheduled-agents-toggle: local read failed",
               err instanceof Error ? err : new Error(String(err)),
-              { operation: "wakeups_toggle_local_read", hostId, slug, targetPath },
+              { operation: "scheduled_agents_toggle_local_read", hostId, slug, targetPath },
             );
             res.status(502).json({ error: "SFTP write failed" });
             responded = true;
@@ -701,9 +703,9 @@ router.patch(
             parsed = JSON.parse(raw) as Record<string, unknown>;
           } catch (err) {
             sshLogger.error(
-              "wakeups-toggle: local parse failed",
+              "scheduled-agents-toggle: local parse failed",
               err instanceof Error ? err : new Error(String(err)),
-              { operation: "wakeups_toggle_local_parse", hostId, slug },
+              { operation: "scheduled_agents_toggle_local_parse", hostId, slug },
             );
             res.status(502).json({ error: "SFTP write failed" });
             responded = true;
@@ -715,9 +717,9 @@ router.patch(
             await writeMarkdownFileAtomic(null, targetPath, body);
           } catch (err) {
             sshLogger.error(
-              "wakeups-toggle: local write failed",
+              "scheduled-agents-toggle: local write failed",
               err instanceof Error ? err : new Error(String(err)),
-              { operation: "wakeups_toggle_local_write", hostId, slug, targetPath },
+              { operation: "scheduled_agents_toggle_local_write", hostId, slug, targetPath },
             );
             res.status(502).json({ error: "SFTP write failed" });
             responded = true;
@@ -735,8 +737,8 @@ router.patch(
             SSH_CONNECT_TIMEOUT_MS,
           );
         } catch (err) {
-          sshLogger.warn("wakeups-toggle: SSH connect failed", {
-            operation: "wakeups_toggle_connect",
+          sshLogger.warn("scheduled-agents-toggle: SSH connect failed", {
+            operation: "scheduled_agents_toggle_connect",
             hostId,
             error: err instanceof Error ? err.message : "Unknown",
           });
@@ -750,11 +752,11 @@ router.patch(
         try {
           stdout = await execWithTimeout(
             conn,
-            `cat "$HOME/fleet/wakeups/${slug}/wakeup.json" 2>/dev/null || echo "__WAKEUP_MISSING__"`,
+            `cat "$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json" 2>/dev/null || echo "__SCHEDULED_AGENT_MISSING__"`,
           );
         } catch (err) {
-          sshLogger.warn("wakeups-toggle: read exec failed", {
-            operation: "wakeups_toggle_read",
+          sshLogger.warn("scheduled-agents-toggle: read exec failed", {
+            operation: "scheduled_agents_toggle_read",
             hostId,
             slug,
             error: err instanceof Error ? err.message : "Unknown",
@@ -763,8 +765,8 @@ router.patch(
           responded = true;
           return;
         }
-        if (stdout.trim() === "__WAKEUP_MISSING__" || stdout.trim() === "") {
-          res.status(404).json({ error: "wakeup not found" });
+        if (stdout.trim() === "__SCHEDULED_AGENT_MISSING__" || stdout.trim() === "") {
+          res.status(404).json({ error: "scheduled agent not found" });
           responded = true;
           return;
         }
@@ -773,9 +775,9 @@ router.patch(
           parsed = JSON.parse(stdout) as Record<string, unknown>;
         } catch (err) {
           sshLogger.error(
-            "wakeups-toggle: remote parse failed",
+            "scheduled-agents-toggle: remote parse failed",
             err instanceof Error ? err : new Error(String(err)),
-            { operation: "wakeups_toggle_remote_parse", hostId, slug },
+            { operation: "scheduled_agents_toggle_remote_parse", hostId, slug },
           );
           res.status(502).json({ error: "SFTP write failed" });
           responded = true;
@@ -783,14 +785,14 @@ router.patch(
         }
         parsed.enabled = enabled;
         const body = JSON.stringify(parsed, null, 2) + "\n";
-        const targetPath = `$HOME/fleet/wakeups/${slug}/wakeup.json`;
+        const targetPath = `$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json`;
         try {
           await writeMarkdownFileAtomic(conn, targetPath, body);
         } catch (err) {
           sshLogger.error(
-            "wakeups-toggle: SFTP write failed",
+            "scheduled-agents-toggle: SFTP write failed",
             err instanceof Error ? err : new Error(String(err)),
-            { operation: "wakeups_toggle_sftp_write", hostId, slug, targetPath },
+            { operation: "scheduled_agents_toggle_sftp_write", hostId, slug, targetPath },
           );
           res.status(502).json({ error: "SFTP write failed" });
           responded = true;
@@ -803,9 +805,9 @@ router.patch(
     } catch (err) {
       if (!responded) {
         sshLogger.error(
-          "wakeups-toggle: unhandled error",
+          "scheduled-agents-toggle: unhandled error",
           err instanceof Error ? err : new Error(String(err)),
-          { operation: "wakeups_toggle_unhandled", hostId, slug },
+          { operation: "scheduled_agents_toggle_unhandled", hostId, slug },
         );
         res.status(500).json({ error: "internal" });
       }
@@ -822,7 +824,7 @@ router.patch(
 );
 
 // ---------------------------------------------------------------------------
-// DELETE /wakeups/:slug — HARD DELETE + .fired sentinel cleanup (D-06)
+// DELETE /scheduled-agents/:slug — HARD DELETE + .fired sentinel cleanup (D-06)
 // ---------------------------------------------------------------------------
 
 router.delete(
@@ -854,16 +856,16 @@ router.delete(
       await getHostSemaphore(hostId).run(async () => {
         // ─── LOCAL branch ───────────────────────────────────────────────
         if (isLocalHostId(hostId)) {
-          const wakeupsRoot = getLocalWakeupsRoot();
-          const dir = path.join(wakeupsRoot, slug);
+          const scheduledAgentsRoot = getLocalScheduledAgentsRoot();
+          const dir = path.join(scheduledAgentsRoot, slug);
           const sentinel = localSentinelPath(slug);
           try {
             await fs.rm(dir, { recursive: true, force: true });
           } catch (err) {
             sshLogger.error(
-              "wakeups-delete: local rm failed",
+              "scheduled-agents-delete: local rm failed",
               err instanceof Error ? err : new Error(String(err)),
-              { operation: "wakeups_delete_local_rm", hostId, slug, dir },
+              { operation: "scheduled_agents_delete_local_rm", hostId, slug, dir },
             );
             res.status(502).json({ error: "SFTP write failed" });
             responded = true;
@@ -883,8 +885,8 @@ router.delete(
             SSH_CONNECT_TIMEOUT_MS,
           );
         } catch (err) {
-          sshLogger.warn("wakeups-delete: SSH connect failed", {
-            operation: "wakeups_delete_connect",
+          sshLogger.warn("scheduled-agents-delete: SSH connect failed", {
+            operation: "scheduled_agents_delete_connect",
             hostId,
             error: err instanceof Error ? err.message : "Unknown",
           });
@@ -895,18 +897,18 @@ router.delete(
 
         // D-06 + Pitfall #2: ONE exec, combined rmdir + sentinel cleanup.
         // An orphaned .fired sentinel would inherit "already fired" state
-        // onto any future wake-up that happens to get the same slug.
+        // onto any future scheduled agent that happens to get the same slug.
         // Slug is IDENTITY_SLUG_RE-validated → shell-safe interpolation.
         try {
           await execWithTimeout(
             conn,
-            `rm -rf "$HOME/fleet/wakeups/${slug}" && rm -f "$HOME/fleet/wakeups/.state/${slug}.fired"`,
+            `rm -rf "$HOME/fleet/scheduled-agents/${slug}" && rm -f "$HOME/fleet/scheduled-agents/.state/${slug}.fired"`,
           );
         } catch (err) {
           sshLogger.error(
-            "wakeups-delete: rm exec failed",
+            "scheduled-agents-delete: rm exec failed",
             err instanceof Error ? err : new Error(String(err)),
-            { operation: "wakeups_delete_rm", hostId, slug },
+            { operation: "scheduled_agents_delete_rm", hostId, slug },
           );
           res.status(502).json({ error: "SSH exec failed" });
           responded = true;
@@ -919,9 +921,9 @@ router.delete(
     } catch (err) {
       if (!responded) {
         sshLogger.error(
-          "wakeups-delete: unhandled error",
+          "scheduled-agents-delete: unhandled error",
           err instanceof Error ? err : new Error(String(err)),
-          { operation: "wakeups_delete_unhandled", hostId, slug },
+          { operation: "scheduled_agents_delete_unhandled", hostId, slug },
         );
         res.status(500).json({ error: "internal" });
       }
@@ -946,8 +948,8 @@ router.use(
     res: Response,
     _next: express.NextFunction,
   ) => {
-    sshLogger.error("wakeups-write: unhandled error", {
-      operation: "wakeups_write_error",
+    sshLogger.error("scheduled-agents-write: unhandled error", {
+      operation: "scheduled_agents_write_error",
       error: err?.message,
     });
     return res.status(500).json({ error: "internal" });

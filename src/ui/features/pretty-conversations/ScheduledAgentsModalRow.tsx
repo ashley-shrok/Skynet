@@ -1,9 +1,10 @@
-// Phase 135 Plan 135-01 Task 2 — WakeupsModalRow: presentational row for
-// the fleet-wide wake-ups list rendered inside WakeupsModal.
+// Phase 135 Plan 135-01 Task 2 — ScheduledAgentsModalRow: presentational row for
+// the fleet-wide scheduled-agents list rendered inside ScheduledAgentsModal.
 //
 // Pure presentation: no API calls, no useEffect, no local state writes that
-// mutate wake-up data. All interactive callbacks are prop callbacks so the
-// parent (WakeupsModal) owns the state machine + pessimistic writes (D-12)
+// mutate scheduled-agent data. All interactive callbacks are prop callbacks
+// so the parent (ScheduledAgentsModal) owns the state machine + pessimistic
+// writes (D-12)
 // + delete-confirm (D-14) + list refetch (D-03).
 //
 // Locked layout (per D-08 + prototype § B + RESEARCH § Chrome Token
@@ -23,7 +24,7 @@
 // pessimistic write semantics + inline error banner on failure.
 
 import { MoreHorizontal } from "lucide-react";
-import type { WakeupListItem } from "@/api/wakeups-api";
+import type { ScheduledAgentListItem } from "@/api/scheduled-agents-api";
 
 // ---------------------------------------------------------------------------
 // Chrome tokens (RESEARCH § Chrome Token Dictionary, verified against
@@ -73,21 +74,21 @@ function toggleStyle(enabled: boolean): React.CSSProperties {
 // Props
 // ---------------------------------------------------------------------------
 
-export interface WakeupsModalRowProps {
-  row: WakeupListItem;
-  onRowClick: (row: WakeupListItem) => void;
-  onToggleClick: (row: WakeupListItem) => void;
-  onKebabClick: (row: WakeupListItem) => void;
+export interface ScheduledAgentsModalRowProps {
+  row: ScheduledAgentListItem;
+  onRowClick: (row: ScheduledAgentListItem) => void;
+  onToggleClick: (row: ScheduledAgentListItem) => void;
+  onKebabClick: (row: ScheduledAgentListItem) => void;
   kebabOpen: boolean;
-  onEditFromKebab: (row: WakeupListItem) => void;
-  onDeleteFromKebab: (row: WakeupListItem) => void;
+  onEditFromKebab: (row: ScheduledAgentListItem) => void;
+  onDeleteFromKebab: (row: ScheduledAgentListItem) => void;
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function WakeupsModalRow({
+export function ScheduledAgentsModalRow({
   row,
   onRowClick,
   onToggleClick,
@@ -95,12 +96,12 @@ export function WakeupsModalRow({
   kebabOpen,
   onEditFromKebab,
   onDeleteFromKebab,
-}: WakeupsModalRowProps): JSX.Element {
+}: ScheduledAgentsModalRowProps): JSX.Element {
   return (
     <div
       role="button"
       tabIndex={0}
-      data-testid={`wakeups-modal-row-${row.slug}`}
+      data-testid={`scheduled-agents-modal-row-${row.slug}`}
       onClick={() => onRowClick(row)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -141,7 +142,7 @@ export function WakeupsModalRow({
           <span
             className={CHIP_BASE_CLASS}
             style={HOST_CHIP_STYLE}
-            data-testid={`wakeups-modal-row-${row.slug}-host`}
+            data-testid={`scheduled-agents-modal-row-${row.slug}-host`}
           >
             {row.host}
           </span>
@@ -197,9 +198,9 @@ export function WakeupsModalRow({
             onClick (edit-mode entry) does NOT fire. */}
         <button
           type="button"
-          aria-label={row.enabled ? "Disable wake-up" : "Enable wake-up"}
+          aria-label={row.enabled ? "Disable scheduled agent" : "Enable scheduled agent"}
           title={row.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
-          data-testid={`wakeups-modal-row-${row.slug}-toggle`}
+          data-testid={`scheduled-agents-modal-row-${row.slug}-toggle`}
           onClick={(e) => {
             e.stopPropagation();
             onToggleClick(row);
@@ -217,7 +218,7 @@ export function WakeupsModalRow({
           aria-label="More actions"
           aria-haspopup="menu"
           aria-expanded={kebabOpen}
-          data-testid={`wakeups-modal-row-${row.slug}-kebab`}
+          data-testid={`scheduled-agents-modal-row-${row.slug}-kebab`}
           onClick={(e) => {
             e.stopPropagation();
             onKebabClick(row);
@@ -245,7 +246,7 @@ export function WakeupsModalRow({
             <button
               type="button"
               role="menuitem"
-              data-testid={`wakeups-modal-row-${row.slug}-edit`}
+              data-testid={`scheduled-agents-modal-row-${row.slug}-edit`}
               onClick={(e) => {
                 e.stopPropagation();
                 onEditFromKebab(row);
@@ -258,7 +259,7 @@ export function WakeupsModalRow({
             <button
               type="button"
               role="menuitem"
-              data-testid={`wakeups-modal-row-${row.slug}-delete`}
+              data-testid={`scheduled-agents-modal-row-${row.slug}-delete`}
               onClick={(e) => {
                 e.stopPropagation();
                 onDeleteFromKebab(row);

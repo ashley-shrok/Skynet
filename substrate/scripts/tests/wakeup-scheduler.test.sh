@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Test driver for Phase 126 Plan 02: wakeup-scheduler.py --mode global extension.
+# Test driver for Phase 126 Plan 02: wakeup-scheduler.py --mode scheduled-agents extension.
 #
 # Covers:
-#   T-G1 — global-mode spec discovery reads nested slug-folder layout
-#   T-G2 — global-mode ignores flat *.json specs (wrong layout)
+#   T-G1 — scheduled-agents-mode spec discovery reads nested slug-folder layout
+#   T-G2 — scheduled-agents-mode ignores flat *.json specs (wrong layout)
 #   T-G3 — per-identity mode unchanged — regression guard for D-07
-#   T-G4 — orphan-check disabled in global mode; active in per-identity mode
-#   T-G5 — one-shot spec self-deletes in global mode + sentinel written
+#   T-G4 — orphan-check disabled in scheduled-agents mode; active in per-identity mode
+#   T-G5 — one-shot spec self-deletes in scheduled-agents mode + sentinel written
 #
 # Exits 0 on all-pass; exits 1 on any failure with a diagnostic naming the
 # failing test.
@@ -137,22 +137,22 @@ json_field() {
 }
 
 # ============================================================
-# T-G1: global-mode spec discovery reads nested slug-folder layout
+# SA-G1: scheduled-agents-mode spec discovery reads nested slug-folder layout
 # ============================================================
-test_T_G1_global_spec_discovery() {
-  local wakeups_dir home_dir out_log err_log
+test_SA_G1_scheduled_agents_spec_discovery() {
+  local scheduled_agents_dir home_dir out_log err_log
 
-  # Synthetic ~/fleet/wakeups root
-  wakeups_dir=$(make_tmpdir)
+  # Synthetic ~/fleet/scheduled-agents root
+  scheduled_agents_dir=$(make_tmpdir)
   # Synthetic HOME so spawn-requests land somewhere we control
   home_dir=$(make_tmpdir)
 
   out_log=$(make_tmpdir)/out.log
   err_log=$(make_tmpdir)/err.log
 
-  # Create a nested slug-folder spec (the correct global layout)
-  mkdir -p "$wakeups_dir/test-slug"
-  cat > "$wakeups_dir/test-slug/wakeup.json" <<'JSON'
+  # Create a nested slug-folder spec (the correct scheduled-agents layout)
+  mkdir -p "$scheduled_agents_dir/test-slug"
+  cat > "$scheduled_agents_dir/test-slug/scheduled-agent.json" <<'JSON'
 {
   "name": "t1",
   "enabled": true,
@@ -164,7 +164,7 @@ test_T_G1_global_spec_discovery() {
 JSON
 
   # Create a flat spec at the root (wrong shape — should be ignored)
-  cat > "$wakeups_dir/should-be-ignored.json" <<'JSON'
+  cat > "$scheduled_agents_dir/should-be-ignored.json" <<'JSON'
 {
   "name": "flat",
   "enabled": true,
@@ -174,10 +174,10 @@ JSON
 }
 JSON
 
-  # Run in global mode for ~3 seconds (daemon exits via timeout; || true swallows exit 124).
+  # Run in scheduled-agents mode for ~3 seconds (daemon exits via timeout; || true swallows exit 124).
   # WAKEUP_POLL_SEC=1 so the loop runs multiple times: first iteration anchors,
   # second fires (interval is "1s", so 1s after anchor the spec is due).
-  HOME="$home_dir" WAKEUP_POLL_SEC=1 timeout 5 python3 "$PY_SCRIPT" "$wakeups_dir" --mode global \
+  HOME="$home_dir" WAKEUP_POLL_SEC=1 timeout 5 python3 "$PY_SCRIPT" "$scheduled_agents_dir" --mode scheduled-agents \
     >"$out_log" 2>"$err_log" || true
 
   # Assert at least one spawn-request was dropped under the overridden HOME
@@ -185,7 +185,7 @@ JSON
   local req_count
   req_count=$(count_json_files "$req_dir")
   if [ "$req_count" -lt 1 ]; then
-    fail "T-G1: expected at least 1 spawn-request file, got $req_count (dir: $req_dir)"
+    fail "SA-G1: expected at least 1 spawn-request file, got $req_count (dir: $req_dir)"
     return
   fi
 
@@ -193,7 +193,7 @@ JSON
   local req_file
   req_file=$(find "$req_dir" -maxdepth 1 -name "*.json" | head -1)
   if [ -z "$req_file" ]; then
-    fail "T-G1: no .json file found in $req_dir"
+    fail "SA-G1: no .json file found in $req_dir"
     return
   fi
 
@@ -219,39 +219,39 @@ else:
     print('OK')
 " 2>&1)
   if [ "$check_result" != "OK" ]; then
-    fail "T-G1: spawn-request JSON invalid: $check_result"
+    fail "SA-G1: spawn-request JSON invalid: $check_result"
   fi
 
-  # Assert no ⏰ lines in stdout (global mode does not emit to harness)
+  # Assert no ⏰ lines in stdout (scheduled-agents mode does not emit to harness)
   if grep -q "⏰" "$out_log" 2>/dev/null; then
-    fail "T-G1: global mode should NOT print ⏰ lines to stdout"
+    fail "SA-G1: scheduled-agents mode should NOT print ⏰ lines to stdout"
   fi
 }
 
 # ============================================================
-# T-G2: global-mode ignores flat *.json specs at the root level
+# SA-G2: scheduled-agents-mode ignores flat *.json specs at the root level
 # ============================================================
-test_T_G2_global_ignores_flat_specs() {
-  local wakeups_dir home_dir out_log err_log
+test_SA_G2_scheduled_agents_ignores_flat_specs() {
+  local scheduled_agents_dir home_dir out_log err_log
 
-  wakeups_dir=$(make_tmpdir)
+  scheduled_agents_dir=$(make_tmpdir)
   home_dir=$(make_tmpdir)
   out_log=$(make_tmpdir)/out.log
   err_log=$(make_tmpdir)/err.log
 
   # Only flat legacy specs at root — no nested slug-folder specs.
-  # In per-identity mode these would fire; in global mode they are invisible.
-  cat > "$wakeups_dir/legacy-flat.json" <<'JSON'
+  # In per-identity mode these would fire; in scheduled-agents mode they are invisible.
+  cat > "$scheduled_agents_dir/legacy-flat.json" <<'JSON'
 {
   "name": "flat-legacy",
   "enabled": true,
   "schedule": {"type": "interval", "every": "1s"},
-  "instruction": "should not fire in global mode",
+  "instruction": "should not fire in scheduled-agents mode",
   "roles": ["coordinator"]
 }
 JSON
 
-  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$wakeups_dir" --mode global \
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$scheduled_agents_dir" --mode scheduled-agents \
     >"$out_log" 2>"$err_log" || true
 
   # No spawn-requests should have been dropped
@@ -259,14 +259,14 @@ JSON
   local req_count
   req_count=$(count_json_files "$req_dir")
   if [ "$req_count" -ne 0 ]; then
-    fail "T-G2: global mode should not fire flat-root specs; got $req_count spawn-request(s)"
+    fail "SA-G2: scheduled-agents mode should not fire flat-root specs; got $req_count spawn-request(s)"
   fi
 }
 
 # ============================================================
-# T-G3: per-identity mode unchanged (regression guard for D-07)
+# SA-G3: per-identity mode unchanged (regression guard for D-07)
 # ============================================================
-test_T_G3_per_identity_mode_unchanged() {
+test_SA_G3_per_identity_mode_unchanged() {
   local ident_dir home_dir out_log err_log
 
   ident_dir=$(make_tmpdir)
@@ -295,39 +295,39 @@ JSON
   local req_count
   req_count=$(count_json_files "$req_dir")
   if [ "$req_count" -ne 0 ]; then
-    fail "T-G3: per-identity mode should not drop spawn-request files; got $req_count"
+    fail "SA-G3: per-identity mode should not drop spawn-request files; got $req_count"
   fi
 
   # Per-identity mode: should have created a .last file (first-sight anchor)
   local last_file="$ident_dir/wakeups/.state/legacy.last"
-  assert_file_exists "$last_file" "T-G3: .last anchor file should exist after first-sight"
+  assert_file_exists "$last_file" "SA-G3: .last anchor file should exist after first-sight"
 
   # No ⏰ lines should appear because the interval is 1h and this is first sight
   if grep -q "⏰" "$out_log" 2>/dev/null; then
-    fail "T-G3: first-sight run should not emit ⏰ lines (anchor, don't fire)"
+    fail "SA-G3: first-sight run should not emit ⏰ lines (anchor, don't fire)"
   fi
 }
 
 # ============================================================
-# T-G4: orphan-check disabled in global mode; present in per-identity mode
+# SA-G4: orphan-check disabled in scheduled-agents mode; present in per-identity mode
 # ============================================================
-test_T_G4_orphan_check_mode_isolation() {
-  local wakeups_dir home_dir ident_dir out_log err_log
+test_SA_G4_orphan_check_mode_isolation() {
+  local scheduled_agents_dir home_dir ident_dir out_log err_log
 
-  wakeups_dir=$(make_tmpdir)
+  scheduled_agents_dir=$(make_tmpdir)
   home_dir=$(make_tmpdir)
   out_log=$(make_tmpdir)/out.log
   err_log=$(make_tmpdir)/err.log
 
-  # Run in global mode — stderr must contain the disabled diagnostic
-  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$wakeups_dir" --mode global \
+  # Run in scheduled-agents mode — stderr must contain the disabled diagnostic
+  HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$scheduled_agents_dir" --mode scheduled-agents \
     >"$out_log" 2>"$err_log" || true
 
   if ! grep -q "orphan-check disabled (no harness)" "$err_log"; then
-    fail "T-G4: global mode stderr must contain 'orphan-check disabled (no harness)'"
+    fail "SA-G4: scheduled-agents mode stderr must contain 'orphan-check disabled (no harness)'"
   fi
 
-  # Run in per-identity mode — stderr must NOT contain the global diagnostic
+  # Run in per-identity mode — stderr must NOT contain the scheduled-agents diagnostic
   ident_dir=$(make_tmpdir)
   out_log=$(make_tmpdir)/out.log
   err_log=$(make_tmpdir)/err.log
@@ -336,24 +336,24 @@ test_T_G4_orphan_check_mode_isolation() {
     >"$out_log" 2>"$err_log" || true
 
   if grep -q "orphan-check disabled (no harness)" "$err_log"; then
-    fail "T-G4: per-identity mode stderr must NOT contain 'orphan-check disabled (no harness)'"
+    fail "SA-G4: per-identity mode stderr must NOT contain 'orphan-check disabled (no harness)'"
   fi
 }
 
 # ============================================================
-# T-G5: one-shot spec self-deletes in global mode, sentinel written, spawn-request dropped
+# SA-G5: one-shot spec self-deletes in scheduled-agents mode, sentinel written, spawn-request dropped
 # ============================================================
-test_T_G5_one_shot_global_mode() {
-  local wakeups_dir home_dir out_log err_log
+test_SA_G5_one_shot_scheduled_agents_mode() {
+  local scheduled_agents_dir home_dir out_log err_log
 
-  wakeups_dir=$(make_tmpdir)
+  scheduled_agents_dir=$(make_tmpdir)
   home_dir=$(make_tmpdir)
   out_log=$(make_tmpdir)/out.log
   err_log=$(make_tmpdir)/err.log
 
-  # Create a global one_shot spec with a past `at` date so it fires immediately
-  mkdir -p "$wakeups_dir/one-shot"
-  cat > "$wakeups_dir/one-shot/wakeup.json" <<'JSON'
+  # Create a scheduled-agents one_shot spec with a past `at` date so it fires immediately
+  mkdir -p "$scheduled_agents_dir/one-shot"
+  cat > "$scheduled_agents_dir/one-shot/scheduled-agent.json" <<'JSON'
 {
   "name": "one-shot",
   "enabled": true,
@@ -364,23 +364,23 @@ test_T_G5_one_shot_global_mode() {
 }
 JSON
 
-  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$wakeups_dir" --mode global \
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$scheduled_agents_dir" --mode scheduled-agents \
     >"$out_log" 2>"$err_log" || true
 
-  # Assert wakeup.json was deleted (one-shot self-delete)
-  assert_file_absent "$wakeups_dir/one-shot/wakeup.json" \
-    "T-G5: one-shot spec wakeup.json should have been deleted after firing"
+  # Assert scheduled-agent.json was deleted (one-shot self-delete)
+  assert_file_absent "$scheduled_agents_dir/one-shot/scheduled-agent.json" \
+    "SA-G5: one-shot spec scheduled-agent.json should have been deleted after firing"
 
   # Assert .fired sentinel was written
-  assert_file_exists "$wakeups_dir/.state/one-shot.fired" \
-    "T-G5: .fired sentinel should exist after one-shot fires"
+  assert_file_exists "$scheduled_agents_dir/.state/one-shot.fired" \
+    "SA-G5: .fired sentinel should exist after one-shot fires"
 
   # Assert a spawn-request was dropped
   local req_dir="$home_dir/fleet/spawn-requests"
   local req_count
   req_count=$(count_json_files "$req_dir")
   if [ "$req_count" -lt 1 ]; then
-    fail "T-G5: expected at least 1 spawn-request file after one-shot fire, got $req_count"
+    fail "SA-G5: expected at least 1 spawn-request file after one-shot fire, got $req_count"
     return
   fi
 
@@ -404,22 +404,22 @@ else:
     print('OK')
 " 2>&1)
   if [ "$check_result" != "OK" ]; then
-    fail "T-G5: spawn-request JSON invalid: $check_result"
+    fail "SA-G5: spawn-request JSON invalid: $check_result"
   fi
 }
 
 # ============================================================
 # MAIN
 # ============================================================
-printf '=== wakeup-scheduler.py global-mode test driver ===\n'
+printf '=== wakeup-scheduler.py scheduled-agents-mode test driver ===\n'
 printf 'script: %s\n' "$PY_SCRIPT"
 printf '\n'
 
-run_test test_T_G1_global_spec_discovery
-run_test test_T_G2_global_ignores_flat_specs
-run_test test_T_G3_per_identity_mode_unchanged
-run_test test_T_G4_orphan_check_mode_isolation
-run_test test_T_G5_one_shot_global_mode
+run_test test_SA_G1_scheduled_agents_spec_discovery
+run_test test_SA_G2_scheduled_agents_ignores_flat_specs
+run_test test_SA_G3_per_identity_mode_unchanged
+run_test test_SA_G4_orphan_check_mode_isolation
+run_test test_SA_G5_one_shot_scheduled_agents_mode
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

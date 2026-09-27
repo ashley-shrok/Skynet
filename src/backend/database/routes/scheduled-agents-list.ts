@@ -1,10 +1,10 @@
 /**
  * Phase 134 Plan 134-01 (wake-ups-redesign campaign shape 2 — CRUD API):
- * GET /wakeups — fleet-wide LIST of global wake-up specs.
+ * GET /scheduled-agents — fleet-wide LIST of scheduled-agent specs.
  *
  * D-01: HTTP REST endpoint style (mirrors roles-*.ts + conversation-search.ts).
  * D-02: Fleet-wide sweep on list — this endpoint enumerates every managed host's
- *       ~/fleet/wakeups/<slug>/wakeup.json in one aggregated response. Each item
+ *       ~/fleet/scheduled-agents/<slug>/scheduled-agent.json in one aggregated response. Each item
  *       carries {slug, host, hostId, name, enabled, schedule, scheduleHuman,
  *       prompt, roles[], skills[]}.
  * D-03: Thin API — files on disk are the source of truth. No SQLite shadow.
@@ -12,7 +12,7 @@
  *       timeout + graceful degradation) + delimiter-batched cat from
  *       identity-artifact-reader.ts readIdentityWakeups L1486-1533.
  * D-16: skynet's own host is included in the fan-out via the LOCAL branch
- *       (isLocalHostId → getLocalWakeupsRoot + fs/promises).
+ *       (isLocalHostId → getLocalScheduledAgentsRoot + fs/promises).
  *
  * Security posture (STRIDE T-128-02 / T-128-03 / T-128-08):
  *   - authenticateJWT gates the route.
@@ -26,8 +26,8 @@
  *   - Poisoned JSON on one entry is skipped via sshLogger.warn; one bad file
  *     never poisons the aggregate for that host.
  *
- * Route mount: app.use("/wakeups", wakeupsListRoutes) chained with
- * wakeupsWriteRoutes at the same base path (Phase 134 D-17 — matching nginx
+ * Route mount: app.use("/scheduled-agents", scheduledAgentsListRoutes) chained with
+ * scheduledAgentsWriteRoutes at the same base path (Phase 134 D-17 — matching nginx
  * location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf).
  */
 
@@ -48,7 +48,7 @@ import { execCommand } from "../../ssh/tmux-helper.js";
 import {
   humanizeWakeupSchedule,
   isLocalHostId,
-  getLocalWakeupsRoot,
+  getLocalScheduledAgentsRoot,
   IDENTITY_SLUG_RE,
 } from "../../claude-session/identity-artifact-reader.js";
 
@@ -68,11 +68,13 @@ const PER_HOST_TIMEOUT_MS = 15_000;
 /** SSH exec race timeout — bounds a single exec inside the per-host window. */
 const SSH_EXEC_TIMEOUT_MS = 10_000;
 
-/** Shape of a single wake-up row in the aggregated LIST response. Distinct
- *  from the per-identity `Wakeup` type in identity-artifact-reader.ts (which
- *  uses `instruction` — the retired scope). Global specs carry `prompt`,
- *  `roles[]`, and `skills[]` per Phase 127 D-04 + shape-3 modal renderer. */
-export type WakeupListItem = {
+/** Shape of a single scheduled-agent row in the aggregated LIST response.
+ *  Distinct from the per-identity `Wakeup` type in identity-artifact-reader.ts
+ *  (which uses `instruction` — per-identity wake-ups fire an instruction into
+ *  a running identity, whereas a scheduled agent spawns a new identity on
+ *  firing). Scheduled-agent specs carry `prompt`, `roles[]`, and `skills[]`
+ *  per Phase 127 D-04 + shape-3 modal renderer. */
+export type ScheduledAgentListItem = {
   slug: string;
   host: string;
   hostId: number;
@@ -107,7 +109,7 @@ function execWithTimeout(
 }
 
 /**
- * Parse a spec object (JSON-loaded from wakeup.json) into a WakeupListItem
+ * Parse a spec object (JSON-loaded from scheduled-agent.json) into a ScheduledAgentListItem
  * row for the aggregated response. Non-string / non-array fields fall back to
  * safe defaults (name→slug, roles→[], skills→[]). Called from both LOCAL and
  * REMOTE branches so shape normalization lives in one place.
@@ -117,7 +119,7 @@ function specToRow(
   slug: string,
   hostName: string,
   hostId: number,
-): WakeupListItem {
+): ScheduledAgentListItem {
   return {
     slug,
     host: hostName,
@@ -133,54 +135,54 @@ function specToRow(
 }
 
 /**
- * LOCAL branch — read ~/fleet/wakeups/<slug>/wakeup.json via fs/promises
+ * LOCAL branch — read ~/fleet/scheduled-agents/<slug>/scheduled-agent.json via fs/promises
  * against the container bind mount (D-16). Silent-empty on ENOENT (host has
- * never had a wake-up spec written). Poisoned JSON entries are skipped via
+ * never had a scheduled-agent spec written). Poisoned JSON entries are skipped via
  * sshLogger.warn; one bad file must not poison the aggregate.
  */
-async function readWakeupsLocal(
+async function readScheduledAgentsLocal(
   hostId: number,
   hostName: string,
-): Promise<WakeupListItem[]> {
-  const wakeupsDir = getLocalWakeupsRoot();
+): Promise<ScheduledAgentListItem[]> {
+  const scheduledAgentsDir = getLocalScheduledAgentsRoot();
   let entries: string[];
   try {
-    entries = await fs.readdir(wakeupsDir);
+    entries = await fs.readdir(scheduledAgentsDir);
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    sshLogger.warn("wakeups-list: local readdir failed", {
-      operation: "wakeups_list_local_readdir",
+    sshLogger.warn("scheduled-agents-list: local readdir failed", {
+      operation: "scheduled_agents_list_local_readdir",
       hostId,
       hostName,
       error: err instanceof Error ? err.message : "unknown",
     });
     return [];
   }
-  const out: WakeupListItem[] = [];
+  const out: ScheduledAgentListItem[] = [];
   for (const slug of entries) {
     if (slug === ".state" || slug.startsWith(".")) continue;
     // Code-review fix #6: defense-in-depth against a hand-edited garbage
-    // slug on disk (e.g. `~/fleet/wakeups/foo bar/`). LIST would otherwise
+    // slug on disk (e.g. `~/fleet/scheduled-agents/foo bar/`). LIST would otherwise
     // surface it as `{slug: "foo bar", ...}` and the shape-3 UI's
-    // DELETE /wakeups/${slug} URL construction would 400 from the slug
+    // DELETE /scheduled-agents/${slug} URL construction would 400 from the slug
     // regex on the write side. Skip garbage slugs with a warning.
     if (!IDENTITY_SLUG_RE.test(slug)) {
-      sshLogger.warn("wakeups-list: local skipping non-conforming slug", {
-        operation: "wakeups_list_local_slug_skip",
+      sshLogger.warn("scheduled-agents-list: local skipping non-conforming slug", {
+        operation: "scheduled_agents_list_local_slug_skip",
         hostId,
         hostName,
         slug,
       });
       continue;
     }
-    const specPath = path.join(wakeupsDir, slug, "wakeup.json");
+    const specPath = path.join(scheduledAgentsDir, slug, "scheduled-agent.json");
     let raw: string;
     try {
       raw = await fs.readFile(specPath, "utf-8");
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
-      sshLogger.warn("wakeups-list: local readFile failed", {
-        operation: "wakeups_list_local_read",
+      sshLogger.warn("scheduled-agents-list: local readFile failed", {
+        operation: "scheduled_agents_list_local_read",
         hostId,
         hostName,
         slug,
@@ -192,8 +194,8 @@ async function readWakeupsLocal(
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       out.push(specToRow(parsed, slug, hostName, hostId));
     } catch (err) {
-      sshLogger.warn("wakeups-list: local parse error", {
-        operation: "wakeups_list_local_parse_error",
+      sshLogger.warn("scheduled-agents-list: local parse error", {
+        operation: "scheduled_agents_list_local_parse_error",
         hostId,
         hostName,
         slug,
@@ -208,32 +210,33 @@ async function readWakeupsLocal(
 /**
  * REMOTE branch — one SSH round-trip via the delimiter one-liner adapted from
  * identity-artifact-reader.ts readIdentityWakeups L1486-1533. Nested layout
- * differs from per-identity's flat wakeups/<file>.json: global specs live at
- * wakeups/<slug>/wakeup.json, so the loop iterates directories (`for d in
- * <star-slash>; do`) and cats the nested spec file. Empty dir + missing dir
- * both yield empty stdout (cd 2>/dev/null && ... short-circuits cleanly).
+ * differs from per-identity's flat wakeups/<file>.json: scheduled-agent specs
+ * live at scheduled-agents/<slug>/scheduled-agent.json, so the loop iterates
+ * directories (`for d in <star-slash>; do`) and cats the nested spec file.
+ * Empty dir + missing dir both yield empty stdout (cd 2>/dev/null && ...
+ * short-circuits cleanly).
  */
-async function readWakeupsRemote(
+async function readScheduledAgentsRemote(
   conn: Awaited<ReturnType<typeof connectOneShot>>,
   hostId: number,
   hostName: string,
-): Promise<WakeupListItem[]> {
+): Promise<ScheduledAgentListItem[]> {
   // Code-review fix #5: `shopt -s nullglob` prevents the shell from
-  // keeping `*/` as a literal when the wakeups dir exists but is empty.
+  // keeping `*/` as a literal when the scheduled-agents dir exists but is empty.
   // Without nullglob, the loop would run once with d="*/" and echo a
   // spurious `===SLUG:*===` chunk; the parser drops it via the
   // !slug || !jsonContent guard below, but that's parser-side defense.
   // Making the shell one-liner correct in isolation is preferable.
   const cmd =
-    `cd "$HOME/fleet/wakeups" 2>/dev/null && ` +
+    `cd "$HOME/fleet/scheduled-agents" 2>/dev/null && ` +
     'shopt -s nullglob; ' +
-    'for d in */; do slug="${d%/}"; echo "===SLUG:${slug}==="; cat "$d/wakeup.json" 2>/dev/null; done';
+    'for d in */; do slug="${d%/}"; echo "===SLUG:${slug}==="; cat "$d/scheduled-agent.json" 2>/dev/null; done';
   let stdout: string;
   try {
     stdout = await execWithTimeout(conn, cmd);
   } catch (err) {
-    sshLogger.debug("wakeups-list: remote exec failed", {
-      operation: "wakeups_list_remote_exec",
+    sshLogger.debug("scheduled-agents-list: remote exec failed", {
+      operation: "scheduled_agents_list_remote_exec",
       hostId,
       hostName,
       error: err instanceof Error ? err.message : "unknown",
@@ -243,7 +246,7 @@ async function readWakeupsRemote(
   if (!stdout) return [];
 
   const chunks = stdout.split("===SLUG:");
-  const out: WakeupListItem[] = [];
+  const out: ScheduledAgentListItem[] = [];
   for (const chunk of chunks) {
     if (!chunk.trim()) continue;
     const sepIdx = chunk.indexOf("===");
@@ -254,8 +257,8 @@ async function readWakeupsRemote(
     // Code-review fix #6: defense-in-depth against a hand-edited garbage
     // slug on the remote host. See LOCAL branch comment above.
     if (!IDENTITY_SLUG_RE.test(slug)) {
-      sshLogger.warn("wakeups-list: remote skipping non-conforming slug", {
-        operation: "wakeups_list_remote_slug_skip",
+      sshLogger.warn("scheduled-agents-list: remote skipping non-conforming slug", {
+        operation: "scheduled_agents_list_remote_slug_skip",
         hostId,
         hostName,
         slug,
@@ -266,8 +269,8 @@ async function readWakeupsRemote(
       const parsed = JSON.parse(jsonContent) as Record<string, unknown>;
       out.push(specToRow(parsed, slug, hostName, hostId));
     } catch (err) {
-      sshLogger.warn("wakeups-list: remote parse error", {
-        operation: "wakeups_list_remote_parse_error",
+      sshLogger.warn("scheduled-agents-list: remote parse error", {
+        operation: "scheduled_agents_list_remote_parse_error",
         hostId,
         hostName,
         slug,
@@ -280,8 +283,8 @@ async function readWakeupsRemote(
 }
 
 /**
- * GET /wakeups — fleet-wide aggregated LIST.
- * Responds 200 with {items: WakeupListItem[]}.
+ * GET /scheduled-agents — fleet-wide aggregated LIST.
+ * Responds 200 with {items: ScheduledAgentListItem[]}.
  */
 router.get(
   "/",
@@ -314,8 +317,8 @@ router.get(
         return cfg.autoTmux !== false;
       });
     } catch (e) {
-      sshLogger.debug("wakeups-list: host projection failed", {
-        operation: "wakeups_list_host_projection_failed",
+      sshLogger.debug("scheduled-agents-list: host projection failed", {
+        operation: "scheduled_agents_list_host_projection_failed",
         userId,
         error: e instanceof Error ? e.message : "unknown",
       });
@@ -326,7 +329,7 @@ router.get(
     //    One slow/down host contributes [] to the flat aggregate rather than
     //    poisoning the whole response (T-128-03).
     const perHost = await Promise.all(
-      candidates.map(async (h): Promise<WakeupListItem[]> => {
+      candidates.map(async (h): Promise<ScheduledAgentListItem[]> => {
         const hostId = h.id as number;
         const hostName = ((h.name as string) || (h.ip as string) || "") as string;
         try {
@@ -336,9 +339,9 @@ router.get(
           // LOCAL branch — Skynet's own host reads via the container bind
           // mount, not loopback SSH (D-16).
           if (isLocalHostId(hostId)) {
-            return await Promise.race<WakeupListItem[]>([
-              readWakeupsLocal(hostId, hostName),
-              new Promise<WakeupListItem[]>((_, reject) =>
+            return await Promise.race<ScheduledAgentListItem[]>([
+              readScheduledAgentsLocal(hostId, hostName),
+              new Promise<ScheduledAgentListItem[]>((_, reject) =>
                 setTimeout(
                   () => reject(new Error("per_host_timeout")),
                   PER_HOST_TIMEOUT_MS,
@@ -353,9 +356,9 @@ router.get(
             CONNECT_TIMEOUT_MS,
           );
           try {
-            return await Promise.race<WakeupListItem[]>([
-              readWakeupsRemote(conn, hostId, hostName),
-              new Promise<WakeupListItem[]>((_, reject) =>
+            return await Promise.race<ScheduledAgentListItem[]>([
+              readScheduledAgentsRemote(conn, hostId, hostName),
+              new Promise<ScheduledAgentListItem[]>((_, reject) =>
                 setTimeout(
                   () => reject(new Error("per_host_timeout")),
                   PER_HOST_TIMEOUT_MS,
@@ -370,8 +373,8 @@ router.get(
             }
           }
         } catch (e) {
-          sshLogger.debug("wakeups-list: host skipped", {
-            operation: "wakeups_list_host_skip",
+          sshLogger.debug("scheduled-agents-list: host skipped", {
+            operation: "scheduled_agents_list_host_skip",
             hostId,
             hostName,
             error: e instanceof Error ? e.message : "unknown",
@@ -394,8 +397,8 @@ router.use(
     res: Response,
     _next: express.NextFunction,
   ) => {
-    sshLogger.error("wakeups-list: unhandled error", {
-      operation: "wakeups_list_error",
+    sshLogger.error("scheduled-agents-list: unhandled error", {
+      operation: "scheduled_agents_list_error",
       error: err?.message,
     });
     return res.status(500).json({ error: "internal" });

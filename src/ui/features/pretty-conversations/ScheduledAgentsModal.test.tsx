@@ -1,9 +1,9 @@
 /**
- * Phase 135 Plan 135-02 Task 4 — WakeupsModal behavioral tests.
+ * Phase 135 Plan 135-02 Task 4 — ScheduledAgentsModal behavioral tests.
  *
  * 15 tests covering the wave-1 read path + all wave-2 write paths:
  *   T-01  open={false} mounts nothing visible
- *   T-02  open={true} triggers listWakeups + skeleton → rows
+ *   T-02  open={true} triggers listScheduledAgents + skeleton → rows
  *   T-03  Empty response → empty-state helper text
  *   T-04  Filter search narrows over name+prompt (case-insensitive)
  *   T-05  Filter role narrows to matching role
@@ -31,22 +31,22 @@ import {
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import type { HostFolder } from "@/types/ui-types";
-import type { WakeupListItem } from "@/api/wakeups-api";
+import type { ScheduledAgentListItem } from "@/api/scheduled-agents-api";
 
 // ─── Module-level mocks (BEFORE component import) ────────────────────────────
 
-const listWakeupsMock = vi.fn();
-const createWakeupMock = vi.fn();
-const updateWakeupMock = vi.fn();
-const toggleWakeupEnabledMock = vi.fn();
-const deleteWakeupMock = vi.fn();
+const listScheduledAgentsMock = vi.fn();
+const createScheduledAgentMock = vi.fn();
+const updateScheduledAgentMock = vi.fn();
+const toggleScheduledAgentEnabledMock = vi.fn();
+const deleteScheduledAgentMock = vi.fn();
 
-vi.mock("@/api/wakeups-api", () => ({
-  listWakeups: (...args: unknown[]) => listWakeupsMock(...args),
-  createWakeup: (...args: unknown[]) => createWakeupMock(...args),
-  updateWakeup: (...args: unknown[]) => updateWakeupMock(...args),
-  toggleWakeupEnabled: (...args: unknown[]) => toggleWakeupEnabledMock(...args),
-  deleteWakeup: (...args: unknown[]) => deleteWakeupMock(...args),
+vi.mock("@/api/scheduled-agents-api", () => ({
+  listScheduledAgents: (...args: unknown[]) => listScheduledAgentsMock(...args),
+  createScheduledAgent: (...args: unknown[]) => createScheduledAgentMock(...args),
+  updateScheduledAgent: (...args: unknown[]) => updateScheduledAgentMock(...args),
+  toggleScheduledAgentEnabled: (...args: unknown[]) => toggleScheduledAgentEnabledMock(...args),
+  deleteScheduledAgent: (...args: unknown[]) => deleteScheduledAgentMock(...args),
 }));
 
 vi.mock("@/api/identities-api", () => ({
@@ -54,11 +54,11 @@ vi.mock("@/api/identities-api", () => ({
 }));
 
 // Component AFTER the mocks
-import { WakeupsModal } from "./WakeupsModal";
+import { ScheduledAgentsModal } from "./ScheduledAgentsModal";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
-function makeRow(overrides: Partial<WakeupListItem> = {}): WakeupListItem {
+function makeRow(overrides: Partial<ScheduledAgentListItem> = {}): ScheduledAgentListItem {
   return {
     slug: "morning-triage",
     host: "host-a",
@@ -122,11 +122,11 @@ class FakeApiError extends Error {
 // ─── Setup / teardown ────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  listWakeupsMock.mockReset();
-  createWakeupMock.mockReset();
-  updateWakeupMock.mockReset();
-  toggleWakeupEnabledMock.mockReset();
-  deleteWakeupMock.mockReset();
+  listScheduledAgentsMock.mockReset();
+  createScheduledAgentMock.mockReset();
+  updateScheduledAgentMock.mockReset();
+  toggleScheduledAgentEnabledMock.mockReset();
+  deleteScheduledAgentMock.mockReset();
 });
 
 afterEach(() => {
@@ -135,29 +135,29 @@ afterEach(() => {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe("WakeupsModal: closed vs open + read path", () => {
+describe("ScheduledAgentsModal: closed vs open + read path", () => {
   it("T-01: renders nothing visible when open={false}", () => {
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={false}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
-    expect(screen.queryByTestId("wakeups-modal-close-button")).toBeNull();
+    expect(screen.queryByTestId("scheduled-agents-modal-close-button")).toBeNull();
   });
 
-  it("T-02: open={true} triggers listWakeups once + skeleton → rows", async () => {
-    listWakeupsMock.mockResolvedValueOnce([makeRow()]);
+  it("T-02: open={true} triggers listScheduledAgents once + skeleton → rows", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow()]);
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
     await waitFor(() =>
-      expect(listWakeupsMock).toHaveBeenCalledTimes(1),
+      expect(listScheduledAgentsMock).toHaveBeenCalledTimes(1),
     );
     await waitFor(() =>
       expect(screen.getByText("Morning triage")).toBeInTheDocument(),
@@ -165,22 +165,22 @@ describe("WakeupsModal: closed vs open + read path", () => {
   });
 
   it("T-03: empty response → empty-state helper text", async () => {
-    listWakeupsMock.mockResolvedValueOnce([]);
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
-    const empty = await screen.findByTestId("wakeups-modal-empty-state");
-    expect(empty.textContent).toMatch(/No wake-ups on any host/i);
+    const empty = await screen.findByTestId("scheduled-agents-modal-empty-state");
+    expect(empty.textContent).toMatch(/No scheduled agents on any host/i);
   });
 });
 
-describe("WakeupsModal: filter bar", () => {
+describe("ScheduledAgentsModal: filter bar", () => {
   it("T-04: search input narrows over name+prompt (case-insensitive)", async () => {
-    listWakeupsMock.mockResolvedValueOnce([
+    listScheduledAgentsMock.mockResolvedValueOnce([
       makeRow(),
       makeRow({
         slug: "log-sweep",
@@ -189,7 +189,7 @@ describe("WakeupsModal: filter bar", () => {
       }),
     ]);
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
@@ -197,7 +197,7 @@ describe("WakeupsModal: filter bar", () => {
     );
     await screen.findByText("Morning triage");
     const search = screen.getByTestId(
-      "wakeups-modal-filter-search",
+      "scheduled-agents-modal-filter-search",
     ) as HTMLInputElement;
     const user = userEvent.setup();
     await user.type(search, "log");
@@ -206,12 +206,12 @@ describe("WakeupsModal: filter bar", () => {
   });
 
   it("T-05: role filter narrows to matching role", async () => {
-    listWakeupsMock.mockResolvedValueOnce([
+    listScheduledAgentsMock.mockResolvedValueOnce([
       makeRow({ slug: "a", name: "Alpha", roles: ["writer"] }),
       makeRow({ slug: "b", name: "Beta", roles: ["reader"] }),
     ]);
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
@@ -219,7 +219,7 @@ describe("WakeupsModal: filter bar", () => {
     );
     await screen.findByText("Alpha");
     const roleSel = screen.getByTestId(
-      "wakeups-modal-filter-role",
+      "scheduled-agents-modal-filter-role",
     ) as HTMLSelectElement;
     fireEvent.change(roleSel, { target: { value: "writer" } });
     expect(screen.getByText("Alpha")).toBeInTheDocument();
@@ -227,7 +227,7 @@ describe("WakeupsModal: filter bar", () => {
   });
 
   it("T-06: host filter narrows to matching host", async () => {
-    listWakeupsMock.mockResolvedValueOnce([
+    listScheduledAgentsMock.mockResolvedValueOnce([
       makeRow({ slug: "a", name: "Alpha", host: "host-a", hostId: 1 }),
       makeRow({ slug: "b", name: "Beta", host: "host-b", hostId: 2 }),
     ]);
@@ -245,7 +245,7 @@ describe("WakeupsModal: filter bar", () => {
     };
 
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={TWO_HOST_TREE}
@@ -253,7 +253,7 @@ describe("WakeupsModal: filter bar", () => {
     );
     await screen.findByText("Alpha");
     const hostSel = screen.getByTestId(
-      "wakeups-modal-filter-host",
+      "scheduled-agents-modal-filter-host",
     ) as HTMLSelectElement;
     fireEvent.change(hostSel, { target: { value: "1" } });
     expect(screen.getByText("Alpha")).toBeInTheDocument();
@@ -261,71 +261,71 @@ describe("WakeupsModal: filter bar", () => {
   });
 });
 
-describe("WakeupsModal: form-view entry points", () => {
+describe("ScheduledAgentsModal: form-view entry points", () => {
   it("T-07: row click → form view, edit mode, fields prefilled, Name disabled", async () => {
-    listWakeupsMock.mockResolvedValueOnce([makeRow()]);
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow()]);
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
-    const row = await screen.findByTestId("wakeups-modal-row-morning-triage");
+    const row = await screen.findByTestId("scheduled-agents-modal-row-morning-triage");
     fireEvent.click(row);
     const nameInput = await screen.findByTestId(
-      "wakeups-modal-form-name",
+      "scheduled-agents-modal-form-name",
     ) as HTMLInputElement;
     expect(nameInput.value).toBe("Morning triage");
     expect(nameInput).toBeDisabled();
     // Host lock-chip present
-    expect(screen.getByTestId("wakeups-modal-form-host-locked")).toBeInTheDocument();
+    expect(screen.getByTestId("scheduled-agents-modal-form-host-locked")).toBeInTheDocument();
   });
 
   it("T-08: '+' button → form view, create mode, all fields empty", async () => {
-    listWakeupsMock.mockResolvedValueOnce([]);
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
-    await screen.findByTestId("wakeups-modal-empty-state");
-    fireEvent.click(screen.getByTestId("wakeups-modal-add-button"));
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
     const nameInput = await screen.findByTestId(
-      "wakeups-modal-form-name",
+      "scheduled-agents-modal-form-name",
     ) as HTMLInputElement;
     expect(nameInput.value).toBe("");
     expect(nameInput).not.toBeDisabled();
   });
 });
 
-describe("WakeupsModal: pessimistic toggle (D-12)", () => {
+describe("ScheduledAgentsModal: pessimistic toggle (D-12)", () => {
   it("T-09: success flips state via refetch; failure surfaces banner + no local flip", async () => {
     // Success path
-    listWakeupsMock.mockResolvedValueOnce([makeRow({ enabled: true })]);
-    toggleWakeupEnabledMock.mockResolvedValueOnce({
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow({ enabled: true })]);
+    toggleScheduledAgentEnabledMock.mockResolvedValueOnce({
       slug: "morning-triage",
       host: 1,
       enabled: false,
     });
-    listWakeupsMock.mockResolvedValueOnce([makeRow({ enabled: false })]);
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow({ enabled: false })]);
 
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
     let toggle = await screen.findByTestId(
-      "wakeups-modal-row-morning-triage-toggle",
+      "scheduled-agents-modal-row-morning-triage-toggle",
     );
     expect(toggle.textContent).toBe("On");
     fireEvent.click(toggle);
     await waitFor(() => {
-      expect(toggleWakeupEnabledMock).toHaveBeenCalledWith(
+      expect(toggleScheduledAgentEnabledMock).toHaveBeenCalledWith(
         "morning-triage",
         1,
         false,
@@ -334,59 +334,59 @@ describe("WakeupsModal: pessimistic toggle (D-12)", () => {
     // After refetch, row now shows Off
     await waitFor(() => {
       toggle = screen.getByTestId(
-        "wakeups-modal-row-morning-triage-toggle",
+        "scheduled-agents-modal-row-morning-triage-toggle",
       );
       expect(toggle.textContent).toBe("Off");
     });
 
     // Failure path: cleanup + re-render.
     cleanup();
-    toggleWakeupEnabledMock.mockReset();
-    listWakeupsMock.mockReset();
-    listWakeupsMock.mockResolvedValueOnce([makeRow({ enabled: true })]);
-    toggleWakeupEnabledMock.mockRejectedValueOnce(new Error("Boom"));
+    toggleScheduledAgentEnabledMock.mockReset();
+    listScheduledAgentsMock.mockReset();
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow({ enabled: true })]);
+    toggleScheduledAgentEnabledMock.mockRejectedValueOnce(new Error("Boom"));
 
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
     toggle = await screen.findByTestId(
-      "wakeups-modal-row-morning-triage-toggle",
+      "scheduled-agents-modal-row-morning-triage-toggle",
     );
     expect(toggle.textContent).toBe("On");
     fireEvent.click(toggle);
     // Banner appears with API message verbatim
-    const banner = await screen.findByTestId("wakeups-modal-toggle-error");
+    const banner = await screen.findByTestId("scheduled-agents-modal-toggle-error");
     expect(banner.textContent).toMatch(/Boom/);
     // Row toggle STILL says On — no local flip on failure
-    toggle = screen.getByTestId("wakeups-modal-row-morning-triage-toggle");
+    toggle = screen.getByTestId("scheduled-agents-modal-row-morning-triage-toggle");
     expect(toggle.textContent).toBe("On");
   });
 });
 
-describe("WakeupsModal: kebab menu (D-13, D-14)", () => {
+describe("ScheduledAgentsModal: kebab menu (D-13, D-14)", () => {
   it("T-10: Kebab → Edit → same as row click (form view, edit mode)", async () => {
-    listWakeupsMock.mockResolvedValueOnce([makeRow()]);
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow()]);
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
-    await screen.findByTestId("wakeups-modal-row-morning-triage");
+    await screen.findByTestId("scheduled-agents-modal-row-morning-triage");
     fireEvent.click(
-      screen.getByTestId("wakeups-modal-row-morning-triage-kebab"),
+      screen.getByTestId("scheduled-agents-modal-row-morning-triage-kebab"),
     );
     const editItem = await screen.findByTestId(
-      "wakeups-modal-row-morning-triage-edit",
+      "scheduled-agents-modal-row-morning-triage-edit",
     );
     fireEvent.click(editItem);
     const nameInput = await screen.findByTestId(
-      "wakeups-modal-form-name",
+      "scheduled-agents-modal-form-name",
     ) as HTMLInputElement;
     expect(nameInput.value).toBe("Morning triage");
     expect(nameInput).toBeDisabled();
@@ -396,37 +396,37 @@ describe("WakeupsModal: kebab menu (D-13, D-14)", () => {
     const confirmSpy = vi
       .spyOn(window, "confirm")
       .mockReturnValue(true);
-    listWakeupsMock.mockResolvedValueOnce([makeRow()]);
-    deleteWakeupMock.mockResolvedValueOnce(undefined);
-    listWakeupsMock.mockResolvedValueOnce([]);
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow()]);
+    deleteScheduledAgentMock.mockResolvedValueOnce(undefined);
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
 
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
-    await screen.findByTestId("wakeups-modal-row-morning-triage");
+    await screen.findByTestId("scheduled-agents-modal-row-morning-triage");
     fireEvent.click(
-      screen.getByTestId("wakeups-modal-row-morning-triage-kebab"),
+      screen.getByTestId("scheduled-agents-modal-row-morning-triage-kebab"),
     );
     const deleteItem = await screen.findByTestId(
-      "wakeups-modal-row-morning-triage-delete",
+      "scheduled-agents-modal-row-morning-triage-delete",
     );
     fireEvent.click(deleteItem);
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete wake-up "Morning triage"?',
+      'Delete scheduled agent "Morning triage"?',
     );
     await waitFor(() => {
-      expect(deleteWakeupMock).toHaveBeenCalledWith("morning-triage", 1);
+      expect(deleteScheduledAgentMock).toHaveBeenCalledWith("morning-triage", 1);
     });
     // Row disappears after refetch
     await waitFor(() => {
       expect(
-        screen.queryByTestId("wakeups-modal-row-morning-triage"),
+        screen.queryByTestId("scheduled-agents-modal-row-morning-triage"),
       ).toBeNull();
     });
 
@@ -434,109 +434,109 @@ describe("WakeupsModal: kebab menu (D-13, D-14)", () => {
   });
 });
 
-describe("WakeupsModal: Save + Cancel flow (D-19, D-25, D-27)", () => {
+describe("ScheduledAgentsModal: Save + Cancel flow (D-19, D-25, D-27)", () => {
   it("T-12: Save success → refetch + return to list view", async () => {
-    listWakeupsMock.mockResolvedValueOnce([]);
-    createWakeupMock.mockResolvedValueOnce({
-      slug: "new-wake",
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
+    createScheduledAgentMock.mockResolvedValueOnce({
+      slug: "new-agent",
       host: 1,
       spec: {},
     });
-    listWakeupsMock.mockResolvedValueOnce([
-      makeRow({ slug: "new-wake", name: "New wake" }),
+    listScheduledAgentsMock.mockResolvedValueOnce([
+      makeRow({ slug: "new-agent", name: "New agent" }),
     ]);
 
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
-    await screen.findByTestId("wakeups-modal-empty-state");
-    fireEvent.click(screen.getByTestId("wakeups-modal-add-button"));
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
 
     const nameInput = await screen.findByTestId(
-      "wakeups-modal-form-name",
+      "scheduled-agents-modal-form-name",
     ) as HTMLInputElement;
     const promptInput = screen.getByTestId(
-      "wakeups-modal-form-prompt",
+      "scheduled-agents-modal-form-prompt",
     ) as HTMLTextAreaElement;
-    fireEvent.change(nameInput, { target: { value: "new-wake" } });
+    fireEvent.change(nameInput, { target: { value: "new-agent" } });
     fireEvent.change(promptInput, { target: { value: "hello" } });
 
-    fireEvent.click(screen.getByTestId("wakeups-modal-form-save"));
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
 
     await waitFor(() => {
-      expect(createWakeupMock).toHaveBeenCalledTimes(1);
+      expect(createScheduledAgentMock).toHaveBeenCalledTimes(1);
     });
     // Back to list view — row from refetch is visible
     await waitFor(() => {
-      expect(screen.getByText("New wake")).toBeInTheDocument();
+      expect(screen.getByText("New agent")).toBeInTheDocument();
     });
   });
 
   it("T-13: Save 409 → inline banner with server message, form stays open", async () => {
-    listWakeupsMock.mockResolvedValueOnce([]);
-    createWakeupMock.mockRejectedValueOnce(
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
+    createScheduledAgentMock.mockRejectedValueOnce(
       new FakeApiError("Conflict", 409, "CONFLICT"),
     );
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
-    await screen.findByTestId("wakeups-modal-empty-state");
-    fireEvent.click(screen.getByTestId("wakeups-modal-add-button"));
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
 
     const nameInput = await screen.findByTestId(
-      "wakeups-modal-form-name",
+      "scheduled-agents-modal-form-name",
     ) as HTMLInputElement;
     const promptInput = screen.getByTestId(
-      "wakeups-modal-form-prompt",
+      "scheduled-agents-modal-form-prompt",
     ) as HTMLTextAreaElement;
-    fireEvent.change(nameInput, { target: { value: "dup-wake" } });
+    fireEvent.change(nameInput, { target: { value: "dup-agent" } });
     fireEvent.change(promptInput, { target: { value: "hi" } });
 
-    fireEvent.click(screen.getByTestId("wakeups-modal-form-save"));
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
 
-    const banner = await screen.findByTestId("wakeups-modal-form-error");
+    const banner = await screen.findByTestId("scheduled-agents-modal-form-error");
     expect(banner.textContent).toMatch(/already exists/i);
     // Form stays open — Save button still present.
-    expect(screen.getByTestId("wakeups-modal-form-save")).toBeInTheDocument();
+    expect(screen.getByTestId("scheduled-agents-modal-form-save")).toBeInTheDocument();
   });
 
   it("T-14: Cancel → back to list view (with refetch per Recommendation #7)", async () => {
-    listWakeupsMock.mockResolvedValue([]);
+    listScheduledAgentsMock.mockResolvedValue([]);
     render(
-      <WakeupsModal
+      <ScheduledAgentsModal
         open={true}
         onOpenChange={vi.fn()}
         hostTree={ONE_HOST_TREE}
       />,
     );
-    await screen.findByTestId("wakeups-modal-empty-state");
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
     // Reset the call count after the initial fetch on open so we can
     // assert Cancel triggers exactly one additional refetch.
-    listWakeupsMock.mockClear();
+    listScheduledAgentsMock.mockClear();
 
-    fireEvent.click(screen.getByTestId("wakeups-modal-add-button"));
-    await screen.findByTestId("wakeups-modal-form");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
+    await screen.findByTestId("scheduled-agents-modal-form");
 
-    fireEvent.click(screen.getByTestId("wakeups-modal-form-cancel"));
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-cancel"));
 
     // Back to list view — the empty-state is visible again
-    await screen.findByTestId("wakeups-modal-empty-state");
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
     // Cancel triggered a refetch
-    expect(listWakeupsMock).toHaveBeenCalledTimes(1);
+    expect(listScheduledAgentsMock).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("WakeupsModal: filter reset on close (D-17)", () => {
+describe("ScheduledAgentsModal: filter reset on close (D-17)", () => {
   it("T-15: closing then reopening the modal resets filter search + role + host to defaults", async () => {
-    listWakeupsMock.mockResolvedValue([
+    listScheduledAgentsMock.mockResolvedValue([
       makeRow({ slug: "a", name: "Alpha", roles: ["writer"] }),
     ]);
 
@@ -551,7 +551,7 @@ describe("WakeupsModal: filter reset on close (D-17)", () => {
           >
             toggle
           </button>
-          <WakeupsModal
+          <ScheduledAgentsModal
             open={open}
             onOpenChange={setOpen}
             hostTree={ONE_HOST_TREE}
@@ -562,13 +562,13 @@ describe("WakeupsModal: filter reset on close (D-17)", () => {
 
     render(<Harness />);
     const search = (await screen.findByTestId(
-      "wakeups-modal-filter-search",
+      "scheduled-agents-modal-filter-search",
     )) as HTMLInputElement;
     const roleSel = (await screen.findByTestId(
-      "wakeups-modal-filter-role",
+      "scheduled-agents-modal-filter-role",
     )) as HTMLSelectElement;
     const hostSel = (await screen.findByTestId(
-      "wakeups-modal-filter-host",
+      "scheduled-agents-modal-filter-host",
     )) as HTMLSelectElement;
 
     const user = userEvent.setup();
@@ -586,20 +586,20 @@ describe("WakeupsModal: filter reset on close (D-17)", () => {
     fireEvent.click(screen.getByTestId("harness-toggle"));
     await waitFor(() => {
       expect(
-        screen.queryByTestId("wakeups-modal-filter-search"),
+        screen.queryByTestId("scheduled-agents-modal-filter-search"),
       ).toBeNull();
     });
 
     // Reopen — every filter is back to its default ("__ALL__" sentinel).
     fireEvent.click(screen.getByTestId("harness-toggle"));
     const searchAgain = (await screen.findByTestId(
-      "wakeups-modal-filter-search",
+      "scheduled-agents-modal-filter-search",
     )) as HTMLInputElement;
     const roleSelAgain = (await screen.findByTestId(
-      "wakeups-modal-filter-role",
+      "scheduled-agents-modal-filter-role",
     )) as HTMLSelectElement;
     const hostSelAgain = (await screen.findByTestId(
-      "wakeups-modal-filter-host",
+      "scheduled-agents-modal-filter-host",
     )) as HTMLSelectElement;
     expect(searchAgain.value).toBe("");
     expect(roleSelAgain.value).toBe("__ALL__");

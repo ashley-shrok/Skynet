@@ -332,20 +332,20 @@ export function getLocalProjectsRoot(): string {
 /**
  * Returns the local wake-ups root directory (Phase 134 Plan 134-01).
  *
- * D-16: Skynet's own host is a managed host from the wake-ups CRUD API's
- * perspective. The new fleet-wide LIST fan-out reads t1000 (Skynet's own
+ * D-16: Skynet's own host is a managed host from the scheduled-agents CRUD
+ * API's perspective. The fleet-wide LIST fan-out reads t1000 (Skynet's own
  * host) via the container bind mount, not loopback SSH. This helper mirrors
  * getLocalIdentitiesRoot + getLocalRolesRoot + getLocalProjectsRoot so
  * every fleet subtree derives its root from the same HOME_HOST_DIR
  * resolution (Phase 117 M-K parity).
  *
- * Precedence: WAKEUPS_HOST_DIR (test escape hatch) → HOME_HOST_DIR-derived
- * default (`<home>/fleet/wakeups`).
+ * Precedence: SCHEDULED_AGENTS_HOST_DIR (test escape hatch) →
+ * HOME_HOST_DIR-derived default (`<home>/fleet/scheduled-agents`).
  */
-export function getLocalWakeupsRoot(): string {
+export function getLocalScheduledAgentsRoot(): string {
   return (
-    process.env.WAKEUPS_HOST_DIR ||
-    path.join(getLocalHomeRoot(), "fleet", "wakeups")
+    process.env.SCHEDULED_AGENTS_HOST_DIR ||
+    path.join(getLocalHomeRoot(), "fleet", "scheduled-agents")
   );
 }
 
@@ -1697,20 +1697,21 @@ export async function writeIdentityWakeupUpdate(
 }
 
 // ---------------------------------------------------------------------------
-// 6a2. Shared wake-up spec helpers — used by writeIdentityWakeupCreate
+// 6a2. Shared spec helpers — used by writeIdentityWakeupCreate and the
+// scheduled-agents REST router
 // ---------------------------------------------------------------------------
 //
 // Phase 134 Plan 134-02: the role-scope writers that also called these were
 // deleted (D-10). The helpers stay live for writeIdentityWakeupCreate below
 // (per-identity CRUD is still in use — D-09).
-// `normalizeWakeupSlug` is also `export`ed because Plan 128-01 wired the new
-// global-wakeups REST router to import it.
+// `normalizeSpecSlug` is also `export`ed because Plan 128-01 wired the new
+// scheduled-agents REST router to import it.
 
 /** Kebab-case slug normalizer.
  *  Lowercase, alphanumerics + hyphens, trim leading/trailing hyphens. Empty
  *  result means the input has no legal characters — caller throws in that
  *  case. */
-export function normalizeWakeupSlug(name: string): string {
+export function normalizeSpecSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
@@ -1754,7 +1755,7 @@ export async function writeIdentityWakeupCreate(
   spec: WakeupSpec,
 ): Promise<{ wakeups: Wakeup[] }> {
   validateWakeupSpec(spec);
-  const slug = normalizeWakeupSlug(spec.name);
+  const slug = normalizeSpecSlug(spec.name);
   if (!IDENTITY_SLUG_RE.test(slug)) {
     throw new Error("name normalizes to empty or invalid slug");
   }

@@ -1,5 +1,5 @@
 /**
- * Phase 134 Plan 134-01 Task 2 — tests for GET /wakeups.
+ * Phase 134 Plan 134-01 Task 2 — tests for GET /scheduled-agents.
  *
  * Exercises the fleet-wide LIST fan-out via a bare Express app on a random
  * port (mirrors roles-list-for-host.test.ts + conversation-search.test.ts
@@ -9,7 +9,7 @@
  *
  * Test coverage (12 cases — mirror plan Task 2 <behavior>):
  *   1: 401 without JWT
- *   2: happy path — 2 hosts each with 1 wake-up spec → aggregated response
+ *   2: happy path — 2 hosts each with 1 scheduled-agent spec → aggregated response
  *      with host, hostId, name, enabled, schedule, scheduleHuman, prompt,
  *      roles[], skills[] fields on each row
  *   3: one host connectOneShot fails → contributes [], other host's rows OK
@@ -19,7 +19,7 @@
  *      (mocked via fs mock) rather than SSH
  *   6: REMOTE branch — parses ===SLUG:<slug>=== delimiter one-liner correctly
  *   7: poisoned JSON in one entry is skipped; other entries survive
- *   8: empty ~/fleet/wakeups directory returns [] for that host
+ *   8: empty ~/fleet/scheduled-agents directory returns [] for that host
  *   9: cross-user host filtered out at Drizzle projection (candidate list
  *      excludes rows not returned by SimpleDBOps.select — mocked to only
  *      return the caller's hosts)
@@ -139,18 +139,18 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
 
 // ---------------------------------------------------------------------------
 // identity-artifact-reader mock — isLocalHostId + humanizeWakeupSchedule +
-// getLocalWakeupsRoot. Only the three helpers used by wakeups-list.ts are
+// getLocalScheduledAgentsRoot. Only the three helpers used by scheduled-agents-list.ts are
 // stubbed; others don't need surfacing.
 // ---------------------------------------------------------------------------
 
 const isLocalHostIdMock = vi.fn<(hostId: number | undefined) => boolean>();
 const humanizeMock = vi.fn<(sch: unknown) => string>();
-const getLocalWakeupsRootMock = vi.fn<() => string>();
+const getLocalScheduledAgentsRootMock = vi.fn<() => string>();
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   isLocalHostId: (hostId: number | undefined) => isLocalHostIdMock(hostId),
   humanizeWakeupSchedule: (sch: unknown) => humanizeMock(sch),
-  getLocalWakeupsRoot: () => getLocalWakeupsRootMock(),
+  getLocalScheduledAgentsRoot: () => getLocalScheduledAgentsRootMock(),
   // Fix #6: LIST parser re-checks IDENTITY_SLUG_RE on every returned slug
   // (defense-in-depth against hand-edited garbage on disk).
   IDENTITY_SLUG_RE: /^[a-z0-9_-]{1,80}$/i,
@@ -176,7 +176,7 @@ vi.mock("fs/promises", () => ({
 // Import router AFTER all mocks
 // ---------------------------------------------------------------------------
 
-import router from "./wakeups-list.js";
+import router from "./scheduled-agents-list.js";
 
 // ---------------------------------------------------------------------------
 // httpRequest helper
@@ -269,12 +269,12 @@ beforeEach(() => {
   execCommandMock.mockResolvedValue("");
   isLocalHostIdMock.mockReturnValue(false);
   humanizeMock.mockReturnValue("custom schedule");
-  getLocalWakeupsRootMock.mockReturnValue("/tmp/test-fleet/wakeups");
+  getLocalScheduledAgentsRootMock.mockReturnValue("/tmp/test-fleet/scheduled-agents");
   fsReaddirMock.mockResolvedValue([]);
   fsReadFileMock.mockResolvedValue("");
 
   const app = express();
-  app.use("/wakeups", router);
+  app.use("/scheduled-agents", router);
   server = http.createServer(app);
   server.listen(0);
 });
@@ -284,7 +284,7 @@ afterEach(() => {
 });
 
 // Helper: build a delimiter-batched stdout for the REMOTE `for d in */; do
-// echo "===SLUG:${slug}==="; cat "$d/wakeup.json"; done` command shape.
+// echo "===SLUG:${slug}==="; cat "$d/scheduled-agent.json"; done` command shape.
 function makeRemoteStdout(
   entries: Array<{ slug: string; body: string }>,
 ): string {
@@ -297,19 +297,19 @@ function makeRemoteStdout(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("GET /wakeups (fleet-wide LIST)", () => {
+describe("GET /scheduled-agents (fleet-wide LIST)", () => {
   it("Test 1: 401 without JWT", async () => {
     mockUserId = null;
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
     expect(res.status).toBe(401);
     expect(simpleDbSelectMock).not.toHaveBeenCalled();
     expect(connectOneShotMock).not.toHaveBeenCalled();
   });
 
-  it("Test 2: happy path — 2 hosts each contribute 1 wake-up", async () => {
+  it("Test 2: happy path — 2 hosts each contribute 1 scheduled agent", async () => {
     humanizeMock.mockImplementation((sch: unknown) => {
       if (
         typeof sch === "object" &&
@@ -355,7 +355,7 @@ describe("GET /wakeups (fleet-wide LIST)", () => {
 
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
 
     expect(res.status).toBe(200);
@@ -408,7 +408,7 @@ describe("GET /wakeups (fleet-wide LIST)", () => {
 
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
     expect(res.status).toBe(200);
     const body = res.body as { items: Array<{ hostId: number; slug: string }> };
@@ -464,7 +464,7 @@ describe("GET /wakeups (fleet-wide LIST)", () => {
 
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
     expect(res.status).toBe(200);
     const body = res.body as { items: Array<{ hostId: number }> };
@@ -495,7 +495,7 @@ describe("GET /wakeups (fleet-wide LIST)", () => {
 
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
 
     expect(res.status).toBe(200);
@@ -527,15 +527,15 @@ describe("GET /wakeups (fleet-wide LIST)", () => {
 
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
     expect(res.status).toBe(200);
     // The command sent must be the exact delimiter one-liner from PATTERNS.md
     const call = execCommandMock.mock.calls[0];
-    expect(call[1]).toContain('cd "$HOME/fleet/wakeups"');
+    expect(call[1]).toContain('cd "$HOME/fleet/scheduled-agents"');
     expect(call[1]).toContain("for d in */;");
     expect(call[1]).toContain('echo "===SLUG:${slug}==="');
-    expect(call[1]).toContain('cat "$d/wakeup.json"');
+    expect(call[1]).toContain('cat "$d/scheduled-agent.json"');
   });
 
   it("Test 7: poisoned JSON on one entry is skipped; siblings survive", async () => {
@@ -550,20 +550,20 @@ describe("GET /wakeups (fleet-wide LIST)", () => {
 
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
     expect(res.status).toBe(200);
     const body = res.body as { items: Array<{ slug: string }> };
     expect(body.items.map((r) => r.slug).sort()).toEqual(["also-good", "good"]);
   });
 
-  it("Test 8: empty ~/fleet/wakeups → 200 with [] for that host", async () => {
+  it("Test 8: empty ~/fleet/scheduled-agents → 200 with [] for that host", async () => {
     simpleDbSelectMock.mockResolvedValue([hostA]);
-    execCommandMock.mockResolvedValue(""); // empty stdout — nothing under wakeups
+    execCommandMock.mockResolvedValue(""); // empty stdout — nothing under scheduled-agents
 
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ items: [] });
@@ -575,7 +575,7 @@ describe("GET /wakeups (fleet-wide LIST)", () => {
     simpleDbSelectMock.mockResolvedValue([]);
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ items: [] });
@@ -601,7 +601,7 @@ describe("GET /wakeups (fleet-wide LIST)", () => {
 
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
     expect(res.status).toBe(200);
     const body = res.body as { items: Array<{ scheduleHuman: string }> };
@@ -637,7 +637,7 @@ describe("GET /wakeups (fleet-wide LIST)", () => {
 
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
     expect(res.status).toBe(200);
     const body = res.body as { items: Array<{ hostId: number }> };
@@ -659,7 +659,7 @@ describe("GET /wakeups (fleet-wide LIST)", () => {
 
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/wakeups",
+      path: "/scheduled-agents",
     });
     expect(res.status).toBe(200);
     const body = res.body as { items: Array<{ slug: string; hostId: number }> };
