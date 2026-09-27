@@ -539,11 +539,12 @@ async function initializeCompleteDatabase(): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS user_preferences (
         user_id TEXT PRIMARY KEY,
-        reopen_tabs_on_login INTEGER NOT NULL DEFAULT 0,
+        -- reopen_tabs_on_login INTEGER NOT NULL DEFAULT 0,  -- DELETED per Phase 137 D-31 (dead fork holdover)
         theme TEXT,
         font_size TEXT,
         accent_color TEXT,
         language TEXT,
+        fallback_voice TEXT,                                   -- NEW per Phase 137 D-14
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
@@ -962,6 +963,25 @@ export function runHiddenColumnDrop(sqliteDb: Database.Database): void {
 }
 
 /**
+ * Phase 137 D-31 — drop the `reopen_tabs_on_login` column from
+ * `user_preferences`. Dead fork holdover; tab-restoration is now driven by
+ * a different mechanism. Phase 137 already retired every reader/writer in
+ * src/ — this drop retires the dead storage.
+ *
+ * Idempotent via dropColumnIfExists (probes SELECT; ALTER TABLE DROP
+ * COLUMN on hit; silent no-op on miss). Byte-mirror of runHiddenColumnDrop
+ * at L959-962 — the only difference is the column name.
+ *
+ * Exported so index.migration.test.ts can exercise the idempotent no-op
+ * path (column absent) against test-owned in-memory databases — parallel
+ * to runHiddenColumnDrop / runPinColumnDrop export pattern.
+ */
+export function runReopenTabsColumnDrop(sqliteDb: Database.Database): void {
+  assertSqliteSupportsDropColumn(sqliteDb);
+  dropColumnIfExists(sqliteDb, "user_preferences", "reopen_tabs_on_login");
+}
+
+/**
  * Phase 128 Plan 01 (D-18, D-20) — drop the `telegram_bot_tokens` table
  * entirely. The whole tg-bridge is coming out in the same shipping unit as
  * the push-notifications land (D-17); the table (identity_key, bot_token,
@@ -1100,6 +1120,28 @@ const migrateSchema = async () => {
     throw preflightErr;
   }
 
+  // Phase 137 D-31/D-14 — drop the dead reopen_tabs_on_login column from
+  // user_preferences. This is a fork holdover that no longer has any
+  // reader or writer in src/ post-Phase-137. Runs BEFORE the
+  // addColumnIfNotExists sweep below (drops-before-adds ordering) so a
+  // stale install cannot briefly re-add the column in the same boot cycle.
+  //
+  // Preflight throw is fatal — mirrors the runHiddenColumnDrop precedent
+  // above (T-66-04-04: "boot aborts before schema corruption"). The
+  // labeled forceSave that persists the schema mutation lives after the
+  // addColumnIfNotExists sweep, batching this drop + the fallback_voice
+  // add in one atomic file write.
+  try {
+    runReopenTabsColumnDrop(sqlite);
+  } catch (preflightErr) {
+    databaseLogger.error(
+      "Phase 137 reopen-tabs-column drop preflight failed",
+      preflightErr,
+      { operation: "schema_migration_preflight" },
+    );
+    throw preflightErr;
+  }
+
   // Phase 128 Plan 01 (D-18, D-20) — drop the telegram_bot_tokens table
   // entirely. The whole tg-bridge is coming out in the same shipping unit
   // as the push-notifications land (D-17); the DB row that solely supports
@@ -1137,14 +1179,16 @@ const migrateSchema = async () => {
   addColumnIfNotExists("user_preferences", "font_size", "TEXT");
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
   addColumnIfNotExists("user_preferences", "language", "TEXT");
+  addColumnIfNotExists("user_preferences", "fallback_voice", "TEXT");  // NEW per Phase 137 D-14
 
-  // Phase 128 Plan 01 (D-18) — persist the batch of schema mutations from
-  // this block to the encrypted SQLite file in one atomic write: (a) the
-  // Phase 92 pinned_conversation_ids DROP (runPinColumnDrop above), (b) the
-  // Phase 107 hidden_conversation_ids DROP (runHiddenColumnDrop above),
-  // (c) the Phase 128 telegram_bot_tokens table DROP
-  // (runTelegramBotTokensTableDrop above), and (d) the user_preferences
-  // addColumnIfNotExists sweep between them.
+  // Phase 137 D-31/D-14 — persist the batch of schema mutations from this
+  // block to the encrypted SQLite file in one atomic write: (a) the Phase 92
+  // pinned_conversation_ids DROP (runPinColumnDrop above), (b) the Phase 107
+  // hidden_conversation_ids DROP (runHiddenColumnDrop above), (c) the Phase 128
+  // telegram_bot_tokens table DROP (runTelegramBotTokensTableDrop above),
+  // (d) the Phase 137 reopen_tabs_on_login DROP (runReopenTabsColumnDrop
+  // above), and (e) the user_preferences addColumnIfNotExists sweep including
+  // the new fallback_voice column.
   //
   // Direct .exec() writes only reach RAM per CLAUDE.md § "In-memory SQLite
   // pattern"; without an explicit forceSave the drops live only in memory
@@ -1161,14 +1205,14 @@ const migrateSchema = async () => {
   // races on the first-ever boot.
   try {
     await DatabaseSaveTrigger.forceSave(
-      "phase-128-telegram-bot-tokens-table-drop",
+      "phase-137-fallback-voice-schema",
     );
   } catch (saveError) {
     databaseLogger.warn(
-      "[phase-128] forceSave failed post-drop (non-fatal — dropColumnIfExists + DROP TABLE IF EXISTS are idempotent, next boot retries)",
+      "[phase-137] forceSave failed post-schema (non-fatal — dropColumnIfExists + addColumnIfNotExists are idempotent, next boot retries)",
       {
         operation: "schema_migration_force_save_post_drop",
-        reason: "phase-128-telegram-bot-tokens-table-drop",
+        reason: "phase-137-fallback-voice-schema",
         error: saveError,
       },
     );

@@ -833,13 +833,12 @@ export const userPreferences = sqliteTable("user_preferences", {
   userId: text("user_id")
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
-  reopenTabsOnLogin: integer("reopen_tabs_on_login", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  // reopenTabsOnLogin: DELETED per Phase 137 D-31 (dead fork holdover)
   theme: text("theme"),
   fontSize: text("font_size"),
   accentColor: text("accent_color"),
   language: text("language"),
+  fallbackVoice: text("fallback_voice"),  // NEW per Phase 137 D-14 (nullable — null → DEFAULT_VOICE fallback)
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
