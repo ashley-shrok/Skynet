@@ -78,12 +78,20 @@ export function RunbooksTab({ hostId, roleName, onOpenRunbook }: RunbooksTabProp
     );
   }
 
-  // (3) Empty state per D-10 (role has no runbooks folder OR folder is empty OR roleName is null).
-  // No affordance to create one (D-10: creation out of scope in v1).
+  // (3) Empty state: role has no runbooks folder OR folder is empty OR roleName is null.
+  // Copy explains what runbooks ARE so first-time users understand the concept
+  // rather than only seeing a bare "no runbooks" line (user 2026-09-27, replaces
+  // the terse D-10 copy). No affordance to create one (creation still out of
+  // scope in v1).
   if (runbooks.data.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 text-sm text-[var(--color-pv-fg-muted)] py-8">
-        This role has no runbooks yet.
+      <div className="flex flex-col items-center justify-center gap-2 text-sm text-[var(--color-pv-fg-muted)] text-center px-6 py-8">
+        <div>This role has no runbooks yet.</div>
+        <div className="text-xs opacity-70">
+          Runbooks are named playbooks the role reuses for repeated work that
+          should be done the same way every time. They are shared by every
+          agent that takes on this role.
+        </div>
       </div>
     );
   }
