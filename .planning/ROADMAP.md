@@ -2919,10 +2919,15 @@ Plans:
 
 ### Phase 137: Preferences modal from sidebar gear — voice fallback, notifications, avatar, about-you
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Wire the sidebar footer gear to a new Preferences modal that consolidates user-scope settings into four panes — General (avatar upload + sidebar live-sync), Voice (per-user fallback voice), Notifications (folded-in enable-push flow), About you (folded-in personal-context markdown editor) — while retiring the Globe button, the enable-notifications kebab item, and the dead reopenTabsOnLogin preference.
+**Requirements**: 32 CONTEXT.md D-decisions (D-01..D-32) — no separate REQ IDs; CONTEXT.md decisions are the coverage target.
 **Depends on:** Phase 136
-**Plans:** 0 plans
+**Plans:** 6 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 137 to break down)
+- [ ] 137-01-PLAN.md — Backend + type shape foundation (fallback_voice column add, reopen_tabs_on_login drop, /users/me avatarPath, frontend types)
+- [ ] 137-02-PLAN.md — Modal shell + left-nav + General pane (avatar upload) + sidebar footer live-sync
+- [ ] 137-03-PLAN.md — Voice pane (autosave picker) + PrettyView speak-flow resolution wire
+- [ ] 137-04-PLAN.md — Notifications pane fold-in (D-19 LOAD-BEARING) + push-support extraction + retire EnableNotificationsModal + kebab item
+- [ ] 137-05-PLAN.md — About-you pane fold-in (MarkdownEditor + host picker + tab strip + mtime save) + retire Globe button + delete GlobalFilesModal
+- [ ] 137-06-PLAN.md — reopenTabsOnLogin consumer-site purge (AppShell + tab-url) + Playwright smoke coverage + full-suite green
