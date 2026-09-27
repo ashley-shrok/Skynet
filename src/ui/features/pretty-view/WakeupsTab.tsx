@@ -178,8 +178,12 @@ export function WakeupsTab({
     return (
       <div className="flex flex-col gap-3">
         <AddWakeupPill hue={hue} onClick={() => setAddDialogOpen(true)} />
-        <div className="text-sm text-[var(--color-pv-fg-muted)]">
-          No scheduled wake-ups.
+        <div className="flex flex-col gap-2 text-sm text-[var(--color-pv-fg-muted)]">
+          <div>No scheduled wake-ups.</div>
+          <div className="text-xs opacity-70">
+            Wake-ups are scheduled prompts fired at this agent on a clock. Ask
+            the agent to create one or use the button above.
+          </div>
         </div>
         <AddWakeupDialog
           open={addDialogOpen}
