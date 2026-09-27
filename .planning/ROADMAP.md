@@ -2928,7 +2928,7 @@ Plans:
 **Goal:** Wire the sidebar footer gear to a new Preferences modal that consolidates user-scope settings into four panes — General (avatar upload + sidebar live-sync), Voice (per-user fallback voice), Notifications (folded-in enable-push flow), About you (folded-in personal-context markdown editor) — while retiring the Globe button, the enable-notifications kebab item, and the dead reopenTabsOnLogin preference.
 **Requirements**: 32 CONTEXT.md D-decisions (D-01..D-32) — no separate REQ IDs; CONTEXT.md decisions are the coverage target.
 **Depends on:** Phase 136
-**Plans:** 2/6 plans executed
+**Plans:** 3/6 plans executed
 Plans:
 **Wave 1**
 
@@ -2940,7 +2940,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 137-03-PLAN.md — Voice pane (autosave picker) + PrettyView speak-flow resolution wire
+- [x] 137-03-PLAN.md — Voice pane (autosave picker) + PrettyView speak-flow resolution wire
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
