@@ -1860,7 +1860,7 @@ describe("PrettyConversationsPanel: project sections preserve selector order", (
 
 // ─────────────────────────────────────────────────────────────────────────────
 // M-J: flat-middle section header — the "Conversations" section is a
-// permanent sidebar fixture (Ashley 2026-09-27). Wrapper + header always
+// permanent sidebar fixture. Wrapper + header always
 // render; when the middle is empty a placeholder row communicates emptiness.
 // ─────────────────────────────────────────────────────────────────────────────
 

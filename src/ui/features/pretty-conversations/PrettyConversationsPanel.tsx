@@ -2871,7 +2871,7 @@ export function PrettyConversationsPanel({
                 application/x-skynet-row so the outer panel's badge-drag
                 machinery is not clobbered (badge MIME falls through to the
                 outer handler; row MIME is handled here). Wrapper always
-                renders now (Ashley 2026-09-27) — the section is a permanent
+                renders now — the section is a permanent
                 sidebar fixture with header + empty-state, not gated on
                 content presence. */}
             {(

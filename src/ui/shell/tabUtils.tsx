@@ -368,7 +368,7 @@ type Renderer = (tab: Tab, deps: RendererDeps) => ReactNode;
 
 // Dashboard tab is the load-bearing fallback identifier in
 // effectiveSelectedTabId + doCloseTab; when it's active the main pane
-// renders nothing (Ashley 2026-09-27 — no "Select an agent" placeholder).
+// renders nothing — no "Select an agent" placeholder.
 const renderDashboard: Renderer = () => null;
 
 // Phase 93 Slice 4 (D-06): host-null gate widens for relay-room tabs.
