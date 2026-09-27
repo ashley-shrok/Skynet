@@ -113,7 +113,8 @@ self.addEventListener("push", (event) => {
   }
   const title = payload.title || "SKYNET";
   const body = payload.body || "";
-  const roomId = payload.roomId;
+  const agentMxid = payload.agentMxid;
+  const agentHostId = payload.agentHostId;
   // Fix pass M-5: DO NOT set a `tag` — Web Notifications spec says
   // same-tag notifications REPLACE the previous one. Two messages in
   // the same room within a short window would collapse to only the
@@ -124,19 +125,30 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body: body,
-      data: { roomId: roomId, agentMxid: payload.agentMxid },
+      data: { agentMxid: agentMxid, agentHostId: agentHostId },
     })
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const roomId = event.notification.data?.roomId;
-  // Fix pass M-4: prefix targetUrl with BASE_PATH so non-root deploys
-  // land on the PWA, not the origin root. Mirrors the STATIC_ASSETS
-  // BASE_PATH substitution at the top of this file.
-  const targetUrl = roomId
-    ? `${BASE_PATH}/?openRoom=${encodeURIComponent(roomId)}`
+  const agentMxid = event.notification.data?.agentMxid;
+  const agentHostId = event.notification.data?.agentHostId;
+  // shape-notifications-to-harness.md: tap opens the sender agent's
+  // harness view, not the relay-room mirror of the underlying DM. The
+  // BASE_PATH prefix keeps non-root deploys landing on the PWA (mirrors
+  // the STATIC_ASSETS BASE_PATH substitution at the top of this file).
+  //
+  // Only route when both fields are present — a payload missing either
+  // one cannot be routed deterministically; fall back to the app root
+  // and let the AppShell mount on its default view.
+  const canRoute =
+    typeof agentMxid === "string" &&
+    agentMxid.length > 0 &&
+    typeof agentHostId === "number" &&
+    Number.isFinite(agentHostId);
+  const targetUrl = canRoute
+    ? `${BASE_PATH}/?openHarness=${encodeURIComponent(agentMxid)}&host=${agentHostId}`
     : `${BASE_PATH}/`;
   event.waitUntil((async () => {
     const clientsList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });

@@ -305,7 +305,7 @@ describe("sw.js pushsubscriptionchange handler (M-3 hardening)", () => {
     ).toBe(0);
   });
 
-  it("M-4 smoke: notificationclick targetUrl is prefixed with BASE_PATH", async () => {
+  it("notificationclick: valid agentMxid + agentHostId → openHarness URL prefixed with BASE_PATH", async () => {
     const { handlers, self } = evaluateSwWithBasePath("/skynet");
     const clientFocus = vi.fn(async () => {});
     const clientNavigate = vi.fn(async () => {});
@@ -317,7 +317,7 @@ describe("sw.js pushsubscriptionchange handler (M-3 hardening)", () => {
     const event = {
       notification: {
         close: vi.fn(),
-        data: { roomId: "!room:server" },
+        data: { agentMxid: "@fanny:server", agentHostId: 42 },
       },
       waitUntil: (p: Promise<unknown>) => {
         waitUntilPromise = p;
@@ -331,12 +331,41 @@ describe("sw.js pushsubscriptionchange handler (M-3 hardening)", () => {
 
     expect(clientNavigate).toHaveBeenCalledTimes(1);
     const navUrl = clientNavigate.mock.calls[0][0];
-    // encodeURIComponent preserves `!` (RFC 3986 unreserved sub-delim) but
-    // encodes `:` → `%3A`. Both branches must be prefixed with BASE_PATH.
-    expect(navUrl).toBe("/skynet/?openRoom=!room%3Aserver");
+    // encodeURIComponent encodes `@` → %40 and `:` → %3A on the mxid.
+    // hostId is a bare integer — no encoding.
+    expect(navUrl).toBe(
+      "/skynet/?openHarness=%40fanny%3Aserver&host=42",
+    );
   });
 
-  it("M-5 smoke: push handler showNotification is called WITHOUT a tag field", async () => {
+  it("notificationclick: missing agentHostId → falls back to app root, no openHarness param", async () => {
+    const { handlers, self } = evaluateSwWithBasePath("/skynet");
+    const clientFocus = vi.fn(async () => {});
+    const clientNavigate = vi.fn(async () => {});
+    self.clients.matchAll = vi.fn(async () => [
+      { focus: clientFocus, navigate: clientNavigate },
+    ]);
+
+    let waitUntilPromise: Promise<unknown> | null = null;
+    const event = {
+      notification: {
+        close: vi.fn(),
+        // agentMxid present but agentHostId missing — cannot route.
+        data: { agentMxid: "@fanny:server" },
+      },
+      waitUntil: (p: Promise<unknown>) => {
+        waitUntilPromise = p;
+      },
+    };
+
+    handlers.get("notificationclick")!(event);
+    await waitUntilPromise;
+
+    expect(clientNavigate).toHaveBeenCalledTimes(1);
+    expect(clientNavigate.mock.calls[0][0]).toBe("/skynet/");
+  });
+
+  it("push: showNotification is called WITHOUT a tag field, and data carries mxid + hostId", async () => {
     const { handlers, self } = evaluateSwWithBasePath("");
 
     let waitUntilPromise: Promise<unknown> | null = null;
@@ -345,8 +374,8 @@ describe("sw.js pushsubscriptionchange handler (M-3 hardening)", () => {
         json: () => ({
           title: "Fanny:",
           body: "hey",
-          roomId: "!room:server",
           agentMxid: "@fanny:server",
+          agentHostId: 42,
         }),
       },
       waitUntil: (p: Promise<unknown>) => {
@@ -363,15 +392,15 @@ describe("sw.js pushsubscriptionchange handler (M-3 hardening)", () => {
     const [, opts] = (
       self.registration.showNotification as ReturnType<typeof vi.fn>
     ).mock.calls[0];
-    // The whole point of M-5: no tag → two messages in the same room
-    // each get their own notification, no replace.
+    // No tag → two messages in the same conversation each get their own
+    // notification with no replace behavior.
     expect(opts).not.toHaveProperty("tag");
     expect(opts).not.toHaveProperty("renotify");
-    // Sanity: body + data still populated.
+    // Body + data carry the routing fields the notificationclick handler needs.
     expect(opts.body).toBe("hey");
     expect(opts.data).toEqual({
-      roomId: "!room:server",
       agentMxid: "@fanny:server",
+      agentHostId: 42,
     });
   });
 });
