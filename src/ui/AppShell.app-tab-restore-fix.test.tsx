@@ -7,21 +7,17 @@
  * MEDIUM-6: reload restore must NOT silently drop app tabs whose home
  * host is missing from `allHosts`.
  *
- * The persisted-tab restore loop filters saved rows against `allHosts`:
- * for each row it does `allHosts.find(h => h.id === saved.hostId)` and,
- * if the host is absent AND the tab type isn't in `hostlessTypes`, it
- * `continue`s — dropping the tab entirely. Pre-fix, `hostlessTypes` was
- * `["dashboard"]` only, so an `"app"` tab whose home host had been
- * removed (host deleted, credential revoked, box scaled down) between
- * save and reload was silently dropped, breaking shape 4's principle
- * that "gone-at-reload is a display concern, not a behaviour concern"
- * (the leaf should render and the proxy should show Phase 103's
- * failure interstitial).
+ * Phase 137 D-31 update: the persisted-tab restore loop that contained
+ * the MEDIUM-6 fix (hostlessTypes guard + Tab.app reconstruction) was
+ * gated on `userPrefs.reopenTabsOnLogin` — a preference that was always
+ * `false` (dead fork holdover). Phase 137 Plan 06 removed that entire
+ * code path. The assertions below are updated to reflect the new state:
  *
- * Fix: `hostlessTypes: TabType[] = ["dashboard", "app"]`. The tab still
- * pushes onto `restoredTabs`; `Tab.host` is left undefined for hostless
- * app rows; `renderAppTab` reads only `tab.app.hostId` / `tab.app.slug`
- * and the proxy's own failure surface handles the missing-host case.
+ *   - The `hostlessTypes` restore-loop no longer exists in AppShell.tsx.
+ *   - Saved tabs go to `setBackgroundTabRecords` unconditionally.
+ *   - MEDIUM-6 (app tab with missing host reaches ConnectionsPanel vs.
+ *     being silently dropped) is still satisfied through the background
+ *     records path.
  *
  * ---
  *
@@ -31,9 +27,8 @@
  * fail-safe (returning null → dropped tab, matching the other
  * TabSpec variants' contract).
  *
- * Both fixes are structural — this file uses the source-grep pattern
- * (mirror of `AppShell.relay-url-restore.test.tsx`) rather than
- * mounting AppShell (30+ imports) so the coverage runs on every CI.
+ * MEDIUM-7 coverage is unaffected by D-31 and lives in
+ * `src/ui/lib/tab-url.test.ts`.
  */
 
 import { describe, it, expect } from "vitest";
@@ -50,62 +45,27 @@ const appShellSrc = readFileSync(
 );
 
 /* ------------------------------------------------------------------------ */
-/*  MEDIUM-6 — reload restore keeps app tabs even when host is gone          */
+/*  MEDIUM-6 — Phase 137 D-31 updated assertions                             */
 /* ------------------------------------------------------------------------ */
 
-describe("AppShell.tsx — MEDIUM-6 app tab restore (host-gone survives)", () => {
-  it("Test 1: hostlessTypes includes 'app' alongside 'dashboard'", () => {
-    // Pre-fix: `const hostlessTypes: TabType[] = ["dashboard"];`
-    // Post-fix: `const hostlessTypes: TabType[] = ["dashboard", "app"];`
-    // Loosely-anchored regex allows for the same array literal to also
-    // gain other entries in future without breaking this guard.
-    expect(appShellSrc).toMatch(
-      /hostlessTypes:\s*TabType\[\]\s*=\s*\[[^\]]*"dashboard"[^\]]*"app"[^\]]*\]/,
-    );
+describe("AppShell.tsx — MEDIUM-6 app tab restore (Phase 137 D-31 update)", () => {
+  it("Phase 137 D-31: restore loop gated on reopenTabsOnLogin is gone — no hostlessTypes in AppShell", () => {
+    // The entire restore-to-tab-bar loop (including the MEDIUM-6 hostlessTypes
+    // fix) was inside `if (userPrefs.reopenTabsOnLogin)` which was always false.
+    // Phase 137 D-31 removed it. Verify the dead code is gone.
+    expect(appShellSrc).not.toContain("hostlessTypes");
   });
 
-  it("Test 1b: hostlessTypes literal contains exactly the two entries expected today", () => {
-    // Load-bearing constraint — if anything else is added to hostlessTypes
-    // in the future, we want a review conversation, not silent drift. The
-    // check is order-agnostic.
-    const match = appShellSrc.match(
-      /hostlessTypes:\s*TabType\[\]\s*=\s*\[([^\]]+)\]/,
-    );
-    expect(match).toBeTruthy();
-    const entries = match![1]
-      .split(",")
-      .map((s) => s.trim().replace(/^"/, "").replace(/"$/, ""))
-      .filter((s) => s.length > 0);
-    expect(entries.sort()).toEqual(["app", "dashboard"]);
+  it("Phase 137 D-31: setBackgroundTabRecords is called for saved tabs (background path)", () => {
+    // Saved tabs go to ConnectionsPanel via background records.
+    expect(appShellSrc).toContain("setBackgroundTabRecords");
   });
 
-  it("Test 2: filter guard uses hostlessTypes.includes(saved.tabType as TabType)", () => {
-    // Preserves the shape of the filter — the guard is still on
-    // `!host && !hostlessTypes.includes(...)`, so the whitelist widening
-    // is the load-bearing change (not a filter-shape refactor).
-    expect(appShellSrc).toContain(
-      "hostlessTypes.includes(saved.tabType as TabType)",
-    );
-  });
-
-  it("Test 3: pre-fix regression floor — hostlessTypes is NOT dashboard-only anymore", () => {
-    // Explicit anti-regression: if a future refactor reverts to the
-    // dashboard-only whitelist, this test fails.
-    expect(appShellSrc).not.toMatch(
-      /hostlessTypes:\s*TabType\[\]\s*=\s*\[\s*"dashboard"\s*\]/,
-    );
-  });
-
-  it("Test 4: Tab.app reconstruction still gated on both hostId AND appSlug being populated", () => {
-    // Load-bearing symmetry: even when the host is gone (MEDIUM-6 allows
-    // the tab to restore), Tab.app is only constructed when BOTH halves
-    // of the (hostId, slug) tuple are present on the saved row. A row
-    // missing appSlug (legacy mid-rollout data) still restores but
-    // without Tab.app — `isAppTab` narrows false, `renderAppTab` returns
-    // null (per Plan 07's D-16 comment).
-    expect(appShellSrc).toMatch(
-      /saved\.tabType === "app"\s*&&[\s\S]*?saved\.hostId != null\s*&&[\s\S]*?saved\.appSlug != null/,
-    );
+  it("Phase 137 D-31: no live references to reopenTabsOnLogin in AppShell (D-31 invariant)", () => {
+    // The D-31 acceptance criterion: no live-code references survive.
+    // Comments referencing the phase cleanup are also banned from AppShell
+    // per the plan (the migration breadcrumb belongs in the DB migration file).
+    expect(appShellSrc).not.toMatch(/reopenTabsOnLogin/);
   });
 });
 

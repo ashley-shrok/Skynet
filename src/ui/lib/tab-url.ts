@@ -23,7 +23,7 @@
 // only=1 is a one-shot marker set ONLY by Move-to-new-window (patch #34).
 // Tells AppShell.loadSavedTabs to skip the persisted-tab rehydrate pass so
 // the new Chrome tab shows JUST the URL's tabs. The ambient URL-sync effect
-// never sets it, preserving `reopenTabsOnLogin` compatibility.
+// never sets it.
 //
 // Legacy `?tab=` query form is also accepted on parse for bookmarks predating
 // patch #25, and single-tab bookmarks (`#tab=one:spec`) predating patch #35

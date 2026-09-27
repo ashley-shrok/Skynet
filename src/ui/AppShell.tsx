@@ -358,9 +358,7 @@ export function AppShell({
     const handle = (ref?.current as Partial<IdentityPaneHandle> | null) ?? null;
     handle?.toggleMessageQueue?.();
   });
-  const [userPrefs, setUserPrefs] = useState<UserPreferences>({
-    reopenTabsOnLogin: false,
-  });
+  const [userPrefs, setUserPrefs] = useState<UserPreferences>({});
   const [userPrefsLoaded, setUserPrefsLoaded] = useState(false);
   const [hostsLoaded, setHostsLoaded] = useState(false);
   // Flips to true once the initial DB read (restore or skip) is done — sync must not fire before this
@@ -1579,14 +1577,12 @@ export function AppShell({
     "telnet",
     // Phase 120 D-16 — app tabs persist so reload restores the leaf. The
     // (hostId, slug) tuple flows through addOpenTab's appSlug + hostId
-    // fields (Plan 03 added the app_slug column); restoredTabs.push below
-    // reconstructs Tab.app when saved.tabType === "app" && saved.appSlug
-    // is populated.
+    // fields (Plan 03 added the app_slug column).
     "app",
   ];
 
   // On load: always read saved tabs from DB so background sessions are preserved across refreshes.
-  // If reopenTabsOnLogin is on, also restore them as open tabs in the tab bar.
+  // Phase 137 D-31 — tab restoration path collapsed to background records only.
   const tabRestoreAttemptedRef = useRef(false);
   useEffect(() => {
     if (!hostsLoaded || !userPrefsLoaded) return;
@@ -1626,159 +1622,12 @@ export function AppShell({
             : [],
         );
 
-        let restoredTabs: Tab[] = [];
+        const restoredTabs: Tab[] = [];
         if (hasSavedTabs) {
-          if (userPrefs.reopenTabsOnLogin && !pending?.only) {
-            const hasPersistentTabs = tabs.some((t) =>
-              PERSISTENT_TAB_TYPES.includes(t.type),
-            );
-            if (!hasPersistentTabs) {
-              for (const saved of savedTabs as OpenTabRecord[]) {
-                const host = saved.hostId
-                  ? allHosts.find((h) => h.id === String(saved.hostId))
-                  : undefined;
-                // MEDIUM-6 code-review fix (2026-09-19): `"app"` joins
-                // `"dashboard"` as a hostless type on the restore path. Per
-                // shape 4 "gone-at-reload is a display concern, not a
-                // behaviour concern": if the app's home host has been
-                // removed from `allHosts` between save and reload, the
-                // leaf should STILL restore — the proxy attempt will fail
-                // and Phase 103's interstitial renders the failure surface
-                // inside the leaf. Pre-fix, missing-host app tabs were
-                // silently `continue`d, dropping the tab and breaking
-                // split-geometry preservation across reloads.
-                const hostlessTypes: TabType[] = ["dashboard", "app"];
-                if (!host && !hostlessTypes.includes(saved.tabType as TabType))
-                  continue;
-
-                if (host) {
-                  if (saved.tabType === "terminal" && !host.enableSsh) continue;
-                  if (saved.tabType === "rdp" && !host.enableRdp) continue;
-                  if (saved.tabType === "vnc" && !host.enableVnc) continue;
-                  if (saved.tabType === "telnet" && !host.enableTelnet) continue;
-                }
-
-                // Singleton tabs use their type as the stable ID; host-bound tabs get a unique ID
-                const tabId = host
-                  ? `${host.name}-${saved.tabType}-${Date.now()}-${saved.tabOrder}`
-                  : saved.id;
-                const liveSession = sessionByInstanceId.get(saved.id);
-                const restoredSessionId =
-                  liveSession?.sessionId ?? saved.backendSessionId ?? null;
-
-                restoredTabs.push({
-                  id: tabId,
-                  instanceId: saved.id,
-                  type: saved.tabType as TabType,
-                  label: saved.label,
-                  host,
-                  openedAt: new Date(saved.createdAt).getTime(),
-                  restoredSessionId,
-                  targetTmuxSession: saved.targetTmuxSession ?? null,
-                  terminalRef:
-                    saved.tabType === "terminal" ? createRef() : undefined,
-                  // Phase 120 D-16 — reconstruct Tab.app when the saved row
-                  // is an app tab AND both halves of the (hostId, slug)
-                  // tuple are populated. Mid-rollout legacy rows (Plan 03
-                  // shipped but Plan 07 didn't) restore without the tuple —
-                  // isAppTab narrows to false and renderAppTab returns null
-                  // (empty leaf, non-fatal degradation per T-120-40).
-                  ...(saved.tabType === "app" &&
-                  saved.hostId != null &&
-                  saved.appSlug != null
-                    ? {
-                        app: {
-                          hostId: saved.hostId,
-                          slug: saved.appSlug,
-                        },
-                      }
-                    : {}),
-                });
-              }
-
-              // ── patch #150 C investigate (user UAT 2026-07-24) ──
-              // Verdict: SAME_BUG. user's two symptoms — (a) only ONE
-              // restored tab glowed with .active-set, and (b) the un-glowed
-              // tab "did NOT auto-load its content, had to wait" — collapse
-              // to a single root cause here: only `restoredTabs[0]` is
-              // routed through any store-side signal.
-              //
-              // Mechanism traced end-to-end:
-              //   1. `selectConversationDeferred(restoredTabs[0].id)` here
-              //      parks id in `pendingSelectId` (openTabs is still empty
-              //      at this synchronous call — setTabs above is batched).
-              //   2. React commit → useEffect at L427 → `updateOpenTabs(tabs)`
-              //      → the pending-flush at conversation-store.ts:530-533
-              //      sets `state.selectedId = restoredTabs[0].id`. NOTE: the
-              //      flush path does NOT call `addToActiveSet` — only the
-              //      selectedId slot moves.
-              //   3. PrettyConversationsPanel.tsx:162-164 useEffect fires on
-              //      `selectedId` change → `addToActiveSet(selectedId)` →
-              //      restoredTabs[0] glows. Every OTHER restoredTabs entry
-              //      is invisible to this whole chain: no pendingSelectId
-              //      write, no selectedId flip, no addToActiveSet.
-              //
-              // Content-load path (why the un-glowed tab also "didn't load"):
-              // every tab in `tabs` mounts via the createPortal loop below
-              // (~L1598-1626) regardless of selection, BUT Terminal.tsx's
-              // WebSocket-connect effect at L2800-2831 is gated on `isVisible`
-              // = `!inPane && tab.id === effectiveSelectedTabId`. Only the
-              // focused tab is `isVisible=true`, so only its restoredSessionId
-              // reconnects at mount. This is CORRECT behavior — we don't want
-              // to prefetch N WebSocket handshakes at restore. When user
-              // clicks the un-glowed row, `selectConversation` fires (Pretty
-              // ConversationsPanel L208), addToActiveSet gives glow + mirror
-              // effect L510-519 sets activeTabId → effectiveSelectedTabId
-              // flips → isVisible=true → connect fires. That IS the load.
-              // The "had to wait" perception is WebSocket handshake latency,
-              // not a distinct bug.
-              //
-              // Fix (patch #150 C below): call `addToActiveSet(t.id)` for
-              // EVERY restoredTab so all glow at mount, PLUS keep the single
-              // `selectConversationDeferred(restoredTabs[0].id)` for focus/
-              // selectedId. We deliberately do NOT loop selectConversation
-              // Deferred per tab: pendingSelectId is last-write-wins so it
-              // would only ever flush the FINAL restored id, and calling
-              // selectConversation directly per tab (for tabs already in
-              // openTabs) would move selectedId to the last one, fighting
-              // the retained setActiveTabId(restoredTabs[0].id). addToActive
-              // Set is the right primitive because it's idempotent per-id
-              // and produces the glow without disturbing selection.
-              //
-              // Consequence: NO #150 D commit needed. Task 4 skipped.
-              // ─────────────────────────────────────────────────────────
-              if (restoredTabs.length > 0) {
-                setTabs((prev) => {
-                  const existingIds = new Set(prev.map((t) => t.id));
-                  const newTabs = restoredTabs.filter(
-                    (t) => !existingIds.has(t.id),
-                  );
-                  return newTabs.length > 0 ? [...prev, ...newTabs] : prev;
-                });
-                setActiveTabId(restoredTabs[0].id);
-                selectConversationDeferred(restoredTabs[0].id);
-                // patch #150 C fix (user followup-3 UAT 2026-07-24):
-                // give EVERY restored tab a glow, not just restoredTabs[0].
-                // Pre-#150 C the single selectConversationDeferred above
-                // only propagated to activeSet for the first tab (via
-                // pending-flush → selectedId → PrettyConversationsPanel
-                // effect at L162-164 — see the C-investigate block above
-                // for the full mechanism trace). addToActiveSet is
-                // idempotent and does NOT disturb selectedId, so it's the
-                // right primitive: it produces the glow for every restored
-                // tab while keeping the "first restored tab is focused"
-                // contract (setActiveTabId + selectConversationDeferred
-                // above) intact. Regression guard: store-level test
-                // "two-URL-tab restore glows both restored tabs" in
-                // conversation-store.test.ts.
-                for (const t of restoredTabs) addToActiveSet(t.id);
-              }
-              // Restored tabs are in the tab bar, not in background records
-            }
-          } else {
-            // Not restoring to tab bar — keep as background records for ConnectionsPanel
-            setBackgroundTabRecords(savedTabs as OpenTabRecord[]);
-          }
+          // Phase 137 D-31 — saved tabs are kept as background records for
+          // ConnectionsPanel only. The active-tab-bar restore path was removed
+          // because the governing preference was always false (dead fork holdover).
+          setBackgroundTabRecords(savedTabs as OpenTabRecord[]);
         }
 
         // URL-driven initial open — patches #25 (single tab), #35 (multi-tab).

@@ -75,7 +75,12 @@ describe("PreferencesModal", () => {
     render(<PreferencesModal {...defaultProps} open={true} />);
     const notifBtn = screen.getByTestId("preferences-nav-notifications");
     await user.click(notifBtn);
-    expect(screen.getByTestId("preferences-notifications-pane-stub")).toBeTruthy();
+    // In test environments pushNotificationsSupported() returns false, so the
+    // unsupported message renders. In supporting browsers, the enable-button
+    // renders. Either confirms the pane is mounted.
+    const notifUnsupported = screen.queryByTestId("preferences-notifications-unsupported");
+    const notifEnableBtn = screen.queryByTestId("enable-notifications-button");
+    expect(notifUnsupported ?? notifEnableBtn).toBeTruthy();
   });
 
   it("(c) clicking About you nav button shows about-you pane content", async () => {
@@ -83,7 +88,13 @@ describe("PreferencesModal", () => {
     render(<PreferencesModal {...defaultProps} open={true} />);
     const aboutBtn = screen.getByTestId("preferences-nav-about-you");
     await user.click(aboutBtn);
-    expect(screen.getByTestId("preferences-about-you-pane-stub")).toBeTruthy();
+    // About-you pane renders the D-22 blurb when hostTree is null (no host picker).
+    // Confirm the pane content area is present.
+    expect(screen.getByTestId("preferences-modal-pane")).toBeTruthy();
+    // Verify the D-22 blurb text is visible in the about-you pane
+    expect(
+      screen.getByText(/Tell your agents anything you want them to know about you/),
+    ).toBeTruthy();
   });
 
   it("(d) Escape key calls onOpenChange(false)", () => {
