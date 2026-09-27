@@ -62,8 +62,7 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AppWindow, ChevronDown, Clock, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
-import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
+import { AppWindow, ChevronDown, Clock, Drama, FolderOpen, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
 import PreferencesModal from "@/features/pretty-view/PreferencesModal";
@@ -911,8 +910,6 @@ export function PrettyConversationsPanel({
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  // Phase 23 (GEFM-05): GlobalFilesModal open/closed toggle (opened from menu item).
-  const [globalFilesModalOpen, setGlobalFilesModalOpen] = useState(false);
   // Phase 122 Plan 03 Task 3 — ConversationSearchModal open/closed toggle.
   // Opened via the new magnifying-glass button in the header cluster
   // (first child of .pv-header-actions below). Query + accumulated results
@@ -3123,18 +3120,10 @@ export function PrettyConversationsPanel({
           })()}
         </div>
         <div className="pv-footer-actions">
-          <button
-            type="button"
-            className="pv-footer-btn"
-            aria-label="Edit global files"
-            title="Edit global files"
-            data-testid="pv-footer-global-files-button"
-            onClick={() => setGlobalFilesModalOpen(true)}
-          >
-            <Globe size={18} />
-          </button>
           {/* Phase 137 D-08: gear button wired to open PreferencesModal.
-              Previously an inert <span>; now a real interactive <button>. */}
+              Previously an inert <span>; now a real interactive <button>.
+              Phase 137 D-29: Globe button (global files) retired — preferences
+              modal is the single entry point for About-you / global-files editing. */}
           <button
             type="button"
             className="pv-footer-btn"
@@ -3266,17 +3255,8 @@ export function PrettyConversationsPanel({
           setNewSessionDialogOpen(true);
         }}
       />
-      {/* Phase 23 (GEFM-05): GlobalFilesModal — portal-mounted sibling of the
-          existing dialog mounts. Opened via the header MoreVertical menu's
-          "Edit global files…" item. defaultHostId={null} is deliberate: the
-          panel-header trigger has no active-conversation context (it renders
-          a list), so the modal falls through to its own host picker. */}
-      <GlobalFilesModal
-        open={globalFilesModalOpen}
-        onOpenChange={setGlobalFilesModalOpen}
-        hostTree={hostTree ?? null}
-        defaultHostId={null}
-      />
+      {/* Phase 137 D-29: GlobalFilesModal retired — About-you pane in
+          PreferencesModal is the sole remaining entry for global-files editing. */}
       {/* Phase 44 SKILLED-01: SkillsEditorModal — portal-mounted sibling of
           GlobalFilesModal. Opened via the header menu's "Edit skills…" item.
           defaultHostId={null} deliberate — the panel-header trigger has no

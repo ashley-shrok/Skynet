@@ -222,12 +222,7 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionIsRecycling: () => false,
 }));
 
-// ─── GlobalFilesModal stub (avoid radix dep-tree in flow tests) ────────────────
-
-vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
-  default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="global-files-modal-stub" /> : null,
-}));
+// Phase 137 D-29: GlobalFilesModal retired — mock removed.
 
 vi.mock("@/api/global-files-api", () => ({
   listGlobalFiles: vi.fn().mockResolvedValue([]),

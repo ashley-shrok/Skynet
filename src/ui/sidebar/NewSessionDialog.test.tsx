@@ -148,11 +148,7 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: () => false,
 }));
 
-// Phase 23 (GEFM-01): mock GlobalFilesModal + API so Test 10 (which renders
-// PrettyConversationsPanel) does not pull in the full modal dep tree.
-vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
-  default: (props: { open: boolean }) => (props.open ? <div data-testid="global-files-modal-stub" /> : null),
-}));
+// Phase 137 D-29: GlobalFilesModal retired — mock removed.
 
 vi.mock("@/api/global-files-api", () => ({
   listGlobalFiles: vi.fn().mockResolvedValue([]),

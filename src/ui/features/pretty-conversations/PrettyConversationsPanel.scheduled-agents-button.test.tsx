@@ -108,13 +108,9 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionIsDormant: () => false,
 }));
 
+// Phase 137 D-29: GlobalFilesModal retired — mock removed.
 // Stub the sibling modals so the panel mounts them without pulling
 // their full dep trees.
-vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
-  default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="global-files-modal-stub" /> : null,
-}));
-
 vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
   default: (props: { open: boolean }) =>
     props.open ? <div data-testid="skills-editor-modal-stub" /> : null,

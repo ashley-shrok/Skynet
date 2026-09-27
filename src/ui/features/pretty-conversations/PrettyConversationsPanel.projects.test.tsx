@@ -264,10 +264,11 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionIsRecycling: () => false,
 }));
 
-vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
-  default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="global-files-modal-stub" /> : null,
+vi.mock("@/state/session-queue-pending-store", () => ({
+  useSessionQueuePending: () => false,
 }));
+
+// Phase 137 D-29: GlobalFilesModal retired — mock removed.
 
 vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
   default: () => null,

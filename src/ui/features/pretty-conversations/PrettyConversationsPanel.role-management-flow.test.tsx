@@ -172,10 +172,7 @@ vi.mock("@/state/identities-store", () => ({
   buildIdentityHostsFromFleet: () => ({}),
 }));
 
-vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
-  default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="global-files-modal-stub" /> : null,
-}));
+// Phase 137 D-29: GlobalFilesModal retired — mock removed.
 
 vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
   default: (props: { open: boolean }) =>

@@ -113,12 +113,7 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionIsDormant: () => false,
 }));
 
-// Phase 23 (GEFM-01): mock GlobalFilesModal so this test suite doesn't pull the
-// full modal dep tree.
-vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
-  default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="global-files-modal-stub" /> : null,
-}));
+// Phase 137 D-29: GlobalFilesModal retired — mock removed.
 
 // Phase 90 Plan 90-06: mock SkillsEditorModal + RoleModal + RunbookEditorModal
 // so the panel mounts them as stubs. RolesListModal we let render for real —

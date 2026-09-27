@@ -508,17 +508,11 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionIsRecycling: (sessionKey: string | null) => useSessionIsRecyclingSpy(sessionKey),
 }));
 
-// Phase 23 (GEFM-01): mock GlobalFilesModal so the panel-level test suite
-// does not pull in the full modal's dep tree (radix Dialog, Tabs, global-files-api).
-// The panel mounts it as a controlled component gated on globalFilesModalOpen state
-// (initially false). This stub renders nothing when closed, which is the observed
-// state in every test that doesn't explicitly open it.
-vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
-  default: (props: { open: boolean }) => (props.open ? <div data-testid="global-files-modal-stub" /> : null),
-}));
+// Phase 137 D-29: GlobalFilesModal retired — mock removed. About-you pane in
+// PreferencesModal is the sole entry for global-files editing.
 
 // Phase 23 (GEFM-01): mock global-files-api in case any import resolves it in
-// the test environment before the GlobalFilesModal mock suppresses the real module.
+// the test environment.
 vi.mock("@/api/global-files-api", () => ({
   listGlobalFiles: vi.fn().mockResolvedValue([]),
   readGlobalFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, size: 0 }),
