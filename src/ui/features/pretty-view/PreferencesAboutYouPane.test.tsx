@@ -180,11 +180,17 @@ describe("PreferencesAboutYouPane", () => {
       />,
     );
 
-    // Content should load into the editor
-    await waitFor(() => expect(screen.getByTestId("mock-editor")).toBeTruthy(), { timeout: 2000 });
+    // Content should load into the editor (wait for the value, not just presence —
+    // the editor renders with empty draft first, then re-renders after readGlobalFile resolves).
+    await waitFor(
+      () => {
+        const el = screen.getByTestId("mock-editor") as HTMLTextAreaElement;
+        expect(el.value).toBe("My preferences content");
+      },
+      { timeout: 2000 },
+    );
 
     const editor = screen.getByTestId("mock-editor") as HTMLTextAreaElement;
-    expect(editor.value).toBe("My preferences content");
 
     // Edit the content
     fireEvent.change(editor, { target: { value: "Updated content" } });

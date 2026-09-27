@@ -1458,24 +1458,26 @@ describe("PrettyConversationsPanel: header New agent button opens NewSessionDial
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: all four header buttons gated on onCreateSession", () => {
-  it("Test 6 (quick-260914-liu extend): all four header icon buttons (New agent, Edit roles, Edit global files, kebab) are absent when onCreateSession is undefined — they share one showPencilButton guard", () => {
-    // quick-260914-liu: new header buttons join the kebab under the same
-    // showPencilButton guard. When onCreateSession is undefined, all three
-    // guarded buttons must be absent.
-    // shape-sidebar-header-footer-redesign: Globe migrated to the sidebar
-    // footer with a NEW test-id (pv-footer-global-files-button) that is NOT
-    // under the onCreateSession gate — the footer's Globe stays visible
-    // regardless of the pencil-button gate. The old header test-id is
-    // retired; positive footer assertion below verifies the migration.
+  it("Test 6 (quick-260914-liu extend): all four header icon buttons (New agent, Edit roles, kebab) are absent when onCreateSession is undefined — they share one showPencilButton guard; footer gear stays visible", () => {
+    // quick-260914-liu: header buttons join the kebab under the same
+    // showPencilButton guard. When onCreateSession is undefined, all guarded
+    // header buttons must be absent.
+    // Phase 137 D-29: the footer Globe button was retired; preferences modal
+    // replaces its entry point via the gear button (pv-footer-preferences-button).
+    // The gear lives in the same "about me" zone the Globe used to occupy, and
+    // like the Globe before it, is NOT gated by the pencil guard — the footer's
+    // gear stays visible regardless of onCreateSession.
     const { container } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
     expect(container.querySelector('[data-testid="pv-header-menu-button"]')).toBeNull();
     expect(container.querySelector('[data-testid="pv-header-new-agent-button"]')).toBeNull();
     expect(container.querySelector('[data-testid="pv-header-edit-roles-button"]')).toBeNull();
-    // Footer's Globe renders regardless of the onCreateSession gate — it
-    // lives in the "about me" zone, not the "act on the list" zone.
-    expect(container.querySelector('[data-testid="pv-footer-global-files-button"]')).not.toBeNull();
+    // Retired: pv-footer-global-files-button (Phase 137 D-29).
+    expect(container.querySelector('[data-testid="pv-footer-global-files-button"]')).toBeNull();
+    // Footer's gear renders regardless of the onCreateSession gate — same
+    // "about me" zone semantic the Globe used to occupy.
+    expect(container.querySelector('[data-testid="pv-footer-preferences-button"]')).not.toBeNull();
   });
 });
 
