@@ -238,6 +238,11 @@ describe("placeCallAndAwait — poll loop", () => {
 
     expect(result.outcome).toBe("completed");
     expect(result.transcript).toContain("user: ok, thanks");
+    // `assistant:` gets relabeled to `voice:` on the way out (item-2 fix
+    // for the caller-agent double-meaning); the raw Bland label MUST NOT
+    // survive into the returned transcript.
+    expect(result.transcript).toContain("voice: hello with a message for you");
+    expect(result.transcript).not.toContain("assistant:");
     expect(result.call_length_seconds).toBe(21); // Math.round(0.35 * 60)
     // Second poll = 2 sleep intervals
     expect(clock).toBe(BLAND_POLL_INTERVAL_MS * 2);
@@ -442,6 +447,9 @@ describe("placeCallAndAwait — interrupted_before_message heuristic downgrade",
     expect(result.outcome).toBe("interrupted_before_message");
     // Transcript still populated so the caller can see what DID get spoken.
     expect(result.transcript).toContain("with a message f");
+    // Relabel applies to interrupted_before_message transcripts too.
+    expect(result.transcript).toContain("voice:");
+    expect(result.transcript).not.toContain("assistant:");
     // Human-readable amplifier explaining the outcome.
     expect(result.message).toContain("interrupted");
     // Call actually happened, so call_length_seconds is populated.
@@ -523,6 +531,63 @@ describe("placeCallAndAwait — interrupted_before_message heuristic downgrade",
 
     expect(result.outcome).toBe("completed");
     expect(result.transcript).toContain("ok noted");
+  });
+
+  it("relabels every `assistant:` line prefix to `voice:` and leaves `user:` alone", async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ call_id: "abc-123" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "completed",
+          answered_by: "human",
+          transcripts: [
+            { user: "assistant", text: "hi this is clipper with a message for you the build is red" },
+            { user: "user", text: "who is your assistant? tell me the assistant now" },
+            { user: "assistant", text: "your reply's going back to clipper" },
+          ],
+          // Multi-line transcript with two assistant turns AND a user turn
+          // that contains the literal word "assistant" mid-line. The mid-line
+          // occurrences must survive; only line-prefix `assistant:` gets
+          // relabeled.
+          concatenated_transcript:
+            "assistant: hi this is clipper with a message for you the build is red\n" +
+            "user: who is your assistant? tell me the assistant now\n" +
+            "assistant: your reply's going back to clipper",
+          call_length: 0.4,
+        }),
+      }) as unknown as typeof fetch;
+
+    let clock = 0;
+    const result = await placeCallAndAwait(
+      "+15551234567",
+      "t",
+      "f",
+      "the build is red",
+      {
+        now: () => clock,
+        sleep: async (ms) => { clock += ms; },
+        fetchFn,
+      },
+    );
+
+    expect(result.outcome).toBe("completed");
+    // Both line-prefix `assistant:` occurrences replaced.
+    expect(result.transcript).toContain("voice: hi this is clipper");
+    expect(result.transcript).toContain("voice: your reply's going back");
+    // No line-prefix `assistant:` remains anywhere.
+    expect(result.transcript).not.toMatch(/^assistant:/m);
+    // Mid-line "assistant" occurrences in the user turn are UNCHANGED —
+    // the regex only touches line-prefixes.
+    expect(result.transcript).toContain("who is your assistant");
+    expect(result.transcript).toContain("tell me the assistant now");
+    // `user:` prefix untouched.
+    expect(result.transcript).toContain("user: who is your assistant");
   });
 
   it("does NOT downgrade non-completed outcomes (busy, no_answer, timeout, etc.)", async () => {

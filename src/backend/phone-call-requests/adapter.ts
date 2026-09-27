@@ -478,7 +478,12 @@ function buildResultFromDetails(
     typeof transcript === "string" &&
     transcript.length > 0
   ) {
-    result.transcript = transcript;
+    // Relabel Bland's `assistant:` line prefix to `voice:` — from the
+    // calling agent's POV "assistant" reads like themselves talking (they
+    // ARE the assistant, from their harness's perspective), when it's
+    // actually the AI phone voice. `user:` on the callee side stays —
+    // that's already unambiguous.
+    result.transcript = transcript.replace(/^assistant:/gm, "voice:");
   }
 
   if (typeof d.call_length === "number" && Number.isFinite(d.call_length)) {

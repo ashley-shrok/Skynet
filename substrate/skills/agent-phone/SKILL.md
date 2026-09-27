@@ -46,7 +46,7 @@ You should expect a response within about **15 minutes** in the worst case (the 
 
 ## Response shape
 
-- **Success** — exit `0`. The transcript is printed on **stdout** (one line per speaker turn, prefixed `assistant:` / `user:`). Metadata (outcome, call length in seconds) is printed to **stderr** as a JSON object for debug visibility.
+- **Success** — exit `0`. The transcript is printed on **stdout** (one line per speaker turn, prefixed `voice:` for what the AI phone voice said, `user:` for what the callee said). Metadata (outcome, call length in seconds) is printed to **stderr** as a JSON object for debug visibility.
 - **Failure** — non-zero exit. A JSON object `{outcome, message?}` is printed to **stderr** describing what went wrong. Nothing is printed to stdout.
 
 Grab the transcript into a variable:
