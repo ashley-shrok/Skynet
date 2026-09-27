@@ -366,6 +366,13 @@
   gap: 8px;
 }
 
+/* Project sections tighten the header-to-first-row space vs. the generic
+   .pv-panel-group rhythm (paired with pb-0 on the header row in
+   PrettyProjectSectionHeader.tsx). */
+.pv-project-section {
+  gap: 6px;
+}
+
 /* Phase 41 Plan 02 (user 2026-08-14): messaging-app default search-input
    shape — flex row with a leading search icon, transparent input, and a
    trailing × clear affordance that appears only when there is text. Uses
