@@ -65,6 +65,8 @@ import { createPortal } from "react-dom";
 import { AppWindow, ChevronDown, Clock, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
+// Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
+import PreferencesModal from "@/features/pretty-view/PreferencesModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the header's Edit roles icon button
 // opens RolesListModal; a row click swaps to RoleModal; runbook click swaps to
 // RunbookEditorModal (mirrors PrettyView's mount at L3281). All three are
@@ -448,6 +450,10 @@ export function PrettyConversationsPanel({
   onArchiveApp,
   onOpenFeedback,
   onSearchResultOpenActive,
+  userId = "",
+  avatarPath = null,
+  onAvatarChanged,
+  userPrefs,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
   // rows' pin mechanism (mobile=swipe / desktop=hover-reveal). AppShell
@@ -602,6 +608,30 @@ export function PrettyConversationsPanel({
    * fine for unit tests).
    */
   onSearchResultOpenActive?: (result: ConversationSearchResult) => void;
+  /**
+   * Phase 137 D-30: current user's server userId from /users/me.userId.
+   * Threaded through AppShell → PrettyConversationsPanel → PreferencesModal
+   * → PreferencesGeneralPane for the avatar PUT/DELETE endpoints.
+   */
+  userId?: string;
+  /**
+   * Phase 137 D-30: current user's avatar filename from /users/me.avatarPath.
+   * Drives the sidebar footer conditional: truthy → <img>; falsy → initials <span>.
+   * Live-synced after upload via onAvatarChanged callback.
+   */
+  avatarPath?: string | null;
+  /**
+   * Phase 137 D-30: callback to update meAvatarPath in AppShell.
+   * Called with the new avatarPath after a successful upload, or with null
+   * after a successful remove. Drives the sidebar footer re-render without
+   * a page refresh.
+   */
+  onAvatarChanged?: (path: string | null) => void;
+  /**
+   * Phase 137 D-14: current user preferences from AppShell.
+   * Threaded into PreferencesModal → PreferencesVoicePane as initial value.
+   */
+  userPrefs?: import("@/api/open-tabs-api").UserPreferences;
 }) {
   const visibleInSplitTree = visibleInSplitTreeTabIds ?? EMPTY_VISIBLE_SET;
   const { t } = useTranslation();
@@ -900,6 +930,9 @@ export function PrettyConversationsPanel({
   // Feature-detected — menu item only renders when Web Push is supported.
   const [enableNotificationsModalOpen, setEnableNotificationsModalOpen] =
     useState(false);
+  // Phase 137 D-08: PreferencesModal open/closed toggle (opened from the
+  // sidebar footer gear button — was previously an inert <span> placeholder).
+  const [preferencesModalOpen, setPreferencesModalOpen] = useState(false);
   const notificationsSupported = pushNotificationsSupported();
   // Phase 91 Plan 05 — NewConversationModal open/closed toggle (opened from
   // menu's "New conversation" item — v1 throwaway placement per shape §Philosophy).
@@ -3048,13 +3081,11 @@ export function PrettyConversationsPanel({
       </div>
 
       {/* Sidebar footer — the "about me" zone. Sibling of .pv-panel-header
-          and .pv-panel-scroll in the panel's flex column. Left slot: initials
-          circle (decorative, no click behavior) + username. Right slot: the
-          Globe (migrated from the header — files scoped to the whole account
-          belong here) and the inert Settings-gear placeholder (rendered as a
-          <span> so it's semantically not-interactive; preferences service
-          ships in a follow-on shape). The anchor slot renders only when
-          username is populated; the actions slot always renders. */}
+          and .pv-panel-scroll in the panel's flex column. Left slot: avatar
+          <img> (Phase 137 D-30) or initials circle (fallback) + username.
+          Right slot: the Globe (global files) and the Settings-gear (opens
+          PreferencesModal — Phase 137 D-08). The anchor slot renders only
+          when username is populated; the actions slot always renders. */}
       <div className="pv-panel-footer" data-testid="pv-panel-footer">
         <div className="pv-footer-anchor">
           {(() => {
@@ -3069,13 +3100,27 @@ export function PrettyConversationsPanel({
             const initial = [...name][0]?.toUpperCase() ?? "";
             return (
               <>
-                <span
-                  className="pv-footer-initials"
-                  aria-hidden="true"
-                  data-testid="pv-footer-initials"
-                >
-                  {initial}
-                </span>
+                {/* Phase 137 D-30: conditional avatar render. When avatarPath
+                    is set, show the uploaded avatar image; otherwise fall back
+                    to the initial-letter circle. Cache-bust via ?f={avatarPath}
+                    (backend mints a new random filename per upload — RESEARCH A3). */}
+                {avatarPath ? (
+                  <img
+                    className="pv-footer-initials"
+                    src={`/users/${encodeURIComponent(userId)}/avatar?f=${encodeURIComponent(avatarPath)}`}
+                    alt=""
+                    aria-hidden="true"
+                    data-testid="pv-footer-avatar-image"
+                  />
+                ) : (
+                  <span
+                    className="pv-footer-initials"
+                    aria-hidden="true"
+                    data-testid="pv-footer-initials"
+                  >
+                    {initial}
+                  </span>
+                )}
                 <span
                   className="pv-footer-username"
                   data-testid="pv-footer-username"
@@ -3097,18 +3142,18 @@ export function PrettyConversationsPanel({
           >
             <Globe size={18} />
           </button>
-          {/* Preferences placeholder — decorative until the follow-on shape
-              wires it up. aria-hidden so screen readers skip it entirely
-              (no false "coming soon" promise); title stays for the seeing-
-              user hover tooltip. */}
-          <span
-            className="pv-footer-btn pv-footer-btn-inert"
-            title="User preferences (coming soon)"
-            data-testid="pv-footer-preferences-placeholder"
-            aria-hidden="true"
+          {/* Phase 137 D-08: gear button wired to open PreferencesModal.
+              Previously an inert <span>; now a real interactive <button>. */}
+          <button
+            type="button"
+            className="pv-footer-btn"
+            aria-label="User preferences"
+            title="User preferences"
+            data-testid="pv-footer-preferences-button"
+            onClick={() => setPreferencesModalOpen(true)}
           >
             <Settings size={18} />
-          </span>
+          </button>
         </div>
       </div>
 
@@ -3288,6 +3333,23 @@ export function PrettyConversationsPanel({
       <EnableNotificationsModal
         open={enableNotificationsModalOpen}
         onOpenChange={setEnableNotificationsModalOpen}
+      />
+      {/* Phase 137 D-08: PreferencesModal — portal-mounted sibling of other
+          modals. Opened via the sidebar footer gear button. userId/avatarPath/
+          onAvatarChanged/userPrefs threaded from AppShell for live-sync (D-30)
+          and Voice pane initial value (D-14). defaultHostId=null — footer gear
+          has no active-conversation context; modal falls through to its own
+          host picker. Globe button + kebab notification item are deferred to
+          Plans 04/05. */}
+      <PreferencesModal
+        open={preferencesModalOpen}
+        onOpenChange={setPreferencesModalOpen}
+        userId={userId}
+        avatarPath={avatarPath ?? null}
+        onAvatarChanged={onAvatarChanged ?? (() => {})}
+        userPrefs={userPrefs ?? {}}
+        hostTree={hostTree ?? null}
+        defaultHostId={null}
       />
       {/* Phase 122 Plan 03 Task 3 — ConversationSearchModal: portal-mounted
           sibling of NewConversationModal + GlobalFilesModal. Opened via the

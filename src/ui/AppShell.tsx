@@ -444,6 +444,12 @@ export function AppShell({
   // isAdmin) from the prop (passed from the Auth wrapper at mount time) —
   // renamed rather than merged to avoid touching the outer prop shape.
   const [meUsername, setMeUsername] = useState<string | null>(null);
+  // Phase 137 D-30: userId from /users/me, threaded to PrettyConversationsPanel →
+  // PreferencesModal → PreferencesGeneralPane for avatar PUT/DELETE endpoints.
+  const [meUserId, setMeUserId] = useState<string | null>(null);
+  // Phase 137 D-30: avatar filename from /users/me, threaded to PrettyConversationsPanel
+  // for the sidebar footer conditional <img> and into PreferencesModal for live-sync.
+  const [meAvatarPath, setMeAvatarPath] = useState<string | null>(null);
   const [backgroundTabRecords, setBackgroundTabRecords] = useState<
     OpenTabRecord[]
   >([]);
@@ -530,10 +536,14 @@ export function AppShell({
       .then((info) => {
         setIsAdmin(info.is_admin);
         setMeUsername(info.username || null);
+        setMeUserId(info.userId ?? null);           // Phase 137 D-30
+        setMeAvatarPath(info.avatarPath ?? null);   // Phase 137 D-30
       })
       .catch(() => {
         setIsAdmin(false);
         setMeUsername(null);
+        setMeUserId(null);           // Phase 137 D-30
+        setMeAvatarPath(null);       // Phase 137 D-30
       });
   }, []);
 
@@ -3294,6 +3304,16 @@ export function AppShell({
             isTouchDevice ? () => navigateToView() : undefined
           }
           hostTree={realHostTree}
+          // Phase 137 D-30: avatar live-sync — meAvatarPath drives the footer
+          // conditional <img>; setMeAvatarPath is threaded as onAvatarChanged so
+          // a successful upload in the General pane re-renders the footer without
+          // a page refresh.
+          userId={meUserId ?? ""}
+          avatarPath={meAvatarPath}
+          onAvatarChanged={setMeAvatarPath}
+          // Phase 137 D-14: userPrefs threaded so PreferencesModal can forward
+          // the current fallbackVoice to PreferencesVoicePane as initial value.
+          userPrefs={userPrefs}
           onCreateSession={(opts) => {
             // opts is a three-way discriminated union (see NewSessionDialog.tsx
             // NewSessionOnCreateOpts). Narrow on the discriminant explicitly —
