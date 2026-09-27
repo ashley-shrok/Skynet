@@ -365,8 +365,23 @@ export function classifyBlandDetails(d: BlandCallDetails): PhoneCallOutcome | nu
   //   completed | failed | busy | no-answer | canceled | unknown | ...
   if (status === "busy") return "busy";
   if (status === "canceled") return "canceled";
-  if (status === "failed") return "queue_error";
   if (status === "no-answer") return "no_answer";
+
+  if (status === "failed") {
+    // Bland's `failed` covers BOTH pre-connect refusals (never rang) and
+    // post-connect failures (rang, connected, then dropped mid-call).
+    // The two are semantically different from the agent's POV:
+    //   * pre-connect failed → queue_error (safe to retry — target's
+    //     phone never rang).
+    //   * post-connect failed → unknown (defensive fallback — target
+    //     already got the call, retrying rings them again).
+    // Distinguish by whether Bland actually reached anyone: a non-null
+    // answered_by OR a positive call_length means the call connected.
+    const connected =
+      (typeof d.call_length === "number" && d.call_length > 0) ||
+      (answeredBy !== null && answeredBy !== undefined);
+    return connected ? "unknown" : "queue_error";
+  }
 
   if (status === "completed") {
     // Distinguish "human answered and spoke" from "picked up but said

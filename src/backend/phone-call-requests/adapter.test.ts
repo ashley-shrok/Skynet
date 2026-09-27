@@ -34,8 +34,34 @@ describe("classifyBlandDetails", () => {
     expect(classifyBlandDetails({ status: "canceled" })).toBe("canceled");
   });
 
-  it("maps status:failed → queue_error", () => {
+  it("maps pre-connect status:failed (no call_length, no answered_by) → queue_error", () => {
+    // The call never rang — safe to retry, so queue_error is correct.
     expect(classifyBlandDetails({ status: "failed" })).toBe("queue_error");
+    expect(classifyBlandDetails({ status: "failed", answered_by: null })).toBe(
+      "queue_error",
+    );
+    expect(classifyBlandDetails({ status: "failed", call_length: 0 })).toBe(
+      "queue_error",
+    );
+  });
+
+  it("maps post-connect status:failed (positive call_length OR non-null answered_by) → unknown", () => {
+    // The call rang and connected before failing — retrying would ring
+    // the callee a second time, so surface as `unknown` (defensive
+    // fallback) rather than the retriable-looking `queue_error`.
+    expect(
+      classifyBlandDetails({ status: "failed", call_length: 0.5 }),
+    ).toBe("unknown");
+    expect(
+      classifyBlandDetails({ status: "failed", answered_by: "human" }),
+    ).toBe("unknown");
+    expect(
+      classifyBlandDetails({
+        status: "failed",
+        answered_by: "human",
+        call_length: 0.3,
+      }),
+    ).toBe("unknown");
   });
 
   it("maps status:no-answer → no_answer", () => {
