@@ -2573,8 +2573,9 @@ export function PrettyConversationsPanel({
                 {/* Edit global files (Globe) migrated to the sidebar footer
                     in shape-sidebar-header-footer-redesign — files scoped to
                     the whole account belong in the "about me" zone, not the
-                    "act on this conversation list" zone. Now rendered as
-                    pv-footer-global-files-button at the bottom of the panel. */}
+                    "act on this conversation list" zone. Phase 137 D-29:
+                    that footer button is now retired; the About-you pane in
+                    Preferences is the single entry point. */}
                 {/* Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4
                     — Scheduled-Agents header button. Chrome mirrors sibling
                     .pv-pencil buttons verbatim: Clock at size 18,
