@@ -2928,7 +2928,7 @@ Plans:
 **Goal:** Wire the sidebar footer gear to a new Preferences modal that consolidates user-scope settings into four panes — General (avatar upload + sidebar live-sync), Voice (per-user fallback voice), Notifications (folded-in enable-push flow), About you (folded-in personal-context markdown editor) — while retiring the Globe button, the enable-notifications kebab item, and the dead reopenTabsOnLogin preference.
 **Requirements**: 32 CONTEXT.md D-decisions (D-01..D-32) — no separate REQ IDs; CONTEXT.md decisions are the coverage target.
 **Depends on:** Phase 136
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 Plans:
 **Wave 1**
 
@@ -2952,4 +2952,4 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 137-06-PLAN.md — reopenTabsOnLogin consumer-site purge (AppShell + tab-url) + Playwright smoke coverage + full-suite green
+- [x] 137-06-PLAN.md — reopenTabsOnLogin consumer-site purge (AppShell + tab-url) + Playwright smoke coverage + full-suite green
