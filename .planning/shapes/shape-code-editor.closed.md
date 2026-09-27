@@ -199,3 +199,55 @@ alignment concerns don't apply.
 
 Close-out: `/close code-editor` when the work is done, to verify the
 built result matches this shape.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-27
+**Vehicle used:** inline, tracked with harness tasks
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Non-markdown file-edit surfaces now mount a real code editor in Dracula, replacing the bare monospace text box; markdown editing left untouched.
+- **Shape** — present · The shared entry point still gates on 'is this markdown?'; the non-markdown branch now routes to the code editor instead of a plain text box, so every consumer (file tabs, editable-file modal) picks it up automatically.
+- **Dracula island / app chrome outside** — present · The editor sits in the Dracula palette inside; the surrounding shell keeps the app's rounded border and identity-hued focus ring.
+- **Broad language coverage (modern + legacy-modes)** — present · Every mainstream language the editor ecosystem ships support for is wired up — first-class packs for JS/TS, JSON, YAML, Python, HTML/CSS, Java, C/C++, PHP, Rust, SQL, XML, Go, WebAssembly text; legacy-modes for C#, Kotlin, Swift, Ruby, PowerShell, Dockerfile, TOML, INI, Lua, Perl, Haskell, Clojure, Groovy, Erlang, Julia, R, OCaml, F#, Scheme, VB, CoffeeScript, Objective-C, Dart, and more.
+- **Extension-primary detection + well-known extensionless filenames** — present · Two-phase resolver: well-known filenames first (11 entries — Dockerfile, Containerfile, Rakefile, Gemfile, Guardfile, .gitignore, .env, .bashrc, .zshrc, .profile, .bash_profile — within the 8-12 range), then extension.
+- **Unknown extensions fall through to plain text** — present · Resolver returns null for unknown; the editor still mounts (line numbers, undo, search, generic bracket-matching from basicSetup) but with no syntax coloring.
+- **Lazy-loaded single payload** — present · The whole code-editor module is behind a single dynamic import; nothing is paid for until the first non-markdown file opens in a session.
+- **Soft-wrap toggle top-right, sticky per-browser, default off** — present · Toggle button in the top-right corner; state persists to browser-local storage; default off; live-toggle via a compartment so text and cursor survive.
+- **Philosophy — mount the ecosystem editor and step back** — present · No custom theme or toolbar; only the wrap toggle exposed; every other decision left at the editor's out-of-the-box defaults.
+- **Prior context — two prose fields stay on the markdown side** — present · Bounty premise and wake-up instruction fields pass synthetic '.md' filenames, so they route to the pretty markdown editor — unchanged by this pass.
+- **What would make it wrong: content lost / cursor lost / text jumping on save** — present · Content-sync effect skips when the editor's doc already matches the incoming content; language and disabled changes go through compartments so no remount.
+- **What would make it wrong: load-failure leaves user unable to edit** — present · An error boundary catches lazy-import failures and drops back to the raw textarea; a console log records the fallback.
+- **What would make it wrong: markdown files routed through the code editor** — present · The gate on the shared entry point still routes '.md' to the pretty markdown editor; only the non-markdown branch changed.
+- **What would make it wrong: code editor weight paid on first paint** — present · Lazy dynamic import + Suspense; the code-editor bundle is not part of first paint of the app.
+- **What would make it wrong: Dracula bleeds into app chrome** — present · Dracula extension is scoped to the inner mount; the outer shell keeps the app's own border/focus styling.
+- **What would make it wrong: soft-wrap toggle doesn't remember state** — present · Toggle writes to and reads from browser-local storage, with a round-trip test confirming persistence.
+- **Scope IN: loading placeholder reserves layout** — present · A low-opacity 'Loading editor…' pane holds the layout while the bundle loads.
+- **Scope IN: graceful fallback + log on bundle failure** — present · Error boundary + console.error identifying the filename.
+- **Scope IN: disabled dims to ~60% and blocks input; Dracula stays underneath** — present · Outer shell adds opacity-60 when disabled; input is blocked via the editable-off compartment; Dracula colors remain.
+- **Scope IN: default kit (folding, autocomplete, multi-cursor, bracket auto-close/match, undo/redo, drag-select, Cmd/Ctrl-F find-and-replace)** — present · The editor is wired up via basicSetup.
+- **Scope OUT: theme picker / user-configurable theme** — present · Dracula is hard-wired; no picker.
+- **Scope OUT: user-configurable settings beyond wrap toggle** — present · Only the wrap toggle is exposed.
+- **Scope OUT: linting / inline error markers** — present · No linter or lint gutter extensions wired in.
+- **Scope OUT: minimap** — present · No minimap.
+- **Scope OUT: custom keybindings** — present · Only the indent-with-tab keymap is added — a standard ergonomic to make Tab indent rather than escape the editor; no bespoke bindings.
+- **Scope OUT: any change to how markdown files are edited** — present · Markdown branch is untouched.
+- **Scope OUT: any change to bounty-premise / wake-up prose fields** — present · Those fields still pass a synthetic '.md' filename and stay on the markdown side.
+- **Scope OUT: no change to save semantics** — present · The editor emits on every keystroke through onChange; parents still own their save handlers.
+- **Scope OUT: no server-persisted preferences store** — present · Wrap preference lives only in the browser's local storage.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Reviewer found no divergences from the shape in either direction — every commitment is present in the material and nothing has been added beyond the shape. No question needed to be brought to the user. The implementation split the code-editor mount into its own lazy child module and used CodeMirror 'compartments' for filename / disabled / wrap so that live changes reconfigure the extension in place without a remount — this is the mechanism that keeps text, cursor and undo history from being blown away on save round-trips or filename changes.

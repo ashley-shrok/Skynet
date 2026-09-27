@@ -199,18 +199,26 @@ const BY_EXTENSION: Record<string, LangFactory> = {
 // Well-known extensionless filenames. Matched case-insensitively against the
 // filename with its directory portion stripped.
 const BY_FILENAME: Record<string, LangFactory> = {
-  dockerfile:    streamed(dockerFile),
-  containerfile: streamed(dockerFile),
-  rakefile:      streamed(ruby),
-  gemfile:       streamed(ruby),
-  guardfile:     streamed(ruby),
-  ".gitignore":  streamed(properties),
-  ".env":        streamed(shell),
-  ".bashrc":     streamed(shell),
-  ".zshrc":      streamed(shell),
-  ".profile":    streamed(shell),
+  dockerfile:      streamed(dockerFile),
+  containerfile:   streamed(dockerFile),
+  rakefile:        streamed(ruby),
+  gemfile:         streamed(ruby),
+  guardfile:       streamed(ruby),
+  ".gitignore":    streamed(properties),
+  ".dockerignore": streamed(properties),
+  ".npmrc":        streamed(properties),
+  ".nvmrc":        streamed(properties),
+  ".editorconfig": streamed(properties),
+  ".env":          streamed(shell),
+  ".bashrc":       streamed(shell),
+  ".zshrc":        streamed(shell),
+  ".profile":      streamed(shell),
   ".bash_profile": streamed(shell),
 };
+
+// Matches `.env`, `.env.local`, `.env.production`, `.env.test`, etc. — the
+// dotfile variant pattern that BY_FILENAME's exact-match can't cover.
+const ENV_DOTFILE = /^\.env(\..+)?$/;
 
 /**
  * Resolve a filename to a CodeMirror language extension, or null if no
@@ -226,9 +234,12 @@ export function languageForFilename(filename: string): Extension | null {
 
   // Phase 1: well-known filenames (case-insensitive).
   const lower = base.toLowerCase();
-  if (Object.prototype.hasOwnProperty.call(BY_FILENAME, lower)) {
-    return BY_FILENAME[lower]!();
-  }
+  const byFilename = BY_FILENAME[lower];
+  if (byFilename) return byFilename();
+
+  // Phase 1a: dotfile variants matched by pattern. `.env.local`,
+  // `.env.production`, `.env.test`, etc.
+  if (ENV_DOTFILE.test(lower)) return streamed(shell)();
 
   // Phase 2: extension. A leading-dot filename with no other dot (.env,
   // .bashrc) should have been handled above; if it wasn't, the last-dot

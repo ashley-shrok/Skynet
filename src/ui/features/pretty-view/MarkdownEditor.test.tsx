@@ -213,6 +213,66 @@ describe("MarkdownEditor — filetype gate (D-06) + controlled-input contract", 
     }
   });
 
+  it("test 8b: error boundary resets when filename changes so a transient failure doesn't trap the user", async () => {
+    // First render triggers the load failure — user lands on the raw
+    // textarea fallback. Then the user switches to a different filename
+    // AND the module has recovered (unmock) — the boundary should reset
+    // and mount the real (mocked) CodeEditor for the new file.
+    let shouldThrow = true;
+    vi.doMock("./CodeEditorImpl", () => ({
+      CodeEditorImpl: (props: {
+        filename: string;
+        content: string;
+        onChange: (n: string) => void;
+      }) => {
+        if (shouldThrow) throw new Error("simulated first-open failure");
+        return (
+          <textarea
+            data-testid="code-editor-recovered"
+            data-filename={props.filename}
+            value={props.content}
+            onChange={(e) => props.onChange(e.target.value)}
+          />
+        );
+      },
+    }));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      vi.resetModules();
+      const mod = await import("./MarkdownEditor");
+      const onChange = vi.fn<(next: string) => void>();
+      const { container, rerender } = render(
+        <mod.MarkdownEditor
+          filename="first.txt"
+          content="alpha"
+          onChange={onChange}
+        />,
+      );
+      // First filename → fallback textarea (no code-editor testid).
+      await waitFor(() => {
+        expect(container.querySelector("textarea")).not.toBeNull();
+      });
+      expect(screen.queryByTestId("code-editor-recovered")).toBeNull();
+
+      // Simulate the transient failure clearing.
+      shouldThrow = false;
+      rerender(
+        <mod.MarkdownEditor
+          filename="second.txt"
+          content="alpha"
+          onChange={onChange}
+        />,
+      );
+      // Boundary resets on filename change; the recovered CodeEditor
+      // mounts for the new filename.
+      expect(await screen.findByTestId("code-editor-recovered")).toBeTruthy();
+    } finally {
+      errSpy.mockRestore();
+      vi.doUnmock("./CodeEditorImpl");
+      vi.resetModules();
+    }
+  });
+
   it("test 9 (security): javascript: URL in markdown content does NOT surface as href in rendered DOM", async () => {
     // Canary for future regression if the impl ever bypasses MDXEditor's
     // Lexical sanitiser. The mocked MDXEditor renders props.markdown as text

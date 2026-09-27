@@ -110,6 +110,33 @@ describe("languageForFilename", () => {
     });
   });
 
+  describe("dotfile variants + common config dotfiles", () => {
+    it.each([
+      [".env.local",       ".env.local"],
+      [".env.production",  ".env.production"],
+      [".env.test",        ".env.test"],
+      [".env.development", ".env.development"],
+      [".env.example",     ".env.example"],
+      [".dockerignore",    ".dockerignore"],
+      [".npmrc",           ".npmrc"],
+      [".nvmrc",           ".nvmrc"],
+      [".editorconfig",    ".editorconfig"],
+    ])("resolves %s (%s)", (filename) => {
+      expect(languageForFilename(filename)).not.toBeNull();
+    });
+
+    it("resolves .env variants case-insensitively", () => {
+      expect(languageForFilename(".ENV.LOCAL")).not.toBeNull();
+      expect(languageForFilename(".Env.Production")).not.toBeNull();
+    });
+
+    it("does NOT match unrelated strings that happen to contain .env", () => {
+      // The pattern is anchored — .env must be at the START of the name.
+      expect(languageForFilename("my.env.local")).toBeNull();
+      expect(languageForFilename("prefix.env")).toBeNull();
+    });
+  });
+
   describe("extension casing", () => {
     it("resolves regardless of extension case", () => {
       expect(languageForFilename("Foo.TS")).not.toBeNull();

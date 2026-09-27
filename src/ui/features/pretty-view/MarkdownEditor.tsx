@@ -98,24 +98,41 @@ interface CodeEditorErrorBoundaryProps {
 
 interface CodeEditorErrorBoundaryState {
   hasError: boolean;
+  errorFilename: string | null;
 }
 
 class CodeEditorErrorBoundary extends Component<
   CodeEditorErrorBoundaryProps,
   CodeEditorErrorBoundaryState
 > {
-  state: CodeEditorErrorBoundaryState = { hasError: false };
+  state: CodeEditorErrorBoundaryState = { hasError: false, errorFilename: null };
 
-  static getDerivedStateFromError(): CodeEditorErrorBoundaryState {
+  static getDerivedStateFromError(): Partial<CodeEditorErrorBoundaryState> {
     return { hasError: true };
   }
 
   componentDidCatch(error: unknown): void {
+    // Record which filename tripped the failure so a later filename change
+    // can reset the boundary.
+    this.setState({ errorFilename: this.props.filename });
     // eslint-disable-next-line no-console
     console.error(
       `[MarkdownEditor] Code editor failed to load or crashed for filename=${this.props.filename}; falling back to plain textarea.`,
       error,
     );
+  }
+
+  componentDidUpdate(prevProps: CodeEditorErrorBoundaryProps): void {
+    // Reset the boundary when the user navigates to a different file — one
+    // transient load failure shouldn't trap a long-lived consumer (e.g. a
+    // modal that stays mounted across file switches).
+    if (
+      this.state.hasError &&
+      prevProps.filename !== this.props.filename &&
+      this.state.errorFilename !== this.props.filename
+    ) {
+      this.setState({ hasError: false, errorFilename: null });
+    }
   }
 
   render(): ReactNode {
@@ -136,9 +153,14 @@ export function MarkdownEditor({
   // Suspense fallback used for both branches — same visual pane. On first
   // open (before the ~1.5MB markdown chunk or the code-editor chunk is
   // cached) the placeholder reserves layout so nothing jumps when the
-  // editor materializes.
+  // editor materializes. `role="status"` + `aria-live="polite"` announce
+  // the loading state to assistive tech.
   const loadingFallback = (
-    <div className="w-full h-full min-h-[400px] rounded-md bg-black/20 border border-white/10 flex items-center justify-center text-white/40 text-sm">
+    <div
+      role="status"
+      aria-live="polite"
+      className="w-full h-full min-h-[400px] rounded-md bg-black/20 border border-white/10 flex items-center justify-center text-white/40 text-sm"
+    >
       Loading editor…
     </div>
   );
