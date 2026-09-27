@@ -503,6 +503,12 @@ describe("POST /scheduled-agents (CREATE)", () => {
 
 describe("PATCH /scheduled-agents/:slug (UPDATE)", () => {
   it("Test 11: happy PATCH REMOTE — 200 + writeMarkdownFileAtomic called", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
+        return JSON.stringify(validSpec);
+      }
+      return "";
+    });
     const res = await httpRequest(server, {
       method: "PATCH",
       path: "/scheduled-agents/morning-digest",
@@ -519,6 +525,7 @@ describe("PATCH /scheduled-agents/:slug (UPDATE)", () => {
 
   it("Test 17: happy PATCH LOCAL — writeMarkdownFileAtomic(null, ...) (code-review fix #9)", async () => {
     (isLocalHostId as Mock).mockReturnValue(true);
+    fsReadFileMock.mockResolvedValue(JSON.stringify(validSpec));
     fsMkdirMock.mockResolvedValue(undefined);
 
     const res = await httpRequest(server, {
@@ -540,9 +547,17 @@ describe("PATCH /scheduled-agents/:slug (UPDATE)", () => {
     expect(sftpRenameTrap).not.toHaveBeenCalled();
   });
 
-  it("Test 18: PATCH rejects rename-via-PATCH when spec.name normalizes to different slug (code-review fix #4)", async () => {
-    // URL slug is `morning-digest`, body's spec.name normalizes to
-    // `evening-review` — mismatch is a 400 without touching disk.
+  it("Test 18: PATCH rejects rename attempts — submitted spec.name differs from stored name", async () => {
+    // Stored spec has name "Morning digest"; body attempts "Evening Review".
+    // Guard compares against stored, not URL slug — so legacy folders where
+    // stored name doesn't normalize to folder slug still update fine as long
+    // as name is unchanged.
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
+        return JSON.stringify(validSpec);
+      }
+      return "";
+    });
     const res = await httpRequest(server, {
       method: "PATCH",
       path: "/scheduled-agents/morning-digest",
@@ -551,6 +566,46 @@ describe("PATCH /scheduled-agents/:slug (UPDATE)", () => {
     expect(res.status).toBe(400);
     expect((res.body as { error: string }).error).toMatch(/spec\.name/);
     // No write should have been attempted
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("Test 18b: PATCH allows update when stored name doesn't normalize to slug (legacy-data regression pin)", async () => {
+    // Regression pin for Phase-126-migration-flavored data: folder slug is
+    // `box-maintainer-daily-check` but stored spec.name is `daily-check`
+    // (the pre-migration unprefixed name). The old guard rejected this on
+    // every save; the new guard only trips on actual rename attempts.
+    const legacySpec = { ...validSpec, name: "daily-check" };
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
+        return JSON.stringify(legacySpec);
+      }
+      return "";
+    });
+    const res = await httpRequest(server, {
+      method: "PATCH",
+      path: "/scheduled-agents/box-maintainer-daily-check",
+      body: {
+        host: 7,
+        spec: { ...legacySpec, prompt: "new prompt for legacy spec" },
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+  });
+
+  it("Test 18c: PATCH on missing spec → 404", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
+        return "__SCHEDULED_AGENT_MISSING__\n";
+      }
+      return "";
+    });
+    const res = await httpRequest(server, {
+      method: "PATCH",
+      path: "/scheduled-agents/morning-digest",
+      body: { host: 7, spec: validSpec },
+    });
+    expect(res.status).toBe(404);
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 });

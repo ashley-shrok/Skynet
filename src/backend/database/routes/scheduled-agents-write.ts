@@ -516,20 +516,6 @@ router.patch(
     }
     const validSpec = spec as ScheduledAgentSpec;
 
-    // Code-review fix #4: URL slug and body spec.name must agree. Without
-    // this gate, PATCH /scheduled-agents/morning-digest with {name: "Evening Review"}
-    // would leave folder `morning-digest/` containing `name: "Evening Review"`
-    // — LIST shows one thing, scheduler's spawn-request uses the other.
-    // Renames must go through DELETE + CREATE, not silent rename-via-PATCH.
-    const nameSlug = normalizeSpecSlug(validSpec.name);
-    if (nameSlug !== slug) {
-      res.status(400).json({
-        error:
-          "spec.name normalizes to a different slug than the URL — renames must go through DELETE + CREATE",
-      });
-      return;
-    }
-
     const host = await resolveHostById(hostId, userId);
     if (!host) {
       res.status(404).json({ error: "Host not found" });
@@ -546,6 +532,34 @@ router.patch(
 
         if (isLocalHostId(hostId)) {
           const targetPath = localSpecPath(slug);
+          let storedName: string | null = null;
+          try {
+            const raw = await fs.readFile(targetPath, "utf-8");
+            const parsed = JSON.parse(raw) as { name?: unknown };
+            storedName = typeof parsed.name === "string" ? parsed.name : null;
+          } catch (err: unknown) {
+            if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+              res.status(404).json({ error: "scheduled agent not found" });
+              responded = true;
+              return;
+            }
+            sshLogger.error(
+              "scheduled-agents-update: local read failed",
+              err instanceof Error ? err : new Error(String(err)),
+              { operation: "scheduled_agents_update_local_read", hostId, slug, targetPath },
+            );
+            res.status(502).json({ error: "SFTP write failed" });
+            responded = true;
+            return;
+          }
+          if (storedName !== null && validSpec.name !== storedName) {
+            res.status(400).json({
+              error:
+                "spec.name differs from the stored name — renames must go through DELETE + CREATE",
+            });
+            responded = true;
+            return;
+          }
           try {
             await fs.mkdir(path.dirname(targetPath), { recursive: true });
             await writeMarkdownFileAtomic(null, targetPath, body);
@@ -580,19 +594,47 @@ router.patch(
           return;
         }
 
+        let stdout: string;
         try {
-          await execWithTimeout(
+          stdout = await execWithTimeout(
             conn,
-            `mkdir -p "$HOME/fleet/scheduled-agents/${slug}"`,
+            `cat "$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json" 2>/dev/null || echo "__SCHEDULED_AGENT_MISSING__"`,
           );
         } catch (err) {
-          sshLogger.warn("scheduled-agents-update: mkdir exec failed", {
-            operation: "scheduled_agents_update_mkdir",
+          sshLogger.warn("scheduled-agents-update: read exec failed", {
+            operation: "scheduled_agents_update_read",
             hostId,
             slug,
             error: err instanceof Error ? err.message : "Unknown",
           });
           res.status(502).json({ error: "SSH exec failed" });
+          responded = true;
+          return;
+        }
+        if (stdout.trim() === "__SCHEDULED_AGENT_MISSING__" || stdout.trim() === "") {
+          res.status(404).json({ error: "scheduled agent not found" });
+          responded = true;
+          return;
+        }
+        let storedName: string | null = null;
+        try {
+          const parsed = JSON.parse(stdout) as { name?: unknown };
+          storedName = typeof parsed.name === "string" ? parsed.name : null;
+        } catch (err) {
+          sshLogger.error(
+            "scheduled-agents-update: remote parse failed",
+            err instanceof Error ? err : new Error(String(err)),
+            { operation: "scheduled_agents_update_remote_parse", hostId, slug },
+          );
+          res.status(502).json({ error: "SFTP write failed" });
+          responded = true;
+          return;
+        }
+        if (storedName !== null && validSpec.name !== storedName) {
+          res.status(400).json({
+            error:
+              "spec.name differs from the stored name — renames must go through DELETE + CREATE",
+          });
           responded = true;
           return;
         }
