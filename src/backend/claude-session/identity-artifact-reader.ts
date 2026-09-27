@@ -349,6 +349,25 @@ export function getLocalScheduledAgentsRoot(): string {
   );
 }
 
+/**
+ * Returns the local apps root directory.
+ *
+ * Apps live at `~/fleet/apps/<slug>/` — a sibling to ~/fleet/identities/,
+ * ~/fleet/roles/, ~/fleet/projects/, and ~/fleet/wakeups/ under the fleet
+ * substrate. Consumed by the per-app-file write primitive (archive-request
+ * sentinel drop) so every fleet subtree derives its root from the same
+ * HOME_HOST_DIR resolution.
+ *
+ * Precedence: APPS_HOST_DIR (test escape hatch) → HOME_HOST_DIR-derived
+ * default (`<home>/fleet/apps`).
+ */
+export function getLocalAppsRoot(): string {
+  return (
+    process.env.APPS_HOST_DIR ||
+    path.join(getLocalHomeRoot(), "fleet", "apps")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Two-step role resolution — Phase 22 SRIC-01
 // ---------------------------------------------------------------------------
