@@ -132,6 +132,13 @@ export interface UserInfo {
    * "no mxid known" and render accordingly.
    */
   mxid?: string | null;
+  /**
+   * Phase 137 D-30 — viewing user's avatar filename (populated from
+   * users.avatar_path via /users/me). Frontend uses this to conditionally
+   * render the sidebar footer avatar preview. Nullable — users without an
+   * uploaded avatar surface here as null.
+   */
+  avatarPath?: string | null;
 }
 
 interface UserCount {

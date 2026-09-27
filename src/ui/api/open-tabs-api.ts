@@ -92,11 +92,12 @@ export async function getActiveSessions(): Promise<ActiveSessionInfo[]> {
 // ============================================================================
 
 export interface UserPreferences {
-  reopenTabsOnLogin: boolean;
+  // reopenTabsOnLogin: DELETED per Phase 137 D-31 (dead fork holdover)
   theme?: string | null;
   fontSize?: string | null;
   accentColor?: string | null;
   language?: string | null;
+  fallbackVoice?: string | null; // Phase 137 D-14 — per-user fallback voice for the speak flow; null resolves to backend DEFAULT_VOICE (Joanna)
 }
 
 export async function getUserPreferences(): Promise<UserPreferences> {
