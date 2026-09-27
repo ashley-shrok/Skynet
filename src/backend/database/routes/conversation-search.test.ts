@@ -539,6 +539,55 @@ describe("POST /conversation-search — aggregation, sort, isArchived, row shape
 });
 
 // ===========================================================================
+// T-12: multi-transcript per identity — historical sessions of the same
+// identity each surface as their own row (fixes the "search only sees the
+// newest JSONL per identity" limitation identified during forearm-search
+// debugging).
+// ===========================================================================
+
+describe("POST /conversation-search — historical transcripts per identity", () => {
+  it("T-12: identity with 3 matching JSONLs across time returns 3 rows all tagged with the same identityKey", async () => {
+    simpleDbSelectMock.mockResolvedValue([
+      { id: 1, name: "host-a", enableSsh: true, terminalConfig: null },
+    ]);
+    listIdentityKeysOnHostMock.mockResolvedValue(["george"]);
+    listArchivedIdentityKeysOnHostMock.mockResolvedValue([]);
+
+    // Three historical JSONLs, all opened via `/id george`, all containing
+    // the query. Pre-fix behavior kept only the newest and returned 1 row;
+    // post-fix returns 3.
+    const discoveryStdout = makeDiscoveryStdout([
+      { mtime: 3000, path: "/x/newest.jsonl", firstUserLine: makeIdFirstUserLine("george") },
+      { mtime: 2000, path: "/x/middle.jsonl", firstUserLine: makeIdFirstUserLine("george") },
+      { mtime: 1000, path: "/x/oldest.jsonl", firstUserLine: makeIdFirstUserLine("george") },
+    ]);
+    execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
+      // Grep hits one match per historical JSONL.
+      return fakeGrepOutput([
+        { mtime: 3000, path: "/x/newest.jsonl", lineno: 1, rawLine: jsonlLine("forearm newest") },
+        { mtime: 2000, path: "/x/middle.jsonl", lineno: 1, rawLine: jsonlLine("forearm middle") },
+        { mtime: 1000, path: "/x/oldest.jsonl", lineno: 1, rawLine: jsonlLine("forearm oldest") },
+      ]);
+    });
+
+    const res = await httpPostJson(server, "/conversation-search", { query: "forearm" });
+    expect(res.status).toBe(200);
+    const body = res.body as { results: Array<Record<string, unknown>>; hasMore: boolean };
+    expect(body.results).toHaveLength(3);
+    expect(body.results.every((r) => r.identityKey === "george")).toBe(true);
+    // Sorted mtime desc.
+    expect(body.results.map((r) => r.transcriptPath)).toEqual([
+      "/x/newest.jsonl",
+      "/x/middle.jsonl",
+      "/x/oldest.jsonl",
+    ]);
+    // tmuxSessionName still equals identityKey — click behavior unchanged.
+    expect(body.results.every((r) => r.tmuxSessionName === "george")).toBe(true);
+  });
+});
+
+// ===========================================================================
 // T-05: offset/limit slicing
 // ===========================================================================
 

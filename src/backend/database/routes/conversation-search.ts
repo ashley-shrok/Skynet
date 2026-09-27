@@ -3,11 +3,13 @@
  *
  * Content-search across the caller's SSH+autoTmux hosts. Reads BOTH
  * `~/fleet/identities/` and `~/fleet/identities-archive/` on each host,
- * resolves each identity's latest JSONL transcript via
- * `discoverIdentitySessionFile` (per Plan 122-01 Wave 0 verdict
- * `go-same-helper` — no branching by archived vs live), runs a
- * shell-injection-safe fixed-string grep across those files, and returns
- * a mtime-sorted paginated slice of results with per-hit windowed snippets.
+ * enumerates EVERY JSONL under `~/.claude/projects/` and matches each
+ * against the identity keys (a JSONL "belongs to" an identity if its
+ * first user turn is `/id <identity>`), then runs a shell-injection-safe
+ * fixed-string grep across every matching transcript. Historical sessions
+ * of the same identity each surface as their own result row (dedup is
+ * per-JSONL, not per-identity). Returns a mtime-sorted paginated slice of
+ * results with per-hit windowed snippets.
  *
  * REQUEST BODY:
  *   { query: string, offset?: number, limit?: number }
@@ -395,24 +397,27 @@ async function resolveIdentityPaths(
   const records = parseDiscoveryStdout(stdout);
   records.sort((a, b) => b.mtime - a.mtime); // defensive; shell already sorts
 
-  const resolved = new Map<string, ResolvedIdentity>();
+  // Emit ONE ResolvedIdentity per JSONL whose first-user-line matches any
+  // identity key. Historical sessions of the same identity each become
+  // their own entry — the caller greps across all of them and dedups by
+  // path, so multi-transcript identities surface as one row per transcript.
+  // A first-user-line names EXACTLY ONE identity (it's a `/id <name>`
+  // invocation), so the inner `break` still holds: one JSONL → one entry.
+  const resolved: ResolvedIdentity[] = [];
   for (const rec of records) {
-    if (resolved.size === allKeys.length) break;
     if (rec.firstUserLine.length === 0) continue;
     for (const key of allKeys) {
-      if (resolved.has(key)) continue;
       if (__matchesIdentityFirstTurnForTests(rec.firstUserLine, key)) {
-        resolved.set(key, {
+        resolved.push({
           key,
           path: rec.path,
           isArchived: archivedKeySet.has(key),
         });
-        // First-user-line names exactly one identity; break inner loop.
         break;
       }
     }
   }
-  return [...resolved.values()];
+  return resolved;
 }
 
 /**
