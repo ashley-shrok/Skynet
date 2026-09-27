@@ -27,9 +27,11 @@ const config = {
         // check would refuse. Apps served directly (bypassing the pane proxy
         // — e.g. via the .serve. per-port URL for a fresh-tab open) rely on
         // the tailnet perimeter + Skynet's edge auth. Do NOT delete the
-        // disable line below — removing it breaks every proxied POST.
+        // trustedOrigins line below — removing it breaks every proxied POST.
+        // (Historical: this used csrf.checkOrigin: false; SvelteKit 2.x
+        // deprecated that in favour of trustedOrigins.)
         csrf: {
-            checkOrigin: false
+            trustedOrigins: ['*']
         }
     }
 };

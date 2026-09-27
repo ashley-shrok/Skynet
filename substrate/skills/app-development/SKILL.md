@@ -204,6 +204,14 @@ everything else.
        bun run build
        systemctl --user restart app-<slug>
 
+   **Scan `bun run build` output for deprecation warnings before moving
+   on.** SvelteKit and its ecosystem announce breaking changes here
+   first; a warning about a deprecated config option is a functional
+   regression waiting to happen (the option may already be silently
+   ignored on the installed version, or removed in the next minor). If
+   you see one, fix it before publishing — don't publish an app with a
+   known deprecation in its config.
+
    Then confirm it's live: `systemctl --user status app-<slug>` should read
    `active (running)`. Open the app yourself (dev mode or a local
    `curl 127.0.0.1:<port>`) and walk the golden path — this is the last
