@@ -1,0 +1,87 @@
+/**
+ * resolveAgentHostId — mxid → local fleet hostId resolver for push routing.
+ *
+ * Push notifications need to carry a numeric fleet hostId in the payload so
+ * the frontend's tap handler can route to the correct harness view without
+ * depending on the phone's cached identity list being loaded (see
+ * shape-notifications-to-harness.md § Philosophy: "The tap is deterministic.
+ * The payload carries what the phone needs to route.").
+ *
+ * The push-trigger loop fires only for LOCAL agents' outbound DMs to the
+ * local human user (D-01/D-02 in push-trigger-loop.ts), so the sender's
+ * identity file lives on this box's `~/fleet/identities/` filesystem, and
+ * its home host is one of the entries in the IDENTITIES_LOCAL_HOST_IDS
+ * env var (parsed once at module load by identity-artifact-reader.ts).
+ *
+ * Resolution:
+ *   1. Match mxid against `@localpart:server`; malformed → null.
+ *   2. `fs.stat` the identity folder under getLocalIdentitiesRoot(); missing
+ *      → null. This is the belt-and-suspenders check that ensures we don't
+ *      ship a hostId in the payload for an mxid whose identity file isn't
+ *      actually on this box (D-01/D-02 shouldn't allow that case, but the
+ *      resolver stays honest even if the classifier ever regresses).
+ *   3. Return the first entry from LOCAL_HOST_IDS (production has exactly
+ *      one entry per box; a multi-entry deploy would need a per-hostId
+ *      probe, which we can add if that config ever materializes).
+ *
+ * Never throws. All failure modes return null; the caller (push-trigger-loop)
+ * treats null as "cannot route, drop the push."
+ */
+
+import { stat as fspStat } from "fs/promises";
+import path from "path";
+import { getLocalIdentitiesRoot } from "../claude-session/identity-artifact-reader.js";
+import { databaseLogger } from "../utils/logger.js";
+
+const MXID_PATTERN = /^@([^:]+):(.+)$/;
+
+/** Same shape as identity-artifact-reader.ts's IDENTITY_KEY_RE. */
+const IDENTITY_KEY_RE = /^[a-z0-9._=/+-]+$/;
+
+/** Parsed once at module load. Same env var as identity-artifact-reader.ts. */
+const LOCAL_HOST_IDS: number[] = (() => {
+  const raw = process.env.IDENTITIES_LOCAL_HOST_IDS ?? "";
+  const parsed: number[] = [];
+  for (const part of raw.split(",")) {
+    const trimmed = part.trim();
+    if (trimmed === "") continue;
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) continue;
+    parsed.push(n);
+  }
+  return parsed;
+})();
+
+/**
+ * Resolve a sender mxid to the local fleet hostId whose identity folder
+ * holds this identity. Returns null on any failure mode.
+ */
+export async function resolveAgentHostId(mxid: string): Promise<number | null> {
+  const match = mxid.match(MXID_PATTERN);
+  if (!match) return null;
+
+  const localpart = match[1].toLowerCase();
+  if (localpart.length === 0) return null;
+  if (!IDENTITY_KEY_RE.test(localpart)) return null;
+
+  if (LOCAL_HOST_IDS.length === 0) {
+    databaseLogger.warn(
+      "resolveAgentHostId — IDENTITIES_LOCAL_HOST_IDS is empty; cannot route push",
+      {
+        operation: "resolve_agent_host_id_no_local_hosts",
+        mxid,
+      },
+    );
+    return null;
+  }
+
+  const identityDir = path.join(getLocalIdentitiesRoot(), localpart);
+  try {
+    const stats = await fspStat(identityDir);
+    if (!stats.isDirectory()) return null;
+  } catch {
+    return null;
+  }
+
+  return LOCAL_HOST_IDS[0];
+}

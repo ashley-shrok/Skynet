@@ -116,6 +116,7 @@ function makeDeps(
     sendPushToUser: vi.fn(async () => {}),
     derivePreviewText: vi.fn(() => "hey"),
     resolveAgentDisplayName: vi.fn(async () => "Fanny"),
+    resolveAgentHostId: vi.fn(async () => 42),
     now: vi.fn(() => Date.now()),
     ...overrides,
   };
@@ -281,8 +282,8 @@ describe("runPushTriggerTick — filter pipeline", () => {
     expect(deps.sendPushToUser).toHaveBeenCalledWith(USER_A, {
       title: "Fanny:",
       body: "hey",
-      roomId: ROOM_ID,
       agentMxid: AGENT_MXID,
+      agentHostId: 42,
     });
     // classifyRoom was CALLED (not re-derived) with expected input shape.
     expect(deps.classifyRoom).toHaveBeenCalledTimes(1);
@@ -293,6 +294,26 @@ describe("runPushTriggerTick — filter pipeline", () => {
     expect(classifyCallArgs.roomId).toBe(ROOM_ID);
     expect(classifyCallArgs.memberMxids).toEqual([USER_A_MXID, AGENT_MXID]);
     // Cursor advances after successful dispatch.
+    expect(state.cursorByRoom.get(ROOM_ID)).toBe("cursor-2");
+  });
+
+  it("Test 7: resolveAgentHostId returns null → push dropped, cursor still advances", async () => {
+    const event = makeEvent();
+    const deps = makeDeps({
+      fetchLive: vi.fn(async () => ({
+        ok: true as const,
+        events: [event],
+        nextSinceToken: "cursor-2",
+      })),
+      resolveAgentHostId: vi.fn(async () => null),
+    });
+    const state = makeStateWithWarmCursor(USER_A_MXID);
+
+    await runPushTriggerTick(USER_A, state, deps);
+
+    // Push not fired — hostId is required for routing.
+    expect(deps.sendPushToUser).not.toHaveBeenCalled();
+    // Cursor still advances — we don't want to re-fire the same event next tick.
     expect(state.cursorByRoom.get(ROOM_ID)).toBe("cursor-2");
   });
 });

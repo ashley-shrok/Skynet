@@ -287,8 +287,8 @@ export interface PushTriggerLoopDeps {
     payload: {
       title: string;
       body: string;
-      roomId: string;
       agentMxid: string;
+      agentHostId: number;
     },
   ): Promise<void>;
   /** Compute the lock-screen preview body (D-07). Pure function. */
@@ -298,6 +298,12 @@ export interface PushTriggerLoopDeps {
    * (D-07). Never-throws — falls back to mxid local-part.
    */
   resolveAgentDisplayName(mxid: string): Promise<string>;
+  /**
+   * Resolve a sender mxid to the local fleet hostId whose identity folder
+   * holds this identity. Never-throws — returns null on any failure; the
+   * dispatch site drops the push when null (see the dispatch block below).
+   */
+  resolveAgentHostId(mxid: string): Promise<number | null>;
   /**
    * Clock-source dep — accepts an injected fake in tests (deterministic
    * jitter + scheduling). Production wire passes `() => Date.now()`.
@@ -550,21 +556,41 @@ export async function runPushTriggerTick(
         }
 
         // ─── Dispatch: all four filters passed ─────────────────────────
-        // Compute title + body, dispatch through push-sender.
+        // Compute title + body + agentHostId, dispatch through push-sender.
         // sendPushToUser is never-throws by contract (T-128-09), but wrap
         // in try/catch as defense-in-depth. Absorb failures — dropping a
         // push is preferable to re-firing on next tick (which would spam
         // the same event).
+        //
+        // agentHostId null → drop the push. The frontend tap needs a
+        // valid hostId to route to the harness view deterministically
+        // (shape-notifications-to-harness.md § Philosophy). Local-only
+        // classifier gate (D-01/D-02) should make this vanishingly rare;
+        // when it happens, log at .warn so ops sees the miss.
         try {
-          const [displayName, body] = await Promise.all([
+          const [displayName, body, agentHostId] = await Promise.all([
             deps.resolveAgentDisplayName(event.sender),
             Promise.resolve(deps.derivePreviewText(event)),
+            deps.resolveAgentHostId(event.sender),
           ]);
+          if (agentHostId === null) {
+            databaseLogger.warn(
+              "[phase-128] push-trigger tick — resolveAgentHostId returned null, push dropped",
+              {
+                operation: "push_trigger_tick_no_host_id",
+                userId,
+                roomId,
+                eventId: event.event_id,
+                agentMxid: event.sender,
+              },
+            );
+            continue;
+          }
           await deps.sendPushToUser(userId, {
             title: `${displayName}:`,
             body,
-            roomId,
             agentMxid: event.sender,
+            agentHostId,
           });
           eventsFired++;
         } catch (err) {

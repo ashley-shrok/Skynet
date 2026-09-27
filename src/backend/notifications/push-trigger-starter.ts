@@ -78,6 +78,7 @@ import { fetchRoomHistory } from "../relay-room-stream/matrix-message-fetch.js";
 import { sendPushToUser } from "./push-sender.js";
 import { derivePreviewText } from "./preview-text.js";
 import { resolveAgentDisplayName } from "./resolve-agent-display-name.js";
+import { resolveAgentHostId } from "./resolve-agent-host-id.js";
 
 /** Discriminated-union result of startPushTriggerLoopOnBoot. */
 export type StartPushTriggerLoopResult =
@@ -242,6 +243,7 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
       sendPushToUser,
       derivePreviewText,
       resolveAgentDisplayName,
+      resolveAgentHostId,
       now: () => Date.now(),
     };
 

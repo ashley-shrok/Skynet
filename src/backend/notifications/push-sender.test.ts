@@ -141,8 +141,8 @@ const OTHER_USER = "user-B";
 const SAMPLE_PAYLOAD: PushPayload = {
   title: "Fanny",
   body: "hey",
-  roomId: "!room1:server",
   agentMxid: "@fanny:example.com",
+  agentHostId: 42,
 };
 
 const FCM_ENDPOINT =

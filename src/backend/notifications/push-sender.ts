@@ -73,17 +73,21 @@ webpush.setVapidDetails(subject, publicKey, privateKey);
  * Kept small — Web Push has a ~4KB payload cap after aes128gcm encryption
  * overhead, and Apple's push service is stricter than that.
  *
- *   title:     lock-screen title line — usually the agent's display name.
- *   body:      lock-screen body line — the preview text (D-07).
- *   roomId:    Matrix room ID for the SW's notificationclick deep-link
- *              (D-08).
- *   agentMxid: sender mxid (for future per-agent routing / iconography).
+ *   title:        lock-screen title line — usually the agent's display name.
+ *   body:         lock-screen body line — the preview text (D-07).
+ *   agentMxid:    sender mxid (identifies the agent whose harness view the
+ *                 tap should open).
+ *   agentHostId:  the sender's fleet hostId. Backend resolves this at push
+ *                 time (see resolve-agent-host-id.ts) so the tap-target is
+ *                 deterministic on the phone — no dependence on the client's
+ *                 identity list being loaded/current at click time
+ *                 (shape-notifications-to-harness.md § Philosophy).
  */
 export interface PushPayload {
   title: string;
   body: string;
-  roomId: string;
   agentMxid: string;
+  agentHostId: number;
 }
 
 interface SubscriptionRow {
