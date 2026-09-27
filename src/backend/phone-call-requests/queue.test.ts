@@ -98,8 +98,8 @@ describe("phone queue — per-user serialization", () => {
     });
     setProcessPhoneCall(fn);
 
-    enqueue(makeItem("a", "ashley"));
-    enqueue(makeItem("b", "ashley"));
+    enqueue(makeItem("a", "alice"));
+    enqueue(makeItem("b", "alice"));
 
     // Let the microtask queue drain so a's loop entry runs.
     await Promise.resolve();
@@ -124,18 +124,18 @@ describe("phone queue — per-user serialization", () => {
 
   it("processes items for DIFFERENT users concurrently", async () => {
     const order: string[] = [];
-    const gateAshley = deferred();
+    const gateAlice = deferred();
     const gateBob = deferred();
 
     const fn = vi.fn(async (item: PendingPhoneCall) => {
       order.push(`start:${item.uuid}`);
-      if (item.body.to_user === "ashley") await gateAshley.promise;
+      if (item.body.to_user === "alice") await gateAlice.promise;
       else if (item.body.to_user === "bob") await gateBob.promise;
       order.push(`end:${item.uuid}`);
     });
     setProcessPhoneCall(fn);
 
-    enqueue(makeItem("a", "ashley"));
+    enqueue(makeItem("a", "alice"));
     enqueue(makeItem("b", "bob"));
 
     await Promise.resolve();
@@ -144,10 +144,10 @@ describe("phone queue — per-user serialization", () => {
 
     // Both should be running concurrently (different users → parallel loops).
     expect(order).toEqual(["start:a", "start:b"]);
-    expect(getQueueSnapshot().runningUsers.sort()).toEqual(["ashley", "bob"]);
+    expect(getQueueSnapshot().runningUsers.sort()).toEqual(["alice", "bob"]);
 
     // Finish both.
-    gateAshley.resolve();
+    gateAlice.resolve();
     gateBob.resolve();
     await Promise.resolve();
     await Promise.resolve();
@@ -164,8 +164,8 @@ describe("phone queue — per-user serialization", () => {
     });
     setProcessPhoneCall(fn);
 
-    enqueue(makeItem("a", "ashley"));
-    enqueue(makeItem("b", "ashley"));
+    enqueue(makeItem("a", "alice"));
+    enqueue(makeItem("b", "alice"));
 
     // Wait a few microtasks for both to drain.
     for (let i = 0; i < 10; i++) await Promise.resolve();

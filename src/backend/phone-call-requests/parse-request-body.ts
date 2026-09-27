@@ -26,10 +26,10 @@ export const CALLER_NAME_MAX_LENGTH = 200;
 export const TO_USER_MAX_LENGTH = 200;
 
 /**
- * Max length for `message`. Ashley waved off a strict cap ("let's not solve
- * a problem we don't have"), so this is a defensive upper bound only —
- * chosen to prevent a runaway agent from generating a 30-minute monologue,
- * not to constrain normal calls. 2000 chars ≈ 2-3 minutes of TTS speech.
+ * Max length for `message`. There is no strict caller-facing cap; this is
+ * a defensive upper bound only — chosen to prevent a runaway agent from
+ * generating a 30-minute monologue, not to constrain normal calls.
+ * 2000 chars ≈ 2-3 minutes of TTS speech.
  */
 export const MESSAGE_MAX_LENGTH = 2000;
 

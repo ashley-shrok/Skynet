@@ -20,7 +20,7 @@ describe("parseRequestBody — happy path", () => {
       UUID,
       ok({
         caller_name: "Clipper the Box Maintainer",
-        to_user: "ashley",
+        to_user: "alice",
         message: "Your CI build failed. Want me to investigate?",
         requested_at: "2026-09-27T12:34:56.000Z",
       }),
@@ -28,7 +28,7 @@ describe("parseRequestBody — happy path", () => {
     expect(result.ok).toBe(true);
     if (result.ok !== true) throw new Error("unreachable");
     expect(result.body.caller_name).toBe("Clipper the Box Maintainer");
-    expect(result.body.to_user).toBe("ashley");
+    expect(result.body.to_user).toBe("alice");
     expect(result.body.message).toBe("Your CI build failed. Want me to investigate?");
     expect(result.body.requested_at).toBe("2026-09-27T12:34:56.000Z");
   });

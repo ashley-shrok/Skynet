@@ -72,7 +72,7 @@ const UUID_B = "11111111-2222-3333-4444-555555555555";
 function makeBody(overrides: Record<string, string> = {}): string {
   return JSON.stringify({
     caller_name: "Clipper the Box Maintainer",
-    to_user: "ashley",
+    to_user: "alice",
     message: "hi from a test",
     requested_at: new Date().toISOString(),
     ...overrides,
@@ -96,7 +96,7 @@ function buildTestDeps(): { deps: WorkerDeps; written: WrittenResponse[] } {
     resolveHostById: vi.fn() as unknown as WorkerDeps["resolveHostById"],
     getHostOwnerUserId: vi.fn(async () => "user-1"),
     getUserByUsername: vi.fn(async (username: string) =>
-      username === "ashley"
+      username === "alice"
         ? { id: "user-1", phoneE164: "+15551234567" }
         : username === "bob"
           ? { id: "user-2", phoneE164: "+15559999999" }
@@ -183,25 +183,25 @@ describe("phone-call-requests end-to-end", () => {
     (deps.placeCallAndAwait as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (phone: string, _prompt: string, _first: string) => {
         startEvents.push(`start:${phone}`);
-        // Both items target ashley (same phone), so the first blocks until
+        // Both items target alice (same phone), so the first blocks until
         // gate is released. The second can only start after gate resolves.
         if (startEvents.length === 1) await gate1.promise;
         return { outcome: "completed" as const, transcript: "t", call_length_seconds: 1 };
       },
     );
 
-    // Enqueue two items for ashley + one item for bob.
+    // Enqueue two items for alice + one item for bob.
     enqueue({
       hostId: "10", hostIdNum: 10, uuid: UUID_A,
       body: {
-        caller_name: "X", to_user: "ashley", message: "first",
+        caller_name: "X", to_user: "alice", message: "first",
         requested_at: new Date().toISOString(),
       },
     });
     enqueue({
       hostId: "10", hostIdNum: 10, uuid: UUID_B,
       body: {
-        caller_name: "X", to_user: "ashley", message: "second",
+        caller_name: "X", to_user: "alice", message: "second",
         requested_at: new Date().toISOString(),
       },
     });
@@ -216,21 +216,21 @@ describe("phone-call-requests end-to-end", () => {
     // Give microtasks a chance to run.
     for (let i = 0; i < 10; i++) await Promise.resolve();
 
-    // At this point: first ashley call in progress, bob call also in progress
-    // (concurrent), second ashley call parked behind the first.
+    // At this point: first alice call in progress, bob call also in progress
+    // (concurrent), second alice call parked behind the first.
     expect(startEvents.sort()).toEqual(["start:+15551234567", "start:+15559999999"]);
-    // written should have the bob response but NOT the second ashley response yet.
-    const ashleyResponses = written.filter((w) => w.path.includes(UUID_B));
-    expect(ashleyResponses).toHaveLength(0);
+    // written should have the bob response but NOT the second alice response yet.
+    const aliceResponses = written.filter((w) => w.path.includes(UUID_B));
+    expect(aliceResponses).toHaveLength(0);
 
-    // Release the first ashley call.
+    // Release the first alice call.
     gate1.resolve();
     for (let i = 0; i < 20; i++) await Promise.resolve();
 
     // Now all three should be done.
     expect(written).toHaveLength(3);
-    // Second ashley call must have started AFTER the first ashley call started.
-    // (Order in startEvents: first ashley, bob (concurrent), then second ashley.)
+    // Second alice call must have started AFTER the first alice call started.
+    // (Order in startEvents: first alice, bob (concurrent), then second alice.)
     expect(startEvents.filter((e) => e === "start:+15551234567")).toHaveLength(2);
   });
 
@@ -245,7 +245,7 @@ describe("phone-call-requests end-to-end", () => {
     enqueue({
       hostId: "10", hostIdNum: 10, uuid: UUID_A,
       body: {
-        caller_name: "X", to_user: "ashley", message: "stale",
+        caller_name: "X", to_user: "alice", message: "stale",
         requested_at: staleRequestedAt,
       },
     });

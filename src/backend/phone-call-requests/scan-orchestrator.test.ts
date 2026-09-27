@@ -59,7 +59,7 @@ describe("parsePhoneCallRequestBatch", () => {
   it("parses a well-formed line into a PendingPhoneCall", () => {
     const body = JSON.stringify({
       caller_name: "Clipper the Box Maintainer",
-      to_user: "ashley",
+      to_user: "alice",
       message: "yo",
       requested_at: "2026-09-27T12:00:00Z",
     });
@@ -69,7 +69,7 @@ describe("parsePhoneCallRequestBatch", () => {
     expect(results[0].uuid).toBe(UUID_A);
     expect(results[0].hostId).toBe("42");
     expect(results[0].hostIdNum).toBe(42);
-    expect(results[0].body.to_user).toBe("ashley");
+    expect(results[0].body.to_user).toBe("alice");
     expect(results[0].malformedReason).toBeUndefined();
   });
 

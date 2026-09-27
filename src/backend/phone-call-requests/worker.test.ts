@@ -47,7 +47,7 @@ function makeItem(overrides: Partial<PendingPhoneCall> = {}): PendingPhoneCall {
     uuid: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     body: {
       caller_name: "Clipper the Box Maintainer",
-      to_user: "ashley",
+      to_user: "alice",
       message: "Your CI failed",
       requested_at: new Date().toISOString(),
     },
@@ -79,7 +79,7 @@ function makeDeps(overrides: Partial<WorkerDeps> = {}): {
     resolveHostById: vi.fn() as unknown as WorkerDeps["resolveHostById"],
     getHostOwnerUserId: vi.fn(async () => "user-1"),
     getUserByUsername: vi.fn(async (username: string) =>
-      username === "ashley"
+      username === "alice"
         ? { id: "user-1", phoneE164: "+15551234567" }
         : null,
     ),
@@ -106,7 +106,7 @@ describe("processPhoneCall — happy path", () => {
     expect(written[0].body.outcome).toBe("completed");
     expect(written[0].body.transcript).toBe("assistant: hi\nuser: yes");
     expect(written[0].body.call_length_seconds).toBe(30);
-    expect(deps.getUserByUsername).toHaveBeenCalledWith("ashley");
+    expect(deps.getUserByUsername).toHaveBeenCalledWith("alice");
     expect(deps.placeCallAndAwait).toHaveBeenCalled();
   });
 
@@ -123,7 +123,7 @@ describe("processPhoneCall — happy path", () => {
       makeItem({
         body: {
           caller_name: "Clipper the Box Maintainer",
-          to_user: "ashley",
+          to_user: "alice",
           message: "Your CI failed",
           requested_at: new Date().toISOString(),
         },
@@ -166,7 +166,7 @@ describe("processPhoneCall — pre-call failure branches", () => {
       makeItem({
         body: {
           caller_name: "X",
-          to_user: "ashley",
+          to_user: "alice",
           message: "m",
           requested_at: requestedAt,
         },

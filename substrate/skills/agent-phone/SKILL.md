@@ -10,7 +10,7 @@ Place a one-turn phone call to a Skynet user. The backend rings their number via
 
 ## ⚠️ This RINGS THEIR PHONE
 
-This is not a Matrix DM. It rings a physical phone (and by extension a watch, if they've paired one). Use it when the message is genuinely time-sensitive or when a chat message would not reliably get their attention. Do NOT use it as a chattier notification — Ashley set this up specifically so agents could reach her when it matters, not so every build failure calls her.
+This is not a Matrix DM. It rings a physical phone (and by extension a watch, if they've paired one). Use it when the message is genuinely time-sensitive or when a chat message would not reliably get their attention. Do NOT use it as a chattier notification — this capability exists so agents can reach the user when it matters, not so every build failure calls her.
 
 If you're about to run this and the message would be fine as a Matrix DM, use the DM instead.
 
@@ -29,7 +29,7 @@ Three arguments, all required:
 Example:
 
 ```
-agent-phone --to ashley --from "Clipper the Box Maintainer" \
+agent-phone --to alice --from "Clipper the Box Maintainer" \
   "The Skynet deploy just failed on the fleet-status boot check. Want me to roll back?"
 ```
 
@@ -52,7 +52,7 @@ You should expect a response within about **15 minutes** in the worst case (the 
 Grab the transcript into a variable:
 
 ```
-transcript=$(agent-phone --to ashley --from "..." "..." 2>/dev/null)
+transcript=$(agent-phone --to alice --from "..." "..." 2>/dev/null)
 ```
 
 ## Outcomes
