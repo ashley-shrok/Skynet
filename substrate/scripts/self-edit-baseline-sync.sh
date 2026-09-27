@@ -75,12 +75,14 @@ if [ -r "$IDENTITY_FILE" ]; then
 fi
 
 # Bounded work. Wrapped in timeout so a hung FS cannot hang the harness turn.
+# NB: we pass STATE_DIR/IDENT/ROLE/IDENTITY_FILE to the child bash via `export`
+# rather than by splicing them into the single-quoted script body. The prior
+# `'"$X"'` splicing pattern would let a value containing a single-quote break
+# out of the quoting and inject shell — and ROLE is parsed from the identity
+# file's YAML frontmatter, which is agent-writable. Export-inherit keeps
+# untrusted values as data, never re-parsed by the child shell.
+export STATE_DIR IDENT ROLE IDENTITY_FILE
 timeout 2 bash -c '
-    STATE_DIR="'"$STATE_DIR"'"
-    IDENT="'"$IDENT"'"
-    ROLE="'"$ROLE"'"
-    IDENTITY_FILE="'"$IDENTITY_FILE"'"
-
     sync_one() {
         baseline="$1"
         real="$2"
@@ -93,17 +95,21 @@ timeout 2 bash -c '
             # Copy content atomically. If cp fails (permissions, disk full),
             # skip past — better to have watcher fire spuriously than corrupt.
             if cp "$real" "$tmp_baseline" 2>/dev/null; then
+                # Compute the fingerprint from $real BEFORE the mv, not from
+                # $baseline AFTER. A racing concurrent sync-hook could overwrite
+                # $baseline between our mv and sha256sum, and we would end up
+                # recording the OTHER invocation'"'"'s content-hash. Hashing $real
+                # captures what THIS invocation actually observed.
+                hash=$(sha256sum "$real" 2>/dev/null | awk "{print \$1}")
                 mv "$tmp_baseline" "$baseline" 2>/dev/null || {
                     rm -f "$tmp_baseline" 2>/dev/null || true
                     return 0
                 }
-                # Write the fingerprint marker: sha256 of the same content we
-                # just synced. Watcher compares this against sha256(current)
-                # at event time.
-                hash=$(sha256sum "$baseline" 2>/dev/null | awk "{print \$1}")
                 if [ -n "$hash" ]; then
                     marker="$STATE_DIR/$bname.self-edit-hash"
                     tmp_marker="$STATE_DIR/.$bname.self-edit-hash.tmp.$$"
+                    # `A && B || C` shape is intentional: if printf OR mv fails,
+                    # rm cleans up the tmp file. Do not "fix" the precedence.
                     printf "%s\n" "$hash" > "$tmp_marker" 2>/dev/null && \
                         mv "$tmp_marker" "$marker" 2>/dev/null || \
                         rm -f "$tmp_marker" 2>/dev/null || true

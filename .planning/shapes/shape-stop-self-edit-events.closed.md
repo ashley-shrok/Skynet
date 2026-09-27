@@ -86,3 +86,44 @@ Inline, tracked through harness tasks. The moving pieces:
 The settle delay is exposed as an environment variable knob (default 200 milliseconds) so operators can tune without a redeploy.
 
 Deploy is the distributor's normal propagation cycle — no container restart, no rollout dance. The new watcher and hook script are picked up on next agent session start.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-27
+**Vehicle used:** inline
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · watcher stops firing on the agent's own edits while non-agent edits still reach the agent
+- **Shape — post-tool sync step** — present · self-edit-baseline-sync.sh walks the state dir, derives real files from the watcher's filename convention (last-snapshot.role|.identity|.runbook.<slug>), atomically overwrites the baseline on drift, and writes a sha256 marker alongside
+- **Shape — settle delay + hash guard** — present · SELF_EDIT_SETTLE_MS sleep before diff; _is_self_edit compares sha256(current) against marker; consumes marker regardless of match so stale can't linger
+- **Philosophy — filtering at source** — present · core compare/fire loop unchanged; two surgical additions (sleep + hash check) only
+- **Philosophy — zero configuration duplication** — present · sync script discovers watched surfaces by listing the state dir; no separate list
+- **Philosophy — graceful degradation** — present · script always exits 0; every FS op best-effort; timeout 2 wrap; missing FLEET_IDENTITY / state dir → clean no-op; watcher's normal diff+emit unchanged in fallback
+- **Prior context — post-tool hook + FLEET_IDENTITY env var** — present · hook wired via settings.json PostToolUse; FLEET_IDENTITY sourced from env
+- **Prior context — runbook coverage** — present · sync-loop iterates last-snapshot.runbook.* uniformly; watcher's _handle_runbook_event + cold-start pass both call _is_self_edit
+- **Failure mode — peer edit silently absorbed** — present · hash-guard covers the me-edit → peer-edit → my-sync-fires race; T-S6 test explicitly verifies mismatched marker still fires the event
+- **Failure mode — self-edit still leaks** — present · T-S5 test verifies matching marker produces silent absorption
+- **Failure mode — saved-copy corruption / atomic writes** — present · sync script uses .tmp.$$+mv for both baseline and marker; watcher's _atomic_write_baseline uses tmp+os.replace
+- **Failure mode — settle-delay tuning knob** — present · ROLE_WATCH_SELF_EDIT_SETTLE_MS env, default 200ms, per the shape
+- **Failure mode — shell edits treated same as tool edits** — present · PostToolUse matcher is Write|Edit|MultiEdit|NotebookEdit|Bash — all five uniformly
+- **Scope In — three watched surfaces + five tool types** — present · role file, identity file, runbook.md files all handled; matcher covers the exact five
+- **Scope In — id skill docs update** — present · 'your own echo' case removed from the agent-side reading protocol; new paragraph documents upstream self-edit suppression
+- **Scope In — distributor catalog row** — present · self-edit-baseline-sync bundled row added; catalog and run-sweep test counts updated in lockstep
+- **Scope Out — no general 'who wrote it' machinery** — present · no PID logging, no command parsing, no audit-subsystem calls; mechanism uses only the state dir the watcher already keeps
+- **Deferred — no metrics/logging of catch rate** — present · correctly absent
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Small realizations beyond the letter of the shape but consistent with its spirit: (a) sync script wraps its work in `timeout 2` and always exits 0 — explicit realization of the 'cannot make watcher WORSE' invariant; (b) runbook slug regex validation on the sync side mirrors the watcher's own defensive slug check; (c) the sync script parses `role:` from the identity YAML frontmatter to reconstruct role/runbook paths (necessary to obey the watcher's filename convention); (d) new-runbook-created events are also suppressed when the marker confirms agent authorship — consistent extension of the same principle to the 'added' event kind; (e) cold-start pass also consumes markers so a marker outliving a watcher restart still counts. Test driver (self-edit-baseline-sync.test.sh) covers T-S1..T-S7 including the load-bearing peer-edit-during-settle case.

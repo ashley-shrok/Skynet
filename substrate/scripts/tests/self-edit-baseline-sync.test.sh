@@ -15,6 +15,8 @@
 #          case: marker present but current content ≠ recorded hash)
 #   T-S7 — watcher without marker → fires event (today's behavior preserved
 #          when the sync hook never ran)
+#   T-S8 — hostile role: value in identity frontmatter does NOT execute inside
+#          the sync hook's bash body (shell-injection defense)
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
@@ -359,6 +361,41 @@ test_T_S7_watcher_no_marker_fires() {
   fi
 }
 
+# ============================================================
+# T-S8: hostile role: value in identity frontmatter must NOT execute inside
+# the sync hook's bash body. The identity file is agent-writable, so its
+# `role:` field is untrusted input. Regression guard for the shell-injection
+# fix (export-inherit instead of `'"$X"'` splicing).
+# ============================================================
+test_T_S8_role_injection_defense() {
+  local home_dir
+  home_dir=$(make_tmpdir)
+  mkdir -p "$home_dir/fleet/roles/normal" \
+           "$home_dir/fleet/identities/victim/role-file-watch"
+
+  # Hostile role: no whitespace so the awk truncator doesn't help, contains a
+  # single-quote break-out + touch-a-marker payload.
+  cat > "$home_dir/fleet/identities/victim/victim.md" <<EOF
+---
+role: normal';touch $home_dir/PWNED;echo x
+displayName: Victim
+---
+# body
+EOF
+  # Diverge the identity baseline so the sync path actually runs.
+  echo "old" > "$home_dir/fleet/identities/victim/role-file-watch/last-snapshot.identity"
+
+  # Ensure the payload target doesn't exist beforehand.
+  rm -f "$home_dir/PWNED"
+
+  HOME="$home_dir" FLEET_IDENTITY="victim" bash "$SYNC_SCRIPT" </dev/null
+
+  if [ -f "$home_dir/PWNED" ]; then
+    fail "T-S8: hostile role: value executed inside the sync hook body"
+    return
+  fi
+}
+
 # ---- run ----
 
 run_test test_T_S1_sync_drift
@@ -368,6 +405,7 @@ run_test test_T_S4_no_state_dir
 run_test test_T_S5_watcher_matching_marker_silent
 run_test test_T_S6_watcher_mismatched_marker_fires
 run_test test_T_S7_watcher_no_marker_fires
+run_test test_T_S8_role_injection_defense
 
 # ---- summary ----
 
