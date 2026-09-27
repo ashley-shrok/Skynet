@@ -1855,6 +1855,154 @@ if (process.env.VITEST !== "true") {
       });
     }
 
+    // =========================================================================
+    // agent-phone shape — always-on phone-call-request scan orchestrator +
+    // per-user-serial worker loops. Wired IMMEDIATELY AFTER the image-gen
+    // block (mirrors its structure verbatim, minus the token-bucket + N-worker
+    // pool — the phone queue serializes per target user internally instead).
+    //
+    // The processor + workerDeps must be wired BEFORE any enqueue can happen,
+    // so we set them up before starting the scan.
+    // =========================================================================
+    {
+      const { createPhoneCallScanOrchestrator } = await import(
+        "./phone-call-requests/scan-orchestrator.js"
+      );
+      const { listSubstrateHosts: listSubstrateHostsForPhoneScan } = await import(
+        "./distributor/list-substrate-hosts.js"
+      );
+      const { connectOneShot: connectOneShotPhone } = await import(
+        "./ssh/ssh-one-shot.js"
+      );
+      const {
+        execCommand: execCommandPhone,
+        execCommandWithStdin: execCommandWithStdinPhone,
+      } = await import("./ssh/tmux-helper.js");
+      const { getDb: getDbForPhoneScan } = await import(
+        "./database/db/index.js"
+      );
+      const {
+        enqueue: enqueuePhoneCallRequest,
+        setProcessPhoneCall: setPhoneProcessFn,
+        setWorkerDeps: setPhoneWorkerDeps,
+        stopPool: stopPhoneWorkerPool,
+      } = await import("./phone-call-requests/queue.js");
+      const {
+        processPhoneCall,
+        buildProductionDeps: buildPhoneWorkerDeps,
+      } = await import("./phone-call-requests/worker.js");
+
+      // Wire the worker into the queue BEFORE the scan can enqueue anything.
+      const phoneWorkerDeps = buildPhoneWorkerDeps();
+      setPhoneWorkerDeps(phoneWorkerDeps);
+      setPhoneProcessFn(processPhoneCall);
+      systemLogger.info("Phone-call worker queue wired", {
+        operation: "phone_worker_pool_wired",
+      });
+
+      // Own per-host ssh2 Client pool — independent of every other
+      // scan/orchestrator hostClients map so lifecycles never contaminate.
+      const phoneScanHostClients = new Map<string, import("ssh2").Client>();
+
+      async function phoneScanAcquireChannel(host: {
+        id: string;
+        name: string;
+        _connDetails: Record<string, unknown>;
+      }) {
+        try {
+          let client = phoneScanHostClients.get(host.id);
+          if (!client) {
+            client = await connectOneShotPhone(
+              host._connDetails as Parameters<typeof connectOneShotPhone>[0],
+              10000,
+            );
+            phoneScanHostClients.set(host.id, client);
+            client.on("end", () => phoneScanHostClients.delete(host.id));
+            client.on("close", () => phoneScanHostClients.delete(host.id));
+            client.on("error", () => phoneScanHostClients.delete(host.id));
+          }
+
+          // Shared per-host semaphore (same 8-slot pool as fleet-status +
+          // substrate + spawn-scan + image-gen-scan) — bounds concurrent
+          // exec calls per fleet host.
+          const sem = getHostSemaphore(host.id);
+          const capturedClient = client;
+          const capturedSem = sem;
+          return {
+            exec: async (cmd: string, stdinBody?: Buffer): Promise<string | null> => {
+              try {
+                return await capturedSem.run(async () =>
+                  stdinBody === undefined
+                    ? execCommandPhone(capturedClient, cmd)
+                    : execCommandWithStdinPhone(capturedClient, cmd, stdinBody),
+                );
+              } catch {
+                return null;
+              }
+            },
+          };
+        } catch (err) {
+          systemLogger.warn("Phone-call scan: SSH channel acquire failed", {
+            operation: "phone_scan_channel_acquire_failed",
+            fleetHostId: host.id,
+            hostName: host.name,
+            error: err instanceof Error ? err.message : "unknown",
+          });
+          return null;
+        }
+      }
+
+      function phoneScanReleaseChannel(
+        _host: { id: string; name: string },
+        _channel: unknown,
+      ): void {
+        // no-op — the underlying ssh2 Client is reused across ticks for the
+        // container lifetime. Cleanup happens on SIGTERM.
+      }
+
+      const phoneScanOrch = createPhoneCallScanOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHostsForPhoneScan({ getDb: getDbForPhoneScan }),
+        acquireChannel: phoneScanAcquireChannel,
+        releaseChannel: phoneScanReleaseChannel,
+        enqueue: enqueuePhoneCallRequest,
+        setInterval,
+        clearInterval,
+        setTimeout,
+        clearTimeout,
+        now: () => Date.now(),
+        scanIntervalMs: 10000,
+      });
+
+      phoneScanOrch.start().catch((err) => {
+        systemLogger.warn("Phone-call scan orchestrator start() rejected (unexpected)", {
+          operation: "phone_scan_orchestrator_start_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      });
+
+      systemLogger.info("Phone-call scan orchestrator started at boot", {
+        operation: "phone_scan_orchestrator_started_at_boot",
+        scanIntervalMs: 10000,
+      });
+
+      process.once("SIGTERM", () => {
+        systemLogger.info("Phone-call scan orchestrator stopping on SIGTERM", {
+          operation: "phone_scan_orchestrator_lifecycle",
+        });
+        phoneScanOrch.stop();
+        stopPhoneWorkerPool();
+        for (const [, client] of phoneScanHostClients) {
+          try {
+            client.end();
+          } catch {
+            /* best-effort — client may already be dead */
+          }
+        }
+        phoneScanHostClients.clear();
+      });
+    }
+
     // Initialize log level from database settings
     const { getDb: getDbForSettings } = await import("./database/db/index.js");
     const settingsDb = getDbForSettings();

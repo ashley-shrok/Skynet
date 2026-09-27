@@ -33,6 +33,22 @@ function isNonEmptyString(val: unknown): val is string {
  */
 const MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/;
 
+/**
+ * agent-phone — E.164 phone-number validation regex.
+ *
+ * ITU E.164 specifies a leading `+`, a country code starting with a non-zero
+ * digit, and 8-15 total digits after the `+`. This regex enforces exactly
+ * that shape — no spaces, no dashes, no parens, no extensions. The gate runs
+ * BEFORE any DB touch so shape errors 400 without side effects (same
+ * discipline as MXID_RE above).
+ *
+ * Storage-only validation: the number is never dialed by this endpoint. The
+ * phone-call-requests worker consumes the value verbatim and hands it to the
+ * third-party phone service, which owns any deeper syntactic + reachability
+ * checks.
+ */
+const PHONE_E164_RE = /^\+[1-9]\d{7,14}$/;
+
 export function registerUserAdminRoutes(
   router: Router,
   authenticateJWT: RequestHandler,
@@ -387,6 +403,126 @@ export function registerUserAdminRoutes(
     } catch (err) {
       authLogger.error("Failed to register mxid", err);
       res.status(500).json({ error: "Failed to register mxid" });
+    }
+  });
+
+  /**
+   * @openapi
+   * /users/{id}/phone:
+   *   post:
+   *     summary: Set a user's E.164 phone number (admin only)
+   *     description: |
+   *       Sets the E.164-formatted phone number on a user record. Consumed by
+   *       the agent-phone capability — the phone-call-requests worker looks
+   *       this up when an agent drops a call request. Nullable in the schema
+   *       (users without a number get a "no_phone_on_file" outcome from the
+   *       worker); this endpoint sets it, does not clear it. No UI surfaces
+   *       this field today — the endpoint is called directly with curl using
+   *       an admin cookie.
+   *     tags:
+   *       - Users
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               phoneE164:
+   *                 type: string
+   *                 pattern: '^\+[1-9]\d{7,14}$'
+   *                 example: '+17167871388'
+   *     responses:
+   *       200:
+   *         description: Phone number set.
+   *       400:
+   *         description: phoneE164 missing or not E.164-shaped.
+   *       403:
+   *         description: Not authorized.
+   *       404:
+   *         description: User not found.
+   *       500:
+   *         description: Failed to set phone number.
+   */
+  router.post("/:id/phone", authenticateJWT, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const targetId = req.params.id as string;
+    const { phoneE164 } = req.body ?? {};
+
+    // Shape gate BEFORE any DB touch (same discipline as MXID_RE above).
+    if (typeof phoneE164 !== "string" || !PHONE_E164_RE.test(phoneE164)) {
+      return res
+        .status(400)
+        .json({ error: "phoneE164 must match E.164 format (e.g. +17167871388)" });
+    }
+
+    try {
+      // Defense-in-depth admin re-check per the sibling POST /:id/mxid
+      // precedent — authenticateJWT already validated the session; this
+      // second check confirms admin status at the handler boundary.
+      const adminUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId));
+      if (!adminUser || adminUser.length === 0 || !adminUser[0].isAdmin) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+
+      // Capture previousPhone BEFORE the UPDATE so the audit log records the
+      // full state transition (matches the mxid audit-trail pattern).
+      const targetUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, targetId))
+        .limit(1);
+      if (!targetUser || targetUser.length === 0) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      const previousPhone: string | null = targetUser[0].phoneE164 ?? null;
+
+      await db
+        .update(users)
+        .set({ phoneE164 })
+        .where(eq(users.id, targetId));
+
+      // Persist RAM→disk. Wrapped in try/catch + non-fatal warn per the
+      // sibling mxid endpoint precedent — a save failure leaves the write
+      // durable in RAM and it lands on disk on the next mutation.
+      try {
+        const { saveMemoryDatabaseToFile } = await import("../db/index.js");
+        await saveMemoryDatabaseToFile();
+      } catch (saveError) {
+        authLogger.error(
+          "Failed to persist phone number update to disk",
+          saveError,
+          {
+            operation: "user_phone_save_failed",
+            targetId,
+          },
+        );
+      }
+
+      // Audit log with full transition — grep-recoverable in case of
+      // accidental overwrite (same rationale as the mxid audit trail).
+      authLogger.info("phone_e164 set for user", {
+        operation: "user_phone_set",
+        adminId: userId,
+        targetUserId: targetUser[0].id,
+        previousPhone,
+        // Log only whether a value was set, not the digits themselves —
+        // phone numbers are personal data and shouldn't sit in log grep.
+        newPhoneSet: true,
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      authLogger.error("Failed to set phone number", err);
+      res.status(500).json({ error: "Failed to set phone number" });
     }
   });
 

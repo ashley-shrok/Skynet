@@ -46,6 +46,7 @@ interface UserRow {
   username: string;
   isAdmin: boolean;
   mxid: string | null;
+  phoneE164: string | null;
 }
 
 const dbState: {
@@ -80,6 +81,7 @@ vi.mock("../db/schema.js", () => ({
     username: { _colName: "username" },
     isAdmin: { _colName: "isAdmin" },
     mxid: { _colName: "mxid" },
+    phoneE164: { _colName: "phoneE164" },
   },
 }));
 
@@ -285,18 +287,21 @@ beforeEach(() => {
       username: "adminuser",
       isAdmin: true,
       mxid: null,
+      phoneE164: null,
     },
     {
       id: "user-1",
       username: "regularuser",
       isAdmin: false,
       mxid: null,
+      phoneE164: null,
     },
     {
       id: "target-1",
       username: "targetuser",
       isAdmin: false,
       mxid: null,
+      phoneE164: null,
     },
   ];
   dbState.lastUpdateSetKeys = null;
@@ -557,5 +562,208 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
     });
     expect(call2[1].previousMxid).not.toBeNull();
     expect(call2[1].previousMxid).not.toBe("@b:host.example");
+  });
+});
+
+// ===========================================================================
+// Tests — POST /users/:id/phone — agent-phone shape
+// Mirrors the mxid test surface with the E.164 gate and phone audit fields.
+// ===========================================================================
+
+describe("POST /users/:id/phone — agent-phone shape", () => {
+  // -------------------------------------------------------------------------
+  // Shape gate: non-E.164 strings must 400 without a DB touch or audit.
+  // -------------------------------------------------------------------------
+  it("Test 1: bad phone string → 400, DB unchanged, no audit", async () => {
+    const res = await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "not-a-phone" },
+      { "x-test-user-id": "admin-1" },
+    );
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toContain("E.164");
+    expect(dbState.users.find((u) => u.id === "target-1")?.phoneE164).toBeNull();
+    expect(dbState.lastUpdateSetKeys).toBeNull();
+    expect(authLoggerMock.info).not.toHaveBeenCalled();
+  });
+
+  it("Test 2: phoneE164 is a number → 400, DB unchanged", async () => {
+    const res = await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: 17167871388 },
+      { "x-test-user-id": "admin-1" },
+    );
+    expect(res.status).toBe(400);
+    expect(dbState.users.find((u) => u.id === "target-1")?.phoneE164).toBeNull();
+    expect(dbState.lastUpdateSetKeys).toBeNull();
+  });
+
+  it("Test 3: missing '+' prefix → 400 (E.164 requires leading +)", async () => {
+    const res = await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "17167871388" },
+      { "x-test-user-id": "admin-1" },
+    );
+    expect(res.status).toBe(400);
+    expect(dbState.users.find((u) => u.id === "target-1")?.phoneE164).toBeNull();
+  });
+
+  it("Test 4: leading zero after '+' → 400 (country code cannot start with 0)", async () => {
+    const res = await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "+01234567" },
+      { "x-test-user-id": "admin-1" },
+    );
+    expect(res.status).toBe(400);
+    expect(dbState.users.find((u) => u.id === "target-1")?.phoneE164).toBeNull();
+  });
+
+  it("Test 5: too short (7 digits total after +) → 400", async () => {
+    const res = await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "+1234567" },
+      { "x-test-user-id": "admin-1" },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("Test 6: too long (16 digits total after +) → 400", async () => {
+    const res = await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "+11234567890123456" },
+      { "x-test-user-id": "admin-1" },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("Test 7: contains spaces/dashes → 400 (E.164 forbids any separators)", async () => {
+    const res = await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "+1 716 787 1388" },
+      { "x-test-user-id": "admin-1" },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("Test 8: request without x-test-user-id → 401 (mocked middleware)", async () => {
+    const res = await httpPost(server, "/users/target-1/phone", {
+      phoneE164: "+17167871388",
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("Test 9: caller is not admin → 403", async () => {
+    const res = await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "+17167871388" },
+      { "x-test-user-id": "user-1" },
+    );
+    expect(res.status).toBe(403);
+    expect(dbState.users.find((u) => u.id === "target-1")?.phoneE164).toBeNull();
+  });
+
+  it("Test 10: target user id missing → 404", async () => {
+    const res = await httpPost(
+      server,
+      "/users/nonexistent/phone",
+      { phoneE164: "+17167871388" },
+      { "x-test-user-id": "admin-1" },
+    );
+    expect(res.status).toBe(404);
+  });
+
+  // -------------------------------------------------------------------------
+  // Happy path: FIRST-SET writes the row and audits previousPhone=null.
+  // -------------------------------------------------------------------------
+  it("Test 11: happy path FIRST-SET → 200, row updated, audit previousPhone=null", async () => {
+    const res = await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "+17167871388" },
+      { "x-test-user-id": "admin-1" },
+    );
+    expect(res.status).toBe(200);
+    expect((res.body as { ok: boolean }).ok).toBe(true);
+    // Row updated
+    expect(dbState.users.find((u) => u.id === "target-1")?.phoneE164).toBe(
+      "+17167871388",
+    );
+    // The UPDATE set-clause included phoneE164
+    expect(dbState.lastUpdateSetKeys).toEqual(["phoneE164"]);
+    // Audit info called with the state-transition fields
+    expect(authLoggerMock.info).toHaveBeenCalledWith(
+      "phone_e164 set for user",
+      expect.objectContaining({
+        operation: "user_phone_set",
+        previousPhone: null,
+        newPhoneSet: true,
+      }),
+    );
+    // Audit MUST NOT include the phone digits themselves
+    const call = authLoggerMock.info.mock.calls.find(
+      (c: unknown[]) => c[0] === "phone_e164 set for user",
+    );
+    expect(call).toBeDefined();
+    expect(JSON.stringify(call?.[1])).not.toContain("+17167871388");
+  });
+
+  it("Test 12: persist failure is non-fatal (still returns 200, audit-error emitted)", async () => {
+    saveMemoryDatabaseToFileMock.mockRejectedValueOnce(new Error("disk full"));
+    const res = await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "+17167871388" },
+      { "x-test-user-id": "admin-1" },
+    );
+    // 200 returned even though disk write failed (RAM state is durable, next
+    // mutation triggers a save, and addColumnIfNotExists is idempotent).
+    expect(res.status).toBe(200);
+    expect((res.body as { ok: boolean }).ok).toBe(true);
+    // Audit error emitted with the specific persist-failure operation
+    expect(authLoggerMock.error).toHaveBeenCalledWith(
+      "Failed to persist phone number update to disk",
+      expect.any(Error),
+      expect.objectContaining({
+        operation: "user_phone_save_failed",
+        targetId: "target-1",
+      }),
+    );
+  });
+
+  it("Test 13: OVERWRITE — audit previousPhone equals prior value (not null)", async () => {
+    // First call — sets to +17167871388
+    await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "+17167871388" },
+      { "x-test-user-id": "admin-1" },
+    );
+    // Second call — overwrites with a different number
+    await httpPost(
+      server,
+      "/users/target-1/phone",
+      { phoneE164: "+441632960123" },
+      { "x-test-user-id": "admin-1" },
+    );
+
+    const auditCalls = authLoggerMock.info.mock.calls.filter(
+      (c: unknown[]) => c[0] === "phone_e164 set for user",
+    );
+    expect(auditCalls).toHaveLength(2);
+    const [call1, call2] = auditCalls as Array<[string, { previousPhone: string | null }]>;
+    expect(call1[1].previousPhone).toBeNull();
+    expect(call2[1].previousPhone).toBe("+17167871388");
+    // Row now holds the new value
+    expect(dbState.users.find((u) => u.id === "target-1")?.phoneE164).toBe(
+      "+441632960123",
+    );
   });
 });

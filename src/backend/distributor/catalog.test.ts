@@ -66,7 +66,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // packaged): src/lib/pane.ts, src/hooks.ts, src/hooks.server.ts,
     // server.js, src/routes/about/+page.svelte — grew app-development from
     // 26 to 31 rows.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(51);
+    // agent-phone adds 2 rows: SKILL.md + agent-phone helper script.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(53);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -166,7 +167,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // including the 3-file pre-generated initial Drizzle migration,
     // first-class-apps shape 1)
     // +5 for pane-safe starter files (see Test 1 comment) — 32 → 37.
-    expect(skillRows.length).toBe(37);
+    // +1 for agent-phone (SKILL.md) — 37 → 38.
+    expect(skillRows.length).toBe(38);
     // 12 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
     // (distributor-shipped node POSTer — install-usage-reporter.sh was
@@ -176,8 +178,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // pv-context-pct-sweep (Phase 95 PrettyView context-pct batch sweep) +
     // ambient-monitor (mega-monitor phase, single on-wake launcher) +
     // image-gen (Phase 116 file-drop broker helper) +
-    // task-field-check (UserPromptSubmit hook for id skill task: field nag)
-    expect(scriptRows.length).toBe(12);
+    // task-field-check (UserPromptSubmit hook for id skill task: field nag) +
+    // agent-phone (file-drop broker helper for phone-call capability)
+    expect(scriptRows.length).toBe(13);
     // 1 user-onboarding file: agent-supervisor.service
     expect(userOnboardingRows.length).toBe(1);
 
@@ -277,7 +280,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       (e) => e.sourceKind === "runtime",
     );
     // +5 for pane-safe starter files (see Test 1 comment) — 45 → 50.
-    expect(bundled.length).toBe(50);
+    // +2 for agent-phone (skill + helper) — 50 → 52.
+    expect(bundled.length).toBe(52);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

@@ -67,8 +67,10 @@
  *     - 1 row for user-onboarding/agent-supervisor.service
  *     - 1 row for instance-policy-claude-md (Phase 114 twinkie — runtime-sourced,
  *       system-root-installed)
- *   Total = 45 (was 52 before 2026-09-20 retirements — 3 bounty-adjacent
- *   skills, 3 id/ coord companions, and promote-to-coordinator).
+ *   Total = 47 (45 pre-agent-phone + 2 for the agent-phone-skill and
+ *   agent-phone-helper rows added alongside the image-gen equivalents;
+ *   was 52 before 2026-09-20 retirements — 3 bounty-adjacent skills,
+ *   3 id/ coord companions, and promote-to-coordinator).
  *
  * TWO NEW AXES (Phase 114 D-12 + RESEARCH.md § Pattern 1):
  *   Phase 114 introduces two orthogonal axes to CatalogEntry:
@@ -278,6 +280,15 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.claude/skills/image-gen/SKILL.md",
     restartHook: null,
   },
+  // agent-phone: file-drop broker skill body for the phone-call capability.
+  // Same shape as image-gen-skill above — on-demand-loaded, no restart hook.
+  {
+    slug: "agent-phone-skill",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/agent-phone/SKILL.md",
+    installPath: "~/.claude/skills/agent-phone/SKILL.md",
+    restartHook: null,
+  },
 
   // --- helper scripts (8 rows prior to Phase 95 addition, 9 total — all under ~/.local/bin/) ---
   // agent-supervisor is the sole entry with a restart hook: bytes must be
@@ -342,6 +353,19 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/image-gen",
     installPath: "~/.local/bin/image-gen",
+    restartHook: null,
+  },
+  // agent-phone: file-drop broker helper for the phone-call capability.
+  // Same shape as image-gen-helper — on-demand executable, no restart hook.
+  // Callers invoke as `agent-phone --to <user> --from "<name>" "<msg>"`;
+  // drops a request file into ~/fleet/phone-call-requests/ and polls for
+  // the response before printing the transcript on stdout / outcome JSON
+  // on stderr.
+  {
+    slug: "agent-phone-helper",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/agent-phone",
+    installPath: "~/.local/bin/agent-phone",
     restartHook: null,
   },
 

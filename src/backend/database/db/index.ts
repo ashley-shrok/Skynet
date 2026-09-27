@@ -1271,6 +1271,32 @@ const migrateSchema = async () => {
   // forceSave via the shared drops-then-batched-save discipline
   // (phase-128-telegram-bot-tokens-table-drop is now the latest label).
 
+  // agent-phone shape — E.164 phone number column for the agent-phone
+  // capability. Nullable: the phone-call-requests worker checks this at
+  // process time and fails the request with outcome "no_phone_on_file" when
+  // absent. Format enforced at the admin update endpoint (leading "+", digits
+  // only, reasonable length). No UI to set this today — admin-cookie curl only.
+  // The Drizzle mirror lives at schema.ts users.phoneE164.
+  addColumnIfNotExists("users", "phone_e164", "TEXT");
+
+  // agent-phone — persist the new users.phone_e164 column. Same pattern as
+  // phase-75 and phase-85 above: addColumnIfNotExists executes against RAM
+  // SQLite; without an explicit forceSave the schema lives only in memory
+  // until an unrelated write fires the debounced trigger. Idempotent probe
+  // means a save failure retries on next boot.
+  try {
+    await DatabaseSaveTrigger.forceSave("agent-phone-user-phone-schema");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "[agent-phone] forceSave failed post-schema (non-fatal — addColumnIfNotExists is idempotent, next boot retries)",
+      {
+        operation: "schema_migration_force_save_post_add",
+        reason: "agent-phone-user-phone-schema",
+        error: saveError,
+      },
+    );
+  }
+
   addColumnIfNotExists("ssh_data", "name", "TEXT");
   addColumnIfNotExists("ssh_data", "folder", "TEXT");
   addColumnIfNotExists("ssh_data", "tags", "TEXT");

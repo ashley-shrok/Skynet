@@ -59,6 +59,14 @@ export const users = sqliteTable("users", {
   // via PUT /users/:id/avatar per D-10). Mandatoriness on new-user creation
   // is enforced at POST /users/create per D-07, not at the schema level (D-06).
   avatarPath: text("avatar_path"),
+
+  // agent-phone shape — E.164-formatted phone number for the agent-phone
+  // capability. Nullable: users without a number cannot receive agent calls,
+  // and the backend fails the request fast with a "no phone number on file"
+  // response outcome. Format: leading "+", country code, digits (no spaces,
+  // no dashes, no parens). Validation lives in the admin update endpoint;
+  // stored as-is. No UI to set this today — admin-cookie curl only.
+  phoneE164: text("phone_e164"),
 });
 
 export const settings = sqliteTable("settings", {
