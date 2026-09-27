@@ -51,6 +51,15 @@ import {
   getLocalScheduledAgentsRoot,
   IDENTITY_SLUG_RE,
 } from "../../claude-session/identity-artifact-reader.js";
+// Per-user READ-side gate. Pure function; consumes the users list parsed from
+// scheduled-agent.json and returns visible/hidden per caller. Kept file-parallel
+// with project-visibility-gate.ts + app-visibility-gate.ts so a grep for
+// isScheduledAgentVisibleToUser answers "did we gate every emit site?".
+import { isScheduledAgentVisibleToUser } from "../../fleet-status/scheduled-agent-visibility-gate.js";
+// Resolves the JWT userId to a case-preserved Skynet username so the D-3
+// gate has the caller's identity for the case-sensitive match. Mirrors
+// project-list.ts + conversation-search.ts pattern.
+import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -85,6 +94,16 @@ export type ScheduledAgentListItem = {
   prompt: string;
   roles: string[];
   skills: string[];
+  /**
+   * Per-user visibility gate list. Mirrors the `users` field on projects +
+   * apps + identity/role frontmatter. GATE-ONLY — this field MUST be
+   * stripped from every row before the response body is emitted (see the
+   * `.map` seam in the GET / handler). It carries data through the
+   * fan-out so `isScheduledAgentVisibleToUser` can filter each row, then
+   * is stripped. A leak here is the exact class of failure the field
+   * exists to prevent (network-trace enumeration of hidden agents).
+   */
+  users: string[] | null;
 };
 
 /**
@@ -120,6 +139,16 @@ function specToRow(
   hostName: string,
   hostId: number,
 ): ScheduledAgentListItem {
+  // Per-user gate list. Only accept if it's an array of strings; anything
+  // else (missing / non-array / non-string entries) coerces to null =
+  // "no gate" (D-3 falls-open). Matches app-frame-filter parser lenience
+  // for the same field on apps.
+  const rawUsers = spec.users;
+  const users: string[] | null =
+    Array.isArray(rawUsers) && rawUsers.every((u) => typeof u === "string")
+      ? (rawUsers as string[])
+      : null;
+
   return {
     slug,
     host: hostName,
@@ -131,6 +160,7 @@ function specToRow(
     prompt: typeof spec.prompt === "string" ? spec.prompt : "",
     roles: Array.isArray(spec.roles) ? (spec.roles as string[]) : [],
     skills: Array.isArray(spec.skills) ? (spec.skills as string[]) : [],
+    users,
   };
 }
 
@@ -384,7 +414,35 @@ router.get(
       }),
     );
 
-    return res.json({ items: perHost.flat() });
+    // Per-user visibility gate. Resolve caller's Skynet username, drop any
+    // row the caller isn't gated to see, then STRIP the users field before
+    // emit. Mirrors project-list.ts + app-frame-filter's strip discipline:
+    // the `users` list is gate-only and MUST NOT reach the wire (no
+    // evidence of hidden rows in a network trace).
+    //
+    // Fail-OPEN on username-lookup failure — a null callerUsername is an
+    // infra bug, not a gate signal; treating it as "hide everything" would
+    // empty every user's scheduled-agents list on the affected code path.
+    let callerUsername: string | null = null;
+    try {
+      callerUsername = await getUsernameForUserId(userId);
+    } catch (usernameErr) {
+      sshLogger.warn("scheduled-agents-list: caller username lookup threw — gate disabled", {
+        operation: "scheduled_agents_list_username_lookup_threw",
+        userId,
+        error: usernameErr instanceof Error ? usernameErr.message : String(usernameErr),
+      });
+    }
+
+    const items = perHost
+      .flat()
+      .filter((row) => isScheduledAgentVisibleToUser(row.users, callerUsername))
+      .map((row) => {
+        const { users: _users, ...rest } = row;
+        return rest;
+      });
+
+    return res.json({ items });
   },
 );
 

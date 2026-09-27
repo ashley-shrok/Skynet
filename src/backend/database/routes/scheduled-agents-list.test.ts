@@ -28,7 +28,7 @@
  *  12: multi-slug on one REMOTE host — 3 rows returned in one delimiter batch
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -157,6 +157,18 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// host-user-counter mock — the users-gate resolves the caller's Skynet
+// username through this helper. Default is null (gate DISABLED / falls open
+// on every row), so pre-existing tests keep their happy paths without
+// having to reason about a users list. Individual gate-behavior tests
+// override with mockResolvedValueOnce.
+// ---------------------------------------------------------------------------
+
+vi.mock("../../utils/host-user-counter.js", () => ({
+  getUsernameForUserId: vi.fn().mockResolvedValue(null),
+}));
+
+// ---------------------------------------------------------------------------
 // fs/promises mock — LOCAL branch reads
 // ---------------------------------------------------------------------------
 
@@ -177,6 +189,7 @@ vi.mock("fs/promises", () => ({
 // ---------------------------------------------------------------------------
 
 import router from "./scheduled-agents-list.js";
+import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 
 // ---------------------------------------------------------------------------
 // httpRequest helper
@@ -666,5 +679,256 @@ describe("GET /scheduled-agents (fleet-wide LIST)", () => {
     expect(body.items).toHaveLength(3);
     expect(body.items.map((r) => r.slug).sort()).toEqual(["one", "three", "two"]);
     expect(body.items.every((r) => r.hostId === 7)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-user visibility gate — mirrors Phase 130 apps-tagging gate discipline.
+// A scheduled-agent spec on disk may carry an optional `users: string[]`
+// field naming the Skynet usernames allowed to see it in the list. Absent,
+// non-array, or empty = "no gate" (falls open, D-3 default). The `users`
+// field is stripped from every row in the response body — gate-only, never
+// on the wire (T-129-HIGH-1 mirror).
+// ---------------------------------------------------------------------------
+
+describe("GET /scheduled-agents — per-user users-tagging gate", () => {
+  it("caller on the users list → row visible; users field stripped from response", async () => {
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("alice");
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    execCommandMock.mockResolvedValue(
+      makeRemoteStdout([
+        {
+          slug: "for-alice",
+          body: JSON.stringify({
+            name: "For Alice",
+            prompt: "p",
+            schedule: { type: "interval", every: "5m" },
+            users: ["alice"],
+          }),
+        },
+      ]),
+    );
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/scheduled-agents",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { items: Array<Record<string, unknown>> };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].slug).toBe("for-alice");
+    // Strip discipline — the field MUST NOT appear on the wire.
+    expect(body.items[0]).not.toHaveProperty("users");
+  });
+
+  it("caller NOT on the users list → row filtered out", async () => {
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("zoey");
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    execCommandMock.mockResolvedValue(
+      makeRemoteStdout([
+        {
+          slug: "for-alice",
+          body: JSON.stringify({
+            name: "For Alice",
+            prompt: "p",
+            schedule: { type: "interval", every: "5m" },
+            users: ["alice"],
+          }),
+        },
+        {
+          slug: "for-zoey",
+          body: JSON.stringify({
+            name: "For Zoey",
+            prompt: "p",
+            schedule: { type: "daily", at: "09:00" },
+            users: ["zoey"],
+          }),
+        },
+      ]),
+    );
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/scheduled-agents",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { items: Array<{ slug: string }> };
+    expect(body.items.map((r) => r.slug).sort()).toEqual(["for-zoey"]);
+  });
+
+  it("D-3 fallback: null/absent users list → falls open for any caller", async () => {
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("zoey");
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    execCommandMock.mockResolvedValue(
+      makeRemoteStdout([
+        {
+          slug: "untagged",
+          body: JSON.stringify({
+            name: "Untagged",
+            prompt: "p",
+            schedule: { type: "interval", every: "5m" },
+            // No users field — pre-migration spec.
+          }),
+        },
+      ]),
+    );
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/scheduled-agents",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { items: Array<{ slug: string }> };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].slug).toBe("untagged");
+  });
+
+  it("D-3 fallback: empty users list → falls open for any caller", async () => {
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("zoey");
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    execCommandMock.mockResolvedValue(
+      makeRemoteStdout([
+        {
+          slug: "empty-tag",
+          body: JSON.stringify({
+            name: "Empty Tag",
+            prompt: "p",
+            schedule: { type: "interval", every: "5m" },
+            users: [],
+          }),
+        },
+      ]),
+    );
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/scheduled-agents",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { items: Array<{ slug: string }> };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].slug).toBe("empty-tag");
+  });
+
+  it("null caller username (lookup returns null) → gate disabled, all rows visible", async () => {
+    // Default mock resolves to null — gate is disabled per the internal-server
+    // bypass semantics. Every row should surface regardless of tagging.
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    execCommandMock.mockResolvedValue(
+      makeRemoteStdout([
+        {
+          slug: "for-alice",
+          body: JSON.stringify({
+            name: "For Alice",
+            prompt: "p",
+            schedule: { type: "interval", every: "5m" },
+            users: ["alice"],
+          }),
+        },
+        {
+          slug: "for-zoey",
+          body: JSON.stringify({
+            name: "For Zoey",
+            prompt: "p",
+            schedule: { type: "daily", at: "09:00" },
+            users: ["zoey"],
+          }),
+        },
+      ]),
+    );
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/scheduled-agents",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { items: Array<{ slug: string }> };
+    expect(body.items.map((r) => r.slug).sort()).toEqual(["for-alice", "for-zoey"]);
+  });
+
+  it("username lookup THROWS → fail-OPEN (gate disabled, all rows visible)", async () => {
+    // Fail-OPEN matches project-list.ts + wave-2 identity-gate discipline —
+    // a null callerUsername is an infra bug, not a gate signal; treating it
+    // as "hide everything" would empty every user's list on the affected path.
+    (getUsernameForUserId as Mock).mockRejectedValueOnce(new Error("db down"));
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    execCommandMock.mockResolvedValue(
+      makeRemoteStdout([
+        {
+          slug: "for-alice",
+          body: JSON.stringify({
+            name: "For Alice",
+            prompt: "p",
+            schedule: { type: "interval", every: "5m" },
+            users: ["alice"],
+          }),
+        },
+      ]),
+    );
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/scheduled-agents",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { items: Array<{ slug: string }> };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].slug).toBe("for-alice");
+  });
+
+  it("case-sensitive comparison — 'Alice' does NOT match 'alice'", async () => {
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("alice");
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    execCommandMock.mockResolvedValue(
+      makeRemoteStdout([
+        {
+          slug: "capital-a",
+          body: JSON.stringify({
+            name: "Capital A",
+            prompt: "p",
+            schedule: { type: "interval", every: "5m" },
+            users: ["Alice"],
+          }),
+        },
+      ]),
+    );
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/scheduled-agents",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { items: unknown[] };
+    expect(body.items).toHaveLength(0);
+  });
+
+  it("malformed users field (non-string entries) coerces to null → falls open", async () => {
+    // specToRow is lenient: Array.isArray + every-string check → keep;
+    // otherwise → null (falls open). Prevents a hand-edited garbage entry
+    // from silently locking out every caller.
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("zoey");
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    execCommandMock.mockResolvedValue(
+      makeRemoteStdout([
+        {
+          slug: "garbage-users",
+          body: JSON.stringify({
+            name: "Garbage",
+            prompt: "p",
+            schedule: { type: "interval", every: "5m" },
+            users: ["alice", 42, null], // non-strings
+          }),
+        },
+      ]),
+    );
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/scheduled-agents",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { items: Array<{ slug: string }> };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].slug).toBe("garbage-users");
   });
 });

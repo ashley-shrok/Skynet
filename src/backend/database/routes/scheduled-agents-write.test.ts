@@ -713,3 +713,114 @@ describe("DELETE /scheduled-agents/:slug", () => {
     expect(execCommand).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Users-strip discipline — the per-user visibility gate list is DISK-ONLY.
+// A client sending `users` in a POST or PATCH payload must have it silently
+// dropped BEFORE the spec lands on disk AND BEFORE the response echo, so
+// a client cannot round-trip the field either. Mirrors how apps + projects
+// treat their users tagging (no HTTP write surface for it).
+// ---------------------------------------------------------------------------
+
+describe("Users-strip discipline (per-user gate list is disk-only)", () => {
+  it("POST with users in payload → 201; users NOT in written body; users NOT in response echo", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("&& echo EXISTS")) return "OK\n";
+      return "";
+    });
+
+    const specWithUsers = { ...validSpec, users: ["alice", "zoey"] };
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents",
+      body: { host: 7, spec: specWithUsers },
+    });
+    expect(res.status).toBe(201);
+
+    // On-disk body — the third arg to writeMarkdownFileAtomic is the JSON body.
+    const callArgs = (writeMarkdownFileAtomic as Mock).mock.calls[0];
+    const writtenBody = callArgs[2] as string;
+    expect(writtenBody).not.toContain('"users"');
+    expect(writtenBody).not.toContain("alice");
+
+    // Response echo — {slug, host, spec} where spec is the STRIPPED validSpec.
+    const rb = res.body as { spec: Record<string, unknown> };
+    expect(rb.spec).not.toHaveProperty("users");
+    expect(rb.spec).toHaveProperty("prompt");
+    expect(rb.spec).toHaveProperty("schedule");
+  });
+
+  it("PATCH /:slug with users in payload → 200; users NOT in written body; users NOT in response echo", async () => {
+    const specWithUsers = { ...validSpec, users: ["alice"] };
+    const res = await httpRequest(server, {
+      method: "PATCH",
+      path: "/scheduled-agents/morning-digest",
+      body: { host: 7, spec: specWithUsers },
+    });
+    expect(res.status).toBe(200);
+
+    const callArgs = (writeMarkdownFileAtomic as Mock).mock.calls[0];
+    const writtenBody = callArgs[2] as string;
+    expect(writtenBody).not.toContain('"users"');
+    expect(writtenBody).not.toContain("alice");
+
+    const rb = res.body as { spec: Record<string, unknown> };
+    expect(rb.spec).not.toHaveProperty("users");
+  });
+
+  it("POST WITHOUT users field → succeeds unchanged (strip is a no-op)", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("&& echo EXISTS")) return "OK\n";
+      return "";
+    });
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents",
+      body: { host: 7, spec: validSpec },
+    });
+    expect(res.status).toBe(201);
+
+    const callArgs = (writeMarkdownFileAtomic as Mock).mock.calls[0];
+    const writtenBody = callArgs[2] as string;
+    expect(writtenBody).toContain('"prompt"');
+    expect(writtenBody).not.toContain('"users"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unit test for stripUsersFromSpec — pure helper.
+// ---------------------------------------------------------------------------
+
+describe("stripUsersFromSpec (helper)", () => {
+  it("removes the users key when present", async () => {
+    const { stripUsersFromSpec } = await import("./scheduled-agents-write.js");
+    const spec: Record<string, unknown> = {
+      name: "x",
+      users: ["alice"],
+      prompt: "p",
+    };
+    stripUsersFromSpec(spec);
+    expect(spec).not.toHaveProperty("users");
+    expect(spec).toHaveProperty("prompt");
+    expect(spec).toHaveProperty("name");
+  });
+
+  it("is a no-op when users is absent", async () => {
+    const { stripUsersFromSpec } = await import("./scheduled-agents-write.js");
+    const spec: Record<string, unknown> = { name: "x", prompt: "p" };
+    stripUsersFromSpec(spec);
+    expect(spec).toEqual({ name: "x", prompt: "p" });
+  });
+
+  it("removes users even when the value is null / non-array (defensive)", async () => {
+    const { stripUsersFromSpec } = await import("./scheduled-agents-write.js");
+    const specNull: Record<string, unknown> = { name: "x", users: null };
+    stripUsersFromSpec(specNull);
+    expect(specNull).not.toHaveProperty("users");
+
+    const specNonArr: Record<string, unknown> = { name: "x", users: "alice" };
+    stripUsersFromSpec(specNonArr);
+    expect(specNonArr).not.toHaveProperty("users");
+  });
+});

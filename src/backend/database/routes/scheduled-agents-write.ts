@@ -262,6 +262,27 @@ function execWithTimeout(
   ]);
 }
 
+/**
+ * Strip the `users` field from a spec before write. The users list is a
+ * per-user visibility gate concern (see scheduled-agent-visibility-gate.ts);
+ * it MUST NOT be settable through HTTP writes — set it by hand-editing
+ * scheduled-agent.json on disk. Mirrors how apps + projects treat their
+ * users tagging (disk-only, no HTTP write surface).
+ *
+ * Silent drop (no error surface) so a well-meaning client that ships a
+ * `users` field in its payload succeeds while its intent is ignored —
+ * matches the wakeup-scheduler.py parser's permissive posture toward
+ * unknown keys.
+ *
+ * MUTATES the passed object in place. The write handler treats validSpec
+ * as the runtime object it will both serialize to disk AND echo in the
+ * response `{spec: validSpec}` payload — one strip covers both emit paths,
+ * so a client cannot round-trip the field either.
+ */
+export function stripUsersFromSpec(spec: Record<string, unknown>): void {
+  if ("users" in spec) delete spec.users;
+}
+
 /** Parse + validate hostId from the JSON body. Returns null + writes response
  *  when invalid; returns the hostId when good. */
 function requirePositiveIntegerHost(
@@ -315,6 +336,9 @@ router.post(
       return;
     }
     const validSpec = spec as ScheduledAgentSpec;
+    // Per-user gate list is disk-only — silently drop if a client sent it.
+    // Covers both the on-disk write below AND the response echo `spec: validSpec`.
+    stripUsersFromSpec(validSpec as unknown as Record<string, unknown>);
 
     const slug = normalizeSpecSlug(validSpec.name);
     if (!slug || !IDENTITY_SLUG_RE.test(slug)) {
@@ -515,6 +539,9 @@ router.patch(
       return;
     }
     const validSpec = spec as ScheduledAgentSpec;
+    // Per-user gate list is disk-only — silently drop if a client sent it.
+    // Covers both the on-disk write below AND the response echo `spec: validSpec`.
+    stripUsersFromSpec(validSpec as unknown as Record<string, unknown>);
 
     const host = await resolveHostById(hostId, userId);
     if (!host) {
