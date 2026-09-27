@@ -196,16 +196,16 @@ import {
   publishFleetStatusTmuxSessionGone,
   useSessionTmuxName,
 } from "@/state/session-tmux-store";
-// Phase 128 Plan 07 (D-08) — notificationclick deep-link receiver.
-// parseAndOpenRoomFromUrl: pure URL-param parser fired inside a
-// mount-only useEffect. Reads `?openRoom=<roomId>` written by the
-// public/sw.js notificationclick handler (Plan 04) and opens the
-// target relay-room tab, then strips the param via replaceState
-// (T-126-38 confidentiality — a copied URL after arrival doesn't
-// embed the roomId; a reload doesn't re-trigger the deep-link).
-// The Enable-notifications opt-in surface is the modal opened from
-// the PrettyConversationsPanel kebab menu (feature-detected).
-import { parseAndOpenRoomFromUrl } from "@/features/notifications/open-room-deep-link";
+// shape-notifications-to-harness — notificationclick deep-link receiver.
+// parseAndOpenHarnessFromUrl: pure URL-param parser fired inside a
+// mount-only useEffect. Reads `?openHarness=<mxid>&host=<hostId>`
+// written by the public/sw.js notificationclick handler and opens the
+// sender agent's harness view (focus-if-exists parity with sidebar
+// row-taps; toast fallback when the target host isn't reachable), then
+// strips both params via replaceState (a copied URL after arrival
+// doesn't embed routing information; a reload doesn't re-trigger the
+// deep-link).
+import { parseAndOpenHarnessFromUrl } from "@/features/notifications/open-harness-deep-link";
 // Phase 11 Plan 03 (user "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -2236,48 +2236,72 @@ export function AppShell({
     return tabId;
   }, []);
 
-  // Phase 128 Plan 07 Task 3 (D-08) — openRoom deep-link handler.
+  // shape-notifications-to-harness — openHarness deep-link handler.
   //
-  // The public/sw.js notificationclick handler (Plan 04) navigates the
-  // client to `/?openRoom=<roomId>`. This mount-only effect delegates to
-  // parseAndOpenRoomFromUrl, which:
-  //   - reads the openRoom param via `new URLSearchParams(window.location.search)`;
-  //   - guards on non-empty + basic Matrix-room-id shape (starts with `!`,
-  //     contains `:`) so malformed input warns without crashing (T-126-36);
-  //   - fires the injected open-callback below to open the relay-room tab;
-  //   - strips the openRoom param via `window.history.replaceState(null, "", pathname)`
-  //     so a reload doesn't re-trigger the deep-link and a copied URL after
-  //     arrival doesn't embed the roomId (T-126-38).
+  // The public/sw.js notificationclick handler navigates the client to
+  // `/?openHarness=<mxid>&host=<hostId>`. This mount-only effect delegates
+  // to parseAndOpenHarnessFromUrl, which reads + validates the URL params
+  // and fires the injected open-callback below. The parser strips both
+  // params via history.replaceState so a reload doesn't re-fire and a
+  // copied URL doesn't embed routing information.
   //
-  // AppShell's open-callback mirrors the sidebar's onRelayRoomRowClick
-  // handler (site ~L3200): looks up the friendly title from the
-  // relay-room-titles snapshot, calls openTab with the same relay-room
-  // options shape, then selectConversationDeferred to promote the tab.
-  // If the fleet snapshot hasn't populated the title yet, the raw roomId
-  // is used as the label — the Phase 97 title-backfill effect (L1131-1151)
-  // upgrades the label when the fleet snapshot lands.
+  // The open-callback resolves the target agent's harness tab:
+  //   1. mxid → identity localpart (lowercased per identityKey convention).
+  //   2. hostId → Host via hostsById (fleet-status snapshot). If missing,
+  //      surface a toast naming the agent and land on the default view.
+  //   3. Find an existing tab whose (host.id, type "terminal",
+  //      targetTmuxSession) matches — if so, focus it. This preserves
+  //      sidebar-row-tap parity (never opens a duplicate tab for an
+  //      agent that's already open).
+  //   4. Otherwise openTab(host, "terminal", { targetTmuxSession }) with
+  //      the same shape sidebar's onDetachedRowClick uses.
+  //   5. On any unexpected failure, toast the fallback message.
   //
-  // Runs once per mount: guarded by openRoomFiredRef so a store-driven
+  // Runs once per mount: guarded by openHarnessFiredRef so a store-driven
   // re-render doesn't re-trigger. No auto-prompt for notification
-  // permission on mount (D-10) — the opt-in surface is the modal
-  // opened from the PrettyConversationsPanel kebab menu.
-  const openRoomFiredRef = useRef(false);
+  // permission on mount — the opt-in surface is the modal opened from
+  // the PrettyConversationsPanel kebab menu.
+  const openHarnessFiredRef = useRef(false);
   useEffect(() => {
-    if (openRoomFiredRef.current) return;
-    openRoomFiredRef.current = true;
-    parseAndOpenRoomFromUrl((roomId) => {
-      // Look up the friendly title from the relay-room-titles snapshot;
-      // fall back to the roomId as label if the snapshot isn't populated
-      // yet (Phase 97 title-backfill effect will fix the label later).
-      const roomTitle = relayRoomTitles.get(roomId) ?? null;
-      const newTabId = openTab(null, "terminal", undefined, {
-        sessionKind: "relay-room",
-        relayRoomId: roomId,
-        relayRoomTitle: roomTitle,
-        label: roomTitle ?? roomId,
-        allowCreateTmux: false,
-      });
-      selectConversationDeferred(newTabId);
+    if (openHarnessFiredRef.current) return;
+    openHarnessFiredRef.current = true;
+    parseAndOpenHarnessFromUrl(({ mxid, hostId }) => {
+      // Resolve mxid → identity by localpart (identity keys are always
+      // lowercase per IDENTITY_KEY_RE; mirrors relay-mxid-resolve.ts).
+      const localpartMatch = mxid.match(/^@([^:]+):(.+)$/);
+      const identityKey =
+        localpartMatch !== null ? localpartMatch[1].toLowerCase() : null;
+      const identity =
+        identityKey !== null ? identitiesByKey.get(identityKey) ?? null : null;
+      const displayLabel = identity?.displayName ?? identityKey ?? mxid;
+
+      const host = hostsById.get(hostId);
+      if (!host || identityKey === null) {
+        toast.error(`Couldn't open ${displayLabel}`);
+        return;
+      }
+
+      const existing = tabs.find(
+        (t) =>
+          t.host?.id === host.id &&
+          t.type === "terminal" &&
+          (t.targetTmuxSession ?? null) === identityKey,
+      );
+      if (existing) {
+        selectConversationDeferred(existing.id);
+        return;
+      }
+
+      try {
+        const newTabId = openTab(host, "terminal", undefined, {
+          targetTmuxSession: identityKey,
+          label: identity?.displayName ?? identityKey,
+          allowCreateTmux: false,
+        });
+        selectConversationDeferred(newTabId);
+      } catch {
+        toast.error(`Couldn't open ${displayLabel}`);
+      }
     });
     // Deliberately mount-only — the sw.js navigation reloads the SPA (or
     // navigates the existing client via .navigate), so a fresh AppShell
