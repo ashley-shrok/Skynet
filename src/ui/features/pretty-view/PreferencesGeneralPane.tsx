@@ -8,7 +8,7 @@
  *
  * Load-bearing invariants:
  *   - Local preview via URL.createObjectURL + revokeObjectURL cleanup (no leaks)
- *   - Upload/remove failure reverts preview and shows inline error; NO toast (D-13)
+ *   - Upload/remove failure reverts preview and shows inline error; inline-only (D-13)
  *   - Cache-bust on persisted avatar src: ?f={avatarPath} so sidebar and pane stay in sync
  */
 
@@ -165,7 +165,7 @@ export function PreferencesGeneralPane({
         </div>
       </div>
 
-      {/* Inline error — no toast (D-13) */}
+      {/* Inline error only — D-13 */}
       {error !== null && (
         <div className="text-sm text-red-400" data-testid="preferences-general-error">
           {error}
