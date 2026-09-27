@@ -189,9 +189,9 @@ describe("PreferencesAboutYouPane", () => {
     // Edit the content
     fireEvent.change(editor, { target: { value: "Updated content" } });
 
-    // Save button should now be enabled
+    // Save button should now be enabled (not disabled attribute)
     const saveBtn = screen.getByRole("button", { name: /save/i });
-    expect(saveBtn).not.toBeDisabled();
+    expect((saveBtn as HTMLButtonElement).disabled).toBe(false);
 
     // Click Save
     fireEvent.click(saveBtn);
