@@ -17,18 +17,29 @@ RUN --mount=type=cache,target=/root/.npm npm ci && \
     node scripts/patch-guacamole-lite.cjs && \
     npm cache clean --force
 
+# Stage 1.5: Compute git HEAD SHA from the `git-repo` named context that
+# `docker/docker-compose.yml`'s `additional_contexts` maps to the repo's
+# `.git/` dir. This makes VITE_BUILD_ID fully automatic — every
+# `docker compose build` bakes the current HEAD SHA into the image with
+# zero operator ceremony (no shell export, no wrapper script). Emits
+# /sha.txt for downstream stages to COPY. Uses a bind mount so `.git/`
+# never enters any layer.
+FROM alpine:3 AS sha-computer
+RUN apk add --no-cache git
+RUN --mount=type=bind,from=git-repo,target=/git-dir,readonly \
+    git --git-dir=/git-dir rev-parse HEAD > /sha.txt && \
+    test -s /sha.txt
+
 # Stage 2: Build frontend
 FROM deps AS frontend-builder
 WORKDIR /app
 
-# Phase 111 SKEW-01: propagate the ship-runbook's SKYNET_BUILD_SHA into
-# the frontend-builder stage so `vite.config.ts` (which reads
-# process.env.VITE_BUILD_ID at config eval time) can bake the byte-stable
-# build-id into every bundle via its `define` block. ARG scope resets per
-# stage in Docker (Pitfall 3), so this declaration is stage-local and
-# MUST be repeated in every downstream stage that reads the value.
-ARG SKYNET_BUILD_SHA
-ENV VITE_BUILD_ID=${SKYNET_BUILD_SHA:-dev-unknown}
+# Auto-baked build-id: sha-computer stage produced /sha.txt from the
+# current git HEAD; Vite substitutes `import.meta.env.VITE_BUILD_ID` into
+# every client bundle from the env exported by the `npm run build` RUN
+# below. See `src/backend/config/server-build-id.ts` for the server-side
+# counterpart (runtime env from entrypoint).
+COPY --from=sha-computer /sha.txt /tmp/.build-sha
 
 COPY . .
 
@@ -44,19 +55,12 @@ ARG VITE_TTS_PLAYBACK_RATE
 ENV VITE_TTS_PLAYBACK_RATE=$VITE_TTS_PLAYBACK_RATE
 
 RUN npm cache clean --force && \
+    export VITE_BUILD_ID=$(cat /tmp/.build-sha) && \
     NODE_OPTIONS="--max-old-space-size=3072" npm run build
 
 # Stage 3: Build backend
 FROM deps AS backend-builder
 WORKDIR /app
-
-# Phase 111 SKEW-01: declare the ARG in the backend-builder stage too so
-# `--build-arg SKYNET_BUILD_SHA=...` propagates through this stage (ARG
-# scope resets per stage — Pitfall 3). The tsc compile itself does not
-# read the value, but re-declaring keeps the plumbing uniform and lets any
-# future stage-3 tooling read it without a surprise "unset" gap.
-ARG SKYNET_BUILD_SHA
-ENV VITE_BUILD_ID=${SKYNET_BUILD_SHA:-dev-unknown}
 
 COPY . .
 
@@ -86,14 +90,6 @@ RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev && \
 FROM node:22-slim
 WORKDIR /app
 
-# Phase 111 SKEW-01: this is where the running Node process reads
-# process.env.VITE_BUILD_ID at startup (src/backend/config/server-build-id.ts).
-# ARG scope resets per stage in Docker (Pitfall 3) — this declaration is
-# load-bearing; drop it and the runtime image will boot with an unset env
-# var → SERVER_BUILD_ID falls back to "dev-unknown" → every client sees
-# a mismatch → phase-wide reload-loop. See threat T-111-01.
-ARG SKYNET_BUILD_SHA
-
 ENV DATA_DIR=/app/data \
     PORT=8080 \
     NODE_ENV=production \
@@ -105,8 +101,7 @@ ENV DATA_DIR=/app/data \
     # get destroyed on every `docker compose up --force-recreate`.
     # Operator can still override via docker-compose env_file if they
     # need a custom host-home path.
-    HOME_HOST_DIR=/host-home \
-    VITE_BUILD_ID=${SKYNET_BUILD_SHA:-dev-unknown}
+    HOME_HOST_DIR=/host-home
 
 RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget ffmpeg systemd jq tmux && \
     update-ca-certificates && \
@@ -132,6 +127,12 @@ COPY --chown=node:node substrate /app/fleet-substrate
 COPY --chown=node:node --from=production-deps /app/node_modules /app/node_modules
 COPY --chown=node:node --from=backend-builder /app/dist/backend ./dist/backend
 COPY --chown=node:node package.json ./
+
+# Auto-baked build-id: sha-computer stage wrote /sha.txt from git HEAD;
+# entrypoint.sh reads this file and exports VITE_BUILD_ID before Node
+# starts, so `src/backend/config/server-build-id.ts` sees the byte-stable
+# value. See sha-computer stage near the top for the source.
+COPY --chown=node:node --from=sha-computer /sha.txt /app/.build-sha
 
 VOLUME ["/app/data"]
 

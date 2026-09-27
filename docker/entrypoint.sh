@@ -28,6 +28,21 @@ export SSL_PORT=${SSL_PORT:-8443}
 export SSL_CERT_PATH=${SSL_CERT_PATH:-/app/data/ssl/skynet.crt}
 export SSL_KEY_PATH=${SSL_KEY_PATH:-/app/data/ssl/skynet.key}
 
+# Build-id: /app/.build-sha is baked by the sha-computer Dockerfile stage
+# from the repo's git HEAD at build time. server-build-id.ts reads
+# process.env.VITE_BUILD_ID once at module load, so we export it before
+# the Node backend starts. Existing env override wins (rare — CI/tests).
+if [ -z "${VITE_BUILD_ID:-}" ]; then
+    if [ -r /app/.build-sha ]; then
+        VITE_BUILD_ID=$(cat /app/.build-sha)
+    else
+        echo "WARNING: /app/.build-sha missing; falling back to dev-unknown"
+        VITE_BUILD_ID=dev-unknown
+    fi
+fi
+export VITE_BUILD_ID
+echo "Build-id: $VITE_BUILD_ID"
+
 echo "Configuring web UI to run on port: $PORT"
 
 if [ "$ENABLE_SSL" = "true" ]; then
