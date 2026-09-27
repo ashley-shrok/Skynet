@@ -508,15 +508,15 @@ export function registerUserAdminRoutes(
         );
       }
 
-      // Audit log with full transition — grep-recoverable in case of
-      // accidental overwrite (same rationale as the mxid audit trail).
+      // Audit log records the transition without the digits themselves —
+      // phone numbers are personal data and shouldn't sit in log grep.
+      // previousPhoneSet distinguishes first-set from overwrite, which is
+      // the only forensic bit an admin actually needs.
       authLogger.info("phone_e164 set for user", {
         operation: "user_phone_set",
         adminId: userId,
         targetUserId: targetUser[0].id,
-        previousPhone,
-        // Log only whether a value was set, not the digits themselves —
-        // phone numbers are personal data and shouldn't sit in log grep.
+        previousPhoneSet: previousPhone !== null,
         newPhoneSet: true,
       });
       res.json({ ok: true });

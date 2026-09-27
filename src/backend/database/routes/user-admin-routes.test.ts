@@ -681,9 +681,10 @@ describe("POST /users/:id/phone — agent-phone shape", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Happy path: FIRST-SET writes the row and audits previousPhone=null.
+  // Happy path: FIRST-SET writes the row and audits the transition WITHOUT
+  // the digits (only whether a value pre-existed).
   // -------------------------------------------------------------------------
-  it("Test 11: happy path FIRST-SET → 200, row updated, audit previousPhone=null", async () => {
+  it("Test 11: happy path FIRST-SET → 200, row updated, audit records transition without digits", async () => {
     const res = await httpPost(
       server,
       "/users/target-1/phone",
@@ -698,16 +699,17 @@ describe("POST /users/:id/phone — agent-phone shape", () => {
     );
     // The UPDATE set-clause included phoneE164
     expect(dbState.lastUpdateSetKeys).toEqual(["phoneE164"]);
-    // Audit info called with the state-transition fields
+    // Audit info called with the state-transition fields as booleans.
     expect(authLoggerMock.info).toHaveBeenCalledWith(
       "phone_e164 set for user",
       expect.objectContaining({
         operation: "user_phone_set",
-        previousPhone: null,
+        previousPhoneSet: false,
         newPhoneSet: true,
       }),
     );
-    // Audit MUST NOT include the phone digits themselves
+    // Audit MUST NOT include the phone digits themselves — this is the
+    // load-bearing anti-PII-leak assertion.
     const call = authLoggerMock.info.mock.calls.find(
       (c: unknown[]) => c[0] === "phone_e164 set for user",
     );
@@ -738,7 +740,7 @@ describe("POST /users/:id/phone — agent-phone shape", () => {
     );
   });
 
-  it("Test 13: OVERWRITE — audit previousPhone equals prior value (not null)", async () => {
+  it("Test 13: OVERWRITE — audit records the transition as booleans, never the digits", async () => {
     // First call — sets to +17167871388
     await httpPost(
       server,
@@ -758,9 +760,16 @@ describe("POST /users/:id/phone — agent-phone shape", () => {
       (c: unknown[]) => c[0] === "phone_e164 set for user",
     );
     expect(auditCalls).toHaveLength(2);
-    const [call1, call2] = auditCalls as Array<[string, { previousPhone: string | null }]>;
-    expect(call1[1].previousPhone).toBeNull();
-    expect(call2[1].previousPhone).toBe("+17167871388");
+    const [call1, call2] = auditCalls as Array<[string, { previousPhoneSet: boolean }]>;
+    // First call is a FIRST-SET — no prior value.
+    expect(call1[1].previousPhoneSet).toBe(false);
+    // Second call is an OVERWRITE — prior value existed.
+    expect(call2[1].previousPhoneSet).toBe(true);
+    // Neither audit entry should carry either phone number's digits.
+    expect(JSON.stringify(call1[1])).not.toContain("+17167871388");
+    expect(JSON.stringify(call2[1])).not.toContain("+17167871388");
+    expect(JSON.stringify(call1[1])).not.toContain("+441632960123");
+    expect(JSON.stringify(call2[1])).not.toContain("+441632960123");
     // Row now holds the new value
     expect(dbState.users.find((u) => u.id === "target-1")?.phoneE164).toBe(
       "+441632960123",
