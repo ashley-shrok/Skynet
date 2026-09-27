@@ -44,6 +44,7 @@ Env:    ROLE_WATCH_POLL_SEC (default 2) — fallback polling loop granularity (o
 """
 
 import datetime
+import hashlib
 import os
 import re
 import shutil
@@ -65,6 +66,16 @@ INLINE_MAX = 460
 # does not prevent this on its own — a small multi-line diff sits well under INLINE_MAX
 # and still fans out. See _flatten_diff.
 POLL = int(os.environ.get("ROLE_WATCH_POLL_SEC", "2"))
+
+# Self-edit suppression — settle window before diffing. When the agent's own
+# tool call touches a watched file, the PostToolUse hook
+# (self-edit-baseline-sync.sh) atomically refreshes the baseline and writes a
+# sha256 marker at `<baseline>.self-edit-hash`. This settle window gives the
+# hook time to complete before the watcher does its comparison; the hash-guard
+# in _is_self_edit then confirms the current content matches what the hook
+# recorded. Env-override so operators can tune without redeploy.
+# Shape rationale: .planning/shapes/shape-stop-self-edit-events.md.
+SELF_EDIT_SETTLE_MS = int(os.environ.get("ROLE_WATCH_SELF_EDIT_SETTLE_MS", "200"))
 
 # Module-level inotifywait subprocess handle so signal handlers can clean it up.
 _inotify_proc = None
@@ -251,9 +262,59 @@ def _emit_event(kind, label, diff_stdout, spill_dir):
         )
 
 
+def _is_self_edit(baseline_path, current_bytes):
+    """Hash-guard for self-edit suppression. Returns True iff the sync hook
+    (self-edit-baseline-sync.sh) recently recorded a fingerprint at
+    <baseline_path>.self-edit-hash AND that fingerprint matches sha256 of the
+    current file content — i.e. the agent's own tool call is what produced
+    the change we're now looking at, AND nothing has changed since.
+
+    Consumes the marker unconditionally (whether match or mismatch). Stale
+    markers cannot linger and silently suppress a later peer edit.
+
+    Rationale (why hash-guard, not just "marker exists"): the race we care
+    about is `me edit → peer edit → my sync hook fires`. In that path, my
+    sync hook would sync baseline to CURRENT content (which now includes
+    peer's edit) and record a hash of that. The watcher's later comparison
+    would find baseline==current, emit nothing, and the peer's edit would
+    be silently absorbed. By comparing sha256(current) against what the
+    hook actually observed at hook-time, we detect the "content changed
+    again after hook ran" case and fall back to normal diff+emit. See
+    .planning/shapes/shape-stop-self-edit-events.md § "peer edit during
+    settle window".
+    """
+    marker_path = baseline_path + ".self-edit-hash"
+    try:
+        with open(marker_path) as f:
+            recorded = f.read().strip()
+    except OSError:
+        return False
+    matched = False
+    if current_bytes is not None and recorded:
+        current_hash = hashlib.sha256(current_bytes).hexdigest()
+        matched = (recorded == current_hash)
+    # Consume marker regardless — stale entries must not survive to affect
+    # future events.
+    try:
+        os.remove(marker_path)
+    except OSError:
+        pass
+    return matched
+
+
 def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir):
     """Compare current target file against its baseline; if different, emit event
-    and update baseline. Returns True if target file is gone (caller should exit)."""
+    and update baseline. Returns True if target file is gone (caller should exit).
+
+    Self-edit suppression: sleeps SELF_EDIT_SETTLE_MS before comparison so the
+    PostToolUse sync hook has time to refresh the baseline and drop its
+    hash marker. Then _is_self_edit checks whether the current content matches
+    what the hook recorded — if yes, silent baseline refresh, no emit; if no
+    (marker absent, or content changed since hook ran), fall through to normal
+    diff + emit."""
+    if SELF_EDIT_SETTLE_MS > 0:
+        time.sleep(SELF_EDIT_SETTLE_MS / 1000.0)
+
     current = _read_bytes(target_path)
     if current is None:
         print(
@@ -264,12 +325,22 @@ def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_
         return True  # signal caller to exit
 
     baseline = _read_bytes(baseline_path)
+
+    # Consume any self-edit marker eagerly — stale markers must NOT linger
+    # across events, or a stale hash from a prior tool call could silently
+    # suppress an unrelated future peer edit whose content happens to match.
+    is_self_edit = _is_self_edit(baseline_path, current)
+
     if baseline is None:
         # Baseline missing mid-run (unusual) — re-snapshot silently.
         _atomic_write_baseline(baseline_dir, baseline_path, current)
         return False
 
     if current != baseline:
+        if is_self_edit:
+            # Agent's own edit — refresh baseline silently, no wake.
+            _atomic_write_baseline(baseline_dir, baseline_path, current)
+            return False
         diff_stdout = _run_diff(baseline_path, target_path)
         _emit_event(kind, label, diff_stdout, spill_dir)
         _atomic_write_baseline(baseline_dir, baseline_path, current)
@@ -441,6 +512,11 @@ def _handle_runbook_event(
         return
 
     if is_write:
+        # Settle window: give the PostToolUse sync hook time to refresh the
+        # baseline + drop its hash marker before we compare (matches
+        # _diff_and_emit's settle for role/identity events).
+        if SELF_EDIT_SETTLE_MS > 0:
+            time.sleep(SELF_EDIT_SETTLE_MS / 1000.0)
         current = _read_bytes(rb_path)
         if current is None:
             # File vanished between event fire and our read — likely an editor
@@ -448,14 +524,22 @@ def _handle_runbook_event(
             # its own event.
             return
         baseline = _read_bytes(base_path) if slug in tracked_slugs else None
+        # Consume any self-edit marker eagerly (see _is_self_edit).
+        is_self_edit = _is_self_edit(base_path, current)
         if baseline is None:
             # New runbook (either we've never seen it, or the baseline was
-            # cleaned up). Snapshot + emit added.
+            # cleaned up). Snapshot; emit "added" unless the sync hook
+            # confirmed this is the agent's own creation.
             _atomic_write_baseline(baseline_dir, base_path, current)
             tracked_slugs.add(slug)
-            _emit_runbook_added(role, slug, rb_path)
+            if not is_self_edit:
+                _emit_runbook_added(role, slug, rb_path)
             return
         if current != baseline:
+            if is_self_edit:
+                # Agent's own edit — refresh baseline silently, no wake.
+                _atomic_write_baseline(baseline_dir, base_path, current)
+                return
             diff_stdout = _run_diff(base_path, rb_path)
             _emit_event("runbook", "%s/%s" % (role, slug), diff_stdout, spill_dir)
             _atomic_write_baseline(baseline_dir, base_path, current)
@@ -627,10 +711,17 @@ def main():
             if current is None:
                 continue  # will be handled by (b) below
             baseline = _read_bytes(base_path)
+            # Consume any self-edit marker eagerly — even at cold-start, a
+            # marker left over from a pre-restart sync-hook run tells us the
+            # last change was ours.
+            is_self_edit = _is_self_edit(base_path, current)
             if baseline is None:
                 _atomic_write_baseline(baseline_dir, base_path, current)
                 continue
             if current != baseline:
+                if is_self_edit:
+                    _atomic_write_baseline(baseline_dir, base_path, current)
+                    continue
                 diff_stdout = _run_diff(base_path, rb_path)
                 _emit_event(
                     "runbook", "%s/%s" % (role, slug), diff_stdout, spill_dir,

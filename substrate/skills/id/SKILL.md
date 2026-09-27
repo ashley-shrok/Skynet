@@ -344,18 +344,25 @@ visible without needing a full recycle. Role-file edits typically come
 from a peer identity of the same role; identity-file edits are almost
 always the user editing directly.
 
+**Self-edits are silently suppressed at the source** (2026-09-27). A
+PostToolUse hook (`self-edit-baseline-sync`) fires after every one of your
+Write / Edit / MultiEdit / NotebookEdit / Bash tool calls; it atomically
+refreshes the watch's saved copy and records a sha256 fingerprint that the
+watcher then confirms at event time. When it lines up — your own tool call
+was what changed the file, and nothing has changed since — the watcher
+stays silent. So you should NOT see wakes for edits you just made yourself.
+If one still leaks through (rare — a Bash write via `sed -i` on a slow disk,
+say), the fallback is identical to the old behavior: read the diff, notice
+it's your own handwriting, ignore.
+
 **Agent-side reading protocol** when this watch fires: read the diff. The
 event tag names which file changed: `📝 [role-file: <role>]` or
 `📝 [identity-file: <name>]`. If the diff is small it comes inline after
 `your <X> changed —`; if it's large the line reads
 `your <X> changed — READ NOW before continuing — <spill-path>` and you
 Read that path immediately (the change may bear on the work you're
-currently doing — don't defer). The watch is dumb on purpose — it doesn't
-try to detect who made the edit; that judgment lives with you, in the
-diff content. Three cases:
-
-- **Your own echo** (either file). If you recognize the change as one
-  you made yourself, ignore it.
+currently doing — don't defer). Two cases (the "your own echo" case is
+now handled upstream):
 
 - **A peer identity's edit** (role file only). Adopt it as a role
   change — your in-context mental model updates without needing a full

@@ -71,7 +71,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // auto-allow for every tool call, completes the "no prompts, ever"
     // posture by covering residual circuit-breaker prompts that
     // --dangerously-skip-permissions doesn't).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(54);
+    // self-edit-baseline-sync adds 1 helper script (PostToolUse hook for
+    // role-file-watch self-edit suppression, 2026-09-27 — see
+    // .planning/shapes/shape-stop-self-edit-events.md).
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(55);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -173,7 +176,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +5 for pane-safe starter files (see Test 1 comment) — 32 → 37.
     // +1 for agent-phone (SKILL.md) — 37 → 38.
     expect(skillRows.length).toBe(38);
-    // 14 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
+    // 15 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
     // (distributor-shipped node POSTer — install-usage-reporter.sh was
     // retired in favor of the run-bootstrap.ts Step 6 wire-up so the
@@ -185,8 +188,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // task-field-check (UserPromptSubmit hook for id skill task: field nag) +
     // agent-phone (file-drop broker helper for phone-call capability) +
     // allow-all-tools (PreToolUse hook — fleet-wide auto-allow, eliminates
-    // residual permission prompts that --dangerously-skip-permissions doesn't)
-    expect(scriptRows.length).toBe(14);
+    // residual permission prompts that --dangerously-skip-permissions doesn't) +
+    // self-edit-baseline-sync (PostToolUse hook for role-file-watch self-edit
+    // suppression, 2026-09-27)
+    expect(scriptRows.length).toBe(15);
     // 1 user-onboarding file: agent-supervisor.service
     expect(userOnboardingRows.length).toBe(1);
 
@@ -272,14 +277,16 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     },
   );
 
-  it("Test T-07: sourceKind discriminant — 53 bundled + 1 runtime row (Phase 114 D-22 + Phase 116 additions + task-field-check + allow-all-tools + agent-phone + pane-safe starter + 26 app-development rows)", () => {
+  it("Test T-07: sourceKind discriminant — bundled + runtime row split (Phase 114 D-22 + Phase 116 additions + task-field-check + allow-all-tools + agent-phone + pane-safe starter + 26 app-development rows + self-edit-baseline-sync)", () => {
     // Regression guard for Phase 114 D-12 + D-14: the catalog is a
     // discriminated union on sourceKind. Phase 116 added 2 bundled rows
     // (image-gen-skill + image-gen-helper); task-field-check adds one more
     // bundled row (UserPromptSubmit hook); allow-all-tools adds one more
     // bundled row (PreToolUse hook — fleet-wide auto-allow); first-class-apps
     // shape 1 adds 26 bundled rows (app-development skill + helpers +
-    // starter template). Runtime row (twinkie) unchanged at 1.
+    // starter template); self-edit-baseline-sync adds one bundled row
+    // (PostToolUse hook — role-file-watch self-edit suppression).
+    // Runtime row (twinkie) unchanged at 1.
     const bundled = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "bundled",
     );
@@ -289,7 +296,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +5 for pane-safe starter files (see Test 1 comment) — 45 → 50.
     // +2 for agent-phone (skill + helper) — 50 → 52.
     // +1 for allow-all-tools helper — 52 → 53.
-    expect(bundled.length).toBe(53);
+    // +1 for self-edit-baseline-sync helper — 53 → 54.
+    expect(bundled.length).toBe(54);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

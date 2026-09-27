@@ -406,6 +406,23 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
+  // self-edit-baseline-sync: PostToolUse hook that suppresses role-file-watch
+  // events on the agent's own edits. After every Write/Edit/MultiEdit/
+  // NotebookEdit/Bash tool call, refreshes any drifted baselines under
+  // ~/fleet/identities/$FLEET_IDENTITY/role-file-watch/ and writes a sha256
+  // marker so the watcher's hash-guard (role-file-watch.py:_is_self_edit)
+  // can confirm the agent's own edit and stay silent. Wired via the
+  // run-bootstrap.ts settings.json patch. No restart hook — new bytes picked
+  // up on next hook fire. Shape rationale:
+  //   .planning/shapes/shape-stop-self-edit-events.md
+  {
+    slug: "self-edit-baseline-sync",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/self-edit-baseline-sync.sh",
+    installPath: "~/.local/bin/self-edit-baseline-sync",
+    restartHook: null,
+  },
+
   // --- user-onboarding/ (1 row) ---
   // The .service unit file must land in ~/.config/systemd/user/ on every
   // managed host. runBootstrapForHost runs `systemctl --user daemon-reload`

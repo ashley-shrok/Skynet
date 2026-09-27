@@ -179,31 +179,37 @@ function logBootstrapFailed(
 // ---------------------------------------------------------------------------
 
 /**
- * Seven-key MERGE jq expression. Idempotently sets the seven fleet-required
- * settings.json keys, preserving any other keys. Note: the task-field-check
- * and allow-all-tools hook commands are stored as the LITERAL string
- * `$HOME/.local/bin/<name>` — bash single-quotes in the SSH-path template
- * don't expand $HOME, so the value written to disk is a literal that Claude
- * Code's hook runner expands at execution time via its shell. Local jq
- * invocation must NOT expand it either (pass the expression as an argv arg,
- * not through a shell).
+ * MERGE jq expression. Idempotently sets the fleet-required settings.json
+ * keys, preserving any other keys. Note: hook commands are stored as LITERAL
+ * strings (e.g. `$HOME/.local/bin/task-field-check`) — bash single-quotes in
+ * the SSH-path template don't expand $HOME, so the value written to disk is
+ * a literal that Claude Code's hook runner expands at execution time via its
+ * shell. Local jq invocation must NOT expand it either (pass the expression
+ * as an argv arg, not through a shell).
  *
- * The allow-all-tools PreToolUse entry deliberately has NO matcher field —
- * omitting matcher means the hook fires for every tool call. That's the
- * design: universal-allow completes the fleet-wide "no prompts" posture by
- * overriding the harness's residual circuit-breaker for
- * catastrophically-destructive bash patterns that survive
- * --dangerously-skip-permissions. Scoping to specific tools would be a
- * regression per shape-harness-permission-auto-accept.md.
+ * Currently sets eight keys total: five simple flags/env vars, plus three
+ * hook entries under .hooks —
+ *   - task-field-check on UserPromptSubmit (identity `task:` placeholder nudge).
+ *   - allow-all-tools on PreToolUse (fleet-wide auto-allow — no matcher,
+ *     fires for every tool; completes "no prompts, ever" by overriding the
+ *     harness's residual circuit-breaker that survives
+ *     --dangerously-skip-permissions).
+ *   - self-edit-baseline-sync on PostToolUse (self-edit suppression for the
+ *     role-file-watch ambient watcher; matcher covers every tool that can
+ *     write to disk — Write|Edit|MultiEdit|NotebookEdit|Bash).
  */
 export const SETTINGS_MERGE_JQ =
   `.permissions = ((.permissions // {}) | .deny = (((.deny // []) + ["AskUserQuestion"]) | unique))` +
   `  | .askUserQuestionTimeout = "never"` +
   `  | .env = ((.env // {}) | .DISABLE_AUTOUPDATER = "1" | .CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1")` +
   `  | .skipDangerousModePermissionPrompt = true` +
-  `  | .hooks = ((.hooks // {}) | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end) | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("allow-all-tools")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/allow-all-tools"}]}] end))`;
+  `  | .hooks = ((.hooks // {})` +
+  `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end)` +
+  `      | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("allow-all-tools")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/allow-all-tools"}]}] end)` +
+  `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
+  `    )`;
 
-/** Seven-key CHECK jq expression. Returns true iff all seven keys are already set. */
+/** CHECK jq expression. Returns true iff all eight required keys are set. */
 export const SETTINGS_CHECK_JQ =
   `(.skipDangerousModePermissionPrompt == true)` +
   `  and (.askUserQuestionTimeout == "never")` +
@@ -211,7 +217,8 @@ export const SETTINGS_CHECK_JQ =
   `  and (.env.DISABLE_AUTOUPDATER == "1")` +
   `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))` +
-  `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("allow-all-tools")))`;
+  `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("allow-all-tools")))` +
+  `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))`;
 
 /** DETECT jq: true iff any PostToolUse entry references gsd-context-monitor. */
 export const GSD_MONITOR_DETECT_JQ =
