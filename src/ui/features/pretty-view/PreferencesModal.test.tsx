@@ -15,6 +15,23 @@ import userEvent from "@testing-library/user-event";
 import PreferencesModal from "./PreferencesModal";
 import type { UserPreferences } from "@/api/open-tabs-api";
 
+// VoicePicker (used by PreferencesVoicePane) imports postSpeak from voice-api.
+// Mock the API so tests don't make real network calls.
+vi.mock("@/api/voice-api", () => ({
+  postSpeak: vi.fn(async () => new Blob([], { type: "audio/wav" })),
+  postSpeakStream: vi.fn(async () => new Response(null, { status: 200 })),
+  SAMPLE_PHRASE: "Hi, this is your voice.",
+}));
+
+// saveUserPreferences is called by PreferencesVoicePane on picker change.
+vi.mock("@/api/open-tabs-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/open-tabs-api")>();
+  return {
+    ...actual,
+    saveUserPreferences: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 const defaultProps = {
   open: true,
   onOpenChange: vi.fn(),
@@ -50,7 +67,7 @@ describe("PreferencesModal", () => {
     render(<PreferencesModal {...defaultProps} open={true} />);
     const voiceBtn = screen.getByTestId("preferences-nav-voice");
     await user.click(voiceBtn);
-    expect(screen.getByTestId("preferences-voice-pane-stub")).toBeTruthy();
+    expect(screen.getByTestId("preferences-voice-pane")).toBeTruthy();
   });
 
   it("(c) clicking Notifications nav button shows notifications pane content", async () => {
@@ -83,7 +100,7 @@ describe("PreferencesModal", () => {
     // Navigate to Voice
     const voiceBtn = screen.getByTestId("preferences-nav-voice");
     await user.click(voiceBtn);
-    expect(screen.getByTestId("preferences-voice-pane-stub")).toBeTruthy();
+    expect(screen.getByTestId("preferences-voice-pane")).toBeTruthy();
 
     // Close the modal
     rerender(<PreferencesModal {...defaultProps} open={false} />);
@@ -91,7 +108,7 @@ describe("PreferencesModal", () => {
     // Reopen — should default back to General
     rerender(<PreferencesModal {...defaultProps} open={true} />);
     // General pane should be visible (no voice pane stub)
-    expect(screen.queryByTestId("preferences-voice-pane-stub")).toBeNull();
+    expect(screen.queryByTestId("preferences-voice-pane")).toBeNull();
     expect(screen.getByTestId("preferences-modal-pane")).toBeTruthy();
   });
 });

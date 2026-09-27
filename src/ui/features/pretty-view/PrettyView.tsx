@@ -92,6 +92,9 @@ import {
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
+// Phase 137 Plan 03 (D-16): UserPreferences type for the fallbackVoice
+// resolution chain in the speak flow.
+import type { UserPreferences } from "@/api/open-tabs-api";
 // Phase 53 Plan 03 — the retired recycling bridge import is REMOVED here
 // (see tombstone comment near line ~2415 and Task 2 deletion).
 import {
@@ -350,6 +353,13 @@ export interface PrettyViewProps {
   // filters items per-surface (e.g. "Move to new window" is desktop-only,
   // "Switch to (terminal/chat) view" is admin-only).
   identityBadgeContextMenuItems?: PrettyContextMenuItem[];
+  // Phase 137 Plan 03 (D-16): per-user voice preferences for the speak
+  // flow. When an identity has no bound voice (pvIdentity?.voice === null),
+  // the fallbackVoice preference resolves BEFORE the backend DEFAULT_VOICE.
+  // Optional with a default of {} so existing call sites without the prop
+  // continue to work byte-identically (fallbackVoice resolves to undefined,
+  // which ?? null = null, which ?? undefined = undefined in the speak call).
+  userPrefs?: UserPreferences;
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -640,6 +650,7 @@ export function PrettyView({
   onUnregisterSendInterrupt,
   tabId,
   identityBadgeContextMenuItems,
+  userPrefs = {},
 }: PrettyViewProps) {
   // Phase 92 Slice 1 (D-07 fallback synthesis): during Slice 1 the `source`
   // prop is optional so existing PrettyView tests that predate Phase 92
@@ -4266,7 +4277,7 @@ export function PrettyView({
                 <ChatMessage
                   role={m.role}
                   content={m.content}
-                  identityVoice={pvIdentity?.voice ?? null}
+                  identityVoice={pvIdentity?.voice ?? userPrefs.fallbackVoice ?? null}
                   ts={m.ts}
                   eventId={m.eventId}
                   autoplayArmed={autoplayArmed}

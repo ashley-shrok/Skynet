@@ -34,6 +34,9 @@ import { archiveIdentity } from "@/api/identity-archive-api";
 import { setSessionProject } from "@/api/session-project-api";
 import type { Tab, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
+// Phase 137 Plan 03 (D-16): UserPreferences threaded to PrettyView for
+// the fallbackVoice speak-flow resolution chain.
+import type { UserPreferences } from "@/api/open-tabs-api";
 
 function hostToSSHHost(h: Host): SSHHost {
   return {
@@ -82,6 +85,9 @@ export interface IdentitySessionPaneProps {
   // identity-badge context menu can admin-gate its "Switch view" item.
   // Fail-closed default at every hop.
   isAdmin?: boolean;
+  // Phase 137 Plan 03 (D-16): per-user voice preferences for the
+  // fallbackVoice speak-flow resolution chain in PrettyView.
+  userPrefs?: UserPreferences;
 }
 
 /**
@@ -103,7 +109,7 @@ export interface IdentitySessionPaneProps {
  */
 export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessionPaneProps>(
   function IdentitySessionPane(
-    { tab, host, label, isVisible, attach, onCloseTab, onTmuxSessionChange, onTmuxSessionMissing, isAdmin = false },
+    { tab, host, label, isVisible, attach, onCloseTab, onTmuxSessionChange, onTmuxSessionMissing, isAdmin = false, userPrefs },
     ref,
   ) {
     // --- Hoisted state ---
@@ -543,6 +549,10 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             // terminal-mode surface badge would be a valid drag source.
             tabId={tabId}
             identityBadgeContextMenuItems={identityBadgeContextMenuItems}
+            // Phase 137 Plan 03 (D-16): user's fallbackVoice preference for
+            // the speak-flow resolution chain (identity voice → user fallback
+            // → backend DEFAULT_VOICE "Joanna").
+            userPrefs={userPrefs}
             onSend={(text: string, mqid?: string): boolean => {
               // Patch #110: collapse pretty-view submit into a SINGLE WS event
               // with text+CR + a synthetic messageQueueItemId.

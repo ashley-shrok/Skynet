@@ -65,7 +65,7 @@ export function PreferencesVoicePane({
   );
 
   return (
-    <div className="flex-1 p-6 flex flex-col gap-4 text-[13px] text-[#c8c4b8]">
+    <div className="flex-1 p-6 flex flex-col gap-4 text-[13px] text-[#c8c4b8]" data-testid="preferences-voice-pane">
       {/* D-06: one-line blurb — verbatim wording from CONTEXT.md § Specifics */}
       <p className="text-[13px] text-[#c8c4b8]">
         The voice your agents use to speak.

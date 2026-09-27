@@ -38,6 +38,9 @@ import { PrettyView } from "@/features/pretty-view/PrettyView";
 import type { Tab, TabType, Host } from "@/types/ui-types";
 import { isAppTab } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
+// Phase 137 Plan 03 (D-16): UserPreferences threaded to PrettyView for the
+// fallbackVoice speak-flow resolution chain.
+import type { UserPreferences } from "@/api/open-tabs-api";
 import { useTabsSafe } from "@/shell/TabContext";
 import { useIdentities } from "@/state/identities-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
@@ -195,6 +198,7 @@ function TerminalOrIdentitySessionPane({
   onTmuxSessionChange,
   onTmuxSessionMissing,
   isAdmin,
+  userPrefs,
 }: {
   tab: Tab;
   // Phase 93 Slice 4 (D-06): host widened to `Host | null`. Relay-room tabs
@@ -217,6 +221,8 @@ function TerminalOrIdentitySessionPane({
   // Threaded from AppShell (via renderTabContent → RendererDeps) so the
   // identity pane can admin-gate its badge-menu "Switch view" item.
   isAdmin: boolean;
+  // Phase 137 Plan 03 (D-16): per-user voice preferences for fallbackVoice.
+  userPrefs?: UserPreferences;
 }) {
   // Hooks MUST run unconditionally per rules-of-hooks. The relay-room branch
   // below is a conditional early return, so useIdentities() is hoisted here.
@@ -315,6 +321,7 @@ function TerminalOrIdentitySessionPane({
           onTmuxSessionChange={onTmuxSessionChange}
           onTmuxSessionMissing={onTmuxSessionMissing}
           isAdmin={isAdmin}
+          userPrefs={userPrefs}
         />
       </Suspense>
     );
@@ -371,6 +378,10 @@ type RendererDeps = {
   // menu can admin-gate the "Switch to (terminal/chat) view" item.
   // Fail-closed: undefined at any hop reads as non-admin.
   isAdmin?: boolean;
+  // Phase 137 Plan 03 (D-16): per-user voice preferences threaded to
+  // PrettyView for the fallbackVoice speak-flow resolution chain.
+  // Optional — PrettyView defaults to {} when absent.
+  userPrefs?: UserPreferences;
 };
 
 type Renderer = (tab: Tab, deps: RendererDeps) => ReactNode;
@@ -417,6 +428,7 @@ const renderTerminalTab: Renderer = (tab, deps) => {
       }
       onTmuxSessionMissing={deps.onTmuxSessionMissing}
       isAdmin={deps.isAdmin ?? false}
+      userPrefs={deps.userPrefs}
     />
   );
 };
@@ -493,6 +505,9 @@ export function renderTabContent(
   onTmuxSessionChange?: (tabId: string, sessionName: string | null) => void,
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void,
   isAdmin: boolean = false,
+  // Phase 137 Plan 03 (D-16): per-user voice preferences for the
+  // fallbackVoice speak-flow resolution chain in PrettyView.
+  userPrefs?: UserPreferences,
 ) {
   return RENDERERS[tab.type](tab, {
     onOpenSingletonTab,
@@ -503,5 +518,6 @@ export function renderTabContent(
     onTmuxSessionChange,
     onTmuxSessionMissing,
     isAdmin,
+    userPrefs,
   });
 }
