@@ -236,3 +236,65 @@ extraction is its own beast).
   `~/fleet/identities/fable-box-maintainer/workspace/prototype-preferences/index.html`
   for reference — captures the agreed layout, category ordering, chrome
   treatment, and multi-host / multi-file fallback behaviors.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-27
+**Vehicle used:** gsd phase (single phase, split into six sub-plans 137-01..137-06)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · New preferences modal opened from the sidebar footer gear button; consolidates avatar, voice fallback, notifications, and the personal-context file into one home.
+- **Shape: General pane (avatar)** — present · Upload / remove avatar with local blob preview; sidebar footer conditionally renders avatar image when set, initials-circle when null.
+- **Shape: Voice pane (fallback)** — present · Reuses the shared voice picker (same 7 voices, same sample button, same "(default)" entry); autosaves on change.
+- **Shape: Notifications pane** — present · Folded-in enable flow with verbatim explainer text and the single Enable button; the browser permission-prompt fires synchronously inside the click handler.
+- **Shape: About-you pane** — present · Uses shared MarkdownEditor; explicit Save button; mtime-conflict-aware save flow; rebranded blurb "Tell your agents anything you want them to know about you…".
+- **Shape: About-you multi-host fallback** — present · Host picker in the pane's top-right renders only when more than one host is available.
+- **Shape: About-you multi-file fallback** — present · Tab strip renders only when more than one file is configured; first tab labelled "About you" when its path matches the implicit user-wide file.
+- **Shape: Save semantics** — present · Voice + notifications + avatar all save implicitly on change; About-you pane uses an explicit Save button (disabled when unchanged / in flight).
+- **Shape: Adjacent cleanup — reopen-tabs preference removed** — present · Column dropped from schema, removed from routes GET/PUT, purged from open-tabs helper and app-shell/tab-url.
+- **Shape: Adjacent cleanup — globe button removed** — present · Footer globe button and its modal are both gone; only the preferences gear button remains in the footer actions slot.
+- **Philosophy: Consolidate, don't proliferate** — present · Both scattered entry points (kebab notifications item + footer globe) are removed; the preferences modal is the sole entry point for all four consolidated things.
+- **Philosophy: Grow-ready left-nav shape** — present · Left-nav with vertical section buttons + right-pane conditional render — sized to accept future panes without shape change.
+- **Philosophy: Frame settings by what they DO** — present · Voice pane blurb is "The voice your agents use to speak." — no mention of identity binding or fallback resolution. About-you blurb speaks in intent, not architecture.
+- **Philosophy: Only surface real preferences** — present · Theme, font size, accent colour, language are not surfaced anywhere in the modal — the only preferences shown are the four with real behaviour.
+- **Scope IN: New preferences modal chrome + four panes** — present · Modal + four pane components present with tests.
+- **Scope IN: Gear button wired** — present · Footer gear button opens the modal on click.
+- **Scope IN: Avatar upload/remove + sidebar footer preview** — present · Pane calls upload/remove; the pane's on-avatar-changed callback is threaded up to app-shell so the footer image/initials swap without a refresh.
+- **Scope IN: Voice fallback stored per-user and applied by speak flow** — present · Fallback voice column added to schema; speak flow resolves identity voice as identity-bound ?? user's fallback ?? null before the speak call.
+- **Scope IN: Notifications pane folds in old modal** — present · Preserves the synchronous permission-request invariant and the single enable-only button; unsubscribe path deliberately absent.
+- **Scope IN: About-you pane uses shared MarkdownEditor** — present · Imports and renders the same shared editor identity-file and role-file editors use.
+- **Scope IN: Kebab notifications entry removed** — present · Kebab menu array no longer contains the notifications entry; explicit retirement comment left in place.
+- **Scope IN: Globe button removed** — present · Footer actions slot renders only the gear button; the old modal is no longer mounted.
+- **Scope IN: reopen-tabs preference removed (frontend + backend + schema)** — present · Removed everywhere.
+- **Scope OUT: No changes to identity/role voice binding** — present · Voice binding still per-identity / per-role via existing modals; only the fallback resolver was extended.
+- **Scope OUT: No changes to push subscription backend** — present · Pane reuses the existing push-subscription helpers unchanged.
+- **Scope OUT: No changes to global-files backend / config schema** — present · Pane calls existing list/read/write APIs; multi-file / multi-host schema still exists in backend.
+- **Scope OUT: No changes to avatar storage/serving** — present · Uses the existing avatar endpoints built in Phase 85.
+- **Scope OUT: No new preferences beyond the four** — present · No theme/font/language/accent controls appear in any pane.
+- **Scope OUT: No keyboard shortcut / CLI / URL deep-link** — present · Modal is opened only by the gear-button click; no hash listener, no keyboard binding, no URL-driven pane selection.
+- **Scope OUT: No changes to identity/role editing modals** — present · Identity/role modal files untouched by this phase.
+- **Tempting-but-no: No per-pane save button on Voice/Notifications/General** — present · Voice autosaves per change; notifications is single-tap; general is implicit-on-upload/remove — no ceremonial Save buttons added.
+- **Tempting-but-no: No deep-linking to a specific pane** — present · Active section state is local to the modal; resets on close.
+- **Tempting-but-no: Multi-file case stays a rare fallback** — present · Tab strip gated on more than one configured file; single-file hosts see no tab strip.
+- **What would make it wrong: Preferences modal feels like scaffolding** — present · Each of the four panes wires a real, working preference — none are stub toggles.
+- **What would make it wrong: Old entry points survive** — present · Kebab notifications item + globe button both gone; the gear is now a real interactive button, not the inert placeholder.
+- **What would make it wrong: About-you framing confusing on multi-host with extras** — present · The host picker + tab strip both render only in the admin-territory cases; the first tab is renamed "About you" only when it is the implicit user-wide file, so an admin still sees per-file names for the others.
+- **What would make it wrong: Sidebar footer avatar doesn't stay in sync** — present · General pane's on-avatar-changed callback fires the app-shell state update; footer conditional-render swaps immediately without a page refresh.
+- **What would make it wrong: A preference added that the app doesn't read** — present · Only avatar, fallback voice, push permission, and About-you file are surfaced — every one has a code path that consumes it.
+- **What would make it wrong: Voice fallback stored but not applied** — present · The speak chain threads the user's fallback into the identity voice slot when the identity has none bound — the user's chosen voice actually takes effect.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The retained `GlobalFileTab` component is not an unretired remnant of the global-files modal — it's consumed by two unrelated features (editable-file modal + workspace tab) that predate this shape. The About-you pane's "About you" tab label is applied only when the file path matches the implicit user-wide file, so admins with extra files configured still see per-file names for the others. The consolidation intent is fully realised: gear-click is the sole entry point for all four consolidated concerns.
