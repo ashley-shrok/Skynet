@@ -2916,3 +2916,13 @@ Plans:
 - [x] 136-05-PLAN.md — Wave 4: strip frontend WS API bounty surface (`listBountiesForRoleName` + all `Bounty*` types from `claude-session-api.ts` + role-reads test)
 - [x] 136-06-PLAN.md — Wave 5: delete all bounty WS handlers/routes/imports from `claude-session-server.ts` + role-reads test
 - [x] 136-07-PLAN.md — Wave 6: amputate bounty readers/writers/types from `identity-artifact-reader.ts` (preserve history/handoff) + edit two-step shared-fixture test + phase-wide audit
+
+### Phase 137: Preferences modal from sidebar gear — voice fallback, notifications, avatar, about-you
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 136
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 137 to break down)
