@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-09-23T06:06:08.715Z"
+status: verifying
+last_updated: "2026-09-27T19:39:24.298Z"
 last_activity: 2026-09-23
 progress:
-  total_phases: 130
-  completed_phases: 110
-  total_plans: 571
-  completed_plans: 563
-  percent: 85
+  total_phases: 136
+  completed_phases: 114
+  total_plans: 596
+  completed_plans: 587
+  percent: 84
 ---
 
 # Project State
@@ -1082,10 +1082,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-23T06:05:58.408Z
+Last session: 2026-09-27T19:39:24.202Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
-Stopped at: Completed Phase 129 Plan 01 (foundations shipped, 28 new tests + 33 regression = 61/61 pass; three atomic commits e41d5bc5 + ec5df06a + 8b90f6b5). Wave 2/3/4 plans (129-02..129-08) awaiting.
+Stopped at: Phase 137 context gathered
 Stopped at (prior): Phase 129 context gathered (seeded from shape)
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
@@ -1098,7 +1098,7 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: None
+Resume file: .planning/phases/137-preferences-modal-from-sidebar-gear-voice-fallback-notificat/137-CONTEXT.md
 Resume file: .planning/phases/118-first-class-apps-sweep-registry-shape-2/118-CONTEXT.md
 
 - Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)
