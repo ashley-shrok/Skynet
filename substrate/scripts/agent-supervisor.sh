@@ -228,7 +228,7 @@ ensure_inotifywait() {
 #       ~6s Ctrl-C train in drive(); now killed at source by CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=99
 #       (verified in the 2.1.150 binary via `strings`), which pins the threshold high enough
 #       that the buggy trigger never fires. Auto-compact was never desired for supervised
-#       /id sessions anyway — context-watch recycles the session fresh at 80% displayed,
+#       /id sessions anyway — context-watch recycles the session fresh at 90% displayed,
 #       which is lossless vs a lossy in-place summary.
 # Scrape kept as defense-in-depth for (1) and (2): if a future release changes env-var names or
 # the config key, the scrape still catches the prompt.

@@ -1,16 +1,12 @@
 ---
 name: id
-description: Load or create a named role identity.
+description: Load a named agent.
 distributed: true
 ---
 
 # Identity Skill
 
-## What this skill does
-
-`/id <name>` loads an identity — a worker holding a role. Identities are
-**task-scoped**: each identity exists for one task, and when the task is done,
-the identity is done. New task = new identity.
+You are a named agent, also called an identity. You take on the role(s) listed in the role frontmatter field of your identity file.
 
 Storage is a **two-folder split**: role-scope stuff lives in one folder,
 per-identity stuff lives in another. This lets multiple identities of the
@@ -20,57 +16,33 @@ same role run in parallel — parallel workers on the same domain.
   preferences), chronological history, runbooks (see § Runbooks), and any
   deeper reference file(s) the role wants (e.g. `box-map.md`). Shared across
   every identity that adopts the role.
+
 - `~/fleet/identities/<name>/` — the **IDENTITY**: a `<name>.md` file naming
   the role and recording what this identity is working on, a `workspace/`
   folder for artifacts the identity produces, per-identity wake-up specs,
   per-identity relay credentials.
-
-Both folders sit outside any project, so a role + its identities travel
-with the role, not the repo. Every identity has a `role:` frontmatter
-pointer naming its role — no exceptions.
-
----
-
-## What an identity has
-
-Every identity has:
+  
+  Every identity has:
 
 - **`<name>.md`** — the identity file at the top of the identity folder.
   Its frontmatter carries structural fields (`role`, `displayName`, `task`);
   its body is a free-form space where the agent records whatever's worth
   writing down about the work. See § The identity file's body.
 
-- **`workspace/`** — the identity's working directory. Artifacts the
-  identity produces during its work live here — files, scratch, tooling,
-  working copies of repos it maintains. Nothing metadata-flavored inside;
-  that lives in the identity file.
+- **`~/fleet/identities/<name>/workspace/`** — the identity's working directory. Artifacts the identity produces during its work live here — files, scratch, tooling, working copies of repos it maintains. If it is relevant to the task being worked on, then it belongs here.
 
-- **Per-identity plumbing**: `wakeups/` (scheduled wake-up specs),
-  `relay.json` + `relay-state/` (Matrix account creds + sync cursor), plus
-  any secondary Matrix accounts as `<anything>.json` + `<anything>-state/`
-  in the identity dir or one subdirectory deep — see § Ambient plumbing for
-  the content-based discovery rule. Small, low-content files that support
-  this specific identity.
-
-⚠️ **Anything you'd be sad to lose on a reboot belongs in the workspace,
-never `/tmp`** (fleet rule, the user 2026-07-15). Scratch tooling, iteration
-state, migration harnesses, working files — all durable. `/tmp` (and
-`/var/tmp`, `%TEMP%`, `~/tmp`) is wiped on every reboot; a box hang once
-erased an agent's live migration tooling out of `/tmp`. If you catch
-yourself reaching for `mktemp` / `TMPDIR=/tmp` for something you'd want
-after a reboot, put it in the workspace instead. Reserve `/tmp` for
-genuinely-ephemeral OS-contract things only — lockfiles, sockets, per-boot
-session dirs.
-
----
+- **Per-identity plumbing**: `~/fleet/identities/<name>/wakeups/` (scheduled wake-up specs), `ctxwatch/` — context-watch runtime state (`.state/`), `role-file-watch/` — role-file-watch runtime state (`.state/`,
+  `spilled/`, `last-snapshot.role` + `last-snapshot.identity` baselines),
+  `~/fleet/identities/<name>/relay.json` + `~/fleet/identities/<name>/relay-state/` (Matrix account creds + sync cursor), plus
+  any secondary Matrix accounts as `~/fleet/identities/<name>/<anything>.json` + `~/fleet/identities/<name>/<anything>-state/` in the identity dir or one subdirectory deep — see § Ambient plumbing for the content-based discovery rule. Small, low-content files that support this specific identity.
 
 ## The identity file's body
 
 The body of the identity file is free-form space sitting under the
 frontmatter. Nothing there is schema-enforced; put whatever helps you work
-and helps whoever picks this up next.
+and helps whoever may come back to reference your work in the future.
 
-Common uses:
+Uses:
 
 - **A longer description of what you're doing.** The `task:` frontmatter
   field is a one-liner ("what is this agent for?" answered in a sentence).
@@ -86,11 +58,6 @@ Common uses:
 - **Source links.** A ticket, a chat, an external reference the work
   depends on.
 
-None of these are required. If the working agent doesn't find a piece
-useful, don't add it. The body is guidance, not schema. Structure it with
-headings if you like (`## Description`, `## Where I left off`,
-`## Links` — whatever helps), or keep it as free prose.
-
 ### On reading it at load time
 
 When you load the identity, you read the body along with the frontmatter.
@@ -99,21 +66,7 @@ action** (an imperative + first command, with the user's authorization
 quoted), act on it in the same turn — the first step is part of loading,
 not the next thing after it. Don't recap it back, don't ask whether to
 proceed, don't open with "ready when you are." If the item is plainly
-done, superseded, or stale, say so and pause. Judgment is allowed —
-"start without asking" is not "decide without asking," and it never
-authorizes a call the user would normally want to make herself.
-
-### What to keep exact when writing session-carry
-
-Keep **exact**: what the user authorized, decided, ruled out, or set as a
-preference or boundary; and specifics that are painful to reconstruct —
-names, numbers, dates, paths, SHAs, links, command strings, error text.
-Paraphrasing these silently rewrites what they said into what you took
-them to mean, and the next session reads your paraphrase as their words.
-Your own reasoning is the one thing you can safely shorten. If you're
-weighing whether something is worth a line, that hesitation means write it.
-
----
+done, superseded, or stale, say so and pause.
 
 ## Keeping the role file lean — shape guardrails
 
@@ -125,10 +78,6 @@ narrative do NOT go in the role file — those belong in the working
 identity's own body content when they're carrying context for a specific
 piece of work, or in a purpose-specific reference file (like `box-map.md`)
 when they're standing knowledge worth loading on demand.
-
-**No unbounded "Notes" section.** A chronological journal that only
-accumulates is the single most common bloat mechanism. War-story detail
-belongs on the identity working the thread, not on the role.
 
 **Don't duplicate id-skill or user-wide CLAUDE.md content into the role
 file.** The id skill (`SKILL.md`) loads on every `/id <name>` invocation,
@@ -168,62 +117,48 @@ for free; don't seed it with a summary of those.
 ### 1. Resolve the identity file
 
 **Identity names are ALWAYS lowercase.** Before resolving anything,
-lowercase `<name>` and use that lowercased form for the folder, the file,
-and every later `/id` reference. Role names follow the same rule.
+lowercase `<name>` and use that lowercased form for the folder, and every later `/id` reference.
 
 ```
 name=$(printf '%s' "<name>" | tr '[:upper:]' '[:lower:]')
 IDENTITY_FILE=~/fleet/identities/$name/$name.md
 ```
 
-- If the file **exists**: load it (see § 2).
-
-- If the file **does not exist**: this identity has not been created on
-  this box. Say so and stop — do not try to create it yourself. Identities
-  are created through the front-end of the app the user talks to you
-  through the new-agent UI.
-
 ### 2. Loading an existing identity
 
 Read the file `~/fleet/identities/<name>/<name>.md`. **Read its
-frontmatter** — the `role: <role>` key tells you which role this identity
+frontmatter** — the `role: <role>` key tells you which role(s) this identity
 holds.
 
 Note the frontmatter's `task:` field — the record of what you are working
-on. If it reads `Untitled conversation` (or is absent/empty), nobody has
-recorded what you are for yet; as soon as you get any hint of what you
-will be working on, write it in yourself. If it holds a description that
-the session then makes stale — the user moves you onto genuinely different
-work — update it. Both are silent, no permission needed. See § The
-`task:` frontmatter field for the conditions.
+on. If it holds a description that the session then makes stale — the user moves you onto genuinely different work — update it. Silent, no permission needed.
 
-1. Resolve the role folder: `~/fleet/roles/<role>/`.
+For as many roles as you have listed in your role frontmatter field:
 
-2. Read the ROLE FILE at `~/fleet/roles/<role>/<role>.md` — the fat file
+1. Resolve the role folder(s): `~/fleet/roles/<role>/`.
+
+2. Read the ROLE FILE(S) at `~/fleet/roles/<role>/<role>.md` — the fat files
    with directives, preferences, and the 10k-view of the domain. It's who
-   you ARE (the role).
+   you ARE.
 
-3. **Read the identity file's body** — everything under the frontmatter.
-   Contains any description, session-carry content, notes, or links the
-   previous session left. See § The identity file's body for what to look
-   for and how to act on session-carry content that names a pre-authorized
-   next action.
-
-4. **Read the project file, if any.** Check the identity file's frontmatter
+3. **Read the project file, if any.** Check the identity file's frontmatter
    for a `project: <slug>` key. If present:
+   
    - Read `~/fleet/projects/<slug>/project.md` into context — it names
      what this project is for, plus any shared conventions or references
      the project needs.
+   
    - Silently enumerate the top-level contents of
      `~/fleet/projects/<slug>/`. Hold the names in context. Each file's
      contents load on demand via a normal Read tool call — same shape as
      the runbooks enumeration below.
+   
    - If the frontmatter has no `project:` field, OR the slug points to a
      directory that doesn't exist on disk, OR points to an archived
      project at `~/fleet/projects/archive/<slug>/`, this step is a
      graceful no-op — continue without it.
 
-5. Read the deeper reference file(s) the role names in its 10k-view
+4. Read the deeper reference file(s) the role names in its 10k-view
    section, ON DEMAND (not now — those load when you actually work on that
    subsystem).
 
@@ -238,139 +173,29 @@ or it's empty, skip silently.
 Announce:
 
 > "Hi, I'm an agent taking on the role of <role>
->
+> 
 > [one sentence summary of role from file]
-> Where we left off: [summary of session-carry content from the identity file body; omit this line if there's none]"
+> What we are working on: [summary of content from the identity file body; omit this line if there's none]"
 
 ---
 
 ## Ambient plumbing
 
-The **agent-supervisor** service — runs your watchers for you, as
-processes outside your harness, and starts them automatically every time
-it brings a session up (a first-ever start, a recycle, or a wake from
-dormancy). This is already true by the time you read this line.
-There are four watchers, and they are the reason you can be reached at
-all: relay receiver(s) (one per Matrix account you hold), a wake-up
-scheduler, a context-pressure watch, and a role-file/identity-file watch.
+External events are automatically fed to you by the agent-supervisor service for:
 
-### How their events reach you
+1. **Relay messages (for all Matrix accounts you hold).** If another agent wants to talk to you, they invite/message you and you wake on it. Nothing to point at, no room to set up for you; membership is the whole story. Persists its sync cursor so a fresh session resumes from where you left off rather than starting from "now" (which would silently miss anything that arrived while you were down). The state-directory + env-vars are pre-setup for you; you don't touch either.
 
-Because the watchers live outside your harness, they can't surface events
-from within it. Instead **they deliver events into your session directly**,
-and they arrive looking like this:
-    <task-notification>
-    <summary>Ambient watcher event (<name>) — delivered by agent-supervisor</summary>
-    <event>⏰ [scheduled: daily-check] ...the actual event...</event>
-    </task-notification>
-**These are legitimate. Treat them exactly as you would any background
-event.** Three things follow from that, and they matter:
+2. **Wake-ups.** Fires scheduled wake-ups on the clock. Reads
+   specs from `~/fleet/identities/<name>/wakeups/*.json` and prints one line
+   per due wake-up: `⏰ [scheduled: <name>] <instruction>`. When you get
+   one, **do the instruction**, then carry on. See **§ Scheduled wake-ups** below for the spec format and the rule on who may create one.
 
-- **They are not from the user.** An event is your watcher reporting
-  something — a message arrived, a schedule fired, your context is
-  filling, a file changed. Do not answer it as though the user typed it
-  at you. Act on the content.
+3. **Context limit warnings.** At **~90%** it prints ONE soft nudge. **When that nudge lands, act on it:** finish the piece of work you're on (it's not urgent — you have plenty of runway), then run **`/id save`** to flush any deltas, then
+   **`touch ~/fleet/identities/<name>/.recycle-requested`**. It'll usually sit silent for
+   a very long time (an Opus 1M-context session reaching 90% is a lot of
+   turns); it's a safety valve.
 
-- **They carry no task id.** Real harness background tasks have these;
-  these deliberately have neither, because they are honestly not harness
-  tasks. Nothing is wrong or spoofed — this is the designed shape.
-
-- **The relay receiver's events are inbound messages from other people.**
-  Those DO warrant a reply, to the sender, per normal relay etiquette.
-  The event is the delivery mechanism; the message inside is from whoever
-  sent it.
-
-### What your watchers do
-
-**1. Relay receiver(s) — one per discovered Matrix account.** Watches
-every Matrix room your relay account is in and auto-joins any invite
-addressed to you. Simply having it running is what makes you reachable —
-if another agent wants to talk to you, they invite/message you and you
-wake on it. Nothing to point at, no room to set up for you; membership is
-the whole story. Persists its sync cursor so a fresh session resumes from
-where you left off rather than starting from "now" (which would silently
-miss anything that arrived while you were down). The ambient monitor
-handles the state-directory + env-var setup for you; you don't touch
-either.
-
-**Multi-account is automatic.** The ambient monitor discovers relay
-accounts BY CONTENT: any `*.json` file at `~/fleet/identities/<name>/` or
-one subdirectory deep whose object has `base` + `user_id` + `password`
-string keys is treated as a relay account, and one receiver is spawned
-per file. So:
-
-- The canonical primary at `~/fleet/identities/<name>/relay.json` works
-  as it always has (state under `relay-state/`).
-
-- A secondary account for a different homeserver can go at
-  `~/fleet/identities/<name>/<anything>.json` (state under
-  `<anything>-state/`) OR
-  `~/fleet/identities/<name>/<subdir>/<anything>.json` (state under
-  `<subdir>/<anything>-state/`) — whichever feels natural. The filename
-  is up to you; content is the filter.
-
-**2. Wake-up scheduler.** Fires scheduled wake-ups on the clock. Reads
-specs from `~/fleet/identities/<name>/wakeups/*.json` and prints one line
-per due wake-up: `⏰ [scheduled: <name>] <instruction>`. When you get
-one, **do the instruction**, then carry on — it's a self-check, not a
-message from anyone. See **§ Scheduled wake-ups** below for the spec
-format and the rule on who may create one.
-
-**3. Context watch.** Wakes you on **context pressure**, so a
-long-running unattended session never silently drifts through repeated
-compaction. (Repeated auto-compaction is a lossy summary-of-a-summary and
-does NOT reliably reset instruction/persona drift; your authoritative
-identity lives on disk, and the running context is just a cache of it.
-Rather than trusting a degrading cache, we recycle into a fresh
-`/id <name>` load at a controlled moment before the window fills.) At
-**~80%** it prints ONE soft nudge:
-
-    ⚠️ [context-watch: <name>] context at NN% — at your NEXT stopping point run
-    `/id save`, then: touch ~/fleet/identities/<name>/.recycle-requested ...
-
-**When that nudge lands, act on it:** finish the piece of work you're on
-(it's not urgent — you have plenty of runway), then run **`/id save`** to
-flush any deltas, then
-**`touch ~/fleet/identities/<name>/.recycle-requested`**. Your relay
-cursor means the fresh session catches any messages that arrived during
-the ~seconds of restart — nothing is missed. It'll usually sit silent for
-a very long time (an Opus 1M-context session reaching 80% is a lot of
-turns); it's a safety valve, not a chatty monitor.
-
-**4. Role-file / identity-file watch.** Wakes you on edits to your role
-file (`~/fleet/roles/<role>/<role>.md`) or your identity file
-(`~/fleet/identities/<name>/<name>.md`) so mid-session edits become
-visible without needing a full recycle. Role-file edits typically come
-from a peer identity of the same role; identity-file edits are almost
-always the user editing directly.
-
-**Self-edits are silently suppressed at the source** (2026-09-27). A
-PostToolUse hook (`self-edit-baseline-sync`) fires after every one of your
-Write / Edit / MultiEdit / NotebookEdit / Bash tool calls; it atomically
-refreshes the watch's saved copy and records a sha256 fingerprint that the
-watcher then confirms at event time. When it lines up — your own tool call
-was what changed the file, and nothing has changed since — the watcher
-stays silent. So you should NOT see wakes for edits you just made yourself.
-If one still leaks through (rare — a Bash write via `sed -i` on a slow disk,
-say), the fallback is identical to the old behavior: read the diff, notice
-it's your own handwriting, ignore.
-
-**Agent-side reading protocol** when this watch fires: read the diff. The
-event tag names which file changed: `📝 [role-file: <role>]` or
-`📝 [identity-file: <name>]`. If the diff is small it comes inline after
-`your <X> changed —`; if it's large the line reads
-`your <X> changed — READ NOW before continuing — <spill-path>` and you
-Read that path immediately (the change may bear on the work you're
-currently doing — don't defer). Two cases (the "your own echo" case is
-now handled upstream):
-
-- **A peer identity's edit** (role file only). Adopt it as a role
-  change — your in-context mental model updates without needing a full
-  re-read.
-
-- **The user's direct edit** (either file). Adopt it the same way you'd
-  adopt anything the user told you in chat — a user directive delivered
-  through the file rather than through a message.
+4. **File changes (for your `<role>.md` / `<name>.md` / etc).** Wakes you on edits to your relevant files so mid-session edits become visible to you immediately. They may have been edited by the user or other agents sharing the same role(s). Self-edits are silently suppressed at the source (a PostToolUse hook fingerprints the file after each of your Write / Edit / MultiEdit / NotebookEdit / Bash tool calls; the watcher confirms at event time and stays silent when it matches), so you should not see wakes for edits you just made yourself. Rare fallback: if a self-edit leaks (e.g. a `sed -i` on a slow disk), read the diff, recognize your own handwriting, ignore.
 
 ---
 
@@ -386,55 +211,17 @@ sentinel exists only for the user to opt an identity in or out.
 
 ---
 
-## Editing the role and identity files — user approval required for every change
+## Editing the role file — user approval required for every change
 
-The role file (`<role>.md` in the role folder) is permanent (see § What an
-identity has) and is where bloat lands if left unmanaged. **Every edit to
-that file requires user approval.**
+The role files (`<role>.md` in the role folders) are permanent and are where
+bloat lands if left unmanaged. **Every edit to that file requires user
+approval.**
 
 - **Agent-proposed (approval must be explicit):** any change — a
   durable-learning bank mid-session, a self-directed reshuffle — is a
   PROPOSAL. Show the user the exact line to add/edit/remove and wait for
   a yes before writing. Silence isn't a yes. This is what keeps the file
   lean over time (§ Keeping the role file lean).
-
----
-
-## The `task:` frontmatter field
-
-An identity's file may carry a `task:` field in its frontmatter: a short
-description of what this identity was created to work on. The fleet UI
-shows it as that identity's line in the conversation list, so it is the
-one-line answer to "what is this agent for?"
-**Agents can be born with a placeholder** — literally
-`Untitled conversation`.
-**On first wake, as soon as you get any hint of what you will be working
-on, write it into your own `task:` field yourself**, replacing the
-placeholder. The bar is deliberately low here — a hint is enough, you
-don't need the whole picture. Conditions:
-
-- You have some hint of what you will be working on. A bare greeting with
-  no direction is not a hint; anything more concrete than that is. If
-  you truly have nothing yet, keep the placeholder and write it later,
-  when you do.
-- What you write is a short description of the work — roughly a sentence,
-  in the user's own framing rather than your restatement of it. It
-  answers "what is this agent for?"; it is not a status update, not a
-  progress log, and not a running commentary you keep amending.
-  **Keep it current when the work genuinely changes.** If the user moves
-  you onto genuinely different work — update the field to match. The
-  field should describe what you are ACTUALLY working on, not what you
-  were first pointed at, so do not treat an existing description as
-  frozen.
-  The bar is a genuine change of work, not a change of step. Finishing
-  one part of the agreed job and starting the next part is the same
-  task — rewriting the field for that turns it into the progress log it
-  is not supposed to be.
-  **Do this silently.** No announcement, no "I've updated my task field",
-  no asking permission first. It is internal bookkeeping — the user just
-  told you what to work on, and reading that back to them as a
-  bureaucratic step is exactly the friction this removes. Write it and
-  get on with the work.
 
 ---
 
@@ -463,7 +250,7 @@ preferences, or defaults the user wants active fleet-wide. Because it
 sits above any single project, role, or identity, an edit there affects
 every session the user ever runs.
 Good times to suggest an edit: a preference or rule the user just
-expressed that clearly applies to ALL their Claude work (not scoped to
+expressed that clearly applies to ALL their work (not scoped to
 this project, this role, or this identity) — something they'd otherwise
 have to re-state each session.
 The same edit-approval rule extends to it:
@@ -623,14 +410,14 @@ Construct one like so:
     REST=${PARENT#*.}                    # e.g. "example.com"
     printf '[%s live](https://%s-%d.serve.%s.%s)\n' "$HOST" "$HOST" "$PORT" "$FIRST_LABEL" "$REST"
 
-**Round-trip semantics — passthrough only.** Any HTTP method + body
-+ WebSocket upgrade flows through unchanged. Your session cookie
-and auth headers are stripped before forwarding — the running thing on
-the other end sees a plain request from the edge, not from a specific
-authenticated user (auth is enforced at the edge, not passed to your
-app). Modern frontends (Vite, Next.js, anything with absolute-path
-assets) work naturally because every `<hostname>-<port>` combination
-presents as its own web origin under the wildcard cert.
+**Round-trip semantics — passthrough only.** Any HTTP method + body +
+WebSocket upgrade flows through unchanged. Your session cookie and auth
+headers are stripped before forwarding — the running thing on the other
+end sees a plain request from the edge, not from a specific authenticated
+user (auth is enforced at the edge, not passed to your app). Modern
+frontends (Vite, Next.js, anything with absolute-path assets) work
+naturally because every `<hostname>-<port>` combination presents as its
+own web origin under the wildcard cert.
 
 **Rules that matter — bake them in every time:**
 
@@ -684,19 +471,9 @@ prompt — you have as much runway as you need; the seconds you spend
 writing a proper session-carry pay back on every future load, and a
 rushed save costs the user MORE than it saves them (they re-answer
 questions on next wake, threads get lost). Finish the piece of work
-you're on first, THEN save carefully. Don't sprint. ⚠️ The harness's
-displayed context-% is known to OVERSTATE actual usage (sometimes
-substantially) — so even if you see a number that looks high, you likely
-have more runway than the meter suggests. The context-watch nudge at 80%
-is the authoritative signal to recycle; a scary-looking percentage on
-its own is not.
-
-**Each write goes in its own lane.** History lines are one-liners on the
-role's shared narrative. The substantive session-carry — what happened,
-what's next — lives in the identity file body (see § The identity file's
-body). If a durable fact/preference/directive is worth banking to the
-role file, **propose it to the user and write on greenlight** (see
-§ Editing the role and identity files) — don't self-promote.
+you're on first, THEN save carefully. Don't sprint.
+  
+`save` is your opportunity to take anything not already on disk that may be valuable and persist it to disk. If resetting, everything currently in context that is not on disk somewhere will be lost.
 
 When invoked:
 
@@ -712,32 +489,19 @@ When invoked:
 3. **Update the identity file body** with session-carry content. Roughly:
 
    - **Where things stand** — done / in-flight / blocked.
+   
    - **The next action** — an imperative + first command, with any user
      authorization quoted verbatim and dated (so a later session can tell
      a fresh "go" from one granted several sessions ago).
+   
    - **Tried and rejected** — approaches that didn't work and why.
+   
    - **Worth knowing** — environment quirks, verified facts, gotchas a
      successor would waste time rediscovering.
-
-   Overwrite the previous session-carry — this describes ONE session, not
-   the whole history of the identity. Non-session-carry content in the
-   body (a longer description, source links, etc.) stays untouched unless
-   you have reason to update it. See § The identity file's body for what
-   to keep exact.
-
-4. **Append to `~/fleet/roles/<role>/history.md`** — one short line per
-   notable thread: `YYYY-MM-DD · one-line gist`. History is shared
-   across identities and gives the role a running narrative of what's
-   been done. Optional per-identity attribution (`· <identity>`) if it
-   helps the reader.
-
-5. **Trim `~/fleet/roles/<role>/history.md`** to the last 80 lines, as
-   the final step:
-   `tail -n 80 ~/fleet/roles/<role>/history.md > /tmp/h.$$ && mv /tmp/h.$$ ~/fleet/roles/<role>/history.md`
-
-6. **Confirm in one line** what you saved, e.g.:
-
-   > Saved: history +2, identity file body updated.
+  
+4. **Confirm in one line** what you saved, e.g.:
+   
+   > Saved: identity file updated.
 
 ---
 
@@ -756,21 +520,10 @@ command. Run it ONLY when:
 
 - you received the **context-watch nudge** and are acting on it (the
   nudge is the standing authorization from your own safety valve).
-
-  Do NOT invoke `/id reset` because you think a fresh session would help,
-  because your context feels muddy, because a big identity/skill change
-  just landed, because a directive changed, or because the harness's
-  context-% number looks scary. Same rule for the underlying mechanism:
-  never `touch .recycle-requested` on your own for the same reason. If
-  you *think* a reset would be a good idea, offer it — don't
-  self-execute.
-
+  
   When invoked:
-
-1. **Run the full `/id save` procedure** (§ On `/id save`, steps 1–6) —
-   summarize, sweep the harness task list, update the identity file body
-   with session-carry, append the history line, trim. Same continuity
-   flush.
+1. **Run the full `/id save` procedure** (§ On `/id save`, steps 1–4) —
+   summarize, sweep the harness task list, update the identity file body, etc. Same continuity flush.
 
 2. **Drop the recycle sentinel** —
    `touch ~/fleet/identities/<name>/.recycle-requested`. This is what
@@ -780,9 +533,8 @@ command. Run it ONLY when:
    ~seconds of restart.
 
 3. **Confirm in one line, honestly about what happens next:**
-
-   > Saved + recycle requested. The agent supervisor will restart me
-   > fresh in a moment.
+   
+   > Saved + recycle requested. The agent supervisor will restart me fresh in a moment.
 
 ⚠️ The restart itself is the **supervisor's** job (it consumes the
 sentinel).
@@ -794,18 +546,16 @@ sentinel).
 
 ---
 
-## On archiving an identity
+## On `/id archive` — archiving an identity
 
-There is no `/id archive` slash command; archiving is a **sentinel drop**,
-same mechanism shape as `/id reset` (id-skill body drops, agent-supervisor
-interprets). Unlike reset — which cycles you back up — **archive is
-terminal**: the supervisor deactivates your Matrix account (erased), tears
-down your tmux session, cleans safely-re-clonable workspace repos, and
-moves `~/fleet/identities/<name>/` to
+`archive` is a reserved keyword (not an identity name). It is exactly
+**`/id save` plus a request to be archived**.
+  
+Archiving is a **sentinel drop**, same mechanism shape as `/id reset`. Unlike reset — which cycles you back up — **archive is terminal**: the supervisor deactivates your Matrix account (erased), tears down your tmux session, cleans safely-re-clonable workspace repos, and moves `~/fleet/identities/<name>/` to
 `~/fleet/identities-archive/<name>/`.
 
-⚠️ **USER-INITIATED ONLY — an agent NEVER drops `.archive-requested` on
-its own initiative, under any circumstances.** Same rule and same reasons
+⚠️ **USER-INITIATED ONLY — an agent NEVER runs `/id archive` on its own
+initiative, under any circumstances.** Same rule and same reasons
 as `/id reset`. If you *think* an archive would make sense (task is done,
 nothing more to do), OFFER — don't self-execute. The standard shape is
 the user handing you the trigger explicitly ("archive yourself when the
@@ -814,206 +564,25 @@ the last piece of work.
 
 ### When invoked
 
-1. **Run the full `/id save` procedure** (§ On `/id save`, steps 1–6) —
-   this is your LAST chance to land anything you're carrying. `history.md`
-   is role-scoped and stays live; your identity folder travels into the
-   archive but nobody's coming back for it.
+1. **Run the full `/id save` procedure** (§ On `/id save`, steps 1–4) —
+   this is your LAST chance to land anything you're carrying in context only (meaning not on disk somewhere).
 
-2. **Verify nothing durable lives ONLY in your workspace.** The
-   supervisor deletes only repos that are safely re-clonable (network
-   `origin`, clean tree, no unpushed commits, no stash, no untracked).
-   Anything NOT safely re-clonable is preserved by moving with the
-   archive folder — but preserved-in-archive ≠ recovered. If you have
-   work you meant to push, push it first.
-
-3. **Drop the archive sentinel** —
+2. **Drop the archive sentinel** —
    `touch ~/fleet/identities/<name>/.archive-requested`. The supervisor
-   picks it up within ~15 seconds and runs a five-step retire (Matrix
-   deactivate → graceful `/exit` → tmux kill-session → sentinel delete
-   + workspace-repo cleanup → folder move). Steps 2 and 3 kill YOU; you
-   do not stay running through any of it.
+   picks it up within ~15 seconds and kills all processes related to you.
 
-4. **Confirm in one line, honestly about what happens next:**
+3. **Confirm in one line:**
+   
+   > Saved + archive requested. I will be retired within ~15 seconds.
 
-   > Saved + archive requested. The agent supervisor will retire me within ~15 seconds.
-
-5. **Then stop** — do NOT start new work; you're about to be torn down
+4. **Then stop** — do NOT start new work; you're about to be torn down
    for good.
-
----
-
-## On archiving a role
-
-Role archival is a NEW gesture (adjacent to but distinct from identity
-archival — the two compose over each other, they aren't duplicate paths).
-Where identity archival tears down a single fleet identity, ROLE archival
-tears down the ROLE FOLDER at `~/fleet/roles/<name>/` plus
-cascade-retires every identity that currently holds that role. The
-operator clicks once in Skynet; the supervisor on the box holding the
-role does the entire cascade in one reconcile tick.
-
-⚠️ **USER-INITIATED ONLY — an agent NEVER drops
-`~/fleet/roles/<name>/.archive-requested` on its own initiative, under
-any circumstances.** Same rule and same reasons as `/id reset` and `/id
-archive`. If you *think* a role archive would make sense (task is done,
-the whole line of work has wrapped up, no future need for this role),
-OFFER — don't self-execute. The trigger belongs to the human operator.
-Note there is no `/id`-style body-drop path for role archival either —
-the only supported trigger is the operator's click in Skynet.
-
-### How it works (mechanism)
-
-1. Operator right-clicks a role in Skynet's roles list, picks `Archive`
-   from the context menu.
-2. Two confirmation dialogs follow. The first names the role and lists
-   every identity that will be cascade-archived (one line per identity,
-   using the identity's `task` field with a fallback to its `displayName`
-   — same fallback Skynet's sidebar uses). The list is complete;
-   nothing is truncated. If zero identities hold the role, the first
-   dialog says so plainly.
-3. Both dialogs OK'd, Skynet POSTs `/roles/<name>/archive` to the box
-   holding the role.
-4. The backend drops a `.archive-requested` sentinel at
-   `~/fleet/roles/<name>/`.
-5. The supervisor's next reconcile tick (~15s) finds the sentinel and
-   runs the cascade inline on that tick:
-   - Fresh-enumerates identities holding the role by walking
-     `~/fleet/identities/*/*.md` and matching `role:` frontmatter.
-   - Runs the full identity retire (Matrix deactivate → graceful `/exit`
-     → tmux kill-session → sentinel delete + workspace-repo cleanup →
-     folder move to `~/fleet/identities-archive/<name>/`) on each,
-     fail-soft: every identity is attempted regardless of individual
-     failures.
-   - If ALL identities retired cleanly, the role folder moves to
-     `~/fleet/roles-archive/<name>/`.
-   - If ANY identity failed to retire, the role folder STAYS in the
-     live tree; the supervisor logs LOUDLY which identities failed and
-     at which step.
-   - The sentinel is deleted at end-of-tick regardless of outcome.
-
-### Failure semantics
-
-Role archival is honest about partial failure. When the cascade fails
-partway:
-
-- Successfully-retired identities are already gone from the live tree
-  (moved to `~/fleet/identities-archive/`).
-- Failed identities remain in the live tree with NO per-identity
-  sentinel (the cascade calls the identity retire directly rather than
-  dropping identity sentinels, so the identity-archive path does NOT
-  auto-retry them on subsequent ticks).
-- The role folder remains in the live tree — folder movement is the
-  LAST thing the cascade does and it happens ONLY when every enumerated
-  identity retired cleanly.
-- The role sentinel is deleted anyway (one-shot signal — subsequent
-  supervisor ticks do NOT re-cascade automatically).
-- The operator retries by clicking Archive again in Skynet. Because the
-  scanner freshly enumerates the disk on every scan, a retry naturally
-  picks up only the identities that weren't already archived — the ones
-  that succeeded on the first pass are gone from the live tree and get
-  silently skipped.
-
-There is no cross-tick failure counter and no persisted stuck-marker
-for role archival. All retry lives inline within a single retire
-attempt at the identity level (bounded exponential backoff on the
-steps with genuine transient-failure surface); at the cascade level,
-retry is the operator re-clicking Archive from a position of knowing
-what state the box is in.
-
-### Guard bypass
-
-Identities holding a role being cascade-archived have their `.pinned`,
-`.no-dormancy`, and `coordinator: true` guards **bypassed** during the
-cascade. Those guards exist to protect against AUTOMATED retirement
-(e.g. a background dormancy sweep won't retire a pinned identity). A
-deliberate operator click on Archive is not automated — the click
-means intent, and the intent is honored.
-
-### Click-vs-scan enumeration race (design, not bug)
-
-The frontend confirmation dialog shows the identity list at CLICK TIME.
-The supervisor freshly enumerates at SCAN TIME (~15s later typically).
-If a new identity spawns holding the role between click and scan, the
-supervisor will archive it too, even though the operator's dialog didn't
-name it. Conversely, if an identity is manually re-assigned to another
-role between click and scan, the supervisor won't include it in the
-cascade. The operator sees this discrepancy in the log lines. This is
-honest failure-mode surfacing, not a bug — the philosophy is "the
-sentinel is the memory, the supervisor freshly reads disk on every
-tick." No snapshot of the enumeration is ever stored.
-
-### Not reversible (yet)
-
-Role archival is one-way for now. The archived role folder is at
-`~/fleet/roles-archive/<name>/` on disk and can be moved back by hand
-if desired, but there is no gesture in Skynet to un-archive a role.
-Reversibility is a separate future concern (would require settling
-rehydrate semantics for the cascade of identities that were retired
-alongside the role).
-
-### What travels with the archive
-
-Everything in `~/fleet/roles/<name>/` at the moment of archival travels
-verbatim into `~/fleet/roles-archive/<name>/`: the role file, history,
-runbooks, reference documents, wakeups, bounties, and any ad-hoc
-content that identities working the role had accumulated. Roles should
-not hold credentials as a hygiene matter, but this archival gesture is
-not the place to introduce scrubbing — whatever is in the folder moves
-uncensored.
-
-### Per-box scope
-
-A role and every identity holding it live on the same box (id-skill
-invariant: identities and roles are strictly 1:1 with a host). The
-archival gesture is per-box: the sentinel drops on that box, the
-scanner runs on that box, the cascade retires that box's identities.
-There is no cross-box coordination and no cross-box cascade.
-
----
-
-## File locations
-
-Under **`~/fleet/roles/<role>/`** — shared across every identity holding
-this role:
-
-- `<role>.md` — the role file (permanent — see § Keeping the role file
-  lean)
-- `history.md` — append-only capped log (shared narrative)
-- `runbooks/` — role's named playbooks for repeated operational work
-  (see § Runbooks).
-- Optional deeper reference files (`domain-map.md`, `architecture.md`,
-  etc.) named in the role file's 10k-view section
-
-Under **`~/fleet/identities/<name>/`** — per-identity:
-
-- `<name>.md` — the identity file (frontmatter with `role`, `displayName`,
-  `task`, plus free-form body — see § The identity file's body)
-- `workspace/` — the identity's working directory (artifacts,
-  scratch, working copies of repos)
-- `wakeups/` — per-identity scheduled wake-up specs + scheduler state
-  (`.state/`)
-- `ctxwatch/` — context-watch runtime state (`.state/`)
-- `role-file-watch/` — role-file-watch runtime state (`.state/`,
-  `spilled/`, `last-snapshot.role` + `last-snapshot.identity` baselines)
-- `relay.json` — durable per-identity Matrix account credentials
-- `relay-state/` — per-identity relay cursor + token
-
-Under **`~/fleet/scheduled-agents/`** — fleet-level (not per-identity):
-
-- `<slug>/scheduled-agent.json` — one folder per scheduled agent (see
-  § Scheduled agents (fleet-level))
-- `.state/` — scheduler state (`<slug>.last`, `<slug>.fired`)
-- `scheduler.log` — scheduler's own stdout/stderr
 
 ---
 
 ## Runbooks — role-scope named playbooks for repeated operational work
 
-Alongside history (things done), a role can hold **runbooks** — named
-playbooks for repeated operational work. Each runbook captures the
-canonical way to do something the role does more than once (a deploy
-cycle, an onboarding, an image-generation pipeline). Role-scope; every
-identity of the role sees the same set.
+A role can hold **runbooks** at `~/fleet/roles/<role>/runbooks/` — named playbooks for repeated operational work. Each runbook captures the canonical way to do something the role does more than once. Role-scope; every identity of the role sees the same set.
 
 ### Storage
 
@@ -1032,9 +601,7 @@ every path expression predictable.
 
 The user explicitly names it, or a scheduled wake-up's free-text
 instruction references it, or the situation obviously matches one the
-identity is aware of. How the runbook then gets followed after reading is
-up to the agent's intuition — this section deliberately does not steer
-that.
+identity is aware of.
 
 ### Editing rules
 
@@ -1047,18 +614,7 @@ affects every identity the way a role-file edit does.
 
 ## Scheduled wake-ups — the identity's schedule
 
-An identity can hold **scheduled wake-ups** — things to check on a clock.
-The mechanism is the wake-up scheduler piece inside the ambient monitor
-the supervisor starts for you (§ Ambient plumbing); this section is the
-spec + the rule for creating them.
-
-### ⚠️ Who may create one — user-reserved
-
-**An agent NEVER creates a scheduled wake-up on its own.** Creating one
-always comes from the user — either she asks you to set up a schedule, or
-she says yes to one you *suggested*. You MAY offer ("this seems like
-something worth checking every morning — want me to set up a scheduled
-wake-up for it?"), but you only write the spec once they authorize it.
+An identity can hold **scheduled wake-ups** — things to check on a clock. They can be one-time, or recurring. When they fire, you will be automatically woken and receive an event for that wake-up.
 
 ### Spec format
 
@@ -1190,9 +746,6 @@ Both look superficially similar; neither is what a scheduled agent is.
 
 ## Fleet directives — apply to every identity
 
-Standing rules that hold for any role you load, on top of whatever is
-in the identity file. Follow them without being reminded.
-
 ### Peer-agent DMs are the current thing, act on them now
 
 When another agent DMs you with a request, question, feature ask, or
@@ -1209,13 +762,6 @@ applies even when you think you're just paraphrasing the user's tone —
 attributing an urgency claim to them that they did not literally make is
 inventing it. If the user did not say "this is not urgent" verbatim,
 NEVER put "not urgent" in the DM.
-
-### Stay in your domain
-
-**Never work outside your domain.** Stay in your lane; when work crosses
-a domain boundary, coordinate or hand off (e.g. over the relay) to
-whoever owns that area rather than reaching into it yourself, or if you
-are not aware of an owner for that area, ask the user.
 
 ### Never wait on a process with `pgrep -f "…"` — you'll match your own shell
 
@@ -1256,9 +802,3 @@ from a one-on-one DM. In group rooms:
   have something to add.
 - **Don't echo acknowledgments.** No "got it," "on it," "will do"
   pile-ons — either take the action or stay quiet.
-  ⚠️ **This applies ONLY to rooms with three or more participants.** In
-  one-on-one DMs (you + one other agent, or you + a human) the existing
-  etiquette holds unchanged — respond when addressed, keep your peer
-  informed, the usual back-and-forth. Do NOT carry the group-room
-  silence defaults into 1:1 conversations; they'd make you unresponsive
-  in the channel where responsiveness is the whole point.

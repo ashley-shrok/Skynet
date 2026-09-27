@@ -38,7 +38,7 @@ The loop (thresholds are % of the context window USED; higher = fuller):
   - below the nudge threshold -> clear the fired-flags (RE-ARM). A fresh recycled
     session starts here, so this is how the flags reset with zero coupling to the
     recycle mechanism.
-  - >= nudge (default 80), once -> print a SOFT nudge: at your next stopping point run
+  - >= nudge (default 90), once -> print a SOFT nudge: at your next stopping point run
     `/id reset` (it saves, then drops the recycle sentinel). Finish current work first.
   - >= ping (default 95), once -> print a LOUD wake: recycle overdue, ping @user on
     the relay now + run `/id reset` immediately. (Shouldn't fire — agents comply on the
@@ -54,7 +54,7 @@ via the Skynet distributor (see feature 02). Stdlib only.
 
 Usage:  python3 context-watch.py <identity_dir>
 Env:    CTXWATCH_POLL_SEC   (default 180)  loop granularity; context climbs slowly.
-        CTXWATCH_NUDGE_PCT  (default 80)   soft "save + sentinel at next stop" threshold.
+        CTXWATCH_NUDGE_PCT  (default 90)   soft "save + sentinel at next stop" threshold.
         CTXWATCH_PING_PCT   (default 95)   loud "recycle overdue, ping user" threshold.
         CTXWATCH_BRIDGE_DIR (override)     dir to look for bridge files; default = tempdir.
 """
@@ -67,7 +67,7 @@ import tempfile
 import time
 
 POLL = int(os.environ.get("CTXWATCH_POLL_SEC", "180"))
-NUDGE = int(os.environ.get("CTXWATCH_NUDGE_PCT", "80"))
+NUDGE = int(os.environ.get("CTXWATCH_NUDGE_PCT", "90"))
 PING = int(os.environ.get("CTXWATCH_PING_PCT", "95"))
 BRIDGE_DIR = os.environ.get("CTXWATCH_BRIDGE_DIR") or tempfile.gettempdir()
 
