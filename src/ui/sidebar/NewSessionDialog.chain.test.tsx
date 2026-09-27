@@ -675,6 +675,10 @@ describe("NewSessionDialog chain: Test 11 — birth+auto-route chain fires on en
       expect(sel.value).toBe("box-maintainer");
     });
 
+    // 2026-09-27: name input is hidden by default (auto-generate mode). Reveal
+    // it so this test can drive the manual-name path (asserting a specific
+    // typed name flows through the birth chain).
+    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     // Fill the required name field (only remaining gate for Create).
     fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: "alicia" } });
 

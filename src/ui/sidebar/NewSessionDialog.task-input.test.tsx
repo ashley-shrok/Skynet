@@ -170,6 +170,14 @@ async function fillFormForSubmit(opts: {
   // Pick a role → triggers pickPoolName useEffect
   const roleSelect = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
   fireEvent.change(roleSelect, { target: { value: "box-maintainer" } });
+  // 2026-09-27: the manual name input is hidden by default now (auto-generate
+  // mode is default). Every helper caller here needs to either observe the
+  // input value or type into it, so reveal the input by opting into custom
+  // name. Guard against the pool-pick failure fallback having already flipped
+  // the checkbox to checked (this suite's default mock REJECTS) — clicking a
+  // checked checkbox would un-reveal the input.
+  const customNameCb = screen.getByLabelText(/choose a custom agent name/i) as HTMLInputElement;
+  if (!customNameCb.checked) fireEvent.click(customNameCb);
   if (waitForPrefill) {
     await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());
     // Wait for name field to acquire prefilled value
@@ -343,6 +351,11 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     ];
     expect(typeof hostId).toBe("number");
 
+    // 2026-09-27: reveal the manual name input so we can inspect its value.
+    // The pool-picked name still populates `name` state under the covers; the
+    // checkbox click just shows the input in the DOM.
+    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
+
     // Name field populated with returned pool name
     await waitFor(() => {
       const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
@@ -372,6 +385,8 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     ]);
     renderDialog();
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    // 2026-09-27: reveal the manual input so the user can type into it.
+    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     // User types a custom name FIRST (before any prefill).
     const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "custom-name" } });
@@ -408,6 +423,9 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
 
     // Request is in flight, field still empty.
     await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());
+    // 2026-09-27: reveal the manual input so we can observe its value while
+    // the suggestion is in flight.
+    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
     expect(nameInput.value).toBe("");
 
@@ -448,6 +466,8 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     renderDialog({ hostTree: numericTwoHostTree });
 
     fireEvent.click(screen.getByText("alpha"));
+    // 2026-09-27: reveal the manual input so we can observe its value.
+    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     await waitFor(() => {
       expect(
         (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
@@ -494,6 +514,8 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     mockPickPoolName.mockResolvedValue({ name: "willow" });
     renderDialog();
 
+    // 2026-09-27: reveal the manual input so we can observe the prefilled value.
+    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     await waitFor(() => {
       const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
       expect(nameInput.value).toBe("willow");

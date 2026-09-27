@@ -320,6 +320,8 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
     fireEvent.click(screen.getByText("alpha"));
     // Wait for the roles fetch to resolve so the dropdown appears
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    // 2026-09-27: reveal the manual name input by opting into custom name.
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     // Fill name (title/brief/generate/img UI is gone post-Phase-86)
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
     // Create still disabled — role not picked
@@ -365,6 +367,11 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
       const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
       expect(sel.value).toBe("box-maintainer");
     });
+    // 2026-09-27: reveal the manual input so we can observe the prefilled
+    // value. The auto path submits the same value silently, but this test
+    // encodes "prefill actually populated the state" which is only visible in
+    // the DOM once the input renders.
+    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     // Name must actually prefill for Create to enable, so assert it landed
     // before checking the button (this suite's default pickPoolName mock
     // REJECTS — see the module-level mock — so the resolved override above is
@@ -402,6 +409,8 @@ describe("NewSessionDialog role dropdown: Test 24 — birth payload carries role
     const { getByLabelText, getByRole } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    // 2026-09-27: reveal the manual name input for typing.
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
     // Pick role
     fireEvent.change(getByLabelText(/^role$/i), {

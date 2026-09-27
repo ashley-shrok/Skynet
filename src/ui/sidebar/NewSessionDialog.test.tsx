@@ -705,14 +705,19 @@ describe("NewSessionDialog: Test E — shell mode hides birth fields (opt in via
 // from source — those assertions have been removed.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test F — identity-mode ON reveals birth fields", () => {
-  it("Test F: default (identity-mode ON) + host picked → name + role dropdown present; task and cosmetic controls absent", async () => {
+  it("Test F: default (identity-mode ON) + host picked → role dropdown + auto-name checkbox present; name input hidden until checkbox clicked; task and cosmetic controls absent", async () => {
     const { getByLabelText, queryByLabelText, queryByRole } = renderDialog();
     // Pick a host so the role dropdown wrap renders (host-gated per L983).
     fireEvent.click(screen.getByText("alpha"));
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
 
-    // Current identity-mode fields — creation asks for a name and a role, and
-    // nothing else.
+    // 2026-09-27: the identity-name input is hidden by default now — the
+    // vetted-pool picker names the agent silently. A "Choose a custom agent
+    // name" checkbox reveals the input for a user who wants to pick their own.
+    expect(queryByLabelText(/^name$/i)).toBeNull();
+    expect(getByLabelText(/choose a custom agent name/i)).toBeTruthy();
+    // Click the checkbox → the input appears.
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     expect(getByLabelText(/^name$/i)).toBeTruthy();
     expect(getByLabelText(/^role$/i)).toBeTruthy();
 
@@ -744,6 +749,8 @@ describe("NewSessionDialog: Test G — name + role + host enables Create", () =>
     fireEvent.change(getByLabelText(/^role$/i), {
       target: { value: "box-maintainer" },
     });
+    // 2026-09-27: reveal the manual name input by opting into custom name.
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     // Fill name.
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
 
@@ -761,6 +768,7 @@ describe("NewSessionDialog: Test H — invalid name disables Create + shows erro
   it("Test H: name='user Smith' → inline error about valid chars; Create disabled", () => {
     const { getByLabelText, getByRole, queryByText } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "user Smith" } });
     const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(true);
@@ -781,6 +789,7 @@ describe("NewSessionDialog: Test I — Skynet collision blocks Create", () => {
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
     const { getByLabelText, getByRole } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     const nameInput = getByLabelText(/^name$/i);
     fireEvent.change(nameInput, { target: { value: "alicia" } });
     fireEvent.blur(nameInput);
@@ -802,6 +811,7 @@ describe("NewSessionDialog: Test J — host collision blocks Create", () => {
     mockGetIdentityExistsOnHost.mockResolvedValue(true);
     const { getByLabelText, getByRole } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     const nameInput = getByLabelText(/^name$/i);
     fireEvent.change(nameInput, { target: { value: "new-agent" } });
     fireEvent.blur(nameInput);
@@ -828,6 +838,7 @@ describe("NewSessionDialog: Test K — collision clears when name changes", () =
 
     const { getByLabelText } = renderDialog();
     fireEvent.click(screen.getByText("alpha"));
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     const nameInput = getByLabelText(/^name$/i);
     fireEvent.change(nameInput, { target: { value: "alicia" } });
     fireEvent.blur(nameInput);
@@ -876,6 +887,7 @@ describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", 
     fireEvent.change(getByLabelText(/^role$/i), {
       target: { value: "box-maintainer" },
     });
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
     await waitFor(() => {
       const createBtn = getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
@@ -947,13 +959,16 @@ describe("NewSessionDialog: Test S — onCreate payload with shell mode (identit
 describe("NewSessionDialog: Test U — modal state resets on close", () => {
   it("Test U: fill fields, close, re-open → all fields back to defaults", () => {
     const onClose = vi.fn();
-    const { getByLabelText, getByRole, rerender } = renderDialog({ onClose });
+    const { getByLabelText, getByRole, queryByLabelText, rerender } = renderDialog({ onClose });
     // Fill the agent-mode fields. Path lives in the shell branch now; its reset
     // is covered by Test B (default is "" on shell toggle) so it isn't
     // reasserted here.
     //
     // 2026-09-14: only `name` remains fillable here — the task textarea was
     // removed, so there is no task state left to reset.
+    // 2026-09-27: reveal the manual name input by opting into custom name so
+    // the input renders and can be filled.
+    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
 
     // Close the dialog.
@@ -976,7 +991,12 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
         isAdmin={true}
       />
     );
-    expect((getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
+    // 2026-09-27: auto-name resets to false on close → input is hidden on
+    // reopen. Assert the input is NOT in the DOM (the reset happened) and the
+    // custom-name checkbox is UNCHECKED (matches the default entry state).
+    expect(queryByLabelText(/^name$/i)).toBeNull();
+    const autoNameCheckbox = getByLabelText(/choose a custom agent name/i) as HTMLInputElement;
+    expect(autoNameCheckbox.checked).toBe(false);
     // Shell-only checkbox re-arms to the default UNCHECKED (agent mode).
     const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
     expect(checkbox.checked).toBe(false);
@@ -999,6 +1019,10 @@ async function fillIdentityForm(utils: ReturnType<typeof renderDialog>) {
   fireEvent.change(getByLabelText(/^role$/i), {
     target: { value: "box-maintainer" },
   });
+  // 2026-09-27: name input is hidden by default (auto-generate mode). Tests that
+  // want to control the name explicitly must first check "Choose a custom agent
+  // name" to reveal the input.
+  fireEvent.click(getByLabelText(/choose a custom agent name/i));
   fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
   await waitFor(() => {
     const createBtn = utils.getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;

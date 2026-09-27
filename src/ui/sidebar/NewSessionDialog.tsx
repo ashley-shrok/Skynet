@@ -322,6 +322,15 @@ export function NewSessionDialog({
   // inherits them on landing. Only the identity's own name + task remain.
   const [name, setName] = useState(""); // identity name (distinct from regular sessionName)
 
+  // 2026-09-27: auto-generate name by default. `autoName === false` (unchecked,
+  // the default) means the pool-picked name is submitted silently and the manual
+  // input is hidden. `autoName === true` means the user opted into typing their
+  // own name — the input reveals and the pool suggestion becomes a starting point
+  // they can accept, edit, or replace. On pool-pick failure the catch branch in
+  // the effect below flips this to `true` so the input reveals and the user can
+  // recover manually without seeing an error.
+  const [autoName, setAutoName] = useState(false);
+
   // 2026-09-14: the task-description textarea and its `task` state were removed.
   // Birth sends TASK_PLACEHOLDER and the agent self-fills on first wake.
   const [poolPickedName, setPoolPickedName] = useState<string | null>(null);
@@ -444,6 +453,7 @@ export function NewSessionDialog({
       setPath("~/");
       setShellOnly(false);
       setName("");
+      setAutoName(false);
       // Phase 80 Plan 80-06: reset pool-pick tracking on close.
       setPoolPickedName(null);
       // Reset the prefill effect's mirrors too. State setters above are async,
@@ -645,6 +655,14 @@ export function NewSessionDialog({
         // Silent: pool endpoint failure just means no prefill. User can type
         // a name manually. Do NOT surface an inline error banner — pool is a
         // suggestion source, not a hard requirement (T-80-06-03 mitigation).
+        //
+        // 2026-09-27: on failure, flip the auto-name checkbox to `true` so the
+        // manual input reveals. Without this the user would sit staring at just
+        // a checked-off "Choose a custom agent name" checkbox with no input to
+        // type in, and Create would be disabled forever. Same "degrade
+        // invisibly" spirit as the swallow above — no banner, no explanation,
+        // the input just appears and the user types.
+        if (!cancelled) setAutoName(true);
       }
     })();
     return () => {
@@ -1216,44 +1234,75 @@ export function NewSessionDialog({
                   now records TASK_PLACEHOLDER and the agent overwrites its own
                   `task:` frontmatter on first wake. */}
 
-              {/* Identity name field */}
+              {/* 2026-09-27: Identity-name group inverted from label+input to
+                  checkbox+conditional-input. Default state (unchecked) leaves
+                  the name to the vetted-pool picker's suggestion, keeping the
+                  form to a single visible checkbox row. Checking the box
+                  reveals the manual input for a user who wants to pick their
+                  own name.
+
+                  The checkbox label replaces the previous small-caps NAME row
+                  (byte-exact text change from user 2026-09-27: "choose a custom
+                  agent name"). Anchor id `new-identity-auto-name` mirrors the
+                  shell-only checkbox anchor idiom at `new-session-identity-mode`
+                  above. `htmlFor` targets the checkbox, not the input, so
+                  clicking the label toggles the checkbox — the input keeps its
+                  `aria-label="Name"` for AT users.
+
+                  Pool-pick failure flips autoName true silently (see effect at
+                  ~line 619's catch), so a user never sits stuck on an
+                  auto-generate checkbox with no input to type in. */}
               <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="new-identity-name"
-                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-                >
-                  Name (used when you want agents to talk to each other)
-                </label>
-                <Input
-                  id="new-identity-name"
-                  aria-label="Name"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value);
-                    // Clear collision state when name changes (re-check on blur)
-                    setSkynetCollision(false);
-                    setHostCollision(false);
-                  }}
-                  onBlur={() => runCollisionPrecheck(name)}
-                  placeholder="e.g. alicia"
-                  disabled={formDisabled}
-                  aria-invalid={name.length > 0 && !IDENTITY_NAME_PATTERN.test(name)}
-                />
-                {/* Name validation errors */}
-                {name.length > 0 && !IDENTITY_NAME_PATTERN.test(name) && (
-                  <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                    Name must match [a-z0-9._=/+-]+
-                  </span>
-                )}
-                {skynetCollision && (
-                  <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                    Already exists in {brandingConfig.appName}
-                  </span>
-                )}
-                {hostCollision && selectedHost && (
-                  <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                    Already exists on {selectedHost.name}
-                  </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="new-identity-auto-name"
+                    checked={autoName}
+                    onChange={(e) => !formDisabled && setAutoName(e.target.checked)}
+                    disabled={formDisabled}
+                    className="w-3.5 h-3.5 rounded disabled:opacity-50"
+                  />
+                  <label
+                    htmlFor="new-identity-auto-name"
+                    className="text-xs text-[color:var(--color-pv-fg)] cursor-pointer select-none"
+                  >
+                    Choose a custom agent name
+                  </label>
+                </div>
+                {autoName && (
+                  <>
+                    <Input
+                      id="new-identity-name"
+                      aria-label="Name"
+                      value={name}
+                      onChange={(e) => {
+                        setName(e.target.value);
+                        // Clear collision state when name changes (re-check on blur)
+                        setSkynetCollision(false);
+                        setHostCollision(false);
+                      }}
+                      onBlur={() => runCollisionPrecheck(name)}
+                      placeholder="e.g. alicia"
+                      disabled={formDisabled}
+                      aria-invalid={name.length > 0 && !IDENTITY_NAME_PATTERN.test(name)}
+                    />
+                    {/* Name validation errors */}
+                    {name.length > 0 && !IDENTITY_NAME_PATTERN.test(name) && (
+                      <span className="text-xs text-[color:var(--color-pv-code-fg)]">
+                        Name must match [a-z0-9._=/+-]+
+                      </span>
+                    )}
+                    {skynetCollision && (
+                      <span className="text-xs text-[color:var(--color-pv-code-fg)]">
+                        Already exists in {brandingConfig.appName}
+                      </span>
+                    )}
+                    {hostCollision && selectedHost && (
+                      <span className="text-xs text-[color:var(--color-pv-code-fg)]">
+                        Already exists on {selectedHost.name}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
 
