@@ -6,8 +6,8 @@
 # bypass a small hard-coded set of catastrophically destructive patterns
 # (deletion of $HOME or /) — those still surface as a modal in the raw
 # terminal (waitingFor: "approve Bash"), and Skynet mirrors them as a
-# presence-only bubble the user can't act on from the chat view. Ashley's
-# stance is "no prompts, ever" — this hook completes that.
+# presence-only bubble the user can't act on from the chat view. The
+# user's stance is "no prompts, ever" — this hook completes that.
 #
 # PreToolUse hooks that emit permissionDecision:"allow" are documented by
 # the harness as authoritative over its permission gate — including the

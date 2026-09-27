@@ -162,7 +162,7 @@ correctly wouldn't handle scheduled agents correctly.
 
 Inline execution, tracked via the harness tasks already set up. Work
 proceeds carefully — atomic edits, scoped tests per touched paths, no
-push-and-deploy until Ashley greenlights the ship separately. The docs
+push-and-deploy until the user greenlights the ship separately. The docs
 sweep is a follow-up ops task after code and tests are green; it operates
 on peer boxes over SSH and belongs in the same session but not in the
 code commits.

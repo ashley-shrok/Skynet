@@ -94,7 +94,7 @@ through the same shared editor but with a synthetic markdown filename
 A tasting session on the box confirmed the direction. A standalone
 prototype mounted the real code editor with the Dracula theme in a
 Skynet-styled shell, next to the plain text box, across nine sample
-filetypes. Ashley confirmed the direction and picked Dracula from a
+filetypes. The user confirmed the direction and picked Dracula from a
 lineup of ten themes. The prototype also surfaced a handful of gotchas
 around dependency alignment when loading the editor's packages from a
 CDN — the real implementation, built through the app's normal build
@@ -181,7 +181,7 @@ tool, does not have those gotchas.
 
 ## Vehicle notes
 
-Inline, tracked via the harness task list. Ashley wants to work
+Inline, tracked via the harness task list. The user wants to work
 through it carefully, in the loop.
 
 Identity holding the work: `dagger-box-maintainer-2`. Working tree at
@@ -192,9 +192,9 @@ branch `feat/tab-title-from-tmux` (fleet-shared feature branch;
 Tasting prototype (source of truth for the direction that was picked)
 lives at
 `~/fleet/identities/dagger-box-maintainer-2/workspace/editor-tasting/prototype.html`,
-served on port 8905 (`https://Skynet-8905.serve.term.gigaashley.click/prototype.html`).
-The prototype uses a CDN with careful dependency alignment; the real
-implementation goes through the app's normal build tool so those
+served on port 8905 (accessed via the box's Skynet serve URL for that
+port). The prototype uses a CDN with careful dependency alignment; the
+real implementation goes through the app's normal build tool so those
 alignment concerns don't apply.
 
 Close-out: `/close code-editor` when the work is done, to verify the

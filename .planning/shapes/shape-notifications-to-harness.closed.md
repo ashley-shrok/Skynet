@@ -75,7 +75,7 @@ The load-bearing invariant that makes this shape simple: in this fleet, an agent
 
 Inline, working through the pieces one at a time with harness tasks tracking each piece. This is a change that fans across backend, frontend, and service worker, but each piece is small and the whole shape is well-scoped — the discussion here does the work a phase spec would otherwise do. Atomic commits per piece; scoped tests as we go per the fleet's dev-time discipline; full suite as the pre-deploy gate.
 
-The Skynet repo working tree lives under this identity's workspace; the current branch carries other in-flight work from peers, so `git pull --rebase` before every push per the multi-identity discipline. Nothing here mutates container state — `docker build` and container restart only happen on Ashley's deploy greenlight, separate from the code commits.
+The Skynet repo working tree lives under this identity's workspace; the current branch carries other in-flight work from peers, so `git pull --rebase` before every push per the multi-identity discipline. Nothing here mutates container state — `docker build` and container restart only happen on the user's deploy greenlight, separate from the code commits.
 
 `/close notifications-to-harness` closes the arc at the end.
 
