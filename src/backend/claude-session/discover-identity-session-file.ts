@@ -96,6 +96,54 @@ export function getLocalClaudeProjectsRoot(): string {
 }
 
 /**
+ * Translate a container-perspective path (rooted under `HOME_HOST_DIR`, e.g.
+ * `/host-home/.claude/projects/.../uuid.jsonl`) into the equivalent
+ * host-perspective path (rooted under `SKYNET_HOME_MOUNT_SRC`, e.g.
+ * `/home/ubuntu/.claude/projects/.../uuid.jsonl`).
+ *
+ * Why this exists: `readLocalDiscovery` below walks the directory tree using
+ * container-perspective paths (that's the only shape node's `fs` sees inside
+ * the Skynet container — the host home is bind-mounted at `HOME_HOST_DIR`).
+ * But the discovered path is HANDED BACK to callers who write it to the
+ * fleet-status `sessionFileCache`, and every downstream consumer of that
+ * cache entry (the connect-time `totalLines` probe in
+ * `claude-session-server.ts:6076`, the `tail -F` in `session-file-tail.ts`,
+ * `fetch_older_range` handling in `session-file-range-reader.ts`) runs the
+ * path through SSH exec against `ubuntu@t1000`. The SSH session sees the
+ * HOST filesystem, where `/host-home` doesn't exist — only
+ * `${SKYNET_HOME_MOUNT_SRC}` does (the source side of the bind mount). So a
+ * container-perspective path reaching SSH fails with "No such file or
+ * directory" and the caller silently falls back to a degraded default
+ * (totalLines: 0 → pretty-view's load-more button never appears, per the
+ * `hasOlderMessages` gate at `PrettyView.tsx:3708-3711`).
+ *
+ * Failure symmetry: `discoverClaudeSessionBatched` (the SSH branch of
+ * discovery) has this right already — it builds paths from `$HOME` inside
+ * the SSH session, which resolves to `/home/ubuntu` (host-perspective).
+ * `discoverIdentitySessionFileLocal` (the in-container fs branch) is the
+ * odd one out, so translation happens here at the source. Fixing at the
+ * source means every downstream SSH consumer (probe, tail, range-reader)
+ * gets the right shape without needing per-consumer translation.
+ *
+ * No-op when either env var is unset — a native-dev run has neither, so
+ * `getLocalClaudeProjectsRoot` falls back to `os.homedir()` (already
+ * host-perspective) and translation is a pass-through. Any Skynet compose
+ * install has BOTH set (Dockerfile pins `HOME_HOST_DIR=/host-home`; the
+ * compose file hard-fails without `SKYNET_HOME_MOUNT_SRC`).
+ *
+ * Also a no-op for paths that don't sit under `HOME_HOST_DIR` (defensive
+ * — the discovery walker only produces paths under it, but this guard
+ * means a caller can pass any path through safely).
+ */
+export function toHostPerspectivePath(p: string): string {
+  const containerHome = process.env.HOME_HOST_DIR;
+  const hostHome = process.env.SKYNET_HOME_MOUNT_SRC;
+  if (!containerHome || !hostHome) return p;
+  if (p !== containerHome && !p.startsWith(containerHome + "/")) return p;
+  return hostHome + p.slice(containerHome.length);
+}
+
+/**
  * Hard ceiling on the discovery exec call. Bumped 3000 → 30000 (user
  * 2026-08-20 UAT) after aiTitle + lastMessageAt shipped as null for every
  * local identity on skynet-ec2. Root cause: the discovery shell script
@@ -476,7 +524,12 @@ async function readLocalDiscovery(
     const firstUserLine = await readFirstUserRoleLine(cand.path);
     if (firstUserLine === null) continue;
     if (__matchesIdentityFirstTurnForTests(firstUserLine, identityName)) {
-      return cand.path;
+      // Translate container-perspective → host-perspective before returning;
+      // the caller writes this into the shared session-file cache and every
+      // downstream consumer of that cache is an SSH-exec consumer that needs
+      // the host-perspective shape. See toHostPerspectivePath JSDoc for the
+      // full failure mode.
+      return toHostPerspectivePath(cand.path);
     }
   }
   return null;

@@ -37,6 +37,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
 import {
   discoverIdentitySessionFile,
   __matchesIdentityFirstTurnForTests,
+  toHostPerspectivePath,
 } from "./discover-identity-session-file.js";
 
 // Stub ssh2 Client — execCommand is mocked at module level so conn is never accessed.
@@ -537,5 +538,73 @@ describe("discoverIdentitySessionFile — LOCAL branch (conn === null)", () => {
     await fsp.writeFile(full, filler, "utf8");
     const result = await discoverIdentitySessionFile(null, "tanya");
     expect(result).toBe(null);
+  });
+});
+
+// ── toHostPerspectivePath ───────────────────────────────────────────────────
+// Regression coverage for the bind-mount path translator that fixes the
+// load-more button hiding on identity panes whose session file was resolved
+// via the LOCAL discovery branch (see toHostPerspectivePath JSDoc for the
+// full failure mode: container-perspective path → SSH exec → No such file
+// → totalLines: 0 → hasOlderMessages gate short-circuits false → button
+// never mounts).
+describe("toHostPerspectivePath", () => {
+  const prevHomeHostDir = process.env.HOME_HOST_DIR;
+  const prevMountSrc = process.env.SKYNET_HOME_MOUNT_SRC;
+
+  afterEach(() => {
+    if (prevHomeHostDir === undefined) delete process.env.HOME_HOST_DIR;
+    else process.env.HOME_HOST_DIR = prevHomeHostDir;
+    if (prevMountSrc === undefined) delete process.env.SKYNET_HOME_MOUNT_SRC;
+    else process.env.SKYNET_HOME_MOUNT_SRC = prevMountSrc;
+  });
+
+  it("translates container-perspective path under HOME_HOST_DIR to host-perspective path under SKYNET_HOME_MOUNT_SRC", () => {
+    process.env.HOME_HOST_DIR = "/host-home";
+    process.env.SKYNET_HOME_MOUNT_SRC = "/home/ubuntu";
+    expect(
+      toHostPerspectivePath(
+        "/host-home/.claude/projects/-slug/uuid.jsonl",
+      ),
+    ).toBe("/home/ubuntu/.claude/projects/-slug/uuid.jsonl");
+  });
+
+  it("returns input unchanged when HOME_HOST_DIR is unset (native-dev run)", () => {
+    delete process.env.HOME_HOST_DIR;
+    process.env.SKYNET_HOME_MOUNT_SRC = "/home/ubuntu";
+    expect(
+      toHostPerspectivePath("/home/dev/.claude/projects/slug/uuid.jsonl"),
+    ).toBe("/home/dev/.claude/projects/slug/uuid.jsonl");
+  });
+
+  it("returns input unchanged when SKYNET_HOME_MOUNT_SRC is unset (partial-env native run)", () => {
+    process.env.HOME_HOST_DIR = "/host-home";
+    delete process.env.SKYNET_HOME_MOUNT_SRC;
+    expect(
+      toHostPerspectivePath("/host-home/.claude/projects/slug/uuid.jsonl"),
+    ).toBe("/host-home/.claude/projects/slug/uuid.jsonl");
+  });
+
+  it("returns input unchanged for paths outside the bind-mount prefix (defensive)", () => {
+    process.env.HOME_HOST_DIR = "/host-home";
+    process.env.SKYNET_HOME_MOUNT_SRC = "/home/ubuntu";
+    expect(toHostPerspectivePath("/etc/hosts")).toBe("/etc/hosts");
+  });
+
+  it("does not treat a path that only shares a prefix segment as under the mount (e.g. /host-home-other/x)", () => {
+    process.env.HOME_HOST_DIR = "/host-home";
+    process.env.SKYNET_HOME_MOUNT_SRC = "/home/ubuntu";
+    // Guard against a naive `p.startsWith(containerHome)` — must require the
+    // trailing slash (or exact match) so `/host-home-other/x` isn't rewritten
+    // to `/home/ubuntu-other/x`.
+    expect(toHostPerspectivePath("/host-home-other/x")).toBe(
+      "/host-home-other/x",
+    );
+  });
+
+  it("handles the exact-match edge case (path === HOME_HOST_DIR)", () => {
+    process.env.HOME_HOST_DIR = "/host-home";
+    process.env.SKYNET_HOME_MOUNT_SRC = "/home/ubuntu";
+    expect(toHostPerspectivePath("/host-home")).toBe("/home/ubuntu");
   });
 });
