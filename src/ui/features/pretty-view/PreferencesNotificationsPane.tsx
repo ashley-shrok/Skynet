@@ -2,7 +2,7 @@
  * PreferencesNotificationsPane — folded-in notifications enable flow for the
  * Preferences modal's Notifications tab (Phase 137 D-18).
  *
- * Load-bearing invariants preserved from the retiring EnableNotificationsModal:
+ * Load-bearing invariants (preserved from the retired notification modal):
  *
  *   1. (Pitfall 4 / D-19) The permission-request fires synchronously inside the
  *      enable-button onClick — NO await boundary before the call. iOS PWAs

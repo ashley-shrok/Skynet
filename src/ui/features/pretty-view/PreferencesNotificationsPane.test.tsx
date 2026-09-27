@@ -1,6 +1,6 @@
 /**
- * PreferencesNotificationsPane tests — ported from the retiring
- * EnableNotificationsModal.test.tsx.
+ * PreferencesNotificationsPane tests — ported from the retired
+ * notifications-enable modal test suite.
  *
  * Seven behavior cases:
  *   1. Renders unsupported message when pushNotificationsSupported returns false.

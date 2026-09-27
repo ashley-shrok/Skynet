@@ -235,10 +235,6 @@ import WeeklyUsageMeter from "./WeeklyUsageMeter";
 // GlobalFilesModal. Opened via the header three-dot menu "New conversation"
 // item. onCreateRelayRoom prop threads the create response to AppShell.
 import { NewConversationModal } from "./NewConversationModal";
-import {
-  EnableNotificationsModal,
-  pushNotificationsSupported,
-} from "@/features/notifications/EnableNotificationsModal";
 import type { CreateRelayRoomResponse } from "./participant-types";
 // Phase 70 Plan 04: header lockup (small icon + wordmark) now sourced from
 // brandingConfig (Plan 70-03) so operator-provided assets swap in. Prior
@@ -926,14 +922,9 @@ export function PrettyConversationsPanel({
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   // Phase 44 SKILLED-01: SkillsEditorModal open/closed toggle (opened from menu item, sibling of GlobalFilesModal).
   const [skillsEditorModalOpen, setSkillsEditorModalOpen] = useState(false);
-  // EnableNotificationsModal open/closed toggle (opened from kebab menu item).
-  // Feature-detected — menu item only renders when Web Push is supported.
-  const [enableNotificationsModalOpen, setEnableNotificationsModalOpen] =
-    useState(false);
   // Phase 137 D-08: PreferencesModal open/closed toggle (opened from the
   // sidebar footer gear button — was previously an inert <span> placeholder).
   const [preferencesModalOpen, setPreferencesModalOpen] = useState(false);
-  const notificationsSupported = pushNotificationsSupported();
   // Phase 91 Plan 05 — NewConversationModal open/closed toggle (opened from
   // menu's "New conversation" item — v1 throwaway placement per shape §Philosophy).
   const [newConversationModalOpen, setNewConversationModalOpen] = useState(false);
@@ -3325,15 +3316,6 @@ export function PrettyConversationsPanel({
         }}
         preSelectedProject={newConversationPreSelectedProject}
       />
-      {/* EnableNotificationsModal — portal-mounted sibling of the other modal
-          mounts. Opened from the kebab menu's "Enable notifications…" item.
-          The menu item is feature-detected via pushNotificationsSupported();
-          the modal itself renders regardless (the item won't be there to
-          open it on unsupported browsers). */}
-      <EnableNotificationsModal
-        open={enableNotificationsModalOpen}
-        onOpenChange={setEnableNotificationsModalOpen}
-      />
       {/* Phase 137 D-08: PreferencesModal — portal-mounted sibling of other
           modals. Opened via the sidebar footer gear button. userId/avatarPath/
           onAvatarChanged/userPrefs threaded from AppShell for live-sync (D-30)
@@ -3483,10 +3465,7 @@ export function PrettyConversationsPanel({
           {[
             { label: "New group conversation", onClick: () => setNewConversationModalOpen(true) }, // Phase 91 Plan 05
             { label: "Edit global skills…", onClick: () => setSkillsEditorModalOpen(true) },
-            // Feature-detected — omitted entirely when the browser can't do Web Push.
-            ...(notificationsSupported
-              ? [{ label: "Enable notifications…", onClick: () => setEnableNotificationsModalOpen(true) }]
-              : []),
+            // (Phase 137 D-21) kebab notification-entry retired; use Preferences modal.
           ].map((item) => (
             <button
               key={item.label}

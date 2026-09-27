@@ -3,7 +3,7 @@
  *
  * Phase 137 D-01..D-09: modal chrome + four-tab left-nav shell.
  *
- * Modal chrome pattern: byte-copy of EnableNotificationsModal L134-190 with
+ * Modal chrome pattern: byte-copy of the retired notifications modal with
  * two swaps:
  *   - Size: 760x600 px (D-03)
  *   - data-testid=preferences-modal
@@ -18,7 +18,7 @@
  * the only close paths (prevent-default on the outside-interact event).
  *
  * D-05 invariant: useEffect resets activeSection to "general" whenever open
- * transitions from true → false, matching EnableNotificationsModal L72-82.
+ * transitions from true → false.
  */
 
 import { useEffect, useState } from "react";
@@ -73,7 +73,6 @@ export default function PreferencesModal({
 
   // D-05: reset the active tab to "general" whenever the modal closes so
   // reopening always starts on the General pane.
-  // Mirrors EnableNotificationsModal L72-82 reset shape.
   useEffect(() => {
     if (!open) setActiveSection("general");
   }, [open]);
