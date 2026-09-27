@@ -30,6 +30,8 @@ import {
   useAppTiles,
   subscribeAppTilesStore,
   readAppTilesCache,
+  markPendingAppArchive,
+  clearPendingAppArchive,
   __resetForTest,
   __seedFromCacheForTest,
 } from "./app-tiles-store.js";
@@ -567,5 +569,98 @@ describe("app-tiles-store: Test K — __resetForTest clears state and notifies",
     expect(result.current).toEqual([]);
 
     dispose();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pending-archive filter: AppTile's Archive click marks an app pending-
+// archive, then publishes gone. The app keeps appearing in the backend's
+// fleet-status app frames (update + snapshot) until the supervisor's sweep
+// tick moves the folder (~15s). During that window the filter must silent-
+// drop the entry from BOTH publishAppUpdate (per-frame update path) and
+// publishAppSnapshot (subscribe-on-connect / bulk snapshot path).
+// ─────────────────────────────────────────────────────────────────────────────
+describe("app-tiles-store: pending-archive filter", () => {
+  it("publishAppUpdate is a silent no-op when (hostId, slug) is marked pending-archive", () => {
+    const { result, rerender } = renderHook(() => useAppTiles());
+
+    markPendingAppArchive("7", "phantom");
+    act(() => {
+      publishAppUpdate(
+        makeApp({ hostId: "7", slug: "phantom", title: "Phantom" }),
+      );
+    });
+    rerender();
+
+    expect(result.current).toHaveLength(0);
+
+    clearPendingAppArchive("7", "phantom");
+  });
+
+  it("publishAppSnapshot filters out pending-archive entries from the incoming list", () => {
+    const { result, rerender } = renderHook(() => useAppTiles());
+
+    markPendingAppArchive("2", "archived-soon");
+    act(() => {
+      publishAppSnapshot([
+        makeApp({ hostId: "1", slug: "keeper", title: "Keeper" }),
+        makeApp({ hostId: "2", slug: "archived-soon", title: "Archived" }),
+      ]);
+    });
+    rerender();
+
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].slug).toBe("keeper");
+
+    clearPendingAppArchive("2", "archived-soon");
+  });
+
+  it("clearPendingAppArchive re-opens the door — subsequent update lands normally (rollback path)", () => {
+    const { result, rerender } = renderHook(() => useAppTiles());
+
+    markPendingAppArchive("3", "rollback-me");
+
+    // First update: silent-dropped.
+    act(() => {
+      publishAppUpdate(
+        makeApp({ hostId: "3", slug: "rollback-me", title: "Rollback" }),
+      );
+    });
+    rerender();
+    expect(result.current).toHaveLength(0);
+
+    // Simulated archive-failure rollback.
+    clearPendingAppArchive("3", "rollback-me");
+
+    // Second update: lands as normal — this is what makes the tile come back
+    // on the next fleet-status pulse after AppTile's catch clause fires.
+    act(() => {
+      publishAppUpdate(
+        makeApp({ hostId: "3", slug: "rollback-me", title: "Rollback" }),
+      );
+    });
+    rerender();
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].slug).toBe("rollback-me");
+  });
+
+  it("pending-archive filter is per-(hostId,slug) — siblings are unaffected", () => {
+    const { result, rerender } = renderHook(() => useAppTiles());
+
+    // Two apps sharing a slug across hosts (Pitfall 6 shape from the sort
+    // tiebreak). Marking one pending must not shadow the other.
+    markPendingAppArchive("1", "same-slug");
+    act(() => {
+      publishAppSnapshot([
+        makeApp({ hostId: "1", slug: "same-slug", title: "One" }),
+        makeApp({ hostId: "2", slug: "same-slug", title: "Two" }),
+      ]);
+    });
+    rerender();
+
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].hostId).toBe("2");
+
+    clearPendingAppArchive("1", "same-slug");
   });
 });

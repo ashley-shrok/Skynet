@@ -511,6 +511,29 @@ let cachedSnapshotVersion = -1;
 
 const listeners = new Set<() => void>();
 
+// Pending-archive filter: composite `${hostId}::${sessionName}` keys for
+// identities whose archive was just fired from the sidebar. handleArchive in
+// PrettyConversationsPanel drops the row via removeFleetSession + applyIdentity
+// Change immediately after firing archiveIdentity, but the identity keeps
+// pulsing fleet-status for ~15s until the supervisor's scan tick retires it.
+// Without this filter, the next `update` frame's upsertFleetSession would
+// re-insert the row (row-flicker back on screen). Cleared on archive-failure
+// rollback via clearPendingArchive; otherwise naturally GC'd on page reload
+// (Set is module-scope, in-memory only).
+const pendingArchiveKeys = new Set<string>();
+
+function pendingArchiveKey(hostId: number, sessionName: string): string {
+  return `${hostId}::${sessionName}`;
+}
+
+export function markPendingArchive(hostId: number, sessionName: string): void {
+  pendingArchiveKeys.add(pendingArchiveKey(hostId, sessionName));
+}
+
+export function clearPendingArchive(hostId: number, sessionName: string): void {
+  pendingArchiveKeys.delete(pendingArchiveKey(hostId, sessionName));
+}
+
 function notify(): void {
   snapshotVersion += 1;
   cachedSnapshot = null; // invalidate — will be rebuilt on next getSnapshot()
@@ -1369,6 +1392,16 @@ export function updateOpenTabs(tabs: Tab[]): void {
 // Test 27 asserts both the ref-equal no-op and the different-ref-same-
 // content DOES-fire semantics.
 export function updateFleetSessions(sessions: FleetSession[]): void {
+  // Pending-archive filter (companion to the Guard 4 in upsertFleetSession).
+  // Any (hostId, sessionName) currently in pendingArchiveKeys was optimistically
+  // removed by handleArchive; a fresh GET /sessions/list can still return it
+  // for ~15s until the supervisor retires the identity. Filter here so the
+  // bulk-replace path never re-inserts a row we've committed to hiding.
+  if (pendingArchiveKeys.size > 0) {
+    sessions = sessions.filter(
+      (s) => !pendingArchiveKeys.has(pendingArchiveKey(s.hostId, s.sessionName)),
+    );
+  }
   // quick-260727-kbw: compute shallow no-op WITHOUT early-return — the
   // fleetSessionsLoaded flag transition (false→true) can force a notify()
   // even when the sessions array itself is a shallow no-op. The first call
@@ -1493,6 +1526,12 @@ export function upsertFleetSession(session: FleetSession): void {
   // Guard 3: reject non-finite hostId — same malformed-row prevention; also
   // required for the composite (hostId::sessionName) key to be well-formed.
   if (!Number.isFinite(session.hostId)) return;
+
+  // Guard 4: silent-drop if the identity is mid-archive. The row was removed
+  // optimistically by handleArchive; the identity keeps pulsing fleet-status
+  // until the supervisor retires it (~15s), so without this guard the very
+  // next update frame would re-insert the row.
+  if (pendingArchiveKeys.has(pendingArchiveKey(session.hostId, session.sessionName))) return;
 
   const idx = state.fleetSessions.findIndex(
     (s) => s.hostId === session.hostId && s.sessionName === session.sessionName,

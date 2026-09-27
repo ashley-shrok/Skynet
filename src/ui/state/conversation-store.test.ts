@@ -22,6 +22,8 @@ import {
   updateFleetSessions,
   removeFleetSession,
   upsertFleetSession,
+  markPendingArchive,
+  clearPendingArchive,
   updateHostsFlat,
   updateIdentitiesByKey,
   selectConversation,
@@ -1138,6 +1140,93 @@ describe("conversation-store (quick-260810-oig): removeFleetSession", () => {
       spy.mockRestore();
       unsub();
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pending-archive filter: handleArchive optimistic-remove path in
+// PrettyConversationsPanel marks an identity pending-archive, then removes
+// the row. The identity keeps pulsing fleet-status until the supervisor's
+// scan tick retires it (~15s). During that window the filter must silent-
+// drop the entry from BOTH upsertFleetSession (per-frame update path) and
+// updateFleetSessions (full-list refetch path) so the row does not flicker
+// back onto the sidebar.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("conversation-store: pending-archive filter", () => {
+  it("upsertFleetSession is a silent no-op when the (hostId, sessionName) is marked pending-archive", () => {
+    const cb = vi.fn();
+    const unsub = __subscribeForTest(cb);
+
+    // Mark pending FIRST, then attempt to upsert — the guard should short-
+    // circuit before any state or cache write.
+    markPendingArchive(7, "phantom");
+    act(() => upsertFleetSession({
+      hostId: 7,
+      hostName: "hostA",
+      sessionName: "phantom",
+      created: 100,
+      role: null,
+    }));
+
+    const fleetRows = __getFleetOnlyRowsForTest();
+    expect(fleetRows.some((r) => r.id === "fleet::7::phantom")).toBe(false);
+    expect(cb).toHaveBeenCalledTimes(0);
+
+    clearPendingArchive(7, "phantom");
+    unsub();
+  });
+
+  it("updateFleetSessions filters out pending-archive entries from a bulk-replace payload", () => {
+    // Seed with a keep-me row so the payload is non-empty (avoids the
+    // preservePulseRows branch that keeps existing state on an empty input).
+    act(() => updateFleetSessions([
+      { hostId: 1, hostName: "hostA", sessionName: "keeper", created: 100, role: null },
+    ]));
+
+    markPendingArchive(2, "archived-soon");
+
+    act(() => updateFleetSessions([
+      { hostId: 1, hostName: "hostA", sessionName: "keeper", created: 100, role: null },
+      { hostId: 2, hostName: "hostB", sessionName: "archived-soon", created: 200, role: null },
+    ]));
+
+    const fleetRows = __getFleetOnlyRowsForTest();
+    expect(fleetRows.some((r) => r.id === "fleet::1::keeper")).toBe(true);
+    expect(fleetRows.some((r) => r.id === "fleet::2::archived-soon")).toBe(false);
+
+    clearPendingArchive(2, "archived-soon");
+  });
+
+  it("clearPendingArchive re-opens the door — a subsequent upsert lands normally (rollback path)", () => {
+    markPendingArchive(3, "rollback-me");
+
+    // First upsert: silent-dropped by the guard.
+    act(() => upsertFleetSession({
+      hostId: 3,
+      hostName: "hostC",
+      sessionName: "rollback-me",
+      created: 300,
+      role: null,
+    }));
+    expect(
+      __getFleetOnlyRowsForTest().some((r) => r.id === "fleet::3::rollback-me"),
+    ).toBe(false);
+
+    // Simulated archive-failure rollback.
+    clearPendingArchive(3, "rollback-me");
+
+    // Second upsert: lands as normal — this is what makes the row come back
+    // on the next fleet-status pulse after handleArchive's catch clause fires.
+    act(() => upsertFleetSession({
+      hostId: 3,
+      hostName: "hostC",
+      sessionName: "rollback-me",
+      created: 300,
+      role: null,
+    }));
+    expect(
+      __getFleetOnlyRowsForTest().some((r) => r.id === "fleet::3::rollback-me"),
+    ).toBe(true);
   });
 });
 

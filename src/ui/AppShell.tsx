@@ -55,6 +55,7 @@ import type {
   ThemeId,
   FontSizeId,
 } from "@/types/ui-types";
+import { isAppTab } from "@/types/ui-types";
 import { applyAccentColor, applyFontSize } from "@/lib/theme";
 import { useTheme } from "@/components/theme-provider";
 import {
@@ -2964,6 +2965,32 @@ export function AppShell({
     [openTab, splitTree, openSessionInTree, isTouchDevice, isMobile],
   );
 
+  // AppShell-side archive callback threaded through PrettyConversationsPanel
+  // → AppTile. Fires after the AppTile's optimistic publishAppGone + before
+  // the awaited archiveApp resolves. Owns the tab-close half of the archive
+  // gesture: iterates the tabs array and closeTabs any type==="app" leaf
+  // whose (hostId, slug) matches the archived app. `closeTab` handles both
+  // the tab-bar entry AND the split-tree leaf (removeLeaf via doCloseTab),
+  // so a matching pane vanishes from wherever it's currently rendered. App
+  // tabs skip the confirmTabClose toast (SESSION_TAB_TYPES excludes "app"),
+  // so this fires straight through to doCloseTab.
+  //
+  // Multi-instance safety (D-15 on AppTile.tsx): a single app can back
+  // MULTIPLE open leaves (drag-to-split creates a fresh tab each time). All
+  // of them close on archive — a lingering iframe pointing at a moved-away
+  // folder would 502 anyway.
+  //
+  // Snapshot the matching set first — closeTab mutates `tabs` via setTabs,
+  // and iterating the live array while mutating produces a slice race.
+  const onArchiveApp = (hostId: number, slug: string, _title: string) => {
+    const matching = tabs.filter(
+      (t) => isAppTab(t) && t.app.hostId === hostId && t.app.slug === slug,
+    );
+    for (const t of matching) {
+      closeTab(t.id);
+    }
+  };
+
   // Phase 120 D-07 — edge-drop on the split view carrying an AppTile
   // payload. Mirror of onDropRowInTree: openTab creates a fresh app leaf,
   // openSessionInTree inserts it at the requested edge. No dedupe (D-15
@@ -3227,6 +3254,7 @@ export function AppShell({
           isAdmin={isAdmin}
           username={meUsername}
           onOpenApp={onOpenApp}
+          onArchiveApp={onArchiveApp}
           // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE + PV58-DOCLOSETAB-TREE-
           // RECONCILE: badge drop on the conv-list panel closes the tab.
           // closeTab already reconciles splitTree via removeLeaf inside

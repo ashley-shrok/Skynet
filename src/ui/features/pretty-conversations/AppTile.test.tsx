@@ -47,8 +47,24 @@ vi.mock("../../api/apps-archive-api", () => ({
   archiveApp: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
+// Mock the app-tiles store's mutator surface so the archive-flow tests can
+// assert publishAppGone / markPendingAppArchive / clearPendingAppArchive fire
+// with the correct args + call order without loading the real module-scope
+// state (which would persist across tests via the module-load IIFE that reads
+// localStorage).
+vi.mock("../../state/app-tiles-store", () => ({
+  publishAppGone: vi.fn(),
+  markPendingAppArchive: vi.fn(),
+  clearPendingAppArchive: vi.fn(),
+}));
+
 import { AppTile } from "./AppTile";
 import { archiveApp } from "../../api/apps-archive-api";
+import {
+  publishAppGone,
+  markPendingAppArchive,
+  clearPendingAppArchive,
+} from "../../state/app-tiles-store";
 import type { AppState } from "../../api/fleet-status-types";
 
 // Builder for AppState fixtures — most tests need slight variations of the
@@ -453,6 +469,10 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     // Reset the archiveApp mock per test.
     (archiveApp as unknown as Mock).mockReset();
     (archiveApp as unknown as Mock).mockResolvedValue({ ok: true });
+    // Reset the store mock spies per test.
+    (publishAppGone as unknown as Mock).mockClear();
+    (markPendingAppArchive as unknown as Mock).mockClear();
+    (clearPendingAppArchive as unknown as Mock).mockClear();
   });
 
   afterEach(() => {
@@ -542,16 +562,87 @@ describe("AppTile — app-archive shape: Archive menu item", () => {
     expect(warnPayload.errMessage).toBe(errorMessage);
   });
 
-  it("Q: no optimistic hide — the tile is still in the DOM after clicking Archive", () => {
+  it("Q: optimistic sidebar removal — markPendingAppArchive + publishAppGone fire on confirm=true, in that order, BEFORE archiveApp resolves", () => {
+    confirmSpy.mockReturnValue(true);
+    render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+    fireEvent.contextMenu(tile);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    // Both mutators fired with the wire-shaped hostId (string) and slug.
+    expect(markPendingAppArchive).toHaveBeenCalledTimes(1);
+    expect(markPendingAppArchive).toHaveBeenCalledWith("7", "scratch");
+    expect(publishAppGone).toHaveBeenCalledTimes(1);
+    expect(publishAppGone).toHaveBeenCalledWith("7", "scratch");
+    // Rollback path did NOT fire on the happy path.
+    expect(clearPendingAppArchive).not.toHaveBeenCalled();
+
+    // Order matters: mark THEN gone. If gone fired first, the sidebar
+    // would drop the tile and any in-flight app-update frame arriving in
+    // the same tick could re-add it before mark is set. Assert via mock
+    // invocation order.
+    const markOrder = (markPendingAppArchive as unknown as Mock).mock.invocationCallOrder[0];
+    const goneOrder = (publishAppGone as unknown as Mock).mock.invocationCallOrder[0];
+    expect(markOrder).toBeLessThan(goneOrder);
+  });
+
+  it("R: onArchive callback fires with (Number(hostId), slug, title) after optimistic remove", () => {
+    confirmSpy.mockReturnValue(true);
+    const onArchive = vi.fn();
+    render(
+      <AppTile
+        app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })}
+        onArchive={onArchive}
+      />,
+    );
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+    fireEvent.contextMenu(tile);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    expect(onArchive).toHaveBeenCalledWith(7, "scratch", "Scratch");
+    // Ordering: publishAppGone (sidebar drop) BEFORE onArchive (tab close).
+    // The user sees the tile go, then any open pane close — no scenario
+    // where the pane persists after the tile vanishes.
+    const goneOrder = (publishAppGone as unknown as Mock).mock.invocationCallOrder[0];
+    const archiveOrder = (onArchive as unknown as Mock).mock.invocationCallOrder[0];
+    expect(goneOrder).toBeLessThan(archiveOrder);
+  });
+
+  it("S: archiveApp rejects → clearPendingAppArchive fires (rollback) alongside the alert", async () => {
+    const errorMessage = "boom";
+    (archiveApp as unknown as Mock).mockRejectedValueOnce(new Error(errorMessage));
+    confirmSpy.mockReturnValue(true);
+    render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+    fireEvent.contextMenu(tile);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    // Optimistic-remove fired synchronously.
+    expect(markPendingAppArchive).toHaveBeenCalledWith("7", "scratch");
+    expect(publishAppGone).toHaveBeenCalledWith("7", "scratch");
+
+    // Wait for the awaited archiveApp to reject and the catch to run.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(clearPendingAppArchive).toHaveBeenCalledTimes(1);
+    expect(clearPendingAppArchive).toHaveBeenCalledWith("7", "scratch");
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("T: onArchive is optional — missing prop does not throw the click handler", () => {
     confirmSpy.mockReturnValue(true);
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
     fireEvent.contextMenu(tile);
-    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
-    // Sweep is the source of truth for whether the tile shows; the click
-    // itself does not remove it from the DOM.
-    expect(
-      screen.getByRole("button", { name: /App tile: Scratch/ }),
-    ).toBeTruthy();
+    expect(() => {
+      fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+    }).not.toThrow();
+    // Store optimistic-remove still fires; only the tab-close callback is
+    // silently skipped.
+    expect(markPendingAppArchive).toHaveBeenCalledTimes(1);
+    expect(publishAppGone).toHaveBeenCalledTimes(1);
   });
 });

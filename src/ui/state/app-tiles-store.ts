@@ -78,6 +78,30 @@ let snapshotVersion = 0;
 
 const listeners = new Set<() => void>();
 
+// Pending-archive filter: composite `${hostId}:${slug}` keys for apps whose
+// archive was just fired from the sidebar. AppTile's Archive click drops the
+// tile via publishAppGone immediately after firing archiveApp, but the app
+// keeps appearing in the backend's app-snapshot / app-update frames until
+// the supervisor's next sweep tick moves the app folder. Without this filter
+// the next `app-update` frame's publishAppUpdate would re-insert the tile
+// (visual flicker-back). Cleared on archive-failure rollback via
+// clearPendingAppArchive; otherwise naturally GC'd on page reload (Set is
+// module-scope, in-memory only). Mirrors the pendingArchiveKeys pattern in
+// conversation-store for identity archive.
+const pendingAppArchiveKeys = new Set<string>();
+
+function pendingAppArchiveKey(hostId: string, slug: string): string {
+  return `${hostId}:${slug}`;
+}
+
+export function markPendingAppArchive(hostId: string, slug: string): void {
+  pendingAppArchiveKeys.add(pendingAppArchiveKey(hostId, slug));
+}
+
+export function clearPendingAppArchive(hostId: string, slug: string): void {
+  pendingAppArchiveKeys.delete(pendingAppArchiveKey(hostId, slug));
+}
+
 function notify(): void {
   // Single-authority cache write: every state change that reaches listeners
   // also updates the localStorage cache so the next cold paint has the
@@ -129,6 +153,10 @@ export function publishAppSnapshot(apps: AppState[]): void {
 
   const nextMap = new Map<string, AppState>();
   for (const app of apps) {
+    // Pending-archive filter: skip apps whose archive was fired but the
+    // supervisor hasn't yet moved the folder. Without this, an app-snapshot
+    // arriving mid-window would re-insert the tile the user just archived.
+    if (pendingAppArchiveKeys.has(pendingAppArchiveKey(app.hostId, app.slug))) continue;
     nextMap.set(`${app.hostId}:${app.slug}`, app);
   }
   state = { map: nextMap };
@@ -147,6 +175,11 @@ export function publishAppSnapshot(apps: AppState[]): void {
  */
 export function publishAppUpdate(app: AppState): void {
   const key = `${app.hostId}:${app.slug}`;
+  // Pending-archive filter: silent-drop update frames arriving for an app
+  // the user just archived. The identity is still alive on the backend
+  // until the supervisor's sweep tick moves the folder; any update in
+  // that window would flicker the tile back on screen.
+  if (pendingAppArchiveKeys.has(key)) return;
   console.info({
     operation: "app_tiles_store_update",
     hostId: app.hostId,

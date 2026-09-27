@@ -11,6 +11,11 @@ import {
 import type { AppState } from "../../api/fleet-status-types";
 import { archiveApp } from "../../api/apps-archive-api";
 import {
+  publishAppGone,
+  markPendingAppArchive,
+  clearPendingAppArchive,
+} from "../../state/app-tiles-store";
+import {
   PrettyConversationContextMenu,
   type PrettyContextMenuItem,
 } from "./PrettyConversationContextMenu";
@@ -109,6 +114,17 @@ export interface AppTileProps {
   // number — this component unifies the two representations at the tile
   // → openTab boundary.
   onOpenApp?: (hostId: number, slug: string, title: string) => void;
+  // Fired after the user confirms Archive (both dialogs accepted) so the
+  // parent can close any open tabs/panes that point at this app. Runs
+  // AFTER the optimistic publishAppGone drop (tile is already off the
+  // grid) but BEFORE the awaited archiveApp resolves, so the pane close
+  // and the tile removal appear together to the user rather than staggered
+  // by the API round-trip. Mirrors identity-archive's handleRowDeactivate
+  // composition — this component owns the store optimistic-remove; the
+  // parent owns anything that touches AppShell-level state (tabs, split
+  // tree). Optional so preview surfaces / older tests can render without
+  // wiring the callback.
+  onArchive?: (hostId: number, slug: string, title: string) => void;
   // Density variant — mirrors PrettyConversationRow's `variant` prop. Drives
   // the `pv-app-tile--mobile` vs `pv-app-tile--desktop` class toggle so tiles
   // pick up the same compact desktop / larger-mobile treatment as sibling
@@ -120,7 +136,7 @@ export interface AppTileProps {
 const LONG_PRESS_MS = 500;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 
-export function AppTile({ app, onOpenApp, variant = "desktop" }: AppTileProps): React.ReactElement {
+export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppTileProps): React.ReactElement {
   const variantClass = variant === "mobile" ? "pv-app-tile--mobile" : "pv-app-tile--desktop";
   // State: image-load failure (Pitfall 3 avoidance — state flip beats CSS
   // :where(img[error]) which has patchy browser support), and context-menu
@@ -287,11 +303,14 @@ export function AppTile({ app, onOpenApp, variant = "desktop" }: AppTileProps): 
     // the identity/role archive menu placement discipline; most destructive
     // at bottom). Uses two consecutive window.confirm dialogs (double-confirm
     // ceremony matching role-archive: first dialog with identity's copy,
-    // second dialog with the role-archive sanity-tap copy verbatim). No
-    // optimistic hide — the sidebar's fleet-status sweep drops the tile on
-    // its next tick after the supervisor moves the folder. Failure alert
-    // mirrors role-archive's on API throw, minus the "close and reopen"
-    // hint (the sidebar auto-refreshes; no modal to reopen).
+    // second dialog with the role-archive sanity-tap copy verbatim). Sidebar
+    // update: OPTIMISTIC via markPendingAppArchive + publishAppGone —
+    // mirrors identity-archive's optimistic-remove composition so the tile
+    // vanishes immediately instead of waiting for the supervisor's sweep
+    // tick (~15s later) to move the folder. Open app tabs/panes: closed via
+    // the `onArchive` callback, so the pane and the tile disappear together
+    // rather than the pane lingering with a dead-app iframe until the tab
+    // bar catches up.
     {
       label: "Archive",
       danger: true,
@@ -303,9 +322,20 @@ export function AppTile({ app, onOpenApp, variant = "desktop" }: AppTileProps): 
       // file at same path), but a future maintainer refactoring the menu
       // should either preserve the auto-dismiss or add a local re-entry
       // guard here.
-      onClick: () => {
+      onClick: async () => {
         if (!window.confirm(`archive ${app.title}? this can't be undone.`)) return;
         if (!window.confirm("are you sure? this can't be undone.")) return;
+        // Optimistic sidebar removal — mark pending FIRST so any in-flight
+        // fleet-status app-update / app-snapshot frame is silent-dropped
+        // rather than re-inserting the tile.
+        markPendingAppArchive(app.hostId, app.slug);
+        publishAppGone(app.hostId, app.slug);
+        // Close any open tabs / panes pointing at this app. Parent-owned
+        // because tabs live in AppShell state, not in a store. Fires with
+        // the same (hostId, slug, title) shape as onOpenApp so the parent
+        // can filter its tab list by the tab's `.app.hostId` / `.app.slug`
+        // fields (Phase 120 D-02 tab shape).
+        onArchive?.(Number(app.hostId), app.slug, app.title);
         // hostId is a string on the wire (AppState mirrors the backend
         // AppStateSchema); the archiveApp client accepts number. Cast at
         // the boundary, same as onTileClick's onOpenApp cast above.
@@ -318,7 +348,16 @@ export function AppTile({ app, onOpenApp, variant = "desktop" }: AppTileProps): 
         // stays at "network/transport-level failure" granularity. If
         // handleApiError's contract ever widens to propagate structured
         // backend details, this alert becomes a leak vector — review.
-        void archiveApp(Number(app.hostId), app.slug).catch((err) => {
+        try {
+          await archiveApp(Number(app.hostId), app.slug);
+        } catch (err) {
+          // Rollback: clear the pending flag so the next fleet-status
+          // pulse (still coming — app is alive on the backend) re-inserts
+          // the tile via the normal publishAppUpdate / publishAppSnapshot
+          // path. The closed tab is NOT re-opened — a rare edge case, and
+          // the user still sees the failure alert so they can re-open it
+          // manually if they need to.
+          clearPendingAppArchive(app.hostId, app.slug);
           const errMessage =
             err instanceof Error ? err.message : String(err);
           console.warn({
@@ -330,7 +369,7 @@ export function AppTile({ app, onOpenApp, variant = "desktop" }: AppTileProps): 
           window.alert(
             `Failed to archive app "${app.title}": ${errMessage}`,
           );
-        });
+        }
       },
     },
   ];

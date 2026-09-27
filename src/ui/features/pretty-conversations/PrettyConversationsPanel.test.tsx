@@ -123,6 +123,13 @@ vi.mock("@/state/identities-store", () => ({
     deriveDiskPinnedIdsSpy(identityHosts),
   buildIdentityHostsFromFleet: (fleetSessions: unknown[]) =>
     buildIdentityHostsFromFleetSpy(fleetSessions),
+  // handleArchive optimistic-remove: fired on confirm=true alongside
+  // removeFleetSession + markPendingArchive. The panel doesn't observe its
+  // return; the real fn is a store mutator that notifies useIdentities
+  // subscribers — mocked as a no-op here (subscribers aren't wired in these
+  // renders anyway).
+  applyIdentityChange: () => {},
+  refreshIdentities: async () => true,
 }));
 
 // Phase 104 Plan 03: patch #167 mock retired alongside its wire deletion.
@@ -236,6 +243,13 @@ const removeFromActiveSetSpy = vi.fn();
 // integration test can assert the panel's mount effect flows fetched ids
 // through hydratePinnedIdsFromServer after getPinnedIds resolves.
 const hydratePinnedIdsFromServerSpy = vi.fn();
+// handleArchive optimistic-remove spies. removeFleetSession drops the row
+// from the sidebar snapshot; markPendingArchive / clearPendingArchive gate
+// the fleet-status flicker-back path during the supervisor's ~15s retire
+// window (and the rollback path on archive failure).
+const removeFleetSessionSpy = vi.fn();
+const markPendingArchiveSpy = vi.fn();
+const clearPendingArchiveSpy = vi.fn();
 
 // (Phase 115 Plan 115-02: prior hideConversationSpy / unhideConversationSpy /
 //  hydrateHiddenIdsFromServerSpy retired per D-21 alongside the source-code
@@ -341,6 +355,15 @@ vi.mock("@/state/conversation-store", () => ({
     hostname: string;
     archived: boolean;
   }[],
+  // handleArchive optimistic-remove: fired on confirm=true to drop the
+  // sidebar row before the supervisor's ~15s retire tick. Backed by spies so
+  // the new A11/A12 tests can assert exact-args + call-count.
+  removeFleetSession: (hostId: number, sessionName: string) =>
+    removeFleetSessionSpy(hostId, sessionName),
+  markPendingArchive: (hostId: number, sessionName: string) =>
+    markPendingArchiveSpy(hostId, sessionName),
+  clearPendingArchive: (hostId: number, sessionName: string) =>
+    clearPendingArchiveSpy(hostId, sessionName),
 }));
 
 // Phase 117 Plan 117-08 — collapse hook stub. Tests don't seed collapse
@@ -598,6 +621,11 @@ beforeEach(async () => {
   mockAppTiles = [];
   // Phase 115 Plan 115-06 (D-01): reset archive API spy between tests.
   archiveIdentitySpy.mockClear();
+  // handleArchive optimistic-remove spy resets — the A6/A7 assertions +
+  // the new archive-flow tests below observe call counts on these.
+  removeFleetSessionSpy.mockClear();
+  markPendingArchiveSpy.mockClear();
+  clearPendingArchiveSpy.mockClear();
   // Patch #167: reset identities mock. Phase 104 Plan 03: mockBountyCounts
   // retired with the bounty-count wire.
   mockIdentitiesByKey = new Map();
@@ -2564,6 +2592,168 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     expect(
       within(menu).queryByRole("menuitem", { name: "Archive" }),
     ).toBeNull();
+  });
+
+  // A11: optimistic sidebar removal — confirm=true fires markPendingArchive +
+  // removeFleetSession + applyIdentityChange with the correct (hostId, key)
+  // BEFORE the awaited archiveIdentity resolves. This is what makes the row
+  // disappear immediately instead of ~15s later after the supervisor's retire
+  // tick.
+  it("A11: confirm=true → markPendingArchive + removeFleetSession fire synchronously with (hostId, key) before archiveIdentity resolves", () => {
+    const hostA = makeHost("42", "hostA");
+    mockIdentitiesByKey = new Map([
+      ["wren", { identityKey: "wren", displayName: "wren", title: null }],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "arch-row-11",
+          label: "wren",
+          host: hostA,
+          targetTmuxSession: "wren",
+        }),
+      ],
+      rdpGroup: null,
+    });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="arch-row-11"]',
+    ) as HTMLElement | null;
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
+    fireEvent.click(archiveItem);
+
+    // All three synchronous-before-await calls happened, each exactly once.
+    expect(markPendingArchiveSpy).toHaveBeenCalledTimes(1);
+    expect(markPendingArchiveSpy).toHaveBeenCalledWith(42, "wren");
+    expect(removeFleetSessionSpy).toHaveBeenCalledTimes(1);
+    expect(removeFleetSessionSpy).toHaveBeenCalledWith(42, "wren");
+    // archiveIdentity was called (A7 asserts (42, "wren")) — reassert here so
+    // this test is self-contained.
+    expect(archiveIdentitySpy).toHaveBeenCalledWith(42, "wren");
+    // Rollback path did NOT fire on the happy path.
+    expect(clearPendingArchiveSpy).not.toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
+  });
+
+  // A12: archive failure → clearPendingArchive fired + window.alert shown.
+  //      The pending-archive flag must clear so the next fleet-status pulse
+  //      naturally re-inserts the row (identity is still alive).
+  it("A12: archiveIdentity rejects → clearPendingArchive + window.alert fire (rollback)", async () => {
+    const hostA = makeHost("42", "hostA");
+    mockIdentitiesByKey = new Map([
+      ["wren", { identityKey: "wren", displayName: "wren", title: null }],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "arch-row-12",
+          label: "wren",
+          host: hostA,
+          targetTmuxSession: "wren",
+        }),
+      ],
+      rdpGroup: null,
+    });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    // Reject on next call. .mockClear at beforeEach guarantees a clean
+    // implementation state — mockImplementationOnce chains onto the base
+    // vi.fn resolved-undefined default.
+    archiveIdentitySpy.mockImplementationOnce(async () => {
+      throw new Error("boom");
+    });
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="arch-row-12"]',
+    ) as HTMLElement | null;
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
+    fireEvent.click(archiveItem);
+
+    // Wait for the async catch to run.
+    await waitFor(() => {
+      expect(clearPendingArchiveSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(clearPendingArchiveSpy).toHaveBeenCalledWith(42, "wren");
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(alertSpy.mock.calls[0][0]).toContain("archive failed");
+    expect(alertSpy.mock.calls[0][0]).toContain("boom");
+
+    confirmSpy.mockRestore();
+    alertSpy.mockRestore();
+  });
+
+  // A13: confirm=false → NEITHER the optimistic-remove nor the archive fire.
+  //      Complements A6 (which only asserted archiveIdentity + onDeactivateRow).
+  it("A13: confirm=false → markPendingArchive + removeFleetSession NOT called", () => {
+    const hostA = makeHost("1", "hostA");
+    mockIdentitiesByKey = new Map([
+      ["wren", { identityKey: "wren", displayName: "wren", title: null }],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "arch-row-13",
+          label: "wren",
+          host: hostA,
+          targetTmuxSession: "wren",
+        }),
+      ],
+      rdpGroup: null,
+    });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="arch-row-13"]',
+    ) as HTMLElement | null;
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
+    fireEvent.click(archiveItem);
+
+    expect(markPendingArchiveSpy).not.toHaveBeenCalled();
+    expect(removeFleetSessionSpy).not.toHaveBeenCalled();
+    expect(clearPendingArchiveSpy).not.toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
   });
 });
 

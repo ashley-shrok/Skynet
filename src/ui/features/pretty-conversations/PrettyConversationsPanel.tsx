@@ -96,6 +96,13 @@ import {
   // useProjects is subscribed alongside so we react to fleet-status wire updates
   // (project-list-changed frames flow through setProjects → notify → re-render).
   useProjects,
+  // handleArchive uses these for optimistic sidebar removal: mark the identity
+  // pending-archive so mid-flight fleet-status upserts stay filtered out, then
+  // drop the fleet-session row so the sidebar updates without waiting for the
+  // supervisor's ~15s retire tick.
+  removeFleetSession,
+  markPendingArchive,
+  clearPendingArchive,
   type ConversationRow as ConversationRowShape,
 } from "@/state/conversation-store";
 // Phase 117 Plan 117-08 (D-40): per-project collapse state (localStorage-backed
@@ -191,6 +198,10 @@ import {
   buildIdentityHostsFromFleet,
   deriveDiskPinnedIds,
   refreshIdentities,
+  // handleArchive: optimistic-remove from the identities-store alongside the
+  // fleet-session drop so downstream row-builders see the identity vanish
+  // immediately, not on the supervisor's retire tick.
+  applyIdentityChange,
 } from "@/state/identities-store";
 import { startTrappedWorkPoller } from "@/state/trapped-work-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
@@ -447,6 +458,7 @@ export function PrettyConversationsPanel({
   username = null,
   onCreateRelayRoom,
   onOpenApp,
+  onArchiveApp,
   onOpenFeedback,
   onSearchResultOpenActive,
 }: {
@@ -568,6 +580,16 @@ export function PrettyConversationsPanel({
    * end-to-end through this prop hole).
    */
   onOpenApp?: (hostId: number, slug: string, title: string) => void;
+  /**
+   * Fired when the user confirms Archive on an AppTile (both dialogs
+   * accepted). AppShell wires this to close any open tabs / split-tree
+   * leaves whose Tab.app matches (hostId, slug) so the pane vanishes
+   * together with the tile, rather than lingering as a dead-app iframe
+   * until the tab bar catches up. Optional; the AppTile still fires the
+   * store optimistic-remove + backend archive on its own — this callback
+   * is strictly the tab-close side effect.
+   */
+  onArchiveApp?: (hostId: number, slug: string, title: string) => void;
   /**
    * Phase 124 shape 2 (rescue-rebased from Phase 123) — fired when the
    * user clicks the header "Send feedback" button (sixth icon in the
@@ -1482,13 +1504,20 @@ export function PrettyConversationsPanel({
   //      (identity has a visible pane), call handleRowDeactivate(row) to
   //      close the pane BEFORE firing the API call. This mirrors the deleted
   //      handleToggleHide's `handleRowDeactivate` composition.
-  //   5. Fire-and-forget archiveIdentity(hostId, identityKey). Errors go to
-  //      console — no toast infrastructure at the panel level today; the
-  //      row disappears from the live list once the sentinel scan tick fires
-  //      supervisor's retire flow, so the user sees success visually.
+  //   5. Optimistic sidebar removal: mark pending-archive, then drop the
+  //      fleet-session row + identity-store entry. The identity keeps pulsing
+  //      fleet-status for ~15s until the supervisor's scan tick retires it;
+  //      the pending-archive filter in conversation-store's upsert/update
+  //      paths keeps the row from flickering back in during that window.
+  //   6. await archiveIdentity. On success the pending flag stays set until
+  //      the supervisor's onGone frame arrives (harmless — the identity is
+  //      gone), and gets naturally GC'd on page reload. On failure we roll
+  //      back: clearPendingArchive so the next fleet-status pulse re-inserts
+  //      the row, then window.alert so the user knows the archive did not
+  //      land.
   //
   // D-05 lock: no un-archive branch. One-way gesture.
-  const handleArchive = (row: ConversationRowShape) => {
+  const handleArchive = async (row: ConversationRowShape) => {
     if (canonicalArchiveIdForRow(row) === null) return;
     if (!row.host || !row.targetTmuxSession) return; // gate above already ensures this; TS narrowing
     const hostIdNum = parseInt(row.host.id, 10);
@@ -1514,14 +1543,29 @@ export function PrettyConversationsPanel({
     if (activeSet.has(row.id)) {
       handleRowDeactivate(row);
     }
-    void archiveIdentity(hostIdNum, identityKey).catch((err) => {
+    // Optimistic removal — mark pending FIRST so any in-flight fleet-status
+    // frame that races with the removes below is silent-dropped rather than
+    // re-inserting the row.
+    markPendingArchive(hostIdNum, identityKey);
+    removeFleetSession(hostIdNum, identityKey);
+    applyIdentityChange(null, identityKey, hostIdNum);
+    try {
+      await archiveIdentity(hostIdNum, identityKey);
+    } catch (err) {
+      // Rollback: clear the pending flag so the next fleet-status pulse
+      // (still coming — identity is alive) re-inserts the row via the
+      // normal upsertFleetSession path.
+      clearPendingArchive(hostIdNum, identityKey);
       console.warn({
         operation: "identity_archive_failed",
         hostId: hostIdNum,
         identityKey,
         errMessage: err instanceof Error ? err.message : String(err),
       });
-    });
+      window.alert(
+        `archive failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   };
 
   // quick-260807-e4s (patch #149 followup-1 pin-nuke): mirror the store's
@@ -2688,6 +2732,7 @@ export function PrettyConversationsPanel({
                     key={`${app.hostId}:${app.slug}`}
                     app={app}
                     onOpenApp={onOpenApp}
+                    onArchive={onArchiveApp}
                     variant={variant}
                   />
                 ))
