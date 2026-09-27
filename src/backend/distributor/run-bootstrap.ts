@@ -14,7 +14,7 @@
  *      restart hook.
  *
  *   2. settings.json patch:
- *      Ensure ~/.claude/settings.json has the 7 fleet-required keys set:
+ *      Ensure ~/.claude/settings.json has every fleet-required key set:
  *        - permissions.deny includes "AskUserQuestion" (pretty-view hangs
  *          indefinitely on deferred-journaled MCQ tool_use)
  *        - askUserQuestionTimeout: "never" (belt-and-braces same)
@@ -29,10 +29,15 @@
  *          prompts the harness's --dangerously-skip-permissions flag doesn't
  *          cover (rm -rf $HOME / rm -rf / circuit-breaker patterns). See
  *          substrate/scripts/allow-all-tools.sh.
+ *        - hooks.PostToolUse contains a "self-edit-baseline-sync" entry
+ *          matching Write|Edit|MultiEdit|NotebookEdit|Bash — suppresses
+ *          role-file-watch events on the agent's own edits. See
+ *          substrate/scripts/self-edit-baseline-sync.sh.
  *      Merges the flags in without clobbering any other keys (OAuth token,
  *      other hooks, statusLine, theme, etc.). Creates the file if absent.
- *      Idempotent — a jq predicate short-circuits when all 7 are already
- *      correct.
+ *      Idempotent — a jq predicate short-circuits when all are already
+ *      correct. Exact count lives in SETTINGS_REQUIRED_KEY_COUNT (derived
+ *      from SETTINGS_CHECK_JQ so log lines never drift).
  *
  *   3. gsd-context-monitor cleanup (fleet-wide retirement):
  *      Strip any `.hooks.PostToolUse[]` entry whose command references
@@ -103,11 +108,9 @@ export interface BootstrapResult {
   /** Whether daemon-reload ran (always true when SSH channel is healthy). */
   daemonReloadRan: boolean;
   /** Whether the settings.json patch was applied or already present.
-   *  Covers all 7 fleet-required keys (permissions.deny AskUserQuestion,
-   *  askUserQuestionTimeout, env.DISABLE_AUTOUPDATER,
-   *  env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS, skipDangerousModePermissionPrompt,
-   *  hooks.UserPromptSubmit task-field-check entry, hooks.PreToolUse
-   *  allow-all-tools entry). */
+   *  Covers every fleet-required key defined in SETTINGS_MERGE_JQ /
+   *  SETTINGS_CHECK_JQ below (SETTINGS_REQUIRED_KEY_COUNT is derived from
+   *  the CHECK expression, so log lines never drift when a key is added). */
   settingsPatchOk: boolean;
   /** Whether the gsd-context-monitor cleanup ran (settings strip + hook rm). */
   gsdContextMonitorCleanupOk: boolean;
@@ -209,7 +212,7 @@ export const SETTINGS_MERGE_JQ =
   `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
   `    )`;
 
-/** CHECK jq expression. Returns true iff all eight required keys are set. */
+/** CHECK jq expression. Returns true iff every required key is set. */
 export const SETTINGS_CHECK_JQ =
   `(.skipDangerousModePermissionPrompt == true)` +
   `  and (.askUserQuestionTimeout == "never")` +
@@ -219,6 +222,23 @@ export const SETTINGS_CHECK_JQ =
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))` +
   `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("allow-all-tools")))` +
   `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))`;
+
+/**
+ * Number of required keys enforced by SETTINGS_CHECK_JQ, derived from the
+ * expression itself so log lines / docstrings never drift when a clause is
+ * added or removed. Split on ` and ` — an N-clause conjunction has N-1 such
+ * joins, so `.length` on the split array IS the clause count. Whitespace on
+ * both sides guards against a stray `and` inside a nested subexpression
+ * (none of the current clauses contain that literal, and any new clause
+ * following the same shape as its siblings won't either).
+ *
+ * When you add a new required key, extend SETTINGS_CHECK_JQ with another
+ * `\`  and (...\`` clause AND update SETTINGS_MERGE_JQ to actually set that
+ * key. This constant updates automatically; every consumer log line reads
+ * from it via template interpolation.
+ */
+export const SETTINGS_REQUIRED_KEY_COUNT =
+  SETTINGS_CHECK_JQ.split(/\s+and\s+/).length;
 
 /** DETECT jq: true iff any PostToolUse entry references gsd-context-monitor. */
 export const GSD_MONITOR_DETECT_JQ =
@@ -250,11 +270,9 @@ export const USAGE_REPORTER_WRAPPER_PATH = "$HOME/.local/bin/usage-reporter";
  * Called by runSweepForHost BEFORE the catalog loop. The two jobs:
  *   1. agent-supervisor systemd linger + enable (first install only) +
  *      unconditional daemon-reload (every sweep).
- *   2. settings.json patch: ensure the 7 fleet-required keys are set
- *      (permissions.deny AskUserQuestion, askUserQuestionTimeout,
- *      env.DISABLE_AUTOUPDATER, env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS,
- *      skipDangerousModePermissionPrompt, hooks.UserPromptSubmit
- *      task-field-check entry, hooks.PreToolUse allow-all-tools entry).
+ *   2. settings.json patch: ensure every fleet-required key is set.
+ *      The specific keys and count live in SETTINGS_MERGE_JQ /
+ *      SETTINGS_CHECK_JQ; SETTINGS_REQUIRED_KEY_COUNT is derived from CHECK.
  *
  * NEVER REJECTS.
  */
@@ -392,9 +410,9 @@ export async function runBootstrapForHost(
   }
 
   // -------------------------------------------------------------------------
-  // Step 2: Patch ~/.claude/settings.json — ensure the 7 fleet-required keys
-  //         are set. Idempotent: skip if all correct. Preserves all other keys.
-  //         The 7 keys (rationale in file docblock):
+  // Step 2: Patch ~/.claude/settings.json — ensure every fleet-required key
+  //         is set. Idempotent: skip if all correct. Preserves all other keys.
+  //         The keys (rationale in file docblock):
   //           - permissions.deny includes "AskUserQuestion"
   //           - askUserQuestionTimeout: "never"
   //           - env.DISABLE_AUTOUPDATER: "1"
@@ -410,12 +428,19 @@ export async function runBootstrapForHost(
   //             $HOME/.local/bin/allow-all-tools with NO matcher (universal
   //             auto-allow for every tool call). Match on the string
   //             "allow-all-tools" for the same idempotency-check reason.
+  //           - hooks.PostToolUse contains an entry matching
+  //             Write|Edit|MultiEdit|NotebookEdit|Bash that runs
+  //             $HOME/.local/bin/self-edit-baseline-sync (suppresses
+  //             role-file-watch events on the agent's own edits).
+  // Exact count lives in SETTINGS_REQUIRED_KEY_COUNT — derived from
+  // SETTINGS_CHECK_JQ so log lines never need manual updates when a key
+  // is added or removed.
   // -------------------------------------------------------------------------
   try {
     // Single SSH exec that handles three cases:
-    //   (a) File exists + all 7 already correct → no-op, echoes __SETTINGS_OK__
-    //   (b) File exists + any of 7 missing/wrong → jq-merge, echoes __SETTINGS_OK__
-    //   (c) File absent → create with all 7 (jq applied to {}), echoes __SETTINGS_OK__
+    //   (a) File exists + all already correct → no-op, echoes __SETTINGS_OK__
+    //   (b) File exists + any missing/wrong → jq-merge, echoes __SETTINGS_OK__
+    //   (c) File absent → create with all (jq applied to {}), echoes __SETTINGS_OK__
     // Uses a .new temp file + mv for atomic write (no partial-write state).
     // Same MERGE template drives both (b) and (c) paths so the truth of "what
     // the fleet enforces" lives in exactly one jq expression.

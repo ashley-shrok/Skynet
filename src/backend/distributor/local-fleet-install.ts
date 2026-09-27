@@ -100,6 +100,7 @@ import type { BootstrapResult } from "./run-bootstrap.js";
 import {
   SETTINGS_MERGE_JQ,
   SETTINGS_CHECK_JQ,
+  SETTINGS_REQUIRED_KEY_COUNT,
   GSD_MONITOR_DETECT_JQ,
   GSD_MONITOR_STRIP_JQ,
 } from "./run-bootstrap.js";
@@ -527,7 +528,7 @@ async function patchSettingsJsonLocally(host: {
   }
   if (checkResult.stdout.trim() === "true") {
     systemLogger.info(
-      `local-fleet-bootstrap: settings.json already has all seven required keys for ${host.name}`,
+      `local-fleet-bootstrap: settings.json already has all ${SETTINGS_REQUIRED_KEY_COUNT} required keys for ${host.name}`,
       {
         operation: "local_fleet_settings_patch_noop",
         fleetHostId: host.id,
@@ -568,7 +569,7 @@ async function patchSettingsJsonLocally(host: {
   }
   await chownToHostUser(settingsPath, host, "settings_patch");
   systemLogger.info(
-    `local-fleet-bootstrap: settings.json patched with seven required keys for ${host.name}`,
+    `local-fleet-bootstrap: settings.json patched with ${SETTINGS_REQUIRED_KEY_COUNT} required keys for ${host.name}`,
     {
       operation: "local_fleet_settings_patch_ok",
       fleetHostId: host.id,
