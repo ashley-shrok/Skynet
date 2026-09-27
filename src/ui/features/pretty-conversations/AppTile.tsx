@@ -295,12 +295,29 @@ export function AppTile({ app, onOpenApp, variant = "desktop" }: AppTileProps): 
     {
       label: "Archive",
       danger: true,
+      // The double-click race guard lives in PrettyConversationContextMenu:
+      // picking an item closes the menu (FLASH_DISMISS_MS timer), so a
+      // second click has nowhere to land. If that menu's dismiss discipline
+      // ever changes, this onClick becomes vulnerable to concurrent
+      // invocation — the backend + primitive are idempotent (same empty
+      // file at same path), but a future maintainer refactoring the menu
+      // should either preserve the auto-dismiss or add a local re-entry
+      // guard here.
       onClick: () => {
         if (!window.confirm(`archive ${app.title}? this can't be undone.`)) return;
         if (!window.confirm("are you sure? this can't be undone.")) return;
         // hostId is a string on the wire (AppState mirrors the backend
         // AppStateSchema); the archiveApp client accepts number. Cast at
         // the boundary, same as onTileClick's onOpenApp cast above.
+        //
+        // Alert-message content contract: errMessage flows from the
+        // ApiError path (handleApiError in main-axios). The backend
+        // archive endpoint redacts internal errors before responding
+        // (500 body is a generic "failed to drop archive sentinel" — see
+        // apps-archive.ts's try/catch), so the message surfaced here
+        // stays at "network/transport-level failure" granularity. If
+        // handleApiError's contract ever widens to propagate structured
+        // backend details, this alert becomes a leak vector — review.
         void archiveApp(Number(app.hostId), app.slug).catch((err) => {
           const errMessage =
             err instanceof Error ? err.message : String(err);

@@ -1219,6 +1219,15 @@ scan_app_archive_requested_sentinels() {
       done <<< "$output"
     fi
     if [ "$rc" -eq 0 ]; then
+      # archive-app.sh's atomic final step is `mv $APPS_DIR/$slug $APPS_ARCHIVE_DIR/$slug`
+      # (see substrate/skills/app-development/archive-app.sh). mv preserves
+      # hidden files, so the .archive-requested sentinel travels with the
+      # folder into the archive tree — this rm cleans it up there. If a
+      # future refactor of archive-app.sh changes the folder-relocation
+      # semantics to something that DROPS hidden files (rsync without
+      # --exclude=none, for instance), the sentinel would fail to arrive
+      # and this rm would become a no-op — harmless but the semantics
+      # should be re-verified in that case.
       rm -f "$APPS_ARCHIVE_DIR/$slug/.archive-requested" 2>/dev/null || true
       log "'$slug' user-initiated app archive: archive-app.sh succeeded"
     else

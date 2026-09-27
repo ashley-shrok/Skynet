@@ -105,9 +105,12 @@ router.post(
         .json({ error: "hostId must be a positive integer" });
     }
 
-    // 2. Validate slug via APP_SLUG_RE.
+    // 2. Validate slug via APP_SLUG_RE. Empty-slug guard (`!slug ||`) is
+    // belt-and-suspenders — APP_SLUG_RE's {1,64} rejects empty already,
+    // but the explicit truthiness check mirrors role-archive.ts's gate
+    // shape for cross-primitive consistency.
     const slug = String(req.params.slug);
-    if (!APP_SLUG_RE.test(slug)) {
+    if (!slug || !APP_SLUG_RE.test(slug)) {
       return res
         .status(400)
         .json({ error: "slug must match [a-z0-9-]{1,64}" });

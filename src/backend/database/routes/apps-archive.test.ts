@@ -306,10 +306,14 @@ describe("POST /apps/:hostId/:slug/archive", () => {
     expect(writeAppFile).not.toHaveBeenCalled();
   });
 
-  it("Test 3c: invalid slug (dot / traversal shape) → 400; writeAppFile NOT called", async () => {
-    // A slug containing a dot fails APP_SLUG_RE. Express normalizes
-    // /apps/5/../etc so exercising a dotted slug is the practical way to
-    // hit the gate.
+  it("Test 3c: invalid slug (dot in slug — belt-and-suspenders vs relaxed regex) → 400; writeAppFile NOT called", async () => {
+    // A slug containing a dot fails APP_SLUG_RE (kebab-case only, no dots).
+    // Note: Express normalizes literal path-traversal sequences like /../
+    // at the router layer before this handler runs, so a request such as
+    // /apps/5/../etc/archive gets rewritten upstream. What this test locks
+    // is the wire-level regex gate — a future regression that widens
+    // APP_SLUG_RE to accept dots would silently reopen the surface, and
+    // this assertion catches that.
     const res = await httpRequest(server, {
       method: "POST",
       path: "/apps/5/bad.slug/archive",
