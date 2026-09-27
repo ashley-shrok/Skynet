@@ -87,21 +87,15 @@ export interface PendingPhoneCall {
  * `<uuid>.response.json` as the `outcome` field.
  *
  * Bland-side outcomes come after a call was placed:
- *   - placement_error            : the third-party service refused POST /v1/calls
- *   - queue_error                : accepted but never connected
- *   - busy                       : target line was busy
- *   - no_answer                  : no pickup / voicemail
- *   - canceled                   : mid-flight cancel
- *   - no_response                : human answered, hung up before speaking
- *   - completed                  : human answered and spoke
- *   - interrupted_before_message : call ran but the AI's opener was cut off
- *                                  before the message body finished delivering;
- *                                  callee never heard the actual payload.
- *                                  Detected by inspecting the assistant turns
- *                                  in the transcript for the sanitized message
- *                                  text.
- *   - timeout                    : backend's own poll deadline passed
- *   - unknown                    : defensive fallback for unmapped states
+ *   - placement_error : the third-party service refused POST /v1/calls
+ *   - queue_error     : accepted but never connected
+ *   - busy            : target line was busy
+ *   - no_answer       : no pickup / voicemail
+ *   - canceled        : mid-flight cancel
+ *   - no_response     : human answered, hung up before speaking
+ *   - completed       : human answered and spoke
+ *   - timeout         : backend's own poll deadline passed
+ *   - unknown         : defensive fallback for unmapped states
  *
  * Pre-call outcomes come from failures BEFORE any Bland call:
  *   - malformed        : request body failed parse
@@ -116,7 +110,6 @@ export type PhoneCallOutcome =
   | "canceled"
   | "no_response"
   | "completed"
-  | "interrupted_before_message"
   | "timeout"
   | "unknown"
   | "malformed"
@@ -126,9 +119,9 @@ export type PhoneCallOutcome =
 /**
  * Response file body — written to `<uuid>.response.json`.
  *
- * `transcript` is populated when outcome is `completed`, `no_response`,
- * or `interrupted_before_message` (the Bland-side call happened and
- * returned a transcript). For every other outcome, `transcript` is absent.
+ * `transcript` is populated when outcome is `completed` or `no_response`
+ * (the Bland-side call happened and returned a transcript). For every
+ * other outcome, `transcript` is absent.
  *
  * `message` is a short human-readable amplifier — e.g. the underlying
  * Bland error message on placement_error, the username on unknown_user,
@@ -136,9 +129,9 @@ export type PhoneCallOutcome =
  * self-explanatory (completed, no_response, busy).
  *
  * `call_length_seconds` is populated for outcomes where Bland actually
- * ran the call (completed, no_response, interrupted_before_message,
- * no_answer, busy, canceled). Absent for pre-call outcomes and
- * placement/queue errors that never generated a call.
+ * ran the call (completed, no_response, no_answer, busy, canceled).
+ * Absent for pre-call outcomes and placement/queue errors that never
+ * generated a call.
  */
 export interface PhoneCallResponse {
   outcome: PhoneCallOutcome;

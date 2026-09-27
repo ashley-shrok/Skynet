@@ -169,21 +169,11 @@ export interface AdapterDeps {
 /**
  * Place a call and poll for the transcript. Returns a discriminated union —
  * NEVER throws in normal operation.
- *
- * `messageForVerification` is the raw message body (before opener
- * interpolation). Used post-poll to detect the interrupted-before-message
- * failure mode: if a nominally-completed call's transcript doesn't
- * contain the message text, we downgrade the outcome to
- * `interrupted_before_message` so the caller sees a delivery failure
- * rather than a false-positive success. Belt-and-braces net for
- * `interruptibility: 0` — if Bland ever lets an interruption slip
- * through, the caller isn't misled.
  */
 export async function placeCallAndAwait(
   phoneNumber: string,
   taskPrompt: string,
   firstSentence: string,
-  messageForVerification: string,
   deps: AdapterDeps,
 ): Promise<AdapterResult> {
   const apiKey = process.env.BLAND_API_KEY;
@@ -328,7 +318,7 @@ export async function placeCallAndAwait(
     // -------------------------------------------------------------------
     const outcome = classifyBlandDetails(lastDetails);
     if (outcome !== null) {
-      return buildResultFromDetails(outcome, lastDetails, messageForVerification);
+      return buildResultFromDetails(outcome, lastDetails);
     }
   }
 
@@ -390,7 +380,11 @@ export function classifyBlandDetails(d: BlandCallDetails): PhoneCallOutcome | nu
     // completed vs no_response by whether the human contributed any turn
     // to the transcript.
     const transcripts = d.transcripts ?? [];
-    const userTurns = transcripts.filter((t) => t.user === "user");
+    // Case-insensitive on the role label so a Bland schema-drift to
+    // "User"/"USER" doesn't silently misclassify every completed call.
+    const userTurns = transcripts.filter(
+      (t) => typeof t.user === "string" && t.user.toLowerCase() === "user",
+    );
     return userTurns.length > 0 ? "completed" : "no_response";
   }
 
@@ -404,88 +398,30 @@ export function classifyBlandDetails(d: BlandCallDetails): PhoneCallOutcome | nu
 }
 
 /**
- * Normalize a string for fuzzy substring comparison — lowercase, strip
- * every character that isn't a letter, digit, or whitespace, then
- * collapse runs of whitespace to a single space. Both the assistant
- * turn text and the caller-supplied message run through this before
- * the `.includes()` check so the heuristic tolerates Bland's ASR
- * dropping/adding punctuation (which it commonly does — "Hey Ashley,"
- * routinely transcribes as "hey ashley").
- */
-function normalizeForMatch(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * True when the message text appears in the AI's spoken turns — the
- * heuristic that gates `interrupted_before_message`. Concatenates every
- * `assistant`-labeled turn from Bland's `transcripts[]`, normalizes both
- * sides, and substring-matches the whole normalized message. False when
- * the message can't be located, indicating the opener was cut off before
- * the payload finished (or never started).
- *
- * Exported for direct unit-testing.
- */
-export function messageWasDeliveredHeuristic(
-  d: BlandCallDetails,
-  message: string,
-): boolean {
-  const nMsg = normalizeForMatch(message);
-  if (nMsg.length === 0) {
-    // Empty/whitespace-only message — nothing to verify, don't downgrade.
-    return true;
-  }
-  const assistantSpoken = (d.transcripts ?? [])
-    .filter((t) => t.user === "assistant" && typeof t.text === "string")
-    .map((t) => t.text as string)
-    .join(" ");
-  if (assistantSpoken.length === 0) {
-    // Bland reported completed with no assistant turns — treat as not
-    // delivered so the caller sees the anomaly rather than a silent
-    // success.
-    return false;
-  }
-  return normalizeForMatch(assistantSpoken).includes(nMsg);
-}
-
-/**
  * Build the AdapterResult from a Bland details payload + classified
- * outcome. Attaches transcript on completed/no_response/
- * interrupted_before_message, call_length on any outcome where Bland
- * reported one. Downgrades `completed`/`no_response` to
- * `interrupted_before_message` when the transcript heuristic says the
- * message payload never made it through.
+ * outcome. Attaches transcript on completed/no_response, call_length on
+ * any outcome where Bland reported one.
+ *
+ * An earlier version of this function ran a substring-match heuristic
+ * ("did the sanitized message appear in the assistant turns?") to detect
+ * opener-cutoff and downgrade to a separate `interrupted_before_message`
+ * outcome. Removed 2026-09-27 because Bland's ASR routinely transcribes
+ * numerals/URLs/times as words ("5pm" → "five p m"), which broke the
+ * substring match on genuinely-delivered messages. The primary defence
+ * against opener cutoff is `interruptibility: 0` on placement, which
+ * blocks callee interruptions while the AI is speaking; the observability
+ * heuristic was belt-and-braces and its false-positive rate was worse than
+ * the failure mode it was meant to surface.
  */
 function buildResultFromDetails(
   outcome: PhoneCallOutcome,
   d: BlandCallDetails,
-  messageForVerification: string,
 ): AdapterResult {
-  let effectiveOutcome: PhoneCallOutcome = outcome;
-  if (
-    (outcome === "completed" || outcome === "no_response") &&
-    !messageWasDeliveredHeuristic(d, messageForVerification)
-  ) {
-    effectiveOutcome = "interrupted_before_message";
-    systemLogger.warn("phone adapter: message not found in assistant turns — downgrading outcome", {
-      operation: "phone_bland_message_not_delivered",
-      originalOutcome: outcome,
-      downgradedOutcome: effectiveOutcome,
-      messageLen: messageForVerification.length,
-    });
-  }
-
-  const result: AdapterResult = { outcome: effectiveOutcome };
+  const result: AdapterResult = { outcome };
 
   const transcript = d.concatenated_transcript;
   if (
-    (effectiveOutcome === "completed" ||
-      effectiveOutcome === "no_response" ||
-      effectiveOutcome === "interrupted_before_message") &&
+    (outcome === "completed" || outcome === "no_response") &&
     typeof transcript === "string" &&
     transcript.length > 0
   ) {
@@ -499,26 +435,22 @@ function buildResultFromDetails(
     // as its turn separator, so every line after the first starts with
     // a leading space. The regex captures that leading whitespace and
     // preserves it (so continuation-line indentation stays), then swaps
-    // `assistant:` → `voice:`.
-    result.transcript = transcript.replace(/^(\s*)assistant:/gm, "$1voice:");
+    // `assistant:` → `voice:`. Case-insensitive so a Bland schema-drift
+    // to `Assistant:` doesn't silently skip the relabel.
+    result.transcript = transcript.replace(/^(\s*)assistant:/gim, "$1voice:");
   }
 
   if (typeof d.call_length === "number" && Number.isFinite(d.call_length)) {
     result.call_length_seconds = Math.round(d.call_length * 60);
   }
 
-  if (effectiveOutcome === "queue_error") {
+  if (outcome === "queue_error") {
     const msg = d.error_message;
     if (typeof msg === "string" && msg.length > 0) {
       result.message = msg;
     } else if (d.queue_status !== undefined) {
       result.message = `queue_status: ${d.queue_status}`;
     }
-  }
-
-  if (effectiveOutcome === "interrupted_before_message") {
-    result.message =
-      "AI opener was interrupted before the message body finished delivering; callee did not hear the message";
   }
 
   return result;

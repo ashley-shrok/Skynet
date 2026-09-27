@@ -82,7 +82,6 @@ Every response file carries exactly one `outcome`. Successful transcripts land u
 | ------------------ | --- |
 | completed          | Human answered and spoke. Transcript in stdout has both sides. Read it and act. |
 | no_response        | Human answered but hung up without speaking. Transcript has only your opener. Treat as "message was heard, no reply." |
-| interrupted_before_message | The call connected but the AI's opener was cut off before your message finished playing — the callee never actually heard the payload. Transcript is still printed so you can see what DID get spoken. Retry the call; the fresh message will land uninterrupted. |
 | no_answer          | The phone rang out or voicemail picked up. Try again later, or use a different channel. |
 | busy               | The line was busy. Try again in a bit. |
 | canceled           | Rare — the provider canceled the call mid-flight. Retry. |

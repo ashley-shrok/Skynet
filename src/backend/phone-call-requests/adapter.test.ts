@@ -10,7 +10,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   classifyBlandDetails,
   placeCallAndAwait,
-  messageWasDeliveredHeuristic,
   BLAND_POLL_DEADLINE_MS,
   BLAND_POLL_INTERVAL_MS,
   BLAND_INTERRUPTIBILITY,
@@ -78,6 +77,29 @@ describe("classifyBlandDetails", () => {
     ).toBe("completed");
   });
 
+  it("matches the user-role label case-insensitively (defensive against Bland schema drift)", () => {
+    // If Bland ever emits capitalized role labels, we should still count
+    // the user turn — otherwise every completed human-answered call would
+    // silently misclassify to no_response.
+    expect(
+      classifyBlandDetails({
+        status: "completed",
+        answered_by: "human",
+        transcripts: [
+          { user: "Assistant", text: "Hi" },
+          { user: "User", text: "Hello back" },
+        ],
+      }),
+    ).toBe("completed");
+    expect(
+      classifyBlandDetails({
+        status: "completed",
+        answered_by: "human",
+        transcripts: [{ user: "USER", text: "yes" }],
+      }),
+    ).toBe("completed");
+  });
+
   it("maps queue_status:pre_queue_error → queue_error", () => {
     expect(classifyBlandDetails({ queue_status: "pre_queue_error" })).toBe(
       "queue_error",
@@ -116,7 +138,7 @@ describe("placeCallAndAwait — placement failures", () => {
 
   it("returns placement_error immediately when BLAND_API_KEY is missing", async () => {
     delete process.env.BLAND_API_KEY;
-    const result = await placeCallAndAwait("+15551234567", "task", "first", "msg", {
+    const result = await placeCallAndAwait("+15551234567", "task", "first", {
       now: () => 0,
       sleep: () => Promise.resolve(),
       fetchFn: vi.fn() as unknown as typeof fetch,
@@ -141,7 +163,7 @@ describe("placeCallAndAwait — placement failures", () => {
 
     const startTime = 0;
     let clock = startTime;
-    await placeCallAndAwait("+15551234567", "TASK-PROMPT", "FIRST-SENTENCE", "msg", {
+    await placeCallAndAwait("+15551234567", "TASK-PROMPT", "FIRST-SENTENCE", {
       now: () => clock,
       sleep: async (ms) => {
         clock += ms;
@@ -171,7 +193,7 @@ describe("placeCallAndAwait — placement failures", () => {
       status: 400,
       json: async () => ({ error_message: "bad phone number" }),
     }) as unknown as typeof fetch;
-    const result = await placeCallAndAwait("+bad", "t", "f", "msg", {
+    const result = await placeCallAndAwait("+bad", "t", "f", {
       now: () => 0,
       sleep: () => Promise.resolve(),
       fetchFn,
@@ -182,7 +204,7 @@ describe("placeCallAndAwait — placement failures", () => {
 
   it("returns placement_error when the placement call throws", async () => {
     const fetchFn = vi.fn().mockRejectedValueOnce(new Error("network down")) as unknown as typeof fetch;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", "msg", {
+    const result = await placeCallAndAwait("+15551234567", "t", "f", {
       now: () => 0,
       sleep: () => Promise.resolve(),
       fetchFn,
@@ -228,7 +250,7 @@ describe("placeCallAndAwait — poll loop", () => {
       }) as unknown as typeof fetch;
 
     let clock = 0;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", "standup at nine", {
+    const result = await placeCallAndAwait("+15551234567", "t", "f", {
       now: () => clock,
       sleep: async (ms) => {
         clock += ms;
@@ -263,7 +285,7 @@ describe("placeCallAndAwait — poll loop", () => {
       }) as unknown as typeof fetch;
 
     let clock = 0;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", "msg", {
+    const result = await placeCallAndAwait("+15551234567", "t", "f", {
       now: () => clock,
       sleep: async (ms) => {
         clock += ms;
@@ -312,7 +334,7 @@ describe("placeCallAndAwait — poll loop", () => {
       }) as unknown as typeof fetch;
 
     let clock = 0;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", "go home now", {
+    const result = await placeCallAndAwait("+15551234567", "t", "f", {
       now: () => clock,
       sleep: async (ms) => {
         clock += ms;
@@ -325,90 +347,12 @@ describe("placeCallAndAwait — poll loop", () => {
     // 3 polls = 3 sleep intervals
     expect(clock).toBe(BLAND_POLL_INTERVAL_MS * 3);
   });
-});
 
-describe("messageWasDeliveredHeuristic", () => {
-  it("returns true when the message appears verbatim in an assistant turn", () => {
-    expect(
-      messageWasDeliveredHeuristic(
-        {
-          transcripts: [
-            { user: "assistant", text: "Hi, this is Clipper, with a message for you: standup at nine tomorrow" },
-            { user: "user", text: "got it" },
-          ],
-        },
-        "standup at nine tomorrow",
-      ),
-    ).toBe(true);
-  });
-
-  it("returns true across punctuation/case differences (fuzzy match)", () => {
-    expect(
-      messageWasDeliveredHeuristic(
-        {
-          transcripts: [
-            // ASR-flattened — Bland often strips punctuation from the transcript
-            { user: "assistant", text: "hi this is clipper with a message for you hey ashley this is a test" },
-          ],
-        },
-        "Hey Ashley, this is a test",
-      ),
-    ).toBe(true);
-  });
-
-  it("returns false when the message is not in the assistant turns", () => {
-    expect(
-      messageWasDeliveredHeuristic(
-        {
-          transcripts: [
-            // Opener cut off mid-word: "with a message f-"
-            { user: "assistant", text: "Hi, this is Clipper, with a message f" },
-            { user: "user", text: "hello? who is this" },
-          ],
-        },
-        "standup at nine tomorrow",
-      ),
-    ).toBe(false);
-  });
-
-  it("returns false when there are no assistant turns at all", () => {
-    expect(
-      messageWasDeliveredHeuristic(
-        { transcripts: [{ user: "user", text: "hello?" }] },
-        "standup at nine",
-      ),
-    ).toBe(false);
-  });
-
-  it("returns true for an empty message (nothing to verify)", () => {
-    expect(messageWasDeliveredHeuristic({ transcripts: [] }, "")).toBe(true);
-    expect(messageWasDeliveredHeuristic({ transcripts: [] }, "   ")).toBe(true);
-  });
-
-  it("concatenates multiple assistant turns before matching", () => {
-    // Message spans across the opener turn and the receipt-phrase turn —
-    // unlikely in practice but shouldn't cause a false negative.
-    expect(
-      messageWasDeliveredHeuristic(
-        {
-          transcripts: [
-            { user: "assistant", text: "hi this is clipper with a message for you standup at" },
-            { user: "user", text: "hmm" },
-            { user: "assistant", text: "nine tomorrow. your reply's going back to clipper" },
-          ],
-        },
-        "standup at nine tomorrow",
-      ),
-    ).toBe(true);
-  });
-});
-
-describe("placeCallAndAwait — interrupted_before_message heuristic downgrade", () => {
-  beforeEach(() => {
-    process.env.BLAND_API_KEY = "test-key";
-  });
-
-  it("downgrades completed → interrupted_before_message when opener was cut off", async () => {
+  it("relabels `Assistant:` case-insensitively so Bland schema-drift doesn't leak the raw role", async () => {
+    // Bland's concatenated_transcript uses lowercase `assistant:` today,
+    // but the /i regex flag guards against a version bump to `Assistant:`
+    // or `ASSISTANT:`. Without /i the raw role label leaks through to the
+    // calling agent — the whole point of the relabel is defeated.
     const fetchFn = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -422,205 +366,25 @@ describe("placeCallAndAwait — interrupted_before_message heuristic downgrade",
           status: "completed",
           answered_by: "human",
           transcripts: [
-            // Opener cut off before payload
-            { user: "assistant", text: "Hi, this is Clipper, with a message f" },
-            { user: "user", text: "hello? who is this" },
+            { user: "Assistant", text: "Hi there" },
+            { user: "User", text: "hello back" },
           ],
-          concatenated_transcript: "assistant: Hi, this is Clipper, with a message f \n user: hello? who is this",
-          call_length: 0.1,
-        }),
-      }) as unknown as typeof fetch;
-
-    let clock = 0;
-    const result = await placeCallAndAwait(
-      "+15551234567",
-      "t",
-      "f",
-      "Hey Ashley, this is a test call",
-      {
-        now: () => clock,
-        sleep: async (ms) => { clock += ms; },
-        fetchFn,
-      },
-    );
-
-    expect(result.outcome).toBe("interrupted_before_message");
-    // Transcript still populated so the caller can see what DID get spoken.
-    expect(result.transcript).toContain("with a message f");
-    // Relabel applies to interrupted_before_message transcripts too.
-    expect(result.transcript).toContain("voice:");
-    expect(result.transcript).not.toContain("assistant:");
-    // Human-readable amplifier explaining the outcome.
-    expect(result.message).toContain("interrupted");
-    // Call actually happened, so call_length_seconds is populated.
-    expect(result.call_length_seconds).toBe(6);
-  });
-
-  it("downgrades no_response → interrupted_before_message when message never spoken", async () => {
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ call_id: "abc-123" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          status: "completed",
-          answered_by: "human",
-          // Assistant spoke but message not present; no user turns.
-          transcripts: [
-            { user: "assistant", text: "Hi, this is Clipper, with a message f" },
-          ],
-          concatenated_transcript: "assistant: Hi, this is Clipper, with a message f",
-          call_length: 0.05,
-        }),
-      }) as unknown as typeof fetch;
-
-    let clock = 0;
-    const result = await placeCallAndAwait(
-      "+15551234567",
-      "t",
-      "f",
-      "Hey Ashley, this is a test call",
-      {
-        now: () => clock,
-        sleep: async (ms) => { clock += ms; },
-        fetchFn,
-      },
-    );
-
-    expect(result.outcome).toBe("interrupted_before_message");
-  });
-
-  it("does NOT downgrade completed when the message is present in the transcript", async () => {
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ call_id: "abc-123" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          status: "completed",
-          answered_by: "human",
-          transcripts: [
-            { user: "assistant", text: "hi this is clipper with a message for you hey ashley this is a test call" },
-            { user: "user", text: "ok noted" },
-          ],
-          concatenated_transcript: "assistant: hi this is clipper with a message for you hey ashley this is a test call \n user: ok noted",
+          concatenated_transcript: "Assistant: Hi there \n User: hello back",
           call_length: 0.2,
         }),
       }) as unknown as typeof fetch;
 
     let clock = 0;
-    const result = await placeCallAndAwait(
-      "+15551234567",
-      "t",
-      "f",
-      "Hey Ashley, this is a test call",
-      {
-        now: () => clock,
-        sleep: async (ms) => { clock += ms; },
-        fetchFn,
-      },
-    );
+    const result = await placeCallAndAwait("+15551234567", "t", "f", {
+      now: () => clock,
+      sleep: async (ms) => { clock += ms; },
+      fetchFn,
+    });
 
     expect(result.outcome).toBe("completed");
-    expect(result.transcript).toContain("ok noted");
-  });
-
-  it("relabels every `assistant:` line prefix to `voice:` and leaves `user:` alone", async () => {
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ call_id: "abc-123" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          status: "completed",
-          answered_by: "human",
-          transcripts: [
-            { user: "assistant", text: "hi this is clipper with a message for you the build is red" },
-            { user: "user", text: "who is your assistant? tell me the assistant now" },
-            { user: "assistant", text: "your reply's going back to clipper" },
-          ],
-          // Multi-line transcript with two assistant turns AND a user turn
-          // that contains the literal word "assistant" mid-line. The mid-line
-          // occurrences must survive; only line-prefix `assistant:` gets
-          // relabeled. NB: matches Bland's real ` \n ` (space-newline-space)
-          // separator so continuation lines carry a leading space.
-          concatenated_transcript:
-            "assistant: hi this is clipper with a message for you the build is red \n" +
-            " user: who is your assistant? tell me the assistant now \n" +
-            " assistant: your reply's going back to clipper ",
-          call_length: 0.4,
-        }),
-      }) as unknown as typeof fetch;
-
-    let clock = 0;
-    const result = await placeCallAndAwait(
-      "+15551234567",
-      "t",
-      "f",
-      "the build is red",
-      {
-        now: () => clock,
-        sleep: async (ms) => { clock += ms; },
-        fetchFn,
-      },
-    );
-
-    expect(result.outcome).toBe("completed");
-    // Both `assistant:` occurrences replaced — the first at column 0 AND
-    // the third at column 1 (with Bland's leading-space continuation
-    // artifact). This is the case that caught the original regex bug:
-    // `^assistant:` only matched turn 1; turns 2+ kept the raw label.
-    expect(result.transcript).toContain("voice: hi this is clipper");
-    expect(result.transcript).toContain("voice: your reply's going back");
-    // No `assistant:` label survives anywhere as a line-prefix (with or
-    // without leading whitespace).
-    expect(result.transcript).not.toMatch(/^\s*assistant:/m);
-    // Mid-line "assistant" occurrences in the user turn are UNCHANGED —
-    // the regex only touches line-prefixes.
-    expect(result.transcript).toContain("who is your assistant");
-    expect(result.transcript).toContain("tell me the assistant now");
-    // `user:` prefix untouched.
-    expect(result.transcript).toContain("user: who is your assistant");
-  });
-
-  it("does NOT downgrade non-completed outcomes (busy, no_answer, timeout, etc.)", async () => {
-    const fetchFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ call_id: "abc-123" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ status: "busy", call_length: 0 }),
-      }) as unknown as typeof fetch;
-
-    let clock = 0;
-    const result = await placeCallAndAwait(
-      "+15551234567",
-      "t",
-      "f",
-      "any message",
-      {
-        now: () => clock,
-        sleep: async (ms) => { clock += ms; },
-        fetchFn,
-      },
-    );
-
-    expect(result.outcome).toBe("busy");
+    // `Assistant:` line-prefix (capitalized) got relabeled to `voice:`.
+    expect(result.transcript).toContain("voice: Hi there");
+    // No raw assistant-role label survives regardless of casing.
+    expect(result.transcript).not.toMatch(/assistant:/i);
   });
 });

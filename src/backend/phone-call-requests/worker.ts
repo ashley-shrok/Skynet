@@ -312,7 +312,6 @@ export async function processPhoneCall(
     target.phoneE164,
     taskPrompt,
     firstSentence,
-    item.body.message,
     {
       now: deps.now,
       sleep: deps.sleep,
