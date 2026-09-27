@@ -165,6 +165,28 @@ if ! mv "$req_tmp" "$req_path"; then
   exit 2
 fi
 
+# ---- signal-safe cleanup -----------------------------------------------------
+#
+# Once the request file has landed, ANY exit path (normal, SIGINT/SIGTERM
+# from the caller, unexpected error) must remove it — otherwise the
+# backend scanner picks it up on its next tick and rings the callee's
+# phone for a caller that has already vanished. The signal handler
+# forwards the correct exit code (128 + signum) and re-raises so the
+# parent sees a normal signal-triggered exit.
+_agent_phone_cleanup() {
+  rm -f "$req_path" 2>/dev/null || true
+}
+_agent_phone_signal_exit() {
+  _agent_phone_cleanup
+  # Re-raise the signal so the exit code reflects it (bash convention).
+  trap - "$1"
+  kill -"$1" $$
+}
+trap _agent_phone_cleanup EXIT
+trap '_agent_phone_signal_exit INT' INT
+trap '_agent_phone_signal_exit TERM' TERM
+trap '_agent_phone_signal_exit HUP' HUP
+
 # ---- poll for the response file ---------------------------------------------
 
 poll_start=$(date +%s)
