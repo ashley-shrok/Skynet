@@ -2917,10 +2917,10 @@ export function PrettyConversationsPanel({
                 </div>
                 {displayedMiddle.length === 0 && (
                   <div
-                    className="px-4 py-2 text-[12px] text-[#5c6070]/70 italic"
+                    className="px-4 py-2 text-[12px] leading-snug text-[#5c6070]/70"
                     data-testid="pv-flat-middle-empty"
                   >
-                    Nothing here yet
+                    Start your first conversation with an agent using the button at the top-left of the page
                   </div>
                 )}
                 {displayedMiddle.map((row) => (
