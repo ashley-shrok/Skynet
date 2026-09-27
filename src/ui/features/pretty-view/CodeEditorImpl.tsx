@@ -25,6 +25,17 @@ import { WrapText } from "lucide-react";
 import { languageForFilename } from "./language-for-filename";
 import { readSavedWrap, writeSavedWrap } from "./code-editor-wrap-preference";
 
+// Layout theme: tell CM6 to fill its container's height and to hand
+// scrolling to its own internal `.cm-scroller`. Without this, `.cm-editor`
+// grows to natural content size and the outer shell's `overflow-hidden`
+// clips it with no way for the user to scroll — no mouse wheel, no arrow
+// keys, no drag-select-below-viewport. Kept OUTSIDE the theme extension
+// (dracula) because layout and colors are separate concerns.
+const layoutTheme = EditorView.theme({
+  "&": { height: "100%" },
+  ".cm-scroller": { overflow: "auto" },
+});
+
 interface CodeEditorImplProps {
   filename: string;
   content: string;
@@ -75,6 +86,7 @@ export function CodeEditorImpl({
         basicSetup,
         keymap.of([indentWithTab]),
         dracula,
+        layoutTheme,
         langCompartment.of(initialLang),
         editableCompartment.of(EditorView.editable.of(!disabled)),
         wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
