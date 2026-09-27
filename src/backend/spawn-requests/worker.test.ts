@@ -1196,6 +1196,37 @@ describe("spawn-request worker", () => {
       // Retry landed on next-oldest (byron), not a random re-pick.
       expect(namesTried).toEqual(["curie", "byron"]);
     });
+
+    it("R9: enumerator returns role-suffixed folder names — derived to pool bases before ranking (2026-09-27 regression)", async () => {
+      // Enumerators emit FULL folder names (`clipper-box-maintainer-3`), not
+      // the pool bases (`clipper`) the ranker's filter compares against. Before
+      // the fix, the worker passed raw folder names through, so a currently-held
+      // `clipper-box-maintainer-3` did not exclude `clipper` from tier 1.
+      // Willow (genuinely fresh) must be the first-and-only birth attempt.
+      const namesTried: string[] = [];
+      const mockBirthIdentity = vi.fn().mockImplementation(
+        async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          namesTried.push(opts.name);
+          emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+        },
+      );
+      const deps = buildTestDeps({
+        getVettedPool: vi.fn().mockReturnValue(["clipper", "toucan", "willow"]),
+        listActiveIdentityKeys: vi.fn().mockResolvedValue([
+          "clipper-box-maintainer-3", // real enumerator shape
+          "toucan-box-maintainer-2",
+        ]),
+        listArchivedIdentityEntries: vi.fn().mockResolvedValue([]),
+        birthIdentity: mockBirthIdentity,
+      });
+      const item = makePendingBirth();
+
+      await processBirth(item, deps);
+
+      // Clipper + Toucan are currently held → derivation excludes them from
+      // tier 1; Willow is the only fresh candidate → picked on first attempt.
+      expect(namesTried).toEqual(["willow"]);
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────

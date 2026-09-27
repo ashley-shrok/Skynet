@@ -33,8 +33,12 @@
  *   - `pool` entries are treated case-insensitively (pool.json is PascalCase
  *     by convention; identity folders on disk are lowercase per H3 invariant).
  *     All returned candidates are lowercase.
- *   - `activeNames` MUST already be lowercase (matches identity-folder shape).
- *   - `archivedEntries` `.name` MUST already be lowercase.
+ *   - `activeNames` / `archivedEntries` .name MUST be POOL-BASE-shaped (the
+ *     `clipper` in a folder named `clipper-box-maintainer-3`), not the full
+ *     folder name — the filter compares against pool bases and a shape
+ *     mismatch silently bypasses the LRU logic (2026-09-27 regression). Callers
+ *     that enumerate identity folders MUST pass each folder through
+ *     `deriveBaseFromFolderName` before feeding the ranker. Lowercase, no dashes.
  *
  * DEGRADATION SEMANTICS:
  *   - Empty `activeNames` means "we could not determine which names are
@@ -140,6 +144,27 @@ export function rankPoolCandidates(
     }
   }
   return out;
+}
+
+/**
+ * Reduce a full identity folder name (e.g. `clipper-box-maintainer-3`) to the
+ * pool-base name (`clipper`) the ranker's filter compares against. Everything
+ * before the first hyphen is the base; a folder with no hyphen (legacy bare
+ * identities like `ace`) is already its own base.
+ *
+ * Invariant this relies on: pool bases contain no hyphens. Enforced upstream
+ * by `pool-loader.ts` isValidPoolShape's hyphen-rejection guard so a future
+ * pool edit adding `sea-otter` fails loudly at load rather than silently
+ * breaking this derivation.
+ *
+ * Non-pool folders (a hypothetical hand-named `winslow-3`) reduce to their
+ * first segment too — if that segment happens to collide with a pool base,
+ * the ranker over-avoids it (safe direction; worst case: a free name gets
+ * skipped in tier 1). No under-avoid path exists.
+ */
+export function deriveBaseFromFolderName(folder: string): string {
+  const i = folder.indexOf("-");
+  return (i < 0 ? folder : folder.slice(0, i)).toLowerCase();
 }
 
 /**

@@ -135,6 +135,13 @@ function isValidPoolShape(v: unknown): boolean {
   if (!Array.isArray(o.names)) return false;
   for (const entry of o.names as unknown[]) {
     if (typeof entry !== "string" || entry.length === 0) return false;
+    // Pool bases MUST NOT contain hyphens. rank-pool-candidates.ts's
+    // deriveBaseFromFolderName splits `<base>-<role>[-<ordinal>]` on the
+    // first hyphen, so a hyphenated base (`sea-otter`) would silently
+    // reduce to its first segment (`sea`) and break the ranker's LRU
+    // filter. Fail loudly at load rather than let a pool edit corrupt
+    // picker behavior downstream.
+    if ((entry as string).includes("-")) return false;
   }
   return true;
 }

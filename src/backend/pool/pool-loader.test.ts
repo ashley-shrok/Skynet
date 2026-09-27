@@ -153,6 +153,17 @@ describe("pool-loader", () => {
     expect(loggerErrorCalls).toHaveLength(1);
   });
 
+  it("names contains hyphenated entries: returns [] and logs error (deriveBaseFromFolderName invariant)", async () => {
+    // A hyphenated pool base (`sea-otter`) would collide with the
+    // `<base>-<role>[-<ordinal>]` folder shape rank-pool-candidates.ts's
+    // deriveBaseFromFolderName splits on. Fail loudly at load rather than
+    // silently break the ranker's LRU filter downstream.
+    fsState.payload = JSON.stringify({ names: ["Willow", "sea-otter", "Cinder"] });
+    const { getVettedPool } = await importLoader();
+    expect(getVettedPool()).toEqual([]);
+    expect(loggerErrorCalls).toHaveLength(1);
+  });
+
   it("memoization: two consecutive calls invoke readFileSync exactly once", async () => {
     fsState.payload = JSON.stringify({ names: ["Willow", "Cinder"] });
     const { getVettedPool } = await importLoader();

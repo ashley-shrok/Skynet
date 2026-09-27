@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  deriveBaseFromFolderName,
   rankPoolCandidates,
   type ArchivedEntryInput,
 } from "./rank-pool-candidates.js";
@@ -235,5 +236,44 @@ describe("rankPoolCandidates", () => {
     });
     expect(result).toHaveLength(2);
     expect(new Set(result)).toEqual(new Set(["aster", "willow"]));
+  });
+});
+
+describe("deriveBaseFromFolderName", () => {
+  it("strips role + ordinal from a full identity folder name", () => {
+    expect(deriveBaseFromFolderName("clipper-box-maintainer-3")).toBe("clipper");
+  });
+
+  it("strips role with no ordinal", () => {
+    expect(deriveBaseFromFolderName("atlas-box-maintainer")).toBe("atlas");
+  });
+
+  it("returns bare name unchanged when there is no hyphen (legacy identities)", () => {
+    expect(deriveBaseFromFolderName("ace")).toBe("ace");
+  });
+
+  it("lowercases mixed-case input (defensive)", () => {
+    expect(deriveBaseFromFolderName("Clipper-Box-Maintainer-3")).toBe("clipper");
+  });
+
+  it("handles single-word roles too", () => {
+    expect(deriveBaseFromFolderName("toucan-developer-2")).toBe("toucan");
+  });
+
+  it("real-data path: enumerator output feeds the ranker's filter correctly", () => {
+    // Regression test for the 2026-09-27 shape-mismatch bug. Before the fix,
+    // pool base `clipper` did not collide with folder `clipper-box-maintainer-3`
+    // in the activeNames Set, so `clipper` leaked into tier 1 as "fresh".
+    const enumeratorOutput = ["clipper-box-maintainer-3", "toucan-box-maintainer-2"];
+    const activeBases = new Set(enumeratorOutput.map(deriveBaseFromFolderName));
+    const result = rankPoolCandidates({
+      pool: ["Clipper", "Toucan", "Willow"],
+      activeNames: activeBases,
+      archivedEntries: [],
+    });
+    // Willow is the only genuinely-fresh name — it MUST appear at position 0.
+    // Clipper and Toucan can only surface via tier-3 fallback (positions 1-2).
+    expect(result[0]).toBe("willow");
+    expect(new Set(result.slice(1))).toEqual(new Set(["clipper", "toucan"]));
   });
 });

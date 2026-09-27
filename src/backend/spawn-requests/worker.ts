@@ -42,7 +42,10 @@ import {
 } from "../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
 import { getVettedPool } from "../pool/pool-loader.js";
-import { rankPoolCandidates } from "../pool/rank-pool-candidates.js";
+import {
+  deriveBaseFromFolderName,
+  rankPoolCandidates,
+} from "../pool/rank-pool-candidates.js";
 import { getDb } from "../database/db/index.js";
 import { hosts } from "../database/db/schema.js";
 import { eq } from "drizzle-orm";
@@ -569,8 +572,15 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
         return [] as ArchivedIdentityEntry[];
       }),
     ]);
-    activeNames = new Set(activeList);
-    archivedEntries = archivedList;
+    // Reduce full folder names (`clipper-box-maintainer-3`) to pool bases
+    // (`clipper`) before handing to the ranker — its filter compares against
+    // pool bases, and a shape mismatch silently bypasses the LRU logic
+    // (2026-09-27 regression fix).
+    activeNames = new Set(activeList.map(deriveBaseFromFolderName));
+    archivedEntries = archivedList.map((e) => ({
+      name: deriveBaseFromFolderName(e.name),
+      mtimeMs: e.mtimeMs,
+    }));
   } catch (err) {
     // Total-failure swallow (connect refused / timeout / auth). Ranker
     // degrades to a shuffled full-pool pick — same as the pre-Phase-128

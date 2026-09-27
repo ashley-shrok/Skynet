@@ -81,7 +81,10 @@ import {
   listArchivedIdentityEntriesOnHost,
   type ArchivedIdentityEntry,
 } from "../claude-session/list-archived-identity-keys.js";
-import { rankPoolCandidates } from "./rank-pool-candidates.js";
+import {
+  deriveBaseFromFolderName,
+  rankPoolCandidates,
+} from "./rank-pool-candidates.js";
 import { ROLE_NAME_PATTERN } from "../utils/role-name-pattern.js";
 
 const router = express.Router();
@@ -247,9 +250,16 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
               return [] as ArchivedIdentityEntry[];
             }),
           ]);
+          // Reduce full folder names (`clipper-box-maintainer-3`) to pool
+          // bases (`clipper`) before handing to the ranker — its filter
+          // compares against pool bases, and a shape mismatch silently
+          // bypasses the LRU logic (2026-09-27 regression fix).
           return {
-            active: new Set(activeList),
-            archived: archivedList,
+            active: new Set(activeList.map(deriveBaseFromFolderName)),
+            archived: archivedList.map((e) => ({
+              name: deriveBaseFromFolderName(e.name),
+              mtimeMs: e.mtimeMs,
+            })),
           };
         })(),
         new Promise<never>((_, reject) => {

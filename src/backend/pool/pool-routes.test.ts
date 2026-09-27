@@ -655,4 +655,50 @@ describe("POST /identities/pool/pick", () => {
     // Willow is fresh → tier 1; Dagda never surfaces.
     expect((res.body as { name: string }).name).toBe("willow");
   });
+
+  it("Test 20: enumerator returns role-suffixed folder names — derived to pool bases before ranking (2026-09-27 regression)", async () => {
+    // The enumerators emit FULL folder names (`clipper-box-maintainer-3`), not
+    // the pool bases (`clipper`) the ranker's filter compares against. Before
+    // the fix, the route fed raw folder names straight to the ranker, so a
+    // currently-held `clipper-box-maintainer-3` did not exclude `clipper` from
+    // tier 1 — the name got recycled while ~120 truly-fresh names sat unused.
+    // This test drives folder-shaped mock output through the route and asserts
+    // the ranker sees derived base names.
+    (getVettedPool as Mock).mockReturnValueOnce(["Clipper", "Toucan", "Willow"]);
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce([
+      "clipper-box-maintainer-3", // real enumerator shape
+      "toucan-box-maintainer-2",
+    ]);
+    (listArchivedIdentityEntriesOnHost as Mock).mockResolvedValueOnce([]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    // Clipper + Toucan are both currently held → must NOT be picked.
+    // Willow is genuinely fresh → the only correct answer.
+    expect((res.body as { name: string }).name).toBe("willow");
+  });
+
+  it("Test 21: enumerator archive returns role-suffixed folder names — derived to pool bases for tier-2 LRU (2026-09-27 regression)", async () => {
+    // Same shape mismatch on the archive side. Archived `clipper-box-maintainer-3`
+    // must reduce to pool base `clipper` so it lands in tier 2 (recycled), not
+    // in tier 1 (fresh) alongside genuinely-untouched names.
+    (getVettedPool as Mock).mockReturnValueOnce(["Clipper", "Willow"]);
+    (listIdentityKeysOnHost as Mock).mockResolvedValueOnce([]);
+    (listArchivedIdentityEntriesOnHost as Mock).mockResolvedValueOnce([
+      { name: "clipper-box-maintainer-3", mtimeMs: Date.now() - 3600_000 },
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/pool/pick",
+      body: { hostId: 7 },
+    });
+    expect(res.status).toBe(200);
+    // Willow is tier-1 fresh, Clipper is tier-2 recycled → Willow wins.
+    expect((res.body as { name: string }).name).toBe("willow");
+  });
 });
