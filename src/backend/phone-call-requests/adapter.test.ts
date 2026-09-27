@@ -136,7 +136,7 @@ describe("placeCallAndAwait — placement failures", () => {
     (fetchFn as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({ status: "completed", answered_by: "human", transcripts: [{ user: "assistant", text: "hi msg" }, { user: "user", text: "yes" }], concatenated_transcript: "assistant: hi msg\nuser: yes", call_length: 0.5 }),
+      json: async () => ({ status: "completed", answered_by: "human", transcripts: [{ user: "assistant", text: "hi msg" }, { user: "user", text: "yes" }], concatenated_transcript: "assistant: hi msg \n user: yes", call_length: 0.5 }),
     });
 
     const startTime = 0;
@@ -222,7 +222,7 @@ describe("placeCallAndAwait — poll loop", () => {
             { user: "assistant", text: "hello with a message for you: standup at nine" },
             { user: "user", text: "ok, thanks" },
           ],
-          concatenated_transcript: "assistant: hello with a message for you: standup at nine\nuser: ok, thanks",
+          concatenated_transcript: "assistant: hello with a message for you: standup at nine \n user: ok, thanks",
           call_length: 0.35, // minutes
         }),
       }) as unknown as typeof fetch;
@@ -306,7 +306,7 @@ describe("placeCallAndAwait — poll loop", () => {
             { user: "assistant", text: "hi go home now" },
             { user: "user", text: "bye" },
           ],
-          concatenated_transcript: "assistant: hi go home now\nuser: bye",
+          concatenated_transcript: "assistant: hi go home now \n user: bye",
           call_length: 0.1,
         }),
       }) as unknown as typeof fetch;
@@ -426,7 +426,7 @@ describe("placeCallAndAwait — interrupted_before_message heuristic downgrade",
             { user: "assistant", text: "Hi, this is Clipper, with a message f" },
             { user: "user", text: "hello? who is this" },
           ],
-          concatenated_transcript: "assistant: Hi, this is Clipper, with a message f\nuser: hello? who is this",
+          concatenated_transcript: "assistant: Hi, this is Clipper, with a message f \n user: hello? who is this",
           call_length: 0.1,
         }),
       }) as unknown as typeof fetch;
@@ -511,7 +511,7 @@ describe("placeCallAndAwait — interrupted_before_message heuristic downgrade",
             { user: "assistant", text: "hi this is clipper with a message for you hey ashley this is a test call" },
             { user: "user", text: "ok noted" },
           ],
-          concatenated_transcript: "assistant: hi this is clipper with a message for you hey ashley this is a test call\nuser: ok noted",
+          concatenated_transcript: "assistant: hi this is clipper with a message for you hey ashley this is a test call \n user: ok noted",
           call_length: 0.2,
         }),
       }) as unknown as typeof fetch;
@@ -554,11 +554,12 @@ describe("placeCallAndAwait — interrupted_before_message heuristic downgrade",
           // Multi-line transcript with two assistant turns AND a user turn
           // that contains the literal word "assistant" mid-line. The mid-line
           // occurrences must survive; only line-prefix `assistant:` gets
-          // relabeled.
+          // relabeled. NB: matches Bland's real ` \n ` (space-newline-space)
+          // separator so continuation lines carry a leading space.
           concatenated_transcript:
-            "assistant: hi this is clipper with a message for you the build is red\n" +
-            "user: who is your assistant? tell me the assistant now\n" +
-            "assistant: your reply's going back to clipper",
+            "assistant: hi this is clipper with a message for you the build is red \n" +
+            " user: who is your assistant? tell me the assistant now \n" +
+            " assistant: your reply's going back to clipper ",
           call_length: 0.4,
         }),
       }) as unknown as typeof fetch;
@@ -577,11 +578,15 @@ describe("placeCallAndAwait — interrupted_before_message heuristic downgrade",
     );
 
     expect(result.outcome).toBe("completed");
-    // Both line-prefix `assistant:` occurrences replaced.
+    // Both `assistant:` occurrences replaced — the first at column 0 AND
+    // the third at column 1 (with Bland's leading-space continuation
+    // artifact). This is the case that caught the original regex bug:
+    // `^assistant:` only matched turn 1; turns 2+ kept the raw label.
     expect(result.transcript).toContain("voice: hi this is clipper");
     expect(result.transcript).toContain("voice: your reply's going back");
-    // No line-prefix `assistant:` remains anywhere.
-    expect(result.transcript).not.toMatch(/^assistant:/m);
+    // No `assistant:` label survives anywhere as a line-prefix (with or
+    // without leading whitespace).
+    expect(result.transcript).not.toMatch(/^\s*assistant:/m);
     // Mid-line "assistant" occurrences in the user turn are UNCHANGED —
     // the regex only touches line-prefixes.
     expect(result.transcript).toContain("who is your assistant");

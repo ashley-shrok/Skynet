@@ -483,7 +483,13 @@ function buildResultFromDetails(
     // ARE the assistant, from their harness's perspective), when it's
     // actually the AI phone voice. `user:` on the callee side stays —
     // that's already unambiguous.
-    result.transcript = transcript.replace(/^assistant:/gm, "voice:");
+    //
+    // NB: Bland's concatenated_transcript uses " \n " (space-newline-space)
+    // as its turn separator, so every line after the first starts with
+    // a leading space. The regex captures that leading whitespace and
+    // preserves it (so continuation-line indentation stays), then swaps
+    // `assistant:` → `voice:`.
+    result.transcript = transcript.replace(/^(\s*)assistant:/gm, "$1voice:");
   }
 
   if (typeof d.call_length === "number" && Number.isFinite(d.call_length)) {
