@@ -6,13 +6,13 @@
  *       still runs, settings check still runs.
  *   (b) Fresh host (is-enabled exit 1): linger + daemon-reload + enable --now
  *       fires in order as a single chained command; no separate daemon-reload.
- *   (c) settings.json already has all 5 fleet-required keys correct —
+ *   (c) settings.json already has all 7 fleet-required keys correct —
  *       the patch command still runs but the jq branch is not reached (we
  *       verify via the __SETTINGS_OK__ sentinel).
- *   (d) settings.json missing — file created with all 5 keys (sentinel ok).
+ *   (d) settings.json missing — file created with all 7 keys (sentinel ok).
  *   (e) settings.json exists without some keys — jq merge applied (sentinel ok).
- *   (e2) command shape: settings patch command references all 5 fleet-required
- *       keys AND the idempotency check covers all 5 (regression guard against
+ *   (e2) command shape: settings patch command references all 7 fleet-required
+ *       keys AND the idempotency check covers all 7 (regression guard against
  *       accidental key drop).
  *   (f) Channel returns null on is-enabled check — hadError=true, still resolves.
  *   (g) Channel returns null on settings patch — hadError=true, still resolves.
@@ -239,8 +239,8 @@ describe("runBootstrapForHost", () => {
     expect(result.hadError).toBe(false);
   });
 
-  it("(e2) settings command references all 6 fleet-required keys in both merge and check", async () => {
-    // Regression guard: the settings.json patch must enforce ALL 6 keys, not
+  it("(e2) settings command references all 7 fleet-required keys in both merge and check", async () => {
+    // Regression guard: the settings.json patch must enforce ALL 7 keys, not
     // regress to a subset. Both the MERGE (what gets written) and the CHECK
     // (the idempotency short-circuit predicate) must name each key.
     const { channel, exec } = makeChannel({
@@ -259,7 +259,7 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toBeDefined();
     if (!settingsCmd) return;
 
-    // All 6 keys must appear in the MERGE side (what gets written to disk).
+    // All 7 keys must appear in the MERGE side (what gets written to disk).
     expect(settingsCmd).toContain(`"AskUserQuestion"`);
     expect(settingsCmd).toContain(`.askUserQuestionTimeout = "never"`);
     expect(settingsCmd).toContain(`.DISABLE_AUTOUPDATER = "1"`);
@@ -269,8 +269,16 @@ describe("runBootstrapForHost", () => {
     // whose command references task-field-check when absent.
     expect(settingsCmd).toContain(`.UserPromptSubmit`);
     expect(settingsCmd).toContain(`$HOME/.local/bin/task-field-check`);
+    // allow-all-tools PreToolUse hook — the merge must add an entry
+    // whose command references allow-all-tools when absent. NO matcher
+    // field on the entry (universal auto-allow); the shape lives inside
+    // the jq template as `{"hooks":[{"type":"command","command":"$HOME/.local/bin/allow-all-tools"}]}`
+    // with no `matcher` key. The behavioral test in local-fleet-install.test.ts
+    // exercises the end-to-end applied shape via real jq.
+    expect(settingsCmd).toContain(`.PreToolUse`);
+    expect(settingsCmd).toContain(`$HOME/.local/bin/allow-all-tools`);
 
-    // All 6 keys must also appear in the CHECK side (idempotency predicate).
+    // All 7 keys must also appear in the CHECK side (idempotency predicate).
     // Without this, a partial-state settings.json would keep getting rewritten
     // every sweep, OR a missing key would go undetected.
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt == true`);
@@ -282,6 +290,9 @@ describe("runBootstrapForHost", () => {
     // an already-present entry so we don't rewrite the file every sweep.
     expect(settingsCmd).toContain(`.hooks.UserPromptSubmit // []`);
     expect(settingsCmd).toContain(`test("task-field-check")`);
+    // allow-all-tools idempotency predicate — same rationale.
+    expect(settingsCmd).toContain(`.hooks.PreToolUse // []`);
+    expect(settingsCmd).toContain(`test("allow-all-tools")`);
 
     // Absent-file path must use the same MERGE template applied to {}
     // (single source of truth for what "correct" means).

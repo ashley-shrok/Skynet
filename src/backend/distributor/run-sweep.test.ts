@@ -149,7 +149,7 @@ describe("runSweepForHost", () => {
     // rows (image-gen-skill + image-gen-helper). Later substrate refactors
     // (retire coord-as-mode, retire backlog/bounty/next-bounty skills) grew +
     // shrank the catalog; the itemsChecked count below tracks the current
-    // sweep footprint (46 items — update this along with any catalog change
+    // sweep footprint (54 items — update this along with any catalog change
     // that adds or removes a sweep target).
     const { channel, exec } = makeChannelSequenced((cmd) => {
       if (cmd.includes("base64 -w0")) return b64Ok(bundledBytes);
@@ -165,7 +165,7 @@ describe("runSweepForHost", () => {
 
     expect(logSweepResult).toHaveBeenCalledTimes(1);
     const call = (logSweepResult as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.itemsChecked).toBe(53);
+    expect(call.itemsChecked).toBe(54);
     expect(call.itemsChanged).toBe(0);
     expect(call.itemsFailed).toBe(0);
     expect(logItemChanged).not.toHaveBeenCalled();

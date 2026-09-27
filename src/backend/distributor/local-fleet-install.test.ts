@@ -668,15 +668,27 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     expect(parsed.permissions.deny).toContain("AskUserQuestion");
     expect(parsed.env.DISABLE_AUTOUPDATER).toBe("1");
     expect(parsed.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
-    // Hook stored as LITERAL $HOME (bash-single-quote parity with SSH path).
+    // Hooks stored as LITERAL $HOME (bash-single-quote parity with SSH path).
     const upsCommands = parsed.hooks.UserPromptSubmit.flatMap(
       (g: { hooks?: Array<{ command?: string }> }) =>
         (g.hooks ?? []).map((h) => h.command),
     );
     expect(upsCommands).toContain("$HOME/.local/bin/task-field-check");
+    // allow-all-tools PreToolUse hook — universal auto-allow. The entry
+    // has NO matcher field (fires for every tool call). Verify the
+    // command is present AND the entry group has no matcher key.
+    const preToolUseGroups = parsed.hooks.PreToolUse as Array<{
+      matcher?: string;
+      hooks?: Array<{ command?: string }>;
+    }>;
+    const allowAllGroup = preToolUseGroups.find((g) =>
+      (g.hooks ?? []).some((h) => h.command === "$HOME/.local/bin/allow-all-tools"),
+    );
+    expect(allowAllGroup).toBeDefined();
+    expect(allowAllGroup?.matcher).toBeUndefined();
   });
 
-  it("settings.json already has all six keys → noop, no rewrite (mtime unchanged)", async () => {
+  it("settings.json already has all seven keys → noop, no rewrite (mtime unchanged)", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
     const { bootstrapFleetSubstrateLocally } = await importFresh();
 
@@ -739,6 +751,80 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     expect(upsCommands).toContain("$HOME/.local/bin/task-field-check");
   });
 
+  it("settings.json has 6 keys but missing allow-all-tools hook → merge adds it while preserving other PreToolUse entries", async () => {
+    // Mirror of the task-field-check test above, for the PreToolUse
+    // allow-all-tools hook. Seeds a settings.json missing only the
+    // allow-all-tools entry (all 6 previous keys correct AND a pre-existing
+    // user-owned PreToolUse hook with its own matcher). Expects the merge
+    // to append the allow-all-tools entry WITHOUT clobbering the existing
+    // one — validation hooks the user has configured must survive.
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const claudeDir = path.join(tmpRoot, ".claude");
+    await fs.mkdir(claudeDir, { recursive: true });
+    const seed = {
+      permissions: { deny: ["AskUserQuestion"] },
+      askUserQuestionTimeout: "never",
+      env: {
+        DISABLE_AUTOUPDATER: "1",
+        CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
+      },
+      skipDangerousModePermissionPrompt: true,
+      hooks: {
+        UserPromptSubmit: [
+          {
+            hooks: [
+              { type: "command", command: "$HOME/.local/bin/task-field-check" },
+            ],
+          },
+        ],
+        PreToolUse: [
+          {
+            matcher: "Write|Edit",
+            hooks: [
+              { type: "command", command: "/some/user/pre-tool-hook.js" },
+            ],
+          },
+        ],
+      },
+    };
+    await fs.writeFile(
+      path.join(claudeDir, "settings.json"),
+      JSON.stringify(seed, null, 2),
+    );
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.hadError).toBe(false);
+    expect(result.settingsPatchOk).toBe(true);
+
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(claudeDir, "settings.json"), "utf-8"),
+    );
+    const preCommands = parsed.hooks.PreToolUse.flatMap(
+      (g: { hooks?: Array<{ command?: string }> }) =>
+        (g.hooks ?? []).map((h) => h.command),
+    );
+    // Original user hook preserved AND allow-all-tools appended.
+    expect(preCommands).toContain("/some/user/pre-tool-hook.js");
+    expect(preCommands).toContain("$HOME/.local/bin/allow-all-tools");
+    // The allow-all-tools entry has NO matcher field — universal auto-allow.
+    const preGroups = parsed.hooks.PreToolUse as Array<{
+      matcher?: string;
+      hooks?: Array<{ command?: string }>;
+    }>;
+    const allowAllGroup = preGroups.find((g) =>
+      (g.hooks ?? []).some((h) => h.command === "$HOME/.local/bin/allow-all-tools"),
+    );
+    expect(allowAllGroup).toBeDefined();
+    expect(allowAllGroup?.matcher).toBeUndefined();
+    // The pre-existing user hook keeps its matcher.
+    const userGroup = preGroups.find((g) =>
+      (g.hooks ?? []).some((h) => h.command === "/some/user/pre-tool-hook.js"),
+    );
+    expect(userGroup?.matcher).toBe("Write|Edit");
+  });
+
   it("gsd-context-monitor cleanup: no matching hook + no hook file → clean noop, gsdContextMonitorCleanupOk:true", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
     const { bootstrapFleetSubstrateLocally } = await importFresh();
@@ -767,7 +853,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
       path.join(hooksDir, "gsd-context-monitor.js"),
       "// legacy hook body\n",
     );
-    // Seed settings.json with all 6 keys AND a lingering gsd-context-monitor
+    // Seed settings.json with all 7 keys AND a lingering gsd-context-monitor
     // PostToolUse entry, so step 2 sees "already correct" and step 3 does the strip.
     const seed = {
       permissions: { deny: ["AskUserQuestion"] },
@@ -782,6 +868,13 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
           {
             hooks: [
               { type: "command", command: "$HOME/.local/bin/task-field-check" },
+            ],
+          },
+        ],
+        PreToolUse: [
+          {
+            hooks: [
+              { type: "command", command: "$HOME/.local/bin/allow-all-tools" },
             ],
           },
         ],

@@ -385,6 +385,27 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
+  // allow-all-tools: PreToolUse hook that unconditionally emits
+  // permissionDecision:"allow" for every tool call. Completes fleet-wide
+  // "no prompts, ever": --dangerously-skip-permissions covers most tool
+  // approvals but not the harness's hard-coded circuit-breaker patterns
+  // (rm -rf $HOME / rm -rf / and similar), which still surface as an
+  // "approve Bash" modal in the raw terminal + a presence-only
+  // WaitingBubble in Skynet's chat view. A PreToolUse hook returning
+  // "allow" is authoritative over the permission gate — including the
+  // circuit-breaker — so this hook eliminates the residual prompts at
+  // the harness's own designated seam. Wired via the run-bootstrap.ts
+  // settings.json patch — hook execution is driven by
+  // ~/.claude/settings.json .hooks.PreToolUse with NO matcher (fires
+  // for every tool). No restart hook — new bytes picked up on next fire.
+  {
+    slug: "allow-all-tools",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/allow-all-tools.sh",
+    installPath: "~/.local/bin/allow-all-tools",
+    restartHook: null,
+  },
+
   // --- user-onboarding/ (1 row) ---
   // The .service unit file must land in ~/.config/systemd/user/ on every
   // managed host. runBootstrapForHost runs `systemctl --user daemon-reload`

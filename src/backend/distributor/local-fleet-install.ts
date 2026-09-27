@@ -475,7 +475,7 @@ async function runJq(
 }
 
 /**
- * Local port of SSH-bootstrap step 2 (~/.claude/settings.json six-key merge).
+ * Local port of SSH-bootstrap step 2 (~/.claude/settings.json seven-key merge).
  * Shells out to jq (single source of truth: SETTINGS_MERGE_JQ +
  * SETTINGS_CHECK_JQ exported from run-bootstrap.ts). Never-throws. Returns
  * true on success (already-correct OR patched), false on any failure.
@@ -506,7 +506,7 @@ async function patchSettingsJsonLocally(host: {
       return false;
     }
   }
-  // CHECK — skip write if all six keys already correct.
+  // CHECK — skip write if all seven keys already correct.
   const checkResult = await runJq(
     ["-e", SETTINGS_CHECK_JQ],
     raw,
@@ -527,7 +527,7 @@ async function patchSettingsJsonLocally(host: {
   }
   if (checkResult.stdout.trim() === "true") {
     systemLogger.info(
-      `local-fleet-bootstrap: settings.json already has all six required keys for ${host.name}`,
+      `local-fleet-bootstrap: settings.json already has all seven required keys for ${host.name}`,
       {
         operation: "local_fleet_settings_patch_noop",
         fleetHostId: host.id,
@@ -568,7 +568,7 @@ async function patchSettingsJsonLocally(host: {
   }
   await chownToHostUser(settingsPath, host, "settings_patch");
   systemLogger.info(
-    `local-fleet-bootstrap: settings.json patched with six required keys for ${host.name}`,
+    `local-fleet-bootstrap: settings.json patched with seven required keys for ${host.name}`,
     {
       operation: "local_fleet_settings_patch_ok",
       fleetHostId: host.id,
@@ -1283,9 +1283,9 @@ export async function bootstrapFleetSubstrateLocally(
   );
   // alreadyEnabled / bootstrapRan / daemonReloadRan stay false, no hadError.
 
-  // ---- Step 2: settings.json six-key patch ----
+  // ---- Step 2: settings.json seven-key patch ----
   // Pure fs + jq — no systemd dependency. Runs unconditionally on every
-  // sweep. Idempotent (skip-write if all six keys already correct).
+  // sweep. Idempotent (skip-write if all seven keys already correct).
   // hadError:true parity with SSH path (run-bootstrap.ts) on failure.
   try {
     settingsPatchOk = await patchSettingsJsonLocally(host);
