@@ -33,8 +33,12 @@
  *                   failure/identityHosts-required/validation/H3-verbatim)
  *   GET-92-01     : pinnedConversationIds absent from GET response
  *   PIN 7-9       : PUT input validation (non-array / non-string / > 1000) preserved
- *   REG 1-3       : reopenTabsOnLogin non-boolean 400 / theme non-string 400 /
+ *   REG 1-3       : fallbackVoice non-string 400 / theme non-string 400 /
  *                   empty updates 400 still work after the extension
+ *                   (Phase 137 D-31: reopenTabsOnLogin validation removed)
+ *   P137-01       : GET response does NOT contain reopenTabsOnLogin (Phase 137 D-31)
+ *   P137-02       : PUT fallbackVoice: "Ruth" returns 200 and echoes; fallbackVoice: 42 returns 400
+ *   P137-03       : fresh user GET returns fallbackVoice: null
  *   SAVE 1-4      : DatabaseSaveTrigger.forceSave sites for theme/fontSize/etc.
  *                   writes (pin no longer contributes)
  */
@@ -48,11 +52,12 @@ import type { Request, Response } from "express";
 
 type Row = {
   userId: string;
-  reopenTabsOnLogin: boolean;
+  // reopenTabsOnLogin: DELETED per Phase 137 D-31 (dead fork holdover)
   theme: string | null;
   fontSize: string | null;
   accentColor: string | null;
   language: string | null;
+  fallbackVoice: string | null;  // NEW per Phase 137 D-14
   pinnedConversationIds: string | null;
   updatedAt: string;
 };
@@ -88,11 +93,12 @@ const insertChain = {
         const existing = rows.get(v.userId);
         const next: Row = {
           userId: v.userId,
-          reopenTabsOnLogin: v.reopenTabsOnLogin ?? existing?.reopenTabsOnLogin ?? false,
+          // reopenTabsOnLogin: DELETED per Phase 137 D-31
           theme: v.theme ?? existing?.theme ?? null,
           fontSize: v.fontSize ?? existing?.fontSize ?? null,
           accentColor: v.accentColor ?? existing?.accentColor ?? null,
           language: v.language ?? existing?.language ?? null,
+          fallbackVoice: v.fallbackVoice ?? existing?.fallbackVoice ?? null,  // NEW per Phase 137 D-14
           pinnedConversationIds:
             v.pinnedConversationIds ?? existing?.pinnedConversationIds ?? null,
           updatedAt: v.updatedAt ?? new Date().toISOString(),
@@ -324,9 +330,11 @@ describe("handleGetPreferences: pinnedConversationIds absent from response (Phas
     expect(res._status).toBe(200);
     const body = res._body as Record<string, unknown>;
     expect("pinnedConversationIds" in body).toBe(false);
+    // Phase 137 D-31: reopenTabsOnLogin no longer in GET response
+    expect("reopenTabsOnLogin" in body).toBe(false);
     // Other preferences fields still present
-    expect("reopenTabsOnLogin" in body).toBe(true);
     expect("theme" in body).toBe(true);
+    expect("fallbackVoice" in body).toBe(true);
   });
 
   it("GET-92-01b: pinnedConversationIds NOT in GET response — even if legacy row holds non-null values", () => {
@@ -334,11 +342,12 @@ describe("handleGetPreferences: pinnedConversationIds absent from response (Phas
     // Post-92-02, the row is no longer consulted for pins.
     rows.set(USER_ID, {
       userId: USER_ID,
-      reopenTabsOnLogin: false,
+      // reopenTabsOnLogin: DELETED per Phase 137 D-31
       theme: null,
       fontSize: null,
       accentColor: null,
       language: null,
+      fallbackVoice: null,
       pinnedConversationIds: JSON.stringify(["legacy-a", "legacy-b"]),
       updatedAt: "2026-07-27T00:00:00.000Z",
     });
@@ -765,17 +774,17 @@ describe("handlePutPreferences: Phase 92-02 pin fan-out — offline host toleran
 // ---------------------------------------------------------------------------
 
 describe("handlePutPreferences: pre-existing 400 branches still work", () => {
-  it("REG 1 — PUT with non-boolean reopenTabsOnLogin returns 400", async () => {
+  it("REG 1 — PUT with non-string fallbackVoice returns 400 (Phase 137 D-14 string-type validation)", async () => {
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { reopenTabsOnLogin: "not-a-bool" },
+      { fallbackVoice: 42 },
       res as unknown as Response,
     );
 
     expect(res._status).toBe(400);
     expect(res._body).toEqual({
-      error: "reopenTabsOnLogin must be a boolean",
+      error: "fallbackVoice must be a string",
     });
   });
 
@@ -844,11 +853,12 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
   it("SAVE 2 — update branch (row exists) also triggers forceSave (theme-write path)", async () => {
     rows.set(USER_ID, {
       userId: USER_ID,
-      reopenTabsOnLogin: false,
+      // reopenTabsOnLogin: DELETED per Phase 137 D-31
       theme: null,
       fontSize: null,
       accentColor: null,
       language: null,
+      fallbackVoice: null,
       pinnedConversationIds: null,
       updatedAt: "2026-07-27T00:00:00.000Z",
     });
@@ -923,4 +933,88 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
   // trigger a DB write) was retired per D-21 alongside the source-code deletion
   // of the hiddenConversationIds validator + HIDDEN FANOUT block. The equivalent
   // pin-only invariant is still covered by SAVE 92-02 above.
+});
+
+// ===========================================================================
+// Phase 137 D-14/D-31 — fallbackVoice GET/PUT + reopenTabsOnLogin removal
+// ===========================================================================
+
+describe("Phase 137: GET response omits reopenTabsOnLogin (D-31)", () => {
+  it("P137-01: GET does NOT include reopenTabsOnLogin in response body", () => {
+    const res = makeRes();
+    handleGetPreferences(USER_ID, res as unknown as Response);
+
+    expect(res._status).toBe(200);
+    const body = res._body as Record<string, unknown>;
+    expect(body).not.toHaveProperty("reopenTabsOnLogin");
+  });
+});
+
+describe("Phase 137: fresh user GET returns fallbackVoice: null (D-14)", () => {
+  it("P137-03: GET for a user with no row returns fallbackVoice: null", () => {
+    // No row in the store — fresh user
+    const res = makeRes();
+    handleGetPreferences(USER_ID, res as unknown as Response);
+
+    expect(res._status).toBe(200);
+    const body = res._body as Record<string, unknown>;
+    expect(body.fallbackVoice).toBeNull();
+  });
+});
+
+describe("Phase 137: PUT fallbackVoice acceptance (D-14)", () => {
+  it("P137-02a: PUT fallbackVoice: 'Ruth' returns 200 and echoes fallbackVoice: 'Ruth'", async () => {
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { fallbackVoice: "Ruth" },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    const body = res._body as Record<string, unknown>;
+    expect(body.fallbackVoice).toBe("Ruth");
+  });
+
+  it("P137-02b: PUT fallbackVoice: null returns 200 (null resets to backend DEFAULT_VOICE)", async () => {
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { fallbackVoice: null },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    const body = res._body as Record<string, unknown>;
+    expect(body.fallbackVoice).toBeNull();
+  });
+
+  it("P137-02c: PUT fallbackVoice: 42 returns 400 with fallbackVoice error message", async () => {
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { fallbackVoice: 42 },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(400);
+    const body = res._body as { error?: string };
+    expect(body.error).toContain("fallbackVoice");
+  });
+
+  it("P137-02d: PUT reopenTabsOnLogin is silently ignored (extra key — no validation error, no write)", async () => {
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      // @ts-expect-error -- intentionally passing deleted field to assert it is ignored
+      { reopenTabsOnLogin: true, language: "en" },
+      res as unknown as Response,
+    );
+
+    // Succeeds (language was a valid write)
+    expect(res._status).toBe(200);
+    const body = res._body as Record<string, unknown>;
+    // reopenTabsOnLogin is NOT echoed back
+    expect(body).not.toHaveProperty("reopenTabsOnLogin");
+  });
 });

@@ -1941,6 +1941,12 @@ router.get("/me", authenticateJWT, async (req: Request, res: Response) => {
       // mxid=null); the frontend UserInfo type declares `mxid?: string |
       // null` and consumers treat both undefined and null as "no mxid".
       mxid: user[0].mxid ?? null,
+      // Phase 137 D-30 — expose the viewing user's avatar filename so the
+      // sidebar footer can render an <img> when the user has uploaded an
+      // avatar (D-12). `users.avatarPath` is nullable (Phase 85 D-13 defers
+      // backfill — pre-existing users keep null until they upload). Frontend
+      // UserInfo type declares `avatarPath?: string | null`.
+      avatarPath: user[0].avatarPath ?? null,
     });
   } catch (err) {
     authLogger.error("Failed to get username", err);

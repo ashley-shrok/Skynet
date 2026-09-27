@@ -60,12 +60,14 @@ function parseIdentityHosts(raw: unknown): Record<string, number> {
   return out;
 }
 
+// Phase 137 D-14/D-31: fallbackVoice added; reopenTabsOnLogin removed (dead fork holdover).
 const pickPreferences = (row?: typeof userPreferences.$inferSelect) => ({
-  reopenTabsOnLogin: row?.reopenTabsOnLogin ?? false,
+  // reopenTabsOnLogin: DELETED per Phase 137 D-31 (dead fork holdover)
   theme: row?.theme ?? null,
   fontSize: row?.fontSize ?? null,
   accentColor: row?.accentColor ?? null,
   language: row?.language ?? null,
+  fallbackVoice: row?.fallbackVoice ?? null,  // NEW per Phase 137 D-14
   // Phase 92 Plan 92-02: pinnedConversationIds NO LONGER surfaces on the GET
   // response body — the row is not consulted for pins (D-03 no DB mirror).
   // The frontend Plan 04 projects pinned state from GET /identities' per-
@@ -128,19 +130,21 @@ export async function handlePutPreferences(
   res: Response,
 ): Promise<Response> {
   const {
-    reopenTabsOnLogin,
+    // reopenTabsOnLogin: DELETED per Phase 137 D-31 (dead fork holdover)
     theme,
     fontSize,
     accentColor,
     language,
+    fallbackVoice,  // NEW per Phase 137 D-14
     pinnedConversationIds,
     identityHosts: identityHostsRaw,
   } = (body ?? {}) as {
-    reopenTabsOnLogin?: boolean;
+    // reopenTabsOnLogin?: boolean;  -- DELETED per Phase 137 D-31
     theme?: string | null;
     fontSize?: string | null;
     accentColor?: string | null;
     language?: string | null;
+    fallbackVoice?: string | null;  // NEW per Phase 137 D-14
     pinnedConversationIds?: unknown;
     identityHosts?: unknown;
   };
@@ -149,20 +153,14 @@ export async function handlePutPreferences(
     updatedAt: new Date().toISOString(),
   };
 
-  if (reopenTabsOnLogin !== undefined) {
-    if (typeof reopenTabsOnLogin !== "boolean") {
-      return res
-        .status(400)
-        .json({ error: "reopenTabsOnLogin must be a boolean" });
-    }
-    updates.reopenTabsOnLogin = reopenTabsOnLogin;
-  }
+  // reopenTabsOnLogin validation block DELETED per Phase 137 D-31
 
   for (const [key, value] of Object.entries({
     theme,
     fontSize,
     accentColor,
     language,
+    fallbackVoice,  // ADD per Phase 137 D-14 (T-137-01: belt-and-suspenders string type validation)
   })) {
     if (value !== undefined && value !== null && typeof value !== "string") {
       return res.status(400).json({ error: `${key} must be a string` });
@@ -173,6 +171,7 @@ export async function handlePutPreferences(
   if (fontSize !== undefined) updates.fontSize = fontSize;
   if (accentColor !== undefined) updates.accentColor = accentColor;
   if (language !== undefined) updates.language = language;
+  if (fallbackVoice !== undefined) updates.fallbackVoice = fallbackVoice;  // ADD per Phase 137 D-14
 
   // Function-scope scratch for the disk-authoritative echo the response emits
   // for the pin fanout slice. Populated inside the try block below.
@@ -490,6 +489,8 @@ export async function handlePutPreferences(
 }
 
 /**
+ * Phase 137 D-14/D-31: fallbackVoice added to GET/PUT schema; reopenTabsOnLogin removed (dead fork holdover).
+ *
  * @openapi
  * /user-preferences:
  *   get:
@@ -504,8 +505,10 @@ export async function handlePutPreferences(
  *             schema:
  *               type: object
  *               properties:
- *                 reopenTabsOnLogin:
- *                   type: boolean
+ *                 fallbackVoice:
+ *                   type: string
+ *                   nullable: true
+ *                   description: "Per-user fallback voice for the speak flow. Null resolves to backend DEFAULT_VOICE (Joanna). Phase 137 D-14."
  */
 router.get("/", authenticateJWT, (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
@@ -526,8 +529,10 @@ router.get("/", authenticateJWT, (req: Request, res: Response) => {
  *           schema:
  *             type: object
  *             properties:
- *               reopenTabsOnLogin:
- *                 type: boolean
+ *               fallbackVoice:
+ *                 type: string
+ *                 nullable: true
+ *                 description: "Per-user fallback voice for the speak flow. Null resolves to backend DEFAULT_VOICE (Joanna). Phase 137 D-14."
  *               pinnedConversationIds:
  *                 type: array
  *                 items:
