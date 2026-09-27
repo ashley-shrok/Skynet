@@ -266,36 +266,23 @@ router.post(
 
     const parsedColorHue = (typeof colorHue === "number" ? colorHue : null) as number | null;
     const parsedVoice = (typeof voice === "string" ? voice : null) as string | null;
-    // Phase 88 (Plan 88-01) + Phase 96 D-04 (2026-09-11): substitute the
-    // canonical per-identity workspace path when the request body path is
-    // absent or empty. Non-admin submits from NewSessionDialog arrive here
-    // with body.path === "" or === undefined (admin-gate wraps the Path input
-    // in an isAdmin-conditional JSX guard). Admin submits arrive with the
-    // frontend default (`~/`) or an admin-typed override. Admin-typed-empty
-    // edge case: an admin who actively clears the default hits this same
-    // fallback branch and lands in the workspace path.
+    // Path handling: empty/absent body.path → pass empty through, letting
+    // the orchestrator normalize to $HOME and skip its best-effort mkdir.
+    // The peer-commit script (identity-birth-orchestrator.ts L1266) already
+    // creates `$STAGING/workspace` and moves it under the composed
+    // identityFolderName as part of Step 8's atomic commit, so
+    // `~/fleet/identities/<identityFolderName>/workspace/` exists
+    // unconditionally post-commit; the orchestrator's post-commit mkdir is
+    // only meaningful for admin-typed CUSTOM paths.
     //
-    // Path convention is Phase 96 D-04: `~/fleet/identities/<name>/workspace/`.
-    // Pre-Phase-96 this substituted `~/<name>/` (bug: caused user's
-    // onboarding-rehearsal on T800 test03-vm to birth aster at ~/aster/
-    // instead of ~/fleet/identities/aster/workspace/, and the supervisor's
-    // disk-scan cwd fallback specifically expects the new path — see
-    // agent-supervisor.sh's launch_claude cwd resolution). The substituted
-    // name is the already-trimmed identity name from the same payload
-    // (see the `!name.trim()` guard at L111-114 above), lower-cased to match
-    // what the client sends (`name: name.toLowerCase()`) and the orchestrator
-    // invocation (`name: name.trim()`).
-    //
-    // Downstream: parsedPath is threaded into orchestrator opts.path, which
-    // is consumed by the tmux `-c` working-directory argument (step 2 of
-    // birth) and the SFTP write target (step 2.5 role frontmatter); both
-    // accept the `~/fleet/identities/<name>/workspace/` form and expand it
-    // via shell/SFTP tilde-resolution.
-    const parsedPath = (
-      typeof path === "string" && path.trim()
-        ? path
-        : `~/fleet/identities/${(typeof name === "string" ? name.trim().toLowerCase() : "")}/workspace/`
-    ) as string;
+    // The pre-2026-09-27 substitution used opts.name (the raw pool-picked
+    // name) to compose `~/fleet/identities/<name>/workspace/` here, but the
+    // actual identity folder gets composed later as `<name>-<role>[-N]` by
+    // the orchestrator's Step 6 MXID derivation. So the mkdir would create
+    // an EMPTY sibling folder at the raw name — fleet-status source-B then
+    // enumerated it as a phantom identity with no frontmatter, leaking into
+    // every user's sidebar on shared hosts.
+    const parsedPath = (typeof path === "string" ? path : "") as string;
     // Phase 86 Plan 86-04: absent-⇒-empty-string fallbacks for cosmetics that
     // moved to role level. The orchestrator's buildIdentityFileBody
     // (identity-birth-orchestrator.ts L392-395) already treats empty-string
