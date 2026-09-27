@@ -38,9 +38,17 @@
 // FLASH_DISMISS_MS comment). Since the assertion is about window.open being
 // called synchronously with onClick, no timer advance is needed.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { render, fireEvent, screen, cleanup } from "@testing-library/react";
+
+// Mock the archive-app API client before importing AppTile so the module
+// graph binds to the mock. Tests can override the mock per-case.
+vi.mock("../../api/apps-archive-api", () => ({
+  archiveApp: vi.fn().mockResolvedValue({ ok: true }),
+}));
+
 import { AppTile } from "./AppTile";
+import { archiveApp } from "../../api/apps-archive-api";
 import type { AppState } from "../../api/fleet-status-types";
 
 // Builder for AppState fixtures — most tests need slight variations of the
@@ -158,7 +166,7 @@ describe("AppTile — D-10 title-only + D-11 unhealthy two-line", () => {
 });
 
 describe("AppTile — D-12 context menu + Open in new tab", () => {
-  it("H: right-click opens PrettyConversationContextMenu with exactly one 'Open in new tab' item", () => {
+  it("H: right-click opens PrettyConversationContextMenu with 'Open in new tab' + 'Archive' items in that order (destructive last)", () => {
     render(<AppTile app={makeApp()} />);
     const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
 
@@ -169,10 +177,12 @@ describe("AppTile — D-12 context menu + Open in new tab", () => {
 
     const menu = screen.getByRole("menu");
     expect(menu).not.toBeNull();
-    // Exactly one menuitem, labelled "Open in new tab".
+    // app-archive shape adds a second item, "Archive", placed LAST and
+    // danger-styled (mirrors identity/role archive menu placement).
     const items = menu.querySelectorAll('[role="menuitem"]');
-    expect(items.length).toBe(1);
+    expect(items.length).toBe(2);
     expect(items[0].textContent).toBe("Open in new tab");
+    expect(items[1].textContent).toBe("Archive");
   });
 
   it("I: clicking 'Open in new tab' calls window.open with (url, '_blank', 'noopener,noreferrer')", () => {
@@ -418,5 +428,130 @@ describe("AppTile — D-09 no per-app hue emission", () => {
     } finally {
       style.remove();
     }
+  });
+});
+
+// ─── app-archive shape: Archive menu item + double-confirm + failure alert ───
+// Locks the archive-gesture UX:
+//   - Both confirms accepted → archiveApp called with (Number(hostId), slug)
+//   - First confirm cancelled → no archiveApp call, no second confirm
+//   - First confirm accepted, second cancelled → no archiveApp call
+//   - archiveApp rejects → window.alert is called with a message that
+//     includes the app title AND the underlying error message
+//   - No optimistic hide: the tile is NOT removed from the DOM by the click.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("AppTile — app-archive shape: Archive menu item", () => {
+  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  let alertSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    alertSpy = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    // Reset the archiveApp mock per test.
+    (archiveApp as unknown as Mock).mockReset();
+    (archiveApp as unknown as Mock).mockResolvedValue({ ok: true });
+  });
+
+  afterEach(() => {
+    confirmSpy.mockRestore();
+    alertSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("M: both confirms accepted → archiveApp called with (Number(hostId), slug)", async () => {
+    confirmSpy.mockReturnValue(true);
+    render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+    fireEvent.contextMenu(tile);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    // Two confirms fired, with the expected copy in each.
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(confirmSpy).toHaveBeenNthCalledWith(
+      1,
+      "archive Scratch? this can't be undone.",
+    );
+    expect(confirmSpy).toHaveBeenNthCalledWith(
+      2,
+      "are you sure? this can't be undone.",
+    );
+
+    expect(archiveApp).toHaveBeenCalledTimes(1);
+    expect(archiveApp).toHaveBeenCalledWith(7, "scratch");
+    // No failure alert on happy path
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it("N: first confirm cancelled → no archiveApp call, no second confirm", () => {
+    confirmSpy.mockReturnValueOnce(false);
+    render(<AppTile app={makeApp()} />);
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+    fireEvent.contextMenu(tile);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(archiveApp).not.toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it("O: first confirm accepted, second cancelled → no archiveApp call", () => {
+    confirmSpy.mockReturnValueOnce(true).mockReturnValueOnce(false);
+    render(<AppTile app={makeApp()} />);
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+    fireEvent.contextMenu(tile);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(archiveApp).not.toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it("P: archiveApp rejects → window.alert called with title + error message; console.warn structured", async () => {
+    const errorMessage = "Request failed with status code 500";
+    (archiveApp as unknown as Mock).mockRejectedValueOnce(
+      new Error(errorMessage),
+    );
+    confirmSpy.mockReturnValue(true);
+    render(<AppTile app={makeApp({ hostId: "7", slug: "scratch", title: "Scratch" })} />);
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+    fireEvent.contextMenu(tile);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    // Wait a microtask for the .catch to run.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    const alertMsg = alertSpy.mock.calls[0][0] as string;
+    expect(alertMsg).toContain("Scratch");
+    expect(alertMsg).toContain(errorMessage);
+
+    expect(warnSpy).toHaveBeenCalled();
+    const warnPayload = warnSpy.mock.calls[0][0] as {
+      operation: string;
+      hostId: number;
+      slug: string;
+      errMessage: string;
+    };
+    expect(warnPayload.operation).toBe("app_archive_failed");
+    expect(warnPayload.hostId).toBe(7);
+    expect(warnPayload.slug).toBe("scratch");
+    expect(warnPayload.errMessage).toBe(errorMessage);
+  });
+
+  it("Q: no optimistic hide — the tile is still in the DOM after clicking Archive", () => {
+    confirmSpy.mockReturnValue(true);
+    render(<AppTile app={makeApp()} />);
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+    fireEvent.contextMenu(tile);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+    // Sweep is the source of truth for whether the tile shows; the click
+    // itself does not remove it from the DOM.
+    expect(
+      screen.getByRole("button", { name: /App tile: Scratch/ }),
+    ).toBeTruthy();
   });
 });

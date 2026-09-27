@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import type { AppState } from "../../api/fleet-status-types";
+import { archiveApp } from "../../api/apps-archive-api";
 import {
   PrettyConversationContextMenu,
   type PrettyContextMenuItem,
@@ -280,6 +281,39 @@ export function AppTile({ app, onOpenApp, variant = "desktop" }: AppTileProps): 
         // window-features string, which prevents the new tab from
         // accessing window.opener AND suppresses the HTTP Referer header.
         window.open(openUrl, "_blank", "noopener,noreferrer");
+      },
+    },
+    // app-archive shape — Archive item, danger-styled, placed LAST (mirrors
+    // the identity/role archive menu placement discipline; most destructive
+    // at bottom). Uses two consecutive window.confirm dialogs (double-confirm
+    // ceremony matching role-archive: first dialog with identity's copy,
+    // second dialog with the role-archive sanity-tap copy verbatim). No
+    // optimistic hide — the sidebar's fleet-status sweep drops the tile on
+    // its next tick after the supervisor moves the folder. Failure alert
+    // mirrors role-archive's on API throw, minus the "close and reopen"
+    // hint (the sidebar auto-refreshes; no modal to reopen).
+    {
+      label: "Archive",
+      danger: true,
+      onClick: () => {
+        if (!window.confirm(`archive ${app.title}? this can't be undone.`)) return;
+        if (!window.confirm("are you sure? this can't be undone.")) return;
+        // hostId is a string on the wire (AppState mirrors the backend
+        // AppStateSchema); the archiveApp client accepts number. Cast at
+        // the boundary, same as onTileClick's onOpenApp cast above.
+        void archiveApp(Number(app.hostId), app.slug).catch((err) => {
+          const errMessage =
+            err instanceof Error ? err.message : String(err);
+          console.warn({
+            operation: "app_archive_failed",
+            hostId: Number(app.hostId),
+            slug: app.slug,
+            errMessage,
+          });
+          window.alert(
+            `Failed to archive app "${app.title}": ${errMessage}`,
+          );
+        });
       },
     },
   ];
