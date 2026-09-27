@@ -2870,11 +2870,11 @@ export function PrettyConversationsPanel({
                 on a row currently assigned to a project. Type-gated on
                 application/x-skynet-row so the outer panel's badge-drag
                 machinery is not clobbered (badge MIME falls through to the
-                outer handler; row MIME is handled here). Renders regardless
-                of `displayedMiddle.length > 0` when there are projects to
-                clear from — the drop target needs to exist even on an empty
-                middle so users can drag out of a project section. */}
-            {(displayedMiddle.length > 0 || projectSections.length > 0) && (
+                outer handler; row MIME is handled here). Wrapper always
+                renders now (Ashley 2026-09-27) — the section is a permanent
+                sidebar fixture with header + empty-state, not gated on
+                content presence. */}
+            {(
               <div
                 className="pv-panel-group relative"
                 data-middle-group="true"
@@ -2895,31 +2895,32 @@ export function PrettyConversationsPanel({
                     }}
                   />
                 )}
-                {/* Phase 117 M-J follow-up (2026-09-19): flat-middle section
-                    header. Mirrors the shape of PrettyProjectSectionHeader's
-                    top row (icon + label + gradient rule) so every zone
-                    besides pinned-unassigned has an unambiguous visual
-                    top boundary. No collapse chevron / no per-section
-                    new-conv button — those are project-section affordances,
-                    not applicable here. Skipped when displayedMiddle is
-                    empty (the wrapper still renders for the drop-out-of-
-                    project affordance, but there's nothing to label). */}
-                {displayedMiddle.length > 0 && (
+                {/* Section header — icon + label + gradient rule. Always
+                    renders now; when the middle is empty a placeholder row
+                    follows so the section reads as a real fixture, not a
+                    stray label. */}
+                <div
+                  className="flex items-center gap-2 px-4 pt-3 pb-1.5"
+                  data-testid="pv-flat-middle-section-header"
+                >
+                  <MessagesSquare
+                    className="size-3 text-[#5c6070]/85 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                    Conversations
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+                  />
+                </div>
+                {displayedMiddle.length === 0 && (
                   <div
-                    className="flex items-center gap-2 px-4 pt-3 pb-1.5"
-                    data-testid="pv-flat-middle-section-header"
+                    className="px-4 py-2 text-[12px] text-[#5c6070]/70 italic"
+                    data-testid="pv-flat-middle-empty"
                   >
-                    <MessagesSquare
-                      className="size-3 text-[#5c6070]/85 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
-                      Other
-                    </span>
-                    <span
-                      aria-hidden="true"
-                      className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
-                    />
+                    Nothing here yet
                   </div>
                 )}
                 {displayedMiddle.map((row) => (

@@ -74,10 +74,6 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-vi.mock("@/features/pretty-view/PrettyLandingCard", () => ({
-  PrettyLandingCard: () => <div data-testid="mock-pretty-landing-card" />,
-}));
-
 vi.mock("@/features/guacamole/GuacamoleApp", () => ({
   default: () => <div data-testid="mock-guacamole-app" />,
 }));
@@ -464,10 +460,10 @@ describe("Phase 120 D-21 — renderTabContent dispatch (six-arm Record<TabType, 
     };
   }
 
-  it("Test 7: dashboard renders PrettyLandingCard (mock rendered)", () => {
+  it("Test 7: dashboard renders nothing (no-convo-selected pane is intentionally empty)", () => {
     const tab = makeTab120({ type: "dashboard", host: undefined });
-    render(<>{renderTabContent(tab)}</>);
-    expect(screen.getByTestId("mock-pretty-landing-card")).not.toBeNull();
+    const result = renderTabContent(tab);
+    expect(result).toBeNull();
   });
 
   it("Test 8: terminal renders through TerminalOrIdentitySessionPane (mocked terminal content)", async () => {

@@ -26,7 +26,6 @@ import type {
   TerminalHandle,
   TerminalHostConfig,
 } from "@/features/terminal/Terminal";
-import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
 // Phase 93 Slice 4 (D-04): relay-room tabs now route through the shared
 // chat surface (PrettyView) with source.kind === "relay". The standalone
 // relay-room session pane has retired; the pretty-view surface subsumes it
@@ -367,13 +366,10 @@ type RendererDeps = {
 
 type Renderer = (tab: Tab, deps: RendererDeps) => ReactNode;
 
-// Phase 11 landing-surface swap (PURGE-01): renders the pretty-view
-// empty-landing card in place of the old Skynet landing render tree.
-// The "dashboard" TabType is preserved as a load-bearing fallback
-// identifier in effectiveSelectedTabId + doCloseTab; the retired
-// component tree under src/ui/dashboard/ becomes unreachable from
-// any UI path and is slated for Phase 12+ deletion.
-const renderDashboard: Renderer = () => <PrettyLandingCard />;
+// Dashboard tab is the load-bearing fallback identifier in
+// effectiveSelectedTabId + doCloseTab; when it's active the main pane
+// renders nothing (Ashley 2026-09-27 — no "Select an agent" placeholder).
+const renderDashboard: Renderer = () => null;
 
 // Phase 93 Slice 4 (D-06): host-null gate widens for relay-room tabs.
 // Previous Phase 91 UAT-fix early-return that mounted the standalone

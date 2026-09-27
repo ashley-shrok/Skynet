@@ -1859,14 +1859,13 @@ describe("PrettyConversationsPanel: project sections preserve selector order", (
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// M-J: flat-middle section header — every zone besides pinned-unassigned has
-// a visual header so the boundary between (project section last-row) and
-// (flat middle first-row) is unambiguous. Renders only when displayedMiddle
-// has rows (empty middle keeps the drop-out-of-project wrapper but no label).
+// M-J: flat-middle section header — the "Conversations" section is a
+// permanent sidebar fixture (Ashley 2026-09-27). Wrapper + header always
+// render; when the middle is empty a placeholder row communicates emptiness.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: flat-middle section header (M-J)", () => {
-  it("Test 12 (M-J): renders 'Other' header above flat middle when middle is non-empty", () => {
+  it("Test 12 (M-J): renders 'Conversations' header above flat middle when middle is non-empty", () => {
     const middleRow = makeRow({ id: "middle-1", label: "flat-1" });
     setSnapshot({
       middle: [middleRow],
@@ -1883,19 +1882,20 @@ describe("PrettyConversationsPanel: flat-middle section header (M-J)", () => {
 
     const header = container.querySelector('[data-testid="pv-flat-middle-section-header"]');
     expect(header).not.toBeNull();
-    expect(header!.textContent).toMatch(/other/i);
+    expect(header!.textContent).toMatch(/conversations/i);
+    // Empty-state placeholder should NOT appear when the middle has rows.
+    expect(
+      container.querySelector('[data-testid="pv-flat-middle-empty"]'),
+    ).toBeNull();
   });
 
-  it("Test 12b (M-J): header omitted when flat middle has no rows (drop-only wrapper case)", () => {
-    // Wrapper still renders for the drop-out-of-project affordance, but no
-    // rows means no label needed.
+  it("Test 12b (M-J): header + empty-state placeholder render when flat middle has no rows", () => {
+    // Section is now a permanent fixture even on an empty middle with no
+    // projects — the header labels the zone and a placeholder row signals
+    // emptiness.
     setSnapshot({
       middle: [],
-      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
-    mockProjects = [
-      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
-    ];
 
     const { container } = render(
       <PrettyConversationsPanel
@@ -1906,13 +1906,18 @@ describe("PrettyConversationsPanel: flat-middle section header (M-J)", () => {
       />,
     );
 
-    // Wrapper exists (drop target), header does NOT.
+    // Wrapper, header, and empty-state placeholder all render.
     expect(
       container.querySelector('[data-testid="pv-panel-flat-middle"]'),
     ).not.toBeNull();
+    const header = container.querySelector(
+      '[data-testid="pv-flat-middle-section-header"]',
+    );
+    expect(header).not.toBeNull();
+    expect(header!.textContent).toMatch(/conversations/i);
     expect(
-      container.querySelector('[data-testid="pv-flat-middle-section-header"]'),
-    ).toBeNull();
+      container.querySelector('[data-testid="pv-flat-middle-empty"]'),
+    ).not.toBeNull();
   });
 });
 
