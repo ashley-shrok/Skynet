@@ -51,13 +51,14 @@ import type {
 
 /**
  * TTL from requested_at at which the worker drops a `timeout` response
- * without calling Bland. Set to 10 minutes = the agent-side CLI helper's
- * own poll deadline (9 min) plus a small margin — no point ringing the
- * phone if the agent has already given up watching for the response file.
- * Stack fits under the agent's Bash-tool 10-min ceiling; see adapter.ts §
- * BLAND_POLL_DEADLINE_MS for the full sizing rationale.
+ * without calling Bland. Set to 8 minutes — MUST be ≤ the agent-side CLI
+ * helper's own poll deadline (9 min) so a dequeue after the helper's
+ * timeout cannot ring the target's phone for a caller that already gave
+ * up. Match to the backend poll deadline (also 8 min) so a request that
+ * would only just fit inside the poll window is the last thing we'll
+ * accept. See adapter.ts § BLAND_POLL_DEADLINE_MS for full sizing.
  */
-export const PHONE_CALL_TTL_MS = 10 * 60 * 1000;
+export const PHONE_CALL_TTL_MS = 8 * 60 * 1000;
 
 /** Response-file directory (same folder as the request drop). */
 const PHONE_CALL_DIR = "$HOME/fleet/phone-call-requests";
