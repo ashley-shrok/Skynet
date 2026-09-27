@@ -212,6 +212,25 @@ describe("processPhoneCall — pre-call failure branches", () => {
     expect(written[0].body.outcome).toBe("no_phone_on_file");
     expect(deps.placeCallAndAwait).not.toHaveBeenCalled();
   });
+
+  it("returns outcome:unknown when the user lookup throws (DB glitch, drizzle error)", async () => {
+    // The queue's outer catch would swallow the error and leave the
+    // caller helper waiting a full poll deadline with no response file.
+    // Wrapping the lookup so a synthetic `unknown` outcome lands on
+    // disk keeps the caller informed.
+    const { deps, written } = makeDeps({
+      getUserByUsername: vi.fn(async () => {
+        throw new Error("SQLITE_BUSY: database is locked");
+      }),
+    });
+    await processPhoneCall(makeItem(), deps);
+
+    expect(written).toHaveLength(1);
+    expect(written[0].body.outcome).toBe("unknown");
+    expect(written[0].body.message).toContain("user lookup failed");
+    expect(written[0].body.message).toContain("SQLITE_BUSY");
+    expect(deps.placeCallAndAwait).not.toHaveBeenCalled();
+  });
 });
 
 describe("processPhoneCall — adapter outcome passthrough", () => {

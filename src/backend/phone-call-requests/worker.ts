@@ -269,8 +269,29 @@ export async function processPhoneCall(
     return;
   }
 
-  // Step 4 — resolve target user.
-  const target = await deps.getUserByUsername(item.body.to_user);
+  // Step 4 — resolve target user. Wrap the DB call so a transient
+  // failure (SQLite briefly locked during a concurrent forceSave, drizzle
+  // adapter throw, etc.) surfaces as an `unknown` outcome instead of
+  // propagating up to the queue drain-error catch, which would leave the
+  // caller helper waiting the full poll deadline with no response file
+  // to read.
+  let target: Awaited<ReturnType<typeof deps.getUserByUsername>>;
+  try {
+    target = await deps.getUserByUsername(item.body.to_user);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    systemLogger.warn("phone worker: user lookup threw", {
+      operation: "phone_user_lookup_threw",
+      uuid: item.uuid,
+      toUser: item.body.to_user,
+      error: errMsg,
+    });
+    await writeResponseFile(item, deps, {
+      outcome: "unknown",
+      message: `user lookup failed: ${errMsg}`,
+    });
+    return;
+  }
   if (!target) {
     systemLogger.info("phone worker: unknown target user", {
       operation: "phone_unknown_user",
