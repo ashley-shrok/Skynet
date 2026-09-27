@@ -13,17 +13,24 @@ import { useIdentities } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTabsSafe } from "@/shell/TabContext";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
-import type { PrettyContextMenuItem } from "@/features/pretty-conversations/PrettyConversationContextMenu";
+import type {
+  PrettyContextMenuItem,
+  PrettyContextMenuSubmenuItem,
+} from "@/features/pretty-conversations/PrettyConversationContextMenu";
 import {
   fleetRowId,
   usePinnedIds,
   pinConversation,
   unpinConversation,
+  useProjects,
 } from "@/state/conversation-store";
 // Phase 115 Plan 115-06 (D-01): archive API client for the badge-menu
 // Archive item. Same helper the panel's handleArchive uses so both entry
 // points hit the identical backend endpoint.
 import { archiveIdentity } from "@/api/identity-archive-api";
+// Badge-menu Move-to-project (2026-09-27): same wire the row menu uses via
+// PrettyConversationsPanel.handleRowMoveToProject.
+import { setSessionProject } from "@/api/session-project-api";
 import type { Tab, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 
@@ -139,6 +146,10 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     // The Unpin label checks BOTH the shadow-fleet id AND tab.id so
     // legacy pins persisted under the openTab id shape still detect.
     const pinnedIds = usePinnedIds();
+    // Badge-menu Move-to-project (2026-09-27): subscribe to the projects
+    // list so the submenu re-renders when the wire flush changes what
+    // this host has. Same store the panel reads.
+    const projectsList = useProjects();
     const hostIdNum = parseInt(host.id, 10);
     const shadowFleetId =
       Number.isFinite(hostIdNum) && effectiveTmuxSession
@@ -187,6 +198,80 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             }
           },
         });
+      }
+
+      // Badge-menu Move-to-project (2026-09-27): mirrors the row-menu item
+      // at PrettyConversationRow.tsx L1507-1529. Badge is per-host by
+      // construction (the identity lives on this pane's host), so the
+      // per-row hostId filter the panel needs simplifies here to a
+      // filter on projectsList by host.id. Same hide-not-grey rule:
+      // when this host has zero projects, drop the item entirely.
+      //
+      // currentProjectSlug is read from the already-resolved identity's
+      // `project` field (identities-store carries it, refreshed on
+      // fleet-status). Checkmark marks the active slug; tapping it is
+      // a silent no-op inside the onClick guard. "Remove from project"
+      // leaf appears iff the identity is currently assigned to one.
+      //
+      // Wire: setSessionProject(hostIdNum, identityKey, slug) — same call
+      // PrettyConversationsPanel.handleRowMoveToProject fires for identity
+      // rows. identityKey resolution mirrors the Archive item below.
+      if (shadowFleetId !== null && effectiveTmuxSession !== null) {
+        const hostProjects = projectsList
+          .filter((p) => p.hostId === host.id && !p.archived)
+          .slice()
+          .sort((a, b) => a.displayName.localeCompare(b.displayName));
+        if (hostProjects.length > 0) {
+          const identityKey = sessionMatchKey(effectiveTmuxSession) ?? effectiveTmuxSession;
+          const resolved =
+            (Number.isFinite(hostIdNum)
+              ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
+              : undefined) ?? identitiesByKey.get(identityKey);
+          const currentProjectSlug = resolved?.project ?? null;
+          const submenu: PrettyContextMenuSubmenuItem[] = [];
+          for (const p of hostProjects) {
+            const isCurrent = p.slug === currentProjectSlug;
+            submenu.push({
+              label: p.displayName,
+              checked: isCurrent,
+              onClick: () => {
+                if (isCurrent) return;
+                void setSessionProject(hostIdNum, identityKey, p.slug).catch(
+                  (err: unknown) => {
+                    console.warn({
+                      operation: "badge_menu_move_to_project_failed",
+                      hostId: hostIdNum,
+                      identityKey,
+                      slug: p.slug,
+                      errMessage: err instanceof Error ? err.message : String(err),
+                    });
+                  },
+                );
+              },
+            });
+          }
+          if (currentProjectSlug !== null) {
+            submenu.push({
+              label: "Remove from project",
+              onClick: () => {
+                void setSessionProject(hostIdNum, identityKey, null).catch(
+                  (err: unknown) => {
+                    console.warn({
+                      operation: "badge_menu_remove_from_project_failed",
+                      hostId: hostIdNum,
+                      identityKey,
+                      errMessage: err instanceof Error ? err.message : String(err),
+                    });
+                  },
+                );
+              },
+            });
+          }
+          items.push({
+            label: "Move to project",
+            submenu,
+          });
+        }
       }
 
       // Phase 115 Plan 115-06 (D-01, D-02, D-03, D-04): Archive item.
@@ -262,6 +347,10 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
       hostIdNum,
       identitiesByHostKey,
       identitiesByKey,
+      // Badge-menu Move-to-project (2026-09-27): submenu contents derive
+      // from projectsList (filtered by host.id) + the resolved identity's
+      // .project field (identitiesByHostKey/byKey above).
+      projectsList,
     ]);
 
     // --- Structured log: mount ---

@@ -40,30 +40,65 @@ import type { TerminalHandle } from "@/features/terminal/Terminal";
 
 // ── Mock: identities-store ───────────────────────────────────────────────────
 // Returns one identity so identityKey lookup is truthy (identity pane detection).
+// Mutable so badge-menu tests can seed a `project` field on the identity to
+// exercise the currentProjectSlug branch (checkmark + Remove-from-project).
+let mockIdentity: Record<string, unknown> = {
+  identityKey: "tina",
+  displayName: "Tina",
+  title: "Agent",
+  colorHue: 200,
+  voice: null,
+  role: null,
+  avatarMime: "image/png",
+  avatarUrl: "/identities/tina/avatar?hostId=1",
+  avatarEtag: "etag-1",
+  coordinator: false,
+  project: null as string | null,
+};
 vi.mock("@/state/identities-store", () => {
-  // Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
-  // hostId at backend (no avatarUrlWithHost on frontend).
-  const identity = {
-    identityKey: "tina",
-    displayName: "Tina",
-    title: "Agent",
-    colorHue: 200,
-    voice: null,
-    role: null,
-    avatarMime: "image/png",
-    avatarUrl: "/identities/tina/avatar?hostId=1",
-    avatarEtag: "etag-1",
-    coordinator: false,
-  };
   return {
     useIdentities: vi.fn(() => ({
-      identities: [identity],
-      byKey: new Map([["tina", identity]]),
+      identities: [mockIdentity],
+      byKey: new Map([["tina", mockIdentity]]),
+      byHostKey: new Map([[`42::tina`, mockIdentity]]),
       loaded: true,
       refresh: vi.fn(),
     })),
   };
 });
+
+// ── Mock: use-mobile ─────────────────────────────────────────────────────────
+// Default false so the badge-menu builds real items; per-test override to true
+// exercises the mobile-early-return branch.
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: vi.fn(() => false),
+}));
+
+// ── Mock: session-project-api ────────────────────────────────────────────────
+// Spy on setSessionProject so badge-menu tests can assert wire args.
+const mockSetSessionProject = vi.fn().mockResolvedValue({ ok: true });
+vi.mock("@/api/session-project-api", () => ({
+  setSessionProject: (...args: unknown[]) => mockSetSessionProject(...args),
+}));
+
+// ── Mock: conversation-store (partial) ───────────────────────────────────────
+// Override useProjects with a mutable fixture; keep the other exports the
+// tests transitively touch (usePinnedIds, fleetRowId, pin/unpin) as no-op
+// or passthrough stubs.
+let mockProjectsList: Array<{
+  slug: string;
+  displayName: string;
+  hostId: string;
+  hostname: string;
+  archived: boolean;
+}> = [];
+vi.mock("@/state/conversation-store", () => ({
+  useProjects: vi.fn(() => mockProjectsList),
+  usePinnedIds: vi.fn(() => new Set<string | number>()),
+  fleetRowId: (hostId: number, session: string) => `fleet::${hostId}::${session}`,
+  pinConversation: vi.fn(),
+  unpinConversation: vi.fn(),
+}));
 
 // ── Mock: message-queue-api ──────────────────────────────────────────────────
 vi.mock("@/api/message-queue-api", () => ({
@@ -451,5 +486,128 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     // addition, this test file's overall status flips to failing. Keeping
     // this explicit assertion as documentation of the intent.
     expect(true).toBe(true);
+  });
+
+  // ── Badge-menu Move-to-project (2026-09-27) ─────────────────────────────────
+  // Mirror of the row-menu shape (PrettyConversationRow items[] builder).
+  // Badge-menu is per-host by construction, so host-scoping is a
+  // filter-by-host.id, not the panel's projectsForRow narrowing.
+
+  describe("badge-menu Move-to-project", () => {
+    beforeEach(() => {
+      mockProjectsList = [];
+      mockIdentity = { ...mockIdentity, project: null };
+      mockSetSessionProject.mockClear();
+    });
+
+    function getMenuItems() {
+      return (capturedPrettyViewProps!.identityBadgeContextMenuItems ?? []) as Array<{
+        label: string;
+        submenu?: Array<{ label: string; checked?: boolean; onClick: () => void }>;
+      }>;
+    }
+
+    it("hides the Move-to-project item entirely when this host has zero projects (hide-not-grey)", () => {
+      mockProjectsList = [
+        // Non-matching host — should NOT surface an item on host 42's badge.
+        { slug: "elsewhere", displayName: "Elsewhere", hostId: "99", hostname: "other", archived: false },
+      ];
+      render(<IdentitySessionPane {...makeProps()} />);
+      const items = getMenuItems();
+      expect(items.find((it) => it.label === "Move to project")).toBeUndefined();
+    });
+
+    it("filters submenu to projects on the badge's host (host-scoped)", () => {
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+        { slug: "local-b", displayName: "Local B", hostId: "42", hostname: "box-1", archived: false },
+        { slug: "elsewhere", displayName: "Elsewhere", hostId: "99", hostname: "other", archived: false },
+      ];
+      render(<IdentitySessionPane {...makeProps()} />);
+      const move = getMenuItems().find((it) => it.label === "Move to project");
+      expect(move).toBeDefined();
+      const labels = (move!.submenu ?? []).map((s) => s.label);
+      // No "Remove from project" leaf when currentProjectSlug is null.
+      expect(labels).toEqual(["Local A", "Local B"]);
+    });
+
+    it("checkmarks the currently-assigned project and appends Remove-from-project leaf", () => {
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+        { slug: "local-b", displayName: "Local B", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      mockIdentity = { ...mockIdentity, project: "local-b" };
+      render(<IdentitySessionPane {...makeProps()} />);
+      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      const a = submenu.find((s) => s.label === "Local A");
+      const b = submenu.find((s) => s.label === "Local B");
+      expect(a?.checked).toBe(false);
+      expect(b?.checked).toBe(true);
+      expect(submenu[submenu.length - 1].label).toBe("Remove from project");
+    });
+
+    it("omits Remove-from-project leaf when identity has no project assigned", () => {
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      // mockIdentity.project === null (beforeEach reset).
+      render(<IdentitySessionPane {...makeProps()} />);
+      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      expect(submenu.map((s) => s.label)).not.toContain("Remove from project");
+    });
+
+    it("clicking a non-current project fires setSessionProject(hostId, identityKey, slug)", () => {
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      render(<IdentitySessionPane {...makeProps()} />);
+      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      submenu.find((s) => s.label === "Local A")!.onClick();
+      expect(mockSetSessionProject).toHaveBeenCalledTimes(1);
+      expect(mockSetSessionProject).toHaveBeenCalledWith(42, "tina", "local-a");
+    });
+
+    it("clicking the currently-assigned project is a silent no-op (no wire call)", () => {
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      mockIdentity = { ...mockIdentity, project: "local-a" };
+      render(<IdentitySessionPane {...makeProps()} />);
+      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      submenu.find((s) => s.label === "Local A")!.onClick();
+      expect(mockSetSessionProject).not.toHaveBeenCalled();
+    });
+
+    it("clicking Remove-from-project fires setSessionProject(hostId, identityKey, null)", () => {
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      mockIdentity = { ...mockIdentity, project: "local-a" };
+      render(<IdentitySessionPane {...makeProps()} />);
+      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      submenu.find((s) => s.label === "Remove from project")!.onClick();
+      expect(mockSetSessionProject).toHaveBeenCalledTimes(1);
+      expect(mockSetSessionProject).toHaveBeenCalledWith(42, "tina", null);
+    });
+
+    it("skips archived projects in the submenu", () => {
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+        { slug: "old", displayName: "Old", hostId: "42", hostname: "box-1", archived: true },
+      ];
+      render(<IdentitySessionPane {...makeProps()} />);
+      const submenu = getMenuItems().find((it) => it.label === "Move to project")!.submenu!;
+      expect(submenu.map((s) => s.label)).toEqual(["Local A"]);
+    });
+
+    it("mobile: no context menu items at all (early return, same as pre-fix)", async () => {
+      const useIsMobileMod = await import("@/hooks/use-mobile");
+      vi.mocked(useIsMobileMod.useIsMobile).mockReturnValueOnce(true);
+      mockProjectsList = [
+        { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
+      ];
+      render(<IdentitySessionPane {...makeProps()} />);
+      expect(getMenuItems()).toEqual([]);
+    });
   });
 });
