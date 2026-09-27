@@ -2,12 +2,15 @@
  * Phase 41 Plan 02 — IdentitySessionPane component tests.
  *
  * P1: Terminal NOT mounted by default (isPrettyMode = true initial state).
- * P2: togglePrettyMode() mounts Terminal.
- * P3: second togglePrettyMode() unmounts Terminal, PrettyView stays mounted.
  * P4: toggleMessageQueue() renders MessageQueueDrawer.
  * P5: MessageQueueDrawer onSend calls pvSendInputRef.current (split-send, 60ms apart).
  * P6: TerminalHandle methods are safe-noop when Terminal is unmounted.
  * P7: When Terminal IS mounted, fit() forwards to inner Terminal ref.
+ *
+ * (P2/P3 retired: togglePrettyMode() was removed from the imperative
+ *  handle when the Ctrl+Shift+O keyboard shortcut retired — the badge
+ *  context-menu "Switch view" item is now the sole toggle affordance,
+ *  covered by the BADGE-MENU tests further below.)
  *
  * Mocking strategy:
  * - @/features/terminal/Terminal: replace with a simple div (data-testid="mock-terminal")
@@ -301,46 +304,6 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     expect(terminalMountCount).toBe(0);
   });
 
-  it("P2: togglePrettyMode() via ref mounts Terminal", async () => {
-    const ref = createRef<TerminalHandle>();
-    render(<IdentitySessionPane {...makeProps()} ref={ref} />);
-
-    expect(screen.queryByTestId("mock-terminal")).toBeNull();
-
-    await act(async () => {
-      ref.current!.togglePrettyMode();
-    });
-
-    expect(screen.getByTestId("mock-terminal")).toBeInTheDocument();
-    expect(terminalMountCount).toBe(1);
-    // PrettyView still present.
-    expect(screen.getByTestId("pretty-view")).toBeInTheDocument();
-  });
-
-  it("P3: second togglePrettyMode() unmounts Terminal; PrettyView remains mounted across both toggles", async () => {
-    const ref = createRef<TerminalHandle>();
-    render(<IdentitySessionPane {...makeProps()} ref={ref} />);
-
-    // Mount Terminal.
-    await act(async () => {
-      ref.current!.togglePrettyMode();
-    });
-    expect(terminalMountCount).toBe(1);
-    expect(terminalUnmountCount).toBe(0);
-
-    // Unmount Terminal.
-    await act(async () => {
-      ref.current!.togglePrettyMode();
-    });
-    expect(screen.queryByTestId("mock-terminal")).toBeNull();
-    expect(terminalUnmountCount).toBe(1);
-
-    // PrettyView mount count is 1 across the entire test (it never unmounted).
-    // Note: prettyViewMountCount is a running counter; 1 = it mounted once and stayed.
-    expect(prettyViewMountCount).toBeGreaterThanOrEqual(1);
-    expect(screen.getByTestId("pretty-view")).toBeInTheDocument();
-  });
-
   it("P4: toggleMessageQueue() renders MessageQueueDrawer", async () => {
     const ref = createRef<TerminalHandle>();
     render(<IdentitySessionPane {...makeProps()} ref={ref} />);
@@ -410,11 +373,22 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
 
   it("P7: When Terminal IS mounted, fit() forwards to inner Terminal ref", async () => {
     const ref = createRef<TerminalHandle>();
-    render(<IdentitySessionPane {...makeProps()} ref={ref} />);
+    // Mount as admin so the Switch view badge-menu item is available;
+    // firing that item's onClick is the sole path to flip isPrettyMode
+    // now that the imperative-handle togglePrettyMode has retired.
+    render(<IdentitySessionPane {...makeProps({ isAdmin: true })} ref={ref} />);
 
-    // Mount Terminal.
+    const items = (capturedPrettyViewProps?.identityBadgeContextMenuItems ??
+      []) as Array<{ label: string; onClick: () => void }>;
+    const switchItem = items.find(
+      (it) => it.label === "Switch to terminal view",
+    );
+    expect(switchItem).toBeDefined();
+
+    // Mount Terminal by firing the Switch item's onClick (flips
+    // isPrettyMode → false, mounts Terminal).
     await act(async () => {
-      ref.current!.togglePrettyMode();
+      switchItem!.onClick();
     });
     expect(terminalMountCount).toBe(1);
 
@@ -600,14 +574,138 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       expect(submenu.map((s) => s.label)).toEqual(["Local A"]);
     });
 
-    it("mobile: no context menu items at all (early return, same as pre-fix)", async () => {
+    it("mobile: Move-to-project still surfaces (badge menu now populates on mobile too)", async () => {
+      // Prior behavior — useMemo returned [] on mobile — was retired when
+      // the mobile badge grew its own long-press → context-menu affordance
+      // (shape-context-menu-on-identity-badge-mobile). Mobile now gets
+      // the same items DESKTOP does with the exception of Move-to-new-
+      // window, which is still desktop-only.
       const useIsMobileMod = await import("@/hooks/use-mobile");
       vi.mocked(useIsMobileMod.useIsMobile).mockReturnValueOnce(true);
       mockProjectsList = [
         { slug: "local-a", displayName: "Local A", hostId: "42", hostname: "box-1", archived: false },
       ];
       render(<IdentitySessionPane {...makeProps()} />);
-      expect(getMenuItems()).toEqual([]);
+      const labels = getMenuItems().map((it) => it.label);
+      expect(labels).toContain("Move to project");
+      // Move-to-new-window still guarded out on mobile.
+      expect(labels).not.toContain("Move to new window");
     });
+  });
+
+  // ── Badge context-menu items tests ────────────────────────────────────────
+  //
+  // Verifies the useMemo at IdentitySessionPane.tsx builds the correct item
+  // list flowing to PrettyView's `identityBadgeContextMenuItems` prop under
+  // each combination of (isAdmin, isMobile):
+  //
+  //   BADGE-MENU-1: admin  + desktop → Pin/Unpin, Move to new window,
+  //                                    Switch to terminal view, Archive
+  //   BADGE-MENU-2: non-admin + desktop → Pin/Unpin, Move to new window,
+  //                                       Archive (NO Switch item)
+  //   BADGE-MENU-3: admin  + mobile  → Pin/Unpin, Switch to terminal view,
+  //                                    Archive (NO Move to new window)
+  //   BADGE-MENU-4: non-admin + mobile → Pin/Unpin, Archive (neither Switch
+  //                                      nor Move)
+  //
+  // useIsMobile is mocked at the top of this file to return false by
+  // default; the helper below overrides via vi.mocked(...).mockReturnValue
+  // for tests that need mobile. Mirrors the pattern already used by the
+  // "badge-menu Move-to-project" mobile test.
+  async function setMobile(isMobile: boolean) {
+    const useIsMobileMod = await import("@/hooks/use-mobile");
+    vi.mocked(useIsMobileMod.useIsMobile).mockReturnValue(isMobile);
+  }
+
+  function itemLabels(): string[] {
+    const items = (capturedPrettyViewProps?.identityBadgeContextMenuItems ??
+      []) as Array<{ label: string }>;
+    return items.map((it) => it.label);
+  }
+
+  it("BADGE-MENU-1: admin + desktop → includes Pin, Move to new window, Switch to terminal view, Archive (in that order)", async () => {
+    await setMobile(false);
+    render(<IdentitySessionPane {...makeProps({ isAdmin: true })} />);
+    const labels = itemLabels();
+    expect(labels).toContain("Pin");
+    expect(labels).toContain("Move to new window");
+    // Initial isPrettyMode = true → label reads "Switch to terminal view".
+    expect(labels).toContain("Switch to terminal view");
+    expect(labels).toContain("Archive");
+    // Order: Pin < Move < Switch < Archive.
+    expect(labels.indexOf("Pin")).toBeLessThan(labels.indexOf("Move to new window"));
+    expect(labels.indexOf("Move to new window")).toBeLessThan(labels.indexOf("Switch to terminal view"));
+    expect(labels.indexOf("Switch to terminal view")).toBeLessThan(labels.indexOf("Archive"));
+  });
+
+  it("BADGE-MENU-2: non-admin + desktop → Switch item absent; Move to new window still present", async () => {
+    await setMobile(false);
+    render(<IdentitySessionPane {...makeProps({ isAdmin: false })} />);
+    const labels = itemLabels();
+    expect(labels).toContain("Pin");
+    expect(labels).toContain("Move to new window");
+    expect(labels).toContain("Archive");
+    expect(labels).not.toContain("Switch to terminal view");
+    expect(labels).not.toContain("Switch to chat view");
+  });
+
+  it("BADGE-MENU-3: admin + mobile → Move to new window absent; Switch item still present", async () => {
+    await setMobile(true);
+    render(<IdentitySessionPane {...makeProps({ isAdmin: true })} />);
+    const labels = itemLabels();
+    expect(labels).toContain("Pin");
+    expect(labels).toContain("Switch to terminal view");
+    expect(labels).toContain("Archive");
+    expect(labels).not.toContain("Move to new window");
+    // Order: Pin < Switch < Archive.
+    expect(labels.indexOf("Pin")).toBeLessThan(labels.indexOf("Switch to terminal view"));
+    expect(labels.indexOf("Switch to terminal view")).toBeLessThan(labels.indexOf("Archive"));
+  });
+
+  it("BADGE-MENU-4: non-admin + mobile → neither Switch nor Move present", async () => {
+    await setMobile(true);
+    render(<IdentitySessionPane {...makeProps({ isAdmin: false })} />);
+    const labels = itemLabels();
+    expect(labels).toContain("Pin");
+    expect(labels).toContain("Archive");
+    expect(labels).not.toContain("Switch to terminal view");
+    expect(labels).not.toContain("Switch to chat view");
+    expect(labels).not.toContain("Move to new window");
+  });
+
+  it("BADGE-MENU-5: isAdmin omitted (undefined) → defaults to non-admin (Switch item absent)", async () => {
+    // Fail-closed default at every hop — an unresolved isAdmin state
+    // MUST NOT accidentally surface the admin-only item.
+    await setMobile(false);
+    // Deliberately omit isAdmin from props.
+    render(<IdentitySessionPane {...makeProps()} />);
+    const labels = itemLabels();
+    expect(labels).not.toContain("Switch to terminal view");
+    expect(labels).not.toContain("Switch to chat view");
+  });
+
+  it("BADGE-MENU-6: Switch item onClick flips isPrettyMode → the label reads 'Switch to chat view' when in terminal mode", async () => {
+    // Chain two renders — the initial render exposes the pretty-mode label;
+    // firing the item's onClick flips state, and on the next flush the
+    // captured items list carries the flipped label.
+    await setMobile(false);
+    render(<IdentitySessionPane {...makeProps({ isAdmin: true })} />);
+
+    const initialItems = (capturedPrettyViewProps?.identityBadgeContextMenuItems ??
+      []) as Array<{ label: string; onClick: () => void }>;
+    const switchItem = initialItems.find((it) =>
+      it.label === "Switch to terminal view",
+    );
+    expect(switchItem).toBeDefined();
+
+    // Fire the item's onClick — flips isPrettyMode from true → false.
+    act(() => {
+      switchItem!.onClick();
+    });
+
+    // After the flip, the memo rebuilds with the flipped label.
+    const flippedLabels = itemLabels();
+    expect(flippedLabels).toContain("Switch to chat view");
+    expect(flippedLabels).not.toContain("Switch to terminal view");
   });
 });

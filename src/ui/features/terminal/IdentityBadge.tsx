@@ -1,8 +1,6 @@
-import { useEffect, useRef } from "react";
 import type {
   DragEvent as ReactDragEvent,
   MouseEvent as ReactMouseEvent,
-  PointerEvent as ReactPointerEvent,
 } from "react";
 import { GitPullRequestDraft } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
@@ -35,16 +33,6 @@ export interface IdentityBadgeProps {
   // renders as a <div aria-hidden> — backward-compat with call sites
   // that don't wire the click.
   onClick?: () => void;
-  // Quick 260806-lzd: tap-and-hold gesture primitive. When provided, a
-  // 500ms `pointerdown` timer arms on pointerdown and fires onLongPress
-  // if not cancelled by pointermove / pointerup / pointercancel first.
-  // A completed long-press suppresses the trailing onClick so long-press
-  // and tap are mutually exclusive (deterministic single-outcome per
-  // gesture). Both call sites (Terminal.tsx terminal-mode surface,
-  // PrettyView.tsx pretty-view surface) wire this to togglePrettyMode —
-  // parity with AppShell's Ctrl+Shift+O keyboard shortcut, which stays
-  // routed through the imperative-handle path (unchanged).
-  onLongPress?: () => void;
   // Phase 58 Plan 01: identity-badge as third-gesture drag source.
   // When provided AND useIsMobile() is false, the badge root becomes
   // draggable=true and a dragstart handler writes the wire contract
@@ -56,10 +44,6 @@ export interface IdentityBadgeProps {
   //   - Phase 58 Plan 02 conv-list onDrop reads application/x-skynet-badge
   //     and calls closeTab(tabId) — full close.
   // Absent tabId OR mobile viewport → draggable=false, no handler wired.
-  // Coexists with onClick + onLongPress via the browser's ~5px HTML5 drag
-  // threshold (fires ABOVE the pointerdown/up level the click + long-press
-  // paths use, so no explicit disambiguation code is needed — same
-  // mechanism Phase 56 patch #511 established for PrettyConversationRow).
   tabId?: string;
   // Optional descriptor for cross-window drag support. When present AND the
   // badge is a drag source, the dragstart payload includes these fields so a
@@ -75,12 +59,15 @@ export interface IdentityBadgeProps {
     relayRoomTitle?: string | null;
     targetTmuxSession?: string | null;
   };
-  // Right-click / context-menu handler. Wired to both render branches
-  // (interactive <button> + non-interactive <div>) so callers can attach
-  // a pretty-view menu (e.g. "Move to new window") at the badge site
-  // without needing knowledge of the pretty-view menu component. Caller
-  // is responsible for calling e.preventDefault() to suppress the native
-  // browser context menu.
+  // Context-menu handler. Fires on desktop right-click and on mobile
+  // long-press (browser-native — mobile browsers dispatch contextmenu on
+  // long-press by default; the badge's className includes
+  // `[-webkit-touch-callout:none]` to suppress iOS Safari's native
+  // callout so this handler is the only surface that appears). Wired to
+  // both render branches (<button> + <div>) so callers can attach a
+  // pretty-view menu at the badge site without needing knowledge of the
+  // menu component. Caller is responsible for calling e.preventDefault()
+  // to suppress the browser's own context menu.
   onContextMenu?: (e: ReactMouseEvent<HTMLElement>) => void;
 }
 
@@ -95,7 +82,6 @@ export function IdentityBadge({
   identityKey,
   hostId,
   onClick,
-  onLongPress,
   tabId,
   dragDescriptor,
   onContextMenu,
@@ -120,26 +106,6 @@ export function IdentityBadge({
   const isMobile = useIsMobile();
   const isDragSource = !!tabId && !isMobile;
 
-  // Long-press timer bookkeeping. Refs so mutation doesn't re-render.
-  //   timerRef        — the setTimeout id while armed; null once cleared/fired.
-  //   longPressFiredRef — true from the moment onLongPress ran until the next
-  //                       onPointerDown resets it. Used to gate the trailing
-  //                       onClick so a completed long-press does NOT also open
-  //                       the modal (test E).
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressFiredRef = useRef(false);
-
-  // Unmount safety: clear any armed timer so a component-unmount mid-press
-  // does not invoke a stale onLongPress (T-260806-lzd-01 mitigation).
-  useEffect(() => {
-    return () => {
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, []);
-
   // Phase 104 Plan 02 (D-05, D-06, D-07): per-identity trapped-work snapshot.
   // hostId prop is reactivated here (Pattern 4 in RESEARCH.md — Phase 68 made
   // it a no-op for avatar-URL construction, Phase 104 puts it to work for the
@@ -161,7 +127,13 @@ export function IdentityBadge({
   // falls back to hue 35 (warm amber, matches PrettyView's neutral
   // --pv-id-hue fallback). Font stack Inter for name/title.
   const hue = identity.colorHue ?? 35;
-  const rootClassName = `pv-identity-breathe absolute top-4 right-5 z-[101] flex flex-row items-center gap-[11px] select-none font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif] transition-transform hover:scale-[1.015] active:scale-[0.995] hover:shadow-[0_8px_24px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,220,170,0.22),_0_0_56px_hsla(${hue},65%,55%,0.42)]`;
+  // `[-webkit-touch-callout:none]` suppresses iOS Safari's native long-
+  // press callout (magnifier, share sheet, "Look Up") so our own context
+  // menu is the only surface that appears on mobile long-press. Matches
+  // the pattern established for MicButton (ComposeBox.hold-to-mic.test —
+  // Test 12 locks the class token). `select-none` already prevents text
+  // selection on all platforms; the callout guard is iOS-specific.
+  const rootClassName = `pv-identity-breathe absolute top-4 right-5 z-[101] flex flex-row items-center gap-[11px] select-none [-webkit-touch-callout:none] font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif] transition-transform hover:scale-[1.015] active:scale-[0.995] hover:shadow-[0_8px_24px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,220,170,0.22),_0_0_56px_hsla(${hue},65%,55%,0.42)]`;
   const rootStyle: React.CSSProperties = {
     // Pill shape: border-radius 32 + padding 7 16 7 7 makes a capsule
     // where the 50px avatar circle sits concentric to the left curve.
@@ -189,7 +161,7 @@ export function IdentityBadge({
           `inner` fragment so both branches (interactive <button> + non-
           interactive <div>) get it without needing two separate branches.
           Non-interactive (pointer-events: none) — never fights the pill's
-          click/hover/focus + long-press machinery. Sized larger than the
+          click/hover/focus machinery. Sized larger than the
           conversation-row treatment (opacity 0.14 vs 0.16, width 148 vs 96,
           bleed -28/-32 vs -18/-22) per shape file tasting-v5 option-C.
           Phase 67 /close 2026-09-01 follow-up (M2 + M3): SVG + style moved
@@ -219,7 +191,7 @@ export function IdentityBadge({
           pointerEvents defaults to auto: the browser needs mouseover to
           dispatch on this span so the native `title` attribute tooltip can
           fire (D-07). Setting pointerEvents: "none" would silently break the
-          tooltip. Pill-level click/long-press still fire because DOM events
+          tooltip. Pill-level click still fires because DOM events
           bubble from the indicator through the pill; the indicator has no
           onClick to compete. Phase 104 code-review finding #2. */}
       {trappedWork?.hasTrappedWork === true && (
@@ -319,14 +291,6 @@ export function IdentityBadge({
         // tabId is non-null when isDragSource is true (the !!tabId gate),
         // but TS narrows it via the ternary above — assert here.
         const id = tabId!;
-        // Native HTML5 drag suppresses pointermove after promotion, so the
-        // long-press timer's pointermove-based cancel path can't fire once a
-        // drag starts. Cancel it here so a slow drag (>500ms) doesn't trigger
-        // the PV/terminal toggle mid-drag.
-        if (timerRef.current !== null) {
-          clearTimeout(timerRef.current);
-          timerRef.current = null;
-        }
         // Cross-window drag: mint a dragId + carry enough descriptor for a
         // target window to open a fresh session for the same identity on the
         // same host without needing to consult a source-window session
@@ -361,75 +325,11 @@ export function IdentityBadge({
     // does NOT default `<button>` to cursor: pointer, so `cursor-pointer`
     // is explicit on the button className (patch #89 rationale carried
     // through the consolidation).
-    //
-    // Long-press wiring: only attached when onLongPress is provided.
-    // When absent, the button behaves exactly like a plain click target
-    // (backward-compat for callers that only want tap).
-    const clearTimer = () => {
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-    const handlePointerDown = onLongPress
-      ? (e: ReactPointerEvent<HTMLButtonElement>) => {
-          // Right-click opens the badge's custom context menu via
-          // onContextMenu (native suppressed by preventDefault). Without
-          // this guard, pointerdown with button=2 arms the 500ms timer;
-          // if the user hovers the menu past 500ms before releasing,
-          // togglePrettyMode fires and swaps to terminal mid-menu. Only
-          // the primary (left) button should arm the long-press.
-          if (e.button !== 0) return;
-          // Fresh press → reset the fired flag so a prior completed
-          // long-press does not indefinitely swallow taps.
-          longPressFiredRef.current = false;
-          clearTimer();
-          timerRef.current = setTimeout(() => {
-            longPressFiredRef.current = true;
-            timerRef.current = null;
-            onLongPress();
-          }, 500);
-        }
-      : undefined;
-    const handlePointerMove = onLongPress
-      ? () => {
-          // Any pointer movement while armed cancels the long-press.
-          // user wants deliberate press, not accidental hover-slide.
-          clearTimer();
-        }
-      : undefined;
-    const handlePointerUp = onLongPress
-      ? () => {
-          // Release before 500ms → cancel armed timer and let the
-          // synthetic click fire normally (tap semantics).
-          clearTimer();
-        }
-      : undefined;
-    const handlePointerCancel = onLongPress
-      ? () => {
-          clearTimer();
-        }
-      : undefined;
-    const handleClick = () => {
-      // A completed long-press already dispatched onLongPress; the trailing
-      // synthetic click that browsers fire after pointerup on a <button>
-      // must NOT also open the modal. Reset the flag so subsequent taps
-      // still work.
-      if (longPressFiredRef.current) {
-        longPressFiredRef.current = false;
-        return;
-      }
-      onClick();
-    };
     return (
       <button
         type="button"
         data-testid="identity-badge-root"
-        onClick={handleClick}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
+        onClick={onClick}
         draggable={isDragSource}
         onDragStart={onDragStart}
         onContextMenu={onContextMenu}

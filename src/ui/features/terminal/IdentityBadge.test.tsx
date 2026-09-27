@@ -1,16 +1,16 @@
 /**
- * Quick 260806-lzd — IdentityBadge: single-variant refactor + onLongPress primitive
+ * IdentityBadge — core render tests.
  *
- * Tests A-G defend the plan's must_haves.truths:
- *   A. onLongPress fires after 500ms of held pointerdown
- *   B. pointermove before 500ms cancels the long-press timer
- *   C. pointerup before 500ms cancels the long-press AND fires onClick (tap semantics)
- *   D. pointercancel clears the timer
- *   E. completed long-press suppresses the subsequent onClick (no double-fire)
- *   F. hover-fade class (patch #38 `hover:opacity-0`) is GONE — anti-regression gate
+ * (Long-press-timer tests A/B/C/D/E/H/I retired when the tap-and-hold
+ * primitive was deleted — the view-mode toggle now lives on the badge's
+ * context-menu item, and mobile long-press → menu is driven by the
+ * browser-native contextmenu event, not a JS timer. See shape-context-
+ * menu-on-identity-badge-mobile for the consolidation.)
+ *
+ * Anti-regression tests kept:
+ *   F. hover-fade class (patch #38 `hover:opacity-0`) is GONE
  *   G. when onClick is omitted, root renders as a non-interactive <div aria-hidden>
  *
- * Fake timers so 500ms is deterministic, not wall-clock.
  * Mock @/state/identities-store so the badge finds a matching identity.
  */
 
@@ -59,106 +59,9 @@ vi.mock("@/state/trapped-work-store", () => ({
 import { IdentityBadge } from "./IdentityBadge";
 import { useTrappedWork } from "@/state/trapped-work-store";
 
-describe("IdentityBadge — single-variant + onLongPress (quick 260806-lzd)", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
+describe("IdentityBadge — core render", () => {
   afterEach(() => {
-    vi.useRealTimers();
     vi.clearAllMocks();
-  });
-
-  it("A: onLongPress fires after 500ms of held pointerdown", () => {
-    const onLongPress = vi.fn();
-    const onClick = vi.fn();
-    render(
-      <IdentityBadge
-        identityKey="tina"
-        onClick={onClick}
-        onLongPress={onLongPress}
-      />,
-    );
-    const root = screen.getByTestId("identity-badge-root");
-    fireEvent.pointerDown(root);
-    vi.advanceTimersByTime(500);
-    expect(onLongPress).toHaveBeenCalledTimes(1);
-  });
-
-  it("B: pointermove before 500ms cancels the long-press timer", () => {
-    const onLongPress = vi.fn();
-    const onClick = vi.fn();
-    render(
-      <IdentityBadge
-        identityKey="tina"
-        onClick={onClick}
-        onLongPress={onLongPress}
-      />,
-    );
-    const root = screen.getByTestId("identity-badge-root");
-    fireEvent.pointerDown(root);
-    vi.advanceTimersByTime(200);
-    fireEvent.pointerMove(root);
-    vi.advanceTimersByTime(400);
-    expect(onLongPress).not.toHaveBeenCalled();
-  });
-
-  it("C: pointerup before 500ms cancels long-press AND allows onClick (tap)", () => {
-    const onLongPress = vi.fn();
-    const onClick = vi.fn();
-    render(
-      <IdentityBadge
-        identityKey="tina"
-        onClick={onClick}
-        onLongPress={onLongPress}
-      />,
-    );
-    const root = screen.getByTestId("identity-badge-root");
-    fireEvent.pointerDown(root);
-    vi.advanceTimersByTime(200);
-    fireEvent.pointerUp(root);
-    // JSDOM doesn't synthesize click from pointerdown+pointerup on <button>;
-    // dispatch it explicitly to model the browser's tap-completion behavior.
-    fireEvent.click(root);
-    vi.advanceTimersByTime(400);
-    expect(onLongPress).not.toHaveBeenCalled();
-    expect(onClick).toHaveBeenCalledTimes(1);
-  });
-
-  it("D: pointercancel clears the long-press timer", () => {
-    const onLongPress = vi.fn();
-    const onClick = vi.fn();
-    render(
-      <IdentityBadge
-        identityKey="tina"
-        onClick={onClick}
-        onLongPress={onLongPress}
-      />,
-    );
-    const root = screen.getByTestId("identity-badge-root");
-    fireEvent.pointerDown(root);
-    vi.advanceTimersByTime(200);
-    fireEvent.pointerCancel(root);
-    vi.advanceTimersByTime(400);
-    expect(onLongPress).not.toHaveBeenCalled();
-  });
-
-  it("E: a completed long-press suppresses the trailing onClick (no double-fire)", () => {
-    const onLongPress = vi.fn();
-    const onClick = vi.fn();
-    render(
-      <IdentityBadge
-        identityKey="tina"
-        onClick={onClick}
-        onLongPress={onLongPress}
-      />,
-    );
-    const root = screen.getByTestId("identity-badge-root");
-    fireEvent.pointerDown(root);
-    vi.advanceTimersByTime(500);
-    expect(onLongPress).toHaveBeenCalledTimes(1);
-    // Browser fires a click at the end of the press. It must be swallowed.
-    fireEvent.click(root);
-    expect(onClick).not.toHaveBeenCalled();
   });
 
   it("F: hover-fade class (patch #38 `hover:opacity-0`) is GONE from the rendered root", () => {
@@ -177,47 +80,23 @@ describe("IdentityBadge — single-variant + onLongPress (quick 260806-lzd)", ()
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  // Right-click opens the badge's custom context menu; browsers fire
-  // pointerdown with button=2. Without a guard, the 500ms long-press
-  // timer arms and fires togglePrettyMode when the user lingers on the
-  // menu. Only button=0 (primary) should arm the long-press.
-  it("H: pointerdown with button=2 (right-click) does NOT arm the long-press", () => {
-    const onLongPress = vi.fn();
+  // iOS Safari suppresses its native long-press callout (magnifier /
+  // share-sheet / "Look Up") when the element carries
+  // `-webkit-touch-callout:none`. Locks the class token so a future
+  // Tailwind rewrite can't silently regress the mobile long-press →
+  // context-menu path. Parallels MicButton's Test 12 pattern.
+  it("K: root className includes [-webkit-touch-callout:none] (iOS callout suppression)", () => {
     const onClick = vi.fn();
-    render(
-      <IdentityBadge
-        identityKey="tina"
-        onClick={onClick}
-        onLongPress={onLongPress}
-      />,
-    );
+    render(<IdentityBadge identityKey="tina" onClick={onClick} />);
     const root = screen.getByTestId("identity-badge-root");
-    fireEvent.pointerDown(root, { button: 2 });
-    vi.advanceTimersByTime(600);
-    expect(onLongPress).not.toHaveBeenCalled();
-  });
-
-  it("I: pointerdown with button=1 (middle-click) does NOT arm the long-press", () => {
-    const onLongPress = vi.fn();
-    const onClick = vi.fn();
-    render(
-      <IdentityBadge
-        identityKey="tina"
-        onClick={onClick}
-        onLongPress={onLongPress}
-      />,
-    );
-    const root = screen.getByTestId("identity-badge-root");
-    fireEvent.pointerDown(root, { button: 1 });
-    vi.advanceTimersByTime(600);
-    expect(onLongPress).not.toHaveBeenCalled();
+    expect(root.className).toContain("[-webkit-touch-callout:none]");
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 58 Plan 01: IdentityBadge as third-gesture drag source
 // ─────────────────────────────────────────────────────────────────────────────
-// Six new tests defend Phase 58 must_haves.truths (PV58-BADGE-DRAG-SOURCE,
+// Tests defending Phase 58 must_haves.truths (PV58-BADGE-DRAG-SOURCE,
 // PV58-BADGE-PAYLOAD-DUAL-MIME, PV58-GESTURE-COEXISTENCE, PV58-STRUCTURED-LOGGING):
 //   Phase 58 A: dragstart writes dual-MIME payload
 //                  (text/plain + application/x-skynet-badge + effectAllowed=move)
@@ -228,7 +107,11 @@ describe("IdentityBadge — single-variant + onLongPress (quick 260806-lzd)", ()
 //   Phase 58 D: absent tabId suppresses draggable
 //                  (tabId undefined → draggable=false regardless of viewport)
 //   Phase 58 E: regression — click still fires post-drag-enabled
-//   Phase 58 F: regression — long-press still fires post-drag-enabled
+//
+// (Phase 58 F/G — long-press-still-fires-post-drag-enabled + dragstart-
+//  cancels-long-press-timer — retired when the long-press primitive was
+//  deleted alongside the view-mode toggle's move to the badge context-
+//  menu item.)
 //
 // jsdom does NOT construct a real DataTransfer, so we pass a stub with
 // setData/getData/effectAllowed via fireEvent.dragStart's init object.
@@ -275,10 +158,9 @@ function setMobileViewport(isMobile: boolean) {
 
 describe("IdentityBadge — Phase 58 Plan 01: badge as drag source", () => {
   beforeEach(() => {
-    // Phase 58 tests use REAL timers because useIsMobile's initial useEffect
-    // reads window.innerWidth synchronously via React's flush; fake timers
-    // could interfere with the state update. Long-press regression tests
-    // (E + F) still work at real-time by using 500ms real timer.
+    // Real timers because useIsMobile's initial useEffect reads
+    // window.innerWidth synchronously via React's flush; fake timers
+    // could interfere with the state update.
     vi.useRealTimers();
     // Default to desktop viewport for tests that don't override.
     setMobileViewport(false);
@@ -360,72 +242,23 @@ describe("IdentityBadge — Phase 58 Plan 01: badge as drag source", () => {
     expect(draggableAttr === null || draggableAttr === "false").toBe(true);
   });
 
-  it("Phase 58 E: regression — click still fires on short-press when tabId is present (drag-enabled does not break click)", () => {
-    vi.useFakeTimers();
+  it("Phase 58 E: regression — click still fires on tap when tabId is present (drag-enabled does not break click)", () => {
     const onClick = vi.fn();
-    const onLongPress = vi.fn();
     render(
       <IdentityBadge
         identityKey="tina"
         tabId="tab-tina-42"
         onClick={onClick}
-        onLongPress={onLongPress}
       />,
     );
     const root = screen.getByTestId("identity-badge-root");
-    fireEvent.pointerDown(root);
-    vi.advanceTimersByTime(200);
-    fireEvent.pointerUp(root);
     fireEvent.click(root);
-    vi.advanceTimersByTime(400);
     expect(onClick).toHaveBeenCalledTimes(1);
-    expect(onLongPress).not.toHaveBeenCalled();
   });
 
-  it("Phase 58 F: regression — long-press still fires at 500ms when tabId is present (drag-enabled does not break long-press)", () => {
-    vi.useFakeTimers();
-    const onClick = vi.fn();
-    const onLongPress = vi.fn();
-    render(
-      <IdentityBadge
-        identityKey="tina"
-        tabId="tab-tina-42"
-        onClick={onClick}
-        onLongPress={onLongPress}
-      />,
-    );
-    const root = screen.getByTestId("identity-badge-root");
-    fireEvent.pointerDown(root);
-    vi.advanceTimersByTime(500);
-    expect(onLongPress).toHaveBeenCalledTimes(1);
-  });
-
-  it("Phase 58 G (inline-260902 drag-cancels-long-press): dragstart cancels the armed long-press timer so a slow drag doesn't fire onLongPress mid-drag", () => {
-    // Repro: pointerdown arms the 500ms timer. Native HTML5 drag suppresses
-    // pointermove after promotion, so the pointermove-based cancel never
-    // fires. Before the fix, a drag lasting >500ms triggered onLongPress
-    // (PV↔terminal toggle) mid-drag. dragStart must clear the timer.
-    vi.useFakeTimers();
-    const onClick = vi.fn();
-    const onLongPress = vi.fn();
-    render(
-      <IdentityBadge
-        identityKey="tina"
-        tabId="tab-tina-42"
-        onClick={onClick}
-        onLongPress={onLongPress}
-      />,
-    );
-    const root = screen.getByTestId("identity-badge-root");
-    fireEvent.pointerDown(root);
-    vi.advanceTimersByTime(100);
-    // Drag starts (typical browser: promoted from pointerdown after ~5px
-    // movement, WITHOUT a pointermove ever reaching this element).
-    fireEvent.dragStart(root, { dataTransfer: makeDataTransferStub() });
-    // Slow drag: user hovers over drop targets past the 500ms threshold.
-    vi.advanceTimersByTime(600);
-    expect(onLongPress).not.toHaveBeenCalled();
-  });
+  // (Phase 58 F/G — long-press-still-fires-post-drag-enabled + dragstart-
+  //  cancels-timer — retired alongside the long-press primitive itself
+  //  when the view-mode toggle moved to the context-menu item.)
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

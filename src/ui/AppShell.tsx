@@ -18,7 +18,6 @@ import { useGamepadTabNav } from "@/hooks/use-gamepad-tab-nav";
 import { useKeyboardTabNav } from "@/hooks/use-keyboard-tab-nav";
 import { useKeyboardCloseTab } from "@/hooks/use-keyboard-close-tab";
 import { useKeyboardMessageQueue } from "@/hooks/use-keyboard-message-queue";
-import { useKeyboardTogglePrettyMode } from "@/hooks/use-keyboard-toggle-pretty-mode";
 // Phase 121 Plan 04: feedback pipeline UI wire.
 //   - useKeyboardTriggerFeedbackDev: dev-only Ctrl+Alt+F / Ctrl+Alt+T chord.
 //     Hook is a no-op in production builds (import.meta.env.DEV gate).
@@ -357,12 +356,6 @@ export function AppShell({
     // matches runtime reality and satisfies the type.
     const handle = (ref?.current as Partial<IdentityPaneHandle> | null) ?? null;
     handle?.toggleMessageQueue?.();
-  });
-  useKeyboardTogglePrettyMode(tabs, activeTabId, (id) => {
-    const ref = terminalRefs.current.get(id);
-    // Same Partial<IdentityPaneHandle> cast rationale as toggleMessageQueue above.
-    const handle = (ref?.current as Partial<IdentityPaneHandle> | null) ?? null;
-    handle?.togglePrettyMode?.();
   });
   const [userPrefs, setUserPrefs] = useState<UserPreferences>({
     reopenTabsOnLogin: false,
@@ -4320,6 +4313,7 @@ export function AppShell({
                       shouldAttach,
                       handleTmuxSessionChange,
                       handleTmuxSessionMissing,
+                      isAdmin,
                     ),
                     tabNode,
                     tab.id,

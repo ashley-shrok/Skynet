@@ -13,9 +13,10 @@ import { useIdentities } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTabsSafe } from "@/shell/TabContext";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
-import type {
-  PrettyContextMenuItem,
-  PrettyContextMenuSubmenuItem,
+import {
+  PrettyConversationContextMenu,
+  type PrettyContextMenuItem,
+  type PrettyContextMenuSubmenuItem,
 } from "@/features/pretty-conversations/PrettyConversationContextMenu";
 import {
   fleetRowId,
@@ -77,6 +78,10 @@ export interface IdentitySessionPaneProps {
   onCloseTab?: (id: string) => void;
   onTmuxSessionChange?: (sessionName: string | null) => void;
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void;
+  // Threaded from AppShell (via renderTabContent → tabUtils) so the
+  // identity-badge context menu can admin-gate its "Switch view" item.
+  // Fail-closed default at every hop.
+  isAdmin?: boolean;
 }
 
 /**
@@ -85,11 +90,11 @@ export interface IdentitySessionPaneProps {
  * Hoists isPrettyMode + pvSendInputRef + pvSendInterruptRef + isMessageQueueOpen
  * + isIdentityModalOpen from TerminalInner to this wrapper. PrettyView is always
  * mounted; Terminal is conditionally mounted (only when !isPrettyMode, i.e. when
- * user summons it via Ctrl+Shift+O or long-press-badge).
+ * an admin flips the view via the identity-badge context menu).
  *
- * Exposes the full IdentityPaneHandle interface via useImperativeHandle
- * (TerminalHandle + the two wrapper-owned toggles):
- * - togglePrettyMode / toggleMessageQueue: wrapper-owned setters.
+ * Exposes the IdentityPaneHandle interface via useImperativeHandle
+ * (TerminalHandle + the wrapper-owned message-queue toggle):
+ * - toggleMessageQueue: wrapper-owned setter.
  * - disconnect/reconnect/fit/sendInput/notifyResize/refresh: forwarded to inner
  *   Terminal ref when mounted; safe-noop when Terminal is not mounted.
  *
@@ -98,7 +103,7 @@ export interface IdentitySessionPaneProps {
  */
 export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessionPaneProps>(
   function IdentitySessionPane(
-    { tab, host, label, isVisible, attach, onCloseTab, onTmuxSessionChange, onTmuxSessionMissing },
+    { tab, host, label, isVisible, attach, onCloseTab, onTmuxSessionChange, onTmuxSessionMissing, isAdmin = false },
     ref,
   ) {
     // --- Hoisted state ---
@@ -108,6 +113,15 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     const [isPrettyMode, setIsPrettyMode] = useState(true);
     const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
     const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
+    // Terminal-mode identity-badge context menu state. Cursor coords on
+    // desktop right-click; badge-anchored coords on mobile long-press
+    // (positioning handled at the trigger site). Null = closed.
+    // Pretty-mode has its own equivalent state slot inside PrettyView —
+    // the two badges are conditionally mounted (gated on !isPrettyMode
+    // vs isPrettyMode), so their menu states never coexist.
+    const [terminalBadgeMenu, setTerminalBadgeMenu] = useState<
+      { x: number; y: number } | null
+    >(null);
 
     // --- Hoisted refs ---
     // PrettyView populates these on mount via onRegisterSendInput/onRegisterSendInterrupt.
@@ -132,9 +146,11 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
 
     // Identity-badge context-menu items — mirrors the conversation-row menu
     // (PrettyConversationRow.tsx items[] builder) so both surfaces offer the
-    // same affordances for an identity. Order matches the row menu:
-    // Pin/Unpin → Move to new window. Desktop-only — mobile has no right-
-    // click and long-press is already wired to togglePrettyMode.
+    // same affordances for an identity. Order:
+    //   Pin/Unpin → Move to new window (desktop-only) →
+    //     Switch to (terminal/chat) view (admin-only) → Archive
+    // Rendered on both desktop and mobile — mobile trigger is long-press
+    // on the badge, desktop trigger is right-click.
     //
     // (Phase 115 Plan 115-02: prior Hide/Unhide item retired per D-21
     //  alongside the sibling row-menu affordance. 115-06 re-introduces an
@@ -160,7 +176,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
       pinnedIds.has(tabId);
 
     const identityBadgeContextMenuItems = useMemo<PrettyContextMenuItem[]>(() => {
-      if (isMobile) return [];
       const items: PrettyContextMenuItem[] = [];
 
       items.push({
@@ -175,28 +190,45 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
         },
       });
 
-      const spec = specForTab({
-        type: tab.type,
-        host: { name: host.name, id: host.id },
-        targetTmuxSession: effectiveTmuxSession,
-      });
-      if (spec !== null) {
+      // Move-to-new-window is desktop-only — mobile has no multi-window story.
+      if (!isMobile) {
+        const spec = specForTab({
+          type: tab.type,
+          host: { name: host.name, id: host.id },
+          targetTmuxSession: effectiveTmuxSession,
+        });
+        if (spec !== null) {
+          items.push({
+            label: "Move to new window",
+            onClick: () => {
+              const payload = encodeWorkspaceSpec({
+                tabs: [spec],
+                activeIndex: 0,
+                only: true,
+              });
+              const w = window.open("#" + payload, "_blank");
+              // Popup-blocker safety: window.open returns null when blocked.
+              // Only tear down the current tab if the new window opened OK,
+              // otherwise the user would lose their session with nowhere to go.
+              if (w !== null) {
+                onCloseTab?.(tabId);
+              }
+            },
+          });
+        }
+      }
+
+      // Admin-only "Switch to (terminal/chat) view" item. Terminal view is
+      // the raw xterm surface; chat view is the agent-native bubbles/compose
+      // surface. Label flips based on which side of the toggle the user is
+      // currently on. Fail-closed: non-admin (or isAdmin unresolved) → item
+      // is absent, not disabled. This is THE ONE affordance for the toggle
+      // after the retirement of the long-press gesture and Ctrl+Shift+O
+      // keyboard shortcut.
+      if (isAdmin) {
         items.push({
-          label: "Move to new window",
-          onClick: () => {
-            const payload = encodeWorkspaceSpec({
-              tabs: [spec],
-              activeIndex: 0,
-              only: true,
-            });
-            const w = window.open("#" + payload, "_blank");
-            // Popup-blocker safety: window.open returns null when blocked.
-            // Only tear down the current tab if the new window opened OK,
-            // otherwise the user would lose their session with nowhere to go.
-            if (w !== null) {
-              onCloseTab?.(tabId);
-            }
-          },
+          label: isPrettyMode ? "Switch to terminal view" : "Switch to chat view",
+          onClick: () => setIsPrettyMode((v) => !v),
         });
       }
 
@@ -280,8 +312,8 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
       // pane-close side effect, same fire-and-forget API call. The
       // affordance-narrowing gate is `shadowFleetId !== null` (matches
       // the panel's canonicalArchiveIdForRow shape — fleet-synthetic
-      // identity-backed rows only). Mobile branch above already returned
-      // [] so no Archive item on mobile — the badge menu is desktop-only.
+      // identity-backed rows only). Present on both desktop and mobile
+      // now that the mobile badge grew a menu of its own.
       //
       // displayName resolution: prefer the resolved identity's
       // displayName (same field the IdentityBadge label at L261 renders),
@@ -351,6 +383,11 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
       // from projectsList (filtered by host.id) + the resolved identity's
       // .project field (identitiesByHostKey/byKey above).
       projectsList,
+      // Admin gate + label-flip source for the "Switch view" item.
+      // isAdmin from AppShell; isPrettyMode is local state — memo must
+      // rebuild when either flips so the label reads the current mode.
+      isAdmin,
+      isPrettyMode,
     ]);
 
     // --- Structured log: mount ---
@@ -376,7 +413,10 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     }, [isPrettyMode]);
 
     // --- useImperativeHandle: expose IdentityPaneHandle (TerminalHandle + toggles) ---
-    // togglePrettyMode and toggleMessageQueue are wrapper-owned.
+    // toggleMessageQueue is wrapper-owned. togglePrettyMode was previously
+    // exposed here for the Ctrl+Shift+O keyboard hook; that pathway is
+    // retired — the badge context-menu "Switch to (terminal/chat) view"
+    // item is now the sole view-mode toggle affordance.
     // All other methods forward to innerTerminalRef when Terminal is mounted;
     // they are safe-noops (no throw, no side effect) when Terminal is not mounted.
     // openFileManager forwards to inner Terminal (which implements it) — identity
@@ -385,18 +425,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     useImperativeHandle(
       ref,
       () => ({
-        togglePrettyMode: () => {
-          setIsPrettyMode((v) => {
-            const next = !v;
-            console.info({
-              operation: "identity_session_pane_toggle_pretty_mode",
-              tabId,
-              prev: v,
-              next,
-            });
-            return next;
-          });
-        },
         toggleMessageQueue: () => {
           setIsMessageQueueOpen((v) => {
             const next = !v;
@@ -589,10 +617,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             onUnregisterSendInput={() => { pvSendInputRef.current = null; injectedTurnRelay.onUnregisterSendInput(); }}
             onRegisterSendInterrupt={(fn) => { pvSendInterruptRef.current = fn; }}
             onUnregisterSendInterrupt={() => { pvSendInterruptRef.current = null; }}
-            // Quick 260806-lzd — long-press-to-toggle-pretty-view. IdentitySessionPane
-            // owns the isPrettyMode state, so the toggle is routed here (not into
-            // Terminal which doesn't own isPrettyMode post-Phase-41).
-            onTogglePrettyMode={() => setIsPrettyMode((v) => !v)}
           />
 
           {/* Conditionally-mounted: Terminal cold-boots on first toggle (isPrettyMode=false)
@@ -648,7 +672,9 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
           {/* IdentityBadge — gated on !isPrettyMode (terminal-mode surface).
               PrettyView has its OWN internal IdentityBadge (Phase 4 patch).
               This badge is the terminal-mode replacement for Terminal.tsx L3413-3423.
-              Long-press: toggle back to pretty mode (same UX as pre-Phase-41).
+              View-mode toggling is now surfaced through the badge's context-
+              menu "Switch to chat view" item (admin-only) — the earlier long-
+              press → togglePrettyMode wiring is retired.
               Phase 58 Plan 02: threads `tabId` so the badge activates as an
               HTML5 drag source (Plan 58-01 wire — badge writes dual-MIME
               payload, Phase 56 Pane onDrop rearranges via openSessionInTree,
@@ -660,15 +686,46 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
               identityKey={identityKey}
               hostId={parseInt(host.id, 10)}
               onClick={() => setIsIdentityModalOpen(true)}
-              onLongPress={() => setIsPrettyMode((v) => !v)}
               tabId={tabId}
               dragDescriptor={{
                 tabType: "terminal",
                 sessionKind: "harness",
                 targetTmuxSession: effectiveTmuxSession,
               }}
+              onContextMenu={
+                identityBadgeContextMenuItems.length > 0
+                  ? (e) => {
+                      e.preventDefault();
+                      if (isMobile) {
+                        // Mobile long-press → menu anchored to the badge,
+                        // not the touch coord (which sits under the user's
+                        // finger). Drops down-and-inward from the badge's
+                        // bottom-left; PrettyConversationContextMenu's
+                        // viewport-clamp handles edge cases.
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setTerminalBadgeMenu({ x: rect.left, y: rect.bottom + 4 });
+                      } else {
+                        setTerminalBadgeMenu({ x: e.clientX, y: e.clientY });
+                      }
+                    }
+                  : undefined
+              }
             />
           )}
+          {/* Terminal-mode badge context menu — mirrors the pretty-mode
+              equivalent inside PrettyView. Same item list (built once
+              above and threaded to PrettyView via
+              identityBadgeContextMenuItems), same close semantics. */}
+          {terminalBadgeMenu !== null &&
+            identityBadgeContextMenuItems.length > 0 && (
+              <PrettyConversationContextMenu
+                x={terminalBadgeMenu.x}
+                y={terminalBadgeMenu.y}
+                items={identityBadgeContextMenuItems}
+                hue={sessionHue ?? null}
+                onClose={() => setTerminalBadgeMenu(null)}
+              />
+            )}
 
           {/* IdentityModal — gated on !isPrettyMode (terminal-mode surface).
               Replaces Terminal.tsx L3424-3446. Wrapper owns isIdentityModalOpen. */}

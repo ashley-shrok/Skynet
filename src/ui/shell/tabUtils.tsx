@@ -194,6 +194,7 @@ function TerminalOrIdentitySessionPane({
   onCloseTab,
   onTmuxSessionChange,
   onTmuxSessionMissing,
+  isAdmin,
 }: {
   tab: Tab;
   // Phase 93 Slice 4 (D-06): host widened to `Host | null`. Relay-room tabs
@@ -213,6 +214,9 @@ function TerminalOrIdentitySessionPane({
   onCloseTab?: (id: string) => void;
   onTmuxSessionChange?: (sessionName: string | null) => void;
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void;
+  // Threaded from AppShell (via renderTabContent → RendererDeps) so the
+  // identity pane can admin-gate its badge-menu "Switch view" item.
+  isAdmin: boolean;
 }) {
   // Hooks MUST run unconditionally per rules-of-hooks. The relay-room branch
   // below is a conditional early return, so useIdentities() is hoisted here.
@@ -310,6 +314,7 @@ function TerminalOrIdentitySessionPane({
           onCloseTab={onCloseTab}
           onTmuxSessionChange={onTmuxSessionChange}
           onTmuxSessionMissing={onTmuxSessionMissing}
+          isAdmin={isAdmin}
         />
       </Suspense>
     );
@@ -362,6 +367,10 @@ type RendererDeps = {
   shouldAttach: boolean;
   onTmuxSessionChange?: (tabId: string, sessionName: string | null) => void;
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void;
+  // Threaded down to IdentitySessionPane so its identity-badge context
+  // menu can admin-gate the "Switch to (terminal/chat) view" item.
+  // Fail-closed: undefined at any hop reads as non-admin.
+  isAdmin?: boolean;
 };
 
 type Renderer = (tab: Tab, deps: RendererDeps) => ReactNode;
@@ -407,6 +416,7 @@ const renderTerminalTab: Renderer = (tab, deps) => {
           : undefined
       }
       onTmuxSessionMissing={deps.onTmuxSessionMissing}
+      isAdmin={deps.isAdmin ?? false}
     />
   );
 };
@@ -482,6 +492,7 @@ export function renderTabContent(
   shouldAttach: boolean = false,
   onTmuxSessionChange?: (tabId: string, sessionName: string | null) => void,
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void,
+  isAdmin: boolean = false,
 ) {
   return RENDERERS[tab.type](tab, {
     onOpenSingletonTab,
@@ -491,5 +502,6 @@ export function renderTabContent(
     shouldAttach,
     onTmuxSessionChange,
     onTmuxSessionMissing,
+    isAdmin,
   });
 }

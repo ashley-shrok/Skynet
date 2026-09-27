@@ -90,6 +90,7 @@ import {
   type PrettyContextMenuItem,
 } from "@/features/pretty-conversations/PrettyConversationContextMenu";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 // Phase 53 Plan 03 — the retired recycling bridge import is REMOVED here
 // (see tombstone comment near line ~2415 and Task 2 deletion).
@@ -307,13 +308,6 @@ export interface PrettyViewProps {
   // flows through the existing split-and-delay path (patch #100) under
   // the same lifecycle key.
   onInjectedTurnReady?: (text: string, messageQueueItemId: string) => void;
-  // Quick 260806-lzd — long-press-to-toggle-pretty-view. Terminal.tsx passes
-  // `() => setIsPrettyMode(v => !v)` so the pretty-view-surface IdentityBadge
-  // can flip back to terminal mode via the same tap-and-hold gesture the
-  // terminal-surface badge uses. Optional so callers that don't own the
-  // isPrettyMode state (e.g. tests, standalone previews) can omit it — the
-  // badge then simply doesn't wire pointer handlers (see IdentityBadge).
-  onTogglePrettyMode?: () => void;
   // Quick 260808-b74 (hidden-pane-cost-mitigation-empirical-rotation, iteration 1):
   // When false, the Claude-session WS is closed to eliminate the ~10-13
   // WS frames/30s per hidden pane. When flipped back to true, the existing
@@ -344,13 +338,17 @@ export interface PrettyViewProps {
   // (the sole production caller) always has `tab.id` in scope and passes
   // it through.
   tabId?: string;
-  // Context-menu items to attach to the IdentityBadge right-click. Absent
-  // = no context menu (badge behaves as before). Present = the shared
-  // PrettyConversationContextMenu opens at cursor on right-click with these
-  // items. Caller owns each item's onClick semantic (e.g. "Move to new
-  // window" builds a workspace spec + window.open + closes the current tab).
-  // Consumer is expected to omit the prop on mobile (right-click doesn't
-  // exist there; long-press is already wired to togglePrettyMode).
+  // Context-menu items to attach to the IdentityBadge. Absent OR empty
+  // array = no context menu (badge behaves as before). Present with items
+  // = the shared PrettyConversationContextMenu opens on right-click
+  // (desktop) or long-press (mobile) — the trigger site anchors to the
+  // touch coord on desktop and to the badge's own rect on mobile so the
+  // menu doesn't open under the user's finger. Caller owns each item's
+  // onClick semantic (e.g. "Move to new window" builds a workspace spec
+  // + window.open + closes the current tab). Same items list flows to
+  // both surfaces (terminal-mode and pretty-mode badges) — the caller
+  // filters items per-surface (e.g. "Move to new window" is desktop-only,
+  // "Switch to (terminal/chat) view" is admin-only).
   identityBadgeContextMenuItems?: PrettyContextMenuItem[];
 }
 
@@ -635,7 +633,6 @@ export function PrettyView({
   onSend,
   onInterrupt,
   onInjectedTurnReady,
-  onTogglePrettyMode,
   isVisible,
   onRegisterSendInput,
   onUnregisterSendInput,
@@ -1998,6 +1995,10 @@ export function PrettyView({
   // regardless of window width. Do NOT re-detect touch here; the shared
   // hook (patch #102) is the single source of truth.
   const isTouchDevice = useIsTouchDevice();
+  // Viewport-based mobile check — used by the identity-badge context-menu
+  // trigger to anchor the menu to the badge (not the touch coord) so the
+  // menu doesn't open under the user's finger on mobile long-press.
+  const isMobile = useIsMobile();
 
   // Phase 05: drag/drop state for the DropOverlay. `dragCounter` tracks
   // enter/leave events, which can misfire when the drag moves over child
@@ -3846,7 +3847,6 @@ export function PrettyView({
           identityKey={pvIdentityKey}
           hostId={hostId}
           onClick={() => setIsIdentityModalOpen(true)}
-          onLongPress={onTogglePrettyMode}
           tabId={tabId}
           dragDescriptor={{
             tabType: "terminal",
@@ -3858,7 +3858,17 @@ export function PrettyView({
             identityBadgeContextMenuItems.length > 0
               ? (e) => {
                   e.preventDefault();
-                  setIdentityBadgeMenu({ x: e.clientX, y: e.clientY });
+                  if (isMobile) {
+                    // Mobile long-press → menu anchored to the badge, not
+                    // the touch coord (which sits under the user's finger).
+                    // Drops down-and-inward from the badge's bottom-left;
+                    // PrettyConversationContextMenu's viewport-clamp
+                    // handles edge cases.
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setIdentityBadgeMenu({ x: rect.left, y: rect.bottom + 4 });
+                  } else {
+                    setIdentityBadgeMenu({ x: e.clientX, y: e.clientY });
+                  }
                 }
               : undefined
           }
