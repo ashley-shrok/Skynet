@@ -1202,6 +1202,19 @@ function WorkspaceListView({
         </button>
       </div>
 
+      {/* First-encounter intro — what this tab is / what it shows. */}
+      <div
+        style={{
+          padding: "6px 10px 8px",
+          fontSize: 12,
+          color: "var(--color-pv-fg-muted)",
+          flexShrink: 0,
+        }}
+      >
+        This agent&apos;s file workspace. Anything you drop in, they can
+        read; anything they save, you can grab from here.
+      </div>
+
       {/* Upload error banner */}
       {uploadError && (
         <div style={{ padding: "0 10px" }}>
