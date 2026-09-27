@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-27T20:30:53.483Z"
-last_activity: 2026-09-27 -- Phase 137 planning complete
+last_updated: "2026-09-27T20:45:00.348Z"
+last_activity: 2026-09-27
 progress:
   total_phases: 136
   completed_phases: 114
   total_plans: 602
-  completed_plans: 587
+  completed_plans: 588
   percent: 84
 ---
 
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** user never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 129 — multi-user-single-host-support-per-user-visibility-gate-on-r
+**Current focus:** Phase 137 — preferences-modal-from-sidebar-gear-voice-fallback-notificat
 
 ## Current Position
 
-Phase: 129 (multi-user-single-host-support-per-user-visibility-gate-on-r) — EXECUTING
-Plan: 8 of 8
+Phase: 137 (preferences-modal-from-sidebar-gear-voice-fallback-notificat) — EXECUTING
+Plan: 2 of 6
 
-Last activity: 2026-09-27 -- Phase 137 planning complete
+Last activity: 2026-09-27
 
 Last activity (prior): 2026-09-23 -- Phase 129 execution started
 
@@ -235,7 +235,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — user can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 98%
 Progress: [██████████] 100%
 Progress: [██████████] 100%
 
@@ -417,6 +417,7 @@ Progress: [██████████] 100%
 | Phase 129 P05 | 1000 | 2 tasks | 4 files |
 | Phase 129 P06 | 230 | 1 tasks | 2 files |
 | Phase 129 P07 | 600 | 2 tasks | 4 files |
+| Phase 137 P01 | 583 | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -1082,7 +1083,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-27T19:39:24.202Z
+Last session: 2026-09-27T20:45:00.168Z
 Last session: 2026-09-18T02:31:01.008Z
 Last session: 2026-09-10T07:47:17.370Z
 Stopped at: Phase 137 context gathered
@@ -1098,7 +1099,7 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: .planning/phases/137-preferences-modal-from-sidebar-gear-voice-fallback-notificat/137-CONTEXT.md
+Resume file: None
 Resume file: .planning/phases/118-first-class-apps-sweep-registry-shape-2/118-CONTEXT.md
 
 - Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)
