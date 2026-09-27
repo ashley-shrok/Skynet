@@ -10,8 +10,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   classifyBlandDetails,
   placeCallAndAwait,
+  messageWasDeliveredHeuristic,
   BLAND_POLL_DEADLINE_MS,
   BLAND_POLL_INTERVAL_MS,
+  BLAND_INTERRUPTIBILITY,
 } from "./adapter.js";
 
 // Silence the module logger — the adapter warns on every failure branch.
@@ -114,7 +116,7 @@ describe("placeCallAndAwait — placement failures", () => {
 
   it("returns placement_error immediately when BLAND_API_KEY is missing", async () => {
     delete process.env.BLAND_API_KEY;
-    const result = await placeCallAndAwait("+15551234567", "task", "first", {
+    const result = await placeCallAndAwait("+15551234567", "task", "first", "msg", {
       now: () => 0,
       sleep: () => Promise.resolve(),
       fetchFn: vi.fn() as unknown as typeof fetch,
@@ -134,12 +136,12 @@ describe("placeCallAndAwait — placement failures", () => {
     (fetchFn as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({ status: "completed", answered_by: "human", transcripts: [{ user: "assistant", text: "hi" }, { user: "user", text: "yes" }], concatenated_transcript: "assistant: hi\nuser: yes", call_length: 0.5 }),
+      json: async () => ({ status: "completed", answered_by: "human", transcripts: [{ user: "assistant", text: "hi msg" }, { user: "user", text: "yes" }], concatenated_transcript: "assistant: hi msg\nuser: yes", call_length: 0.5 }),
     });
 
     const startTime = 0;
     let clock = startTime;
-    await placeCallAndAwait("+15551234567", "TASK-PROMPT", "FIRST-SENTENCE", {
+    await placeCallAndAwait("+15551234567", "TASK-PROMPT", "FIRST-SENTENCE", "msg", {
       now: () => clock,
       sleep: async (ms) => {
         clock += ms;
@@ -153,12 +155,14 @@ describe("placeCallAndAwait — placement failures", () => {
     const placementInit = placementCall[1] as { headers: Record<string, string>; body: string };
     expect(placementInit.headers.Authorization).toBe("test-key");
     expect(placementInit.headers.Authorization).not.toContain("Bearer");
-    // Body carries the task + first_sentence + phone + record:false
+    // Body carries the task + first_sentence + phone + record:false + interruptibility
     const body = JSON.parse(placementInit.body);
     expect(body.task).toBe("TASK-PROMPT");
     expect(body.first_sentence).toBe("FIRST-SENTENCE");
     expect(body.phone_number).toBe("+15551234567");
     expect(body.record).toBe(false);
+    expect(body.interruptibility).toBe(BLAND_INTERRUPTIBILITY);
+    expect(body.interruptibility).toBe(0);
   });
 
   it("returns placement_error when the POST returns no call_id", async () => {
@@ -167,7 +171,7 @@ describe("placeCallAndAwait — placement failures", () => {
       status: 400,
       json: async () => ({ error_message: "bad phone number" }),
     }) as unknown as typeof fetch;
-    const result = await placeCallAndAwait("+bad", "t", "f", {
+    const result = await placeCallAndAwait("+bad", "t", "f", "msg", {
       now: () => 0,
       sleep: () => Promise.resolve(),
       fetchFn,
@@ -178,7 +182,7 @@ describe("placeCallAndAwait — placement failures", () => {
 
   it("returns placement_error when the placement call throws", async () => {
     const fetchFn = vi.fn().mockRejectedValueOnce(new Error("network down")) as unknown as typeof fetch;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", {
+    const result = await placeCallAndAwait("+15551234567", "t", "f", "msg", {
       now: () => 0,
       sleep: () => Promise.resolve(),
       fetchFn,
@@ -215,16 +219,16 @@ describe("placeCallAndAwait — poll loop", () => {
           status: "completed",
           answered_by: "human",
           transcripts: [
-            { user: "assistant", text: "hello" },
+            { user: "assistant", text: "hello with a message for you: standup at nine" },
             { user: "user", text: "ok, thanks" },
           ],
-          concatenated_transcript: "assistant: hello\nuser: ok, thanks",
+          concatenated_transcript: "assistant: hello with a message for you: standup at nine\nuser: ok, thanks",
           call_length: 0.35, // minutes
         }),
       }) as unknown as typeof fetch;
 
     let clock = 0;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", {
+    const result = await placeCallAndAwait("+15551234567", "t", "f", "standup at nine", {
       now: () => clock,
       sleep: async (ms) => {
         clock += ms;
@@ -254,7 +258,7 @@ describe("placeCallAndAwait — poll loop", () => {
       }) as unknown as typeof fetch;
 
     let clock = 0;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", {
+    const result = await placeCallAndAwait("+15551234567", "t", "f", "msg", {
       now: () => clock,
       sleep: async (ms) => {
         clock += ms;
@@ -294,16 +298,16 @@ describe("placeCallAndAwait — poll loop", () => {
           status: "completed",
           answered_by: "human",
           transcripts: [
-            { user: "assistant", text: "hi" },
+            { user: "assistant", text: "hi go home now" },
             { user: "user", text: "bye" },
           ],
-          concatenated_transcript: "assistant: hi\nuser: bye",
+          concatenated_transcript: "assistant: hi go home now\nuser: bye",
           call_length: 0.1,
         }),
       }) as unknown as typeof fetch;
 
     let clock = 0;
-    const result = await placeCallAndAwait("+15551234567", "t", "f", {
+    const result = await placeCallAndAwait("+15551234567", "t", "f", "go home now", {
       now: () => clock,
       sleep: async (ms) => {
         clock += ms;
@@ -315,5 +319,238 @@ describe("placeCallAndAwait — poll loop", () => {
     expect(result.transcript).toContain("bye");
     // 3 polls = 3 sleep intervals
     expect(clock).toBe(BLAND_POLL_INTERVAL_MS * 3);
+  });
+});
+
+describe("messageWasDeliveredHeuristic", () => {
+  it("returns true when the message appears verbatim in an assistant turn", () => {
+    expect(
+      messageWasDeliveredHeuristic(
+        {
+          transcripts: [
+            { user: "assistant", text: "Hi, this is Clipper, with a message for you: standup at nine tomorrow" },
+            { user: "user", text: "got it" },
+          ],
+        },
+        "standup at nine tomorrow",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns true across punctuation/case differences (fuzzy match)", () => {
+    expect(
+      messageWasDeliveredHeuristic(
+        {
+          transcripts: [
+            // ASR-flattened — Bland often strips punctuation from the transcript
+            { user: "assistant", text: "hi this is clipper with a message for you hey ashley this is a test" },
+          ],
+        },
+        "Hey Ashley, this is a test",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false when the message is not in the assistant turns", () => {
+    expect(
+      messageWasDeliveredHeuristic(
+        {
+          transcripts: [
+            // Opener cut off mid-word: "with a message f-"
+            { user: "assistant", text: "Hi, this is Clipper, with a message f" },
+            { user: "user", text: "hello? who is this" },
+          ],
+        },
+        "standup at nine tomorrow",
+      ),
+    ).toBe(false);
+  });
+
+  it("returns false when there are no assistant turns at all", () => {
+    expect(
+      messageWasDeliveredHeuristic(
+        { transcripts: [{ user: "user", text: "hello?" }] },
+        "standup at nine",
+      ),
+    ).toBe(false);
+  });
+
+  it("returns true for an empty message (nothing to verify)", () => {
+    expect(messageWasDeliveredHeuristic({ transcripts: [] }, "")).toBe(true);
+    expect(messageWasDeliveredHeuristic({ transcripts: [] }, "   ")).toBe(true);
+  });
+
+  it("concatenates multiple assistant turns before matching", () => {
+    // Message spans across the opener turn and the receipt-phrase turn —
+    // unlikely in practice but shouldn't cause a false negative.
+    expect(
+      messageWasDeliveredHeuristic(
+        {
+          transcripts: [
+            { user: "assistant", text: "hi this is clipper with a message for you standup at" },
+            { user: "user", text: "hmm" },
+            { user: "assistant", text: "nine tomorrow. your reply's going back to clipper" },
+          ],
+        },
+        "standup at nine tomorrow",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("placeCallAndAwait — interrupted_before_message heuristic downgrade", () => {
+  beforeEach(() => {
+    process.env.BLAND_API_KEY = "test-key";
+  });
+
+  it("downgrades completed → interrupted_before_message when opener was cut off", async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ call_id: "abc-123" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "completed",
+          answered_by: "human",
+          transcripts: [
+            // Opener cut off before payload
+            { user: "assistant", text: "Hi, this is Clipper, with a message f" },
+            { user: "user", text: "hello? who is this" },
+          ],
+          concatenated_transcript: "assistant: Hi, this is Clipper, with a message f\nuser: hello? who is this",
+          call_length: 0.1,
+        }),
+      }) as unknown as typeof fetch;
+
+    let clock = 0;
+    const result = await placeCallAndAwait(
+      "+15551234567",
+      "t",
+      "f",
+      "Hey Ashley, this is a test call",
+      {
+        now: () => clock,
+        sleep: async (ms) => { clock += ms; },
+        fetchFn,
+      },
+    );
+
+    expect(result.outcome).toBe("interrupted_before_message");
+    // Transcript still populated so the caller can see what DID get spoken.
+    expect(result.transcript).toContain("with a message f");
+    // Human-readable amplifier explaining the outcome.
+    expect(result.message).toContain("interrupted");
+    // Call actually happened, so call_length_seconds is populated.
+    expect(result.call_length_seconds).toBe(6);
+  });
+
+  it("downgrades no_response → interrupted_before_message when message never spoken", async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ call_id: "abc-123" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "completed",
+          answered_by: "human",
+          // Assistant spoke but message not present; no user turns.
+          transcripts: [
+            { user: "assistant", text: "Hi, this is Clipper, with a message f" },
+          ],
+          concatenated_transcript: "assistant: Hi, this is Clipper, with a message f",
+          call_length: 0.05,
+        }),
+      }) as unknown as typeof fetch;
+
+    let clock = 0;
+    const result = await placeCallAndAwait(
+      "+15551234567",
+      "t",
+      "f",
+      "Hey Ashley, this is a test call",
+      {
+        now: () => clock,
+        sleep: async (ms) => { clock += ms; },
+        fetchFn,
+      },
+    );
+
+    expect(result.outcome).toBe("interrupted_before_message");
+  });
+
+  it("does NOT downgrade completed when the message is present in the transcript", async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ call_id: "abc-123" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "completed",
+          answered_by: "human",
+          transcripts: [
+            { user: "assistant", text: "hi this is clipper with a message for you hey ashley this is a test call" },
+            { user: "user", text: "ok noted" },
+          ],
+          concatenated_transcript: "assistant: hi this is clipper with a message for you hey ashley this is a test call\nuser: ok noted",
+          call_length: 0.2,
+        }),
+      }) as unknown as typeof fetch;
+
+    let clock = 0;
+    const result = await placeCallAndAwait(
+      "+15551234567",
+      "t",
+      "f",
+      "Hey Ashley, this is a test call",
+      {
+        now: () => clock,
+        sleep: async (ms) => { clock += ms; },
+        fetchFn,
+      },
+    );
+
+    expect(result.outcome).toBe("completed");
+    expect(result.transcript).toContain("ok noted");
+  });
+
+  it("does NOT downgrade non-completed outcomes (busy, no_answer, timeout, etc.)", async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ call_id: "abc-123" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: "busy", call_length: 0 }),
+      }) as unknown as typeof fetch;
+
+    let clock = 0;
+    const result = await placeCallAndAwait(
+      "+15551234567",
+      "t",
+      "f",
+      "any message",
+      {
+        now: () => clock,
+        sleep: async (ms) => { clock += ms; },
+        fetchFn,
+      },
+    );
+
+    expect(result.outcome).toBe("busy");
   });
 });

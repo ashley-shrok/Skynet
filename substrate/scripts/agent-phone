@@ -22,8 +22,11 @@
 #   0 — success. Transcript printed on stdout (one line per speaker turn);
 #       response JSON metadata copied to stderr for transcript-side debug.
 #       Outcome is one of: completed, no_response.
-#   1 — failure or timeout. Response JSON printed to stderr with the
-#       {outcome, message?} details. Nothing on stdout.
+#   1 — failure or timeout. Response JSON printed to stderr with
+#       {outcome, message?, transcript?} details. Nothing on stdout.
+#       The transcript field is populated for interrupted_before_message
+#       (call ran but the AI opener was cut off before the message body
+#       finished — inspect the transcript to see what DID get spoken).
 #
 # `-e` is intentionally NOT set — some subcommand non-zero exits are
 # expected on the polling / cleanup paths and would otherwise kill the

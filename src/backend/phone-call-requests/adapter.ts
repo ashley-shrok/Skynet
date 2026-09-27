@@ -65,6 +65,25 @@ export const BLAND_POLL_INTERVAL_MS = 5_000;
 export const BLAND_MAX_DURATION_MIN = 10;
 
 /**
+ * `interruptibility` passed to Bland at placement time. Values (per Bland
+ * docs):
+ *   0 = block interruptions (AI holds the turn through callee speech)
+ *   1 = difficult to interrupt
+ *   2 = balanced (Bland default)
+ *   3 = easy to interrupt
+ *
+ * We use 0 because single-turn deliver-listen-hang-up semantics REQUIRE
+ * the opener + message payload to play atomically. A fresh-agent UAT
+ * turned up the failure mode: Bland's default (2) let the callee's "hello?"
+ * cut off the opener mid-word ("with a message f-"), and the message
+ * payload was never spoken. `interruptibility` only applies while the AI
+ * is speaking — it doesn't affect the listen phase — so setting 0 locks
+ * the opener + receipt phrase without dulling the AI's response to the
+ * callee's actual reply.
+ */
+export const BLAND_INTERRUPTIBILITY = 0;
+
+/**
  * Discriminated-union return type for the adapter.
  *
  * On terminal outcomes carrying a transcript (completed, no_response),
@@ -139,11 +158,21 @@ export interface AdapterDeps {
 /**
  * Place a call and poll for the transcript. Returns a discriminated union —
  * NEVER throws in normal operation.
+ *
+ * `messageForVerification` is the raw message body (before opener
+ * interpolation). Used post-poll to detect the interrupted-before-message
+ * failure mode: if a nominally-completed call's transcript doesn't
+ * contain the message text, we downgrade the outcome to
+ * `interrupted_before_message` so the caller sees a delivery failure
+ * rather than a false-positive success. Belt-and-braces net for
+ * `interruptibility: 0` — if Bland ever lets an interruption slip
+ * through, the caller isn't misled.
  */
 export async function placeCallAndAwait(
   phoneNumber: string,
   taskPrompt: string,
   firstSentence: string,
+  messageForVerification: string,
   deps: AdapterDeps,
 ): Promise<AdapterResult> {
   const apiKey = process.env.BLAND_API_KEY;
@@ -183,6 +212,7 @@ export async function placeCallAndAwait(
         first_sentence: firstSentence,
         wait_for_greeting: false,
         max_duration: BLAND_MAX_DURATION_MIN,
+        interruptibility: BLAND_INTERRUPTIBILITY,
         record: false,
       }),
       signal: placementCtrl.signal,
@@ -287,7 +317,7 @@ export async function placeCallAndAwait(
     // -------------------------------------------------------------------
     const outcome = classifyBlandDetails(lastDetails);
     if (outcome !== null) {
-      return buildResultFromDetails(outcome, lastDetails);
+      return buildResultFromDetails(outcome, lastDetails, messageForVerification);
     }
   }
 
@@ -363,19 +393,88 @@ export function classifyBlandDetails(d: BlandCallDetails): PhoneCallOutcome | nu
 }
 
 /**
+ * Normalize a string for fuzzy substring comparison — lowercase, strip
+ * every character that isn't a letter, digit, or whitespace, then
+ * collapse runs of whitespace to a single space. Both the assistant
+ * turn text and the caller-supplied message run through this before
+ * the `.includes()` check so the heuristic tolerates Bland's ASR
+ * dropping/adding punctuation (which it commonly does — "Hey Ashley,"
+ * routinely transcribes as "hey ashley").
+ */
+function normalizeForMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * True when the message text appears in the AI's spoken turns — the
+ * heuristic that gates `interrupted_before_message`. Concatenates every
+ * `assistant`-labeled turn from Bland's `transcripts[]`, normalizes both
+ * sides, and substring-matches the whole normalized message. False when
+ * the message can't be located, indicating the opener was cut off before
+ * the payload finished (or never started).
+ *
+ * Exported for direct unit-testing.
+ */
+export function messageWasDeliveredHeuristic(
+  d: BlandCallDetails,
+  message: string,
+): boolean {
+  const nMsg = normalizeForMatch(message);
+  if (nMsg.length === 0) {
+    // Empty/whitespace-only message — nothing to verify, don't downgrade.
+    return true;
+  }
+  const assistantSpoken = (d.transcripts ?? [])
+    .filter((t) => t.user === "assistant" && typeof t.text === "string")
+    .map((t) => t.text as string)
+    .join(" ");
+  if (assistantSpoken.length === 0) {
+    // Bland reported completed with no assistant turns — treat as not
+    // delivered so the caller sees the anomaly rather than a silent
+    // success.
+    return false;
+  }
+  return normalizeForMatch(assistantSpoken).includes(nMsg);
+}
+
+/**
  * Build the AdapterResult from a Bland details payload + classified
- * outcome. Attaches transcript on completed/no_response, call_length on
- * any outcome where Bland reported one.
+ * outcome. Attaches transcript on completed/no_response/
+ * interrupted_before_message, call_length on any outcome where Bland
+ * reported one. Downgrades `completed`/`no_response` to
+ * `interrupted_before_message` when the transcript heuristic says the
+ * message payload never made it through.
  */
 function buildResultFromDetails(
   outcome: PhoneCallOutcome,
   d: BlandCallDetails,
+  messageForVerification: string,
 ): AdapterResult {
-  const result: AdapterResult = { outcome };
+  let effectiveOutcome: PhoneCallOutcome = outcome;
+  if (
+    (outcome === "completed" || outcome === "no_response") &&
+    !messageWasDeliveredHeuristic(d, messageForVerification)
+  ) {
+    effectiveOutcome = "interrupted_before_message";
+    systemLogger.warn("phone adapter: message not found in assistant turns — downgrading outcome", {
+      operation: "phone_bland_message_not_delivered",
+      originalOutcome: outcome,
+      downgradedOutcome: effectiveOutcome,
+      messageLen: messageForVerification.length,
+    });
+  }
+
+  const result: AdapterResult = { outcome: effectiveOutcome };
 
   const transcript = d.concatenated_transcript;
   if (
-    (outcome === "completed" || outcome === "no_response") &&
+    (effectiveOutcome === "completed" ||
+      effectiveOutcome === "no_response" ||
+      effectiveOutcome === "interrupted_before_message") &&
     typeof transcript === "string" &&
     transcript.length > 0
   ) {
@@ -386,13 +485,18 @@ function buildResultFromDetails(
     result.call_length_seconds = Math.round(d.call_length * 60);
   }
 
-  if (outcome === "queue_error") {
+  if (effectiveOutcome === "queue_error") {
     const msg = d.error_message;
     if (typeof msg === "string" && msg.length > 0) {
       result.message = msg;
     } else if (d.queue_status !== undefined) {
       result.message = `queue_status: ${d.queue_status}`;
     }
+  }
+
+  if (effectiveOutcome === "interrupted_before_message") {
+    result.message =
+      "AI opener was interrupted before the message body finished delivering; callee did not hear the message";
   }
 
   return result;

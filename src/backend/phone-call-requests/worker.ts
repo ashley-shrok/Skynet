@@ -305,10 +305,16 @@ export async function processPhoneCall(
     uuid: item.uuid,
     toUser: item.body.to_user,
   });
-  const result = await deps.placeCallAndAwait(target.phoneE164, taskPrompt, firstSentence, {
-    now: deps.now,
-    sleep: deps.sleep,
-  });
+  const result = await deps.placeCallAndAwait(
+    target.phoneE164,
+    taskPrompt,
+    firstSentence,
+    item.body.message,
+    {
+      now: deps.now,
+      sleep: deps.sleep,
+    },
+  );
   systemLogger.info("phone worker: placement + poll done", {
     operation: "phone_place_done",
     uuid: item.uuid,
