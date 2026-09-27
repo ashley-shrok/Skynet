@@ -3440,6 +3440,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           isConnected={isConnected}
           hasConnectionError={hasConnectionError && !showDisconnectedOverlay}
           position={hasConnectionError ? "top" : "bottom"}
+          onClosePane={onClose}
         />
 
         <TOTPDialog

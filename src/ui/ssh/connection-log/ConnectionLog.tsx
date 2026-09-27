@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,6 +19,7 @@ interface ConnectionLogProps {
   isConnected: boolean;
   hasConnectionError: boolean;
   position: "top" | "bottom";
+  onClosePane?: () => void;
 }
 
 export function ConnectionLog({
@@ -25,6 +27,7 @@ export function ConnectionLog({
   isConnected,
   hasConnectionError,
   position,
+  onClosePane,
 }: ConnectionLogProps) {
   const { t } = useTranslation();
   const { logs, clearLogs, isExpanded, toggleExpanded, setIsExpanded } =
@@ -145,6 +148,16 @@ export function ConnectionLog({
                 title={t("terminal.connectionLogCopy")}
               >
                 <Copy className="h-4 w-4" />
+              </Button>
+            )}
+            {onClosePane && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClosePane}
+                title="Close"
+              >
+                <X className="h-4 w-4" />
               </Button>
             )}
           </div>
