@@ -46,6 +46,15 @@ IDENTITIES_ARCHIVE_DIR="${AGENT_IDENTITIES_ARCHIVE_DIR:-$HOME/fleet/identities-a
 # scratch-dir setup patterns).
 ROLES_DIR="${AGENT_ROLES_DIR:-$HOME/fleet/roles}"
 ROLES_ARCHIVE_DIR="${AGENT_ROLES_ARCHIVE_DIR:-$HOME/fleet/roles-archive}"
+# app-archive shape: apps live per-host at ~/fleet/apps/<slug>/ with an
+# adjacent archive sibling at ~/fleet/apps-archive/. Env-overridable for
+# test hermeticity (same discipline as AGENT_IDENTITIES_DIR / AGENT_ROLES_DIR).
+APPS_DIR="${AGENT_APPS_DIR:-$HOME/fleet/apps}"
+APPS_ARCHIVE_DIR="${AGENT_APPS_ARCHIVE_DIR:-$HOME/fleet/apps-archive}"
+# app-archive shape: absolute path to the archive-app.sh script distributed
+# to every managed host by the fleet substrate distributor. Env-overridable
+# for test hermeticity (tests stub the script).
+APP_ARCHIVE_SCRIPT="${AGENT_APP_ARCHIVE_SCRIPT:-$HOME/.claude/skills/app-development/archive-app.sh}"
 SELF_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
@@ -1159,6 +1168,61 @@ scan_role_archive_requested_sentinels() {
       # D-09 partial failure — role folder stays live; sentinel still deleted (D-06).
       log "ERROR: role '$role_name' cascade PARTIAL: $failed/$total identities failed:${failed_names}. Role folder retained in live tree. Retry via UI."
       rm -f "$d/.archive-requested" 2>/dev/null
+    fi
+  done
+}
+
+# ---- user-initiated app archive scanner (app-archive shape) ----
+# scan_app_archive_requested_sentinels()
+#
+# Sibling of scan_archive_requested_sentinels + scan_role_archive_requested_sentinels.
+# Walks $APPS_DIR/*/ every reconcile tick and invokes archive-app.sh on any
+# app folder carrying a `.archive-requested` sentinel.
+#
+# The heavy lifting (stop + disable systemd unit, stash unit inside folder,
+# move folder to $APPS_ARCHIVE_DIR/<slug>/) lives entirely in
+# $APP_ARCHIVE_SCRIPT (~/.claude/skills/app-development/archive-app.sh) —
+# this scanner is just the trigger. archive-app.sh's own preconditions
+# (no existing archive slot at target, folder must exist) still apply.
+#
+# Failure semantics parallel to identity + role archive:
+#   - Sentinel retained on any failure (archive-app.sh non-zero exit) so
+#     the next reconcile tick retries.
+#   - Sentinel deleted only after archive-app.sh reports success.
+#     archive-app.sh moves the folder as its final step, so on success the
+#     sentinel travels with the folder into the archive tree — we then
+#     rm it from $APPS_ARCHIVE_DIR/<slug>/ to keep the archived tree clean
+#     (parallel to the role-archive rm in scan_role_archive_requested_sentinels).
+#   - No cross-tick counter; no stuck-sentinel drop. archive-app.sh is
+#     idempotent enough that a repeated invocation on a partial state is
+#     safe (the "already archived" precondition check fires and refuses,
+#     which surfaces the anomaly).
+scan_app_archive_requested_sentinels() {
+  local d slug rc output
+  for d in "$APPS_DIR"/*/; do
+    [ -d "$d" ] || continue
+    slug="$(basename "$d")"
+    [ -f "$d/.archive-requested" ] || continue
+
+    if [ ! -x "$APP_ARCHIVE_SCRIPT" ]; then
+      log "ERROR: '$slug' user-initiated app archive: archive-app.sh not found or not executable at $APP_ARCHIVE_SCRIPT — sentinel retained; next tick will retry"
+      continue
+    fi
+
+    log "'$slug' user-initiated app archive: .archive-requested detected, invoking archive-app.sh"
+    rc=0
+    output="$("$APP_ARCHIVE_SCRIPT" "$slug" 2>&1)" || rc=$?
+    if [ -n "$output" ]; then
+      while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        log "  archive-app.sh[$slug]: $line"
+      done <<< "$output"
+    fi
+    if [ "$rc" -eq 0 ]; then
+      rm -f "$APPS_ARCHIVE_DIR/$slug/.archive-requested" 2>/dev/null || true
+      log "'$slug' user-initiated app archive: archive-app.sh succeeded"
+    else
+      log "ERROR: '$slug' user-initiated app archive: archive-app.sh FAILED (rc=$rc) — sentinel retained; next tick will retry"
     fi
   done
 }
@@ -2509,6 +2573,7 @@ reconcile() {
   run_archive_scan_if_due                          # Phase 94: daily archive-scan branch (24h gate; fast-path no-op on most ticks)
   scan_archive_requested_sentinels                 # Phase 115 D-10: user-initiated archive-scan (every tick, no gate, bypasses .pinned/.no-dormancy/coordinator/freshness)
   scan_role_archive_requested_sentinels            # Phase 133 D-01/D-05: user-initiated ROLE archive (every tick, no gate, cascades retire_identity per D-08, moves role folder per D-09 if all-clean)
+  scan_app_archive_requested_sentinels             # app-archive shape: user-initiated APP archive (every tick, invokes archive-app.sh from the app-development skill on any folder carrying .archive-requested)
   resolve_identities
   snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).
   snapshot_matrix_peek                             # parallel curls (default -P 20) to Matrix homeservers for all dormant identities; matrix_peek_cached reads from MATRIX_PEEK_SNAPSHOT.
