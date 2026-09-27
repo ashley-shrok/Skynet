@@ -3739,8 +3739,13 @@ export function AppShell({
             outer sidebarHeader that used to sit above the panel (Bug A). */}
         {isMobileListScreen && (
           <div
+            // No explicit height — cross-axis stretch fills the parent flex-row's
+            // content area (100dvh minus root paddingTop=env(safe-area-inset-top)).
+            // Previously `height: 100dvh` overrode the stretch and pushed the
+            // wrapper ~59px below the visible viewport on notched iPhone PWAs,
+            // cutting the .pv-panel-footer half off. Desktop sidebar sibling at
+            // ~L3679 also has no explicit height for the same reason.
             className="flex flex-col flex-1 min-w-0 bg-[color:var(--color-pv-base)]"
-            style={{ height: "100dvh" }}
           >
             {sidebarPanelContent}
           </div>
