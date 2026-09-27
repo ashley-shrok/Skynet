@@ -18,6 +18,10 @@ import rbacRoutes from "./routes/rbac.js";
 import openTabsRoutes from "./routes/open-tabs.js";
 import identitiesRoutes from "./routes/identities.js";
 import appsRoutes from "./routes/apps.js";
+// app-archive shape: POST /apps/:hostId/:slug/archive drops `.archive-requested`
+// on the app folder via the per-app-file primitive. Mirrors identity-archive
+// and role-archive mount discipline (mounted before the generic /apps router).
+import appsArchiveRoutes from "./routes/apps-archive.js";
 // Phase 120 Plan 05 (D-08): the /apps/:hostId/:slug/pane/* reverse-proxy
 // route. Named export (not default) to disambiguate from Phase 119's
 // default-exported apps router at the mount site below.
@@ -2132,6 +2136,12 @@ app.use("/pretty-view", prettyViewFetchTailnetUrlRoutes);
 app.use("/pretty-view", prettyViewFetchHostFileRoutes);
 app.use("/", fileUrlRoutes);
 app.use("/identities", identitiesRoutes);
+// app-archive shape: POST /apps/:hostId/:slug/archive — drops
+// `.archive-requested` on the target host's ~/fleet/apps/<slug>/ folder via
+// the per-app-file primitive. Mounted BEFORE the generic /apps router so the
+// POST sub-route is not shadowed by any future generic /:hostId/:slug POST
+// handler (mirrors identity-archive + role-archive mount discipline).
+app.use("/apps", appsArchiveRoutes);
 // Phase 119 Plan 05 (D-06): GET /apps/:hostId/:slug/icon — serves
 // ~/fleet/apps/<slug>/icon.webp from the target host via SSH. Mirrors
 // /identities/:identityKey/avatar (identities.ts:849). See
