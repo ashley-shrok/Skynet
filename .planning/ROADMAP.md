@@ -2836,6 +2836,7 @@ Plans:
 **Plans:** 6/7 plans executed
 
 Plans:
+
 - [x] 132-01-PLAN.md — Build-ID emission (Vite define + Dockerfile ARG plumbing) + client/backend getter modules (SKEW-01)
 - [x] 132-02-PLAN.md — Skew-lock store + SkewLockModal component + reload-loop sentinel (SKEW-03, SKEW-11, SKEW-12)
 - [x] 132-03-PLAN.md — Backend Express middleware: response stamping + mismatch-only 409 refusal + startup boot log (SKEW-02, SKEW-05, SKEW-13)
@@ -2845,11 +2846,13 @@ Plans:
 - [ ] 132-07-PLAN.md — Cache-Control codification (Phase 132 cross-reference comments on nginx x2 + Express fallback) + assertion vitest + playwright drift-smoke spec (SKEW-14, SKEW-15)
 
 Wave structure:
+
 - Wave 0 (parallel): 132-01, 132-02 — foundations (build-id + store/modal). Zero networking; zero file overlap between the two plans.
 - Wave 1 (parallel): 132-03, 132-04, 132-05, 132-06 — all four wire into the foundations. Zero file overlap between them (backend middleware vs. backend WS servers vs. frontend interceptor vs. frontend WS handlers).
 - Wave 2 (single): 132-07 — codification comments + assertion test + end-to-end playwright spec, depends on 03-06 being present.
 
 Threat model highlights (STRIDE registers per plan):
+
 - T-111-SPOOF (hostile client suppresses X-Skynet-Client-Build to evade refusal): accepted per D-06 design (mismatch-only server enforcement; client-side interceptor guarantees the header on legitimate browsers; hostile clients are outside the trust boundary).
 - T-111-DoS reload-loop (Pitfall 4): mitigated by reload-loop sentinel in Plan 02 Task 2 (fatal-mode modal after 4 reloads within 60s).
 - Package-legitimacy gate: N/A this phase — zero new npm/pip/cargo packages.
@@ -2862,6 +2865,7 @@ Threat model highlights (STRIDE registers per plan):
 **Plans:** 6 plans
 
 Plans:
+
 - [ ] 133-01-PLAN.md — Backend HTTP route `POST /roles/:name/archive` + `writeRoleFile()` primitive + route mount + tests (Wave 1)
 - [ ] 133-02-PLAN.md — Frontend API wrapper `archiveRole(hostId, roleName)` + tests (Wave 1)
 - [ ] 133-03-PLAN.md — Refactor `retire_identity()` inline retries on steps 1+4b; delete retire-fail-count-* + retire-stuck mechanism from both scanners; update tests (Wave 2)
@@ -2880,6 +2884,7 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
+
 - [x] 134-01-PLAN.md — Wave 1: new global-wake-up REST surface (wakeups-list.ts fleet-wide fan-out + wakeups-write.ts per-host POST/PATCH/DELETE + toggle-enabled + scheduler-parity validation + atomic writes via writeMarkdownFileAtomic/ext_openssh_rename + getLocalWakeupsRoot helper + export normalizeWakeupSlug + database.ts chained mounts + paired nginx location blocks in both nginx.conf and nginx-https.conf) covering D-01/D-02/D-03/D-05/D-06/D-07/D-08/D-15/D-16/D-17
 - [x] 134-02-PLAN.md — Wave 2 (depends on 134-01): retire per-role wake-up CRUD surface — 6 backend service functions from identity-artifact-reader.ts, 8 WS handlers + JSDoc + imports from claude-session-server.ts, 5 frontend API helpers + payload/event types from claude-session-api.ts, RoleModal.tsx's role-wakeups tab + state/effects/callbacks/imports, 4 wholesale test-file deletions + 2 surgical test-file excisions — covering D-09/D-10/D-11/D-12/D-13/D-14
 
@@ -2894,9 +2899,9 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
+
 - [x] 135-01-PLAN.md — Wave 1: `wakeups-api.ts` frontend client (5 REST helpers + `GlobalWakeupSpecWire` + `WakeupListItem` types with DELETE-with-body pattern per RESEARCH Pitfall #4) + `WakeupsModalRow.tsx` presentational component + `WakeupsModal.tsx` shell with fetch-on-open + reset-on-close + filter bar + Skeleton loading + empty state + footer count + AlarmClock header button + modal mount in `PrettyConversationsPanel.tsx`. Wave 1 leaves form view as stub.
 - [x] 135-02-PLAN.md — Wave 2 (depends on 135-01): `WakeupsModalForm.tsx` (5 form fields per D-20; Name+Host disabled on edit per Pitfall #5 + D-21; Weekly single-day segmented per Assumption A4; round-trip preservation Option B — preserve `skills` + `schedule.timezone` + `schedule.days` untouched). Replace wave-1 handler stubs with real pessimistic-toggle (D-12), native `window.confirm()` delete (D-14), inline-error-banner save (D-25). 25 tests (6 api + 15 modal + 4 panel-button). Plus /close-driven follow-ups (hide 1-host picker, preserve `schedule.days` on round-trip) + code-review fixes (filter reconciliation, safer ALL sentinel, toggle in-flight guard, refetch load-error surface, T-15 filter reset test extension, filter parseInt gate).
-
 
 ### Phase 136: Retire bounties concept from Skynet — remove RoleModal bounties tab + companion UI components, backend identity-artifact-reader bounty methods, associated tests, and axios call sites. Bounties were retired in id-skill on 2026-09-20 (fc98066d); Skynet still carries the dead code.
 
@@ -2909,6 +2914,7 @@ Plans:
 **Plans:** 7/7 plans complete
 
 Plans:
+
 - [x] 136-01-PLAN.md — Wave 0 foundation: stop the bleeding by removing the two code sites that CREATE `bounties/` folders on new-role setup (`substrate/skills/role/SKILL.md` + `POST /roles` handler)
 - [x] 136-02-PLAN.md — Wave 1: delete 7 leaf bounty-only test files (6 backend `identity-artifact-reader.*bounty*.test.ts` + `RoleBountiesTab.test.tsx`)
 - [x] 136-03-PLAN.md — Wave 2: UI surgery — RoleModal loses Bounties nav entry + TabsContent + import; RoleModal test + PrettyView role-modal-swap test + PrettyConversationsPanel dead filterLabel cleanup
@@ -2923,11 +2929,27 @@ Plans:
 **Requirements**: 32 CONTEXT.md D-decisions (D-01..D-32) — no separate REQ IDs; CONTEXT.md decisions are the coverage target.
 **Depends on:** Phase 136
 **Plans:** 6 plans
-
 Plans:
+**Wave 1**
+
 - [ ] 137-01-PLAN.md — Backend + type shape foundation (fallback_voice column add, reopen_tabs_on_login drop, /users/me avatarPath, frontend types)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 137-02-PLAN.md — Modal shell + left-nav + General pane (avatar upload) + sidebar footer live-sync
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 137-03-PLAN.md — Voice pane (autosave picker) + PrettyView speak-flow resolution wire
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 137-04-PLAN.md — Notifications pane fold-in (D-19 LOAD-BEARING) + push-support extraction + retire EnableNotificationsModal + kebab item
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 137-05-PLAN.md — About-you pane fold-in (MarkdownEditor + host picker + tab strip + mtime save) + retire Globe button + delete GlobalFilesModal
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 137-06-PLAN.md — reopenTabsOnLogin consumer-site purge (AppShell + tab-url) + Playwright smoke coverage + full-suite green
