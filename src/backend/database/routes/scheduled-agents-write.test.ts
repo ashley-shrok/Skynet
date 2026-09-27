@@ -751,6 +751,16 @@ describe("Users-strip discipline (per-user gate list is disk-only)", () => {
   });
 
   it("PATCH /:slug with users in payload → 200; users NOT in written body; users NOT in response echo", async () => {
+    // PATCH does a read-modify-write: reads the existing spec from disk (for
+    // the anti-rename storedName check), then writes the new spec. Mock the
+    // read to return a spec with a matching name so the name-drift gate
+    // passes and we reach the write path where the strip discipline applies.
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
+        return JSON.stringify(validSpec);
+      }
+      return "";
+    });
     const specWithUsers = { ...validSpec, users: ["alice"] };
     const res = await httpRequest(server, {
       method: "PATCH",
