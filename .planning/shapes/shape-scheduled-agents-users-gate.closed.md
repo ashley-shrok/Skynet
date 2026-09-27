@@ -170,3 +170,46 @@ code commits.
 Reference implementations to mirror faithfully: whatever the most recent
 apps-tagging work landed (parser, wire strip, gate predicate, list-emit
 filter, test shape). If something is unclear here, that work is the answer.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-27
+**Vehicle used:** inline (tracked with harness tasks)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is — per-user visibility gate on scheduled agents** — present · gate wired at the fleet-wide list assembly, patterned after the four existing gated types
+- **Shape — spec grows an optional users list** — present · row builder parses spec.users; only accepts array-of-strings, else coerces to null (falls open)
+- **Shape — list assembly reads that field and gates on it** — present · pure predicate filters flattened rows against caller's username
+- **Shape — users field stripped from every row before response** — present · strip discipline unit-tested at the emit seam
+- **Shape — write endpoints refuse to touch users (silent drop)** — present · strip runs on POST and PATCH before write AND before response echo; toggle/delete don't accept a spec so not applicable there
+- **Shape — write endpoints continue to gate on host access only** — present · no users-list gate added to writes; host-access remains the sole write gate, matching identity + identity-wakeup posture
+- **Shape — predicate paralleled per-resource, not refactored to a shared helper** — present · separate file kept alongside project/app/identity/role gates so a grep answers every-emit-site
+- **Shape — docs sweep extends the multi-user note on thenasty and peer hosts** — present · identical paragraph confirmed on thenasty, zoeybattlestation, and workstation
+- **Philosophy — sameness with the four existing gated types** — present · predicate and strip discipline are parallel with the existing gates
+- **Prior context — only one emit site to gate (pull-only HTTP fan-out, no subscription frame)** — present · gate lives in the list route only; no subscription-frame filter added
+- **Prior context — substrate-side scheduler unaffected by tagging** — present · no scheduler changes in this commit; users is purely a visibility concern
+- **What would make it wrong: client can set users list via any HTTP write endpoint** — present · guarded by the write-strip; verified by written-body-does-not-contain-users tests
+- **What would make it wrong: users list appears in any response body** — present · guarded by strip at list emit + write echo; response-does-not-have-users tests on both surfaces
+- **What would make it wrong: falls-open rule inverts** — present · correct direction; absent/empty/non-array → visible; unit + integration tests pin both null and [] cases
+- **What would make it wrong: case-insensitive comparison** — present · case-sensitive; 'Alice' vs 'alice' mismatch pinned at both the unit and route level
+- **What would make it wrong: docs sweep leaves other multi-user hosts out** — present · identical paragraph confirmed on all three named hosts
+- **Scope edges: In — parse users, add gate-only field, new pure predicate, wire seam, strip, HTTP write strip, tests, docs** — present · each in-scope item is represented in the six touched files and the three CLAUDE.md updates
+- **Scope edges: Out — no UI, no scheduler/spawn changes, no users-list gate on writes, no subscription-frame work** — present · diff is confined to the six named files
+- **Scope edges: Deferred — no UI surface, no shared-helper refactor** — present · no in-Skynet UI for setting users; predicate kept as its own file, matching the deliberate duplication discipline
+- **Scope edges: Tempting but no — no special-permission write acceptance, no distinct 403 for non-listed callers** — present · writes remain uniformly gated by host access; no divergent status codes introduced
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The material reads as a faithful mirror of the Phase 130 apps-tagging discipline, exactly as the shape asks. The write-response echo strip is a correct execution of the shape's broader "never on the wire, at every emit site" rule — not an unagreed extension. Toggle-enabled and delete correctly do not touch users because they never accept or echo a spec; that keeps the strip discipline focused on the two endpoints that do (POST + PATCH). Docs sweep landed identically on thenasty, zoeybattlestation, and workstation; text is byte-identical across all three, which will make future audits trivial.

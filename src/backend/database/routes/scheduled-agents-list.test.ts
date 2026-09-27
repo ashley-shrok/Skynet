@@ -190,6 +190,7 @@ vi.mock("fs/promises", () => ({
 
 import router from "./scheduled-agents-list.js";
 import { getUsernameForUserId } from "../../utils/host-user-counter.js";
+import { sshLogger } from "../../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // httpRequest helper
@@ -874,6 +875,20 @@ describe("GET /scheduled-agents — per-user users-tagging gate", () => {
     const body = res.body as { items: Array<{ slug: string }> };
     expect(body.items).toHaveLength(1);
     expect(body.items[0].slug).toBe("for-alice");
+
+    // The route MUST log the lookup failure at warn so a silent swallow
+    // regression is caught (code-review M-2). Verify the operation key so
+    // a future refactor that drops the log but keeps the fail-open branch
+    // is caught by test rather than only in production log-diving.
+    const warnCalls = (sshLogger.warn as Mock).mock.calls;
+    const matched = warnCalls.find(
+      ([, meta]) =>
+        typeof meta === "object" &&
+        meta !== null &&
+        (meta as Record<string, unknown>).operation ===
+          "scheduled_agents_list_username_lookup_threw",
+    );
+    expect(matched).toBeDefined();
   });
 
   it("case-sensitive comparison — 'Alice' does NOT match 'alice'", async () => {
@@ -930,5 +945,44 @@ describe("GET /scheduled-agents — per-user users-tagging gate", () => {
     const body = res.body as { items: Array<{ slug: string }> };
     expect(body.items).toHaveLength(1);
     expect(body.items[0].slug).toBe("garbage-users");
+  });
+
+  it("LOCAL branch — users field is stripped from the response too", async () => {
+    // Code-review M-3: every other gate/strip test exercises the REMOTE
+    // branch. This pins that a caller-visible LOCAL row also has its users
+    // field stripped before emit, so a future refactor that accidentally
+    // scopes the strip to the REMOTE branch can't slip past the tests.
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("alice");
+    isLocalHostIdMock.mockImplementation(
+      (hostId: number | undefined) => hostId === 1,
+    );
+    resolveHostByIdMock.mockImplementation(async (hostId: number) => {
+      if (hostId === 1) return hostSkynet;
+      return null;
+    });
+    simpleDbSelectMock.mockResolvedValue([hostSkynet]);
+    fsReaddirMock.mockResolvedValue(["for-alice-local"]);
+    fsReadFileMock.mockImplementation(async (p: string) => {
+      if (p.includes("for-alice-local")) {
+        return JSON.stringify({
+          name: "For Alice Local",
+          prompt: "p",
+          schedule: { type: "interval", every: "5m" },
+          users: ["alice"],
+        });
+      }
+      return "";
+    });
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/scheduled-agents",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { items: Array<Record<string, unknown>> };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].slug).toBe("for-alice-local");
+    // Strip discipline holds on LOCAL branch too — no users leak on the wire.
+    expect(body.items[0]).not.toHaveProperty("users");
   });
 });
