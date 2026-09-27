@@ -62,7 +62,7 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AlarmClock, AppWindow, ChevronDown, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
+import { AppWindow, ChevronDown, Clock, Drama, FolderOpen, Globe, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the header's Edit roles icon button
@@ -144,7 +144,7 @@ import { ProjectFileModal } from "./ProjectFileModal";
 import { ConversationSearchModal } from "./ConversationSearchModal";
 // Phase 135 Plan 135-01 Task 4 (shape 3, wake-ups-redesign) — ScheduledAgentsModal:
 // portal-mounted sibling of ConversationSearchModal, opened via the new
-// AlarmClock header button below (position 6 in the .pv-header-actions
+// Clock header button below (position 6 in the .pv-header-actions
 // cluster, between Edit-global-files and the feedback + kebab buttons).
 // Owns its own list + form + refetch lifecycle (D-03 no client cache);
 // controlled open state lifted to this panel per D-26 (mirrors sibling
@@ -919,7 +919,7 @@ export function PrettyConversationsPanel({
   // the header's Edit roles icon button (Drama). See <RolesListModal> mount below.
   const [rolesListModalOpen, setRolesListModalOpen] = useState(false);
   // Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4 — controlled
-  // open state for the new ScheduledAgentsModal. Opened via the AlarmClock button
+  // open state for the new ScheduledAgentsModal. Opened via the Clock button
   // in .pv-header-actions below (inserted after the Edit-global-files
   // Globe, before the feedback + kebab buttons). No preserved query
   // state — modal refetches every open (D-03) and resets filter state on
@@ -2525,7 +2525,7 @@ export function PrettyConversationsPanel({
                     pv-footer-global-files-button at the bottom of the panel. */}
                 {/* Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4
                     — Scheduled-Agents header button. Chrome mirrors sibling
-                    .pv-pencil buttons verbatim: AlarmClock at size 18,
+                    .pv-pencil buttons verbatim: Clock at size 18,
                     aria-label + title both "Scheduled Agents". Opens the ScheduledAgentsModal
                     mounted alongside the sibling modals below. */}
                 <button
@@ -2536,7 +2536,7 @@ export function PrettyConversationsPanel({
                   data-testid="pv-header-scheduled-agents-button"
                   onClick={() => setScheduledAgentsModalOpen(true)}
                 >
-                  <AlarmClock size={18} />
+                  <Clock size={18} />
                 </button>
               </>
             )}
@@ -3274,7 +3274,7 @@ export function PrettyConversationsPanel({
       />
       {/* Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4 —
           ScheduledAgentsModal: portal-mounted sibling of ConversationSearchModal.
-          Opened via the AlarmClock button in .pv-header-actions above
+          Opened via the Clock button in .pv-header-actions above
           (position 6 in the guarded cluster — after Edit-global-files
           Globe, before feedback + kebab). Owns its own list + form +
           refetch lifecycle (D-03 no client cache, D-17 filter reset on
