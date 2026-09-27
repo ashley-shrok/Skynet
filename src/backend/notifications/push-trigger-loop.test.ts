@@ -90,12 +90,12 @@ function makeDeps(
       events: [],
       nextSinceToken: "cursor-1",
     })),
-    // Fix pass M-1: default fetchInitialCursor returns the CURRENT head
-    // token; cold-start seeds cursorByRoom with this value + dispatches
-    // NO pushes on the first tick.
+    // Default fetchInitialCursor returns the CURRENT head token;
+    // cold-start seeds cursorByRoom with this value + dispatches NO
+    // pushes on the first tick.
     fetchInitialCursor: vi.fn(async () => ({
       ok: true as const,
-      endToken: "cursor-head-anchor",
+      sinceToken: "cursor-head-anchor",
     })),
     getUserJoinedRooms: vi.fn(async () => ({
       ok: true as const,
@@ -332,7 +332,7 @@ describe("runPushTriggerTick — cursor management", () => {
     }));
     const fetchInitialCursorSpy = vi.fn(async () => ({
       ok: true as const,
-      endToken: "cursor-head-anchor",
+      sinceToken: "cursor-head-anchor",
     }));
     const deps = makeDeps({
       fetchLive: fetchLiveSpy,
@@ -360,15 +360,15 @@ describe("runPushTriggerTick — cursor management", () => {
     expect(state.cursorByRoom.get(ROOM_ID)).toBe("cursor-head-anchor");
   });
 
-  it("M-1 review-fix: Cold-start with empty-room (endToken null) parks a sentinel cursor and dispatches nothing", async () => {
-    // Matrix omits `end` when the backward-fetch hits the start of an
+  it("Cold-start with empty-room (sinceToken null) parks a sentinel cursor and dispatches nothing", async () => {
+    // Matrix omits `start` when the backward-fetch hits the start of an
     // empty room. Loop must still record the room as "seen" (set the
     // sentinel cursor "") so a subsequent tick doesn't infinitely
     // re-cold-start — and still dispatches NO push.
     const fetchLiveSpy = vi.fn();
     const fetchInitialCursorSpy = vi.fn(async () => ({
       ok: true as const,
-      endToken: null,
+      sinceToken: null,
     }));
     const deps = makeDeps({
       fetchLive: fetchLiveSpy,

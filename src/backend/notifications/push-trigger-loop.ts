@@ -40,17 +40,28 @@
  *
  * On the FIRST tick for a room (empty cursor), we issue a `dir:"b",
  * limit:1` fetch via `fetchInitialCursor` and seed our forward cursor
- * with the returned `end` token — the room's CURRENT head. NO events
- * are dispatched on cold-start. Second tick onward uses fetchLive
- * (dir=f) from that anchored cursor for normal filter+dispatch flow.
+ * with the returned `start` token — the position of the head event in
+ * the backward-fetch's chunk (the newest boundary). NO events are
+ * dispatched on cold-start. Second tick onward uses fetchLive (dir=f)
+ * from that anchored cursor for normal filter+dispatch flow.
  *
- * Why the extra hop (M-1 review fix): a `dir:"f"` fetch with no `from`
- * cursor starts from the room's HISTORICAL start, not the head. If we
- * used its returned `end` as the "current head", subsequent forward
- * polls would replay every historical message in every DM room as fresh
- * pushes — a boot-time push storm exactly what T-128-29 documented.
- * The backward-fetch pattern is the proven anchor idiom from
- * relay-room-stream-server.ts:1102-1120's fetchInitialHistory.
+ * Why `start` and NOT `end` (M-8 fix — was the deploy-notification-replay
+ * bug): Matrix `/messages` returns pagination tokens whose meaning depends
+ * on direction. For dir=b, `end` points PAST the returned chunk in the
+ * backward direction (i.e., FURTHER INTO HISTORY, older than the head) —
+ * it's the "continue paginating backward" token. Using it as the
+ * forward-pagination anchor caused the next dir=f fetch to include the
+ * head event again, dispatching every DM room's head event as a fresh
+ * push on every server restart. `start` from the same dir=b response
+ * points to the head event's position and is the correct forward anchor;
+ * the docstring in matrix-message-fetch.ts:74-75 codifies this:
+ * "beforeEventId - `end` for dir=b, `start` for dir=f".
+ *
+ * Why the extra hop at all: a `dir:"f"` fetch with no `from` cursor
+ * starts from the room's HISTORICAL start, not the head. Without the
+ * backward-anchor hop, subsequent forward polls would replay every
+ * historical message in every DM room as fresh pushes — the boot-time
+ * push storm T-128-29 documented.
  *
  * ## Scheduler shape
  *
@@ -214,22 +225,30 @@ export interface PushTriggerLoopDeps {
   ): Promise<FetchLiveResult>;
   /**
    * Cold-start anchor primitive. Returns the room's CURRENT head token
-   * (Matrix `end` cursor from a `dir:"b", limit:1` fetch — the same anchor
-   * relay-room-stream-server uses at :1102-1120). This is the ONLY way to
+   * (Matrix `start` from a `dir:"b", limit:1` fetch — the position of the
+   * head event in the backward-fetch's chunk). This is the ONLY way to
    * seed a forward-cursor at the actual tail: a `dir:"f"` fetch with no
-   * `from` starts from the room's HISTORICAL start, not the head, and the
-   * returned `end` from that call would be ~one batch into history —
+   * `from` starts from the room's HISTORICAL start, not the head, and
+   * using its returned `end` would leave the cursor deep in history —
    * causing subsequent forward polls to replay historical events as fresh
-   * pushes (Fix pass M-1).
+   * pushes.
    *
-   * Returns `{ ok:true, endToken }` where endToken may be null if Matrix
-   * omits `end` (empty room). Loop treats null as "no cursor yet, retry
-   * on next tick" — same discipline as fetchLive's null nextSinceToken.
+   * Uses `start` and NOT `end` (M-8 fix — was the deploy-notification-
+   * replay bug): `end` from a dir=b response points PAST the returned
+   * chunk in the backward direction (older than the head), so seeding the
+   * forward cursor with `end` re-includes the head event on the next dir=f
+   * fetch. See push-trigger-loop.ts module docblock § Cold-start policy
+   * for the full rationale.
+   *
+   * Returns `{ ok:true, sinceToken }` where sinceToken may be null if
+   * Matrix omits `start` (empty room). Loop treats null as "no cursor yet,
+   * retry on next tick" — same discipline as fetchLive's null
+   * nextSinceToken.
    */
   fetchInitialCursor(
     roomId: string,
   ): Promise<
-    | { ok: true; endToken: string | null }
+    | { ok: true; sinceToken: string | null }
     | { ok: false; status: number; error: string }
   >;
   /** Enumerate a user's joined rooms via the Matrix admin API. */
@@ -377,13 +396,19 @@ export async function runPushTriggerTick(
     for (const roomId of joinedRoomIds) {
       const isColdStart = !state.cursorByRoom.has(roomId);
 
-      // Cold-start branch (M-1 review-fix): anchor at the room's CURRENT
-      // head via a backward-fetch. Do NOT call fetchLive here — dir=f
-      // with no `from` starts from the room's HISTORICAL start; its
-      // returned `end` would be ~one batch into history, and the next
-      // dir=f poll from THAT cursor would dispatch every subsequent
-      // historical event as a fresh push. Byte-mirror of the anchor
-      // pattern from relay-room-stream-server.ts:1102-1120.
+      // Cold-start branch: anchor at the room's CURRENT head via a
+      // backward-fetch, seeding the forward cursor with the response's
+      // `start` token (position of the head event). Do NOT call fetchLive
+      // here — dir=f with no `from` starts from the room's HISTORICAL
+      // start, and the next dir=f poll would dispatch every subsequent
+      // historical event as a fresh push.
+      //
+      // Do NOT use `end` from the backward-fetch either (M-8 fix — was
+      // the deploy-notification-replay bug): `end` from dir=b points PAST
+      // the returned chunk in the backward direction (older than the
+      // head), so seeding the forward cursor with `end` re-includes the
+      // head event on the next dir=f fetch. See module docblock
+      // § Cold-start policy for the full rationale.
       if (isColdStart) {
         const initialResult = await deps.fetchInitialCursor(roomId);
         if (!initialResult.ok) {
@@ -403,10 +428,10 @@ export async function runPushTriggerTick(
           );
           continue;
         }
-        if (initialResult.endToken !== null) {
-          state.cursorByRoom.set(roomId, initialResult.endToken);
+        if (initialResult.sinceToken !== null) {
+          state.cursorByRoom.set(roomId, initialResult.sinceToken);
         } else {
-          // Empty room (Matrix omitted `end`) — mark seen-but-empty
+          // Empty room (Matrix omitted `start`) — mark seen-but-empty
           // with a "" sentinel so the next tick's has()-check treats
           // this as warm. Next tick's fetchLive with "" will fetch
           // from the room's historical start — but since the room is
@@ -420,7 +445,7 @@ export async function runPushTriggerTick(
             operation: "push_trigger_tick_cold_start_anchored",
             userId,
             roomId,
-            hasEndToken: initialResult.endToken !== null,
+            hasSinceToken: initialResult.sinceToken !== null,
           },
         );
         continue;

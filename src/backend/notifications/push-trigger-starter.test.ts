@@ -31,6 +31,7 @@ const {
   loopStartMock,
   loopStopMock,
   getVapidDetailsMock,
+  fetchRoomHistoryMock,
   warnSpy,
   infoSpy,
 } = vi.hoisted(() => {
@@ -48,6 +49,7 @@ const {
     publicKey: "test-public-key",
     privateKey: "test-private-key",
   }));
+  const fetchRoomHistoryMock = vi.fn(async () => ({ ok: true, events: [] }));
   const warnSpy = vi.fn();
   const infoSpy = vi.fn();
   return {
@@ -57,6 +59,7 @@ const {
     loopStartMock,
     loopStopMock,
     getVapidDetailsMock,
+    fetchRoomHistoryMock,
     warnSpy,
     infoSpy,
   };
@@ -106,7 +109,7 @@ vi.mock("../matrix/matrix-admin-client.js", () => ({
 }));
 
 vi.mock("../relay-room-stream/matrix-message-fetch.js", () => ({
-  fetchRoomHistory: vi.fn(async () => ({ ok: true, events: [] })),
+  fetchRoomHistory: fetchRoomHistoryMock,
 }));
 
 vi.mock("./push-sender.js", () => ({
@@ -153,6 +156,11 @@ beforeEach(() => {
   loopStartMock.mockClear();
   loopStopMock.mockClear();
   getVapidDetailsMock.mockReset();
+  fetchRoomHistoryMock.mockReset();
+  fetchRoomHistoryMock.mockImplementation(async () => ({
+    ok: true,
+    events: [],
+  }));
   getVapidDetailsMock.mockImplementation(() => ({
     subject: "mailto:test@example.com",
     publicKey: "test-public-key",
@@ -253,5 +261,69 @@ describe("startPushTriggerLoopOnBoot", () => {
     const t = depsArg.now();
     expect(typeof t).toBe("number");
     expect(t).toBeGreaterThan(1_000_000_000_000);
+  });
+
+  it("M-8 fix: fetchInitialCursor calls fetchRoomHistory(dir:'b', count:1) and returns response.start (NOT response.end) as sinceToken", async () => {
+    // Load-bearing regression test for the deploy-notification-replay
+    // bug (M-8 fix). Matrix's `/messages` response tokens are
+    // direction-dependent:
+    //   - dir=b `start`: position of the head event in the chunk (newest
+    //     boundary of the returned batch — the correct forward-anchor).
+    //   - dir=b `end`:   position PAST the returned chunk in the backward
+    //     direction (older than the head — the "continue paginating
+    //     backward" token). Seeding the forward cursor with `end` caused
+    //     the next tick's dir=f fetch to include the head event again and
+    //     dispatch it as a fresh push on every server restart.
+    //
+    // This test locks in the correct wire-level behavior — the closure
+    // MUST hand back `start`, not `end`, so a future refactor can't
+    // silently swap them back.
+    fetchRoomHistoryMock.mockImplementation(async () => ({
+      ok: true,
+      events: [],
+      // Distinct sentinel values so the assertion is unambiguous.
+      start: "TOKEN_START_HEAD",
+      end: "TOKEN_END_OLDER",
+    }));
+
+    await startPushTriggerLoopOnBoot();
+
+    const depsArg = createPushTriggerLoopMock.mock.calls[0][0];
+    const initialResult = await depsArg.fetchInitialCursor("!room:t1000");
+
+    // The wire call — dir=b, count=1.
+    expect(fetchRoomHistoryMock).toHaveBeenCalledWith("!room:t1000", {
+      dir: "b",
+      count: 1,
+    });
+    // The cursor stored MUST be `start`, not `end`.
+    expect(initialResult).toEqual({
+      ok: true,
+      sinceToken: "TOKEN_START_HEAD",
+    });
+    // Belt-and-suspenders: MUST NOT be the `end` value.
+    expect(initialResult).not.toEqual({
+      ok: true,
+      sinceToken: "TOKEN_END_OLDER",
+    });
+  });
+
+  it("fetchInitialCursor returns sinceToken:null when Matrix omits `start` (empty room)", async () => {
+    // Empty-room case: Matrix omits `start` (and typically `end` too) on
+    // a backward-fetch that finds nothing. Closure must fall back to null
+    // so the loop parks the sentinel "" cursor instead of storing
+    // undefined.
+    fetchRoomHistoryMock.mockImplementation(async () => ({
+      ok: true,
+      events: [],
+      // No start/end fields — mimics empty-room response.
+    }));
+
+    await startPushTriggerLoopOnBoot();
+
+    const depsArg = createPushTriggerLoopMock.mock.calls[0][0];
+    const initialResult = await depsArg.fetchInitialCursor("!empty:t1000");
+
+    expect(initialResult).toEqual({ ok: true, sinceToken: null });
   });
 });

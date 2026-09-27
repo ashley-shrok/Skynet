@@ -192,11 +192,22 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
             typeof result.end === "string" ? result.end : null,
         };
       },
-      // Fix pass M-1: anchor the forward-cursor at the room's CURRENT
-      // head via a backward-fetch with limit=1. Byte-mirror of the
-      // fetchInitialHistory closure at
-      // relay-room-stream-server.ts:1101-1121 (same primitive,
-      // narrower shape — we only need `end`).
+      // Anchor the forward-cursor at the room's CURRENT head via a
+      // backward-fetch with limit=1. Seed with the response's `start`
+      // token — the position of the head event in the backward-fetch's
+      // chunk.
+      //
+      // M-8 fix (was the deploy-notification-replay bug): use `start`,
+      // NOT `end`. Matrix's `end` from a dir=b response points PAST the
+      // returned chunk in the backward direction (older than the head)
+      // — it's the "continue paginating backward" token. Seeding the
+      // forward cursor with `end` caused the next tick's dir=f fetch to
+      // re-include the head event and dispatch it as a fresh push, so
+      // every DM room's head message replayed on every server restart.
+      // `start` from the same dir=b response points to the head event's
+      // position and is the correct forward anchor. See
+      // matrix-message-fetch.ts:74-75 for the canonical rule
+      // ("beforeEventId - `end` for dir=b, `start` for dir=f").
       fetchInitialCursor: async (roomId: string) => {
         const result = await fetchRoomHistory(roomId, {
           dir: "b",
@@ -205,7 +216,7 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
         if (result.ok === false) return result;
         return {
           ok: true as const,
-          endToken: typeof result.end === "string" ? result.end : null,
+          sinceToken: typeof result.start === "string" ? result.start : null,
         };
       },
       getUserJoinedRooms,
