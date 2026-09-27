@@ -283,6 +283,47 @@ export function stripUsersFromSpec(spec: Record<string, unknown>): void {
   if ("users" in spec) delete spec.users;
 }
 
+/**
+ * Build the on-disk write payload for a PATCH by copying the incoming spec
+ * and injecting the on-disk `users` field (if present). The users list is
+ * disk-only — clients can neither set it (see `stripUsersFromSpec`) nor
+ * accidentally clobber it via a full-spec PATCH.
+ *
+ * The PATCH endpoint's contract is "full-spec overwrite" from the client's
+ * perspective, but the users field is orthogonal to that contract — it's a
+ * visibility-gate concern set outside the API. Without this preservation,
+ * an operator's disk-side tag (`users: ["alice"]`) gets erased the first
+ * time anyone opens the edit modal, changes a field, and saves — because
+ * the modal never sees `users` on the GET (it's stripped on the wire) and
+ * therefore never sends it back on the PATCH body.
+ *
+ * Returns a SHALLOW COPY of `spec` with users injected — the original
+ * `spec` is left untouched so the response echo `{spec: validSpec}` stays
+ * users-free (strip discipline: users is gate-only, never on the wire,
+ * including the write response echo). If the disk spec has no valid users
+ * field, the returned object is a plain shallow copy of `spec`.
+ *
+ * Callers MUST invoke `stripUsersFromSpec(spec)` BEFORE this so any
+ * client-supplied users field is removed from `spec` first; the returned
+ * payload's users then reflects only the disk state.
+ */
+export function buildPatchWritePayload(
+  spec: Record<string, unknown>,
+  diskParsed: unknown,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = { ...spec };
+  if (diskParsed !== null && typeof diskParsed === "object") {
+    const diskUsers = (diskParsed as Record<string, unknown>).users;
+    if (
+      Array.isArray(diskUsers) &&
+      diskUsers.every((u) => typeof u === "string")
+    ) {
+      payload.users = diskUsers;
+    }
+  }
+  return payload;
+}
+
 /** Parse + validate hostId from the JSON body. Returns null + writes response
  *  when invalid; returns the hostId when good. */
 function requirePositiveIntegerHost(
@@ -555,15 +596,14 @@ router.patch(
       // Per-slug mutex (fix #1) — serializes writers on same (hostId, slug).
       await getSlugMutex(hostId, slug).run(async () => {
       await getHostSemaphore(hostId).run(async () => {
-        const body = JSON.stringify(validSpec, null, 2) + "\n";
-
         if (isLocalHostId(hostId)) {
           const targetPath = localSpecPath(slug);
           let storedName: string | null = null;
+          let diskParsed: Record<string, unknown> | null = null;
           try {
             const raw = await fs.readFile(targetPath, "utf-8");
-            const parsed = JSON.parse(raw) as { name?: unknown };
-            storedName = typeof parsed.name === "string" ? parsed.name : null;
+            diskParsed = JSON.parse(raw) as Record<string, unknown>;
+            storedName = typeof diskParsed.name === "string" ? diskParsed.name : null;
           } catch (err: unknown) {
             if ((err as NodeJS.ErrnoException).code === "ENOENT") {
               res.status(404).json({ error: "scheduled agent not found" });
@@ -587,6 +627,16 @@ router.patch(
             responded = true;
             return;
           }
+          // Preserve any on-disk `users` tag onto the write body so a
+          // full-spec PATCH doesn't clobber a disk-side visibility gate.
+          // Uses a shallow-copy write payload so `validSpec` itself stays
+          // users-free — the response echo `{spec: validSpec}` below must
+          // NOT leak users on the wire (strip discipline).
+          const writePayload = buildPatchWritePayload(
+            validSpec as unknown as Record<string, unknown>,
+            diskParsed,
+          );
+          const body = JSON.stringify(writePayload, null, 2) + "\n";
           try {
             await fs.mkdir(path.dirname(targetPath), { recursive: true });
             await writeMarkdownFileAtomic(null, targetPath, body);
@@ -644,9 +694,10 @@ router.patch(
           return;
         }
         let storedName: string | null = null;
+        let diskParsed: Record<string, unknown> | null = null;
         try {
-          const parsed = JSON.parse(stdout) as { name?: unknown };
-          storedName = typeof parsed.name === "string" ? parsed.name : null;
+          diskParsed = JSON.parse(stdout) as Record<string, unknown>;
+          storedName = typeof diskParsed.name === "string" ? diskParsed.name : null;
         } catch (err) {
           sshLogger.error(
             "scheduled-agents-update: remote parse failed",
@@ -665,6 +716,16 @@ router.patch(
           responded = true;
           return;
         }
+        // Preserve any on-disk `users` tag onto the write body so a
+        // full-spec PATCH doesn't clobber a disk-side visibility gate.
+        // Uses a shallow-copy write payload so `validSpec` itself stays
+        // users-free — the response echo `{spec: validSpec}` below must
+        // NOT leak users on the wire (strip discipline).
+        const writePayload = buildPatchWritePayload(
+          validSpec as unknown as Record<string, unknown>,
+          diskParsed,
+        );
+        const body = JSON.stringify(writePayload, null, 2) + "\n";
 
         const targetPath = `$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json`;
         try {

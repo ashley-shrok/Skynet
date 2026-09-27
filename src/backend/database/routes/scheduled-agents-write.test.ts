@@ -778,6 +778,87 @@ describe("Users-strip discipline (per-user gate list is disk-only)", () => {
     expect(rb.spec).not.toHaveProperty("users");
   });
 
+  it("PATCH preserves on-disk users tag through a full-spec overwrite", async () => {
+    // The modal fetches via GET, which STRIPS users on the wire. The modal
+    // then PATCHes the spec back without users in the payload. Without
+    // preservation, a disk-side `users: ["alice"]` tag would be wiped on
+    // the first UI edit because the client can't see it and can't send it
+    // back. Preserve the disk value on the write body (but not on the
+    // response echo — strip discipline still holds on the wire).
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
+        // Disk state includes a users tag set by an operator.
+        return JSON.stringify({ ...validSpec, users: ["alice"] });
+      }
+      return "";
+    });
+    const res = await httpRequest(server, {
+      method: "PATCH",
+      path: "/scheduled-agents/morning-digest",
+      body: { host: 7, spec: { ...validSpec, prompt: "updated" } },
+    });
+    expect(res.status).toBe(200);
+
+    // Write body MUST contain the disk-side users tag.
+    const callArgs = (writeMarkdownFileAtomic as Mock).mock.calls[0];
+    const writtenBody = callArgs[2] as string;
+    expect(writtenBody).toContain('"users"');
+    expect(writtenBody).toContain("alice");
+    // Sanity: the edited prompt survives too.
+    expect(writtenBody).toContain("updated");
+
+    // Response echo MUST NOT leak users on the wire (strip discipline).
+    const rb = res.body as { spec: Record<string, unknown> };
+    expect(rb.spec).not.toHaveProperty("users");
+  });
+
+  it("PATCH preserves disk users EVEN when client tries to override users in payload", async () => {
+    // stripUsersFromSpec runs first (drops client's users), then the disk
+    // value is preserved onto the write payload. Net: disk wins,
+    // regardless of what the client sent.
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
+        return JSON.stringify({ ...validSpec, users: ["alice"] });
+      }
+      return "";
+    });
+    const res = await httpRequest(server, {
+      method: "PATCH",
+      path: "/scheduled-agents/morning-digest",
+      body: {
+        host: 7,
+        spec: { ...validSpec, users: ["not-alice", "someone-else"] },
+      },
+    });
+    expect(res.status).toBe(200);
+    const callArgs = (writeMarkdownFileAtomic as Mock).mock.calls[0];
+    const writtenBody = callArgs[2] as string;
+    // The disk value wins, client's override is discarded.
+    expect(writtenBody).toContain("alice");
+    expect(writtenBody).not.toContain("not-alice");
+    expect(writtenBody).not.toContain("someone-else");
+  });
+
+  it("PATCH with no disk users tag → write body carries no users field either", async () => {
+    // If the disk has no users tag, PATCH doesn't invent one. The
+    // preservation is one-way (preserve what's there; don't fabricate).
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("cat ") && cmd.includes("scheduled-agent.json")) {
+        return JSON.stringify(validSpec); // No users on disk.
+      }
+      return "";
+    });
+    const res = await httpRequest(server, {
+      method: "PATCH",
+      path: "/scheduled-agents/morning-digest",
+      body: { host: 7, spec: { ...validSpec, prompt: "updated" } },
+    });
+    expect(res.status).toBe(200);
+    const callArgs = (writeMarkdownFileAtomic as Mock).mock.calls[0];
+    const writtenBody = callArgs[2] as string;
+    expect(writtenBody).not.toContain('"users"');
+  });
+
   it("POST WITHOUT users field → succeeds unchanged (strip is a no-op)", async () => {
     (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
       if (cmd.includes("&& echo EXISTS")) return "OK\n";
@@ -832,5 +913,44 @@ describe("stripUsersFromSpec (helper)", () => {
     const specNonArr: Record<string, unknown> = { name: "x", users: "alice" };
     stripUsersFromSpec(specNonArr);
     expect(specNonArr).not.toHaveProperty("users");
+  });
+});
+
+describe("buildPatchWritePayload (helper)", () => {
+  it("copies valid disk users onto the write payload; leaves input untouched", async () => {
+    const { buildPatchWritePayload } = await import("./scheduled-agents-write.js");
+    const spec: Record<string, unknown> = { name: "x", prompt: "p" };
+    const disk = { name: "x", users: ["alice"] };
+    const out = buildPatchWritePayload(spec, disk);
+    expect(out.users).toEqual(["alice"]);
+    // Input untouched — response echo must stay users-free.
+    expect(spec).not.toHaveProperty("users");
+  });
+
+  it("returns plain shallow copy when disk has no users field", async () => {
+    const { buildPatchWritePayload } = await import("./scheduled-agents-write.js");
+    const spec: Record<string, unknown> = { name: "x", prompt: "p" };
+    const disk = { name: "x" };
+    const out = buildPatchWritePayload(spec, disk);
+    expect(out).not.toHaveProperty("users");
+    expect(out.prompt).toBe("p");
+  });
+
+  it("ignores malformed disk users (non-array or non-string entries)", async () => {
+    const { buildPatchWritePayload } = await import("./scheduled-agents-write.js");
+    const spec: Record<string, unknown> = { name: "x" };
+
+    expect(buildPatchWritePayload(spec, { users: null })).not.toHaveProperty("users");
+    expect(buildPatchWritePayload(spec, { users: "alice" })).not.toHaveProperty("users");
+    expect(
+      buildPatchWritePayload(spec, { users: ["alice", 42, null] }),
+    ).not.toHaveProperty("users");
+  });
+
+  it("handles null / non-object disk gracefully", async () => {
+    const { buildPatchWritePayload } = await import("./scheduled-agents-write.js");
+    const spec: Record<string, unknown> = { name: "x" };
+    expect(buildPatchWritePayload(spec, null)).not.toHaveProperty("users");
+    expect(buildPatchWritePayload(spec, "not-an-object")).not.toHaveProperty("users");
   });
 });
