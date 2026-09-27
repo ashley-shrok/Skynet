@@ -890,6 +890,21 @@ export function AppShell({
   }, [tabs]);
 
   useEffect(() => {
+    // Split view with 2+ leaves: no single active pane meaningfully represents
+    // what the user has open, and browser tab titles are too short to list
+    // them all — so fall back to the app's default brand title, the same
+    // string the tab shows before any content is opened.
+    const openLeafCount = collectTabIds(splitTree).length;
+    if (openLeafCount > 1) {
+      document.title = brandingConfig.appName;
+      console.info({
+        operation: "app_shell_title_resolve",
+        mode: "split-multi",
+        openLeafCount,
+        resolvedTitle: document.title,
+      });
+      return;
+    }
     const activeTab = tabs.find((t) => t.id === activeTabId);
     // Phase 41 Plan 02: tmux source is now the fleet-status broadcast store
     // (activeTmuxFromStore, derived at hook scope via useSessionTmuxName)
@@ -923,7 +938,7 @@ export function AppShell({
       tmuxFromLegacyRecord: tmuxSessionNames[activeTabId] ?? null,
       resolvedTitle: document.title,
     });
-  }, [activeTabId, tabs, tmuxSessionNames, identitiesByKey, activeTmuxFromStore, brandingConfig.appName]);
+  }, [activeTabId, tabs, tmuxSessionNames, identitiesByKey, activeTmuxFromStore, brandingConfig.appName, splitTree]);
 
   // ─── Conversation-store sync (Plan 06-02) ────────────────────────────────
   // The conversation-store is a pure DERIVATION of AppShell's tab state; it
