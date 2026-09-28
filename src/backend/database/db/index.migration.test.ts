@@ -24,6 +24,7 @@ import {
   runIdentitiesTableDrop,
   runPinColumnDrop,
   runHiddenColumnDrop,
+  runReopenTabsColumnDrop,
 } from "./index.js";
 import { hosts } from "./schema.js";
 import { FieldCrypto } from "../../utils/field-crypto.js";
@@ -1143,6 +1144,135 @@ describe("Phase 107 migration — drop hidden_conversation_ids from user_prefere
     expect(postCols).toContain("font_size");
     expect(postCols).toContain("accent_color");
     expect(postCols).toContain("reopen_tabs_on_login");
+    expect(postCols).toContain("user_id");
+    expect(postCols).toContain("updated_at");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 137 D-31/D-32: runReopenTabsColumnDrop
+// ─────────────────────────────────────────────────────────────────────────────
+// Retires the fork holdover `reopen_tabs_on_login` column. Same OLD/NEW pair
+// as the sibling drops so future refactors can't silently regress:
+//
+//   P137-01: OLD schema (Phase-107 shape — has reopen_tabs_on_login, hidden
+//     already gone) → runReopenTabsColumnDrop → column absent; sibling values
+//     preserved; post-drop SELECT throws.
+//   P137-02: NEW schema (post-Phase-137 shape — column absent) →
+//     runReopenTabsColumnDrop → idempotent no-op; shape unchanged.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// OLD user_preferences shape at the start of Phase 137 — post-Phase-107, both
+// conversation-ids columns already gone but reopen_tabs_on_login still there.
+const OLD_USER_PREFERENCES_WITH_REOPEN_TABS_CREATE_SQL = `
+  CREATE TABLE user_preferences (
+    user_id TEXT PRIMARY KEY,
+    reopen_tabs_on_login INTEGER NOT NULL DEFAULT 0,
+    theme TEXT,
+    font_size TEXT,
+    accent_color TEXT,
+    language TEXT,
+    fallback_voice TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+// NEW user_preferences shape after Phase 137 — reopen_tabs_on_login dropped;
+// fallback_voice added. This is the shape a fresh install has.
+const NEW_USER_PREFERENCES_POST_REOPEN_DROP_CREATE_SQL = `
+  CREATE TABLE user_preferences (
+    user_id TEXT PRIMARY KEY,
+    theme TEXT,
+    font_size TEXT,
+    accent_color TEXT,
+    language TEXT,
+    fallback_voice TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+describe("Phase 137 migration — drop reopen_tabs_on_login from user_preferences", () => {
+  it("Test P137-01: OLD schema → drop → reopen_tabs_on_login absent, sibling values preserved, post-drop SELECT throws", () => {
+    const db = new Database(":memory:");
+    db.exec(OLD_USER_PREFERENCES_WITH_REOPEN_TABS_CREATE_SQL);
+
+    // Seed one row — theme + language + fallback_voice are the survivors we'll
+    // assert on; reopen_tabs_on_login is the column being dropped.
+    db.prepare(
+      `INSERT INTO user_preferences
+       (user_id, reopen_tabs_on_login, theme, font_size, accent_color, language,
+        fallback_voice, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "u1",
+      1,
+      "dark",
+      null,
+      null,
+      "en",
+      "Joanna",
+      "2026-09-27T00:00:00.000Z",
+    );
+
+    // Sanity: reopen_tabs_on_login present pre-migration.
+    const preCols = columnNames(db, "user_preferences");
+    expect(preCols).toContain("reopen_tabs_on_login");
+
+    // Run the drop against this test db handle (not the module singleton).
+    runReopenTabsColumnDrop(db);
+
+    // Post-migration: reopen_tabs_on_login gone.
+    const postCols = columnNames(db, "user_preferences");
+    expect(postCols).not.toContain("reopen_tabs_on_login");
+
+    // Sibling columns preserved.
+    expect(postCols).toContain("theme");
+    expect(postCols).toContain("language");
+    expect(postCols).toContain("fallback_voice");
+    expect(postCols).toContain("updated_at");
+    expect(postCols).toContain("user_id");
+    expect(postCols).toContain("font_size");
+    expect(postCols).toContain("accent_color");
+
+    // Byte-for-byte value preservation on the surviving columns.
+    const row = db
+      .prepare(
+        "SELECT theme, language, fallback_voice FROM user_preferences WHERE user_id = ?",
+      )
+      .get("u1") as
+      | { theme: string | null; language: string | null; fallback_voice: string | null }
+      | undefined;
+    expect(row).toBeDefined();
+    expect(row!.theme).toBe("dark");
+    expect(row!.language).toBe("en");
+    expect(row!.fallback_voice).toBe("Joanna");
+
+    // Post-drop SELECT throws — proves the column is physically absent, not
+    // just hidden from PRAGMA output.
+    expect(() =>
+      db.prepare("SELECT reopen_tabs_on_login FROM user_preferences").get(),
+    ).toThrow();
+  });
+
+  it("Test P137-02: NEW schema (reopen_tabs_on_login already absent) → migrate is idempotent no-op", () => {
+    const db = new Database(":memory:");
+    db.exec(NEW_USER_PREFERENCES_POST_REOPEN_DROP_CREATE_SQL);
+
+    // Sanity: column absent up front.
+    const preCols = columnNames(db, "user_preferences").sort();
+    expect(preCols).not.toContain("reopen_tabs_on_login");
+
+    // Idempotent — must not throw even though drop target is absent.
+    expect(() => runReopenTabsColumnDrop(db)).not.toThrow();
+
+    // Table shape unchanged — all sibling columns still present.
+    const postCols = columnNames(db, "user_preferences").sort();
+    expect(postCols).toEqual(preCols);
+    expect(postCols).toContain("theme");
+    expect(postCols).toContain("language");
+    expect(postCols).toContain("fallback_voice");
+    expect(postCols).toContain("font_size");
+    expect(postCols).toContain("accent_color");
     expect(postCols).toContain("user_id");
     expect(postCols).toContain("updated_at");
   });
