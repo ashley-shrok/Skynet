@@ -169,9 +169,13 @@ function TerminalTabContent({
         splitScreen={false}
         onClose={() => onCloseTab?.(tab.id)}
         onTmuxSessionChange={onTmuxSessionChange}
-        onTmuxSessionMissing={(sessionName) =>
-          onTmuxSessionMissing?.(tab.instanceId, sessionName)
-        }
+        onTmuxSessionMissing={() => {
+          // Any tmux-session-vanished signal (self-archive, killed
+          // session, URL restore to a dead session) closes the tab.
+          // doCloseTab handles the server-side open_tabs purge for
+          // terminal tabs via the PERSISTENT_TAB_TYPES gate.
+          onCloseTab?.(tab.id);
+        }}
         previewTheme={previewTerminalTheme}
         />
       </Suspense>

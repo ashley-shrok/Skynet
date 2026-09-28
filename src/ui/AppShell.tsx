@@ -862,11 +862,16 @@ export function AppShell({
     [],
   );
 
-  // Backend reported the target tmux session doesn't exist on the host
-  // (attach-only path; the tab was restored from URL or persisted state).
-  // Purge the row from server-side open_tabs so a broken tab doesn't
-  // rehydrate on next login. The tab stays visible so the inline pane
-  // error is still readable — the user closes it manually.
+  // Historical: fired when the backend reported the target tmux session
+  // doesn't exist. Now unused at the leaves — the terminal wrapper
+  // closures in IdentitySessionPane.tsx and tabUtils.tsx call
+  // `onCloseTab` directly on `tmux_session_missing`, so any tab whose
+  // tmux vanishes (identity self-archive, killed session, URL restore
+  // to a dead session) closes automatically. `doCloseTab` handles the
+  // server-side `open_tabs` purge via the PERSISTENT_TAB_TYPES gate, so
+  // this callback's `deleteOpenTab` is redundant. Left plumbed for a
+  // moment in case a future path needs the "session missing" signal
+  // without closing.
   const handleTmuxSessionMissing = useCallback(
     (instanceId: string, sessionName: string) => {
       // Phase 41 code-review M5: log the failure. Previously this
