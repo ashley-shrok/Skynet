@@ -106,7 +106,9 @@ ENV DATA_DIR=/app/data \
 RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget ffmpeg systemd jq tmux && \
     update-ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx /var/log/skynet/console-forward && \
+    mkdir -p /app/data /app/uploads /app/data/.opk /app/nginx \
+        /tmp/nginx/proxy_temp /tmp/nginx/client_body /tmp/nginx/fastcgi_temp /tmp/nginx/scgi_temp /tmp/nginx/uwsgi_temp \
+        /var/log/skynet/console-forward && \
     chown -R node:node /app /tmp/nginx /var/log/skynet && \
     chmod 755 /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx /var/log/skynet /var/log/skynet/console-forward
 # `systemd` package provides the `systemctl` client binary — needed for the
