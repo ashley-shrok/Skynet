@@ -133,6 +133,23 @@ export type SessionMetaEvent = {
   totalLines?: number;
 };
 
+/**
+ * Dormant-branch analog of `SessionMetaEvent`. Emitted after the dormant
+ * branch discovers the identity's most-recently active JSONL file, so the
+ * load-more button's visibility gate has `sessionTotalLines` populated on
+ * dormant panes too. Distinct frame type (rather than a widened `session`
+ * frame) because the client's `session` handler also flips status to
+ * "streaming" and the auto-dismiss guard at PrettyView.tsx:2607 clears
+ * dormant state on receipt — both wrong for a dormant pane. Carries just
+ * enough for the gate: no pid (dormant panes have no live process); no
+ * status/pane-state semantics.
+ */
+export type DormantSessionMetaEvent = {
+  type: "dormant_session_meta";
+  sessionFile: string;
+  totalLines: number;
+};
+
 export type MessageEvent = {
   type: "message";
   role: "user" | "assistant";
@@ -471,6 +488,7 @@ export type MalformedLineEvent = {
 
 export type ClaudeSessionServerEvent =
   | SessionMetaEvent
+  | DormantSessionMetaEvent
   | MessageEvent
   | ImageEvent
   | InactiveEvent

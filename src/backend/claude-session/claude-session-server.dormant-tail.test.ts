@@ -386,6 +386,122 @@ describe("CASE-DT6: helper-throw fallback (defense-in-depth)", () => {
   });
 });
 
+// ─── CASE-DT8 ────────────────────────────────────────────────────────────────
+
+describe("CASE-DT8: successful discover + probeTotalLines emits dormant_session_meta frame", () => {
+  it("emits {type: 'dormant_session_meta', sessionFile, totalLines} via wsSend before the tail opens", async () => {
+    const absolutePath =
+      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/abc-123.jsonl";
+    const wsSendSpy = vi.fn();
+    const deps = makeDeps({
+      discoverIdentitySessionFile: vi.fn().mockResolvedValue(absolutePath),
+      wsSend: wsSendSpy,
+      probeTotalLines: vi.fn().mockResolvedValue(347),
+    });
+    const state = makeTailStateBox();
+
+    await __applyDormantBranchTailOpenForTests(deps, state);
+
+    // Probe called once with the discovered file.
+    expect(deps.probeTotalLines).toHaveBeenCalledTimes(1);
+    expect(deps.probeTotalLines).toHaveBeenCalledWith(absolutePath);
+
+    // wsSend received EXACTLY one frame — the dormant_session_meta emit.
+    expect(wsSendSpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(wsSendSpy.mock.calls[0][0] as string);
+    expect(payload).toEqual({
+      type: "dormant_session_meta",
+      sessionFile: absolutePath,
+      totalLines: 347,
+    });
+
+    // Tail still opens (dormant-tail behavior unchanged).
+    expect(deps.tailSessionFile).toHaveBeenCalledTimes(1);
+    expect(state.tailHandle).not.toBeNull();
+  });
+});
+
+// ─── CASE-DT9 ────────────────────────────────────────────────────────────────
+
+describe("CASE-DT9: probeTotalLines throw skips the emit but preserves dormant-tail behavior", () => {
+  it("does NOT emit dormant_session_meta, logs warn, still opens tail", async () => {
+    const absolutePath = "/home/ubuntu/.claude/projects/x/y.jsonl";
+    const wsSendSpy = vi.fn();
+    const warnSpy = vi.fn();
+    const deps = makeDeps({
+      discoverIdentitySessionFile: vi.fn().mockResolvedValue(absolutePath),
+      wsSend: wsSendSpy,
+      probeTotalLines: vi
+        .fn()
+        .mockRejectedValue(new Error("SSH channel closed")),
+      logger: { info: vi.fn(), warn: warnSpy },
+    });
+    const state = makeTailStateBox();
+
+    await expect(
+      __applyDormantBranchTailOpenForTests(deps, state),
+    ).resolves.toBeUndefined();
+
+    // Probe was attempted.
+    expect(deps.probeTotalLines).toHaveBeenCalledTimes(1);
+    // No dormant_session_meta emitted.
+    expect(wsSendSpy).not.toHaveBeenCalled();
+    // Warn logged with the diagnostic op code.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const [msg, meta] = warnSpy.mock.calls[0];
+    expect(msg).toBe("Dormant totalLines probe failed");
+    expect(meta).toMatchObject({
+      operation: "pv_dormant_totalLines_probe_failed",
+    });
+    // Tail still opens — probe failure is non-fatal.
+    expect(deps.tailSessionFile).toHaveBeenCalledTimes(1);
+    expect(state.tailHandle).not.toBeNull();
+  });
+});
+
+// ─── CASE-DT10 ───────────────────────────────────────────────────────────────
+
+describe("CASE-DT10: probeTotalLines absent — no emit, backward-compat with pre-fix seams", () => {
+  it("no wsSend call; no probe attempt; tail still opens", async () => {
+    const absolutePath = "/home/ubuntu/.claude/projects/x/y.jsonl";
+    const wsSendSpy = vi.fn();
+    const deps = makeDeps({
+      discoverIdentitySessionFile: vi.fn().mockResolvedValue(absolutePath),
+      wsSend: wsSendSpy,
+      // probeTotalLines deliberately omitted — mirrors the pre-Bug-2 seam
+      // shape so any caller that hasn't been updated stays safe.
+    });
+    const state = makeTailStateBox();
+
+    await __applyDormantBranchTailOpenForTests(deps, state);
+
+    expect(wsSendSpy).not.toHaveBeenCalled();
+    expect(deps.tailSessionFile).toHaveBeenCalledTimes(1);
+    expect(state.tailHandle).not.toBeNull();
+  });
+});
+
+// ─── CASE-DT11 ───────────────────────────────────────────────────────────────
+
+describe("CASE-DT11: null discovery does NOT invoke probeTotalLines or emit", () => {
+  it("probe skipped when there's no file to probe", async () => {
+    const wsSendSpy = vi.fn();
+    const probeSpy = vi.fn().mockResolvedValue(999);
+    const deps = makeDeps({
+      discoverIdentitySessionFile: vi.fn().mockResolvedValue(null),
+      wsSend: wsSendSpy,
+      probeTotalLines: probeSpy,
+    });
+    const state = makeTailStateBox();
+
+    await __applyDormantBranchTailOpenForTests(deps, state);
+
+    expect(probeSpy).not.toHaveBeenCalled();
+    expect(wsSendSpy).not.toHaveBeenCalled();
+    expect(deps.tailSessionFile).not.toHaveBeenCalled();
+  });
+});
+
 // ─── CASE-DT7 ────────────────────────────────────────────────────────────────
 
 describe("CASE-DT7: WS-close cleanup path stops the dormant tail via teardownPane (T-32-06)", () => {

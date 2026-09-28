@@ -2748,6 +2748,22 @@ export function PrettyView({
           lastKnownSessionFileRef.current = parsed.sessionFile;
           break;
         }
+        case "dormant_session_meta": {
+          // Dormant-branch analog of "session" — populates sessionTotalLines
+          // so the load-more button's visibility gate evaluates correctly on
+          // dormant panes too. Distinct case (not a widened "session")
+          // because the "session" handler above flips status to "streaming"
+          // and the auto-dismiss guard at L2607 clears dormant state — both
+          // wrong for a dormant pane. Also stashes lastKnownSessionFileRef
+          // so if the pane later wakes and gets a real "session" frame, the
+          // rotation-detection compare has a baseline. No status flip; no
+          // dormant clear.
+          if (typeof parsed.totalLines === "number") {
+            setSessionTotalLines(parsed.totalLines);
+          }
+          lastKnownSessionFileRef.current = parsed.sessionFile;
+          break;
+        }
         case "message": {
           // Widget-submit envelope arrival (2026-09-28): the backend parser
           // now emits widget-envelope wrapper-only user turns as message

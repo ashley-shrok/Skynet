@@ -3273,10 +3273,21 @@ export type __DormantBranchTailOpenDepsForTests = {
   ) => { stop: () => void };
   onLine: (line: string) => void;
   onError: (err: Error) => void;
-  wsSend: (data: string) => void; // parity with other seams — may be unused
+  wsSend: (data: string) => void;
   logger: {
     info: (msg: string, meta: Record<string, unknown>) => void;
-  }; // sshLogger stub
+    warn?: (msg: string, meta: Record<string, unknown>) => void;
+  }; // sshLogger stub — warn used for probe-failure diagnostics
+  /**
+   * Optional probe emitted after a successful discovery so the client's
+   * load-more visibility gate can evaluate on dormant panes. Returns the
+   * current line count of the discovered JSONL file. When present AND
+   * discovery succeeds, the seam emits a `{type: "dormant_session_meta",
+   * sessionFile, totalLines}` frame via `wsSend`. Absent (or throws) → no
+   * emit; the button stays hidden but everything else keeps working
+   * (backward-compat with pre-emit backend builds + fail-safe posture).
+   */
+  probeTotalLines?: (sessionFile: string) => Promise<number>;
 };
 
 /** Mutable state for the dormant-branch tail-open seam. */
@@ -3339,6 +3350,8 @@ export async function __applyDormantBranchTailOpenForTests(
     onLine,
     onError,
     logger,
+    wsSend,
+    probeTotalLines,
   } = deps;
   try {
     const discoveredFile = await discover(conn, tmuxSession);
@@ -3350,6 +3363,31 @@ export async function __applyDormantBranchTailOpenForTests(
       // Cache the resolved path for the dormant-poll timer's JSONL-read
       // context-pct emit (piggybacked on the sentinel poll).
       state.setDormantSessionFile?.(discoveredFile);
+      // Load-more visibility gate for dormant panes: probe the JSONL's line
+      // count and emit `dormant_session_meta` so PrettyView's
+      // `sessionTotalLines != null && sessionHasMore && sessionTotalLines >
+      // effectiveMessages.length` gate can evaluate. Skipped when the dep is
+      // absent (backward-compat / seam-not-driven tests) or the probe throws
+      // (fail-safe — button stays hidden, pane still works). Emitted AFTER
+      // the tail-open below so the client sees metadata alongside the first
+      // batch of tail-delivered bubbles, not before.
+      if (probeTotalLines !== undefined) {
+        try {
+          const totalLines = await probeTotalLines(discoveredFile);
+          wsSend(
+            JSON.stringify({
+              type: "dormant_session_meta",
+              sessionFile: discoveredFile,
+              totalLines,
+            }),
+          );
+        } catch (err) {
+          logger.warn?.("Dormant totalLines probe failed", {
+            operation: "pv_dormant_totalLines_probe_failed",
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
       // SAME onLine/onError refs — no wrapping (D-08).
       const handle = tail(sshConn, discoveredFile, onLine, onError);
       state.setTailHandle(handle);
@@ -7220,6 +7258,28 @@ wss.on("connection", async (ws: WebSocket, req) => {
                         tmuxSession,
                         ...meta,
                       }),
+                    warn: (msg, meta) =>
+                      sshLogger.warn(msg, {
+                        userId,
+                        sessionId,
+                        hostId,
+                        tmuxSession,
+                        ...meta,
+                      }),
+                  },
+                  // Load-more visibility gate for dormant panes — see the
+                  // probeTotalLines JSDoc on __DormantBranchTailOpenDepsForTests
+                  // and the emit block inside the seam. count=1 is the cheapest
+                  // possible SSH probe (mirrors startActiveSessionFlow's
+                  // connect-time probe at L~6104).
+                  probeTotalLines: async (sessionFile) => {
+                    const result = await readSessionFileRange(
+                      sshConn!,
+                      sessionFile,
+                      1,
+                      1,
+                    );
+                    return result.totalLines;
                   },
                 },
                 {

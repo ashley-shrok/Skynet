@@ -912,4 +912,97 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
       count: 20,
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Bug-2 regression — dormant panes emit a distinct dormant_session_meta
+  // frame (no "session" frame; no pid), so the visibility gate has to
+  // populate sessionTotalLines from that frame just like it does from the
+  // active-branch "session" frame. Locks the wire-type-to-gate wiring so a
+  // future refactor doesn't silently drop the dormant path back to
+  // sessionTotalLines=null.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("Test 11 (Bug 2): dormant_session_meta frame populates the load-more gate on dormant panes", async () => {
+    render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    // Simulate the dormant-branch attach: WS opens, backend emits
+    // dormant_session_meta (no `session` frame), then the dormant tail
+    // delivers the last 20 lines of the JSONL file.
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "dormant_session_meta",
+            sessionFile: "/tmp/dormant.jsonl",
+            totalLines: 100,
+          }),
+        }),
+      );
+    });
+    fireMessageBatch(ws, 20, 81, (i) => ({
+      type: "message",
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: `dormant tail ${i}`,
+      eventId: `evt-dt-${i}`,
+      ts: 2_000_000 + i,
+    }));
+
+    await waitFor(() => {
+      expect(getBubbles().length).toBe(20);
+    });
+
+    // Gate: sessionTotalLines(100) > messages.length(20) → button visible.
+    expect(
+      screen.getByRole("button", { name: /Load older messages/i }),
+    ).toBeTruthy();
+  });
+
+  it("Test 12 (Bug 2): dormant_session_meta with totalLines <= messages.length hides the button", async () => {
+    render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    // Short dormant conversation — 15-line JSONL, all 15 delivered via tail.
+    // Button MUST stay hidden (nothing older behind the view).
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "dormant_session_meta",
+            sessionFile: "/tmp/dormant-short.jsonl",
+            totalLines: 15,
+          }),
+        }),
+      );
+    });
+    fireMessageBatch(ws, 15, 1, (i) => ({
+      type: "message",
+      role: "assistant",
+      content: `short ${i}`,
+      eventId: `evt-short-${i}`,
+      ts: 3_000_000 + i,
+    }));
+
+    await waitFor(() => {
+      expect(getBubbles().length).toBe(15);
+    });
+
+    expect(
+      screen.queryByRole("button", { name: /Load older messages/i }),
+    ).toBeNull();
+  });
 });
