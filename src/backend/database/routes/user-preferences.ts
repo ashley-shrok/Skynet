@@ -18,6 +18,7 @@ import {
 import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
+import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -165,6 +166,22 @@ export async function handlePutPreferences(
     if (value !== undefined && value !== null && typeof value !== "string") {
       return res.status(400).json({ error: `${key} must be a string` });
     }
+  }
+
+  // Phase 137 D-14 whitelist gate: fallbackVoice must be either null (reset to
+  // hardcoded default) or one of the seven Polly voice IDs. Mirrors the same
+  // whitelist the identity/role voice binding uses at
+  // src/backend/database/routes/identities.ts. Reject unknown strings so a
+  // logged-in client can't wedge junk into the row and can't accidentally
+  // store an unbounded-length blob.
+  if (
+    fallbackVoice !== undefined &&
+    fallbackVoice !== null &&
+    !isValidPollyVoice(fallbackVoice)
+  ) {
+    return res.status(400).json({
+      error: "fallbackVoice must be one of the supported Polly voice IDs, or null to reset",
+    });
   }
 
   if (theme !== undefined) updates.theme = theme;
