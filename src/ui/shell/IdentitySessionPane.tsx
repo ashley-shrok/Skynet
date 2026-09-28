@@ -539,6 +539,7 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             // Slice-4 in a follow-up cleanup once every internal consumer
             // has been proven to read from `source` instead.
             hostId={parseInt(host.id, 10)}
+            hostName={host.name}
             tmuxSession={effectiveTmuxSession ?? ""}
             className="flex-1 min-h-0"
             isVisible={isVisible}

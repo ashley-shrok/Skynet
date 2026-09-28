@@ -109,44 +109,14 @@ describe("useEditableFileEligibility — Phase 137 Map return type + widget clas
     expect(mockFetchHostFile).not.toHaveBeenCalled();
   });
 
-  it("Test 5 (file URL sync path — extension hit): Map has one entry with value 'file'; NO fetch fires", async () => {
-    const body = `See ${FILE_URL}`;
+  // Tests 5-6 removed: they exercised the file-URL classification path
+  // (extension whitelist + async byte-sniff) that this hook used to own.
+  // Under shape 2026-09-28, file-URL rendering is a synchronous URL-shape
+  // check inside ChatMessage's a-override; this hook no longer classifies
+  // file URLs at all. File-URL rendering is covered end-to-end by the
+  // ChatMessage.WidgetBubble / ChatMessage.multi-widget test suites.
 
-    const { result } = renderHook(() =>
-      useEditableFileEligibility("e5", body),
-    );
-
-    await waitFor(() => {
-      expect(result.current.get(FILE_URL)).toBe("file");
-    });
-
-    expect(mockFetch).not.toHaveBeenCalled();
-    expect(mockFetchHostFile).not.toHaveBeenCalled();
-  });
-
-  it("Test 6 (file URL async path — extension miss, fetch resolves textish): Map gains 'file' entry", async () => {
-    const extensionlessFileUrl = "https://term.example.com/file/thenasty/home/ubuntu/myscript";
-    mockFetchHostFile.mockResolvedValue({
-      ...BASE_RESPONSE,
-      filename: "myscript",
-      isTextByExt: false,
-      isTextByBytes: true,
-    });
-
-    const body = extensionlessFileUrl;
-
-    const { result } = renderHook(() =>
-      useEditableFileEligibility("e6", body),
-    );
-
-    await waitFor(() => {
-      expect(result.current.get(extensionlessFileUrl)).toBe("file");
-    });
-
-    expect(mockFetchHostFile).toHaveBeenCalledWith(extensionlessFileUrl);
-  });
-
-  it("Test 7 (mixed widget + file URL): Map has TWO entries — widget URL 'interactive-message' + file URL 'file'", async () => {
+  it("Test 7 (mixed widget + file URL): file URL is IGNORED; only the widget URL enters the Map", async () => {
     const body = `Here is the file: ${FILE_URL} and the widget: ${WIDGET_URL}`;
 
     const { result } = renderHook(() =>
@@ -155,12 +125,13 @@ describe("useEditableFileEligibility — Phase 137 Map return type + widget clas
 
     await waitFor(() => {
       expect(result.current.get(WIDGET_URL)).toBe("interactive-message");
-      expect(result.current.get(FILE_URL)).toBe("file");
     });
 
-    // Widget URL must NOT trigger any fetch
-    expect(mockFetch).not.toHaveBeenCalledWith(WIDGET_URL);
-    expect(mockFetchHostFile).not.toHaveBeenCalledWith(WIDGET_URL);
+    // File URL is not this hook's concern anymore.
+    expect(result.current.has(FILE_URL)).toBe(false);
+    // Widget URL must NOT trigger any fetch (widget dispatch is pure regex).
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockFetchHostFile).not.toHaveBeenCalled();
   });
 
   it("Test 8 (widget URL NOT included in fetch calls): widget URL skips the async fetch loop entirely", async () => {

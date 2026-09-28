@@ -279,6 +279,17 @@ export interface PrettyViewProps {
   // back to required once every internal caller has been migrated.
   source?: ChatSurfaceSource;
   hostId: number;
+  /**
+   * String hostname (e.g. `t1000`) for the target host — matches
+   * `hosts.name` in the DB and the `<host>` segment of the Skynet
+   * `/file/<host>/<abs-path>` URL grammar. Threaded down to ChatMessage
+   * so the injected user-turn's file entries can be rendered as
+   * interactive FileChips pointing at the landing path on that host.
+   * Optional so the relay-source mount site (which has no fleet host)
+   * can pass undefined; when absent, user attachment chips stay in
+   * their static read-only form.
+   */
+  hostName?: string;
   tmuxSession: string;
   className?: string;
   style?: React.CSSProperties;
@@ -651,6 +662,7 @@ function useFleetIdentityHosts(): Record<string, number> {
 export function PrettyView({
   source: sourceProp,
   hostId,
+  hostName,
   tmuxSession,
   className,
   style,
@@ -4329,6 +4341,7 @@ export function PrettyView({
                   eventId={m.eventId}
                   autoplayArmed={autoplayArmed}
                   autoplayTargetEventId={autoplayTargetEventId}
+                  hostName={hostName}
                   onLongPressSpeak={handleLongPressSpeak}
                   onOpenEditor={handleOpenEditor}
                   // Phase 137 D-137: wire widget-submit handler so WidgetBubble
@@ -4385,6 +4398,7 @@ export function PrettyView({
                   content={p.content}
                   pendingState={computedPendingState}
                   attachments={p.attachments}
+                  hostName={hostName}
                 />
               </div>
             );

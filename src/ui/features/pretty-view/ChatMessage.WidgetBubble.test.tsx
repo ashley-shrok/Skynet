@@ -1,16 +1,17 @@
 /**
- * Phase 137 Plan 04 Task 3 — ChatMessage wiring tests for WidgetBubble.
+ * ChatMessage wiring tests for WidgetBubble + file-chip dispatch.
  *
- * Tests exercise the URL-type dispatch in the `a` markdown override:
- *   - 'interactive-message' → WidgetBubble iframe (NOT anchor)
- *   - 'file' → anchor + EditableFileAffordance (existing behavior preserved)
- *   - null/plain URL → plain anchor with target=_blank rel=noopener noreferrer
+ * Tests exercise the URL dispatch in the `a` markdown override:
+ *   - Skynet file URL → FileChip (shape 2026-09-28)
+ *   - 'interactive-message' URL → WidgetBubble iframe (NOT anchor)
+ *   - anything else → plain anchor with target=_blank rel=noopener noreferrer
  *
  * Mock strategy:
  *   - vi.mock("./use-editable-file-eligibility") — controllable per-test via
- *     mockReturnValue, returning Map<string, "file" | "interactive-message">
- *   - vi.mock("./WidgetBubble") — lightweight mock to detect render and capture props
- *   - Do NOT mock EditableFileAffordance — real component used for wiring test
+ *     mockReturnValue, returning Map<string, "file" | "interactive-message">.
+ *     Only the "interactive-message" mapping matters now — file dispatch is a
+ *     synchronous URL-shape check inside ChatMessage's a-override.
+ *   - Do NOT mock FileChip or WidgetBubble — real components used for wiring test
  *   - vi.mock voice-api and webAudioStreamPlayer (standard ChatMessage deps)
  */
 
@@ -43,7 +44,8 @@ vi.mock("./use-editable-file-eligibility", () => ({
 const mockedHook = vi.mocked(useEditableFileEligibility);
 
 const WIDGET_URL = "https://term.example.com/interactive/3/poll-abc/pane/";
-const FILE_URL = "http://100.64.0.1:8000/notes.md";
+// Skynet /file/<host>/<abs-path> — the pattern that renders as FileChip.
+const FILE_URL = "https://term.example.com/file/t1000/home/ubuntu/notes.md";
 const PLAIN_URL = "https://example.com/some-page";
 
 beforeEach(() => {
@@ -77,10 +79,10 @@ describe("ChatMessage — WidgetBubble URL-type dispatch (Phase 137 Plan 04)", (
     expect(link).toBeNull();
   });
 
-  it("Test 2: file URL in body still renders anchor + EditableFileAffordance (existing behavior preserved)", () => {
-    mockedHook.mockReturnValue(
-      new Map([[FILE_URL, "file"]]),
-    );
+  it("Test 2: Skynet file URL in body renders a FileChip anchor (no pencil affordance, no iframe)", () => {
+    // Hook's file mapping is unused now (chip renders based on URL shape),
+    // but we leave it empty to make that decoupling explicit.
+    mockedHook.mockReturnValue(new Map());
 
     render(
       <ChatMessage
@@ -91,25 +93,23 @@ describe("ChatMessage — WidgetBubble URL-type dispatch (Phase 137 Plan 04)", (
       />,
     );
 
-    // Anchor renders
-    const anchor = screen.getByRole("link", { name: /notes\.md/i });
-    expect(anchor).toBeTruthy();
-    expect(anchor.getAttribute("href")).toBe(FILE_URL);
+    // FileChip renders as an anchor with the file URL and the filename
+    // (underlined per the shape's affordance treatment). Both the plain
+    // and media variants of FileChip surface the filename as the anchor
+    // label; querying by name matches either.
+    const chipAnchor = screen.getByRole("link", { name: /notes\.md/i });
+    expect(chipAnchor.getAttribute("href")).toBe(FILE_URL);
 
-    // Edit affordance renders (file type → EditableFileAffordance)
-    const editBtn = screen.queryByRole("button", { name: /edit notes\.md/i });
-    expect(editBtn).not.toBeNull();
+    // The pencil affordance is gone — the chip is the entry point.
+    expect(screen.queryByRole("button", { name: /edit notes\.md/i })).toBeNull();
 
-    // No iframe rendered
+    // No widget iframe
     expect(screen.queryByTitle("Interactive widget")).toBeNull();
   });
 
-  it("Test 3: body with BOTH widget URL and file URL renders BOTH (iframe + anchor-with-affordance)", () => {
+  it("Test 3: body with BOTH widget URL and file URL renders BOTH (iframe + FileChip)", () => {
     mockedHook.mockReturnValue(
-      new Map([
-        [WIDGET_URL, "interactive-message"],
-        [FILE_URL, "file"],
-      ]),
+      new Map([[WIDGET_URL, "interactive-message"]]),
     );
 
     render(
@@ -124,9 +124,11 @@ describe("ChatMessage — WidgetBubble URL-type dispatch (Phase 137 Plan 04)", (
     // Widget renders as iframe
     expect(screen.queryByTitle("Interactive widget")).not.toBeNull();
 
-    // File renders as anchor + affordance
-    expect(screen.getByRole("link", { name: /notes\.md/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /edit notes\.md/i })).not.toBeNull();
+    // File URL renders as a FileChip anchor pointing at the file URL.
+    // The pencil affordance no longer exists — the chip is the entry point.
+    const chipAnchor = screen.getByRole("link", { name: /notes\.md/i });
+    expect(chipAnchor.getAttribute("href")).toBe(FILE_URL);
+    expect(screen.queryByRole("button", { name: /edit notes\.md/i })).toBeNull();
   });
 
   it("Test 4: plain URL (neither widget nor file) renders as plain anchor with target=_blank rel=noopener noreferrer", () => {
@@ -149,7 +151,7 @@ describe("ChatMessage — WidgetBubble URL-type dispatch (Phase 137 Plan 04)", (
 
     // No iframe
     expect(screen.queryByTitle("Interactive widget")).toBeNull();
-    // No edit affordance
+    // No edit affordance (the pencil is gone entirely under the new shape)
     expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
   });
 

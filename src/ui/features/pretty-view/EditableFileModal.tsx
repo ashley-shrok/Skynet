@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Code2, Eye, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -13,6 +13,7 @@ import {
   fetchHostFileUrl,
 } from "@/api/editable-file-api";
 import GlobalFileTab, { type GlobalFileTabData } from "./GlobalFileTab";
+import { classifyFileChipKind, type FileChipKind } from "./FileChip";
 import type { TabState } from "./IdentityFileTab";
 
 /**
@@ -217,6 +218,19 @@ export default function EditableFileModal({
   });
   const [isDirty, setIsDirty] = useState(false);
 
+  // Shape (2026-09-28) — classify by filename to decide viewer vs. editor.
+  // Media kinds (image/audio/video and svg-in-rendered-mode) render a native
+  // browser viewer straight from the URL and skip the base64→text fetch that
+  // the editor needs. SVG can toggle to code mode, which flips the modal back
+  // into the text-editor fetch flow.
+  const kind: FileChipKind = useMemo(
+    () => classifyFileChipKind(filename),
+    [filename],
+  );
+  const [svgViewMode, setSvgViewMode] = useState<"rendered" | "code">("rendered");
+  const usesEditorFetch =
+    kind === "plain" || (kind === "svg" && svgViewMode === "code");
+
   // Pitfall 6: mtime sentinel MUST be stable across renders. Captured ONCE
   // at fetch-success, reset only when the modal closes.
   const initialMtimeRef = useRef<number>(0);
@@ -227,6 +241,11 @@ export default function EditableFileModal({
   // is derivable from `url`, so it should never change independently — the
   // extra dep is harmless (rev-3 M7: prior version's comment claimed it was
   // excluded, but the array said otherwise; comment now matches reality).
+  //
+  // Shape (2026-09-28) — skips the fetch entirely for pure-media kinds
+  // (image/audio/video and svg-in-rendered-mode) since those render straight
+  // from the URL. Fires normally for plain text kinds and for SVG when the
+  // user has toggled to code mode.
   useEffect(() => {
     if (!open) {
       // Reset state on close so re-open starts fresh (D-06 stateless).
@@ -234,6 +253,13 @@ export default function EditableFileModal({
       setIsDirty(false);
       initialMtimeRef.current = 0;
       savingRef.current = false;
+      setSvgViewMode("rendered");
+      return;
+    }
+
+    if (!usesEditorFetch) {
+      // Media viewer path — no fetch needed; render the native element
+      // pointing at the URL. Leave fetchState untouched.
       return;
     }
 
@@ -288,7 +314,7 @@ export default function EditableFileModal({
     return () => {
       cancelled = true;
     };
-  }, [open, url, filename]);
+  }, [open, url, filename, usesEditorFetch]);
 
   // Draft-guard wrapper on onOpenChange. When closing (open→false) with a
   // dirty draft AND not mid-save, fire the confirm dialog. Passing through
@@ -379,14 +405,17 @@ export default function EditableFileModal({
               (aria-describedby target). Both are visually hidden — the
               in-body header carries the visible label; these serve screen
               readers and satisfy Radix's a11y contract. (Rev-3 M5.) */}
-          <DialogTitle className="sr-only">Edit {filename}</DialogTitle>
+          <DialogTitle className="sr-only">
+            {usesEditorFetch ? `Edit ${filename}` : `View ${filename}`}
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Textarea to edit the file's contents and save the result as an
-            attachment on your next reply.
+            {usesEditorFetch
+              ? "Textarea to edit the file's contents and save the result as an attachment on your next reply."
+              : "Native browser viewer for the file's contents."}
           </DialogDescription>
 
-          {/* Header — Phase 40 custom: "Edit {filename}" + optional
-              "from {agentIdentityName}" muted sub-header + glass X close. */}
+          {/* Header — filename + optional "from {agentIdentityName}" muted
+              sub-header + optional SVG view/code toggle + glass X close. */}
           <DialogHeader
             className="px-6 py-4 shrink-0 flex flex-row items-center gap-3"
             style={{ borderBottom: "1px solid rgba(220, 225, 245, 0.10)" }}
@@ -395,7 +424,7 @@ export default function EditableFileModal({
               className="text-[15px] font-semibold text-[#f0ebe0] truncate"
               title={filename}
             >
-              Edit {filename}
+              {filename}
             </div>
             {agentIdentityName ? (
               <div className="text-xs text-[#a89a80]">
@@ -403,6 +432,40 @@ export default function EditableFileModal({
               </div>
             ) : null}
             <div className="flex-1" />
+            {/* SVG view/code toggle — only rendered for .svg files. Default
+                view is "rendered"; toggle flips to "code" which triggers the
+                text-editor fetch and shows the source in the code editor. */}
+            {kind === "svg" ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setSvgViewMode((m) => (m === "rendered" ? "code" : "rendered"))
+                }
+                aria-label={
+                  svgViewMode === "rendered" ? "View source code" : "View rendered"
+                }
+                title={
+                  svgViewMode === "rendered" ? "View source code" : "View rendered"
+                }
+                className="shrink-0 cursor-pointer inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-xs text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color] duration-200"
+                style={{
+                  background: "rgba(255, 255, 255, 0.04)",
+                  border: "1px solid rgba(220, 225, 245, 0.10)",
+                }}
+              >
+                {svgViewMode === "rendered" ? (
+                  <>
+                    <Code2 className="size-3.5" aria-hidden />
+                    <span>Source</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="size-3.5" aria-hidden />
+                    <span>Rendered</span>
+                  </>
+                )}
+              </button>
+            ) : null}
             {/* Glass X close button — verbatim from GlobalFilesModal.tsx L246-270 */}
             <DialogClose asChild>
               <button
@@ -433,14 +496,20 @@ export default function EditableFileModal({
             </DialogClose>
           </DialogHeader>
 
-          {/* Body branches — loading / error / ready.
+          {/* Body branches — media viewer / loading / error / ready.
+              Media kinds (image/audio/video and svg-in-rendered-mode) render
+              a native browser viewer directly from the URL; no fetch, no
+              text editor. Text kinds and svg-in-code-mode fall through to
+              the existing loading/error/ready flow.
               Phase 40 UI-SPEC L110 tailnet copy kept verbatim as the
               tailnet-URL default (agent-server auto-kill guidance).
               Phase 75 D-02 layers per-class human copy on top for file
               URLs — see FILE_URL_ERROR_COPY + classifyModalError above.
               We do NOT delegate to GlobalFileTab's error branch here
               because the copy is Phase-40/75-specific. */}
-          {fetchState.status === "error" ? (
+          {!usesEditorFetch ? (
+            <MediaViewer kind={kind} url={url} filename={filename} />
+          ) : fetchState.status === "error" ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-8 text-center">
               <div className="text-lg font-semibold text-[#f0ebe0]">
                 {FILE_URL_DISPATCH_RE.test(url)
@@ -495,5 +564,61 @@ export default function EditableFileModal({
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  );
+}
+
+/**
+ * Native browser viewer for media kinds (image, audio, video, and svg in
+ * rendered mode). All four kinds source directly from the file URL — the
+ * browser fetches with the current Skynet session cookies and renders
+ * inline. Image / SVG cap at max-height so a tall picture doesn't blow out
+ * the modal; audio is a single row of native controls in the middle of the
+ * body; video renders with native controls and no autoplay (per shape
+ * philosophy). Read-only — no save button, no draft state, no download
+ * here (the chip's own download button handles save-to-disk).
+ */
+function MediaViewer({
+  kind,
+  url,
+  filename,
+}: {
+  kind: FileChipKind;
+  url: string;
+  filename: string;
+}): JSX.Element {
+  if (kind === "image" || kind === "svg") {
+    return (
+      <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-6 bg-black/30">
+        <img
+          src={url}
+          alt={filename}
+          className="max-w-full max-h-full object-contain"
+          draggable={false}
+        />
+      </div>
+    );
+  }
+  if (kind === "audio") {
+    return (
+      <div className="flex-1 min-h-0 flex items-center justify-center p-6">
+        <audio
+          src={url}
+          controls
+          preload="metadata"
+          className="w-full max-w-xl"
+        />
+      </div>
+    );
+  }
+  // video
+  return (
+    <div className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-6 bg-black/30">
+      <video
+        src={url}
+        controls
+        preload="metadata"
+        className="max-w-full max-h-full"
+      />
+    </div>
   );
 }

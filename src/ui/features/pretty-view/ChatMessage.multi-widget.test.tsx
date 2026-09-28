@@ -52,7 +52,9 @@ const mockedHook = vi.mocked(useEditableFileEligibility);
 const WIDGET_URL_1 = "https://term.example.com/interactive/3/poll-abc/pane/";
 const WIDGET_URL_2 = "https://term.example.com/interactive/3/color-xyz/pane/";
 const WIDGET_URL_3 = "https://term.example.com/interactive/3/rating-def/pane/";
-const FILE_URL = "http://100.64.0.1:8000/notes.md";
+// Skynet /file/<host>/<abs-path> URL — the pattern that renders as FileChip.
+// (Legacy tailnet URLs no longer render as chips under the 2026-09-28 shape.)
+const FILE_URL = "https://term.example.com/file/t1000/home/ubuntu/notes.md";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -157,14 +159,14 @@ describe("ChatMessage — multi-widget rendering (Phase 139 Plan 08)", () => {
     expect(srcs).toContain(WIDGET_URL_1);
     expect(srcs).toContain(WIDGET_URL_2);
 
-    // One anchor for the file URL
-    const anchor = screen.getByRole("link", { name: /notes\.md/i });
-    expect(anchor).toBeTruthy();
-    expect(anchor.getAttribute("href")).toBe(FILE_URL);
+    // FileChip anchor for the file URL (shape 2026-09-28: chip replaces
+    // the inline anchor + pencil pair; whole chip is an anchor with the
+    // file URL as href).
+    const chipAnchor = screen.getByRole("link", { name: /notes\.md/i });
+    expect(chipAnchor.getAttribute("href")).toBe(FILE_URL);
 
-    // Edit affordance for file URL
-    const editBtn = screen.queryByRole("button", { name: /edit notes\.md/i });
-    expect(editBtn).not.toBeNull();
+    // The pencil affordance is gone under the new shape.
+    expect(screen.queryByRole("button", { name: /edit notes\.md/i })).toBeNull();
 
     // No iframes for the file URL
     iframes.forEach((el) => {

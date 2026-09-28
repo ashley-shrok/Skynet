@@ -16,8 +16,38 @@ import { CopyableBlock } from "./CopyableBlock";
 import { postSpeakStream } from "@/api/voice-api";
 import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
-import { EditableFileAffordance } from "./EditableFileAffordance";
+import { FileChip } from "./FileChip";
 import { WidgetBubble } from "./WidgetBubble";
+
+// Returns true iff `href` is a Skynet-served file URL on THIS same origin.
+// Anchoring to `window.location.origin` closes an assistant-plants-tracking-
+// -pixel attack: an untrusted markdown link like
+// `https://attacker.tld/file/x/tracker.png` would otherwise render as a
+// FileChip whose <img src> fires a cookie-bearing request to attacker.tld,
+// leaking the user's presence. Same-origin URLs go through Skynet's own
+// backend, which already enforces host permissions.
+function isSkynetFileUrl(href: string | undefined): boolean {
+  if (!href) return false;
+  if (typeof window === "undefined") return false;
+  const prefix = `${window.location.origin}/file/`;
+  return href.startsWith(prefix);
+}
+
+/**
+ * Build a Skynet file URL from a host name and an absolute landing path.
+ * Encodes each path segment defensively so filenames with spaces, unicode,
+ * or reserved URL characters (`?` `#` `%` `&`) survive without injecting
+ * query / fragment syntax into the URL. The `/` separator is preserved.
+ */
+function buildSkynetFileUrl(hostName: string, landingPath: string): string {
+  const encodedHost = encodeURIComponent(hostName);
+  const encodedPath = landingPath
+    .split("/")
+    .filter((seg) => seg.length > 0)
+    .map(encodeURIComponent)
+    .join("/");
+  return `${window.location.origin}/file/${encodedHost}/${encodedPath}`;
+}
 import {
   getCurrentPlayer,
   setCurrentPlayer,
@@ -82,6 +112,7 @@ export function ChatMessage({
   onWidgetSubmit,
   pendingState = null,
   attachments,
+  hostName,
 }: {
   role: "user" | "assistant";
   content: string;
@@ -121,6 +152,13 @@ export function ChatMessage({
   // data-pv-bubble-failed. null | undefined = no rendering change
   // (back-compat with every existing mount site).
   pendingState?: "sending" | "failed" | null;
+  // Shape (2026-09-28): string hostname of the target host, used to build
+  // Skynet /file/<host>/<abs-path> URLs for the injected user-turn's file
+  // entries. Threaded from IdentitySessionPane → PrettyView → here. When
+  // present, injected-turn file entries render as interactive FileChips
+  // (same click contract as assistant-side chips); when absent, they fall
+  // back to the static read-only AttachmentChipStrip render.
+  hostName?: string;
   // Phase 80 D-15: attachments carried on a pending-with-attachments seed
   // (PendingSend.attachments — populated by Plan 02's onUploadReadyToInject
   // wiring). When present + non-empty AND the existing `injected` branch
@@ -387,22 +425,65 @@ export function ChatMessage({
   // faithful to the wire format — this transform is client-render-only.
   const processedContent = preprocessCommandTriplets(content);
   // BUG C1 fix: memoize the ReactMarkdown `components` object. Passing a fresh
-  // inline object literal every render forced ReactMarkdown to remount its
-  // child overrides — including <EditableFileAffordance>, which then re-fired
-  // useIsTouchDevice's initial-render flash on every parent re-render. Deps
-  // are exactly the values the `a` override closes over: eventId, onOpenEditor,
-  // eligibleUrls. The p/pre/blockquote overrides only close over module-scope
-  // imports (splitMarkers, CopyableBlock) — stable, not deps.
+  // inline object literal every render forces ReactMarkdown to remount its
+  // child overrides on every parent re-render. Deps are exactly the values
+  // the `a` override closes over: eventId, onOpenEditor, eligibleUrls.
+  // The p/pre/blockquote overrides only close over module-scope imports
+  // (splitMarkers, CopyableBlock) — stable, not deps.
   const markdownComponents = useMemo<Components>(() => ({
-    // Phase 137 D-137: URL-type dispatch on eligibleUrls.get(href).
-    // 'interactive-message' → swap for WidgetBubble (iframe replaces anchor
-    //   entirely — the URL is the embed target, not a click target).
-    // 'file' → preserve existing anchor + EditableFileAffordance render
-    //   (Phase 40 discipline — additive-not-replacive, D-03 locked).
-    // null → plain anchor (default markdown behavior with target=_blank).
+    // URL dispatch inside the assistant's rendered markdown:
+    //   file URL       → FileChip on its own line (shape 2026-09-28).
+    //   interactive-message URL → swap for WidgetBubble (Phase 137 D-137).
+    //   anything else  → plain anchor with target=_blank.
     a: ({ node: _node, ...rest }) => {
       const props = rest as React.AnchorHTMLAttributes<HTMLAnchorElement>;
       const href = props.href;
+
+      // File URL → render as FileChip on its own line inside the bubble.
+      // The chip replaces the inline hyperlink entirely; the wrapping span
+      // with `display: block` breaks the surrounding paragraph flow so the
+      // chip always sits on its own line, even when the URL was originally
+      // embedded mid-sentence.
+      //
+      // `isSkynetFileUrl` guards to same-origin only — an untrusted markdown
+      // link like `https://attacker.tld/file/x/tracker.png` must never
+      // become a chip whose media source fires a cookie-bearing request off
+      // to a third-party origin.
+      if (href && isSkynetFileUrl(href) && eventId && onOpenEditor) {
+        let filename = "";
+        try {
+          // Pitfall 8: URL.pathname strips ?query before we split.
+          const parsed = new URL(href);
+          const segments = parsed.pathname.split("/").filter(Boolean);
+          filename = segments.length > 0
+            ? decodeURIComponent(segments[segments.length - 1])
+            : "";
+        } catch {
+          // Malformed URL — bail to plain anchor rather than a chip
+          // titled with an empty filename.
+        }
+        // Fallback: if filename extraction produced nothing (URL ends in
+        // `/` or something similarly odd) but the URL shape matched, still
+        // render a chip so the shape's "every file MUST show up somewhere"
+        // invariant holds — better a chip labeled "file" than a silently-
+        // dropped URL.
+        const displayName = filename || "file";
+        return (
+          <span className="block my-1.5">
+            <FileChip
+              url={href}
+              filename={displayName}
+              onOpen={() =>
+                onOpenEditor({
+                  messageEventId: eventId,
+                  url: href,
+                  filename: displayName,
+                })
+              }
+            />
+          </span>
+        );
+      }
 
       // URL-type dispatch: eligibleUrls is now Map<string, "file" | "interactive-message">
       const urlType = (href && eligibleUrls.get(href)) ?? null;
@@ -412,39 +493,15 @@ export function ChatMessage({
         return <WidgetBubble src={href} onSubmit={onWidgetSubmit} />;
       }
 
-      // file or null: render anchor (with optional EditableFileAffordance for files)
-      let filename = "";
-      if (href && eventId && onOpenEditor && urlType === "file") {
-        try {
-          const parsed = new URL(href);
-          // Pitfall 8: URL.pathname strips ?query before we split.
-          filename = decodeURIComponent(
-            parsed.pathname.split("/").pop() ?? "",
-          );
-        } catch {
-          // Invalid URL — not a tailnet pattern anyway.
-        }
-      }
+      // Not a file URL and not an interactive-message URL — plain anchor.
+      // Tailnet URLs (legacy) fall here too; per shape they render as
+      // plain text-shaped links, not chips.
       return (
-        <>
-          <a
-            {...props}
-            target="_blank"
-            rel="noopener noreferrer"
-          />
-          {urlType === "file" && href && eventId && onOpenEditor ? (
-            <EditableFileAffordance
-              filename={filename}
-              onOpen={() =>
-                onOpenEditor!({
-                  messageEventId: eventId!,
-                  url: href!,
-                  filename,
-                })
-              }
-            />
-          ) : null}
-        </>
+        <a
+          {...props}
+          target="_blank"
+          rel="noopener noreferrer"
+        />
       );
     },
     p: ({ node, children, ...props }) => (
@@ -503,9 +560,10 @@ export function ChatMessage({
         title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
         style={bubbleInlineStyle}
         {...(showFailedBubble ? { "data-pv-bubble-failed": "true" } : {})}
-        // pv-bubble: hover-target class for descendants like
-        // EditableFileAffordance. Do NOT rename without updating
-        // [.pv-bubble:hover_&] selectors in child components.
+        // pv-bubble: hover-target class for any descendant that opts into
+        // a `.pv-bubble:hover_&` Tailwind selector. Historically read by
+        // the pencil-edit affordance; kept for future hover-descendants
+        // and for OutboundBubble which references the same idiom.
         className={cn(
           "pv-bubble",
           // Phase 4 Glass: raised-object bubble treatment.
@@ -570,35 +628,67 @@ export function ChatMessage({
         {isQuickReply ? (
           <ThumbsUp className="size-6" aria-label="quick reply" />
         ) : injected ? (
-          // Phase 05 Plan 03 (UPLOAD-11): sender-side render of an injected
-          // user turn. Caption text sits above an inline chip strip inside
-          // the SAME bubble. Chips are filename + human-size only — no
-          // thumbnails, no inline previews even for images, no landing-path
-          // display (HARD LOCK from CONTEXT.md § Sender-side rendering).
-          // AttachmentChipStrip runs in readOnly mode: no × remove, no
-          // progress ring, no error decorations.
+          // Sender-side render of an injected user turn. Caption text sits
+          // above the file chips inside the SAME bubble.
+          //
+          // Shape (2026-09-28): if hostName + eventId + onOpenEditor are all
+          // available, render each file entry as an interactive FileChip
+          // pointing at the file's landing URL on the host — same click
+          // contract, media preview, and download control as assistant-side
+          // chips. Falls back to the original static AttachmentChipStrip
+          // render when any of those are missing (e.g. relay-source mount,
+          // no host context, older messages without eventId hooks).
           <>
             {injected.caption.length > 0 && (
               <div className="pv-injected-caption whitespace-pre-wrap mb-2">
                 {injected.caption}
               </div>
             )}
-            <AttachmentChipStrip
-              attachments={injected.files.map((f) => ({
-                // tempId is unique per-file inside this bubble; landingPath
-                // is guaranteed unique by the backend's collision-suffix loop
-                // (Plan 01 orchestrator) so it doubles as a stable key.
-                tempId: f.landingPath,
-                file: { name: f.filename, size: f.size, type: f.mimetype },
-                status: "complete",
-                bytesUploaded: f.size,
-                error: null,
-              }))}
-              onRemove={() => {
-                /* readOnly — never fires */
-              }}
-              readOnly={true}
-            />
+            {hostName && eventId && onOpenEditor ? (
+              injected.files.map((f) => {
+                // Build the Skynet file URL from the browser origin, the
+                // target hostname, and the file's absolute landing path.
+                // encodeURIComponent per path segment escapes spaces, `?`,
+                // `#`, and unicode without swallowing the `/` separator,
+                // so a landingPath like `/foo?bar` or `/dir/with space/x`
+                // survives correctly and can't inject query / fragment
+                // syntax into the URL.
+                const chipUrl = buildSkynetFileUrl(hostName, f.landingPath);
+                return (
+                  <div key={f.landingPath} className="my-1.5">
+                    <FileChip
+                      url={chipUrl}
+                      filename={f.filename}
+                      size={f.size}
+                      onOpen={() =>
+                        onOpenEditor({
+                          messageEventId: eventId,
+                          url: chipUrl,
+                          filename: f.filename,
+                        })
+                      }
+                    />
+                  </div>
+                );
+              })
+            ) : (
+              <AttachmentChipStrip
+                attachments={injected.files.map((f) => ({
+                  // tempId is unique per-file inside this bubble; landingPath
+                  // is guaranteed unique by the backend's collision-suffix loop
+                  // (Plan 01 orchestrator) so it doubles as a stable key.
+                  tempId: f.landingPath,
+                  file: { name: f.filename, size: f.size, type: f.mimetype },
+                  status: "complete",
+                  bytesUploaded: f.size,
+                  error: null,
+                }))}
+                onRemove={() => {
+                  /* readOnly — never fires */
+                }}
+                readOnly={true}
+              />
+            )}
           </>
         ) : attachments && attachments.length > 0 ? (
           // Phase 80 D-15: pending-with-attachments render. Fires when the
