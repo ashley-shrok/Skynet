@@ -214,17 +214,21 @@ export interface RuntimeCatalogEntry {
 export type CatalogEntry = BundledCatalogEntry | RuntimeCatalogEntry;
 
 /**
- * The 50-row hand-maintained catalog. Ordered skills-side first (id,
+ * The 121-row hand-maintained catalog. Ordered skills-side first (id,
  * agent-relay, single-file skills, then app-development), then scripts-side,
  * then user-onboarding/ files, then Phase 92 additions (fleet-status-sweep),
- * then Phase 95 additions (pv-context-pct-sweep), then the mega-monitor
- * ambient-monitor launcher, then the Phase 114 twinkie
- * (instance-policy-claude-md — the first runtime-sourced row and the first
- * system-root-installed row).
+ * then Phase 95 additions (pv-context-pct-sweep), then the interactive-messages
+ * skill payload (backfilled 2026-09-28 alongside the Phase 140 GC trio it
+ * depends on), then the mega-monitor ambient-monitor launcher, then the
+ * Phase 114 twinkie (instance-policy-claude-md — the first runtime-sourced
+ * row and the first system-root-installed row).
  * Within skills, multi-file skills (id, agent-relay) appear before single-file
  * skills for reviewability. app-development is a multi-file skill with a
  * bundled starter template — the 26 rows for it are grouped and commented as
  * a single block after the single-file skills to keep the diff clean.
+ * interactive-messages is a similarly-shaped multi-file skill — 63 rows
+ * grouped as a single block (SKILL.md + create-widget.sh + teardown-widget.sh
+ * + 60 template files across 12 template folders).
  */
 export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // --- id skill (1 row: SKILL.md — companions retired 2026-09-20 with
@@ -725,6 +729,464 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/routes/about/+page.svelte",
     installPath: "~/.claude/skills/app-development/templates/app-starter/src/routes/about/+page.svelte",
+    restartHook: null,
+  },
+
+  // --- interactive-messages skill (63 rows: SKILL.md + create-widget.sh +
+  // teardown-widget.sh + 12 template folders × 5 files each = 60 template
+  // files). The interactive-messages arc (Phase 138-142, shipped 2026-09-27)
+  // introduced the folder root `~/fleet/interactive-messages/` and a Claude-
+  // Code skill agents invoke to scaffold poll/checklist/form/ranking/
+  // list-actions/color-picker widgets in terminal or non-terminal modes. The
+  // GC trio (script + service + timer) was already in the catalog above; the
+  // skill payload itself was omitted at ship time and is being backfilled
+  // here. GC's teardown shell-out to `~/.claude/skills/interactive-messages/
+  // teardown-widget.sh` depends on this block. No restart hook — skills are
+  // read at /id load time; new bytes land on the identity's next recycle.
+  {
+    slug: "interactive-messages-skill",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/SKILL.md",
+    installPath: "~/.claude/skills/interactive-messages/SKILL.md",
+    restartHook: null,
+  },
+  {
+    slug: "interactive-messages-create-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/create-widget.sh",
+    installPath: "~/.claude/skills/interactive-messages/create-widget.sh",
+    restartHook: null,
+  },
+  {
+    slug: "interactive-messages-teardown-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/teardown-widget.sh",
+    installPath: "~/.claude/skills/interactive-messages/teardown-widget.sh",
+    restartHook: null,
+  },
+  // Templates: 12 folders × 5 files each. Each folder ships args.sh (arg
+  // parser), im-SLUG.service.template (systemd unit template with SLUG
+  // marker substituted at create-widget-time), metadata.json.template,
+  // server.py (widget HTTP server), and widget.html (frontend). Six
+  // template families × two submit modes = 12 combos.
+  {
+    slug: "im-tpl-checklist-non-terminal-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/checklist-non-terminal/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/checklist-non-terminal/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-checklist-non-terminal-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/checklist-non-terminal/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/checklist-non-terminal/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-checklist-non-terminal-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/checklist-non-terminal/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/checklist-non-terminal/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-checklist-non-terminal-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/checklist-non-terminal/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/checklist-non-terminal/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-checklist-non-terminal-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/checklist-non-terminal/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/checklist-non-terminal/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-checklist-terminal-on-submit-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/checklist-terminal-on-submit/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/checklist-terminal-on-submit/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-checklist-terminal-on-submit-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/checklist-terminal-on-submit/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/checklist-terminal-on-submit/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-checklist-terminal-on-submit-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/checklist-terminal-on-submit/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/checklist-terminal-on-submit/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-checklist-terminal-on-submit-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/checklist-terminal-on-submit/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/checklist-terminal-on-submit/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-checklist-terminal-on-submit-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/checklist-terminal-on-submit/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/checklist-terminal-on-submit/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-color-picker-non-terminal-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-non-terminal/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/color-picker-non-terminal/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-color-picker-non-terminal-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-non-terminal/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/color-picker-non-terminal/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-color-picker-non-terminal-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-non-terminal/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/color-picker-non-terminal/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-color-picker-non-terminal-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-non-terminal/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/color-picker-non-terminal/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-color-picker-non-terminal-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-non-terminal/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/color-picker-non-terminal/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-color-picker-terminal-on-click-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-terminal-on-click/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/color-picker-terminal-on-click/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-color-picker-terminal-on-click-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-terminal-on-click/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/color-picker-terminal-on-click/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-color-picker-terminal-on-click-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-terminal-on-click/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/color-picker-terminal-on-click/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-color-picker-terminal-on-click-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-terminal-on-click/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/color-picker-terminal-on-click/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-color-picker-terminal-on-click-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/color-picker-terminal-on-click/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/color-picker-terminal-on-click/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-form-non-terminal-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/form-non-terminal/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/form-non-terminal/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-form-non-terminal-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/form-non-terminal/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/form-non-terminal/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-form-non-terminal-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/form-non-terminal/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/form-non-terminal/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-form-non-terminal-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/form-non-terminal/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/form-non-terminal/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-form-non-terminal-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/form-non-terminal/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/form-non-terminal/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-form-terminal-on-submit-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/form-terminal-on-submit/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/form-terminal-on-submit/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-form-terminal-on-submit-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/form-terminal-on-submit/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/form-terminal-on-submit/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-form-terminal-on-submit-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/form-terminal-on-submit/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/form-terminal-on-submit/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-form-terminal-on-submit-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/form-terminal-on-submit/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/form-terminal-on-submit/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-form-terminal-on-submit-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/form-terminal-on-submit/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/form-terminal-on-submit/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-list-actions-non-terminal-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/list-actions-non-terminal/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/list-actions-non-terminal/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-list-actions-non-terminal-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/list-actions-non-terminal/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/list-actions-non-terminal/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-list-actions-non-terminal-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/list-actions-non-terminal/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/list-actions-non-terminal/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-list-actions-non-terminal-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/list-actions-non-terminal/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/list-actions-non-terminal/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-list-actions-non-terminal-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/list-actions-non-terminal/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/list-actions-non-terminal/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-list-actions-terminal-on-submit-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/list-actions-terminal-on-submit/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/list-actions-terminal-on-submit/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-list-actions-terminal-on-submit-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/list-actions-terminal-on-submit/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/list-actions-terminal-on-submit/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-list-actions-terminal-on-submit-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/list-actions-terminal-on-submit/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/list-actions-terminal-on-submit/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-list-actions-terminal-on-submit-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/list-actions-terminal-on-submit/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/list-actions-terminal-on-submit/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-list-actions-terminal-on-submit-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/list-actions-terminal-on-submit/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/list-actions-terminal-on-submit/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-poll-non-terminal-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/poll-non-terminal/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/poll-non-terminal/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-poll-non-terminal-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/poll-non-terminal/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/poll-non-terminal/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-poll-non-terminal-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/poll-non-terminal/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/poll-non-terminal/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-poll-non-terminal-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/poll-non-terminal/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/poll-non-terminal/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-poll-non-terminal-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/poll-non-terminal/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/poll-non-terminal/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-poll-terminal-on-click-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/poll-terminal-on-click/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/poll-terminal-on-click/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-poll-terminal-on-click-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/poll-terminal-on-click/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/poll-terminal-on-click/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-poll-terminal-on-click-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/poll-terminal-on-click/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/poll-terminal-on-click/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-poll-terminal-on-click-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/poll-terminal-on-click/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/poll-terminal-on-click/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-poll-terminal-on-click-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/poll-terminal-on-click/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/poll-terminal-on-click/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-ranking-non-terminal-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/ranking-non-terminal/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/ranking-non-terminal/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-ranking-non-terminal-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/ranking-non-terminal/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/ranking-non-terminal/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-ranking-non-terminal-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/ranking-non-terminal/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/ranking-non-terminal/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-ranking-non-terminal-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/ranking-non-terminal/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/ranking-non-terminal/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-ranking-non-terminal-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/ranking-non-terminal/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/ranking-non-terminal/widget.html",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-ranking-terminal-on-submit-args",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/ranking-terminal-on-submit/args.sh",
+    installPath: "~/.claude/skills/interactive-messages/templates/ranking-terminal-on-submit/args.sh",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-ranking-terminal-on-submit-service",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/ranking-terminal-on-submit/im-SLUG.service.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/ranking-terminal-on-submit/im-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-ranking-terminal-on-submit-metadata",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/ranking-terminal-on-submit/metadata.json.template",
+    installPath: "~/.claude/skills/interactive-messages/templates/ranking-terminal-on-submit/metadata.json.template",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-ranking-terminal-on-submit-server",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/ranking-terminal-on-submit/server.py",
+    installPath: "~/.claude/skills/interactive-messages/templates/ranking-terminal-on-submit/server.py",
+    restartHook: null,
+  },
+  {
+    slug: "im-tpl-ranking-terminal-on-submit-widget",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/interactive-messages/templates/ranking-terminal-on-submit/widget.html",
+    installPath: "~/.claude/skills/interactive-messages/templates/ranking-terminal-on-submit/widget.html",
     restartHook: null,
   },
 

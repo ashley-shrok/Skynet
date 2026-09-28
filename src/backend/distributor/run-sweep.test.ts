@@ -149,8 +149,11 @@ describe("runSweepForHost", () => {
     // rows (image-gen-skill + image-gen-helper). Later substrate refactors
     // (retire coord-as-mode, retire backlog/bounty/next-bounty skills) grew +
     // shrank the catalog; the itemsChecked count below tracks the current
-    // sweep footprint (54 items — update this along with any catalog change
-    // that adds or removes a sweep target).
+    // sweep footprint. Sweep visits every entry (line 130 in run-sweep.ts
+    // increments itemsChecked unconditionally at the top of the for-loop),
+    // so this equals FLEET_SUBSTRATE_CATALOG.length — asserting against that
+    // symbol directly so the two counts can't drift out of sync as the
+    // catalog grows.
     const { channel, exec } = makeChannelSequenced((cmd) => {
       if (cmd.includes("base64 -w0")) return b64Ok(bundledBytes);
       // No writes / restarts expected; any other call is unexpected
@@ -165,7 +168,7 @@ describe("runSweepForHost", () => {
 
     expect(logSweepResult).toHaveBeenCalledTimes(1);
     const call = (logSweepResult as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.itemsChecked).toBe(55);
+    expect(call.itemsChecked).toBe(FLEET_SUBSTRATE_CATALOG.length);
     expect(call.itemsChanged).toBe(0);
     expect(call.itemsFailed).toBe(0);
     expect(logItemChanged).not.toHaveBeenCalled();

@@ -32,7 +32,7 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 58 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 26 app-development shape-1 rows + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit))", () => {
+  it("Test 1: contains exactly 121 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 26 app-development shape-1 rows + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit) + 63 rows for interactive-messages skill payload (SKILL.md + create-widget.sh + teardown-widget.sh + 60 template files across 12 folders, backfilled 2026-09-28))", () => {
     // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
@@ -76,7 +76,13 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // .planning/shapes/shape-stop-self-edit-events.md).
     // +3 rows for interactive-messages-gc (Phase 140: seven-day backstop):
     // interactive-messages-gc .py script + .service unit + .timer unit.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(58);
+    // +63 rows for the interactive-messages skill payload (backfilled
+    // 2026-09-28): SKILL.md + create-widget.sh + teardown-widget.sh + 60
+    // template files (12 template folders × 5 files each: args.sh,
+    // im-SLUG.service.template, metadata.json.template, server.py,
+    // widget.html). Skill lands at ~/.claude/skills/interactive-messages/
+    // on every managed host; GC's teardown shell-out depends on it.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(121);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -177,7 +183,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // first-class-apps shape 1)
     // +5 for pane-safe starter files (see Test 1 comment) — 32 → 37.
     // +1 for agent-phone (SKILL.md) — 37 → 38.
-    expect(skillRows.length).toBe(38);
+    // +63 for the interactive-messages skill payload backfilled 2026-09-28
+    // (SKILL.md + create-widget.sh + teardown-widget.sh + 60 template files
+    // across 12 folders) — 38 → 101.
+    expect(skillRows.length).toBe(101);
     // 16 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
     // (distributor-shipped node POSTer — install-usage-reporter.sh was
@@ -326,7 +335,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for allow-all-tools helper — 52 → 53.
     // +1 for self-edit-baseline-sync helper — 53 → 54.
     // +3 for interactive-messages-gc (Phase 140: script + .service + .timer) — 54 → 57.
-    expect(bundled.length).toBe(57);
+    // +63 for the interactive-messages skill payload (SKILL.md + 2 top-level
+    // scripts + 60 template files) backfilled 2026-09-28 — 57 → 120.
+    expect(bundled.length).toBe(120);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/
