@@ -13,8 +13,10 @@
  * Skynet's `--color-pv-*` tokens.
  */
 
+import { useEffect, useRef } from "react";
 import {
   MDXEditor,
+  type MDXEditorMethods,
   headingsPlugin,
   listsPlugin,
   quotePlugin,
@@ -49,10 +51,34 @@ export function MdxEditorImpl({
   onChange,
   disabled,
 }: MdxEditorImplProps): JSX.Element {
+  // MDXEditor reads the `markdown` prop ONCE at mount and is uncontrolled
+  // after — a later `content` change (async load landing after mount, 409
+  // reload swapping content in place, per-path draft seed firing the render
+  // after tabData became ready) never reaches the editor, and the pane
+  // silently shows blank while the file has content. Push subsequent
+  // content changes through the imperative `setMarkdown` ref API instead.
+  //
+  // `lastKnownRef` tracks the value the editor currently holds (seeded from
+  // initial `content`, updated on every emitted onChange, updated when we
+  // push via setMarkdown). We only push when the incoming prop diverges,
+  // so typing (parent echoes the same value back) doesn't loop.
+  const editorRef = useRef<MDXEditorMethods>(null);
+  const lastKnownRef = useRef<string>(content);
+
+  useEffect(() => {
+    if (content === lastKnownRef.current) return;
+    lastKnownRef.current = content;
+    editorRef.current?.setMarkdown(content);
+  }, [content]);
+
   return (
     <MDXEditor
+      ref={editorRef}
       markdown={content}
-      onChange={onChange}
+      onChange={(md) => {
+        lastKnownRef.current = md;
+        onChange(md);
+      }}
       readOnly={disabled}
       className="dark-theme skynet-mdxeditor"
       contentEditableClassName="mdx-prose prose prose-sm prose-invert max-w-none prose-code:before:content-none prose-code:after:content-none"

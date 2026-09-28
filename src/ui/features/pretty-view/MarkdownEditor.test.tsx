@@ -17,14 +17,26 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { forwardRef, useImperativeHandle, useState } from "react";
 
-// Stub the entire @mdxeditor/editor surface. MDXEditor renders a testid div
-// with the markdown as text content so tests can inspect what the parent
-// piped through. Plugin/component exports are minimal no-ops.
+// Stub the entire @mdxeditor/editor surface. The MDXEditor mock is
+// FAITHFUL to the real component's uncontrolled-after-mount contract:
+// `markdown` is captured to internal state ONCE on mount and later prop
+// changes are ignored — only `ref.current.setMarkdown(next)` updates the
+// displayed value. This is what MdxEditorImpl's ref+effect exists to work
+// around; a stateless mock would silently mask that bug.
 vi.mock("@mdxeditor/editor", () => ({
-  MDXEditor: (props: { markdown: string }) => (
-    <div data-testid="mdxeditor">{props.markdown}</div>
-  ),
+  MDXEditor: forwardRef<
+    { setMarkdown: (v: string) => void; getMarkdown: () => string },
+    { markdown: string; onChange?: (md: string, initial: boolean) => void }
+  >(function MockMDXEditor(props, ref) {
+    const [internal, setInternal] = useState(props.markdown);
+    useImperativeHandle(ref, () => ({
+      setMarkdown: (v: string) => setInternal(v),
+      getMarkdown: () => internal,
+    }));
+    return <div data-testid="mdxeditor">{internal}</div>;
+  }),
   headingsPlugin: () => ({}),
   listsPlugin: () => ({}),
   quotePlugin: () => ({}),
@@ -271,6 +283,34 @@ describe("MarkdownEditor — filetype gate (D-06) + controlled-input contract", 
       vi.doUnmock("./CodeEditorImpl");
       vi.resetModules();
     }
+  });
+
+  it("test 8c (regression): markdown content that arrives AFTER mount reaches the editor via setMarkdown ref", async () => {
+    // Real MDXEditor reads `markdown` once at mount and is uncontrolled
+    // after — so an async-loaded content string (tabData ready + drafts
+    // seed effect one render later, 409 reload, first render with empty
+    // draft followed by populated draft) never reached the editor before
+    // this fix. The mock now models that behavior faithfully, so the
+    // fix's ref+effect must call setMarkdown for the new content to show.
+    const { rerender } = render(
+      <MarkdownEditor filename="notes.md" content="" onChange={vi.fn()} />,
+    );
+    await waitFor(() => {
+      expect(screen.queryByTestId("mdxeditor")).toBeTruthy();
+    });
+    expect(screen.getByTestId("mdxeditor").textContent).toBe("");
+    rerender(
+      <MarkdownEditor
+        filename="notes.md"
+        content="loaded content"
+        onChange={vi.fn()}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("mdxeditor").textContent).toBe(
+        "loaded content",
+      );
+    });
   });
 
   it("test 9 (security): javascript: URL in markdown content does NOT surface as href in rendered DOM", async () => {
