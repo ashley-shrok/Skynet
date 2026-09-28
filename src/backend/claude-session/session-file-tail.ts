@@ -22,21 +22,40 @@ import { sshLogger } from "../utils/logger.js";
  *    trims whitespace, so we deliberately do NOT strip `\r` here — that's
  *    parse-layer responsibility.
  *
- * 3. POSIX `sh -c` trap wrapper + signal-then-close teardown. OpenSSH does
- *    NOT propagate `SSH_MSG_CHANNEL_CLOSE` as SIGHUP to the remote child
- *    (see mindrot #1424); `tail -F`'s stdout writes silently `EPIPE` and it
- *    keeps running as a PPID=1 orphan across every WS reconnect. Two-prong
- *    fix, both required:
- *      - Remote command is wrapped in `sh -c 'trap "kill $t 2>/dev/null"
- *        EXIT INT HUP TERM; tail -F -n +1 <path> & t=$!; wait $t'` so the
- *        parent shell's exit (via SIGHUP on channel close, or via any other
- *        signal) fires the trap and kills the backgrounded tail regardless
- *        of what the server did or did not propagate.
- *      - stop() calls `stream.signal("TERM")` BEFORE `stream.close()`.
- *        OpenSSH ignores channel-signal requests but Tailscale SSH and
- *        others honor them — free fast-teardown where supported, no cost
- *        where ignored. A synchronous throw from signal() is caught and
- *        logged; close() still runs.
+ * 3. POSIX `sh -c` trap wrapper + signal-then-close teardown + stdin-blocker.
+ *    OpenSSH does NOT propagate `SSH_MSG_CHANNEL_CLOSE` as SIGHUP to the
+ *    remote child (see mindrot #1424); `tail -F`'s stdout writes silently
+ *    `EPIPE` and it keeps running as a PPID=1 orphan across every WS
+ *    reconnect. Three-prong fix, all three carrying weight:
+ *      - Prong A: stop() calls `stream.signal("TERM")` BEFORE
+ *        `stream.close()`. OpenSSH ignores channel-signal requests but
+ *        Tailscale SSH and others honor them — free fast-teardown where
+ *        supported, no cost where ignored. A synchronous throw from
+ *        signal() is caught and logged; close() still runs.
+ *      - Prong B: the remote command wraps `tail -F` in a `sh -c 'trap
+ *        "kill $t 2>/dev/null" EXIT INT HUP TERM; ... & t=$!; ...'` so a
+ *        SIGHUP or SIGTERM to the wrapper shell fires the trap and kills
+ *        the backgrounded tail. Effective when the server DOES propagate
+ *        the signal (some sshds do; OpenSSH doesn't).
+ *      - Prong C (2026-09-28): after backgrounding tail, the wrapper
+ *        blocks on `read -r _`. The exec channel's stdin is inherited
+ *        from ssh2's stream and stays open until Skynet closes it
+ *        (session-file-tail.ts never calls stream.end() itself). When
+ *        the SSH channel is torn down (WS reconnect, tab close, stop()
+ *        calling close(), network drop), the remote sshd closes its
+ *        write-end of the stdin pipe, `read` sees EOF and returns
+ *        non-zero, and we fall through to `kill $t; wait $t`. This
+ *        closes the orphan-leak hole that Prongs A and B could not:
+ *        Prong A is a no-op on OpenSSH, Prong B only fires when the
+ *        child tail dies first, and tail only dies on EPIPE, which
+ *        requires it to actually WRITE to stdout — which only happens
+ *        when the tailed JSONL is being appended to. Paused sessions
+ *        (JSONL idle) leaked one tail per WS reconnect. Prong C fires
+ *        regardless of tail's activity because we're blocking on
+ *        stdin, not on the child's I/O behavior. Root-cause writeup:
+ *        260823-9tw-ssh-tail-watcher-orphan-on-close-fix-tra plan and
+ *        the 2026-09-28 workstation forensics (347 orphans killed at
+ *        load 21).
  */
 
 // Copied locally rather than exporting from tmux-helper.ts to keep tmux-helper's
@@ -109,16 +128,23 @@ export function tailSessionFile(
     }
   };
 
-  // Prong B: `sh -c` trap wrapper. Outer arg is single-quoted so `$t` and
-  // `$!` expand in the REMOTE shell, not in Node's template string. The
-  // escaped path is itself already single-quoted by shellEscape, so the
-  // outer single-quoted argument naturally closes/reopens around it — the
-  // POSIX `'foo'\''bar'` splicing pattern extends cleanly to already-quoted
-  // tokens embedded in an enclosing single-quoted string.
+  // Prong B (trap wrapper) + Prong C (stdin blocker). Outer arg is single-
+  // quoted so `$t` and `$!` expand in the REMOTE shell, not in Node's
+  // template string. The escaped path is itself already single-quoted by
+  // shellEscape, so the outer single-quoted argument naturally closes/reopens
+  // around it — the POSIX `'foo'\''bar'` splicing pattern extends cleanly
+  // to already-quoted tokens embedded in an enclosing single-quoted string.
+  //
+  // Command shape:
+  //   sh -c 'trap "kill $t 2>/dev/null" EXIT INT HUP TERM;
+  //          tail -F -n +1 <escaped-path> & t=$!;
+  //          read -r _;                    <-- Prong C: block on stdin
+  //          kill $t 2>/dev/null;          <-- explicit teardown on EOF
+  //          wait $t 2>/dev/null'          <-- reap the killed tail
   const command =
     "sh -c 'trap \"kill $t 2>/dev/null\" EXIT INT HUP TERM; tail -F -n +1 " +
     shellEscape(absolutePath) +
-    " & t=$!; wait $t'";
+    " & t=$!; read -r _; kill $t 2>/dev/null; wait $t 2>/dev/null'";
 
   conn.exec(command, (err, s) => {
     if (err) {

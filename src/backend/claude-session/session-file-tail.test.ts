@@ -3,10 +3,16 @@
 //
 // Two responsibility bands live here:
 //   1. Command shape (Tests A + B): the string handed to `conn.exec` is a
-//      POSIX `sh -c` wrapper that traps EXIT/INT/HUP/TERM and kills the
-//      backgrounded `tail -F -n +1 <escaped-path>`. Shape is asserted via
-//      regex/`toContain` rather than a byte-for-byte match so future
-//      escaping tweaks don't over-constrain.
+//      POSIX `sh -c` wrapper that combines three orphan-defense prongs:
+//        - trap EXIT/INT/HUP/TERM to kill the backgrounded tail (Prong B),
+//        - `read -r _` after backgrounding tail so the wrapper blocks on
+//          stdin and notices SSH channel-close via EOF (Prong C, added
+//          2026-09-28 — see session-file-tail.ts docblock),
+//        - explicit `kill $t; wait $t` after `read` returns so we tear
+//          down the tail deterministically without depending on trap
+//          firing.
+//      Shape is asserted via regex/`toContain` rather than byte-for-byte
+//      so future escaping tweaks don't over-constrain.
 //   2. Teardown behavior (Tests C-F): `stop()` calls `signal("TERM")`
 //      BEFORE `close()`, a throw from `signal` does not skip `close`, the
 //      idempotence guard still holds, and the stopped-before-exec-callback
@@ -91,14 +97,16 @@ function makeConnStub(opts?: {
 }
 
 describe("tailSessionFile — command shape", () => {
-  // ── Test A (COMMAND SHAPE — trap-wrapper) ────────────────────────────
+  // ── Test A (COMMAND SHAPE — trap-wrapper + stdin blocker) ────────────
   // The 4-arg call MUST invoke a POSIX `sh -c` wrapper around `tail -F`
-  // that traps EXIT/INT/HUP/TERM so the remote tail dies when the SSH
-  // channel closes and the parent shell dies — even when the ssh server
-  // (e.g. OpenSSH) does not propagate SSH_MSG_CHANNEL_CLOSE as SIGHUP.
+  // that:
+  //   (B) traps EXIT/INT/HUP/TERM so a delivered signal kills tail, AND
+  //   (C) blocks on `read -r _` after backgrounding tail so channel-close
+  //       EOFs stdin and unblocks even when the JSONL is idle and the
+  //       server doesn't propagate SIGHUP (mindrot #1424).
   // Asserted via multiple `toContain`/`toMatch` calls so future escaping
   // tweaks don't over-constrain the shape.
-  it("Test A: emits a `sh -c` trap-wrapper around `tail -F -n +1 <path>`", () => {
+  it("Test A: emits a `sh -c` trap-wrapper with stdin blocker around `tail -F -n +1 <path>`", () => {
     const { conn, execSpy } = makeConnStub();
     const onLine = vi.fn();
     const onError = vi.fn();
@@ -112,9 +120,26 @@ describe("tailSessionFile — command shape", () => {
     expect(cmd).toContain("EXIT INT HUP TERM");
     expect(cmd).toContain("tail -F -n +1 ");
     expect(cmd).toContain("'/tmp/session.jsonl'");
-    // Background PID capture + wait — allow any whitespace between the
-    // `&` and the `t=$!` assignment, and between the `;` and `wait`.
-    expect(cmd).toMatch(/&\s*t=\$!\s*;\s*wait\s+\$t/);
+    // Background PID capture — allow any whitespace between the `&` and
+    // the `t=$!` assignment.
+    expect(cmd).toMatch(/&\s*t=\$!\s*;/);
+    // Prong C: `read -r _` blocks on stdin between backgrounding tail
+    // and the explicit teardown.
+    expect(cmd).toContain("read -r _");
+    // After `read` returns (EOF or signal), we kill and reap the tail
+    // explicitly rather than relying on the trap alone.
+    expect(cmd).toMatch(/kill\s+\$t\b[^;]*;\s*wait\s+\$t/);
+    // Ordering: read must come AFTER t=$! (so tail is running before we
+    // block) and BEFORE the explicit kill (so we only tear down after
+    // stdin has EOFed or a signal has fired). Note: there's a second
+    // `kill $t` inside the trap definition — skip past `read -r _` when
+    // looking for the standalone teardown kill.
+    const tSetIdx = cmd.indexOf("t=$!");
+    const readIdx = cmd.indexOf("read -r _");
+    const killIdx = cmd.indexOf("kill $t", readIdx);
+    expect(tSetIdx).toBeGreaterThan(-1);
+    expect(readIdx).toBeGreaterThan(tSetIdx);
+    expect(killIdx).toBeGreaterThan(readIdx);
   });
 
   // ── Test B (PATH ESCAPING preserved) ────────────────────────────────
