@@ -43,7 +43,7 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
     expect(iframe.getAttribute("src")).toBe(WIDGET_SRC);
     expect(iframe.getAttribute("referrerpolicy")).toBe("no-referrer");
     expect(iframe.getAttribute("loading")).toBe("eager");
-    expect(iframe.style.height).toBe("200px");
+    expect(iframe.style.height).toBe("120px");
   });
 
   it("Test 2: on iframe error event, schedules retry after 2000ms with cache-busting _r param", async () => {
@@ -298,5 +298,81 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
     const status = screen.getByRole("status");
     expect(status).toBeTruthy();
     expect(status.getAttribute("aria-label")).toBe("Expired interactive message");
+  });
+
+  it("Test 14: widget-resize message grows iframe up to the 480px cap", () => {
+    const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const fakeContentWindow = {} as Window;
+    Object.defineProperty(iframe, "contentWindow", { value: fakeContentWindow, configurable: true });
+
+    // Report 300px content — iframe should grow to match.
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "widget-resize", widgetId: "poll-abc", height: 300 },
+        origin: window.location.origin,
+        source: fakeContentWindow,
+      }));
+    });
+    expect(iframe.style.height).toBe("300px");
+
+    // Report 900px content — iframe should clamp at 480px.
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "widget-resize", widgetId: "poll-abc", height: 900 },
+        origin: window.location.origin,
+        source: fakeContentWindow,
+      }));
+    });
+    expect(iframe.style.height).toBe("480px");
+  });
+
+  it("Test 15: widget-resize message honours the 40px floor", () => {
+    const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const fakeContentWindow = {} as Window;
+    Object.defineProperty(iframe, "contentWindow", { value: fakeContentWindow, configurable: true });
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "widget-resize", widgetId: "poll-abc", height: 10 },
+        origin: window.location.origin,
+        source: fakeContentWindow,
+      }));
+    });
+    expect(iframe.style.height).toBe("40px");
+  });
+
+  it("Test 16: widget-resize with wrong origin is ignored", () => {
+    const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const fakeContentWindow = {} as Window;
+    Object.defineProperty(iframe, "contentWindow", { value: fakeContentWindow, configurable: true });
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "widget-resize", widgetId: "poll-abc", height: 300 },
+        origin: "https://evil.example",
+        source: fakeContentWindow,
+      }));
+    });
+    // Height unchanged from initial.
+    expect(iframe.style.height).toBe("120px");
+  });
+
+  it("Test 17: widget-resize with non-numeric height is ignored", () => {
+    const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const fakeContentWindow = {} as Window;
+    Object.defineProperty(iframe, "contentWindow", { value: fakeContentWindow, configurable: true });
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "widget-resize", widgetId: "poll-abc", height: "300" },
+        origin: window.location.origin,
+        source: fakeContentWindow,
+      }));
+    });
+    expect(iframe.style.height).toBe("120px");
   });
 });

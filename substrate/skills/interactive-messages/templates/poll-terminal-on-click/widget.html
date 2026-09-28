@@ -8,21 +8,49 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
-    body {
+    /* Phase 143: transparent body so the widget takes on the bubble color it
+       lives in. No card wrapper — content sits directly on the bubble; each
+       control (buttons, etc.) carries its own affordance. */
+    html, body {
       margin: 0;
+      padding: 0;
+      background: transparent;
+    }
+
+    body {
       padding: 12px;
       font-family: system-ui, -apple-system, sans-serif;
       font-size: 15px;
       line-height: 1.4;
-      background: #fff;
       color: #111;
     }
 
     @media (prefers-color-scheme: dark) {
-      body { background: #1a1a1a; color: #e8e8e8; }
+      body { color: #e8e8e8; }
       .btn { background: #2d2d2d; color: #e8e8e8; border-color: #444; }
       .btn:hover:not(:disabled) { background: #3d3d3d; border-color: #888; }
       .btn:disabled { background: #222; color: #666; border-color: #333; cursor: default; }
+    }
+
+    /* Phase 143: obvious scrollbar when content exceeds the parent iframe cap
+       (WidgetBubble.MAX_HEIGHT_PX). The app's ambient thin scrollbars are too
+       subtle to signal "there's more below" — this one shouts. */
+    html { scrollbar-width: auto; scrollbar-color: rgba(0,0,0,0.4) rgba(0,0,0,0.06); }
+    body::-webkit-scrollbar { width: 12px; }
+    body::-webkit-scrollbar-track { background: rgba(0,0,0,0.06); border-radius: 6px; }
+    body::-webkit-scrollbar-thumb {
+      background: rgba(0,0,0,0.4);
+      border-radius: 6px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    body::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.55); background-clip: padding-box; }
+
+    @media (prefers-color-scheme: dark) {
+      html { scrollbar-color: rgba(255,255,255,0.4) rgba(255,255,255,0.05); }
+      body::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+      body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.4); background-clip: padding-box; }
+      body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.55); background-clip: padding-box; }
     }
 
     #prompt {
@@ -102,6 +130,20 @@
     var WIDGET_ID = "__WIDGET_ID__";
     var PANE_BASE = "__PANE_BASE__";
 
+    // Phase 143: report content height to parent so WidgetBubble's iframe can
+    // grow to fit (up to its MAX_HEIGHT_PX cap). Uses scrollHeight of the root
+    // element so vertical margins on children are included. Rounded up so the
+    // parent never receives a fractional pixel that clips the last line.
+    function reportHeight() {
+      var h = Math.ceil(document.documentElement.scrollHeight);
+      try {
+        window.parent.postMessage(
+          { type: "widget-resize", widgetId: WIDGET_ID, height: h },
+          window.location.origin
+        );
+      } catch (e) { /* parent gone; harmless */ }
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
       // Set the prompt text
       var promptEl = document.getElementById("prompt");
@@ -118,6 +160,14 @@
         });
         pollEl.appendChild(btn);
       });
+
+      // Initial height report, then observe layout changes (button
+      // disable/enable, status text swap, etc.) and re-report.
+      reportHeight();
+      if (typeof ResizeObserver !== "undefined") {
+        var ro = new ResizeObserver(reportHeight);
+        ro.observe(document.documentElement);
+      }
     });
 
     function setStatus(msg) {

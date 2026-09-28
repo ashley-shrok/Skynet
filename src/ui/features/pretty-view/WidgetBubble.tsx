@@ -23,6 +23,14 @@ import { useEffect, useRef, useState } from "react";
 // NOT schedule new retries (Test 4 behavior).
 const RETRY_DELAYS_MS = [2000, 4000, 8000];
 
+// Phase 143: iframe height starts small (won't waste vertical space if the
+// widget's content is smaller than the previous 200px fixed height) and grows
+// via widget-resize postMessages up to MAX_HEIGHT_PX. Past the cap the widget's
+// own body scrolls — its stylesheet renders an obvious (chunky) scrollbar.
+const INITIAL_HEIGHT_PX = 120;
+const MAX_HEIGHT_PX = 480;
+const MIN_HEIGHT_PX = 40;
+
 export interface WidgetBubbleProps {
   /**
    * The widget URL — already validated as same-origin `/interactive/<hostId>/<slug>/pane/...`
@@ -44,6 +52,7 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
   const [retryCount, setRetryCount] = useState(0);
   const [retrySrc, setRetrySrc] = useState(src);
   const [expired, setExpired] = useState(false);
+  const [contentHeight, setContentHeight] = useState<number | null>(null);
 
   // Retry effect: attaches an error listener to the iframe and schedules
   // exponential-backoff retries on load failure. Runs on [src, retryCount]
@@ -90,8 +99,18 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
       // on the agent's box but are served via Skynet's own origin via the
       // /interactive/ proxy — so window.location.origin is the correct target.
       if (e.origin !== window.location.origin) return;
-      // Only handle widget-submit signals; other message types (e.g. widget-ping,
-      // resize notifications) are silently dropped in Phase 137.
+      // Phase 143: widget-resize — widget reports its content height so the
+      // iframe can grow to fit (up to MAX_HEIGHT_PX). Past the cap the widget's
+      // own body scrolls with an obvious scrollbar (styled per-template).
+      if (e.data?.type === "widget-resize" && typeof e.data.height === "number") {
+        const clamped = Math.min(
+          Math.max(e.data.height, MIN_HEIGHT_PX),
+          MAX_HEIGHT_PX,
+        );
+        setContentHeight(clamped);
+        return;
+      }
+      // Only handle widget-submit signals; other message types are dropped.
       if (e.data?.type === "widget-submit") {
         onSubmit?.(
           String(e.data.widgetId ?? ""),
@@ -137,7 +156,10 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
       referrerPolicy="no-referrer"
       loading="eager"
       className="w-full border-0 rounded-md"
-      style={{ height: "200px" }}
+      style={{
+        height: `${contentHeight ?? INITIAL_HEIGHT_PX}px`,
+        transition: "height 120ms ease-out",
+      }}
     />
   );
 }
