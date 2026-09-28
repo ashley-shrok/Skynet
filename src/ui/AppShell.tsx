@@ -796,6 +796,29 @@ export function AppShell({
         // Relay-room rows are structurally immune: they carry no hostId and no
         // sessionName, so removeFleetSession's tuple filter cannot match one.
         removeFleetSession(goneHostId, tmuxSession);
+
+        // Close any open tabs pointing at the gone session. Restores the
+        // tab-close half of a5fbd706 that Phase 122 (43c47168) lost when it
+        // tore out the archived-fleet pump — the sidebar rebuild deleted
+        // `onIdentityArchived` and the tab-close piece went with it, even
+        // though its rationale (kill the dead tab so it doesn't fall through
+        // to the "tmux session 'X' not found" connection-log fallback) is
+        // orthogonal to the sidebar section. Hooked to `gone` now (published
+        // by the same archive-detection reconcile that used to fire
+        // `identity-archived`) so a self-archived identity's open tabs
+        // close cleanly, and a URL/restore that lands after the archive
+        // gets swept on the frame's idempotent WS-reconnect re-emit.
+        // doCloseTab handles the server-side open_tabs purge (via the
+        // PERSISTENT_TAB_TYPES gate) and splitTree leaf removal.
+        for (const tab of tabsRef.current) {
+          if (
+            tab.host != null &&
+            parseInt(tab.host.id, 10) === goneHostId &&
+            tab.targetTmuxSession === tmuxSession
+          ) {
+            doCloseTabRef.current(tab.id);
+          }
+        }
       },
       // Phase 119 Plan 119-02 (D-14): route the three Phase 118 app frames
       // into the app-tiles-store slice. Store handles atomic reconciliation
@@ -2717,6 +2740,14 @@ export function AppShell({
   const doCloseTabRef = useRef(doCloseTab);
   useEffect(() => {
     doCloseTabRef.current = doCloseTab;
+  });
+  // Same ref pattern as doCloseTabRef: the fleet-status effect (~L657)
+  // subscribes ONCE at mount, so its `gone`-frame handler can't close
+  // over `tabs` state directly. Refreshed every render so the handler
+  // enumerates the LATEST openTabs when a session vanishes.
+  const tabsRef = useRef(tabs);
+  useEffect(() => {
+    tabsRef.current = tabs;
   });
   useEffect(() => {
     const unsub = subscribeToDragAccepts((tabId) => {
