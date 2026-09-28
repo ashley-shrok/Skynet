@@ -484,6 +484,95 @@ async function assertOwnOrAdminForAvatarChange(
 }
 
 // ---------------------------------------------------------------------------
+// DELETE /users/:id/avatar — clear an existing user's avatar (Phase 137 D-11).
+//
+// Same auth as PUT: authenticateJWT + assertOwnOrAdminForAvatarChange. No
+// multer — nothing to upload. Preferences-modal General pane calls this from
+// the "Remove" button.
+//
+// Ordering: row-UPDATE-then-file-unlink (same as PUT's rollback shape). The
+// SELECT + UPDATE run in a single better-sqlite3 tx so the filename we
+// unlink is exactly what was current at UPDATE time. Unlink is best-effort
+// OUTSIDE the tx (async I/O cannot be inside a sync better-sqlite3 tx) and
+// its failure does NOT reverse the successful row clear — losing a file
+// pointer is worse than leaking a file.
+// ---------------------------------------------------------------------------
+router.delete("/:id/avatar", authenticateJWT, assertOwnOrAdminForAvatarChange, async (req, res) => {
+    const targetUserId = String(req.params.id);
+
+    try {
+      // Existence check — legit admin targeting a bogus id gets 404 (mirrors PUT step 3).
+      const targetRows = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, targetUserId))
+        .limit(1);
+      if (!targetRows || targetRows.length === 0) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Atomic clear: capture the old filename and set avatar_path = NULL in one tx.
+      let oldFilename: string | null;
+      try {
+        const txResult = db.$client.transaction(() => {
+          const row = db.$client
+            .prepare("SELECT avatar_path FROM users WHERE id = ?")
+            .get(targetUserId) as { avatar_path: string | null } | undefined;
+          db.$client
+            .prepare("UPDATE users SET avatar_path = NULL WHERE id = ?")
+            .run(targetUserId);
+          return { oldFilename: row?.avatar_path ?? null };
+        })();
+        oldFilename = txResult.oldFilename;
+      } catch (sqlErr) {
+        authLogger.error("Failed to clear users row avatar_path", sqlErr, {
+          operation: "user_avatar_remove_update_failed",
+          targetUserId,
+        });
+        return res.status(500).json({ error: "avatar remove failed" });
+      }
+
+      // Best-effort unlink OUTSIDE the tx. Wrapped so EPERM/EBUSY does NOT
+      // return 500 after a fully successful UPDATE — same discipline as PUT.
+      if (oldFilename) {
+        try {
+          await unlinkUserAvatar(oldFilename);
+        } catch (unlinkErr) {
+          authLogger.warn("Failed to unlink avatar file after successful remove", {
+            operation: "user_avatar_remove_file_leak",
+            targetUserId,
+            oldFilename,
+            error: unlinkErr,
+          });
+        }
+      }
+
+      // Labeled forceSave — mirrors PUT's crown-jewel invariant (D-17/D-18).
+      try {
+        await DatabaseSaveTrigger.forceSave("phase-137-user-avatar-remove");
+      } catch (saveError) {
+        authLogger.error(
+          "Failed to persist user avatar remove to disk",
+          saveError,
+          {
+            operation: "user_avatar_remove_save_failed",
+            userId: targetUserId,
+          },
+        );
+      }
+
+      return res.status(200).json({ id: targetUserId, avatarPath: null });
+    } catch (err) {
+      authLogger.error("DELETE /users/:id/avatar unexpected error", err, {
+        operation: "user_avatar_remove_unexpected",
+        targetUserId,
+      });
+      return res.status(500).json({ error: "avatar remove failed" });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
 // PUT /users/:id/avatar — replace an existing user's avatar (D-10, D-12, D-14,
 // D-15, D-16, D-17, D-23)
 //
