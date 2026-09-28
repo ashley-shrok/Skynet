@@ -244,7 +244,7 @@ can pull a large file the modal wouldn't be able to open.
 
 ## Vehicle notes
 
-Inline vehicle chosen by Ashley on 2026-09-28. Progress tracked with
+Inline vehicle chosen on 2026-09-28. Progress tracked with
 harness tasks — the task list captures the arc from URL extraction
 through chip component, user-chip parity, viewer branch, download
 wiring, pencil removal, tests, and closing review.
@@ -262,3 +262,58 @@ companion edit — the original shape 2 ("inline media in bubbles") is
 subsumed by this shape and will be removed from the campaign's shapes
 list; this shape's own description in the campaign artifact grows to
 match the settled agreement.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-28
+**Vehicle used:** inline
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Every Skynet file URL — whether an assistant share or a user attachment — now renders as an interactive file chip; the pencil pair is gone.
+- **Shape — plain variant** — present · Plain chip renders type icon + underlined filename + optional size + download icon at right edge.
+- **Shape — media variant** — present · Media chip renders inline preview (image / audio / video / rendered SVG) inside a rounded frame with caption row carrying the same trailing controls.
+- **Shape — chip on own line, even mid-prose** — present · Assistant-side render wraps the chip in a block-level span; injected-turn render wraps each in a block-level div. Prose around the mention stays intact.
+- **Shape — chip in user bubbles** — present · Injected turn renders interactive chips when hostName + eventId + open-editor callback are threaded; falls back to the static read-only chip strip when hostName is absent (relay-source mount case).
+- **Shape — chip in assistant bubbles** — present · Every Skynet file URL in the rendered markdown is swapped for a chip on its own line.
+- **Shape — media chip subsumes inline preview** — present · Media-variant chip IS the inline preview; no separate inline-preview concept.
+- **Shape — modal always-editable for text (no view/edit toggle)** — present · Text kinds drive straight into the existing editor with no read-only mode.
+- **Shape — native viewers in modal for media** — present · The modal renders native image / audio / video / rendered-SVG viewers directly from the URL for those kinds; the base64 fetch is skipped for pure-media paths.
+- **Shape — SVG source-code toggle in modal** — present · Header carries a rendered ↔ code toggle for SVG that routes the modal back through the text-editor fetch.
+- **Shape — download action on chip fires save-to-disk without opening the modal** — present · Download button preventDefaults + stopPropagation, synthesizes an anchor with the download attribute, clicks it, cleans up.
+- **Shape — pencil affordance removed** — present · Pencil component and its dedicated tests deleted; eligibility hook slimmed to widget-URL classification only.
+- **Philosophy — one representation per file** — present · User attachments and agent shares both render as file chips.
+- **Philosophy — middle-click still opens elsewhere** — present · Chip is an anchor and the intercept only prevents the default on plain click; middle-click / Command-click never fire the handler.
+- **Philosophy — no separate view vs edit for text** — present · Modal opens straight into editable state; only SVG gets a rendered↔code toggle.
+- **Philosophy — chips carry only primary action loudly** — present · One click opens the modal; download is one small icon at the edge. No kebab, no hover-reveal action rows, no edit button.
+- **Philosophy — media types get more visual weight** — present · Media chips get a rounded framed preview + caption row; plain chips are a compact pill.
+- **Philosophy — older file URL style dropped** — present · Legacy tailnet-IP-and-port URLs fall through the same-origin guard to a plain link; not chip-ified.
+- **Prior context — 2 MB cap preserved for modal fetch** — present · Text-editor fetch path unchanged; cap intact.
+- **Prior context — backend unchanged** — present · No backend code touched; chip variants source directly from the existing per-extension inline-disposition already served by Skynet.
+- **What would make it wrong: losing files in prose** — present · Empty-filename fallback: even when segment extraction yields nothing, the chip still renders labeled "file" so the URL is never silently dropped.
+- **What would make it wrong: chip that doesn't look clickable** — present · Filename underlined on both variants; whole chip is an anchor.
+- **What would make it wrong: middle-click stops working** — present · Anchor with intercept only on plain click; middle-click never fires the handler.
+- **What would make it wrong: downloading also opens the modal** — present · Download button preventDefaults + stopPropagation before the chip's onClick sees it.
+- **What would make it wrong: media chip renders bytes it can't render** — present · Media element onError flips the chip to plain variant so no broken-media icon leaks through.
+- **What would make it wrong: modal opens on a media file and shows text editor** — present · Editor fetch is guarded off for media kinds; native viewer renders instead.
+- **What would make it wrong: user-attachment chips break for old messages** — present · When hostName is present the chip renders live; when it isn't, the injected turn degrades to the static read-only chip strip — still visible, non-interactive.
+- **What would make it wrong: bubble becomes a wall of chips** — present · Media chip max-width and image max-height caps enforce visual restraint on stacked chips.
+- **Scope edges — IN items covered** — present · Chip component, prose extraction, viewer branch, download, user-chip parity, pencil removal all present.
+- **Scope edges — OUT items honored** — present · PDF / docx / CSV / diff viewers not added; workspace file-browser tab untouched; legacy URLs not chip-ified; 2 MB cap not bumped; no backend changes; no view/edit toggle for text.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Two implementation choices worth flagging for future reference — both shape-consistent, not divergences:
+(1) clicks landing on the native audio/video control elements are excluded from the whole-chip open-modal intercept via a target-walk that bails when it hits an audio or video element. This is required for inline playback to be operable at all; a strict reading of "clicking anywhere except the download icon opens the modal" would make inline playback impossible. The chip's frame outside the media element still opens the modal.
+(2) The chip carries a `title=` tooltip echoing filename + size, and the download control carries a filename-scoped aria-label. Standard web-affordance hygiene rather than agreed features. Neither adds behavior the shape excluded.
