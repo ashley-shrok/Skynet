@@ -265,6 +265,38 @@ def _load_specs_scheduled_agents(scheduled_agents_root):
     return out
 
 
+def _wrap_prompt_as_preauthorized(prompt, slug, fired_at):
+    """Wrap the raw spec `prompt` with pre-authorization framing so the newborn's
+    id-skill treats it as an authorized instruction rather than a note-to-self.
+
+    Stopgap until user-messages-through-agent-supervisor lands (which will
+    deliver the prompt as an actual first user turn instead of a body-content
+    block). Under the current pipeline the raw prompt flows scheduler → spawn-
+    request → PendingBirth.prompt → BirthOptions.bodyContent → identity file's
+    `## Do this first` section. The id-skill's load-time contract for that
+    section requires a "pre-authorized next action" signal; unwrapped scheduler
+    prompts don't carry it, so the newborn's trust in the instruction is weak.
+
+    The wrapper: (1) names the recipient as the spawned agent, (2) states that
+    the spec at the named path pre-authorized the instruction, (3) surfaces the
+    fired-at timestamp as evidence of the schedule firing on time, (4) directs
+    same-turn action, (5) quotes the raw prompt verbatim as a Markdown
+    blockquote so the imperative reads cleanly. Creator-neutral — anyone can
+    create a scheduled-agent spec; the wrapper names none.
+    """
+    quoted = "\n".join("> " + line for line in prompt.splitlines()) if prompt else "> "
+    return (
+        "You are the agent that was spawned to carry out this scheduled task. "
+        "The instruction below was pre-authorized in the scheduled-agent spec at "
+        "`~/fleet/scheduled-agents/" + slug + "/scheduled-agent.json`; this firing "
+        "at " + fired_at + " is that pre-authorization taking effect on schedule. "
+        "Act on the instruction in the same turn — not as a note-to-self to "
+        "consider later, not as something to confirm back before doing.\n\n"
+        "Instruction (verbatim from the spec's `prompt` field):\n\n"
+        + quoted
+    )
+
+
 def _drop_spawn_request(spec, state_dir):
     """Drop a create-identity request file for the spawn-requests pipeline (D-11).
 
@@ -273,21 +305,31 @@ def _drop_spawn_request(spec, state_dir):
     The UUID is 36 chars (standard uuid4) matching the scan-orchestrator's
     ${#base} -eq 36 bash filter. The directory is created if absent (D-03 guard).
 
+    The `prompt` field is wrapped via `_wrap_prompt_as_preauthorized` before
+    write, so the string that eventually lands in the newborn's identity file
+    body (`## Do this first`) carries explicit pre-authorization framing. The
+    id-skill's load-time contract requires that signal to act on the block
+    same-turn; raw prompts don't carry it. Stopgap until user-messages-through-
+    agent-supervisor lands.
+
     Returns (req_id, req_path) for caller logging.
     """
     req_id = str(_uuid.uuid4())
     req_dir = os.path.join(os.path.expanduser("~"), "fleet", "spawn-requests")
     os.makedirs(req_dir, exist_ok=True)
+    fired_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     body = {
         "roles": spec.get("roles", []),
         "skills": spec.get("skills", []),
-        "prompt": spec.get("prompt", ""),
+        "prompt": _wrap_prompt_as_preauthorized(
+            spec.get("prompt", ""), spec.get("_slug", "?"), fired_at,
+        ),
         # task carries the scheduled-agent spec's `name` so the newborn's `task:`
         # frontmatter surfaces "what is this identity for?" in the UI on
         # birth (existing BirthOptions.task plumbing, Phase 80). Empty/absent
         # name → None → absent-⇒-omit at buildIdentityFileBody.
         "task": spec.get("name") or None,
-        "requested_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "requested_at": fired_at,
     }
     req_path = os.path.join(req_dir, req_id + ".json")
     with open(req_path, "w") as f:

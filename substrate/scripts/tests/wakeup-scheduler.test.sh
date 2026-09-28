@@ -205,8 +205,17 @@ d = json.load(open('$req_file'))
 errors = []
 if d.get('roles') != ['coordinator']:
     errors.append('roles: expected=[\"coordinator\"] got=' + repr(d.get('roles')))
-if d.get('prompt') != 'hello':
-    errors.append('prompt: expected=hello got=' + repr(d.get('prompt')))
+p = d.get('prompt', '')
+if not isinstance(p, str):
+    errors.append('prompt: expected str got=' + repr(type(p)))
+elif 'pre-authorized' not in p:
+    errors.append('prompt: missing pre-authorization framing; got=' + repr(p[:200]))
+elif 'You are the agent that was spawned' not in p:
+    errors.append('prompt: missing spawned-agent addressing; got=' + repr(p[:200]))
+elif 'test-slug' not in p:
+    errors.append('prompt: missing slug reference; got=' + repr(p[:200]))
+elif '> hello' not in p:
+    errors.append('prompt: original prompt not blockquoted verbatim; got=' + repr(p[:400]))
 if d.get('skills') != []:
     errors.append('skills: expected=[] got=' + repr(d.get('skills')))
 if d.get('task') != 't1':
@@ -394,8 +403,17 @@ d = json.load(open('$req_file'))
 errors = []
 if d.get('roles') != ['coordinator']:
     errors.append('roles: expected=[\"coordinator\"] got=' + repr(d.get('roles')))
-if d.get('prompt') != 'one-shot fire':
-    errors.append('prompt: expected=\"one-shot fire\" got=' + repr(d.get('prompt')))
+p = d.get('prompt', '')
+if not isinstance(p, str):
+    errors.append('prompt: expected str got=' + repr(type(p)))
+elif 'pre-authorized' not in p:
+    errors.append('prompt: missing pre-authorization framing; got=' + repr(p[:200]))
+elif 'You are the agent that was spawned' not in p:
+    errors.append('prompt: missing spawned-agent addressing; got=' + repr(p[:200]))
+elif 'one-shot' not in p:
+    errors.append('prompt: missing slug reference; got=' + repr(p[:200]))
+elif '> one-shot fire' not in p:
+    errors.append('prompt: original prompt not blockquoted verbatim; got=' + repr(p[:400]))
 if d.get('task') != 'one-shot':
     errors.append('task: expected=\"one-shot\" (from spec name) got=' + repr(d.get('task')))
 if errors:
