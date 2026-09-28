@@ -136,6 +136,28 @@ class SSHConnectionPool {
     }
   }
 
+  // Mark a pooled client as freshly used WITHOUT toggling inUse. Consumers
+  // that capture a Client reference for long-lived out-of-pool work (the
+  // serve-url tunnel-cache captures the client at build time and calls
+  // `forwardOut` on every incoming browser socket) should call this on
+  // every use so cleanup()'s 10-min idle sweep does not close a client
+  // that IS actively serving traffic. Without this, tunnel-cache-captured
+  // clients look idle to the pool forever (getConnection / releaseConnection
+  // fire ONCE at tunnel build), and cleanup() reliably closes them at the
+  // first 2-min tick after 10 min of pool-visible idleness — surfaces as
+  // `apps pane proxy: proxy-time-error` 502s to the browser.
+  //
+  // No-op if the client is no longer in the pool (already removed by
+  // cleanup or a peer close). Safe to call at high frequency.
+  markUsed(key: string, client: Client): void {
+    const connections = this.connections.get(key);
+    if (!connections) return;
+    const pooled = connections.find((conn) => conn.client === client);
+    if (pooled) {
+      pooled.lastUsed = Date.now();
+    }
+  }
+
   private removeConnection(key: string, client: Client): void {
     const connections = this.connections.get(key);
     if (!connections) return;

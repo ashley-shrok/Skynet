@@ -36,7 +36,11 @@
 
 import net from "node:net";
 import type { Client as SSHClient } from "ssh2";
-import { getClientBornAt, withConnection } from "../ssh/ssh-connection-pool.js";
+import {
+  connectionPool,
+  getClientBornAt,
+  withConnection,
+} from "../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { sshLogger } from "../utils/logger.js";
 import type { ServeTarget } from "./types.js";
@@ -190,6 +194,15 @@ class TunnelCache {
         const sockDestroyed = underlying?.destroyed ?? true;
         const sockWritable = underlying?.writable ?? false;
         const sshClientAgeMs = bornAt !== null ? Date.now() - bornAt : -1;
+        // Stamp pool.lastUsed BEFORE forwardOut so the pool's cleanup()
+        // sweep (2-min tick, 10-min maxAge) treats an actively-serving
+        // tunnel as in use. Without this, the tunnel-cache's captured
+        // `sshClient` looks idle to the pool from the moment
+        // `withConnection` releases it in openTunnel() — cleanup then
+        // reliably closes it at ~10 min, surfacing to the browser as a
+        // 502 chain (see incident 2026-09-28, ssh_pool_client_death @
+        // 10-11 min ageMs matching cleanup ticks).
+        connectionPool.markUsed(sshPoolKey, sshClient);
         sshLogger.info("serve-url tunnel: forwardOut attempt", {
           operation: "serve_url_tunnel_forward_out_attempt",
           target: cacheKey,
