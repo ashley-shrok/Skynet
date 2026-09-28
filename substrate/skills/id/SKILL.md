@@ -687,9 +687,12 @@ Six controls sit at the top of the conversation list:
   *Agent-side:* keep `task:` current, silently. Rules already covered.
 
 - **Badge (upper-right of the conversation).** Shows the role avatar,
-  the agent's name, and the role name. Click = opens the **identity
-  modal** (next item). Right-click = the same right-click menu as the
-  sidebar row (pin, open in new window, move to project, archive).
+  the agent's name, and the role name — plus a small folder-icon
+  breadcrumb with the project's display name when the identity is
+  assigned to a project (`project:` frontmatter set). Click = opens the
+  **identity modal** (next item). Right-click = the same right-click
+  menu as the sidebar row (pin, open in new window, move to project,
+  archive).
 
 - **Identity modal (click the badge).** Three tabs:
   - **Identity file** — view and edit the identity's own `<name>.md`.

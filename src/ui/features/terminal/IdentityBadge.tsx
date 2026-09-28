@@ -2,8 +2,9 @@ import type {
   DragEvent as ReactDragEvent,
   MouseEvent as ReactMouseEvent,
 } from "react";
-import { GitPullRequestDraft } from "lucide-react";
+import { Folder, GitPullRequestDraft } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
+import { useProjects } from "@/state/conversation-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { TabType } from "@/types/ui-types";
 import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
@@ -120,6 +121,24 @@ export function IdentityBadge({
   // render" errors. Hook handles identityKey=null gracefully (returns
   // undefined). Phase 104 code-review finding #1.
   const trappedWork = useTrappedWork(identityKey, hostId ?? null);
+
+  // Project display-name lookup — identity carries `project` as a slug string
+  // (Phase 117 M6); projects list carries {slug, displayName, hostId} rows.
+  // Match on slug AND identity's own hostId (projects are per-host; two hosts
+  // can hold same-slug projects that mean different things). ProjectRow.hostId
+  // is a stringified id; identity.hostId is a number — coerce for the compare.
+  // Called before the `if (!identity) return null` early return to satisfy
+  // Rules of Hooks (same discipline as useTrappedWork above).
+  const projects = useProjects();
+  const projectSlug = identity?.project ?? null;
+  const projectDisplayName = projectSlug
+    ? (projects.find(
+        (p) =>
+          p.slug === projectSlug &&
+          identity != null &&
+          p.hostId === String(identity.hostId),
+      )?.displayName ?? null)
+    : null;
 
   if (!identity) return null;
 
@@ -259,6 +278,24 @@ export function IdentityBadge({
             style={{ fontSize: 10.8, color: "#a89a80" }}
           >
             {identity.title}
+          </span>
+        )}
+        {projectDisplayName && (
+          <span
+            data-testid="pv-identity-project-breadcrumb"
+            className="truncate inline-flex items-center gap-1"
+            style={{
+              fontSize: 9,
+              fontWeight: 600,
+              color: `hsla(${hue}, 40%, 78%, 0.85)`,
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+              lineHeight: 1,
+              marginTop: 3,
+            }}
+          >
+            <Folder width={9} height={9} aria-hidden="true" />
+            {projectDisplayName}
           </span>
         )}
       </div>

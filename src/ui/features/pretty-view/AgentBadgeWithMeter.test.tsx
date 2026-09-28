@@ -25,9 +25,14 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
 
 // Mock the Wave 0 hooks BEFORE importing the component under test.
+// subscribeSessionWorkingStore is pulled in transitively by conversation-store
+// (IdentityBadge now imports useProjects from conversation-store, which subscribes
+// at module load) — no-op mock is sufficient since this test doesn't exercise
+// working-store change propagation.
 vi.mock("@/state/session-working-store", () => ({
   useSessionIsWorking: vi.fn(),
   useSessionIsRecycling: vi.fn(),
+  subscribeSessionWorkingStore: vi.fn(),
 }));
 
 vi.mock("@/api/fleet-status-client", () => ({

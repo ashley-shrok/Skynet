@@ -55,6 +55,22 @@ vi.mock("@/state/trapped-work-store", () => ({
   useTrappedWork: vi.fn(() => currentBadgeTrappedWork),
 }));
 
+// Per-test override handle for useProjects. Default is empty list — the
+// project breadcrumb renders only when the identity's project slug resolves
+// against this list; empty = no breadcrumb, matching the pre-project baseline.
+type BadgeTestProjectRow = {
+  slug: string;
+  displayName: string;
+  hostId: string;
+  hostname: string;
+  archived: boolean;
+};
+let currentBadgeProjects: readonly BadgeTestProjectRow[] = [];
+
+vi.mock("@/state/conversation-store", () => ({
+  useProjects: vi.fn(() => currentBadgeProjects),
+}));
+
 // Late import — after the mock is registered.
 import { IdentityBadge } from "./IdentityBadge";
 import { useTrappedWork } from "@/state/trapped-work-store";
@@ -510,5 +526,97 @@ describe("IdentityBadge — Phase 104 trapped-work indicator", () => {
       (c) => c[0] === "tina" && c[1] === null,
     );
     expect(nullCalls.length).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Project-breadcrumb row — identity.project slug → projects list displayName.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Fixture with hostId + project set, so the projects-list lookup can resolve.
+const PROJECT_FIXTURE: Identity = {
+  identityKey: "tina",
+  hostId: 7,
+  displayName: "Tina",
+  title: "Session coordinator",
+  colorHue: 200,
+  voice: null,
+  role: null,
+  avatarMime: "image/png",
+  avatarUrl: "/identities/tina/avatar?hostId=7",
+  avatarEtag: "etag-1",
+  coordinator: false,
+  task: null,
+  project: "fleet-substrate",
+};
+
+describe("IdentityBadge — project breadcrumb", () => {
+  const useIdentitiesMock = vi.mocked(useIdentities);
+
+  afterEach(() => {
+    currentBadgeProjects = [];
+    // Restore the default identities mock for other describe blocks.
+    useIdentitiesMock.mockReturnValue({
+      identities: [FIXTURE],
+      byKey: new Map([["tina", FIXTURE]]),
+      loaded: true,
+      refresh: vi.fn(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    vi.clearAllMocks();
+  });
+
+  it("renders the breadcrumb when identity.project slug resolves against the projects list on the same hostId", () => {
+    useIdentitiesMock.mockReturnValue({
+      identities: [PROJECT_FIXTURE],
+      byKey: new Map([["tina", PROJECT_FIXTURE]]),
+      loaded: true,
+      refresh: vi.fn(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    currentBadgeProjects = [
+      {
+        slug: "fleet-substrate",
+        displayName: "Fleet Substrate",
+        hostId: "7",
+        hostname: "t1000",
+        archived: false,
+      },
+    ];
+    render(<IdentityBadge identityKey="tina" hostId={7} />);
+    const crumb = screen.getByTestId("pv-identity-project-breadcrumb");
+    expect(crumb.textContent).toContain("Fleet Substrate");
+  });
+
+  it("omits the breadcrumb when identity.project is null", () => {
+    // Default FIXTURE has project: null.
+    render(<IdentityBadge identityKey="tina" />);
+    expect(
+      screen.queryByTestId("pv-identity-project-breadcrumb"),
+    ).toBeNull();
+  });
+
+  it("omits the breadcrumb when the projects list has no matching slug on the identity's hostId (unknown / cross-host project)", () => {
+    useIdentitiesMock.mockReturnValue({
+      identities: [PROJECT_FIXTURE],
+      byKey: new Map([["tina", PROJECT_FIXTURE]]),
+      loaded: true,
+      refresh: vi.fn(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    // Same slug, but on a different hostId — projects are per-host.
+    currentBadgeProjects = [
+      {
+        slug: "fleet-substrate",
+        displayName: "Fleet Substrate",
+        hostId: "99",
+        hostname: "somewhere-else",
+        archived: false,
+      },
+    ];
+    render(<IdentityBadge identityKey="tina" hostId={7} />);
+    expect(
+      screen.queryByTestId("pv-identity-project-breadcrumb"),
+    ).toBeNull();
   });
 });
