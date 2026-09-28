@@ -3467,14 +3467,14 @@ export function PrettyConversationsPanel({
             color: "#e8e4d8",
           }}
         >
-          {/* KEEP ORDER: New group conversation → Edit global skills… (Phase 44 Pitfall 8 guard —
+          {/* KEEP ORDER: New group conversation → Edit skills… (Phase 44 Pitfall 8 guard —
               do not alphabetize or reshuffle these two survivors). quick-260914-liu moved
               New agent, Edit roles, and Edit global files into dedicated header icon buttons;
               those three entries are gone from this list. The Phase 44 no-reshuffle guard still
               applies to the two items that remain. */}
           {[
             { label: "New group conversation", onClick: () => setNewConversationModalOpen(true) }, // Phase 91 Plan 05
-            { label: "Edit global skills…", onClick: () => setSkillsEditorModalOpen(true) },
+            { label: "Edit skills…", onClick: () => setSkillsEditorModalOpen(true) },
             // (Phase 137 D-21) kebab notification-entry retired; use Preferences modal.
           ].map((item) => (
             <button
