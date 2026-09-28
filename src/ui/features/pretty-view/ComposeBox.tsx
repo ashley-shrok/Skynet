@@ -1272,8 +1272,10 @@ export function ComposeBox({
   // Patch #135: auto-grow the textarea with its CONTENTS (not just newlines).
   // The prior newline-count `rows` heuristic left long single-line messages
   // clipped because wrapped visual lines never added a \n. We set height
-  // imperatively from scrollHeight, capped at 6 line-heights, with overflow-y
-  // switching to 'auto' only at the cap so a scrollbar appears there.
+  // imperatively from scrollHeight, capped at 15 line-heights (bumped from 6
+  // on user request 2026-09-28 — long messages felt cramped in the old cap),
+  // with overflow-y switching to 'auto' only at the cap so a scrollbar
+  // appears there.
   // Setting height='auto' first is REQUIRED — without it, scrollHeight only
   // grows (never shrinks) as text is deleted.
   useLayoutEffect(() => {
@@ -1281,7 +1283,7 @@ export function ComposeBox({
     if (!el) return;
     if (maxHeightPxRef.current === null) {
       const lh = parseFloat(getComputedStyle(el).lineHeight);
-      maxHeightPxRef.current = Number.isFinite(lh) && lh > 0 ? lh * 6 : 144;
+      maxHeightPxRef.current = Number.isFinite(lh) && lh > 0 ? lh * 15 : 360;
     }
     el.style.height = "auto";
     const clamped = Math.min(el.scrollHeight, maxHeightPxRef.current);
@@ -2645,13 +2647,20 @@ export function ComposeBox({
             "bg-[rgba(10,12,20,0.5)]! text-[#f0ebe0]",
             "border border-[rgba(220,225,245,0.07)]",
             "rounded-[10px] px-4 py-3",
-            // Patch #129: 40px right padding reserves space for the
+            // Patch #129: right padding reserves space for the
             // inside-textarea Send button (24×24 icon in a 40×40 hit
-            // target at absolute right-3 bottom-2.5). Placed AFTER
+            // target at absolute right-1 bottom-0.5). Placed AFTER
             // `px-4` so tailwind-merge's later-wins dedupe keeps the
-            // 40px right padding while the 16px left padding survives.
+            // right padding while the 16px left padding survives.
             // No `!` needed — no dark: variant conflict on padding.
-            "pr-10",
+            // 2026-09-28: bumped 40px→48px so a long unbroken word no
+            // longer visually slides under Send's leftmost 4px (Send
+            // occupies right 4-44px). When MicButton is ALSO present
+            // (showMicButton = mic co-renders at right-11 bottom-0.5,
+            // occupying right 44-84px), reserve 92px so text also clears
+            // the mic — tailwind-merge dedupes pr-*, later wins.
+            "pr-12",
+            showMicButton && "pr-[92px]",
             // Quick 260730-vtk: mirrors the `pr-10` above on the LEFT
             // when the inside-textarea Paperclip is present
             // (showPaperclip=true → 44px matching left padding on the
@@ -3051,6 +3060,16 @@ function QueuedRow(props: QueuedRowProps) {
   const [chipStripHeight, setChipStripHeight] = useState(0);
   const target = `queued:${slot.id}`;
 
+  // 2026-09-28: per-slot auto-grow, byte-parallel to the primary Textarea's
+  // patch #135 useLayoutEffect (~L1275). Before this, QueuedRow textareas
+  // stayed at min-h-8 (32px) and scrolled internally, which felt cramped for
+  // any queued message longer than ~one line. Cap = 15 line-heights (matches
+  // primary's post-2026-09-28 cap), fallback 360px when getComputedStyle
+  // returns a non-numeric lineHeight (JSDOM). Setting height='auto' first is
+  // required so scrollHeight can shrink as text is deleted.
+  const slotTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const slotMaxHeightPxRef = useRef<number | null>(null);
+
   // quick-260829-oxo: slot-scoped paste handler, byte-parallel to primary
   // handlePaste at ComposeBox.tsx:497-506. File pastes are routed to
   // onAttachFilesForTarget with this slot's target; text-only pastes fall
@@ -3094,6 +3113,19 @@ function QueuedRow(props: QueuedRowProps) {
       observer.disconnect();
     };
   }, [stagedCount]);
+
+  useLayoutEffect(() => {
+    const el = slotTextareaRef.current;
+    if (!el) return;
+    if (slotMaxHeightPxRef.current === null) {
+      const lh = parseFloat(getComputedStyle(el).lineHeight);
+      slotMaxHeightPxRef.current = Number.isFinite(lh) && lh > 0 ? lh * 15 : 360;
+    }
+    el.style.height = "auto";
+    const clamped = Math.min(el.scrollHeight, slotMaxHeightPxRef.current);
+    el.style.height = clamped + "px";
+    el.style.overflowY = clamped >= slotMaxHeightPxRef.current ? "auto" : "hidden";
+  }, [slot.text, chipStripHeight]);
 
   const isSlotRecording = voice.state === "recording" && micTarget === slot.id;
   const isSlotTranscribing = voice.state === "transcribing" && micTarget === slot.id;
@@ -3236,6 +3268,7 @@ function QueuedRow(props: QueuedRowProps) {
           />
         </div>
         <Textarea
+          ref={slotTextareaRef}
           value={slot.text}
           onChange={(e) => {
             const nextText = e.target.value;
@@ -3283,7 +3316,13 @@ function QueuedRow(props: QueuedRowProps) {
             "border border-[rgba(220,225,245,0.07)]",
             "rounded-[10px] px-4 py-3",
             // Quick 260803-05i (Task 1): paperclip clearance parity.
-            "pr-10 pl-11",
+            // 2026-09-28: bumped pr-10→pr-12 for a hair more clearance past
+            // Send's left edge, and pr-[92px] when the slot mic is present
+            // so text also clears the mic (Send occupies right 4-44px, Mic
+            // occupies right 44-84px). Same idiom as primary Textarea's
+            // pr-12 + showMicButton && pr-[92px] at ~L2662.
+            "pr-12 pl-11",
+            showSlotMic && "pr-[92px]",
             "placeholder:text-[var(--color-pv-fg-dim)]",
             "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
             "transition-[box-shadow,border-color] duration-200",

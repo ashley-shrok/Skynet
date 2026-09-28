@@ -1438,8 +1438,8 @@ describe("ComposeBox — patch #135 auto-grow", () => {
   });
 
   it("auto-grow: on text change, style.height is driven off scrollHeight (JSDOM scrollHeight mock)", () => {
-    // scrollHeight mocked to 100; MAX_PX falls back to 144 in JSDOM because
-    // getComputedStyle(el).lineHeight returns 'normal' → NaN. 100 < 144 so
+    // scrollHeight mocked to 100; MAX_PX falls back to 360 in JSDOM because
+    // getComputedStyle(el).lineHeight returns 'normal' → NaN. 100 < 360 so
     // overflowY stays 'hidden' (only flips to 'auto' at the cap).
     render(<ComposeBox {...baseProps()} />);
     const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
