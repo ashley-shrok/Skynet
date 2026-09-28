@@ -39,7 +39,7 @@
 #   * If the sync doesn't happen for any reason, the watcher's normal diff
 #     finds a real change and emits — exactly today's noise, never worse.
 #
-# Timeout: wrapped in `timeout 2` (same pattern as skynet-fleet-status-*.sh)
+# Timeout: wrapped in `timeout 2` (same pattern as fleet-status-*.sh)
 # so a full disk or unreachable FS cannot hang the harness turn indefinitely.
 #
 # stdin: harness pipes a JSON payload; consumed but ignored (this hook is

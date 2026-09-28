@@ -277,12 +277,12 @@ LOCK_FILE="$HOME/fleet/.create-widget-lock"
 [ ! -e "$UNIT_FILE" ] \
     || die "systemd unit already exists at $UNIT_FILE"
 
-# Read the numeric Skynet DB hostId from the distributor-written file so we
+# Read the numeric fleet-DB hostId from the distributor-written file so we
 # can bake PANE_BASE = '/interactive/<HOSTID>/<SLUG>/pane' into the widget.
 # The distributor writes this on every fleet-substrate sweep. If the file is
 # missing, this box hasn't been swept yet — surface the failure rather than
 # scaffolding a widget with a bogus prefix.
-HOSTID_FILE="$HOME/.claude/skynet-hostid"
+HOSTID_FILE="$HOME/fleet/host/id"
 if [ ! -f "$HOSTID_FILE" ]; then
     die "$HOSTID_FILE missing — the fleet-substrate distributor hasn't swept this box yet. Wait a minute and retry, or ask the box-maintainer role to check the distributor. Do NOT scaffold without a real hostId; the widget URL would be wrong."
 fi
@@ -521,27 +521,27 @@ fi
 
 CLEANUP_ON_FAIL=0
 
-# Read the Skynet parent domain so we can emit an absolute HTTPS URL. The
+# Read the host parent-URL so we can emit an absolute HTTPS URL. The
 # frontend's in-bubble widget detector regex (INTERACTIVE_MSG_URL_RE_CLIENT)
 # requires https:// — a relative path won't render as an inline widget bubble.
-# The distributor writes ~/.claude/skynet-parent to every managed box; if it's
+# The distributor writes ~/fleet/host/parent to every managed box; if it's
 # missing, surface a clean error rather than emitting an unrenderable URL.
-SKYNET_PARENT_FILE="$HOME/.claude/skynet-parent"
-if [ ! -s "$SKYNET_PARENT_FILE" ]; then
-    log "ERROR: $SKYNET_PARENT_FILE is missing or empty — cannot emit an absolute widget URL."
+HOST_PARENT_FILE="$HOME/fleet/host/parent"
+if [ ! -s "$HOST_PARENT_FILE" ]; then
+    log "ERROR: $HOST_PARENT_FILE is missing or empty — cannot emit an absolute widget URL."
     log "       The frontend URL detector requires https://<domain>/..., not a relative path."
     log "       Ask the box-maintainer role to check the distributor sweep."
     exit 1
 fi
-SKYNET_PARENT=$(cat "$SKYNET_PARENT_FILE")
+HOST_PARENT=$(cat "$HOST_PARENT_FILE")
 
 # Print machine-parseable output to stdout (the agent's harness reads these).
 printf 'SLUG=%s\n' "$SLUG"
-printf 'URL=%s/interactive/%s/%s/pane/\n' "$SKYNET_PARENT" "$HOSTID" "$SLUG"
+printf 'URL=%s/interactive/%s/%s/pane/\n' "$HOST_PARENT" "$HOSTID" "$SLUG"
 
 log "done"
 log "  port:   $PORT (bound to 127.0.0.1)"
 log "  folder: $WIDGET_DIR"
-log "  url:    $SKYNET_PARENT/interactive/$HOSTID/$SLUG/pane/"
+log "  url:    $HOST_PARENT/interactive/$HOSTID/$SLUG/pane/"
 log "  logs:   journalctl --user -u im-$SLUG -f"
 log "  status: systemctl --user status im-$SLUG"

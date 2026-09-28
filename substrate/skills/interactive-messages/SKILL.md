@@ -101,7 +101,7 @@ SLUG=<slug>
 URL=https://<skynet-domain>/interactive/<hostId>/<slug>/pane/
 ```
 
-The URL is absolute HTTPS — `create-widget.sh` reads `~/.claude/skynet-parent`
+The URL is absolute HTTPS — `create-widget.sh` reads `~/fleet/host/parent`
 at scaffold time and prepends it. The frontend's in-bubble widget detector
 requires an absolute `https://` URL; a bare `/interactive/...` path will
 render as a plain link instead of an inline widget bubble.

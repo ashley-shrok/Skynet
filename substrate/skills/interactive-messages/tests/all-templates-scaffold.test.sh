@@ -75,8 +75,8 @@ run_script() {
 SHARED_HOME=$(mktemp -d)
 mkdir -p "$SHARED_HOME/fleet/interactive-messages"
 mkdir -p "$SHARED_HOME/.config/systemd/user"
-mkdir -p "$SHARED_HOME/.claude"
-echo "42" > "$SHARED_HOME/.claude/skynet-hostid"
+mkdir -p "$SHARED_HOME/fleet/host"
+echo "42" > "$SHARED_HOME/fleet/host/id"
 export HOME="$SHARED_HOME"
 
 # Cleanup on exit

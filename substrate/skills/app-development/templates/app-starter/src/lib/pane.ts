@@ -10,8 +10,8 @@
 // Two files carry the literal pane path: THIS file (agent-visible, imported
 // symbolically everywhere internal-URL work happens) and ./server.js (custom
 // Node entry — see its docblock). create-app.sh substitutes __HOSTID__ and
-// __SLUG__ in both files at scaffold time, reading the numeric Skynet DB
-// hostId from ~/.claude/skynet-hostid (a distributor-written file — you never
+// __SLUG__ in both files at scaffold time, reading the numeric fleet-DB
+// hostId from ~/fleet/host/id (a distributor-written file — you never
 // need to know or look up the integer yourself).
 //
 // USAGE — for every internal URL your app emits:

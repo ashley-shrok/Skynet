@@ -265,7 +265,7 @@ describe("installStopHook", () => {
   it("Test 2: installStopHook executes mkdir, script drop, test -x, settings merge in order", async () => {
     const channel = buildChannel();
     const result = await installStopHook(channel, {
-      remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+      remoteHookPath: "~/.claude/hooks/fleet-status-stop.sh",
     });
 
     expect(result.hookInstalled).toBe(true);
@@ -292,11 +292,11 @@ describe("installStopHook", () => {
     // `permissions.deny` entries (EnterPlanMode + ExitPlanMode) — the write-
     // skip decision is now an AND-fold across ALL EIGHT merges. Post-patch-#454:
     // all commands are ABSOLUTE (tilde-expanded) paths.
-    const stopPath = "/home/testuser/.claude/hooks/skynet-fleet-status-stop.sh";
+    const stopPath = "/home/testuser/.claude/hooks/fleet-status-stop.sh";
     const activityPath =
-      "/home/testuser/.claude/hooks/skynet-fleet-status-activity.sh";
+      "/home/testuser/.claude/hooks/fleet-status-activity.sh";
     const stoppedPath =
-      "/home/testuser/.claude/hooks/skynet-fleet-status-stopped.sh";
+      "/home/testuser/.claude/hooks/fleet-status-stopped.sh";
     const existingSettings = JSON.stringify({
       hooks: {
         Stop: [
@@ -323,7 +323,7 @@ describe("installStopHook", () => {
 
     const channel = buildChannel(existingSettings);
     const result = await installStopHook(channel, {
-      remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+      remoteHookPath: "~/.claude/hooks/fleet-status-stop.sh",
     });
 
     expect(result.hookInstalled).toBe(true);
@@ -341,7 +341,7 @@ describe("installStopHook", () => {
   it("Test 12: tilde in default paths is expanded to $HOME before shell commands", async () => {
     const channel = buildChannel();
     await installStopHook(channel, {
-      remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+      remoteHookPath: "~/.claude/hooks/fleet-status-stop.sh",
     });
 
     // $HOME resolution command must have been dispatched
@@ -376,7 +376,7 @@ describe("installStopHook", () => {
             hooks: [
               {
                 type: "command",
-                command: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+                command: "~/.claude/hooks/fleet-status-stop.sh",
               },
             ],
           },
@@ -386,7 +386,7 @@ describe("installStopHook", () => {
 
     const channel = buildChannel(existingSettings);
     const result = await installStopHook(channel, {
-      remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+      remoteHookPath: "~/.claude/hooks/fleet-status-stop.sh",
     });
 
     expect(result.hookInstalled).toBe(true);
@@ -408,18 +408,18 @@ describe("installStopHook", () => {
       g.hooks.map((h) => h.command),
     );
     const ourEntries = allCommands.filter((c) =>
-      c.endsWith("/skynet-fleet-status-stop.sh"),
+      c.endsWith("/fleet-status-stop.sh"),
     );
     expect(ourEntries).toHaveLength(1);
-    expect(ourEntries[0]).toBe("/home/testuser/.claude/hooks/skynet-fleet-status-stop.sh");
+    expect(ourEntries[0]).toBe("/home/testuser/.claude/hooks/fleet-status-stop.sh");
     // The legacy tilde-form entry must be gone.
-    expect(allCommands).not.toContain("~/.claude/hooks/skynet-fleet-status-stop.sh");
+    expect(allCommands).not.toContain("~/.claude/hooks/fleet-status-stop.sh");
   });
 
   it("Test 14: literal `~` subdirectory cleanup is dispatched after $HOME resolution", async () => {
     const channel = buildChannel();
     await installStopHook(channel, {
-      remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+      remoteHookPath: "~/.claude/hooks/fleet-status-stop.sh",
     });
 
     // The `rm -rf "$HOME/~"` migration cleanup must have been dispatched to
@@ -437,7 +437,7 @@ describe("installStopHook", () => {
 
     await expect(
       installStopHook(channel, {
-        remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+        remoteHookPath: "~/.claude/hooks/fleet-status-stop.sh",
       }),
     ).rejects.toThrow(/fleet_status_hook_install_home_resolve_failed/);
 
@@ -465,7 +465,7 @@ describe("installStopHook", () => {
 
     await expect(
       installStopHook(channel, {
-        remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+        remoteHookPath: "~/.claude/hooks/fleet-status-stop.sh",
       }),
     ).rejects.toThrow();
 
@@ -490,7 +490,7 @@ describe("installStopHook", () => {
 
     await expect(
       installStopHook(channel, {
-        remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+        remoteHookPath: "~/.claude/hooks/fleet-status-stop.sh",
       }),
     ).rejects.toThrow();
 
@@ -561,7 +561,7 @@ describe("uninstallStopHook", () => {
             hooks: [
               {
                 type: "command",
-                command: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+                command: "~/.claude/hooks/fleet-status-stop.sh",
               },
               {
                 type: "command",
@@ -579,7 +579,7 @@ describe("uninstallStopHook", () => {
     channel.setResponse("rm -f", "");
 
     await uninstallStopHook(channel, {
-      remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+      remoteHookPath: "~/.claude/hooks/fleet-status-stop.sh",
     });
 
     // rm -f should have been called for the hook script
@@ -599,7 +599,7 @@ describe("uninstallStopHook", () => {
             hooks: [
               {
                 type: "command",
-                command: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+                command: "~/.claude/hooks/fleet-status-stop.sh",
               },
             ],
           },
@@ -613,7 +613,7 @@ describe("uninstallStopHook", () => {
     channel.setResponse("rm -f", "");
 
     await uninstallStopHook(channel, {
-      remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
+      remoteHookPath: "~/.claude/hooks/fleet-status-stop.sh",
     });
 
     // Must NOT have removed the payload directory or last-stop-payload.json
@@ -693,11 +693,11 @@ function makePhase62Settings(
 // resolved by the test $HOME "/home/testuser". Shared across the Phase 62
 // tests.
 const P62_STOP_PATH =
-  "/home/testuser/.claude/hooks/skynet-fleet-status-stop.sh";
+  "/home/testuser/.claude/hooks/fleet-status-stop.sh";
 const P62_ACTIVITY_PATH =
-  "/home/testuser/.claude/hooks/skynet-fleet-status-activity.sh";
+  "/home/testuser/.claude/hooks/fleet-status-activity.sh";
 const P62_STOPPED_PATH =
-  "/home/testuser/.claude/hooks/skynet-fleet-status-stopped.sh";
+  "/home/testuser/.claude/hooks/fleet-status-stopped.sh";
 
 describe("installStopHook (Phase 62 extended shape)", () => {
   beforeEach(() => {

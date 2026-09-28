@@ -744,7 +744,7 @@ export const matrixAdminCreds = sqliteTable("matrix_admin_creds", {
   // to reach synapse from INSIDE its container — which may be a docker-internal
   // alias like `http://synapse:8008` that hosts cannot reach — while
   // relay.json is consumed by recv.sh on the identity's host (and by the
-  // pending ~/.claude/skynet-relay-homeserver distributor per the distributor
+  // pending ~/fleet/host/relay-homeserver distributor per the distributor
   // bounty) which MUST receive a host-reachable URL. Populated via
   // PATCH /matrix-admin/creds/host-side-base.
   hostSideBase: text("host_side_base"),

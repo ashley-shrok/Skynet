@@ -352,16 +352,16 @@ this box named `t1000`, and the file at `/home/ubuntu/note.md`):
     https://term.example.com/file/t1000/home/ubuntu/note.md
 
 Construct one like so — read the app's parent domain from
-`~/.claude/skynet-parent` and the host segment from
-`~/.claude/skynet-hostname` and pair them with the file's absolute path:
+`~/fleet/host/parent` and the host segment from
+`~/fleet/host/name` and pair them with the file's absolute path:
 
-    APP_PARENT=$(cat ~/.claude/skynet-parent 2>/dev/null)
+    APP_PARENT=$(cat ~/fleet/host/parent 2>/dev/null)
     if [ -z "$APP_PARENT" ]; then
       echo "I can't share files right now — my app-parent config is missing." \
            "Ask the box-maintainer role to check the distributor sweep." >&2
       exit 1
     fi
-    HOST=$(cat ~/.claude/skynet-hostname 2>/dev/null)
+    HOST=$(cat ~/fleet/host/name 2>/dev/null)
     if [ -z "$HOST" ]; then
       echo "I can't share files right now — my app-hostname config is missing." \
            "Ask the box-maintainer role to check the distributor sweep." >&2
@@ -390,7 +390,7 @@ never touched by the app.
 
 **Rules that matter — bake them in every time:**
 
-- **Use the hostname the distributor wrote to `~/.claude/skynet-hostname`,
+- **Use the host name the distributor wrote to `~/fleet/host/name`,
   not an IP and not `$(hostname)`.** That file contains the exact string
   the app uses to resolve this box against its per-user host records.
   `$(hostname)` returns the OS hostname, which on cloud VMs is a
@@ -411,18 +411,17 @@ never touched by the app.
   this — ask the box owner to widen access if she genuinely needs to see
   the file.
 
-- **Missing `~/.claude/skynet-parent` OR missing
-  `~/.claude/skynet-hostname` = surface a clean user-facing error**, never
-  guess a domain or hostname and never fall back to any other
-  file-sharing pattern. The exact user-facing sentences are the ones
-  baked into the recipe above — parent missing: *"I can't share files
-  right now — my app-parent config is missing. Ask the box-maintainer
-  role to check the distributor sweep."* Hostname missing: *"I can't
-  share files right now — my app-hostname config is missing. Ask the
-  box-maintainer role to check the distributor sweep."* On a fresh or
-  unregistered box the distributor may not have populated either file
-  yet; surfacing the failure lets them fix the underlying problem instead
-  of debugging a broken URL.
+- **Missing `~/fleet/host/parent` OR missing `~/fleet/host/name` =
+  surface a clean user-facing error**, never guess a domain or hostname
+  and never fall back to any other file-sharing pattern. The exact
+  user-facing sentences are the ones baked into the recipe above —
+  parent missing: *"I can't share files right now — my app-parent config
+  is missing. Ask the box-maintainer role to check the distributor
+  sweep."* Hostname missing: *"I can't share files right now — my
+  app-hostname config is missing. Ask the box-maintainer role to check
+  the distributor sweep."* On a fresh or unregistered box the distributor
+  may not have populated either file yet; surfacing the failure lets them
+  fix the underlying problem instead of debugging a broken URL.
 
 ### Serve URL — active content, live proxy
 
@@ -436,7 +435,7 @@ Grammar:
 
     https://<hostname>-<port>.serve.<app-parent-domain>
 
-Where `<app-parent-domain>` is derived from `~/.claude/skynet-parent`:
+Where `<app-parent-domain>` is derived from `~/fleet/host/parent`:
 strip the protocol, then the serve URL constructs as
 `<hostname>-<port>.serve.<the-rest>`.
 Concrete example (with the app-parent at `https://term.example.com`,
@@ -446,13 +445,13 @@ this box named `t1000`, and a dev server on port 3020):
 
 Construct one like so:
 
-    APP_PARENT=$(cat ~/.claude/skynet-parent 2>/dev/null)
+    APP_PARENT=$(cat ~/fleet/host/parent 2>/dev/null)
     if [ -z "$APP_PARENT" ]; then
       echo "I can't share a live serve URL right now — my app-parent config is missing." \
            "Ask the box-maintainer role to check the distributor sweep." >&2
       exit 1
     fi
-    HOST=$(cat ~/.claude/skynet-hostname 2>/dev/null)
+    HOST=$(cat ~/fleet/host/name 2>/dev/null)
     if [ -z "$HOST" ]; then
       echo "I can't share a live serve URL right now — my app-hostname config is missing." \
            "Ask the box-maintainer role to check the distributor sweep." >&2
@@ -476,7 +475,7 @@ own web origin under the wildcard cert.
 
 **Rules that matter — bake them in every time:**
 
-- **Use the hostname the distributor wrote to `~/.claude/skynet-hostname`,
+- **Use the hostname the distributor wrote to `~/fleet/host/name`,
   not an IP and not `$(hostname)`.** Same rule as the file URL — the app's
   record for this box uses that exact string; anything else 404s at the
   interstitial.
@@ -494,10 +493,9 @@ own web origin under the wildcard cert.
 - **Hostname can't end in `-<digits>`.** The URL parse rule splits on the
   last dash of the leftmost label to separate hostname from port.
 
-- **Missing `~/.claude/skynet-parent` OR missing
-  `~/.claude/skynet-hostname` = surface a clean user-facing error**, never
-  guess and never fall back. Same rule as file URLs; the exact wording is
-  in the recipe above.
+- **Missing `~/fleet/host/parent` OR missing `~/fleet/host/name` =
+  surface a clean user-facing error**, never guess and never fall back.
+  Same rule as file URLs; the exact wording is in the recipe above.
 
 - **No workaround if the serve URL is broken.** If the serve
   infrastructure is down and the URL doesn't work, tell her and stop. Do

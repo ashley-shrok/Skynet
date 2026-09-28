@@ -6,7 +6,7 @@
  * The fleet-substrate distributor (server-substrate-orchestrator.ts) enumerates
  * every runsFleetSubstrate:true host serially and SSHs into each to push
  * substrate bytes (skills, helper scripts, systemd units) + run the bootstrap
- * (systemctl enable, settings.json patch, skynet-parent/skynet-hostname writes).
+ * (systemctl enable, settings.json patch, host-parent/host-name writes).
  *
  * When the substrate host is the container's OWN host (`fleetHostId` is in the
  * IDENTITIES_LOCAL_HOST_IDS env allowlist, e.g. Skynet on t1000), SSH-to-self
@@ -58,10 +58,10 @@
  * ## Bootstrap coverage
  *
  * The SSH bootstrap (run-bootstrap.ts) has 5 steps: (1-3) systemd enable +
- * settings.json patch + gsd-context-monitor cleanup, (4) skynet-parent write,
- * (5) skynet-hostname write. This module implements the minimum viable set
- * for the local box:
- *   - Steps 4 + 5 (skynet-parent, skynet-hostname) — always implemented.
+ * settings.json patch + gsd-context-monitor cleanup, (4) host-parent write,
+ * (5) host-name write, (5b) host-id write. This module implements the
+ * minimum viable set for the local box:
+ *   - Steps 4 + 5 + 5b (host-parent, host-name, host-id) — always implemented.
  *   - Steps 1-3 (systemd + settings patch + cleanup) — only when
  *     `XDG_RUNTIME_DIR` is present in the container process env (evidence of
  *     a running systemd-user session). Absent → skip-with-warn using
@@ -1027,7 +1027,7 @@ export async function installFleetSubstrateLocally(
 
 /**
  * Write bytes to a "single-line-content, content-diff idempotent" file.
- * Used for both skynet-parent and skynet-hostname. Never throws.
+ * Used for all three host-config writes (parent, name, id). Never throws.
  *
  * Returns:
  *   - "written"     — file did not match; new bytes written atomically.
@@ -1234,9 +1234,40 @@ async function writeContentDiffFile(
 }
 
 /**
+ * Best-effort delete of a legacy file. Used by the host-config writers to
+ * clean up the pre-rename ~/.claude/skynet-{parent,hostname,hostid} files
+ * once the new ~/fleet/host/{parent,name,id} copies have been written.
+ * ENOENT is the expected steady state (file already gone) and is silent;
+ * any other error is logged but does not propagate — the write has already
+ * succeeded and steady-state fleet health should not depend on the legacy
+ * cleanup.
+ */
+async function removeLegacyFileIfPresent(legacyPath: string): Promise<void> {
+  try {
+    await fs.unlink(legacyPath);
+  } catch (err: unknown) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      (err as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return;
+    }
+    systemLogger.warn(
+      `local-fleet-bootstrap: legacy file cleanup failed for ${legacyPath}`,
+      {
+        operation: "local_fleet_bootstrap_legacy_cleanup_error",
+        legacyPath,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
+  }
+}
+
+/**
  * Bootstrap the local host — steps 2 (settings.json patch) + 3
- * (gsd-context-monitor cleanup) + 4 (~/.claude/skynet-parent) + 5
- * (~/.claude/skynet-hostname) always run. Step 1 (systemd enable) requires
+ * (gsd-context-monitor cleanup) + 4 (~/fleet/host/parent) + 5
+ * (~/fleet/host/name) + 5b (~/fleet/host/id) always run. Step 1 (systemd enable) requires
  * a working `systemctl --user` connection into the host session — until
  * that's implemented locally it is skip-with-warn (`operation:
  * local_fleet_bootstrap_skip`, `site: systemd_step_deferred`), DO NOT
@@ -1259,13 +1290,14 @@ export async function bootstrapFleetSubstrateLocally(
   let daemonReloadRan = false;
   let settingsPatchOk = false;
   let gsdContextMonitorCleanupOk = false;
-  let skynetParentOk = false;
-  let skynetHostnameOk = false;
-  let skynetHostidOk = false;
+  let hostParentOk = false;
+  let hostNameOk = false;
+  let hostIdOk = false;
   let statusLineWireOk = false;
   let hadError = false;
 
   const claudeDir = path.join(getLocalHomeRoot(), ".claude");
+  const hostConfigDir = path.join(getLocalHomeRoot(), "fleet", "host");
 
   // ---- Step 1: systemd enable + daemon-reload ----
   // Genuinely needs systemctl --user against the host session bus. Deferred
@@ -1329,27 +1361,31 @@ export async function bootstrapFleetSubstrateLocally(
     hadError = true;
   }
 
-  // ---- Step 4: skynet-parent ----
+  // ---- Step 4: host-parent ----
+  //   Writes ~/fleet/host/parent (new rebrand-neutral path). After the
+  //   write succeeds, best-effort removes the legacy ~/.claude/skynet-parent
+  //   file so a rebranded fleet instance doesn't leak the vendor brand name
+  //   into agent-visible file paths.
   try {
     const url = process.env.SKYNET_PUBLIC_URL ?? "";
     if (!url || !/^https:\/\//.test(url)) {
       systemLogger.warn(
-        `local-fleet-bootstrap: SKYNET_PUBLIC_URL missing or malformed — skipping skynet-parent write for ${host.name}`,
+        `local-fleet-bootstrap: SKYNET_PUBLIC_URL missing or malformed — skipping host-parent write for ${host.name}`,
         {
           operation: "local_fleet_bootstrap_skip",
-          site: "skynet_parent_url_gate",
+          site: "host_parent_url_gate",
           fleetHostId: host.id,
           hostName: host.name,
         },
       );
       // Documented skip — DO NOT set hadError (RESEARCH Pitfall 4 parity).
     } else {
-      const target = path.join(claudeDir, "skynet-parent");
+      const target = path.join(hostConfigDir, "parent");
       const outcome = await writeContentDiffFile(target, url + "\n");
       if (typeof outcome === "object") {
         hadError = true;
         systemLogger.warn(
-          `local-fleet-bootstrap: skynet-parent write failed for ${host.name}`,
+          `local-fleet-bootstrap: host-parent write failed for ${host.name}`,
           {
             operation: "local_fleet_bootstrap_error",
             site: outcome.site,
@@ -1360,16 +1396,17 @@ export async function bootstrapFleetSubstrateLocally(
           },
         );
       } else {
-        skynetParentOk = true;
+        hostParentOk = true;
+        await removeLegacyFileIfPresent(path.join(claudeDir, "skynet-parent"));
       }
     }
   } catch (err) {
     hadError = true;
     systemLogger.warn(
-      `local-fleet-bootstrap: skynet-parent step threw unexpectedly for ${host.name}`,
+      `local-fleet-bootstrap: host-parent step threw unexpectedly for ${host.name}`,
       {
         operation: "local_fleet_bootstrap_error",
-        site: "skynet_parent_catchall",
+        site: "host_parent_catchall",
         fleetHostId: host.id,
         hostName: host.name,
         error: err instanceof Error ? err.message : String(err),
@@ -1377,14 +1414,14 @@ export async function bootstrapFleetSubstrateLocally(
     );
   }
 
-  // ---- Step 5: skynet-hostname ----
+  // ---- Step 5: host-name ----
   try {
-    const target = path.join(claudeDir, "skynet-hostname");
+    const target = path.join(hostConfigDir, "name");
     const outcome = await writeContentDiffFile(target, host.name + "\n");
     if (typeof outcome === "object") {
       hadError = true;
       systemLogger.warn(
-        `local-fleet-bootstrap: skynet-hostname write failed for ${host.name}`,
+        `local-fleet-bootstrap: host-name write failed for ${host.name}`,
         {
           operation: "local_fleet_bootstrap_error",
           site: outcome.site,
@@ -1395,15 +1432,16 @@ export async function bootstrapFleetSubstrateLocally(
         },
       );
     } else {
-      skynetHostnameOk = true;
+      hostNameOk = true;
+      await removeLegacyFileIfPresent(path.join(claudeDir, "skynet-hostname"));
     }
   } catch (err) {
     hadError = true;
     systemLogger.warn(
-      `local-fleet-bootstrap: skynet-hostname step threw unexpectedly for ${host.name}`,
+      `local-fleet-bootstrap: host-name step threw unexpectedly for ${host.name}`,
       {
         operation: "local_fleet_bootstrap_error",
-        site: "skynet_hostname_catchall",
+        site: "host_name_catchall",
         fleetHostId: host.id,
         hostName: host.name,
         error: err instanceof Error ? err.message : String(err),
@@ -1411,17 +1449,17 @@ export async function bootstrapFleetSubstrateLocally(
     );
   }
 
-  // ---- Step 5b: skynet-hostid ----
-  //   Numeric Skynet DB id as string. Consumers: app-development skill's
+  // ---- Step 5b: host-id ----
+  //   Numeric fleet DB id as string. Consumers: app-development skill's
   //   create-app.sh reads this at scaffold time to burn PANE_BASE. Same
   //   fail-soft shape as Step 5.
   try {
-    const target = path.join(claudeDir, "skynet-hostid");
+    const target = path.join(hostConfigDir, "id");
     const outcome = await writeContentDiffFile(target, host.id + "\n");
     if (typeof outcome === "object") {
       hadError = true;
       systemLogger.warn(
-        `local-fleet-bootstrap: skynet-hostid write failed for ${host.name}`,
+        `local-fleet-bootstrap: host-id write failed for ${host.name}`,
         {
           operation: "local_fleet_bootstrap_error",
           site: outcome.site,
@@ -1432,15 +1470,16 @@ export async function bootstrapFleetSubstrateLocally(
         },
       );
     } else {
-      skynetHostidOk = true;
+      hostIdOk = true;
+      await removeLegacyFileIfPresent(path.join(claudeDir, "skynet-hostid"));
     }
   } catch (err) {
     hadError = true;
     systemLogger.warn(
-      `local-fleet-bootstrap: skynet-hostid step threw unexpectedly for ${host.name}`,
+      `local-fleet-bootstrap: host-id step threw unexpectedly for ${host.name}`,
       {
         operation: "local_fleet_bootstrap_error",
-        site: "skynet_hostid_catchall",
+        site: "host_id_catchall",
         fleetHostId: host.id,
         hostName: host.name,
         error: err instanceof Error ? err.message : String(err),
@@ -1475,9 +1514,9 @@ export async function bootstrapFleetSubstrateLocally(
     daemonReloadRan,
     settingsPatchOk,
     gsdContextMonitorCleanupOk,
-    skynetParentOk,
-    skynetHostnameOk,
-    skynetHostidOk,
+    hostParentOk,
+    hostNameOk,
+    hostIdOk,
     statusLineWireOk,
     hadError,
     gcTimerAlreadyEnabled: false,

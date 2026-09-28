@@ -24,11 +24,11 @@
  *     churn, itemsChanged stays 0)
  *   - RB1 /etc/ system-root row: euid gate — root writes, non-root skips
  *     with itemsFailed++
- *   - BR1 bootstrap covers skynet-parent + skynet-hostname (Steps 4 + 5) with
+ *   - BR1 bootstrap covers host-parent + host-name (Steps 4 + 5) with
  *     content-diff idempotency; SKYNET_PUBLIC_URL missing → clean skip (no
  *     hadError); systemd steps (1-3) skip-with-warn when XDG_RUNTIME_DIR
  *     absent (documented environmental limitation, hadError NOT set)
- *   - BE1 bootstrap never-throw on FS error (skynet-parent or skynet-hostname
+ *   - BE1 bootstrap never-throw on FS error (host-parent or host-name
  *     write fails → hadError:true, no throw)
  */
 
@@ -574,59 +574,59 @@ describe("RH1 — restart-hook fires after changed items", () => {
 });
 
 // ---------------------------------------------------------------------------
-// BR1 — bootstrap covers skynet-parent + skynet-hostname
+// BR1 — bootstrap covers host-parent + host-name
 // ---------------------------------------------------------------------------
 
-describe("BR1 — bootstrap covers skynet-parent + skynet-hostname writes", () => {
-  it("SKYNET_PUBLIC_URL valid https:// URL → skynet-parent written, skynet-hostname written", async () => {
+describe("BR1 — bootstrap covers host-parent + host-name writes", () => {
+  it("SKYNET_PUBLIC_URL valid https:// URL → host-parent written, host-name written", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
     const { bootstrapFleetSubstrateLocally } = await importFresh();
 
     const result = await bootstrapFleetSubstrateLocally(host);
 
     expect(result.hadError).toBe(false);
-    expect(result.skynetParentOk).toBe(true);
-    expect(result.skynetHostnameOk).toBe(true);
+    expect(result.hostParentOk).toBe(true);
+    expect(result.hostNameOk).toBe(true);
 
-    const parentPath = path.join(tmpRoot, ".claude/skynet-parent");
-    const hostnamePath = path.join(tmpRoot, ".claude/skynet-hostname");
+    const parentPath = path.join(tmpRoot, "fleet/host/parent");
+    const hostnamePath = path.join(tmpRoot, "fleet/host/name");
     expect((await fs.readFile(parentPath, "utf-8")).trim()).toBe(
       "https://skynet.example.com",
     );
     expect((await fs.readFile(hostnamePath, "utf-8")).trim()).toBe("t1000");
   });
 
-  it("SKYNET_PUBLIC_URL missing → skip skynet-parent (no hadError), still writes skynet-hostname", async () => {
+  it("SKYNET_PUBLIC_URL missing → skip host-parent (no hadError), still writes host-name", async () => {
     delete process.env.SKYNET_PUBLIC_URL;
     const { bootstrapFleetSubstrateLocally } = await importFresh();
     const result = await bootstrapFleetSubstrateLocally(host);
 
     expect(result.hadError).toBe(false);
-    expect(result.skynetParentOk).toBe(false); // documented skip; not error
-    expect(result.skynetHostnameOk).toBe(true);
+    expect(result.hostParentOk).toBe(false); // documented skip; not error
+    expect(result.hostNameOk).toBe(true);
 
-    const parentPath = path.join(tmpRoot, ".claude/skynet-parent");
+    const parentPath = path.join(tmpRoot, "fleet/host/parent");
     await expect(fs.access(parentPath)).rejects.toThrow();
 
-    const hostnamePath = path.join(tmpRoot, ".claude/skynet-hostname");
+    const hostnamePath = path.join(tmpRoot, "fleet/host/name");
     expect((await fs.readFile(hostnamePath, "utf-8")).trim()).toBe("t1000");
   });
 
-  it("SKYNET_PUBLIC_URL malformed (no https://) → skip skynet-parent (no hadError)", async () => {
+  it("SKYNET_PUBLIC_URL malformed (no https://) → skip host-parent (no hadError)", async () => {
     process.env.SKYNET_PUBLIC_URL = "http://insecure.example";
     const { bootstrapFleetSubstrateLocally } = await importFresh();
     const result = await bootstrapFleetSubstrateLocally(host);
 
     expect(result.hadError).toBe(false);
-    expect(result.skynetParentOk).toBe(false);
+    expect(result.hostParentOk).toBe(false);
   });
 
-  it("idempotent: second call does not rewrite when contents match (no mtime churn on skynet-parent)", async () => {
+  it("idempotent: second call does not rewrite when contents match (no mtime churn on host-parent)", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
     const { bootstrapFleetSubstrateLocally } = await importFresh();
 
     await bootstrapFleetSubstrateLocally(host);
-    const parentPath = path.join(tmpRoot, ".claude/skynet-parent");
+    const parentPath = path.join(tmpRoot, "fleet/host/parent");
     const statFirst = await fs.stat(parentPath);
 
     // Second sweep — same content, must not rewrite.
@@ -636,8 +636,8 @@ describe("BR1 — bootstrap covers skynet-parent + skynet-hostname writes", () =
     await bootstrapFleetSubstrateLocally(host);
     for (const call of writeFileSpy.mock.calls) {
       const target = String(call[0]);
-      // A second temp write for skynet-parent would be a bug — assert none.
-      expect(target.includes("skynet-parent")).toBe(false);
+      // A second temp write for host-parent would be a bug — assert none.
+      expect(target.includes("fleet/host/parent")).toBe(false);
     }
     const statSecond = await fs.stat(parentPath);
     expect(statSecond.mtimeMs).toBe(statFirst.mtimeMs);
@@ -1077,7 +1077,7 @@ describe("BR3 — bootstrap wires usage-reporter statusLine + cleans up legacy p
 // ---------------------------------------------------------------------------
 
 describe("BE1 — bootstrap never-throw on FS error", () => {
-  it("writeFile rejects during skynet-hostname → hadError:true, no throw", async () => {
+  it("writeFile rejects during host-name → hadError:true, no throw", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
 
     const writeFileSpy = vi.spyOn(fs, "writeFile").mockImplementation(() => {
@@ -1090,8 +1090,8 @@ describe("BE1 — bootstrap never-throw on FS error", () => {
     const result = await bootstrapFleetSubstrateLocally(host);
 
     expect(result.hadError).toBe(true);
-    expect(result.skynetParentOk).toBe(false);
-    expect(result.skynetHostnameOk).toBe(false);
+    expect(result.hostParentOk).toBe(false);
+    expect(result.hostNameOk).toBe(false);
 
     writeFileSpy.mockRestore();
   });

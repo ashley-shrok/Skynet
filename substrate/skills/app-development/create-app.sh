@@ -59,13 +59,13 @@ TEMPLATE_DIR="$SCRIPT_DIR/templates/app-starter"
 [ -d "$TEMPLATE_DIR" ]            || die "starter template not found at $TEMPLATE_DIR"
 [ ! -e "$APP_DIR" ]               || die "app already exists at $APP_DIR"
 
-# Read the numeric Skynet DB hostId from the distributor-written file so we
+# Read the numeric fleet-DB hostId from the distributor-written file so we
 # can bake PANE_BASE = '/apps/<HOSTID>/<SLUG>/pane' into scaffolded pane.ts
 # + server.js. The distributor writes this on every fleet-substrate sweep
 # (see run-bootstrap.ts Step 5b / local-fleet-install.ts Step 5b). If the
 # file is missing, this box hasn't been swept yet — surface the failure
 # rather than scaffolding an app with a bogus prefix.
-HOSTID_FILE="$HOME/.claude/skynet-hostid"
+HOSTID_FILE="$HOME/fleet/host/id"
 if [ ! -f "$HOSTID_FILE" ]; then
     die "$HOSTID_FILE missing — the fleet-substrate distributor hasn't swept this box yet. Wait a minute and retry, or ask the box-maintainer role to check the distributor. Do NOT scaffold without a real hostId; PANE_BASE would be wrong and the app would 404 in the pane iframe."
 fi

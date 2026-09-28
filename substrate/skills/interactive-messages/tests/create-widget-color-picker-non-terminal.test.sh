@@ -86,9 +86,9 @@ new_home() {
     # Bare minimum structure
     mkdir -p "$tmp/fleet/interactive-messages"
     mkdir -p "$tmp/.config/systemd/user"
-    mkdir -p "$tmp/.claude"
+    mkdir -p "$tmp/fleet/host"
     # Write a valid hostId
-    echo "42" > "$tmp/.claude/skynet-hostid"
+    echo "42" > "$tmp/fleet/host/id"
     echo "$tmp"
 }
 

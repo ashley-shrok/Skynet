@@ -70,8 +70,8 @@ import('./dist/backend/fleet-status/remote-hook-install.js').then(async m => {
 
 After install, confirm:
 - `~/.claude/settings.json` on the target contains a `hooks.Stop[0].hooks[]` entry
-  pointing at `~/.claude/hooks/skynet-fleet-status-stop.sh`.
-- `~/.claude/hooks/skynet-fleet-status-stop.sh` exists and is executable.
+  pointing at `~/.claude/hooks/fleet-status-stop.sh`.
+- `~/.claude/hooks/fleet-status-stop.sh` exists and is executable.
 
 ---
 

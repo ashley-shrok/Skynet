@@ -432,7 +432,7 @@ already scaffolded and works):
 
 - `src/lib/pane.ts` — exports `PANE_BASE` with the numeric hostId +
   slug baked at scaffold time (`create-app.sh` reads the numeric hostId
-  from `~/.claude/skynet-hostid`, a distributor-written file — you
+  from `~/fleet/host/id`, a distributor-written file — you
   never need to know the integer)
 - `src/hooks.ts` — a universal `reroute` hook strips `PANE_BASE` from
   incoming request paths so both mount contexts land on the same

@@ -168,9 +168,9 @@ vi.mock("./local-fleet-install.js", () => ({
     daemonReloadRan: true,
     settingsPatchOk: true,
     gsdContextMonitorCleanupOk: true,
-    skynetParentOk: true,
-    skynetHostnameOk: true,
-    skynetHostidOk: true,
+    hostParentOk: true,
+    hostNameOk: true,
+    hostIdOk: true,
     hadError: false,
   })),
 }));

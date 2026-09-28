@@ -84,8 +84,8 @@ new_home() {
     tmp=$(mktemp -d)
     mkdir -p "$tmp/fleet/interactive-messages"
     mkdir -p "$tmp/.config/systemd/user"
-    mkdir -p "$tmp/.claude"
-    echo "42" > "$tmp/.claude/skynet-hostid"
+    mkdir -p "$tmp/fleet/host"
+    echo "42" > "$tmp/fleet/host/id"
     echo "$tmp"
 }
 

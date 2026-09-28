@@ -4,15 +4,19 @@
  * ## Purpose (Phase 62 extended shape + Phase 95 Part A deny extension)
  * Installs THREE fleet-status hook scripts onto an identity-hosting box by:
  *   (a) Dropping THREE .sh scripts atomically over SSH (`.tmp` + `mv` + `chmod +x`):
- *         - `stop-hook.sh`     at ~/.claude/hooks/skynet-fleet-status-stop.sh
+ *         - `stop-hook.sh`     at ~/.claude/hooks/fleet-status-stop.sh
  *           (unchanged — still writes the box-wide + per-session background-tasks
  *           payload for the orthogonal Phase 59 consumer path).
- *         - `activity-hook.sh` at ~/.claude/hooks/skynet-fleet-status-activity.sh
+ *         - `activity-hook.sh` at ~/.claude/hooks/fleet-status-activity.sh
  *           (Phase 62 — touches per-session `activity` marker on UserPromptSubmit
  *           + PreToolUse events; feeds `activity_mtime > stopped_mtime` predicate).
- *         - `stopped-hook.sh`  at ~/.claude/hooks/skynet-fleet-status-stopped.sh
+ *         - `stopped-hook.sh`  at ~/.claude/hooks/fleet-status-stopped.sh
  *           (Phase 62 — touches per-session `stopped` marker on Stop + StopFailure
  *           + PermissionRequest events; is the RHS of the predicate above).
+ *         Also strips any legacy `skynet-fleet-status-*.sh` entries from
+ *         settings.json and rm's the legacy .sh files (rebrand-neutrality:
+ *         the vendor brand name was removed from these paths so per-instance
+ *         rebranded fleets don't leak "skynet" into agent-visible file names).
  *   (b) SSH-reading ~/.claude/settings.json, merging SIX hook entries + TWO
  *       permission-deny entries in-memory (idempotent — no-op on second run),
  *       and writing back atomically via heredoc .tmp + mv:
@@ -80,11 +84,11 @@ import type { SshChannel } from "./ssh-poll-orchestrator.js";
 // ---------------------------------------------------------------------------
 
 export interface InstallOpts {
-  /** Remote path where the stop-hook script is dropped. Default: ~/.claude/hooks/skynet-fleet-status-stop.sh */
+  /** Remote path where the stop-hook script is dropped. Default: ~/.claude/hooks/fleet-status-stop.sh */
   remoteHookPath?: string;
-  /** Remote path where the activity-hook script is dropped. Default: ~/.claude/hooks/skynet-fleet-status-activity.sh */
+  /** Remote path where the activity-hook script is dropped. Default: ~/.claude/hooks/fleet-status-activity.sh */
   remoteActivityHookPath?: string;
-  /** Remote path where the stopped-hook script is dropped. Default: ~/.claude/hooks/skynet-fleet-status-stopped.sh */
+  /** Remote path where the stopped-hook script is dropped. Default: ~/.claude/hooks/fleet-status-stopped.sh */
   remoteStoppedHookPath?: string;
   /** Remote directory for the (legacy) payload file. Default: ~/.claude/fleet-status */
   remotePayloadDir?: string;
@@ -107,12 +111,23 @@ export interface MergeResult {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_REMOTE_HOOK_PATH =
-  "~/.claude/hooks/skynet-fleet-status-stop.sh";
+  "~/.claude/hooks/fleet-status-stop.sh";
 const DEFAULT_REMOTE_ACTIVITY_HOOK_PATH =
-  "~/.claude/hooks/skynet-fleet-status-activity.sh";
+  "~/.claude/hooks/fleet-status-activity.sh";
 const DEFAULT_REMOTE_STOPPED_HOOK_PATH =
-  "~/.claude/hooks/skynet-fleet-status-stopped.sh";
+  "~/.claude/hooks/fleet-status-stopped.sh";
 const DEFAULT_REMOTE_PAYLOAD_DIR = "~/.claude/fleet-status";
+
+// Legacy brand-named paths retained ONLY for one-shot migration cleanup.
+// Any settings.json entry whose command matches one of these is stripped
+// during installStopHook, and the on-disk .sh files are rm'd. Do not add
+// new consumers — the DEFAULT_REMOTE_*_HOOK_PATH constants above are the
+// canonical current paths.
+const LEGACY_REMOTE_HOOK_PATHS: readonly string[] = [
+  "~/.claude/hooks/skynet-fleet-status-stop.sh",
+  "~/.claude/hooks/skynet-fleet-status-activity.sh",
+  "~/.claude/hooks/skynet-fleet-status-stopped.sh",
+];
 
 // SOURCE OF TRUTH: keep this string byte-for-byte in sync with
 // src/backend/fleet-status/stop-hook.sh. Test 11 in remote-hook-install.test.ts
@@ -642,6 +657,17 @@ export async function installStopHook(
   // to a single directory name; ignored quietly if it doesn't exist.
   await channel.exec(`rm -rf "${home}/~"`);
 
+  // Migration: remove the legacy brand-named hook .sh files
+  // (~/.claude/hooks/skynet-fleet-status-*.sh). The rename to
+  // `fleet-status-*.sh` was made so per-instance-rebranded fleets don't leak
+  // the vendor brand name into agent-visible file paths. The settings.json
+  // strip below removes matching entries; this rm removes the actual .sh
+  // files so nothing dangles on disk. Ignored quietly if absent.
+  const legacyBrandFilesArg = LEGACY_REMOTE_HOOK_PATHS.map(
+    (p) => `"${expandTilde(p)}"`,
+  ).join(" ");
+  await channel.exec(`rm -f ${legacyBrandFilesArg}`);
+
   // Step 1: Resolve stop-hook script contents. Activity + stopped-hook
   // contents always come from the inlined constants (no localHookScriptPath
   // escape hatch for them — the escape hatch predates Phase 62 and is Stop-
@@ -758,29 +784,54 @@ export async function installStopHook(
     }
   }
 
-  // Step 6a: Migration — strip any legacy tilde-form Stop hook entry before
-  // merging the new absolute-form entry. Boxes previously "installed" by
-  // patch #453 (pre-tilde-fix) have `command: "~/.claude/hooks/..."` which
-  // won't match the absolute `remoteHookPath` we merge below; leaving it
-  // would create a duplicate Stop hook entry. Only strip when the substitution
-  // actually happened (legacyHookPath !== remoteHookPath). Note: only the
-  // stop-hook has a legacy tilde-form to migrate; the Phase-62 activity/
-  // stopped-hook entries never existed pre-tilde-fix.
-  let settingsForMerge: Record<string, unknown> = currentSettings;
+  // Step 6a: Migration — strip legacy entries before merging the current
+  // paths. Two cohorts of legacy commands to remove:
+  //
+  //   (1) Tilde-form Stop hook entries (`~/.claude/hooks/...`) written by
+  //       patch #453 pre-tilde-fix. Only present when the current install
+  //       resolved a distinct absolute path (legacyHookPath !== remoteHookPath).
+  //       Note: only the stop-hook has a pre-tilde-fix legacy form; the
+  //       Phase-62 activity/stopped-hook entries never existed pre-tilde-fix.
+  //
+  //   (2) Brand-named entries whose command matches any of
+  //       LEGACY_REMOTE_HOOK_PATHS (tilde OR absolute form). These are the
+  //       pre-rebrand-neutral `skynet-fleet-status-*.sh` paths. Strip from
+  //       EVERY hook event since brand-named entries could sit under any of
+  //       Stop / UserPromptSubmit / PreToolUse / StopFailure / PermissionRequest.
+  //
+  // Not stripping would leave duplicate entries pointing at non-existent
+  // scripts, causing spurious Claude-Code hook-runner errors on every event.
+  const legacyCommands = new Set<string>();
+  for (const p of LEGACY_REMOTE_HOOK_PATHS) {
+    legacyCommands.add(p); // tilde form
+    legacyCommands.add(expandTilde(p)); // absolute form
+  }
   if (legacyHookPath !== remoteHookPath) {
-    const hooks = currentSettings.hooks as Record<string, unknown> | undefined;
-    const Stop = hooks?.Stop as Array<{ hooks?: Array<{ command?: string }> }> | undefined;
-    if (Array.isArray(Stop)) {
-      const strippedStop = Stop.map((group) => {
+    legacyCommands.add(legacyHookPath);
+  }
+
+  let settingsForMerge: Record<string, unknown> = currentSettings;
+  let legacyStripped = false;
+  const hooks = currentSettings.hooks as Record<string, unknown> | undefined;
+  if (hooks) {
+    const strippedHooks: Record<string, unknown> = { ...hooks };
+    for (const [eventName, eventVal] of Object.entries(hooks)) {
+      if (!Array.isArray(eventVal)) continue;
+      const eventArr = eventVal as Array<{ hooks?: Array<{ command?: string }> }>;
+      const rebuilt = eventArr.map((group) => {
         if (!Array.isArray(group.hooks)) return group;
-        return {
-          ...group,
-          hooks: group.hooks.filter((e) => e.command !== legacyHookPath),
-        };
+        const filtered = group.hooks.filter(
+          (e) => !e.command || !legacyCommands.has(e.command),
+        );
+        if (filtered.length !== group.hooks.length) legacyStripped = true;
+        return { ...group, hooks: filtered };
       });
+      strippedHooks[eventName] = rebuilt;
+    }
+    if (legacyStripped) {
       settingsForMerge = {
         ...currentSettings,
-        hooks: { ...(hooks ?? {}), Stop: strippedStop },
+        hooks: strippedHooks,
       };
     }
   }
@@ -841,7 +892,10 @@ export async function installStopHook(
   const enterAlreadyInstalled = denyResults["EnterPlanMode"] ?? false;
   const exitAlreadyInstalled = denyResults["ExitPlanMode"] ?? false;
 
-  if (allAlreadyInstalled) {
+  // If Step 6a stripped legacy entries, we MUST write settings even when
+  // every current-path merge reports already-installed — otherwise the strip
+  // is discarded and legacy entries persist across every install cycle.
+  if (allAlreadyInstalled && !legacyStripped) {
     systemLogger.info(
       "Fleet-status: all eight settings entries (six hook + two permission-deny) already present in settings.json — skipping write",
       {

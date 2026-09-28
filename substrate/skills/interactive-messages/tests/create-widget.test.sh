@@ -85,9 +85,9 @@ new_home() {
     # Bare minimum structure
     mkdir -p "$tmp/fleet/interactive-messages"
     mkdir -p "$tmp/.config/systemd/user"
-    mkdir -p "$tmp/.claude"
+    mkdir -p "$tmp/fleet/host"
     # Write a valid hostId
-    echo "42" > "$tmp/.claude/skynet-hostid"
+    echo "42" > "$tmp/fleet/host/id"
     echo "$tmp"
 }
 
@@ -197,7 +197,7 @@ rm -rf "$FAKE_HOME"
 printf '\n=== Test 2: Missing HOSTID file ===\n'
 FAKE_HOME=$(new_home)
 export HOME="$FAKE_HOME"
-rm -f "$FAKE_HOME/.claude/skynet-hostid"
+rm -f "$FAKE_HOME/fleet/host/id"
 
 run_script out err ec \
     "poll-test2" "poll" \
@@ -211,8 +211,8 @@ if [ "$ec" != "0" ]; then
 else
     fail "missing HOSTID: expected non-zero exit, got 0"
 fi
-if printf '%s' "$err" | grep -qi "hostid\|skynet-hostid\|distributor"; then
-    pass "missing HOSTID: error message mentions skynet-hostid"
+if printf '%s' "$err" | grep -qi "hostid\|fleet/host/id\|distributor"; then
+    pass "missing HOSTID: error message mentions fleet/host/id"
 else
     fail "missing HOSTID: error message unclear — got: $err"
 fi

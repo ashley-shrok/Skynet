@@ -54,27 +54,30 @@
  *      false pressure warnings (the harness context meter overstates actual
  *      usage). Idempotent — no-op after first sweep on each host.
  *
- *   4. skynet-parent write (Phase 75 D-03):
- *      Write ~/.claude/skynet-parent with the parent Skynet's HTTPS URL
+ *   4. host-parent write (Phase 75 D-03):
+ *      Write ~/fleet/host/parent with the parent-fleet HTTPS URL
  *      (single-line, newline-terminated). Read the URL from
  *      process.env.SKYNET_PUBLIC_URL. Idempotent: content-diff check
  *      short-circuits when the file already matches (RESEARCH Pitfall 3 —
  *      prevents mtime churn on every 2s sweep). Missing or malformed env
  *      var: skip entirely (do NOT write empty string; agents surface a
- *      clean "parent-Skynet config missing" error per D-03 when the file
- *      is absent). Failure to write is logged and marked in hadError; the
- *      never-throw contract is preserved.
+ *      clean "host config missing" error per D-03 when the file is
+ *      absent). Failure to write is logged and marked in hadError; the
+ *      never-throw contract is preserved. Also removes the legacy
+ *      ~/.claude/skynet-parent file on every sweep (rebrand-neutrality —
+ *      the file was moved out of the harness folder into the fleet folder).
  *
- *   5. skynet-hostname write:
- *      Write ~/.claude/skynet-hostname with the box's canonical Skynet
- *      host.name (single-line, newline-terminated). Written on every sweep
+ *   5. host-name write:
+ *      Write ~/fleet/host/name with the box's canonical host.name
+ *      (single-line, newline-terminated). Written on every sweep
  *      (host.name is always in scope) with content-diff idempotency
  *      (RESEARCH Pitfall 3 — no rewrite → no mtime churn). Agents read this
- *      file in place of `$(hostname)` when constructing Skynet passthrough
+ *      file in place of `$(hostname)` when constructing fleet passthrough
  *      file URLs, so cloud-VM boxes whose OS hostname is a meaningless
  *      string (e.g. "ip-172-31-243-143") stop 404'ing with unknown_host.
  *      Failure to write is logged and marked in hadError; the never-throw
- *      contract is preserved.
+ *      contract is preserved. Also removes the legacy ~/.claude/skynet-hostname
+ *      file on every sweep (rebrand-neutrality).
  *
  *   6. usage-reporter statusLine wire-up + legacy cleanup:
  *      Idempotently point ~/.claude/settings.json.statusLine at
@@ -121,20 +124,20 @@ export interface BootstrapResult {
   settingsPatchOk: boolean;
   /** Whether the gsd-context-monitor cleanup ran (settings strip + hook rm). */
   gsdContextMonitorCleanupOk: boolean;
-  /** Whether the ~/.claude/skynet-parent write succeeded (or was skipped
+  /** Whether the ~/fleet/host/parent write succeeded (or was skipped
    *  cleanly because SKYNET_PUBLIC_URL was missing/malformed). Phase 75 D-03.
    *  A false value here does NOT by itself imply hadError — a missing env var
    *  is a documented skip (RESEARCH Pitfall 4), not a per-host failure. */
-  skynetParentOk: boolean;
-  /** Whether the ~/.claude/skynet-hostname write succeeded. Step 5 always runs
+  hostParentOk: boolean;
+  /** Whether the ~/fleet/host/name write succeeded. Step 5 always runs
    *  (host.name is always in scope); a false value here always implies hadError. */
-  skynetHostnameOk: boolean;
-  /** Whether the ~/.claude/skynet-hostid write succeeded. Step 5b always runs
+  hostNameOk: boolean;
+  /** Whether the ~/fleet/host/id write succeeded. Step 5b always runs
    *  (host.id is always in scope); a false value here always implies hadError.
    *  Consumers: create-app.sh (app-development skill) reads this file to burn
-   *  the numeric Skynet DB hostId into PANE_BASE at scaffold time — agents
+   *  the numeric fleet-DB hostId into PANE_BASE at scaffold time — agents
    *  never need to know or look up the integer themselves. */
-  skynetHostidOk: boolean;
+  hostIdOk: boolean;
   /** Whether the statusLine wire-up + legacy-cleanup step succeeded. Step 6
    *  is idempotent (no-op when statusLine is already the wrapper) and always
    *  runs; a false value implies hadError. */
@@ -305,9 +308,9 @@ export async function runBootstrapForHost(
   let daemonReloadRan = false;
   let settingsPatchOk = false;
   let gsdContextMonitorCleanupOk = false;
-  let skynetParentOk = false;
-  let skynetHostnameOk = false;
-  let skynetHostidOk = false;
+  let hostParentOk = false;
+  let hostNameOk = false;
+  let hostIdOk = false;
   let gcTimerAlreadyEnabled = false;
   let gcTimerBootstrapped = false;
   let hadError = false;
@@ -641,26 +644,31 @@ export async function runBootstrapForHost(
   }
 
   // -------------------------------------------------------------------------
-  // Step 4: Write ~/.claude/skynet-parent — parent-Skynet-domain config for
-  //         agent URL construction (Phase 75 D-03). Idempotent: content-diff
+  // Step 4: Write ~/fleet/host/parent — parent-fleet-URL config for agent
+  //         URL construction (Phase 75 D-03). Idempotent: content-diff
   //         check short-circuits when the file already matches (RESEARCH
   //         Pitfall 3 — no rewrite → no mtime churn). If SKYNET_PUBLIC_URL is
   //         missing OR does not start with https://, skip entirely (do NOT
   //         write an empty string; agents' D-03 fresh-box behavior surfaces a
-  //         clean "parent-Skynet config missing" error when the file is
-  //         absent). Missing env is a documented skip, not a per-host failure
+  //         clean "host config missing" error when the file is absent).
+  //         Missing env is a documented skip, not a per-host failure
   //         — hadError is NOT set on the skip path (RESEARCH Pitfall 4).
+  //
+  //         Also removes the legacy ~/.claude/skynet-parent file on every
+  //         sweep — the file was moved out of the harness folder into the
+  //         fleet folder to keep the vendor brand name from leaking into
+  //         agent-visible file paths on rebranded fleet instances.
   // -------------------------------------------------------------------------
   try {
     if (!skynetPublicUrl || !/^https:\/\//.test(skynetPublicUrl)) {
       // Skip path — log for observability but do not mark as error.
       systemLogger.warn(
-        `Fleet-substrate bootstrap: SKYNET_PUBLIC_URL missing or malformed, skipping skynet-parent write for ${host.name}`,
+        `Fleet-substrate bootstrap: SKYNET_PUBLIC_URL missing or malformed, skipping host-parent write for ${host.name}`,
         {
           operation: "fleet_substrate_bootstrap_result",
           fleetHostId: host.id,
           hostName: host.name,
-          step: "skynet-parent-write",
+          step: "host-parent-write",
         },
       );
     } else {
@@ -669,52 +677,56 @@ export async function runBootstrapForHost(
       // itself contains an embedded single-quote character.
       const safeUrl = skynetPublicUrl.replace(/'/g, "'\\''");
       const cmd = [
-        `SP="$HOME/.claude/skynet-parent"`,
-        `mkdir -p "$HOME/.claude"`,
+        `SP="$HOME/fleet/host/parent"`,
+        `mkdir -p "$HOME/fleet/host"`,
         `NEW='${safeUrl}'`,
         `if [ -f "$SP" ] && [ "$(cat "$SP")" = "$NEW" ]; then`,
         `  :  # idempotent no-op (RESEARCH Pitfall 3 — do not churn mtime)`,
         `else`,
         `  printf '%s\\n' "$NEW" > "$SP.new" && mv "$SP.new" "$SP"`,
         `fi`,
-        `echo "__SKYNET_PARENT_OK__"`,
+        `rm -f "$HOME/.claude/skynet-parent"`,
+        `echo "__HOST_PARENT_OK__"`,
       ].join("\n");
 
       const raw = await channel.exec(cmd);
 
       if (raw === null) {
         hadError = true;
-        logBootstrapFailed(host, "skynet-parent-write", "channel returned null");
-      } else if (!raw.trimEnd().endsWith("__SKYNET_PARENT_OK__")) {
+        logBootstrapFailed(host, "host-parent-write", "channel returned null");
+      } else if (!raw.trimEnd().endsWith("__HOST_PARENT_OK__")) {
         hadError = true;
         logBootstrapFailed(
           host,
-          "skynet-parent-write",
-          raw.trimEnd().slice(0, 500) || "skynet-parent write failed",
+          "host-parent-write",
+          raw.trimEnd().slice(0, 500) || "host-parent write failed",
         );
       } else {
-        skynetParentOk = true;
+        hostParentOk = true;
       }
     }
   } catch (err) {
     hadError = true;
     logBootstrapFailed(
       host,
-      "skynet-parent-write",
+      "host-parent-write",
       err instanceof Error ? err.message : "unknown throw",
     );
   }
 
   // -------------------------------------------------------------------------
-  // Step 5: Write ~/.claude/skynet-hostname — Skynet's canonical host.name
-  //         for this box. Written on every sweep (host.name is always in
-  //         scope) with content-diff idempotency (RESEARCH Pitfall 3 — no
-  //         rewrite → no mtime churn). Agents read this file in place of
-  //         `$(hostname)` when constructing Skynet passthrough file URLs, so
-  //         cloud-VM boxes whose OS hostname (e.g. "ip-172-31-243-143") does
-  //         not match Skynet's resolver name stop 404'ing with unknown_host.
+  // Step 5: Write ~/fleet/host/name — fleet's canonical host.name for this
+  //         box. Written on every sweep (host.name is always in scope) with
+  //         content-diff idempotency (RESEARCH Pitfall 3 — no rewrite → no
+  //         mtime churn). Agents read this file in place of `$(hostname)`
+  //         when constructing fleet passthrough file URLs, so cloud-VM boxes
+  //         whose OS hostname (e.g. "ip-172-31-243-143") does not match the
+  //         fleet's resolver name stop 404'ing with unknown_host.
   //         NEVER-THROW contract preserved: channel-null, missing-sentinel,
   //         and thrown-error branches each mark hadError without rejecting.
+  //
+  //         Also removes the legacy ~/.claude/skynet-hostname file on every
+  //         sweep (rebrand-neutrality — same rationale as Step 4).
   // -------------------------------------------------------------------------
   try {
     // Shell-safe single-quote escape: close-quote, escape a literal quote,
@@ -722,84 +734,89 @@ export async function runBootstrapForHost(
     // contains an embedded single-quote character.
     const safeHostname = host.name.replace(/'/g, "'\\''");
     const cmd = [
-      `SH="$HOME/.claude/skynet-hostname"`,
-      `mkdir -p "$HOME/.claude"`,
+      `SH="$HOME/fleet/host/name"`,
+      `mkdir -p "$HOME/fleet/host"`,
       `NEW='${safeHostname}'`,
       `if [ -f "$SH" ] && [ "$(cat "$SH")" = "$NEW" ]; then`,
       `  :  # idempotent no-op (RESEARCH Pitfall 3 — do not churn mtime)`,
       `else`,
       `  printf '%s\\n' "$NEW" > "$SH.new" && mv "$SH.new" "$SH"`,
       `fi`,
-      `echo "__SKYNET_HOSTNAME_OK__"`,
+      `rm -f "$HOME/.claude/skynet-hostname"`,
+      `echo "__HOST_NAME_OK__"`,
     ].join("\n");
 
     const raw = await channel.exec(cmd);
 
     if (raw === null) {
       hadError = true;
-      logBootstrapFailed(host, "skynet-hostname-write", "channel returned null");
-    } else if (!raw.trimEnd().endsWith("__SKYNET_HOSTNAME_OK__")) {
+      logBootstrapFailed(host, "host-name-write", "channel returned null");
+    } else if (!raw.trimEnd().endsWith("__HOST_NAME_OK__")) {
       hadError = true;
       logBootstrapFailed(
         host,
-        "skynet-hostname-write",
-        raw.trimEnd().slice(0, 500) || "skynet-hostname write failed",
+        "host-name-write",
+        raw.trimEnd().slice(0, 500) || "host-name write failed",
       );
     } else {
-      skynetHostnameOk = true;
+      hostNameOk = true;
     }
   } catch (err) {
     hadError = true;
     logBootstrapFailed(
       host,
-      "skynet-hostname-write",
+      "host-name-write",
       err instanceof Error ? err.message : "unknown throw",
     );
   }
 
   // -------------------------------------------------------------------------
-  // Step 5b: Write ~/.claude/skynet-hostid — Skynet's numeric DB id for this
-  //          box. Written on every sweep (host.id is always in scope) with
+  // Step 5b: Write ~/fleet/host/id — fleet's numeric DB id for this box.
+  //          Written on every sweep (host.id is always in scope) with
   //          content-diff idempotency. Consumers: the app-development skill's
   //          create-app.sh reads this file to burn the numeric hostId into
   //          scaffolded PANE_BASE at scaffold time, so agents never need to
   //          know or look up the integer themselves. Same fail-soft shape as
-  //          Step 5 (skynet-hostname).
+  //          Step 5 (host-name).
+  //
+  //          Also removes the legacy ~/.claude/skynet-hostid file on every
+  //          sweep (rebrand-neutrality — same rationale as Step 4).
   // -------------------------------------------------------------------------
   try {
     const safeHostid = host.id.replace(/'/g, "'\\''");
     const cmd = [
-      `SH="$HOME/.claude/skynet-hostid"`,
-      `mkdir -p "$HOME/.claude"`,
+      `SH="$HOME/fleet/host/id"`,
+      `mkdir -p "$HOME/fleet/host"`,
       `NEW='${safeHostid}'`,
       `if [ -f "$SH" ] && [ "$(cat "$SH")" = "$NEW" ]; then`,
       `  :  # idempotent no-op (same rationale as Step 5)`,
       `else`,
       `  printf '%s\\n' "$NEW" > "$SH.new" && mv "$SH.new" "$SH"`,
       `fi`,
-      `echo "__SKYNET_HOSTID_OK__"`,
+      `rm -f "$HOME/.claude/skynet-hostid"`,
+      `echo "__HOST_ID_OK__"`,
     ].join("\n");
 
     const raw = await channel.exec(cmd);
 
     if (raw === null) {
       hadError = true;
-      logBootstrapFailed(host, "skynet-hostid-write", "channel returned null");
-    } else if (!raw.trimEnd().endsWith("__SKYNET_HOSTID_OK__")) {
+      logBootstrapFailed(host, "host-id-write", "channel returned null");
+    } else if (!raw.trimEnd().endsWith("__HOST_ID_OK__")) {
       hadError = true;
       logBootstrapFailed(
         host,
-        "skynet-hostid-write",
-        raw.trimEnd().slice(0, 500) || "skynet-hostid write failed",
+        "host-id-write",
+        raw.trimEnd().slice(0, 500) || "host-id write failed",
       );
     } else {
-      skynetHostidOk = true;
+      hostIdOk = true;
     }
   } catch (err) {
     hadError = true;
     logBootstrapFailed(
       host,
-      "skynet-hostid-write",
+      "host-id-write",
       err instanceof Error ? err.message : "unknown throw",
     );
   }
@@ -892,9 +909,9 @@ export async function runBootstrapForHost(
     daemonReloadRan,
     settingsPatchOk,
     gsdContextMonitorCleanupOk,
-    skynetParentOk,
-    skynetHostnameOk,
-    skynetHostidOk,
+    hostParentOk,
+    hostNameOk,
+    hostIdOk,
     statusLineWireOk,
     gcTimerAlreadyEnabled,
     gcTimerBootstrapped,

@@ -248,7 +248,7 @@ export function createServerSubstrateOrchestrator(
     // IDENTITIES_LOCAL_HOST_IDS, SSH-to-self hangs from inside the container
     // — the whole for-of loop wedges in deps.acquireChannel. Skip SSH
     // entirely and delegate to the local-FS helper, which covers both the
-    // bootstrap (skynet-parent + skynet-hostname writes) AND the catalog
+    // bootstrap (host-parent + host-name writes) AND the catalog
     // install (skills, helper scripts, systemd unit). Bookkeeping matches
     // the SSH branch via applySweepBookkeeping.
     const numericId = parseInt(host.id, 10);
