@@ -1,4 +1,5 @@
 import { sshLogger } from "../utils/logger.js";
+import { isWidgetSubmitEnvelope } from "./session-file-parser.js";
 
 // ─── Phase 50 Plan 02 Task 1 — signal-driven send-path watchdog ─────────────
 //
@@ -163,9 +164,30 @@ export interface ArmPvSendWatchdogArgs {
   dormantSend?: boolean;
 }
 
+// Two categories of sends flow through this watchdog:
+//   • "compose"  — user text typed into the ComposeBox and sent as a normal
+//                  compose message. Resolves when Claude Code writes the
+//                  matching user turn to the JSONL.
+//   • "envelope" — a <task-notification> widget-submit envelope built by
+//                  handleWidgetSubmit and delivered through the same split-
+//                  send path. Resolves when Claude Code writes the matching
+//                  envelope-shaped user turn to the JSONL.
+//
+// The two categories share the split-send delivery mechanism but have
+// independent FIFO ordering — an arriving envelope must NOT clear a
+// pending compose arm (or vice versa), because if it did the sender whose
+// message actually landed would never see delivery confirmation and the
+// sender whose message hadn't landed yet would be marked delivered
+// prematurely.
+type BodyKind = "compose" | "envelope";
+function classifyBody(body: string): BodyKind {
+  return isWidgetSubmitEnvelope(body) ? "envelope" : "compose";
+}
+
 interface PendingWatchdog {
   sessionId: string;
   body: string;
+  bodyKind: BodyKind;
   tmuxTarget: string;
   execCommand: ExecCommand;
   wsSend: WsSendCallback;
@@ -250,6 +272,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
   const entry: PendingWatchdog = {
     sessionId,
     body,
+    bodyKind: classifyBody(body),
     tmuxTarget,
     execCommand,
     wsSend,
@@ -448,40 +471,69 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
 }
 
 /**
- * Clears the OLDEST pending watchdog on the given sessionId — FIFO head-pop.
+ * Clears the OLDEST pending watchdog on the given sessionId whose bodyKind
+ * matches the arriving content's kind — per-category FIFO head-pop.
+ *
  * Matches the frontend order-based semantic at PrettyView.tsx:1961-1979
  * (quick-260823-fzy). Same reasoning: CC processes input serially, JSONL is
  * written in order, WS preserves order — SEND ORDER is the match signal.
+ *
+ * The category split (compose vs envelope, added 2026-09-28) exists because
+ * both message types now flow through the same split-send delivery path but
+ * arrive with completely distinct content shapes. Matching purely by session-
+ * FIFO order would let an arriving envelope clear a pending compose arm (or
+ * vice versa) if the two overlap in flight — the sender whose message
+ * actually landed would never see delivery confirmation, and the sender
+ * whose message hadn't landed would get a false-positive match. Splitting
+ * by category means each category preserves its own send order without
+ * cross-contamination.
  *
  * Called from claude-session-server.ts's onLine callback for every
  * kind:"message" role:"user" emission (both the direct-user-turn path
  * and the queue-operation-enqueue path from Plan 50-01).
  *
- * notifyMatched on a sessionId with no pending arms is a silent no-op.
- * notifyMatched on sess-A does NOT touch pending arms on sess-B.
+ * notifyMatched on a sessionId with no pending arms of the arriving kind is
+ * a silent no-op. notifyMatched on sess-A does NOT touch pending arms on
+ * sess-B.
  */
-export function notifyMatched(sessionId: string): void {
+export function notifyMatched(sessionId: string, content: string): void {
   const list = fifoBySession.get(sessionId);
   if (!list || list.length === 0) return;
 
-  const headMqid = list.shift()!;
+  const arrivedKind = classifyBody(content);
+  // Walk the FIFO looking for the first entry whose bodyKind matches the
+  // arrived kind. Head-pop when found; leave other-kind entries in place so
+  // they can be matched by a later arrival of their own kind.
+  let matchIndex = -1;
+  for (let i = 0; i < list.length; i++) {
+    const candidateMqid = list[i]!;
+    const candidate = pendingByMqid.get(candidateMqid);
+    if (candidate && candidate.bodyKind === arrivedKind) {
+      matchIndex = i;
+      break;
+    }
+  }
+  if (matchIndex === -1) return;
+
+  const matchedMqid = list.splice(matchIndex, 1)[0]!;
   if (list.length === 0) fifoBySession.delete(sessionId);
 
-  const entry = pendingByMqid.get(headMqid);
+  const entry = pendingByMqid.get(matchedMqid);
   if (!entry) return; // defensive — should not happen
 
   entry.logger.debug(
     "pv-send-watchdog: matched signal — clearing pending",
     {
       operation: "pv_send_watchdog_matched",
-      mqid: headMqid,
+      mqid: matchedMqid,
       sessionId,
+      bodyKind: entry.bodyKind,
       gapMs: Date.now() - entry.armedAt,
     },
   );
-  entry.logger.info("[diag-dormant-send] watchdog-matched", { operation: "diag_dormant_watchdog_matched", mqid: headMqid, sessionId, elapsedMs: Date.now() - entry.armedAt, matched_by: "fifo_head" });
+  entry.logger.info("[diag-dormant-send] watchdog-matched", { operation: "diag_dormant_watchdog_matched", mqid: matchedMqid, sessionId, elapsedMs: Date.now() - entry.armedAt, matched_by: "fifo_head_kind_match", bodyKind: entry.bodyKind });
   cancelTimers(entry);
-  pendingByMqid.delete(headMqid);
+  pendingByMqid.delete(matchedMqid);
 }
 
 /**

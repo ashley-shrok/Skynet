@@ -2749,6 +2749,25 @@ export function PrettyView({
           break;
         }
         case "message": {
+          // Widget-submit envelope arrival (2026-09-28): the backend parser
+          // now emits widget-envelope wrapper-only user turns as message
+          // frames so the pv-send-watchdog can resolve envelope-arm delivery
+          // (previously the parser skipped them, which broke envelope
+          // delivery confirmation and caused a double-wake). But envelopes
+          // are NOT real user speech — they're synthetic wake pings — and
+          // must NOT participate in the compose FIFO cleanup or the bubble
+          // rendering:
+          //   (a) FIFO cleanup: skip so an arriving envelope doesn't clear
+          //       a pending compose (same category-split rationale that
+          //       pv-send-watchdog implements on the backend).
+          //   (b) Bubble rendering: skip so envelope wrapper content doesn't
+          //       render as a user bubble. isWidgetSubmit already blacklists
+          //       envelope OUTGOING payloads from creating pending bubbles;
+          //       this is the corresponding receive-side gate.
+          const isEnvelope =
+            parsed.role === "user" &&
+            typeof parsed.content === "string" &&
+            isWidgetSubmit(parsed.content);
           // quick-260823-fzy: FIFO-only head-match. Byte equality on collapsed
           // content was fighting every Claude Code input transformation:
           // slash-command XML wrap (typed `/fake args` → jsonl frame
@@ -2762,7 +2781,7 @@ export function PrettyView({
           // user-role frame clears the oldest sending pending (FIFO + role +
           // state gate), period. Independent of appendDedupWithCap below
           // (per-eventId dedup, different purpose).
-          if (parsed.role === "user") {
+          if (parsed.role === "user" && !isEnvelope) {
             const list = pendingSendsRef.current;
             const oldestSendingIdx = list.findIndex((p) => p.state === "sending");
             const incomingPreview = (typeof parsed.content === "string" ? parsed.content : "").replace(/\s+/g, " ").trim().slice(0, 60);
@@ -2776,11 +2795,16 @@ export function PrettyView({
             }
           }
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
-          setMessages((prev) =>
-            capOffRef.current
-              ? appendDedup(prev, parsed)
-              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
-          );
+          // Skip widget-envelope wrapper frames — they're wake pings, not
+          // user speech; rendering them would surface synthetic XML noise
+          // as user bubbles.
+          if (!isEnvelope) {
+            setMessages((prev) =>
+              capOffRef.current
+                ? appendDedup(prev, parsed)
+                : appendDedupWithCap(prev, parsed, WORKING_SET_CAP),
+            );
+          }
           // Phase 47 (load-more button) — seed oldestLoadedLine from the min
           // `line?: number` across all incoming per-turn frames (Plan 01
           // additive optional widening). The cursor is the smallest line

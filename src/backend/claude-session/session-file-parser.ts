@@ -68,6 +68,23 @@ const GOODBYE_ECHO_VARIANTS = new Set([
   "<local-command-stdout>Bye!</local-command-stdout>",
 ]);
 
+// Widget-submit envelope shape (single source of truth for the backend).
+// Matches the exact opening of the envelope handleWidgetSubmit builds in
+// src/ui/features/pretty-view/PrettyView.tsx. The parser uses this to
+// distinguish widget wakes from other wrapper-only user turns (so the
+// pv-send-watchdog can resolve its delivery arm); pv-send-watchdog uses it
+// to route delivery signals to the envelope-arm queue instead of the
+// compose-arm queue.
+//
+// Anchored to the Skynet-specific summary line so it never matches ambient-
+// monitor envelopes (whose summary starts with "Ambient watcher event —")
+// or any other future <task-notification> use.
+const WIDGET_ENVELOPE_OPENING =
+  "<task-notification>\n<summary>Widget submit — delivered by Skynet</summary>";
+export function isWidgetSubmitEnvelope(content: string): boolean {
+  return content.trimStart().startsWith(WIDGET_ENVELOPE_OPENING);
+}
+
 export type ConversationalMessage = {
   kind: "message";
   role: "user" | "assistant";
@@ -1356,7 +1373,23 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
       .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
       .trim();
     if (stripped === "") {
-      return { kind: "skip", why: "harness_wrapper" };
+      // Skynet widget-submit envelopes are a specific kind of
+      // <task-notification> that carries a wake ping from a WidgetBubble
+      // click. Unlike ambient-monitor / stop-hook wrappers, these are
+      // MEANINGFUL to the pv-send-watchdog — the watchdog arms a delivery
+      // arm when handleWidgetSubmit sends one, and it needs to see the
+      // envelope arrive as a real message frame to resolve that arm.
+      // Skipping it here would cause the watchdog to hit its full-resend
+      // stage 5.5s later and inject a duplicate envelope. Let the widget-
+      // submit envelope fall through as a normal user-role message frame;
+      // the PrettyView receive-side gate already blacklists it from
+      // rendering as a bubble (isWidgetSubmit predicate at
+      // src/ui/features/pretty-view/PrettyView.tsx:579). Every other
+      // wrapper-only user turn (ambient events, system-reminders) still
+      // skips as noise — this is a narrow, shape-anchored carve-out.
+      if (!isWidgetSubmitEnvelope(content)) {
+        return { kind: "skip", why: "harness_wrapper" };
+      }
     }
   }
 

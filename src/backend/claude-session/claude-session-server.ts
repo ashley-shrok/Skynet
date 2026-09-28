@@ -501,7 +501,7 @@ export function reconstructRawSlashCommand(content: string): string | null {
 export function __applyOnLineNotifyForTests(deps: {
   frame: { type?: string; role?: string; content?: unknown };
   sessionIdFromFile: string | null;
-  notifyMatched: (sessionId: string) => void;
+  notifyMatched: (sessionId: string, content: string) => void;
 }): void {
   const { frame, sessionIdFromFile, notifyMatched } = deps;
 
@@ -516,7 +516,10 @@ export function __applyOnLineNotifyForTests(deps: {
     return;
   }
 
-  notifyMatched(sessionIdFromFile);
+  // Passing content lets the watchdog classify the arrival (compose vs
+  // widget-envelope) and pop from the matching category FIFO. The type
+  // narrowing above proves frame.content is a non-empty string here.
+  notifyMatched(sessionIdFromFile, frame.content);
 }
 
 // ─── Phase 51 Plan 01: backgrounded-agents correlator (extracted test seam) ──

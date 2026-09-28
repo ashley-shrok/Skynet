@@ -109,7 +109,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     // Simulate the parser signal arriving quickly.
     await vi.advanceTimersByTimeAsync(100);
-    notifyMatched(SESSION_ID);
+    notifyMatched(SESSION_ID, "user reply");
 
     // Cross well past all three timers.
     await vi.advanceTimersByTimeAsync(30_000);
@@ -158,7 +158,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     // T+3000ms → signal arrives
     await vi.advanceTimersByTimeAsync(500);
-    notifyMatched(SESSION_ID);
+    notifyMatched(SESSION_ID, "user reply");
 
     // Cross past 20000ms.
     await vi.advanceTimersByTimeAsync(20_000);
@@ -336,7 +336,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     await vi.advanceTimersByTimeAsync(100);
     // Notify a DIFFERENT session — must NOT clear the watchdog on sess-A.
-    notifyMatched("sess-B");
+    notifyMatched("sess-B", "user reply");
 
     await vi.advanceTimersByTimeAsync(2500);
     expect(exec).toHaveBeenCalledTimes(1);
@@ -368,7 +368,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     // At t=100ms: notify sess-A → m1 cleared, m2 still armed.
     await vi.advanceTimersByTimeAsync(100);
-    notifyMatched("sess-A");
+    notifyMatched("sess-A", "user reply");
 
     // Advance to t=2600ms — only m2's retry Enter has fired (m1 was cleared).
     await vi.advanceTimersByTimeAsync(2500);
@@ -621,7 +621,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     // t=100ms: notify once — should pop m1 (the OLDEST), leaving m2 pending.
     await vi.advanceTimersByTimeAsync(50);
-    notifyMatched(SESSION_ID);
+    notifyMatched(SESSION_ID, "user reply");
 
     // Advance to t=2600ms — m1's retry should NOT fire (m1 was cleared).
     // m2's retry fires at t=2550ms (armed at t=50, +2500ms).
@@ -633,7 +633,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     // t=2600ms: notify again — should pop m2, cancelling its full-resend.
     await vi.advanceTimersByTimeAsync(50);
-    notifyMatched(SESSION_ID);
+    notifyMatched(SESSION_ID, "user reply");
 
     // Advance to t=6000ms — m2's full-resend would have fired at t=5550ms
     // if still pending, but it was cleared. No additional execs.
@@ -647,7 +647,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
     const wsSend = makeWsSend();
 
     // Call notifyMatched on a session that has never been armed.
-    expect(() => notifyMatched("sess-DOESNT-EXIST")).not.toThrow();
+    expect(() => notifyMatched("sess-DOESNT-EXIST", "user reply")).not.toThrow();
     expect(exec).not.toHaveBeenCalled();
     expect(wsSend).not.toHaveBeenCalled();
 
@@ -663,7 +663,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     // Signal arrives — should clear the arm cleanly.
     await vi.advanceTimersByTimeAsync(50);
-    notifyMatched("sess-DOESNT-EXIST");
+    notifyMatched("sess-DOESNT-EXIST", "user reply");
 
     // No retry or escalation after clearing.
     await vi.advanceTimersByTimeAsync(30_000);
@@ -862,6 +862,134 @@ describe("Phase 56: widened window for dormant-triggered sends", () => {
       return f?.type === "paste_send_failed";
     });
     expect(escalations.length).toBe(0);
+  });
+});
+
+// ─── Category-split regression tests (2026-09-28) ───────────────────────────
+// The pv-send-watchdog now maintains per-category FIFO ordering (compose vs
+// widget-submit envelope). A compose arm must NOT be cleared by an arriving
+// envelope, and vice versa — that was the root of the double-wake bug seen
+// during the interactive-messages arc verification (envelope arrived, cleared
+// the head compose arm on the FIFO, real compose delivery went unmatched,
+// full-resend fired 5.5s later duplicating the envelope wake).
+
+const WIDGET_ENVELOPE_BODY =
+  "<task-notification>\n" +
+  "<summary>Widget submit — delivered by Skynet</summary>\n" +
+  "<event>[widget test-slug] submitted — read state at ~/fleet/interactive-messages/test-slug/state.json</event>\n" +
+  "</task-notification>";
+
+describe("pv-send-watchdog category split (compose vs envelope FIFO)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    __resetPvSendWatchdogForTests();
+  });
+  afterEach(() => {
+    __resetPvSendWatchdogForTests();
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("envelope arrival does NOT clear a pending compose arm (regression: double-wake bug)", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    // Arm a compose send.
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m-compose",
+      body: "hello, this is a normal compose message",
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+
+    // An envelope arrives (widget submit). Under the old FIFO-any-turn logic,
+    // this would incorrectly clear the compose arm. Under category-split, the
+    // compose arm stays pending because no envelope arm is queued to match.
+    await vi.advanceTimersByTimeAsync(100);
+    notifyMatched(SESSION_ID, WIDGET_ENVELOPE_BODY);
+
+    // The compose arm is still pending — retry Enter fires at T+2500.
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(exec.mock.calls[0][0]).toBe(
+      `tmux send-keys -t '${TMUX_TARGET}' Enter`,
+    );
+  });
+
+  it("compose arrival does NOT clear a pending envelope arm", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m-env",
+      body: WIDGET_ENVELOPE_BODY,
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    notifyMatched(SESSION_ID, "just a regular user reply");
+
+    // Envelope arm still pending — retry Enter fires at T+2500.
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(exec.mock.calls[0][0]).toBe(
+      `tmux send-keys -t '${TMUX_TARGET}' Enter`,
+    );
+  });
+
+  it("envelope arrival DOES clear the matching pending envelope arm", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m-env",
+      body: WIDGET_ENVELOPE_BODY,
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    notifyMatched(SESSION_ID, WIDGET_ENVELOPE_BODY);
+
+    // Cross past all three timers — nothing should fire.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(exec).not.toHaveBeenCalled();
+    expect(wsSend).not.toHaveBeenCalled();
+  });
+
+  it("mixed queue: envelope arm behind compose arm — envelope arrival pops the envelope, leaves compose", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+    // Arm compose FIRST (older), envelope SECOND (newer).
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m-compose",
+      body: "hello",
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m-env",
+      body: WIDGET_ENVELOPE_BODY,
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+
+    // Envelope arrives — should walk past the compose head and pop the
+    // envelope arm at index 1, leaving compose still pending.
+    await vi.advanceTimersByTimeAsync(50);
+    notifyMatched(SESSION_ID, WIDGET_ENVELOPE_BODY);
+
+    // Compose arm still pending — its retry Enter fires at T+2500.
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(exec).toHaveBeenCalledTimes(1);
   });
 });
 
