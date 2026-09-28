@@ -150,6 +150,9 @@ describe("subscription-registry", () => {
       hostId: "host-42",
       tmuxSession: "tina",
       sessionId: "session-1",
+      // Reason discriminator: publishSessionGone means "a claude PID died
+      // but the tmux session may persist" — frontend keeps open tabs open.
+      reason: "pid_stale",
     });
   });
 
@@ -1433,7 +1436,11 @@ describe("subscription-registry", () => {
       registry.publishIdentityGoneByName("host-42", "tina");
       await tick();
 
-      expect(framesU1.filter((f) => f.type === "gone")).toHaveLength(1);
+      const goneFramesU1 = framesU1.filter((f) => f.type === "gone");
+      expect(goneFramesU1).toHaveLength(1);
+      // Reason discriminator: publishIdentityGoneByName means the identity
+      // folder is truly gone — frontend closes any open tabs pointing at it.
+      expect(goneFramesU1[0]).toMatchObject({ reason: "identity_gone" });
       expect(framesU2.filter((f) => f.type === "gone")).toHaveLength(0);
     });
   });

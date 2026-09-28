@@ -537,12 +537,23 @@ const FrontendUpdateFrameSchema = z.object({
   state: SessionStateSchema,
 });
 
+// `reason` discriminator disambiguates the two upstream publishers of `gone`:
+//   - "identity_gone": the identity folder disappeared between sweep ticks
+//     (self-archive, folder deletion) — the identity is truly gone.
+//   - "pid_stale":     a claude PID died but the tmux session persists — the
+//     process cycled (e.g. /id reset) and a fresh claude will re-attach in
+//     seconds. NOT a true identity-ending event.
+// Frontend gates tab-close on `identity_gone` only, so reset no longer nukes
+// the open tab. Sidebar row cleanup applies to both. Optional at the schema
+// level for over-the-wire tolerance (drift-lock makes older-clients
+// non-issue, but keeping it optional is cheap defense-in-depth).
 const FrontendGoneFrameSchema = z.object({
   schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
   type: z.literal("gone"),
   hostId: z.string(),
   tmuxSession: z.string().nullable(),
   sessionId: z.string(),
+  reason: z.enum(["identity_gone", "pid_stale"]).optional(),
 });
 
 const FrontendPongFrameSchema = z.object({
@@ -798,6 +809,7 @@ export function makeGoneFrame(
   hostId: string,
   tmuxSession: string | null,
   sessionId: string,
+  reason?: "identity_gone" | "pid_stale",
 ): FrontendOutboundFrameType {
   return {
     schemaVersion: FRAME_SCHEMA_VERSION,
@@ -805,6 +817,7 @@ export function makeGoneFrame(
     hostId,
     tmuxSession,
     sessionId,
+    ...(reason !== undefined ? { reason } : {}),
   };
 }
 

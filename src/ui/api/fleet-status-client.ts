@@ -74,7 +74,12 @@ export interface FleetStatusClientOptions {
   url: string;
   onSnapshot: (states: SessionState[]) => void;
   onUpdate: (state: SessionState) => void;
-  onGone: (hostId: string, tmuxSession: string | null, sessionId: string) => void;
+  onGone: (
+    hostId: string,
+    tmuxSession: string | null,
+    sessionId: string,
+    reason?: "identity_gone" | "pid_stale",
+  ) => void;
   /**
    * Phase 117 Plan 117-06 (D-37): fired on every `project-list-changed`
    * frame from the backend (published by
@@ -283,7 +288,7 @@ export function createFleetStatusClient(
           // Clean up the contextPct entry so a session-not-in-fleet returns
           // null on the hook (D-10 correctness — no stale reading).
           publishSessionContextPctGone(parsed.hostId, parsed.tmuxSession);
-          onGone(parsed.hostId, parsed.tmuxSession, parsed.sessionId);
+          onGone(parsed.hostId, parsed.tmuxSession, parsed.sessionId, parsed.reason);
           break;
         case "pong":
           // No-op — keepalive reply

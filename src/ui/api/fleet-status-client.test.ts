@@ -191,7 +191,53 @@ describe("fleet-status-client: Test 4 — gone frame → onGone", () => {
     });
 
     expect(onGone).toHaveBeenCalledTimes(1);
-    expect(onGone).toHaveBeenCalledWith("h1", "s1", "sid1");
+    // 4th arg is the optional `reason` discriminator — absent on this frame,
+    // so onGone sees undefined (frontend treats undefined as pid_stale-safe:
+    // sidebar row cleans up but open tabs stay open).
+    expect(onGone).toHaveBeenCalledWith("h1", "s1", "sid1", undefined);
+  });
+
+  it("propagates the `reason` discriminator when the frame carries it", () => {
+    const onSnapshot = vi.fn();
+    const onUpdate = vi.fn();
+    const onGone = vi.fn();
+
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot,
+      onUpdate,
+      onGone,
+    });
+    const ws = latestWs();
+    ws.onopen?.();
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "gone",
+        hostId: "h1",
+        tmuxSession: "tina",
+        sessionId: "sid-42",
+        reason: "identity_gone",
+      }),
+    });
+
+    expect(onGone).toHaveBeenCalledTimes(1);
+    expect(onGone).toHaveBeenCalledWith("h1", "tina", "sid-42", "identity_gone");
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "gone",
+        hostId: "h1",
+        tmuxSession: "tina",
+        sessionId: "sid-43",
+        reason: "pid_stale",
+      }),
+    });
+
+    expect(onGone).toHaveBeenCalledTimes(2);
+    expect(onGone).toHaveBeenLastCalledWith("h1", "tina", "sid-43", "pid_stale");
   });
 });
 

@@ -985,7 +985,10 @@ export function createSubscriptionRegistry(
       }
 
       state.delete(key);
-      const frame = makeGoneFrame(hostId, tmuxSession, sessionId);
+      // `pid_stale`: the claude PID died but the tmux session may persist
+      // (reset, kill-inside-tmux). Frontend keeps open tabs open — a fresh
+      // claude typically re-attaches in seconds.
+      const frame = makeGoneFrame(hostId, tmuxSession, sessionId, "pid_stale");
       if (appFrameFilter !== undefined) {
         void fanOutApp(subscribers, frame, appFrameFilter);
       } else {
@@ -1003,10 +1006,14 @@ export function createSubscriptionRegistry(
         return;
       }
       state.delete(key);
+      // `identity_gone`: identity folder disappeared between sweep ticks
+      // (self-archive, folder deletion). Truly gone — frontend closes any
+      // open tabs pointing at this identity.
       const frame = makeGoneFrame(
         hostId,
         existing.tmuxSession,
         existing.sessionId,
+        "identity_gone",
       );
       if (appFrameFilter !== undefined) {
         void fanOutApp(subscribers, frame, appFrameFilter);

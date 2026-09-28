@@ -777,7 +777,7 @@ export function AppShell({
       onSessionProjectChanged: (identityKey, hostId, project) => {
         setIdentityProject(identityKey, hostId, project);
       },
-      onGone: (hostId, tmuxSession, sessionId) => {
+      onGone: (hostId, tmuxSession, sessionId, reason) => {
         // The three pre-existing publishes — mark per-session state. These are
         // orthogonal to membership and must remain. Do NOT reorder.
         publishFleetStatusSessionGone(hostId, tmuxSession, sessionId);
@@ -797,26 +797,24 @@ export function AppShell({
         // sessionName, so removeFleetSession's tuple filter cannot match one.
         removeFleetSession(goneHostId, tmuxSession);
 
-        // Close any open tabs pointing at the gone session. Restores the
-        // tab-close half of a5fbd706 that Phase 122 (43c47168) lost when it
-        // tore out the archived-fleet pump — the sidebar rebuild deleted
-        // `onIdentityArchived` and the tab-close piece went with it, even
-        // though its rationale (kill the dead tab so it doesn't fall through
-        // to the "tmux session 'X' not found" connection-log fallback) is
-        // orthogonal to the sidebar section. Hooked to `gone` now (published
-        // by the same archive-detection reconcile that used to fire
-        // `identity-archived`) so a self-archived identity's open tabs
-        // close cleanly, and a URL/restore that lands after the archive
-        // gets swept on the frame's idempotent WS-reconnect re-emit.
-        // doCloseTab handles the server-side open_tabs purge (via the
-        // PERSISTENT_TAB_TYPES gate) and splitTree leaf removal.
-        for (const tab of tabsRef.current) {
-          if (
-            tab.host != null &&
-            parseInt(tab.host.id, 10) === goneHostId &&
-            tab.targetTmuxSession === tmuxSession
-          ) {
-            doCloseTabRef.current(tab.id);
+        // Close open tabs ONLY on `identity_gone` — the identity folder
+        // truly disappeared (self-archive, folder deletion). `pid_stale`
+        // fires from the fleet-status stale-reap when a claude PID dies
+        // but the tmux session persists (e.g. /id reset cycles the claude
+        // process inside the same tmux window) — the identity is coming
+        // right back, so the tab must stay open. Sidebar row cleanup
+        // above applies to both reasons; tab-close is gated. Undefined
+        // reason (defensive against a wire-shape drift) treated as
+        // pid_stale — do NOT close, safer default.
+        if (reason === "identity_gone") {
+          for (const tab of tabsRef.current) {
+            if (
+              tab.host != null &&
+              parseInt(tab.host.id, 10) === goneHostId &&
+              tab.targetTmuxSession === tmuxSession
+            ) {
+              doCloseTabRef.current(tab.id);
+            }
           }
         }
       },
