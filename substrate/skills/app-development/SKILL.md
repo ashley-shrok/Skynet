@@ -31,7 +31,7 @@ incorrectly, whereas opening through the tile works everywhere. When
 you finish, tell the user the app is ready and name the tile; that's
 the handoff.
 
-**Publishing (§ Making a new app step 8) is what makes the tile appear
+**Publishing (§ Making a new app step 9) is what makes the tile appear
 and is deferred until the app is verified end-to-end** — otherwise a
 half-built app flashes onto her sidebar and invites a click that hits
 a broken page. If she needs to see a work-in-progress version before
@@ -96,9 +96,10 @@ file that already has to exist:
 - **Slug** — the folder name (`birthdays`).
 - **Port** — the systemd unit file (grep for `PORT`).
 - **Icon** — a conventional filename in the app folder. The client looks for
-  `icon.webp`. If it doesn't exist, the client renders a generic app glyph.
-  If an agent has an icon in another format, convert it to `.webp` before
-  dropping it in — one filename, no drift.
+  `icon.webp`. New apps get one generated via the `image-gen` skill during
+  step 8 of § Making a new app; if the file doesn't exist, the client falls
+  back to a generic app glyph. Icons in another format must be converted
+  to `.webp` before dropping in — one filename, no drift.
 - **Created-at** — the folder's filesystem timestamp.
 
 Do NOT add fields to `app.json`. Two fields today, two fields forever. The
@@ -112,7 +113,7 @@ title pre-filled) and leaves it that way. The app is running under
 systemd from the moment `create-app.sh` finishes, but the user cannot
 see it. Renaming `app.json.pending` → `app.json` is the explicit
 "publish" step, done ONLY when the app is complete and verified end-to-end
-(§ Making a new app step 8). This prevents a half-built app from flashing
+(§ Making a new app step 9). This prevents a half-built app from flashing
 onto her sidebar and inviting a click that hits a broken page.
 
 For **editing** an existing app, this doesn't apply — its `app.json`
@@ -193,9 +194,9 @@ everything else.
      Replace the top `<replace with your app's name>` header + description
      paragraph with your app's actual purpose; keep the ops boilerplate
      below. Rename `README.md.pending` → `README.md` when you're done
-     tweaking it (any time before step 8 is fine).
+     tweaking it (any time before step 9 is fine).
    - `app.json.pending` — fill in the `description` field. Leave the
-     filename as `.pending` for now; it gets renamed at publish (step 8).
+     filename as `.pending` for now; it gets renamed at publish (step 9).
 6. **Iterate.** See § Iteration workflow.
 7. **Verify.** Once it looks right in dev mode, build the production output
    and restart the systemd unit:
@@ -216,8 +217,35 @@ everything else.
    `active (running)`. Open the app yourself (dev mode or a local
    `curl 127.0.0.1:<port>`) and walk the golden path — this is the last
    moment before it goes on the user's sidebar. If anything is still
-   broken, do NOT continue to step 8.
-8. **Publish.** This is the moment the tile appears on the user's sidebar.
+   broken, do NOT continue — the remaining steps (icon, publish) assume a
+   working app.
+8. **Generate an icon.** Every app tile on the sidebar gets a visual mark;
+   without one, the client falls back to a generic app glyph. Use the
+   `image-gen` skill to make one that reflects the app, then convert the
+   PNG to WebP and drop it at `~/fleet/apps/<slug>/icon.webp`:
+
+       image-gen "flat vector app icon, <one short concept about the app>, \
+   solid background, centered subject, no text, iOS-style rounded square, \
+   sharp silhouette that reads at small sizes" \
+         --size 1024x1024 \
+         --out ~/fleet/apps/<slug>/icon.png
+       convert ~/fleet/apps/<slug>/icon.png ~/fleet/apps/<slug>/icon.webp
+       rm ~/fleet/apps/<slug>/icon.png
+
+   Rules:
+
+   - **If the user brought their own icon**, use that instead — drop it
+     at `~/fleet/apps/<slug>/icon.webp` (convert from any other format
+     with `convert <src> ~/fleet/apps/<slug>/icon.webp`) and skip the
+     generation call.
+   - **If `image-gen` fails** (`content_blocked`, `provider_unavailable`,
+     `not_configured`), the app still ships — the client falls back to
+     the generic glyph. Don't block publish on the icon. Rephrase once
+     on `content_blocked`; if it fails again, move on.
+   - **Prompt shape matters at 64×64.** Ask for a flat, iconic mark with
+     a clear silhouette and no text — realistic scenes and typography
+     both muddy at sidebar size.
+9. **Publish.** This is the moment the tile appears on the user's sidebar.
    Only do this once step 7 has actually passed:
 
        mv ~/fleet/apps/<slug>/app.json.pending ~/fleet/apps/<slug>/app.json
@@ -531,7 +559,7 @@ what you're doing — surprises here are worse than a moment of confirmation.
 - **Why isn't my new app showing up on the user's sidebar?** Almost
   certainly because `app.json.pending` hasn't been renamed to `app.json`
   yet — the sweep gates on `app.json` existing. Verify the app works,
-  then `mv app.json.pending app.json` (§ Making a new app step 8).
+  then `mv app.json.pending app.json` (§ Making a new app step 9).
 - **How do I see archived apps?** `ls ~/fleet/apps-archive/`.
 - **How do I recover an archived app?**
   `bash ~/.claude/skills/app-development/restore-app.sh <slug>`.
