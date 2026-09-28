@@ -81,10 +81,19 @@ export function PreferencesAboutYouPane({
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [tabData, setTabData] = useState<Map<string, TabState<GlobalFileTabData>>>(new Map());
 
-  // Per-active-tab editor state (draft + saving + error)
-  const [draft, setDraft] = useState<string>("");
+  // Per-path editor state — one draft per file path so tab switches don't
+  // silently overwrite a user's unsaved edits (M1 fix). Paired with
+  // `draftBaseMtimes` so the seed effect can tell "new content arrived from
+  // the server" (mtime changed → re-seed, overwriting draft) from "user
+  // switched away and back" (mtime unchanged → preserve their typed draft).
+  const [drafts, setDrafts] = useState<Map<string, string>>(new Map());
+  const [draftBaseMtimes, setDraftBaseMtimes] = useState<Map<string, number>>(new Map());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Convenience: draft for the currently-visible tab (empty string when the
+  // tab hasn't loaded / been seeded yet).
+  const draft = activeTab ? drafts.get(activeTab) ?? "" : "";
 
   const flatHosts = useMemo(
     () => collectAllHosts(hostTree?.children ?? []).filter((h) => h.enableRdp !== true),
@@ -109,6 +118,10 @@ export function PreferencesAboutYouPane({
     setFiles({ status: "loading" });
     setTabData(new Map());
     setActiveTab(null);
+    // M1: also clear per-path drafts so a host switch doesn't leak a stale
+    // draft for a path that happened to exist under both hosts' configs.
+    setDrafts(new Map());
+    setDraftBaseMtimes(new Map());
     listGlobalFiles(selectedHostId)
       .then((entries) => {
         if (cancelled) return;
@@ -163,19 +176,25 @@ export function PreferencesAboutYouPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedHostId, activeTab]);
 
-  // ── Seed draft from active tab data ─────────────────────────────────────
-  // Whenever activeTab data becomes ready (or mtime changes after save/409-reload),
-  // seed the draft from the server-authoritative content.
+  // ── Seed drafts from active tab data ────────────────────────────────────
+  // M1 fix: only re-seed the draft when either (a) we've never seeded this
+  // path before, or (b) the server-side mtime has changed (i.e. save success
+  // or 409-reload delivered fresh content). If the user just switched tabs
+  // and came back, mtime is unchanged → we preserve whatever they had typed.
+  const activeReady = activeTab ? tabData.get(activeTab) : undefined;
+  const activeMtime =
+    activeReady?.status === "ready" ? activeReady.data.mtime : null;
   useEffect(() => {
-    if (!activeTab) return;
-    const state = tabData.get(activeTab);
-    if (state?.status === "ready") {
-      setDraft(state.data.content);
-      setSaveError(null);
-    }
-  // Intentional: mtime is the reset key — re-seed when data is ready or mtime changes
+    if (!activeTab || activeReady?.status !== "ready") return;
+    const baseMtime = draftBaseMtimes.get(activeTab);
+    if (baseMtime === activeReady.data.mtime) return; // draft is still in sync with what we started editing → keep the user's edits
+    setDrafts((prev) => new Map(prev).set(activeTab, activeReady.data.content));
+    setDraftBaseMtimes((prev) => new Map(prev).set(activeTab, activeReady.data.mtime));
+    setSaveError(null);
+  // draftBaseMtimes is read inside but MUST NOT trigger — the effect only
+  // reacts to the server-side mtime changing or the tab flipping.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, tabData.get(activeTab)?.status === "ready" ? (tabData.get(activeTab) as { status: "ready"; data: GlobalFileTabData }).data.mtime : null]);
+  }, [activeTab, activeMtime]);
 
   // ── Save handler with 409 UX (verbatim from GlobalFilesModal.tsx L157-189) ──
   const handleSave = useCallback(async (): Promise<void> => {
@@ -215,12 +234,18 @@ export function PreferencesAboutYouPane({
           setSaving(false);
           return;
         }
-        // User chose to keep draft — show the error inline
-        setSaveError(err.message);
+        // User chose to keep draft — show the friendly error inline (M3 fix:
+        // don't leak the raw "mtime mismatch" backend jargon to end users).
+        setSaveError(
+          "Not saved — the file changed since you started editing. Save again to overwrite, or close and reopen this to see the newer version.",
+        );
         setSaving(false);
         return;
       }
-      setSaveError(err instanceof Error ? err.message : "Save failed");
+      // M3 fix: generic user-facing wording rather than raw err.message,
+      // which can be network-layer strings ("timeout of 30000ms exceeded")
+      // that don't help the user.
+      setSaveError("Save failed — please try again.");
     } finally {
       setSaving(false);
     }
@@ -348,7 +373,10 @@ export function PreferencesAboutYouPane({
             <MarkdownEditor
               filename={activeTab ?? "about-you.md"}
               content={draft}
-              onChange={setDraft}
+              onChange={(next) => {
+                if (!activeTab) return;
+                setDrafts((prev) => new Map(prev).set(activeTab, next));
+              }}
               disabled={saving}
             />
           </div>
