@@ -55,6 +55,8 @@ const {
   SILENCE_TRIM_MIN_SEC,
   SILENCE_TRIM_PAD_SEC,
   SILENCE_TRIM_THRESHOLD_DB,
+  padPcmToMinDuration,
+  MIN_PCM_DURATION_MS,
 } = await import("./audio-transcode.js");
 
 describe("audio-transcode.webmToOggOpus — success path", () => {
@@ -271,5 +273,45 @@ describe("audio-transcode.webmToPcm16k — ffmpeg WebM → LPCM 16 kHz s16le mon
     fake.stderr.emit("data", Buffer.from("pcm encoder failed"));
     fake.emit("close", 3);
     await expect(promise).rejects.toThrow(/pcm encoder failed/);
+  });
+});
+
+describe("audio-transcode.padPcmToMinDuration — right-pad short PCM with silence", () => {
+  it("pads a short s16le mono 16kHz buffer with zero-bytes up to the min duration", () => {
+    // 500ms of s16le mono 16kHz = 16000 samples/s × 2 bytes × 0.5s = 16000 bytes.
+    const short = Buffer.alloc(16000, 0x77);
+    const padded = padPcmToMinDuration(short, 3000, 16000);
+    // 3s = 96000 bytes. Original 16000 bytes preserved, remaining 80000 = zero.
+    expect(padded.length).toBe(96000);
+    expect(padded.subarray(0, 16000).every((b) => b === 0x77)).toBe(true);
+    expect(padded.subarray(16000).every((b) => b === 0)).toBe(true);
+  });
+
+  it("returns the buffer unchanged (identity, no copy) if already ≥ min duration", () => {
+    const long = Buffer.alloc(100000, 0x42);
+    const result = padPcmToMinDuration(long, 3000, 16000);
+    expect(result).toBe(long);
+  });
+
+  it("returns the buffer unchanged when exactly at the threshold", () => {
+    const exact = Buffer.alloc(96000, 0x11);
+    const result = padPcmToMinDuration(exact, 3000, 16000);
+    expect(result).toBe(exact);
+  });
+
+  it("defaults to MIN_PCM_DURATION_MS (3000ms) and 16kHz sample rate", () => {
+    expect(MIN_PCM_DURATION_MS).toBe(3000);
+    const short = Buffer.alloc(1000);
+    const padded = padPcmToMinDuration(short);
+    expect(padded.length).toBe(96000);
+  });
+
+  it("honors a non-default sampleRateHz when computing the byte target", () => {
+    // 48kHz mono s16le: 48000 × 2 = 96000 bytes/s. 1s minimum = 96000 bytes.
+    const short = Buffer.alloc(1000, 0x55);
+    const padded = padPcmToMinDuration(short, 1000, 48000);
+    expect(padded.length).toBe(96000);
+    expect(padded.subarray(0, 1000).every((b) => b === 0x55)).toBe(true);
+    expect(padded.subarray(1000).every((b) => b === 0)).toBe(true);
   });
 });

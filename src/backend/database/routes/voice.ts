@@ -17,7 +17,7 @@ import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice
 // kernels from Plan 02.
 import { synthesizeToPcm } from "../../voice/polly-adapter.js";
 import { transcribeNovaSonic } from "../../voice/nova-sonic-adapter.js";
-import { webmToPcm16k } from "../../voice/audio-transcode.js";
+import { webmToPcm16k, padPcmToMinDuration, MIN_PCM_DURATION_MS } from "../../voice/audio-transcode.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
@@ -83,7 +83,18 @@ async function transcodeForTranscribe(
   void ext;
   // D-AUDIO: WebM → LPCM 16 kHz mono s16le — the only shape Nova Sonic accepts.
   const pcmBuf = await webmToPcm16k(buf);
-  return { buffer: pcmBuf, sampleRateHz: 16000 };
+  // Nova Sonic returns "" on <3s clips (streaming ASR needs the trailing-silence
+  // "user finished" cue). Right-pad zeros to MIN_PCM_DURATION_MS. See
+  // padPcmToMinDuration for the experiment behind this threshold.
+  const paddedBuf = padPcmToMinDuration(pcmBuf);
+  if (paddedBuf.length > pcmBuf.length) {
+    const originalMs = Math.round((pcmBuf.length / 32000) * 1000);
+    databaseLogger.info(
+      `[voice-server] transcribe-silence-pad originalMs=${originalMs} paddedMs=${MIN_PCM_DURATION_MS}`,
+      { operation: "voice_transcribe_silence_pad", originalMs, paddedMs: MIN_PCM_DURATION_MS },
+    );
+  }
+  return { buffer: paddedBuf, sampleRateHz: 16000 };
 }
 
 // --- Core handler (exported for direct testing without Express harness) ---

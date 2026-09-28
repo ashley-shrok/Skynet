@@ -226,3 +226,31 @@ export function webmToPcm16k(webmBuffer: Buffer): Promise<Buffer> {
     "pipe:1",
   ]);
 }
+
+// Nova Sonic returns an empty transcript on very short clips — the streaming
+// ASR needs audio AFTER the words to commit to a result. Empirically (2026-09-28
+// investigation on Morgana), a 1.08s "yes" transcribes to "" but pads of 2s+
+// trailing silence produce the correct "yes". 3s total is the observed floor;
+// leading silence alone does NOT help — the tail is what matters. Fix: after
+// webmToPcm16k trims silences via SILENCE_FILTER, right-pad the s16le buffer
+// with zero-bytes (which ARE silence in s16le) to guarantee a minimum audible
+// length for Nova Sonic's segmenter to fire.
+export const MIN_PCM_DURATION_MS = 3000;
+
+/**
+ * Right-pad an s16le mono PCM buffer with zero-bytes (silence) so its total
+ * duration is at least `minDurationMs`. Returns the original buffer unchanged
+ * if already at or above the threshold — no copy in the common (long-clip) case.
+ *
+ * s16le mono @ 16 kHz: 16000 samples/s × 2 bytes = 32000 bytes/s.
+ */
+export function padPcmToMinDuration(
+  pcmBuf: Buffer,
+  minDurationMs: number = MIN_PCM_DURATION_MS,
+  sampleRateHz: number = 16000,
+): Buffer {
+  const bytesPerSec = sampleRateHz * 2;
+  const requiredBytes = Math.ceil((minDurationMs / 1000) * bytesPerSec);
+  if (pcmBuf.length >= requiredBytes) return pcmBuf;
+  return Buffer.concat([pcmBuf, Buffer.alloc(requiredBytes - pcmBuf.length)]);
+}

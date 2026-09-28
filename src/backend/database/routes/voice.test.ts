@@ -53,9 +53,13 @@ vi.mock("@aws-sdk/client-polly", () => {
 });
 
 // audio-transcode mock — stub webmToPcm16k so tests exercise the transcode
-// plumbing in handleTranscribe without spawning real ffmpeg.
+// plumbing in handleTranscribe without spawning real ffmpeg. padPcmToMinDuration
+// is passed through as identity so route-level assertions on the buffer flowing
+// into transcribeNovaSonic stay unchanged; its own unit tests cover the pad math.
 vi.mock("../../voice/audio-transcode.js", () => ({
   webmToPcm16k: vi.fn(async (buf: Buffer) => buf),
+  padPcmToMinDuration: vi.fn((buf: Buffer) => buf),
+  MIN_PCM_DURATION_MS: 3000,
 }));
 
 // Nova Sonic adapter facade mock — matches the polly-adapter pattern.
