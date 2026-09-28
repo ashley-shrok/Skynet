@@ -556,19 +556,30 @@ const isIdCommand = (content: string): boolean =>
   content.trimStart().startsWith("/id ") ||
   content.includes("<command-name>/id</command-name>");
 
-// Phase 137 D-137: interactive-message widget submit signals. When a
-// WidgetBubble's iframe fires a widget-submit postMessage, PrettyView's
-// handleWidgetSubmit dispatcher synthesizes a WS input frame with body
-// `/widget-submit <widgetId> <value>` — reaches the backend Phase 56
-// wake gate, wakes the agent, but is render-blacklisted here so no
-// visible bubble is created (the agent reads the actual state from
-// ~/fleet/interactive-messages/<slug>/state.json directly). The prefix
-// is a raw text form (agents never type it — the harness constructs it
-// programmatically in handleWidgetSubmit below). Module-local by design
-// (no export, no shared-utils hoist) per Phase 14 no-new-shared-utils
-// posture, mirroring isIdCommand's placement discipline.
+// Phase 137 D-137 (revised 2026-09-28): interactive-message widget submit
+// signals. When a WidgetBubble's iframe fires a widget-submit postMessage,
+// PrettyView's handleWidgetSubmit dispatcher synthesizes a WS input frame
+// carrying a <task-notification> envelope. Reaches the backend Phase 56
+// wake gate, wakes the agent, but is render-blacklisted here so no visible
+// bubble is created (the agent reads the actual state from
+// ~/fleet/interactive-messages/<slug>/state.json directly).
+//
+// The original shape ("/widget-submit <id> <val>") was slash-prefixed and got
+// intercepted by Claude Code's slash-command handler — silently dropped
+// before landing as a user turn in the JSONL, so the agent never woke.
+// Envelope shape mirrors substrate/scripts/ambient-monitor.py's _envelope()
+// pattern, which Claude Code already treats natively as an ambient wake.
+//
+// Match the fixed opening (envelope tag + Skynet-specific summary line).
+// Ambient-monitor's summary is "Ambient watcher event (…) — delivered by
+// agent-supervisor", so anchoring on our exact summary text keeps this
+// predicate specific to widget submits — it won't blacklist ambient events.
+// Module-local by design (no export, no shared-utils hoist) per Phase 14
+// no-new-shared-utils posture, mirroring isIdCommand's placement discipline.
 const isWidgetSubmit = (content: string): boolean =>
-  content.trimStart().startsWith("/widget-submit ");
+  content.trimStart().startsWith(
+    "<task-notification>\n<summary>Widget submit — delivered by Skynet</summary>",
+  );
 
 // Phase 40 (Research A8): nice-to-have MIME hint for chip UX. Not
 // load-bearing — the composebox chip strip renders name + size, NOT MIME.
@@ -1446,7 +1457,11 @@ export function PrettyView({
   // CAN throw if the socket transitions from OPEN to CLOSING between the readyState
   // guard and the actual send (backgrounding, tab-hide, mid-write network flap).
   // Returning false on catch gives the caller a truthful no-send signal.
-  const sendInput = useCallback((text: string, mqid?: string): boolean => {
+  const sendInput = useCallback((
+    text: string,
+    mqid?: string,
+    options?: { skipTagNeutralize?: boolean },
+  ): boolean => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
     // Neutralize harness-control-shaped tags before they land in claude's stdin.
@@ -1455,7 +1470,15 @@ export function PrettyView({
     // such a tag would silently execute or interpret it. Inserting U+200B after every
     // opening `<` of a tag-shaped substring breaks the harness's tag regex while
     // remaining visually identical in bubbles and copy-outs.
-    const data = text.replace(/<(\/?[a-zA-Z][a-zA-Z0-9_-]*)/g, "<\u200B$1");
+    //
+    // options.skipTagNeutralize: opt-out for SYSTEM-generated envelopes (e.g.
+    // widget-submit's <task-notification>) where the harness IS the intended
+    // recipient of the control frame. Neutralization is a defense against
+    // USER-typed control frames; callers that own the envelope content set this
+    // flag to deliver an intact tag.
+    const data = options?.skipTagNeutralize
+      ? text
+      : text.replace(/<(\/?[a-zA-Z][a-zA-Z0-9_-]*)/g, "<\u200B$1");
     try {
       ws.send(
         JSON.stringify({
@@ -2163,34 +2186,52 @@ export function PrettyView({
     [pvIdentity?.displayName],
   );
 
-  // Phase 137 D-137: WidgetBubble → PrettyView bridge. Synthesizes an invisible
-  // WS input frame carrying the widget-submit signal. Payload shape:
-  // `/widget-submit <widgetId> <value>`. Goes through the SAME send-input funnel
-  // the ComposeBox uses so the backend Phase 56 wake gate fires — but the
-  // isWidgetSubmit blacklist gate above short-circuits BEFORE any pending-bubble
-  // record is created, so the message is invisible. The agent reads the actual
-  // submit data from ~/fleet/interactive-messages/<slug>/state.json on its own
-  // filesystem — this WS frame carries only the wake ping, not the state contents.
+  // Phase 137 D-137 (revised 2026-09-28): WidgetBubble → PrettyView bridge.
+  // Synthesizes an invisible WS input frame carrying a <task-notification>
+  // envelope. Goes through the SAME send-input funnel the ComposeBox uses so
+  // the backend Phase 56 wake gate fires — but the isWidgetSubmit blacklist
+  // gate above short-circuits BEFORE any pending-bubble record is created,
+  // so the message is invisible.
+  //
+  // Envelope shape mirrors substrate/scripts/ambient-monitor.py's _envelope()
+  // pattern — Claude Code natively recognizes <task-notification> as an
+  // ambient wake, injects it as a user turn, and the agent reads the actual
+  // submit data from ~/fleet/interactive-messages/<slug>/state.json on its
+  // own filesystem. The envelope carries only the widget id + hint to read
+  // state.json — not the value itself (the state.json is the source of truth).
+  //
+  // The prior shape ("/widget-submit <id> <val>") was slash-prefixed and got
+  // intercepted by Claude Code's slash-command handler — silently dropped
+  // before landing as a user turn in the JSONL, so no wake fired.
+  //
   // Trust boundary validation lives in WidgetBubble.tsx (Plan 04 T2);
-  // handleWidgetSubmit assumes the (widgetId, value) tuple is already validated.
+  // handleWidgetSubmit assumes the (widgetId, value) tuple is already
+  // validated. `value` is currently unused in the envelope (state.json holds
+  // the truth) but kept in the signature so callers don't have to change.
   const handleWidgetSubmit = useCallback(
-    (widgetId: string, value: string): void => {
+    (widgetId: string, _value: string): void => {
       // Trailing "\r" is required by the backend split-send gate at
       // claude-session-server.ts (isSplitSend = mqid.length > 0 && data.endsWith("\r")).
       // Without it, backend falls into the non-split branch which fires ONLY
       // `tmux send-keys -l <body>` and NEVER a `tmux send-keys Enter`, so the
-      // /widget-submit text is never submitted to the agent's prompt.
-      // Normal ComposeBox sends get the "\r" appended at IdentitySessionPane.tsx:609
-      // (`send(text + "\r", mqid ?? "")`); handleWidgetSubmit bypasses that
-      // wrap and calls sendInput directly, so append here.
-      const payload = "/widget-submit " + widgetId + " " + value + "\r";
+      // envelope text is never submitted to the agent's prompt.
+      const envelope =
+        "<task-notification>\n" +
+        "<summary>Widget submit — delivered by Skynet</summary>\n" +
+        "<event>[widget " + widgetId + "] submitted — read state at " +
+        "~/fleet/interactive-messages/" + widgetId + "/state.json</event>\n" +
+        "</task-notification>\r";
       // Reuse the same mqid generation pattern as ComposeBox (Phase 50 D-01/D-18):
       // `pv-optim-<ms>-<8hex>` — deterministic-enough for FIFO ordering + unique
       // enough that concurrent sends don't collide. The mqid presence arms the
       // backend Phase 56 wake gate.
       const mqid = `pv-optim-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
-      const ok = sendInput(payload, mqid);
-      handleOptimisticSend({ payload, mqid, immediateFailure: !ok });
+      // skipTagNeutralize: bypass sendInput's U+200B insertion so Claude Code
+      // sees an intact <task-notification> tag rather than <​task-notification>.
+      // This is a SYSTEM-generated envelope we own — the neutralization defense
+      // against USER-typed control frames does not apply here.
+      const ok = sendInput(envelope, mqid, { skipTagNeutralize: true });
+      handleOptimisticSend({ payload: envelope, mqid, immediateFailure: !ok });
     },
     [sendInput, handleOptimisticSend],
   );

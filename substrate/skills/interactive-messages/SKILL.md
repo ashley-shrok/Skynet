@@ -21,8 +21,8 @@ ticking, dragging, or filling instead of typing.
 
 An interactive widget is a small self-hosted app on your box that renders inside
 a chat bubble. The user interacts with it directly; when the interaction is
-terminal, an invisible message is written back into the conversation and you
-wake to read the result from `~/fleet/interactive-messages/<slug>/state.json`.
+terminal, a `<task-notification>` envelope is injected into your session as a
+wake ping and you read the result from `~/fleet/interactive-messages/<slug>/state.json`.
 
 Six templates are available across three submit modes: `poll`, `checklist`,
 `form`, `ranking`, `list-actions`, `color-picker`. Each template has a curated
@@ -667,15 +667,27 @@ interactive message. Widgets are ephemeral by design.
 
 ## Shared reading pattern
 
-When you wake from a widget submit, the invisible message that woke you carries
-only a ping signal — not the widget's value. Always read the state file directly:
+When you wake from a widget submit, the wake carries a `<task-notification>`
+envelope (same shape ambient-monitor uses) that names the widget slug and
+points at the state file — but not the value itself. Always read the state
+file directly:
 
 ```bash
 cat ~/fleet/interactive-messages/<slug>/state.json
 ```
 
-The file is always present and fully written before the postMessage fires that
-wakes you. Do NOT rely on the invisible message content for the value.
+The envelope that wakes you looks like:
+
+```
+<task-notification>
+<summary>Widget submit — delivered by Skynet</summary>
+<event>[widget <slug>] submitted — read state at ~/fleet/interactive-messages/<slug>/state.json</event>
+</task-notification>
+```
+
+The state file is always present and fully written before the postMessage
+fires that wakes you. Do NOT rely on the envelope content for the value —
+the envelope is a wake ping with a slug hint; the state file is the truth.
 
 Use the `"template"` field as a discriminator if you scaffolded multiple widgets
 and need to identify which one was submitted:

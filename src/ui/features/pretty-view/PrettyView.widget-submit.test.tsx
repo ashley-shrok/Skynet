@@ -3,12 +3,13 @@
  *
  * Tests cover:
  *   isWidgetSubmit predicate (Behaviors 1-4): verified indirectly through the
- *   handleOptimisticSend render-blacklist gate — a payload starting with
- *   "/widget-submit " produces ZERO pending bubbles; other payloads produce one.
+ *   handleOptimisticSend render-blacklist gate — a payload starting with the
+ *   Skynet widget-submit envelope produces ZERO pending bubbles; other payloads
+ *   produce one.
  *
  *   handleWidgetSubmit dispatcher (Behaviors 5-8): verified by mocking WidgetBubble
  *   to capture its onSubmit prop, triggering it, and asserting:
- *     - ws.send is called with the synthesized "/widget-submit <id> <value>" payload
+ *     - ws.send is called with the synthesized <task-notification> envelope
  *     - No pending bubble is created (gate short-circuit)
  *     - The WS-not-open path calls sendInput (which returns false) and no bubble appears
  *
@@ -174,6 +175,18 @@ function mountPrettyView() {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+// Envelope builder mirroring PrettyView.tsx handleWidgetSubmit — keep in sync
+// (source-of-truth is in the module; this test helper is a copy).
+function envelopeFor(widgetId: string): string {
+  return (
+    "<task-notification>\n" +
+    "<summary>Widget submit — delivered by Skynet</summary>\n" +
+    "<event>[widget " + widgetId + "] submitted — read state at " +
+    "~/fleet/interactive-messages/" + widgetId + "/state.json</event>\n" +
+    "</task-notification>"
+  );
+}
+
 describe("Phase 137 Plan 05 — isWidgetSubmit predicate (Behaviors 1-4, tested via gate)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -194,7 +207,7 @@ describe("Phase 137 Plan 05 — isWidgetSubmit predicate (Behaviors 1-4, tested 
     vi.useRealTimers();
   });
 
-  it("Behavior 1: /widget-submit with space and args — gate fires, zero pending bubbles", async () => {
+  it("Behavior 1: widget-submit envelope — gate fires, zero pending bubbles", async () => {
     const { container } = mountPrettyView();
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -202,15 +215,18 @@ describe("Phase 137 Plan 05 — isWidgetSubmit predicate (Behaviors 1-4, tested 
       expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
     );
 
-    typeAndEnter(container, "/widget-submit poll-abc red");
+    typeAndEnter(container, envelopeFor("poll-abc"));
 
     // The gate short-circuits before seeding pendingSends — zero bubbles.
     expect(countPendingBubbles(container)).toBe(0);
   });
 
-  it("Behavior 2: /widget-submit without trailing space — does NOT match, bubble IS created", async () => {
-    // The predicate requires '/widget-submit ' (with trailing space) — bare
-    // '/widget-submit' (no space, no args) must NOT match.
+  it("Behavior 2: partial envelope (opening tag only) — does NOT match, bubble IS created", async () => {
+    // The predicate requires the fixed opening block including the summary
+    // element. A bare <task-notification> opening tag (no summary line) must
+    // NOT match — otherwise the gate would over-broadly hide any envelope-
+    // shaped user text (e.g. ambient-monitor envelopes, which have a
+    // different summary).
     const { container } = mountPrettyView();
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -218,15 +234,15 @@ describe("Phase 137 Plan 05 — isWidgetSubmit predicate (Behaviors 1-4, tested 
       expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
     );
 
-    // Type just '/widget-submit' — no trailing space, no args.
-    typeAndEnter(container, "/widget-submit");
+    typeAndEnter(container, "<task-notification>");
 
     // Does NOT match isWidgetSubmit — a pending bubble IS created.
     await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
   });
 
-  it("Behavior 3: /widget-submit mid-message — does NOT match (prefix check, not substring)", async () => {
-    // 'hello /widget-submit poll-abc red' does NOT start with '/widget-submit '
+  it("Behavior 3: envelope mid-message — does NOT match (prefix check, not substring)", async () => {
+    // 'hello <task-notification>…' does NOT start with the envelope prefix
+    // (after trimStart). Prefix-anchored, not substring.
     const { container } = mountPrettyView();
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -234,7 +250,7 @@ describe("Phase 137 Plan 05 — isWidgetSubmit predicate (Behaviors 1-4, tested 
       expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
     );
 
-    typeAndEnter(container, "hello /widget-submit poll-abc red");
+    typeAndEnter(container, "hello " + envelopeFor("poll-abc"));
 
     // Not a prefix match — bubble IS created.
     await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
@@ -298,7 +314,7 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
     await waitFor(() => expect(capturedOnSubmitCallbacks.length).toBeGreaterThan(0));
   }
 
-  it("Behavior 5: handleWidgetSubmit synthesizes '/widget-submit <id> <value>' and calls sendInput", async () => {
+  it("Behavior 5: handleWidgetSubmit synthesizes a <task-notification> envelope and calls sendInput", async () => {
     const { container } = mountPrettyView();
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -318,7 +334,7 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
       onSubmit("poll-abc", "red");
     });
 
-    // sendInput should have been called once with the synthesized payload.
+    // sendInput should have been called once with the synthesized envelope.
     expect(ws.send).toHaveBeenCalledTimes(1);
     const sentPayload = JSON.parse(ws.send.mock.calls[0][0] as string) as {
       type: string;
@@ -326,11 +342,10 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
       messageQueueItemId?: string;
     };
     expect(sentPayload.type).toBe("input");
-    // The data carries the payload AFTER the harness-control-tag neutralization in sendInput.
-    // The /widget-submit prefix has no XML-tag shapes, so neutralization is a no-op here.
-    // Trailing "\r" required by the backend split-send gate — see the block
-    // comment in handleWidgetSubmit for the full rationale.
-    expect(sentPayload.data).toBe("/widget-submit poll-abc red\r");
+    // handleWidgetSubmit passes skipTagNeutralize:true so the envelope reaches
+    // Claude Code as an intact <task-notification> (no U+200B insertion).
+    // Trailing "\r" required by the backend split-send gate.
+    expect(sentPayload.data).toBe(envelopeFor("poll-abc") + "\r");
     // An auto-generated mqid MUST be present so the backend Phase 56 wake gate fires.
     expect(typeof sentPayload.messageQueueItemId).toBe("string");
     expect(sentPayload.messageQueueItemId!.length).toBeGreaterThan(0);
@@ -383,9 +398,9 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
   });
 
   it("Behavior 8: widget-submit blacklist has NO attachment carve-out — gate fires unconditionally", async () => {
-    // Verify the /id carve-out does NOT apply to widget-submit: typing
-    // '/widget-submit <id> <value>' always suppresses the bubble, never
-    // leaks through any attachment path.
+    // Verify the /id carve-out does NOT apply to widget-submit: an envelope-
+    // shaped payload always suppresses the bubble, never leaks through any
+    // attachment path.
     // (handleWidgetSubmit never passes attachments to handleOptimisticSend —
     // the gate fires unconditionally.)
     const { container } = mountPrettyView();
@@ -395,9 +410,9 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
       expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
     );
 
-    // Simulate typing '/widget-submit ...' directly via ComposeBox — the same
-    // gate path that handleWidgetSubmit routes through.
-    typeAndEnter(container, "/widget-submit poll-abc red");
+    // Simulate typing the envelope directly via ComposeBox — the same gate
+    // path that handleWidgetSubmit routes through.
+    typeAndEnter(container, envelopeFor("poll-abc"));
 
     // Gate fires unconditionally — zero pending bubbles.
     expect(countPendingBubbles(container)).toBe(0);
