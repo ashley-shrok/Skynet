@@ -41,15 +41,14 @@
  *      comes from MIME_TO_AVATAR_EXT[req.file.mimetype]. Set
  *      cosmetics.avatar = avatarFilename.
  *   7. resolveHostById + connectOneShot + collision probe (Phase 22, unchanged).
- *   8. Provision: touch history.md (Phase 22, bounties/ removed Phase 133).
- *   9. Resolve remote $HOME.
- *   10. Build stub markdown — WITH frontmatter block when cosmetics has any
- *       keys (yaml.dump), WITHOUT frontmatter when empty (regression guard).
- *   11. writeMarkdownFileAtomic(conn, targetMd, stubMarkdown).
- *   12. If req.file present, inline SFTP writeFile(avatarSiblingPath, bytes)
+ *   8. Resolve remote $HOME.
+ *   9. Build stub markdown — WITH frontmatter block when cosmetics has any
+ *      keys (yaml.dump), WITHOUT frontmatter when empty (regression guard).
+ *   10. writeMarkdownFileAtomic(conn, targetMd, stubMarkdown).
+ *   11. If req.file present, inline SFTP writeFile(avatarSiblingPath, bytes)
  *       — see step 7 note below.
- *   13. Response 201 { name, description, cosmetics }.
- *   14. Finally: conn.end() (try/catch swallow — best-effort).
+ *   12. Response 201 { name, description, cosmetics }.
+ *   13. Finally: conn.end() (try/catch swallow — best-effort).
  *
  * Inlined role-folder avatar write per Plan 86-02 (wave-1 file-ownership
  * constraint keeps identity-artifact-reader.ts out of this plan). Follow-up
@@ -289,9 +288,8 @@ async function sftpWriteFileInline(
  * Content-Type: multipart/form-data
  * Fields: data (JSON blob), avatar (optional PNG/JPEG/WebP ≤ 10 MiB)
  *
- * Provisions ~/fleet/roles/<name>/ + history.md + <name>.md
- * (with cosmetic frontmatter when supplied) + optional <name>.<ext> avatar
- * sibling file.
+ * Provisions ~/fleet/roles/<name>/ + <name>.md (with cosmetic frontmatter
+ * when supplied) + optional <name>.<ext> avatar sibling file.
  */
 router.post(
   "/",
@@ -547,28 +545,7 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 8. Touch history.md — separated from the atomic mkdir above so a
-      //    transient touch failure doesn't leave callers unable to distinguish
-      //    a race-loser 409 from a provisioning glitch.
-      // ---------------------------------------------------------------------
-      try {
-        await execWithTimeout(
-          conn,
-          `touch "$HOME/fleet/roles/${name}/history.md"`,
-        );
-      } catch (err) {
-        sshLogger.warn("roles-create: history.md touch failed", {
-          operation: "roles_create_provision",
-          hostId,
-          name,
-          error: err instanceof Error ? err.message : "Unknown",
-        });
-        res.status(502).json({ error: "SSH exec failed" });
-        return;
-      }
-
-      // ---------------------------------------------------------------------
-      // 9. Resolve remote $HOME so we can pass an absolute path to SFTP
+      // 8. Resolve remote $HOME so we can pass an absolute path to SFTP
       //    (writeMarkdownFileAtomic + sftpWriteFileInline both work over
       //    SFTP which does NOT tilde-expand — target paths must be absolute).
       // ---------------------------------------------------------------------
@@ -643,7 +620,7 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 10. Build stub markdown.
+      // 9. Build stub markdown.
       //     WITH cosmetics → prepend `---\n<yaml.dump>---\n\n` frontmatter,
       //     then the standard `# <name>\n\n## Role\n\n<description>\n\n
       //     <SEED>\n` body.
@@ -686,7 +663,7 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 11. Inline SFTP avatar write (Plan 86-02 Task 1 step 7).
+      // 10. Inline SFTP avatar write (Plan 86-02 Task 1 step 7).
       //     Only fires when req.file was uploaded. Target path is derived
       //     from server-controlled name + ext, so no shell-injection surface
       //     (T-86-02-01). Write failure → 502 with roles_create_sftp_avatar_write
@@ -714,7 +691,7 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 12. Response 201 { name, description, cosmetics }. Cosmetics echoes
+      // 11. Response 201 { name, description, cosmetics }. Cosmetics echoes
       //     the persisted frontmatter (empty {} when none supplied).
       // ---------------------------------------------------------------------
       res.status(201).json({ name, description, cosmetics });
