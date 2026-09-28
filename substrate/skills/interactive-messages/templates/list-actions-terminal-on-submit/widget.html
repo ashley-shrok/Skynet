@@ -8,13 +8,19 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
-    body {
+    /* Phase 143: transparent body so the widget takes on the bubble color it
+       lives in. Parent WidgetBubble handles overflow cue + scroll thumb. */
+    html, body {
       margin: 0;
+      padding: 0;
+      background: transparent;
+    }
+
+    body {
       padding: 12px;
       font-family: system-ui, -apple-system, sans-serif;
       font-size: 15px;
       line-height: 1.4;
-      background: #fff;
       color: #111;
     }
 
@@ -117,7 +123,7 @@
     }
 
     @media (prefers-color-scheme: dark) {
-      body { background: #1a1a1a; color: #e8e8e8; }
+      body { color: #e8e8e8; }
 
       .la-row {
         background: #252525;
@@ -323,6 +329,26 @@
         doneBtn.disabled = false;
       });
     }
+  
+    // Phase 143: report content height to parent so WidgetBubble can
+    // auto-size the iframe up to its cap and paint the scroll thumb
+    // when overflowing. Widget-side does zero overflow UI.
+    function reportHeight() {
+      var h = Math.ceil(document.documentElement.scrollHeight);
+      try {
+        window.parent.postMessage(
+          { type: "widget-resize", widgetId: WIDGET_ID, height: h },
+          window.location.origin
+        );
+      } catch (e) { /* parent gone; harmless */ }
+    }
+    document.addEventListener("DOMContentLoaded", function () {
+      reportHeight();
+      if (typeof ResizeObserver !== "undefined") {
+        var ro = new ResizeObserver(reportHeight);
+        ro.observe(document.documentElement);
+      }
+    });
   </script>
 </body>
 </html>
