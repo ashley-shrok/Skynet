@@ -111,7 +111,12 @@ export function PreferencesGeneralPane({
   const initial = trimmedName ? [...trimmedName][0]?.toUpperCase() ?? "?" : "?";
 
   return (
-    <div className="flex flex-col gap-6 p-6" data-testid="preferences-general-pane">
+    <div className="flex flex-col gap-4 p-6" data-testid="preferences-general-pane">
+      {/* Section label — matches Voice pane's short-blurb pattern (D-06).
+       *  Without it the pane is just a floating circle + two buttons.
+       */}
+      <p className="text-[13px] text-[#c8c4b8]">Your avatar.</p>
+
       <div className="flex items-start gap-5">
         {/* Avatar preview circle */}
         <div
