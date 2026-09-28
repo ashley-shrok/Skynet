@@ -88,7 +88,7 @@ Widgets run on the agent's host, and the agent reads state directly via local fi
 
 ## Vehicle notes
 
-Chosen vehicle: **GSD phases (multi-phase)**. The full scope is too big for a single phase to safely ship all at once; each of the phases below stands alone, delivers user-visible value, and composes into the whole picture. Ashley invokes the phase-management workflow to add each phase to the roadmap; each phase then runs its discuss → plan → execute cycle independently.
+Chosen vehicle: **GSD phases (multi-phase)**. The full scope is too big for a single phase to safely ship all at once; each of the phases below stands alone, delivers user-visible value, and composes into the whole picture. The user invokes the phase-management workflow to add each phase to the roadmap; each phase then runs its discuss → plan → execute cycle independently.
 
 **Because the shape is settled here, each phase's discuss step should seed its context document directly from this shape file** rather than re-eliciting the design. The design decisions have already been made; discuss-phase for each phase should focus on the phase-specific "how" not the arc-wide "what".
 
