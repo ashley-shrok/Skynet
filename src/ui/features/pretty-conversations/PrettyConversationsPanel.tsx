@@ -62,7 +62,8 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AppWindow, ChevronDown, Clock, Drama, FolderOpen, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
+import { AppWindow, ChevronDown, Clock, Drama, FolderOpen, Loader2, LogOut, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
+import { logoutUser } from "@/main-axios";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
 import PreferencesModal from "@/features/pretty-view/PreferencesModal";
@@ -3141,6 +3142,25 @@ export function PrettyConversationsPanel({
             onClick={() => setPreferencesModalOpen(true)}
           >
             <Settings size={18} />
+          </button>
+          <button
+            type="button"
+            className="pv-footer-btn"
+            aria-label="Log out"
+            title="Log out"
+            data-testid="pv-footer-logout-button"
+            onClick={() => {
+              if (!window.confirm("Log out?")) return;
+              // logoutUser() already clears the cookie + session storage in
+              // its own catch branch, so we can unconditionally transition.
+              void logoutUser()
+                .catch(() => {})
+                .finally(() => {
+                  window.dispatchEvent(new Event("skynet:logout"));
+                });
+            }}
+          >
+            <LogOut size={18} />
           </button>
         </div>
       </div>
