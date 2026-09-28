@@ -51,6 +51,72 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
+// --- Retriable Nova Sonic error classification ---
+// Bedrock occasionally returns transient stream errors whose own message
+// says "Try your request again." Server-side auto-retry catches these
+// before the user sees a 502 and loses their dictated message (the
+// transcribe-bank still preserves the raw webm, but by the time it lands
+// the client has already dropped the blob and returned state=idle).
+//
+// Concrete cases seen in prod:
+//   ModelStreamErrorException  — "The system encountered an unexpected
+//                                error during processing. Try your
+//                                request again." (2026-09-28 incident)
+//   InternalServerException    — Bedrock-side 5xx.
+//   ThrottlingException        — rate-limited; retry with backoff.
+//   ServiceUnavailableException — service busy.
+//
+// Deliberately NOT retriable:
+//   ValidationException  — client bug (bad input), retrying won't help.
+//   AccessDeniedException — policy detached; caller handles via
+//                            isAwsAccessDenied → 503.
+//   ModelErrorException  — content-side rejection; retrying rarely helps.
+const RETRIABLE_NOVA_SONIC_ERRORS = new Set<string>([
+  "ModelStreamErrorException",
+  "InternalServerException",
+  "ThrottlingException",
+  "ServiceUnavailableException",
+]);
+
+function isRetriableNovaSonicError(err: unknown): boolean {
+  const name = (err as { name?: unknown })?.name;
+  return typeof name === "string" && RETRIABLE_NOVA_SONIC_ERRORS.has(name);
+}
+
+/**
+ * Call Nova Sonic with auto-retry on retriable stream errors. Total
+ * attempts capped at maxAttempts; backoff is linear (500ms × attempt).
+ * Rethrows the last error unchanged when all attempts exhaust or when
+ * the error is non-retriable — the caller's existing 502/503 handling
+ * still fires.
+ */
+async function transcribeWithRetries(
+  pcmBuf: Buffer,
+  maxAttempts: number = 3,
+): Promise<string> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await transcribeNovaSonic(pcmBuf);
+    } catch (err: unknown) {
+      lastErr = err;
+      if (attempt < maxAttempts && isRetriableNovaSonicError(err)) {
+        const backoffMs = 500 * attempt;
+        const errName = (err as { name?: string })?.name ?? "unknown";
+        const errMessage = err instanceof Error ? err.message : String(err);
+        databaseLogger.warn(
+          `[voice-server] transcribe-retry attempt=${attempt}/${maxAttempts} errName=${errName} errMessage="${errMessage}" backoffMs=${backoffMs}`,
+          { operation: "voice_transcribe_retry", attempt, maxAttempts, errName, backoffMs },
+        );
+        await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
 // --- Helper: derive a safe filename extension from mimetype ---
 function extFromMimetype(mimetype: string): string {
   if (mimetype.includes("webm")) return "webm";
@@ -140,7 +206,10 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     const transcodeResult = await transcodeForTranscribe(file.buffer, ext);
 
     // (c) D-CUTOVER: single-adapter path — transcribeNovaSonic(pcmBuf).
-    const transcript = await transcribeNovaSonic(transcodeResult.buffer);
+    // Wrapped in transcribeWithRetries so Bedrock's transient stream
+    // errors (ModelStreamErrorException et al) don't drop the user's
+    // dictated message on the first flake.
+    const transcript = await transcribeWithRetries(transcodeResult.buffer);
 
     databaseLogger.info(`[voice-server] transcribe-ok textLen=${transcript.length}`, { operation: "voice_transcribe" });
 
@@ -196,9 +265,16 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     }
 
     // (e) Anything else → 502 (transcode failure, AWS network error, no result stream, ...)
-    databaseLogger.error(`[voice-server] transcribe-error`, err instanceof Error ? err : new Error(String(err)), {
-      operation: "voice_transcribe_error",
-    });
+    // Fold error name + message into the log line itself so it lands in
+    // console-forward.log (databaseLogger's second-arg Error only reaches
+    // container stderr, not the forward stream we grep for diagnosis).
+    const errName = err instanceof Error ? err.name : "unknown";
+    const errMessage = err instanceof Error ? err.message : String(err);
+    databaseLogger.error(
+      `[voice-server] transcribe-error errName=${errName} errMessage="${errMessage}"`,
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "voice_transcribe_error", errName },
+    );
     return res.status(502).json({ error: "STT error", status: 502 });
   }
 }
