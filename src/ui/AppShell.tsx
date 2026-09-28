@@ -3163,6 +3163,12 @@ export function AppShell({
           // Phase 137 D-14: userPrefs threaded so PreferencesModal can forward
           // the current fallbackVoice to PreferencesVoicePane as initial value.
           userPrefs={userPrefs}
+          // Phase 137 D-16 wire-through (H2 fix): Voice pane's autosave delta
+          // bubbles up here so PrettyView's speak-flow resolution reads the
+          // fresh fallbackVoice without a page refresh.
+          onUserPrefsChanged={(delta) =>
+            setUserPrefs((prev) => ({ ...prev, ...delta }))
+          }
           onCreateSession={(opts) => {
             // opts is a three-way discriminated union (see NewSessionDialog.tsx
             // NewSessionOnCreateOpts). Narrow on the discriminant explicitly —

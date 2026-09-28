@@ -449,6 +449,7 @@ export function PrettyConversationsPanel({
   avatarPath = null,
   onAvatarChanged,
   userPrefs,
+  onUserPrefsChanged,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
   // rows' pin mechanism (mobile=swipe / desktop=hover-reveal). AppShell
@@ -627,6 +628,12 @@ export function PrettyConversationsPanel({
    * Threaded into PreferencesModal → PreferencesVoicePane as initial value.
    */
   userPrefs?: import("@/api/open-tabs-api").UserPreferences;
+  /**
+   * Phase 137 D-16 wire-through (H2 fix): Voice pane's autosave delta
+   * bubbles up to AppShell.setUserPrefs so PrettyView's speak-flow
+   * resolution picks up the new fallbackVoice without a page refresh.
+   */
+  onUserPrefsChanged?: (prefs: Partial<import("@/api/open-tabs-api").UserPreferences>) => void;
 }) {
   const visibleInSplitTree = visibleInSplitTreeTabIds ?? EMPTY_VISIBLE_SET;
   const { t } = useTranslation();
@@ -3311,6 +3318,8 @@ export function PrettyConversationsPanel({
         avatarPath={avatarPath ?? null}
         onAvatarChanged={onAvatarChanged ?? (() => {})}
         userPrefs={userPrefs ?? {}}
+        onUserPrefsChanged={onUserPrefsChanged}
+        username={username}
         hostTree={hostTree ?? null}
         defaultHostId={null}
       />

@@ -17,12 +17,20 @@ import { uploadUserAvatar, removeUserAvatar } from "@/api/user-preferences-api";
 
 export interface PreferencesGeneralPaneProps {
   userId: string;
+  /**
+   * M6 fix: username used to derive the initial-letter fallback. Without
+   * this, the pane fell back to `userId[0]` (a nanoid character), which
+   * showed a different letter than the sidebar-footer initials-circle
+   * (which uses the trimmed username's first code point).
+   */
+  username?: string | null;
   avatarPath: string | null;
   onAvatarChanged: (path: string | null) => void;
 }
 
 export function PreferencesGeneralPane({
   userId,
+  username,
   avatarPath,
   onAvatarChanged,
 }: PreferencesGeneralPaneProps): JSX.Element {
@@ -95,7 +103,12 @@ export function PreferencesGeneralPane({
       ? `/users/${encodeURIComponent(userId)}/avatar?f=${encodeURIComponent(avatarPath)}`
       : null;
 
-  const initial = userId ? userId[0]?.toUpperCase() ?? "?" : "?";
+  // M6: derive from trimmed username first code point (matches the
+  // sidebar-footer initials-circle). Spread-index the first character so
+  // astral/emoji-first usernames get a full code point, not a UTF-16
+  // surrogate half. Falls back to "?" when username is empty/absent.
+  const trimmedName = (username ?? "").trim();
+  const initial = trimmedName ? [...trimmedName][0]?.toUpperCase() ?? "?" : "?";
 
   return (
     <div className="flex flex-col gap-6 p-6" data-testid="preferences-general-pane">

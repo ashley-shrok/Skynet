@@ -50,9 +50,22 @@ export interface PreferencesModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: string;
+  /**
+   * M6 fix: username threaded through to General pane so the initials-circle
+   * fallback shows the same letter as the sidebar-footer initials-circle
+   * (both derived from the trimmed username's first code point).
+   */
+  username?: string | null;
   avatarPath: string | null;
   onAvatarChanged: (path: string | null) => void;
   userPrefs: UserPreferences;
+  /**
+   * Phase 137 D-14/D-16 wire-through: called by Voice pane after a
+   * successful save so the caller's UserPreferences atom updates and
+   * downstream speak-flow consumers (PrettyView) re-render with the
+   * new fallback voice without a page refresh.
+   */
+  onUserPrefsChanged?: (prefs: Partial<UserPreferences>) => void;
   hostTree?: HostFolder | null;
   defaultHostId?: number | null;
 }
@@ -63,9 +76,11 @@ export default function PreferencesModal({
   open,
   onOpenChange,
   userId,
+  username,
   avatarPath,
   onAvatarChanged,
   userPrefs,
+  onUserPrefsChanged,
   hostTree,
   defaultHostId,
 }: PreferencesModalProps): JSX.Element {
@@ -185,6 +200,7 @@ export default function PreferencesModal({
               {activeSection === "general" && (
                 <PreferencesGeneralPane
                   userId={userId}
+                  username={username ?? null}
                   avatarPath={avatarPath}
                   onAvatarChanged={onAvatarChanged}
                 />
@@ -193,6 +209,7 @@ export default function PreferencesModal({
                 <PreferencesVoicePane
                   userId={userId}
                   userPrefs={userPrefs}
+                  onUserPrefsChanged={onUserPrefsChanged}
                 />
               )}
               {activeSection === "notifications" && (
