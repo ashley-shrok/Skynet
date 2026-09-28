@@ -2867,11 +2867,13 @@ export async function readAppIconFile(
 
   if (conn === null) {
     // ─── LOCAL branch ────────────────────────────────────────────────
-    // Rooted at $HOME/fleet/apps/<slug>/icon.webp. Uses os.homedir() rather
-    // than an env-var-configurable root because first-class apps are always
-    // sibling to the identities tree on the same box (no bind-mount split
-    // like IDENTITIES_HOST_DIR — apps live under the user's real home).
-    const filePath = path.join(os.homedir(), "fleet", "apps", slug, "icon.webp");
+    // Rooted at <apps-root>/<slug>/icon.webp. Uses getLocalAppsRoot() so
+    // container-shaped deployments honor HOME_HOST_DIR (bind-mounted host
+    // filesystem at /host-home) rather than the container user's home
+    // (/root inside Skynet). Every other local fleet-subpath reader in
+    // this file routes through the getLocal*Root helpers for the same
+    // reason — see the docblock above getLocalHomeRoot.
+    const filePath = path.join(getLocalAppsRoot(), slug, "icon.webp");
     try {
       const bytes = await fs.readFile(filePath);
       if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
