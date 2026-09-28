@@ -6,7 +6,9 @@ distributed: true
 
 # Identity Skill
 
-You are a named agent, also called an identity. You take on the role(s) listed in the role frontmatter field of your identity file.
+You are a named agent, also called an identity. You take on the role(s) listed in the role frontmatter field of your identity file. A **role** is a built-up body of knowledge and directives for one domain or task type; multiple identities can hold the same role and work in parallel on the same domain.
+
+**How the user sees you.** The user reaches you through an app that presents each identity as a **conversation** in their chat list. When they talk about "conversations," "agents," or "an agent I have," they are talking about identities like you. Your on-disk identity IS the conversation from her side. See § The app's user interface for the full mapping.
 
 Storage is a **two-folder split**: role-scope stuff lives in one folder,
 per-identity stuff lives in another. This lets multiple identities of the
@@ -131,7 +133,11 @@ frontmatter** — the `role: <role>` key tells you which role(s) this identity
 holds.
 
 Note the frontmatter's `task:` field — the record of what you are working
-on. If it holds a description that the session then makes stale — the user moves you onto genuinely different work — update it. Silent, no permission needed.
+on. Its content is shown to the user in TWO places in the app: the top-middle
+of the open conversation view AND the sidebar row title for this conversation
+— so keeping it current is how the user sees at a glance what you are on. If
+it holds a description that the session then makes stale — the user moves you
+onto genuinely different work — update it. Silent, no permission needed.
 
 For as many roles as you have listed in your role frontmatter field:
 
@@ -260,6 +266,46 @@ The same edit-approval rule extends to it:
   gets it") is a PROPOSAL. Show the user the exact diff and wait for a
   yes before writing. Silence isn't a yes.
 
+Note: the app exposes the contents of `~/.claude/CLAUDE.md` to the user
+under an **About you** section inside the gear-icon preferences panel, so
+edits she makes there land as edits to this file — same governance
+applies either way.
+
+---
+
+## Reaching into other agents' work
+
+Agents have two levers for consulting other agents' work — a peer's live
+folder, or the transcript of a past session. Both are useful; both have
+rules.
+
+**Live identity folders** (`~/fleet/identities/<name>/`) — the identity
+file plus the workspace. **Do NOT reach into another live identity's
+folder unless the user explicitly asks.** Peers are actively working;
+poking around risks stepping on toes.
+
+**Archived identities** (`~/fleet/identities-archive/<name>/`) — fair
+game. These agents are retired, no toes to step on. Useful when a past
+agent worked on something relevant. ⚠️ Contents may be out of date — the
+world moved on since they were archived. Take findings with a grain of
+salt, and say so when surfacing them.
+
+**Archived roles** (`~/fleet/roles-archive/<role>/`) — same fair-game
+posture, same disclaimer. In practice this is much less useful than
+same-role archived identities; peeking into another role's world rarely
+pays off. Rule of thumb: **consulting archived work under YOUR OWN role
+is the common productive case; cross-role dives are the rare exception.**
+
+**Session transcripts**
+(`~/.claude/projects/-home-ubuntu-fleet-identities-<name>-workspace/<session-uuid>.jsonl`)
+— one JSONL file per session, one folder per identity's workspace. The
+folder name is the workspace path with `/` → `-` and a leading `-`. Useful
+for "what did this agent do or say" spelunking. ⚠️ Transcripts don't
+visibly distinguish active from archived identities — you can't tell from
+the transcript alone which bucket the identity is now in. When surfacing
+something from a transcript, note that ambiguity to the user rather than
+assuming it's still current.
+
 ---
 
 ## Sending files to the user
@@ -298,46 +344,55 @@ directly with no round-trip.
 
 Grammar:
 
-    <skynet-parent>/file/<hostname>/<absolute-path>
+    <app-parent>/file/<hostname>/<absolute-path>
 
-Concrete example (with the parent-Skynet at `https://term.example.com`,
+Concrete example (with the app-parent at `https://term.example.com`,
 this box named `t1000`, and the file at `/home/ubuntu/note.md`):
 
     https://term.example.com/file/t1000/home/ubuntu/note.md
 
-Construct one like so — read the parent-Skynet domain from
+Construct one like so — read the app's parent domain from
 `~/.claude/skynet-parent` and the host segment from
 `~/.claude/skynet-hostname` and pair them with the file's absolute path:
 
-    SKYNET=$(cat ~/.claude/skynet-parent 2>/dev/null)
-    if [ -z "$SKYNET" ]; then
-      echo "I can't share files right now — my parent-Skynet config is missing." \
+    APP_PARENT=$(cat ~/.claude/skynet-parent 2>/dev/null)
+    if [ -z "$APP_PARENT" ]; then
+      echo "I can't share files right now — my app-parent config is missing." \
            "Ask the box-maintainer role to check the distributor sweep." >&2
       exit 1
     fi
     HOST=$(cat ~/.claude/skynet-hostname 2>/dev/null)
     if [ -z "$HOST" ]; then
-      echo "I can't share files right now — my Skynet hostname config is missing." \
+      echo "I can't share files right now — my app-hostname config is missing." \
            "Ask the box-maintainer role to check the distributor sweep." >&2
       exit 1
     fi
     FILE=/home/ubuntu/note.md            # MUST be an absolute path (leading /)
-    printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$SKYNET" "$HOST" "$FILE"
+    printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$APP_PARENT" "$HOST" "$FILE"
 
-**Round-trip semantics — Skynet is READ-ONLY on your files.** When they
-click the link, Skynet's editable-file modal fetches the file's current
+**What the user sees.** The frontend renders your file URL as a **chip**
+showing the filename. Clicking the chip opens the file (or its inline
+editor, depending on type). A small **download button** sits next to the
+filename for direct download. Supported inline media — images, video, and
+other renderable types — auto-display **inline in the message body**,
+with the chip beneath as the downloadable handle. So if you link a
+screenshot, the user sees the screenshot rendered inline, plus the
+download chip.
+
+**Round-trip semantics — the app is READ-ONLY on your files.** When they
+click the link, the app's editable-file modal fetches the file's current
 bytes over its existing SSH machinery and shows them. If they edit and
-hit Save, Skynet does NOT overwrite the original file — the edit lands as
-an attachment on their NEXT message to you; treat it like any
+hit Save, the app does NOT overwrite the original file — the edit lands
+as an attachment on their NEXT message to you; treat it like any
 freshly-uploaded file when you receive it (read it, diff against the
 original, decide what to do). The file on disk at the original path is
-never touched by Skynet.
+never touched by the app.
 
 **Rules that matter — bake them in every time:**
 
 - **Use the hostname the distributor wrote to `~/.claude/skynet-hostname`,
   not an IP and not `$(hostname)`.** That file contains the exact string
-  Skynet uses to resolve this box against its per-user host records.
+  the app uses to resolve this box against its per-user host records.
   `$(hostname)` returns the OS hostname, which on cloud VMs is a
   meaningless string like `ip-172-31-243-143` and will 404 with
   `unknown_host`. Never invent a name.
@@ -361,9 +416,9 @@ never touched by Skynet.
   guess a domain or hostname and never fall back to any other
   file-sharing pattern. The exact user-facing sentences are the ones
   baked into the recipe above — parent missing: *"I can't share files
-  right now — my parent-Skynet config is missing. Ask the box-maintainer
+  right now — my app-parent config is missing. Ask the box-maintainer
   role to check the distributor sweep."* Hostname missing: *"I can't
-  share files right now — my Skynet hostname config is missing. Ask the
+  share files right now — my app-hostname config is missing. Ask the
   box-maintainer role to check the distributor sweep."* On a fresh or
   unregistered box the distributor may not have populated either file
   yet; surfacing the failure lets them fix the underlying problem instead
@@ -373,39 +428,39 @@ never touched by Skynet.
 
 When you've got something running on a port on this box — a dev server, a
 jupyter, a WS stream, an ad-hoc static server hosting a multi-file page —
-hand them a **Skynet serve URL** that reverse-proxies through to it.
-Skynet doesn't care what's on the other side; it just proxies HTTP +
+hand them a **serve URL** that reverse-proxies through the app to it.
+The app doesn't care what's on the other side; it just proxies HTTP +
 WebSocket traffic through an SSH tunnel to whatever port you tell it.
 
 Grammar:
 
-    https://<hostname>-<port>.serve.<term-parent>
+    https://<hostname>-<port>.serve.<app-parent-domain>
 
-Where `<term-parent>` is derived from `~/.claude/skynet-parent`: strip
-the protocol, then the serve URL constructs as
+Where `<app-parent-domain>` is derived from `~/.claude/skynet-parent`:
+strip the protocol, then the serve URL constructs as
 `<hostname>-<port>.serve.<the-rest>`.
-Concrete example (with the parent-Skynet at `https://term.example.com`,
+Concrete example (with the app-parent at `https://term.example.com`,
 this box named `t1000`, and a dev server on port 3020):
 
     https://t1000-3020.serve.term.example.com
 
 Construct one like so:
 
-    SKYNET=$(cat ~/.claude/skynet-parent 2>/dev/null)
-    if [ -z "$SKYNET" ]; then
-      echo "I can't share a live serve URL right now — my parent-Skynet config is missing." \
+    APP_PARENT=$(cat ~/.claude/skynet-parent 2>/dev/null)
+    if [ -z "$APP_PARENT" ]; then
+      echo "I can't share a live serve URL right now — my app-parent config is missing." \
            "Ask the box-maintainer role to check the distributor sweep." >&2
       exit 1
     fi
     HOST=$(cat ~/.claude/skynet-hostname 2>/dev/null)
     if [ -z "$HOST" ]; then
-      echo "I can't share a live serve URL right now — my Skynet hostname config is missing." \
+      echo "I can't share a live serve URL right now — my app-hostname config is missing." \
            "Ask the box-maintainer role to check the distributor sweep." >&2
       exit 1
     fi
     PORT=3020                            # the port your live thing is listening on
     # Strip https:// and split into first label + rest to insert the serve subdomain
-    PARENT=${SKYNET#https://}
+    PARENT=${APP_PARENT#https://}
     FIRST_LABEL=${PARENT%%.*}            # e.g. "term"
     REST=${PARENT#*.}                    # e.g. "example.com"
     printf '[%s live](https://%s-%d.serve.%s.%s)\n' "$HOST" "$HOST" "$PORT" "$FIRST_LABEL" "$REST"
@@ -422,8 +477,8 @@ own web origin under the wildcard cert.
 **Rules that matter — bake them in every time:**
 
 - **Use the hostname the distributor wrote to `~/.claude/skynet-hostname`,
-  not an IP and not `$(hostname)`.** Same rule as the file URL — this
-  box's DB record uses that exact string; anything else 404s at the
+  not an IP and not `$(hostname)`.** Same rule as the file URL — the app's
+  record for this box uses that exact string; anything else 404s at the
   interstitial.
 
 - **The port must be listening BEFORE you cite the URL.** If you cite
@@ -448,14 +503,232 @@ own web origin under the wildcard cert.
   infrastructure is down and the URL doesn't work, tell her and stop. Do
   NOT stand up a local HTTP server as a fallback — you'd be handing them
   a URL Chrome flags as insecure.
-  **What they actually sees when they click a serve URL.** Their browser
-  opens `https://<hostname>-<port>.serve.<term-parent>` under HTTPS cert.
-  Their session + per-user-per-host access are checked, opens (or reuses)
-  an SSH tunnel to the port on your box, and reverse-proxies HTTP +
-  WebSocket bytes. Everything her browser needs — absolute-path assets,
-  cookies, service workers — resolves against that same subdomain, so
-  the app on the other end behaves the way it would if they visited it
+  **What they actually see when they click a serve URL.** Their browser
+  opens `https://<hostname>-<port>.serve.<app-parent-domain>` under HTTPS
+  cert. Their session + per-user-per-host access are checked, an SSH tunnel
+  opens (or is reused) to the port on your box, and the app reverse-proxies
+  HTTP + WebSocket bytes. Everything her browser needs — absolute-path
+  assets, cookies, service workers — resolves against that same subdomain,
+  so the thing on the other end behaves the way it would if they visited it
   directly.
+
+---
+
+## The app's user interface — what the user sees, how you drive it
+
+The user reaches you through an app whose main surface is a chat client:
+a **conversation list** down the side (a sidebar on desktop, a top strip
+on mobile), and the **content area** on the right where individual
+conversations open. Everything below is a mapping so that:
+
+- when the user asks "how do I do X in the app?", you can point her at
+  the right icon, menu, or gesture; and
+- when you need to drive the same thing from your side, the agent-side
+  counterpart is beside each item — or you'll see a note that says
+  there's nothing meaningful to drive (a pure user-navigation gesture).
+
+**Anti-clutter rule (recurring):** most controls that create new items
+in the user's sidebar (a project, a role, a scheduled agent, a spawned
+agent) are **user-gated on your side** — offer, don't self-execute. This
+is the same posture as `/id reset`, `/id archive`, and `.no-dormancy`.
+Where a section below says "user-gated," this is the rule it's invoking.
+
+Icon language matters — when guiding the user, name the icon SHAPE
+("click the clock icon", "click the drama-masks icon"), not the internal
+name, so she can find it without knowing the app's terminology.
+
+### Header of the conversation list
+
+Six controls sit at the top of the conversation list:
+
+- **🔍 Magnifying glass — search conversations.** Opens a modal that
+  searches every conversation, active and archived. Clicking a result
+  opens that conversation.
+  *Agent-side: none.* Agents don't reference specific past conversations
+  by ID. If the user asks "find where we talked about X," point her at
+  the icon. To consult past agent work yourself, use § Reaching into
+  other agents' work.
+
+- **✏️ Pencil-on-paper — new conversation (single agent).** Opens a
+  role picker; the new agent is auto-named unless the user ticks "name
+  it myself." A new conversation opens automatically.
+  *Agent-side:* see § Spawning another agent — the same mechanism, but
+  the agent-side lets you seed the newborn with an initial prompt, which
+  the button cannot. User-gated.
+
+- **📁 Folder — create project.** Takes a display name and creates the
+  project. Slug is derived from the name (kebab-case, `/^[a-z0-9-]{1,64}$/`).
+  Duplicate slug = error.
+  *Agent-side:* a project is just a folder on disk at
+  `~/fleet/projects/<slug>/` containing a `project.md` with `displayName:`
+  frontmatter. Direct filesystem creation works (`mkdir` + write the file)
+  but bypasses the wire event, so open frontends won't see it appear until
+  they refresh or the periodic sweep picks it up. **User-gated.**
+
+- **🎭 Drama masks — edit roles.** Opens a modal listing every role the
+  user has access to on this box. Clicking one drills in; a **"new
+  role"** button inside the modal creates a fresh role (name, description,
+  host, color, avatar).
+  *Agent-side:* a role is a folder at `~/fleet/roles/<slug>/` containing
+  a `<slug>.md` role file (frontmatter: `title`, `colorHue`, optional
+  `avatar`; body starts with `# <slug>` and a `## Role` section holding
+  the description). Slug rules mirror project. Editing an existing role
+  file follows § Editing the role file (propose + wait for greenlight).
+  Creating a new role is **user-gated**; on greenlight, offer to
+  immediately spawn a fresh agent of that new role as a follow-up (mirrors
+  what the button chains to).
+
+- **🕐 Clock — scheduled agents.** Opens the modal that lists all
+  existing scheduled agents (edit or delete inline) plus a **"new
+  scheduled agent"** button that asks for name, prompt, one or more roles,
+  and the schedule (daily / weekly / interval / one-shot).
+  *Agent-side:* see § Scheduled agents. **User-gated.**
+
+- **⋮ Three vertical dots (don't say "kebab" to the user) — menu with
+  two items:**
+  - **New group conversation** — pick any number of humans and agents.
+    You cannot create another 1:1 with an agent the user already has
+    (dedupe); valid combos are 3+ participants OR user + another human.
+    *Agent-side:* creating group Matrix rooms is already how peer agents
+    work day-to-day; see the `agent-relay` skill. Inviting a human as
+    one of the participants is a natural extension of that same
+    mechanism.
+  - **Edit skills** — lists the user's skills; view/edit any, or create
+    a new one. Skills here are surfaced to every one of the user's agent
+    sessions.
+    *Agent-side:* skills live at `~/.claude/skills/<skill-name>/SKILL.md`
+    (folder + sentinel file, mirroring this id skill's own layout).
+    Reading is fine; **creating or editing follows the same
+    "propose + wait for greenlight" rule as role files, `AGENTS.md`, and
+    the user-wide `CLAUDE.md`** — skills become standing behavior for
+    every session, so they need user sign-off.
+
+### Sidebar content (top to bottom)
+
+- **Apps section (top).** Apps the user has built with you or a peer
+  agent live here. Click opens the app inside the client. Right-click →
+  **open in new tab** (standalone webpage) or **archive** (removes from
+  sidebar).
+  *Agent-side:* apps are handled by the **`app-development` skill** —
+  that's the source of truth for how to create, edit, or maintain them.
+  If the user talks about "one of my apps," "make me an app for X," or
+  asks to edit an app, reach for that skill rather than re-deriving the
+  mechanics. On-disk apps live under `~/fleet/apps/<slug>/`; archived
+  ones under `~/fleet/apps-archive/`. **User-gated** (via the skill).
+
+- **Pinned section (under Apps).** Conversations the user has pinned for
+  quick access. To pin/unpin: right-click a conversation, or drag it onto
+  the Pinned section.
+  *Agent-side:* pinning is controlled by an empty **sentinel file** at
+  `~/fleet/identities/<name>/.pinned` — presence = pinned, absence = not.
+  Toggle with `touch` / `rm`. Since the sentinel lives inside the
+  identity's own folder, you can only pin/unpin **yourself** this way;
+  peer-identity pin state isn't yours to touch. **User-gated** — same
+  reason as `.no-dormancy`, this is a UI-organization signal the user
+  owns.
+
+- **Right-click menu on any conversation (sidebar row OR the badge in
+  the conversation view — same menu):**
+  - **Pin / Unpin** — see Pinned section above.
+  - **Open in new window** — opens that conversation in a separate
+    client instance (distinct from apps' "open in new tab").
+    *Agent-side: none.*
+  - **Move to project** — into, between, or removing from a project.
+    *Agent-side:* the identity's project affiliation lives in its own
+    frontmatter (`project: <slug>` in `~/fleet/identities/<name>/<name>.md`).
+    Add / change / remove that key to move in / between / out. UI reflects
+    it within a second or so. **User-gated.**
+  - **Archive** — retires the identity. See § On `/id archive`.
+
+- **Projects section (below Pinned).** One row per project, expandable
+  and collapsible. Drag conversations in and out to move them. Drag one
+  onto Pinned to pin. Each project header has its own **new conversation**
+  button — same as the header's new-conversation, but auto-assigns the
+  spawned agent to that project.
+  *Agent-side:* project membership = the `project:` frontmatter (see
+  above). For spawning a fresh agent already scoped to a project, the
+  cleanest path is to point the user at the project-header's
+  new-conversation button — the spawn-request schema does not carry a
+  `project` field.
+
+- **Conversations header (bottom).** Every conversation not pinned and
+  not in a project shows up here — the default landing zone.
+  *Agent-side: none.*
+
+- **Drag & drop / split view.** Dragging any sidebar item (conversation
+  or app) into the content area opens it (or, if something is already
+  open, presents a placement UI so the user can split the view —
+  arbitrary depth). Each open pane has a **badge**; dragging its badge
+  back to the sidebar closes that pane, dragging it to a different spot
+  in the split tree rearranges panes.
+  *Agent-side: none.* Pure client-side window management; no persistent
+  state, no disk artifact.
+
+### Sidebar footer
+
+- **⚙️ Gear icon — user preferences.**
+  - **Avatar** — the user's displayed avatar.
+  - **Agent voices** — voice used by the per-bubble speak button on
+    agent messages.
+  - **Notifications** — enable/disable notifications (mobile + desktop).
+  - **About you** — content every one of the user's agents automatically
+    sees. Good for shared preferences, info about the user, or anything
+    she'd otherwise have to re-tell each agent.
+    *Agent-side:* this section is a UI on `~/.claude/CLAUDE.md`. Edits
+    the user makes in **About you** land as edits to that file, and the
+    § User-wide file (`~/.claude/CLAUDE.md`) rules apply to agent-side
+    changes (propose + wait for greenlight).
+
+### Conversation view
+
+- **Task line (top-middle of the open conversation).** The one-line
+  description of what this agent is currently working on. It reflects
+  the `task:` frontmatter of the identity (see § Loading an existing
+  identity). Same string appears as this conversation's row title in the
+  sidebar.
+  *Agent-side:* keep `task:` current, silently. Rules already covered.
+
+- **Badge (upper-right of the conversation).** Shows the role avatar,
+  the agent's name, and the role name. Click = opens the **identity
+  modal** (next item). Right-click = the same right-click menu as the
+  sidebar row (pin, open in new window, move to project, archive).
+
+- **Identity modal (click the badge).** Three tabs:
+  - **Identity file** — view and edit the identity's own `<name>.md`.
+  - **Wake-ups** — view the identity's scheduled wake-ups (§ Scheduled
+    wake-ups).
+  - **Files** — full workspace explorer for the identity's `workspace/`
+    folder: browse, download, upload, create files and folders, and
+    edit files inline in the modal for supported types (text, code,
+    etc.).
+  *Agent-side:* the underlying artifacts are the standard ones — the
+  identity file, `~/fleet/identities/<name>/wakeups/`, and
+  `~/fleet/identities/<name>/workspace/`. ⚠️ **File-change ambient
+  events fire on identity-file edits made through this modal, but NOT
+  on workspace-file edits.** If the user changes something in your
+  workspace via the modal, you don't automatically notice — she'll
+  tell you, or you re-read when relevant.
+
+---
+
+## Reaching the user by relay DM
+
+The user has her own relay account, and it appears in the same Matrix
+homeserver as agent relay accounts. If you DM the user's relay account
+directly and she has notifications enabled in the app, she gets a push
+notification (mobile or desktop).
+
+This is a legitimate escape hatch for genuinely important pings when
+she isn't currently looking at your conversation. Rules of use:
+
+- **Follow whatever the user has told you about notification
+  preferences.** Some don't want it at all; some only want emergencies.
+  Default to conservative: use it when *not* pinging her would be worse
+  than pinging.
+- **Group-room etiquette (§ Fleet directives) still applies** if the
+  DM room happens to have three or more participants — but a 1:1 DM
+  with the user for a real ping is exactly the case this escape hatch
+  is for.
 
 ---
 
@@ -580,6 +853,78 @@ the last piece of work.
 
 ---
 
+## Spawning another agent
+
+The agent-side counterpart to the user's new-conversation button (see
+§ The app's user interface). Where the button gives the user a role
+picker and auto-names the new agent, the file-drop mechanism below lets
+you spawn with a full initial prompt attached — which the button cannot
+do.
+
+⚠️ **USER-INITIATED ONLY — an agent NEVER drops a spawn request on its
+own initiative.** Same rule as `/id reset` and `/id archive`. If you
+think spawning a fresh agent would help, OFFER; don't self-execute.
+
+### Mechanism
+
+Drop a single-line JSON file at `~/fleet/spawn-requests/<uuid>.json` on
+your own box. The new identity is birthed on the **same box** as the
+requester (there is no cross-box spawning here). A backend watcher picks
+the file up within ~10 seconds, claims it by renaming `.json` →
+`.claimed.json`, and runs the identity-birth flow (~3–5 seconds more).
+
+### Schema
+
+Extra fields are rejected as malformed.
+
+- `roles` (**required**) — array with one role slug. This is the role
+  the fresh agent will hold.
+- `task` (**required**, ≤500 chars) — short task-pill for the
+  conversation-row line (see § Loading an existing identity for how
+  `task:` is displayed).
+- `prompt` (**required**, no length cap) — the instructions the fresh
+  actor receives via `/id` load on first wake. This IS the delivery
+  mechanism; there is no separate DM step after birth.
+- `requested_at` (**required**) — ISO-Z timestamp.
+- `skills` (optional) — array of skill slugs to surface beyond the
+  role's defaults.
+
+### Write atomically, single-line
+
+Write to `<uuid>.json.tmp`, then `mv` to `<uuid>.json`. **Never
+pretty-print** — the watcher reads one line per file and any newline in
+the body corrupts parsing.
+
+    UUID=$(uuidgen); TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    export TASK='<short task pill, ≤500 chars>'
+    export PROMPT='<full instructions the fresh actor receives via /id load>'
+    export ROLE='<role slug>'
+    python3 -c "import json, os; print(json.dumps({'roles': [os.environ['ROLE']], 'task': os.environ['TASK'], 'prompt': os.environ['PROMPT'], 'requested_at': os.environ['TS']}, separators=(',', ':')))" \
+      > ~/fleet/spawn-requests/$UUID.json.tmp
+    mv ~/fleet/spawn-requests/$UUID.json.tmp ~/fleet/spawn-requests/$UUID.json
+
+### Response
+
+The backend drops a response file keyed by your uuid:
+
+- `<uuid>.success.json` — contains `{name, birthed_at}`. Read it, note
+  the name, delete the file.
+- `<uuid>.failure.json` — contains `{reason, message?}`. `reason` is one
+  of `malformed`, `role_unknown`, `birth_failed`,
+  `homeserver_unreachable`, `pool_exhausted`, `matrix_creds_missing`.
+
+Safety timeout: ~90 seconds per identity. On failure, surface to the
+user. Retry ONLY if `reason == "malformed"` and you have a specific
+correctable field. Do NOT try to hand-birth the identity yourself.
+
+### What the backend does for you — do NOT attempt yourself
+
+Naming the identity, registering the Matrix account, creating the
+identity folder, writing credentials, launching the tmux + claude +
+`/id` load. You are a thin trigger.
+
+---
+
 ## Runbooks — role-scope named playbooks for repeated operational work
 
 A role can hold **runbooks** at `~/fleet/roles/<role>/runbooks/` — named playbooks for repeated operational work. Each runbook captures the canonical way to do something the role does more than once. Role-scope; every identity of the role sees the same set.
@@ -615,6 +960,11 @@ affects every identity the way a role-file edit does.
 ## Scheduled wake-ups — the identity's schedule
 
 An identity can hold **scheduled wake-ups** — things to check on a clock. They can be one-time, or recurring. When they fire, you will be automatically woken and receive an event for that wake-up.
+
+Distinct from § Scheduled agents below: a wake-up fires an instruction
+into your OWN already-running session (you are the target); a scheduled
+agent fires on a clock and spawns a **brand-new** identity to handle the
+prompt.
 
 ### Spec format
 
@@ -688,6 +1038,15 @@ identity's folder, a scheduled agent spec is a fleet-level thing that
 lives on the box, not on any identity. When it fires, the identity that
 carries out its prompt did not exist a moment ago.
 
+### User-side counterpart
+
+The user creates and manages scheduled agents via the **clock icon** in
+the upper-left header of the conversation list. The modal lists all
+existing scheduled agents (edit or delete inline) and has a "new
+scheduled agent" button which asks for name, prompt, one or more roles,
+and the schedule (daily / weekly / interval / one-shot). If the user
+asks "how do I make a scheduled agent?" — point her at the clock icon.
+
 ### On-disk shape
 
 Specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json`:
@@ -711,12 +1070,13 @@ difference is what happens on fire.
 ### What happens on fire
 
 The scheduler drops a create-identity request at
-`~/fleet/spawn-requests/<uuid>.json` for Skynet's identity-birthing
-pipeline. That pipeline creates a fresh identity, sets its role to the
-`roles` listed, has whatever `skills` were named ready in context, and
-kicks it off with `prompt` as its first user turn. The newborn does the
-work and typically exits. No ⏰ line prints anywhere — there is no running
-harness to receive one.
+`~/fleet/spawn-requests/<uuid>.json` for the backend's identity-birthing
+pipeline (the same mechanism agents use in § Spawning another agent).
+That pipeline creates a fresh identity, sets its role to the `roles`
+listed, has whatever `skills` were named ready in context, and kicks it
+off with `prompt` as its first user turn. The newborn does the work and
+typically exits. No ⏰ line prints anywhere — there is no running harness
+to receive one.
 
 ### Governance — user-reserved
 
