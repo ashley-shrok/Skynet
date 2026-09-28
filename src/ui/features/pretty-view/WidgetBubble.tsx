@@ -53,6 +53,7 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
   const [retrySrc, setRetrySrc] = useState(src);
   const [expired, setExpired] = useState(false);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
+  const [isClamped, setIsClamped] = useState(false);
 
   // Retry effect: attaches an error listener to the iframe and schedules
   // exponential-backoff retries on load failure. Runs on [src, retryCount]
@@ -100,14 +101,16 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
       // /interactive/ proxy — so window.location.origin is the correct target.
       if (e.origin !== window.location.origin) return;
       // Phase 143: widget-resize — widget reports its content height so the
-      // iframe can grow to fit (up to MAX_HEIGHT_PX). Past the cap the widget's
-      // own body scrolls with an obvious scrollbar (styled per-template).
+      // iframe can grow to fit (up to MAX_HEIGHT_PX). If the reported height
+      // exceeds the cap the parent renders an overflow cue (fade + chevron)
+      // so users see "there's more below" regardless of the browser's native
+      // scrollbar auto-hide behavior. Overflow-indication is the container's
+      // job — widget authors don't need to build it themselves.
       if (e.data?.type === "widget-resize" && typeof e.data.height === "number") {
-        const clamped = Math.min(
-          Math.max(e.data.height, MIN_HEIGHT_PX),
-          MAX_HEIGHT_PX,
-        );
+        const raw = e.data.height;
+        const clamped = Math.min(Math.max(raw, MIN_HEIGHT_PX), MAX_HEIGHT_PX);
         setContentHeight(clamped);
+        setIsClamped(raw > MAX_HEIGHT_PX);
         return;
       }
       // Only handle widget-submit signals; other message types are dropped.
@@ -149,17 +152,33 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
   // per RESEARCH Pattern 5. Widgets author their own dark mode since they're
   // agent-authored HTML; drag pass-through is a Phase 2 concern.
   return (
-    <iframe
-      ref={iframeRef}
-      src={retrySrc}
-      title="Interactive widget"
-      referrerPolicy="no-referrer"
-      loading="eager"
-      className="w-full border-0 rounded-md"
-      style={{
-        height: `${contentHeight ?? INITIAL_HEIGHT_PX}px`,
-        transition: "height 120ms ease-out",
-      }}
-    />
+    <div className="relative w-full">
+      <iframe
+        ref={iframeRef}
+        src={retrySrc}
+        title="Interactive widget"
+        referrerPolicy="no-referrer"
+        loading="eager"
+        className="w-full border-0 rounded-md"
+        style={{
+          height: `${contentHeight ?? INITIAL_HEIGHT_PX}px`,
+          transition: "height 120ms ease-out",
+        }}
+      />
+      {isClamped && (
+        <div
+          aria-hidden="true"
+          data-testid="widget-overflow-cue"
+          className="pointer-events-none absolute inset-x-0 bottom-0 flex h-8 items-end justify-center pb-1 text-sm rounded-b-md"
+          style={{
+            background:
+              "linear-gradient(to bottom, transparent, rgba(0,0,0,0.16) 60%, rgba(0,0,0,0.24))",
+            color: "rgba(255,255,255,0.75)",
+          }}
+        >
+          <span>▾</span>
+        </div>
+      )}
+    </div>
   );
 }

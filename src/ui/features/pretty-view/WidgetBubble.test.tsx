@@ -375,4 +375,65 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
     });
     expect(iframe.style.height).toBe("120px");
   });
+
+  it("Test 18: no overflow cue when reported height fits under the 480px cap", () => {
+    const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const fakeContentWindow = {} as Window;
+    Object.defineProperty(iframe, "contentWindow", { value: fakeContentWindow, configurable: true });
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "widget-resize", widgetId: "poll-abc", height: 300 },
+        origin: window.location.origin,
+        source: fakeContentWindow,
+      }));
+    });
+    expect(container.querySelector('[data-testid="widget-overflow-cue"]')).toBeNull();
+  });
+
+  it("Test 19: overflow cue appears when reported height exceeds the 480px cap", () => {
+    const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const fakeContentWindow = {} as Window;
+    Object.defineProperty(iframe, "contentWindow", { value: fakeContentWindow, configurable: true });
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "widget-resize", widgetId: "poll-abc", height: 900 },
+        origin: window.location.origin,
+        source: fakeContentWindow,
+      }));
+    });
+    const cue = container.querySelector('[data-testid="widget-overflow-cue"]');
+    expect(cue).not.toBeNull();
+    expect(cue?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("Test 20: overflow cue disappears when a later resize fits under the cap", () => {
+    const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
+    const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+    const fakeContentWindow = {} as Window;
+    Object.defineProperty(iframe, "contentWindow", { value: fakeContentWindow, configurable: true });
+
+    // Overflow first.
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "widget-resize", widgetId: "poll-abc", height: 800 },
+        origin: window.location.origin,
+        source: fakeContentWindow,
+      }));
+    });
+    expect(container.querySelector('[data-testid="widget-overflow-cue"]')).not.toBeNull();
+
+    // Then fits.
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { type: "widget-resize", widgetId: "poll-abc", height: 200 },
+        origin: window.location.origin,
+        source: fakeContentWindow,
+      }));
+    });
+    expect(container.querySelector('[data-testid="widget-overflow-cue"]')).toBeNull();
+  });
 });

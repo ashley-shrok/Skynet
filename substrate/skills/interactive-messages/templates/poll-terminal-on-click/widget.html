@@ -32,27 +32,6 @@
       .btn:disabled { background: #222; color: #666; border-color: #333; cursor: default; }
     }
 
-    /* Phase 143: obvious scrollbar when content exceeds the parent iframe cap
-       (WidgetBubble.MAX_HEIGHT_PX). The app's ambient thin scrollbars are too
-       subtle to signal "there's more below" — this one shouts. */
-    html { scrollbar-width: auto; scrollbar-color: rgba(0,0,0,0.4) rgba(0,0,0,0.06); }
-    body::-webkit-scrollbar { width: 12px; }
-    body::-webkit-scrollbar-track { background: rgba(0,0,0,0.06); border-radius: 6px; }
-    body::-webkit-scrollbar-thumb {
-      background: rgba(0,0,0,0.4);
-      border-radius: 6px;
-      border: 2px solid transparent;
-      background-clip: padding-box;
-    }
-    body::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.55); background-clip: padding-box; }
-
-    @media (prefers-color-scheme: dark) {
-      html { scrollbar-color: rgba(255,255,255,0.4) rgba(255,255,255,0.05); }
-      body::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
-      body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.4); background-clip: padding-box; }
-      body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.55); background-clip: padding-box; }
-    }
-
     #prompt {
       margin: 0 0 12px 0;
       font-size: 15px;
