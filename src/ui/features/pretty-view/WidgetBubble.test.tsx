@@ -300,13 +300,13 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
     expect(status.getAttribute("aria-label")).toBe("Expired interactive message");
   });
 
-  it("Test 14: widget-resize message grows iframe up to the 480px cap", () => {
+  it("Test 14: widget-resize sets iframe height to reported value (wrapper caps visually)", () => {
     const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const fakeContentWindow = {} as Window;
     Object.defineProperty(iframe, "contentWindow", { value: fakeContentWindow, configurable: true });
 
-    // Report 300px content — iframe should grow to match.
+    // Report 300px content — iframe matches, wrapper doesn't clamp (fits).
     act(() => {
       window.dispatchEvent(new MessageEvent("message", {
         data: { type: "widget-resize", widgetId: "poll-abc", height: 300 },
@@ -316,7 +316,8 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
     });
     expect(iframe.style.height).toBe("300px");
 
-    // Report 900px content — iframe should clamp at 480px.
+    // Report 900px content — iframe grows to full natural height (900px).
+    // Wrapper's max-height: 480px + overflow-y: scroll does the visual cap.
     act(() => {
       window.dispatchEvent(new MessageEvent("message", {
         data: { type: "widget-resize", widgetId: "poll-abc", height: 900 },
@@ -324,7 +325,7 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
         source: fakeContentWindow,
       }));
     });
-    expect(iframe.style.height).toBe("480px");
+    expect(iframe.style.height).toBe("900px");
   });
 
   it("Test 15: widget-resize message honours the 40px floor", () => {
@@ -376,7 +377,7 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
     expect(iframe.style.height).toBe("120px");
   });
 
-  it("Test 18: no overflow cue when reported height fits under the 480px cap", () => {
+  it("Test 18: wrapper hides overflow when reported height fits under the 480px cap", () => {
     const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const fakeContentWindow = {} as Window;
@@ -389,10 +390,12 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
         source: fakeContentWindow,
       }));
     });
-    expect(container.querySelector('[data-testid="widget-overflow-cue"]')).toBeNull();
+    const wrapper = iframe.parentElement as HTMLDivElement;
+    expect(wrapper.style.overflowY).toBe("hidden");
+    expect(wrapper.className).not.toContain("chunky-scrollbar");
   });
 
-  it("Test 19: overflow cue appears when reported height exceeds the 480px cap", () => {
+  it("Test 19: wrapper scrolls + gets chunky-scrollbar when reported height exceeds cap", () => {
     const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const fakeContentWindow = {} as Window;
@@ -405,18 +408,18 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
         source: fakeContentWindow,
       }));
     });
-    const cue = container.querySelector('[data-testid="widget-overflow-cue"]');
-    expect(cue).not.toBeNull();
-    expect(cue?.getAttribute("aria-hidden")).toBe("true");
+    const wrapper = iframe.parentElement as HTMLDivElement;
+    expect(wrapper.style.overflowY).toBe("scroll");
+    expect(wrapper.className).toContain("chunky-scrollbar");
+    expect(wrapper.style.maxHeight).toBe("480px");
   });
 
-  it("Test 20: overflow cue disappears when a later resize fits under the cap", () => {
+  it("Test 20: chunky-scrollbar drops off when a later resize fits under the cap", () => {
     const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const fakeContentWindow = {} as Window;
     Object.defineProperty(iframe, "contentWindow", { value: fakeContentWindow, configurable: true });
 
-    // Overflow first.
     act(() => {
       window.dispatchEvent(new MessageEvent("message", {
         data: { type: "widget-resize", widgetId: "poll-abc", height: 800 },
@@ -424,9 +427,9 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
         source: fakeContentWindow,
       }));
     });
-    expect(container.querySelector('[data-testid="widget-overflow-cue"]')).not.toBeNull();
+    let wrapper = iframe.parentElement as HTMLDivElement;
+    expect(wrapper.className).toContain("chunky-scrollbar");
 
-    // Then fits.
     act(() => {
       window.dispatchEvent(new MessageEvent("message", {
         data: { type: "widget-resize", widgetId: "poll-abc", height: 200 },
@@ -434,6 +437,8 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
         source: fakeContentWindow,
       }));
     });
-    expect(container.querySelector('[data-testid="widget-overflow-cue"]')).toBeNull();
+    wrapper = iframe.parentElement as HTMLDivElement;
+    expect(wrapper.className).not.toContain("chunky-scrollbar");
+    expect(wrapper.style.overflowY).toBe("hidden");
   });
 });

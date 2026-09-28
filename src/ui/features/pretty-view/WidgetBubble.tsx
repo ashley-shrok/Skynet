@@ -100,16 +100,15 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
       // on the agent's box but are served via Skynet's own origin via the
       // /interactive/ proxy — so window.location.origin is the correct target.
       if (e.origin !== window.location.origin) return;
-      // Phase 143: widget-resize — widget reports its content height so the
-      // iframe can grow to fit (up to MAX_HEIGHT_PX). If the reported height
-      // exceeds the cap the parent renders an overflow cue (fade + chevron)
-      // so users see "there's more below" regardless of the browser's native
-      // scrollbar auto-hide behavior. Overflow-indication is the container's
-      // job — widget authors don't need to build it themselves.
+      // Phase 143: widget-resize — widget reports its natural content height.
+      // The iframe renders at that height; the outer wrapper caps at
+      // MAX_HEIGHT_PX with overflow-y: scroll. Scrolling happens on the
+      // WRAPPER (parent's DOM), so we can style its scrollbar chunkily via
+      // the `chunky-scrollbar` utility. Widget authors don't touch scrollbar
+      // CSS at all — the container owns the affordance.
       if (e.data?.type === "widget-resize" && typeof e.data.height === "number") {
-        const raw = e.data.height;
-        const clamped = Math.min(Math.max(raw, MIN_HEIGHT_PX), MAX_HEIGHT_PX);
-        setContentHeight(clamped);
+        const raw = Math.max(e.data.height, MIN_HEIGHT_PX);
+        setContentHeight(raw);
         setIsClamped(raw > MAX_HEIGHT_PX);
         return;
       }
@@ -148,11 +147,22 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
     );
   }
 
-  // Phase 137: no dark-mode injection or drag pass-through — deferred to Phase 2/3
-  // per RESEARCH Pattern 5. Widgets author their own dark mode since they're
-  // agent-authored HTML; drag pass-through is a Phase 2 concern.
+  // Phase 143: outer scroll wrapper owns the scrollbar. Iframe renders at its
+  // natural (reported) height; wrapper caps + scrolls. This puts the scrollbar
+  // on the parent's DOM so we can style it with the `chunky-scrollbar`
+  // utility — the iframe's own scrollbar (macOS Chromium overlay/auto-hide)
+  // never comes into play.
+  //
+  // overflow-y toggles: `scroll` when clamped (rail reserved + always visible),
+  // `hidden` when fits (no rail, iframe already sized to natural height).
   return (
-    <div className="relative w-full">
+    <div
+      className={`relative w-full rounded-md ${isClamped ? "chunky-scrollbar" : ""}`}
+      style={{
+        maxHeight: `${MAX_HEIGHT_PX}px`,
+        overflowY: isClamped ? "scroll" : "hidden",
+      }}
+    >
       <iframe
         ref={iframeRef}
         src={retrySrc}
@@ -163,22 +173,9 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
         style={{
           height: `${contentHeight ?? INITIAL_HEIGHT_PX}px`,
           transition: "height 120ms ease-out",
+          display: "block",
         }}
       />
-      {isClamped && (
-        <div
-          aria-hidden="true"
-          data-testid="widget-overflow-cue"
-          className="pointer-events-none absolute inset-x-0 bottom-0 flex h-8 items-end justify-center pb-1 text-sm rounded-b-md"
-          style={{
-            background:
-              "linear-gradient(to bottom, transparent, rgba(0,0,0,0.16) 60%, rgba(0,0,0,0.24))",
-            color: "rgba(255,255,255,0.75)",
-          }}
-        >
-          <span>▾</span>
-        </div>
-      )}
     </div>
   );
 }

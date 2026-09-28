@@ -502,6 +502,36 @@ html.fs-xl {
   }
 }
 
+/* Phase 143: chunky-scrollbar utility for interactive-message widgets.
+ * The default *::-webkit-scrollbar rule in @layer base sets 6px — this
+ * override lifts it to 12px with a high-contrast thumb so users see the
+ * "you can scroll me" affordance without hovering. `overflow-y: scroll`
+ * (vs auto) reserves the rail so it's visible at rest, not just during
+ * scrolling. Applied to the WidgetBubble's outer scroll wrapper. */
+@utility chunky-scrollbar {
+  scrollbar-width: auto;
+  scrollbar-color: oklch(1 0 0 / 45%) oklch(1 0 0 / 8%);
+  &::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  &::-webkit-scrollbar-track {
+    background: oklch(1 0 0 / 6%);
+    border-radius: 6px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 40%);
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    min-height: 40px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: oklch(1 0 0 / 55%);
+    background-clip: padding-box;
+  }
+}
+
 @keyframes blink {
   0%,
   100% {
