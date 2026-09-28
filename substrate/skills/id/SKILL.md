@@ -346,10 +346,10 @@ Grammar:
 
     <app-parent>/file/<hostname>/<absolute-path>
 
-Concrete example (with the app-parent at `https://term.example.com`,
-this box named `t1000`, and the file at `/home/ubuntu/note.md`):
+Concrete example (with the app-parent at `https://example.com`,
+this box named `boxname-example`, and the file at `/home/ubuntu/note.md`):
 
-    https://term.example.com/file/t1000/home/ubuntu/note.md
+    https://example.com/file/boxname-example/home/ubuntu/note.md
 
 Construct one like so — read the app's parent domain from
 `~/fleet/host/parent` and the host segment from
@@ -390,12 +390,14 @@ never touched by the app.
 
 **Rules that matter — bake them in every time:**
 
-- **Use the host name the distributor wrote to `~/fleet/host/name`,
-  not an IP and not `$(hostname)`.** That file contains the exact string
-  the app uses to resolve this box against its per-user host records.
-  `$(hostname)` returns the OS hostname, which on cloud VMs is a
-  meaningless string like `ip-172-31-243-143` and will 404 with
-  `unknown_host`. Never invent a name.
+- **Read `~/fleet/host/name` at construction time — do NOT infer the
+  hostname from the role file, `box-map.md`, prose you remember, or
+  the box's tailscale name.** That file contains the exact string the
+  app uses to resolve this box against its per-user host records; any
+  other name (including the tailscale hostname the role file uses in
+  prose) will 404 with `unknown_host`. `$(hostname)` is also wrong —
+  on cloud VMs it returns something like `ip-172-31-243-143`. Never
+  invent, never remember; always read.
 
 - **Path must be absolute** (leading `/`). Relative paths land you an
   `invalid path` error at the modal.
@@ -438,10 +440,10 @@ Grammar:
 Where `<app-parent-domain>` is derived from `~/fleet/host/parent`:
 strip the protocol, then the serve URL constructs as
 `<hostname>-<port>.serve.<the-rest>`.
-Concrete example (with the app-parent at `https://term.example.com`,
-this box named `t1000`, and a dev server on port 3020):
+Concrete example (with the app-parent at `https://example.com`,
+this box named `boxname-example`, and a dev server on port 3020):
 
-    https://t1000-3020.serve.term.example.com
+    https://boxname-example-3020.serve.example.com
 
 Construct one like so:
 
@@ -460,8 +462,8 @@ Construct one like so:
     PORT=3020                            # the port your live thing is listening on
     # Strip https:// and split into first label + rest to insert the serve subdomain
     PARENT=${APP_PARENT#https://}
-    FIRST_LABEL=${PARENT%%.*}            # e.g. "term"
-    REST=${PARENT#*.}                    # e.g. "example.com"
+    FIRST_LABEL=${PARENT%%.*}            # e.g. "example"
+    REST=${PARENT#*.}                    # e.g. "com"
     printf '[%s live](https://%s-%d.serve.%s.%s)\n' "$HOST" "$HOST" "$PORT" "$FIRST_LABEL" "$REST"
 
 **Round-trip semantics — passthrough only.** Any HTTP method + body +
@@ -475,14 +477,14 @@ own web origin under the wildcard cert.
 
 **Rules that matter — bake them in every time:**
 
-- **Use the hostname the distributor wrote to `~/fleet/host/name`,
-  not an IP and not `$(hostname)`.** Same rule as the file URL — the app's
-  record for this box uses that exact string; anything else 404s at the
-  interstitial.
+- **Read `~/fleet/host/name` at construction time — do NOT infer the
+  hostname from the role file, `box-map.md`, or prose you remember.**
+  Same rule as the file URL — the app's record for this box uses that
+  exact string; anything else 404s at the interstitial.
 
 - **The port must be listening BEFORE you cite the URL.** If you cite
-  `t1000-3020.serve.term.example.com` and nothing is on 3020, they see
-  "port 3020 of t1000 isn't responding" interstitial. Polite, but still —
+  `boxname-example-3020.serve.example.com` and nothing is on 3020, they see
+  "port 3020 of boxname-example isn't responding" interstitial. Polite, but still —
   don't cite dead URLs. Confirm the port is up (e.g. `ss -ltn | grep
   :3020`) before you hand them the link.
 
