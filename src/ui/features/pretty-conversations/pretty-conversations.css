@@ -373,6 +373,26 @@
   gap: 6px;
 }
 
+/* Row-to-row spacing (2026-09-28, user tasting): 5px between consecutive
+   conversation rows in EVERY section — pinned, conversations, apps, RDP,
+   and project sections. Header→first-row spacing is intentionally NOT
+   touched here; it stays governed by the flex `gap` on the group above
+   (8px for .pv-panel-group, 6px for .pv-project-section).
+     • Non-project groups: rows are direct flex children of
+       .pv-panel-group, so the 8px flex gap already spaces them; the
+       margin-top delta of -3px brings the effective row-to-row down to
+       5px without disturbing header→first-row.
+     • Project sections: rows sit inside <div class="pl-3.5"> (see
+       PrettyProjectSectionHeader.tsx — id `pv-project-section-content-*`),
+       a plain block wrapper with no flex/gap, so margin-top is the sole
+       source of row-to-row spacing here. */
+.pv-panel-group > [data-conversation-id] + [data-conversation-id] {
+  margin-top: -3px;
+}
+[id^="pv-project-section-content-"] > [data-conversation-id] + [data-conversation-id] {
+  margin-top: 5px;
+}
+
 /* Phase 41 Plan 02 (user 2026-08-14): messaging-app default search-input
    shape — flex row with a leading search icon, transparent input, and a
    trailing × clear affordance that appears only when there is text. Uses
