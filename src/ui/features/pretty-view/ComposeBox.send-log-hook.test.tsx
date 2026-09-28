@@ -68,7 +68,7 @@ function baseProps(overrides: Partial<ComposeBoxProps> = {}): ComposeBoxProps {
 // Grab the primary textarea (Message …).
 function getPrimaryTextarea(container: HTMLElement): HTMLTextAreaElement {
   const ta = container.querySelector(
-    'textarea[placeholder^="Message"]',
+    'textarea[placeholder="Write a message…"]',
   ) as HTMLTextAreaElement | null;
   expect(ta).not.toBeNull();
   return ta!;

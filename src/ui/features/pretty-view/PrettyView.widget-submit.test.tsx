@@ -152,7 +152,7 @@ function countPendingBubbles(container: HTMLElement): number {
 
 function typeAndEnter(container: HTMLElement, text: string) {
   const textarea = container.querySelector(
-    'textarea[placeholder^="Message"]',
+    'textarea[placeholder="Write a message…"]',
   ) as HTMLTextAreaElement;
   expect(textarea).not.toBeNull();
   act(() => {
@@ -212,7 +212,7 @@ describe("Phase 137 Plan 05 — isWidgetSubmit predicate (Behaviors 1-4, tested 
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, envelopeFor("poll-abc"));
@@ -231,7 +231,7 @@ describe("Phase 137 Plan 05 — isWidgetSubmit predicate (Behaviors 1-4, tested 
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "<task-notification>");
@@ -247,7 +247,7 @@ describe("Phase 137 Plan 05 — isWidgetSubmit predicate (Behaviors 1-4, tested 
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "hello " + envelopeFor("poll-abc"));
@@ -263,7 +263,7 @@ describe("Phase 137 Plan 05 — isWidgetSubmit predicate (Behaviors 1-4, tested 
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "hello world");
@@ -319,7 +319,7 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     await setupWithWidgetMessage(container, ws);
@@ -356,7 +356,7 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     await setupWithWidgetMessage(container, ws);
@@ -379,7 +379,7 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     await setupWithWidgetMessage(container, ws);
@@ -407,7 +407,7 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     // Simulate typing the envelope directly via ComposeBox — the same gate
@@ -444,7 +444,7 @@ describe("Phase 137 Plan 05 — ChatMessage prop wiring (Behavior 9)", () => {
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     mockedEligibility.mockReturnValue(
@@ -477,7 +477,7 @@ describe("Phase 137 Plan 05 — ChatMessage prop wiring (Behavior 9)", () => {
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     // WidgetBubble stub count before user sends.
@@ -518,7 +518,7 @@ describe("Phase 137 Plan 05 — WS-not-open path (Behavior 10)", () => {
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     mockedEligibility.mockReturnValue(

@@ -1508,7 +1508,7 @@ describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", (
       <ComposeBox {...baseProps({ onSend, onOptimisticSend })} />,
     );
     // Type into textarea and press Enter.
-    const textarea = screen.getByPlaceholderText(/^Message/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/^Write a message/) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "hello world" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await Promise.resolve();
@@ -1535,7 +1535,7 @@ describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", (
     render(
       <ComposeBox {...baseProps({ onSend, onOptimisticSend })} />,
     );
-    const textarea = screen.getByPlaceholderText(/^Message/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/^Write a message/) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "failing send" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await Promise.resolve();
@@ -1564,7 +1564,7 @@ describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", (
     render(
       <ComposeBox {...baseProps({ onSend, onOptimisticSend })} />,
     );
-    const textarea = screen.getByPlaceholderText(/^Message/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/^Write a message/) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "hi" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await Promise.resolve();
@@ -1579,7 +1579,7 @@ describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", (
         {...baseProps({ overrideText: null, onOverrideTextConsumed })}
       />,
     );
-    const textarea = screen.getByPlaceholderText(/^Message/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/^Write a message/) as HTMLTextAreaElement;
     // Wait for hydrate effect to settle (async getComposeDraft mock resolves).
     await waitFor(() => expect(textarea.value).toBe(""));
     expect(onOverrideTextConsumed).not.toHaveBeenCalled();
@@ -1603,7 +1603,7 @@ describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", (
     render(
       <ComposeBox {...baseProps({ onSend, onOptimisticSend })} />,
     );
-    const textarea = screen.getByPlaceholderText(/^Message/) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(/^Write a message/) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "mqid check" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
     await Promise.resolve();
@@ -1642,7 +1642,7 @@ describe("ComposeBox — newline normalization on send (LF kept, CR dropped)", (
     const onSend = vi.fn(() => true);
     render(<ComposeBox {...baseProps({ onSend })} />);
     const textarea = screen.getByPlaceholderText(
-      /^Message/,
+      /^Write a message/,
     ) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value } });
     fireEvent.keyDown(textarea, { key: "Enter" });

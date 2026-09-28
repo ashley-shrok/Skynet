@@ -108,7 +108,7 @@ function flipToStreaming(ws: WsStub) {
 
 function typeAndEnter(container: HTMLElement, text: string) {
   const textarea = container.querySelector(
-    'textarea[placeholder^="Message"]',
+    'textarea[placeholder="Write a message…"]',
   ) as HTMLTextAreaElement;
   expect(textarea).not.toBeNull();
   act(() => {
@@ -193,7 +193,7 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "hello");
@@ -279,7 +279,7 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
 
     // Wait for the main textarea to be present (session streaming).
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     // D-05 lockdown: thumbs-up button must NOT be disabled when streaming/dormant.
@@ -316,7 +316,7 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
 
     // Wait for session to be ready.
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     // D-05 lockdown: recap button must NOT be disabled when streaming/dormant.
@@ -365,7 +365,7 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
       flipToStreaming(ws);
 
       await waitFor(() => {
-        expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull();
+        expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull();
       });
 
       const resetBtn = container.querySelector(
@@ -567,12 +567,12 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
       flipToStreaming(ws);
 
       await waitFor(() =>
-        expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+        expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
       );
 
       // Type some text into the textarea.
       const textarea = container.querySelector(
-        'textarea[placeholder^="Message"]',
+        'textarea[placeholder="Write a message…"]',
       ) as HTMLTextAreaElement;
       act(() => {
         fireEvent.change(textarea, { target: { value: "hello" } });
@@ -617,11 +617,11 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
       flipToStreaming(ws);
 
       await waitFor(() =>
-        expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+        expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
       );
 
       const textarea = container.querySelector(
-        'textarea[placeholder^="Message"]',
+        'textarea[placeholder="Write a message…"]',
       ) as HTMLTextAreaElement;
       act(() => {
         fireEvent.change(textarea, { target: { value: "should stay" } });

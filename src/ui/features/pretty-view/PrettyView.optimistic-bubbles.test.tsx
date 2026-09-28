@@ -157,7 +157,7 @@ function flipToStreaming(ws: WsStub) {
 
 function typeAndEnter(container: HTMLElement, text: string) {
   const textarea = container.querySelector(
-    'textarea[placeholder^="Message"]',
+    'textarea[placeholder="Write a message…"]',
   ) as HTMLTextAreaElement;
   expect(textarea).not.toBeNull();
   act(() => {
@@ -236,7 +236,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "hello");
@@ -257,7 +257,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "hello");
@@ -300,7 +300,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "hello");
@@ -324,7 +324,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     // corpus: ~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl ts=2026-08-23T01:41:48.723Z
@@ -347,7 +347,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     // SYNTHETIC — represents user-reported class ("pasting JSON in fail as well"), corpus TBD
@@ -370,7 +370,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "hello");
@@ -439,7 +439,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     // the record of the send; no edit-and-resend repopulate (user
     // 2026-09-02, reversing Phase 50 D-03).
     const textarea = container.querySelector(
-      'textarea[placeholder^="Message"]',
+      'textarea[placeholder="Write a message…"]',
     ) as HTMLTextAreaElement;
     expect(textarea.value).toBe("");
   });
@@ -495,7 +495,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
 
     // Composebox stays EMPTY after failure (same no-repopulate contract as Test 5).
     const textarea = container.querySelector(
-      'textarea[placeholder^="Message"]',
+      'textarea[placeholder="Write a message…"]',
     ) as HTMLTextAreaElement;
     expect(textarea.value).toBe("");
   });
@@ -836,7 +836,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     // Textarea is CLEARED on WS-not-open (user 2026-09-02) — the red
     // bubble is the record; no need to also keep the text in the textarea.
     const textarea = container.querySelector(
-      'textarea[placeholder^="Message"]',
+      'textarea[placeholder="Write a message…"]',
     ) as HTMLTextAreaElement;
     expect(textarea.value).toBe("");
     // No timer should exist to fire later — advancing timers doesn't
@@ -889,7 +889,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "hello");
@@ -924,7 +924,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "single-source");
@@ -1100,7 +1100,7 @@ describe("PrettyView — render latest-only + interleaving (Phase 50 Plan 03 Tas
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
     typeAndEnter(container, "A");
     await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
@@ -1163,7 +1163,7 @@ describe("PrettyView — render latest-only + interleaving (Phase 50 Plan 03 Tas
     await waitFor(() => expect(countConfirmedBubbles(container)).toBe(3));
 
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
     typeAndEnter(container, "p1");
     await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
@@ -1200,7 +1200,7 @@ describe("PrettyView — render latest-only + interleaving (Phase 50 Plan 03 Tas
     await waitFor(() => expect(countConfirmedBubbles(container)).toBe(1));
 
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
     typeAndEnter(container, "user-hello");
     await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
@@ -1321,7 +1321,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
 
     if (caption.length > 0) {
       const textarea = container.querySelector(
-        'textarea[placeholder^="Message"]',
+        'textarea[placeholder="Write a message…"]',
       ) as HTMLTextAreaElement;
       expect(textarea).not.toBeNull();
       await act(async () => {
@@ -1435,7 +1435,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     flipToStreaming(ws);
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -1466,7 +1466,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     flipToStreaming(ws);
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -1494,7 +1494,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     flipToStreaming(ws);
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -1535,7 +1535,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     flipToStreaming(ws);
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -1594,7 +1594,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     flipToStreaming(ws);
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -1620,7 +1620,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     flipToStreaming(ws);
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -1658,7 +1658,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     flipToStreaming(ws);
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -1677,7 +1677,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     flipToStreaming(ws);
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -1714,7 +1714,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     flipToStreaming(ws);
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -1742,7 +1742,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     flipToStreaming(ws);
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -1900,7 +1900,7 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     // `onSend || source.kind === "relay"` gate ensures ComposeBox is
     // mounted for relay case even without status===streaming).
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "hello relay");
@@ -1944,7 +1944,7 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     // level for the relay case; this test asserts the observable state).
     const { container, unmount } = mountRelay();
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "hello");
@@ -2079,7 +2079,7 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
 
     const { container } = mountRelay();
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "ws-not-open");
@@ -2108,7 +2108,7 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     // Three-way equality proves the byte-for-byte pass-through.
     const { container } = mountRelay();
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     // Two sends in a row → each mqid is fresh (unique) and threads through
@@ -2160,7 +2160,7 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
     );
 
     typeAndEnter(container, "harness send");

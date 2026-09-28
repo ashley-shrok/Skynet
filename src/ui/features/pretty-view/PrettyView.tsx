@@ -4756,14 +4756,15 @@ export function PrettyView({
           contextPct={contextPct}
           hostId={hostId}
           tmuxSession={tmuxSession}
-          // Phase 97 Finding 6 (D-14): in the relay case, pvIdentity is
-          // undefined (no fleet identity for a room), so the placeholder
-          // at ComposeBox.tsx:2750 would fall back to `Message Claude…`.
-          // Case-branch the identityName prop so relay renders
-          // `Message room…` — matches the harness template's capital-M
-          // convention (RESEARCH § Finding 6 landmine, D-14 SOFT lock).
-          // Discipline mirrored from adjacent case-branched props at this
-          // ComposeBox mount site (onOptimisticSend, canSend, mode).
+          // Phase 97 Finding 6 (D-14) originally case-branched identityName
+          // so the placeholder in the relay case read `Message room…`
+          // instead of falling back to `Message Claude…`. The placeholder
+          // is now universal ("Write a message…") and no longer consumes
+          // identityName, so the placeholder rationale is retired. The
+          // case-branch is kept because identityName still feeds the send
+          // funnel's stamped-log attribution + present/empty gating (see
+          // useComposeSend); the "room" sentinel keeps relay sends
+          // non-empty-gated the same way an identity displayName does.
           identityName={source.kind === "relay" ? "room" : pvIdentity?.displayName}
           onGoodToGo={jumpToBottom}
           onInterrupt={onInterrupt}

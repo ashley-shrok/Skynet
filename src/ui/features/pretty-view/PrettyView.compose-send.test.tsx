@@ -462,7 +462,7 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
     await waitFor(() => expect(sendInputRef.current).not.toBeNull());
     await waitFor(() =>
       expect(
-        container.querySelector('textarea[placeholder^="Message"]'),
+        container.querySelector('textarea[placeholder="Write a message…"]'),
       ).not.toBeNull(),
     );
 
@@ -481,7 +481,7 @@ describe("PrettyView — Phase 35 compose-send ref-forwarding cutover", () => {
     });
 
     const textarea = container.querySelector(
-      'textarea[placeholder^="Message"]',
+      'textarea[placeholder="Write a message…"]',
     ) as HTMLTextAreaElement;
     await act(async () => {
       fireEvent.change(textarea, { target: { value: "seed-first" } });

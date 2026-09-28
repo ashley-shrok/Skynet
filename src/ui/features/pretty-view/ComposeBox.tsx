@@ -288,7 +288,11 @@ export interface ComposeBoxProps {
   // — tmuxSession null for non-tmux SSH hosts (Windows / no-tmux).
   hostId: number;
   tmuxSession?: string | null;
-  // Optional: pane's registered identity displayName (e.g. "Tina"). Used to personalize the "Message …" textarea placeholder. Falls back to "Claude" when omitted or empty.
+  // Optional: pane's registered identity displayName (e.g. "Tina"). Threaded
+  // to the send funnel for stamped-log identity attribution + present/empty
+  // gating (see useComposeSend). No longer feeds the textarea placeholder —
+  // that copy is now universal ("Write a message…") since the identity badge
+  // + project breadcrumb carry the who/where context.
   identityName?: string;
   // ============================================================
   // Phase 05 upload wiring — all optional so existing read-only /
@@ -2564,7 +2568,7 @@ export function ComposeBox({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={`Message ${identityName || "Claude"}…`}
+          placeholder="Write a message…"
           rows={1}
           // Quick 260802-wxy: dynamic paddingTop grows with the overlaid
           // chip strip's measured height so composed text never underlaps
