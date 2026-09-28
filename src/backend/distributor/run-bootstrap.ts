@@ -13,6 +13,13 @@
  *      systemd has re-read the updated unit before the catalog loop fires the
  *      restart hook.
  *
+ *   1b. interactive-messages-gc.timer enable (Phase 140):
+ *       Idempotently enable + start the seven-day widget backstop timer on
+ *       every managed host. Same is-enabled-first pattern as agent-supervisor
+ *       above: one cheap probe per sweep; only fresh hosts pay the one-time
+ *       enable-and-start cost. daemon-reload has already fired above, so
+ *       systemd has the fresh unit bytes before we probe.
+ *
  *   2. settings.json patch:
  *      Ensure ~/.claude/settings.json has every fleet-required key set:
  *        - permissions.deny includes "AskUserQuestion" (pretty-view hangs
@@ -132,6 +139,14 @@ export interface BootstrapResult {
    *  is idempotent (no-op when statusLine is already the wrapper) and always
    *  runs; a false value implies hadError. */
   statusLineWireOk: boolean;
+  /** Whether interactive-messages-gc.timer was already enabled before Step 1b.
+   *  True = cheap probe only; false = enable-and-start ran (or was skipped due
+   *  to an earlier Step 1 channel failure that prevented daemon-reload). */
+  gcTimerAlreadyEnabled: boolean;
+  /** Whether Step 1b ran the enable-now command successfully. Mutually
+   *  exclusive with gcTimerAlreadyEnabled. False on both already-enabled AND
+   *  error paths. */
+  gcTimerBootstrapped: boolean;
   /** True if any sub-step encountered an error. */
   hadError: boolean;
 }
@@ -293,6 +308,8 @@ export async function runBootstrapForHost(
   let skynetParentOk = false;
   let skynetHostnameOk = false;
   let skynetHostidOk = false;
+  let gcTimerAlreadyEnabled = false;
+  let gcTimerBootstrapped = false;
   let hadError = false;
 
   // -------------------------------------------------------------------------
@@ -405,6 +422,87 @@ export async function runBootstrapForHost(
     logBootstrapFailed(
       host,
       "is-enabled-check",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 1b (Phase 140): Idempotently enable + start the
+  // interactive-messages-gc.timer on every managed host. This is the
+  // seven-day backstop timer that tears down widgets older than 7 days.
+  // Same is-enabled-first pattern as agent-supervisor above: one cheap probe
+  // per sweep; only fresh hosts pay the one-time enable-and-start cost.
+  // daemon-reload has already fired above, so systemd has the fresh unit bytes
+  // before we probe.
+  //
+  // Runs inside its own try/catch (NEVER-THROW contract). Skipped silently
+  // if the Step 1 block encountered a channel error (daemonReloadRan===false
+  // implies the channel may be in a bad state), but that skip doesn't set
+  // hadError — a channel-level failure was already recorded in Step 1.
+  // -------------------------------------------------------------------------
+  try {
+    const isEnabledCmdGc =
+      `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-enabled interactive-messages-gc.timer 2>/dev/null; echo "EXIT:$?"`;
+    const gcCheckRaw = await channel.exec(isEnabledCmdGc);
+
+    if (gcCheckRaw === null) {
+      logBootstrapFailed(host, "gc-timer-is-enabled-check", "channel returned null");
+      hadError = true;
+    } else {
+      const gcTrimmed = gcCheckRaw.trimEnd();
+      const gcMatch = /EXIT:(\d+)$/.exec(gcTrimmed);
+      const gcExitCode = gcMatch ? parseInt(gcMatch[1], 10) : -1;
+
+      if (gcExitCode === 0) {
+        // Already enabled — nothing to do.
+        gcTimerAlreadyEnabled = true;
+        systemLogger.info(
+          `Fleet-substrate bootstrap: interactive-messages-gc.timer already enabled on ${host.name}`,
+          {
+            operation: "fleet_substrate_bootstrap_result",
+            fleetHostId: host.id,
+            hostName: host.name,
+            step: "gc-timer-is-enabled-check",
+            gcTimerAlreadyEnabled: true,
+          },
+        );
+      } else {
+        // Not enabled — enable + start now. daemon-reload has already fired
+        // above (agent-supervisor block), so systemd has the fresh unit bytes.
+        const enableGcCmd =
+          `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user enable --now interactive-messages-gc.timer && echo "__GC_TIMER_OK__"`;
+        const enableGcRaw = await channel.exec(enableGcCmd);
+
+        if (enableGcRaw === null) {
+          logBootstrapFailed(host, "gc-timer-enable", "channel returned null");
+          hadError = true;
+        } else if (!enableGcRaw.trimEnd().endsWith("__GC_TIMER_OK__")) {
+          logBootstrapFailed(
+            host,
+            "gc-timer-enable",
+            enableGcRaw.trimEnd().slice(0, 500) || "gc-timer enable failed",
+          );
+          hadError = true;
+        } else {
+          gcTimerBootstrapped = true;
+          systemLogger.info(
+            `Fleet-substrate bootstrap: interactive-messages-gc.timer enabled+started on ${host.name}`,
+            {
+              operation: "fleet_substrate_bootstrap_result",
+              fleetHostId: host.id,
+              hostName: host.name,
+              step: "gc-timer-enable",
+              gcTimerBootstrapped: true,
+            },
+          );
+        }
+      }
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "gc-timer-is-enabled-check",
       err instanceof Error ? err.message : "unknown throw",
     );
   }
@@ -798,6 +896,8 @@ export async function runBootstrapForHost(
     skynetHostnameOk,
     skynetHostidOk,
     statusLineWireOk,
+    gcTimerAlreadyEnabled,
+    gcTimerBootstrapped,
     hadError,
   };
 

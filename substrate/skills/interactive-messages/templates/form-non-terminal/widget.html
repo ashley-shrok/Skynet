@@ -1,0 +1,241 @@
+<!-- Phase 139 form-non-terminal template — do not edit installed copies; edit the substrate template only -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skynet widget</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      background: #fff;
+      color: #111;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #e8e8e8; }
+    }
+
+    #prompt {
+      margin: 0 0 14px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #form {
+      display: block;
+    }
+
+    .field {
+      margin-bottom: 12px;
+    }
+
+    .field-label {
+      display: block;
+    }
+
+    .field-label span {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .fld-input {
+      display: block;
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 15px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+      color: #111;
+      box-sizing: border-box;
+      min-height: 44px;
+      font-family: inherit;
+    }
+
+    .fld-input:focus {
+      outline: 2px solid #3b82f6;
+      outline-offset: 0;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .fld-input {
+        background: #2d2d2d;
+        color: #e8e8e8;
+        border-color: #555;
+      }
+      .fld-input:focus {
+        outline-color: #3b82f6;
+      }
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #555;
+      min-height: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #status { color: #aaa; }
+    }
+  </style>
+</head>
+<body>
+  <h2 id="prompt"></h2>
+  <form id="form" novalidate></form>
+  <div id="status"></div>
+
+  <script>
+    // Substitution points — the scaffold script replaces these inline literals.
+    // __PROMPT_JSON__ is the JSON-encoded form prompt (HTML-safe via JSON string escaping).
+    // __FIELDS_JSON__ is a JSON array like [{"name":"host","type":"text"},{"name":"port","type":"number"},{"name":"level","type":"select","options":["low","medium","high"]}].
+    // __WIDGET_ID__ is the widget slug.
+    // __PANE_BASE__ is the URL path prefix for the widget's own origin.
+    var PROMPT    = __PROMPT_JSON__;
+    var FIELDS    = __FIELDS_JSON__;
+    var WIDGET_ID = "__WIDGET_ID__";
+    var PANE_BASE = "__PANE_BASE__";
+
+    // Debounce timer for text/number field input events
+    var saveTimer = null;
+
+    function setStatus(msg) {
+      var el = document.getElementById("status");
+      if (el) el.textContent = msg;
+    }
+
+    function saveNow() {
+      // Collect current values into a fields snapshot
+      var fields = {};
+      FIELDS.forEach(function (field) {
+        var el = document.querySelector('[data-field="' + field.name + '"]');
+        if (!el) return;
+        if (field.type === "number") {
+          fields[field.name] = el.value !== "" ? Number(el.value) : "";
+        } else {
+          fields[field.name] = el.value;
+        }
+      });
+
+      setStatus("Saving…");
+
+      var payload = {
+        fields: fields,
+        updated_at: new Date().toISOString()
+      };
+
+      var updateUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
+        ? PANE_BASE + "/update"
+        : "/update";
+
+      fetch(updateUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(function (res) {
+        if (!res.ok && res.status !== 204) {
+          throw new Error("update returned " + res.status);
+        }
+        setStatus("Saved.");
+        // Do NOT disable inputs — widget stays interactive.
+        // Non-terminal mode: no submit signal, no wake ping.
+      })
+      .catch(function (err) {
+        console.error("[widget] update fetch failed:", err);
+        setStatus("Save failed — edit again to retry.");
+        // Do NOT disable inputs — user can retry by editing.
+      });
+    }
+
+    function scheduleSave() {
+      if (saveTimer !== null) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+      saveTimer = setTimeout(function () {
+        saveTimer = null;
+        saveNow();
+      }, 400);
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      // Set the prompt text
+      var promptEl = document.getElementById("prompt");
+      promptEl.textContent = PROMPT;
+
+      // Render one labeled field per FIELDS entry
+      var formEl = document.getElementById("form");
+      FIELDS.forEach(function (field) {
+        var div = document.createElement("div");
+        div.className = "field";
+
+        var label = document.createElement("label");
+        label.className = "field-label";
+        label.htmlFor = "fld-" + field.name;
+
+        var span = document.createElement("span");
+        // Display field name: capitalize first letter for readability
+        span.textContent = field.name.charAt(0).toUpperCase() + field.name.slice(1);
+        label.appendChild(span);
+
+        var input;
+        if (field.type === "select") {
+          input = document.createElement("select");
+          input.className = "fld-input";
+          input.id = "fld-" + field.name;
+          input.name = field.name;
+          input.setAttribute("data-field", field.name);
+          (field.options || []).forEach(function (opt) {
+            var option = document.createElement("option");
+            option.value = opt;
+            option.textContent = opt;
+            input.appendChild(option);
+          });
+          // Select fields: discrete change events, no debounce needed
+          input.addEventListener("change", function () {
+            saveNow();
+          });
+        } else if (field.type === "number") {
+          input = document.createElement("input");
+          input.type = "number";
+          input.inputMode = "numeric";
+          input.className = "fld-input";
+          input.id = "fld-" + field.name;
+          input.name = field.name;
+          input.setAttribute("data-field", field.name);
+          // Number fields: debounce input events (keystroke-level)
+          input.addEventListener("input", function () {
+            scheduleSave();
+          });
+        } else {
+          // text (default)
+          input = document.createElement("input");
+          input.type = "text";
+          input.className = "fld-input";
+          input.id = "fld-" + field.name;
+          input.name = field.name;
+          input.setAttribute("data-field", field.name);
+          // Text fields: debounce input events (keystroke-level)
+          input.addEventListener("input", function () {
+            scheduleSave();
+          });
+        }
+
+        label.appendChild(input);
+        div.appendChild(label);
+        formEl.appendChild(div);
+      });
+    });
+  </script>
+</body>
+</html>

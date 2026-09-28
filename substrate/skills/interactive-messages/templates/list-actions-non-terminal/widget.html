@@ -1,0 +1,273 @@
+<!-- Phase 139 list-actions-non-terminal template — do not edit installed copies; edit the substrate template only -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skynet widget</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      background: #fff;
+      color: #111;
+    }
+
+    #prompt {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #la-list {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .la-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      background: #f9f9f9;
+      flex-wrap: wrap;
+    }
+
+    .la-label {
+      flex: 1 1 200px;
+      min-width: 0;
+      word-break: break-word;
+    }
+
+    .la-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    /* action-btn — passive-selector style (outline, transparent background) */
+    .action-btn {
+      min-height: 44px;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      border: 1px solid #888;
+      border-radius: 6px;
+      background: transparent;
+      color: #111;
+    }
+
+    .action-btn:hover:not(:disabled) {
+      background: #eee;
+    }
+
+    .action-btn.selected {
+      background: #d0e8ff;
+      border-color: #3b82f6;
+      color: #1d4ed8;
+      font-weight: 600;
+    }
+
+    .action-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #555;
+      min-height: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #e8e8e8; }
+
+      .la-row {
+        background: #252525;
+        border-color: #444;
+      }
+
+      .action-btn {
+        background: transparent;
+        color: #e8e8e8;
+        border-color: #666;
+      }
+
+      .action-btn:hover:not(:disabled) {
+        background: #333;
+      }
+
+      .action-btn.selected {
+        background: #1e3a5f;
+        border-color: #3b82f6;
+        color: #93c5fd;
+      }
+
+      .action-btn:disabled {
+        opacity: 0.35;
+      }
+
+      #status { color: #aaa; }
+    }
+  </style>
+</head>
+<body>
+  <h2 id="prompt"></h2>
+  <div id="la-list"></div>
+  <div id="status"></div>
+
+  <script>
+    // Substitution points — the scaffold script replaces these inline literals.
+    // __PROMPT_JSON__ is the JSON-encoded prompt question (HTML-safe via JSON string escaping).
+    // __ITEMS_JSON__ is a JSON array of item values (strings or {label:...} objects).
+    // __ACTIONS_JSON__ is a JSON array of action name strings.
+    // __WIDGET_ID__ is the widget slug.
+    // __PANE_BASE__ is the URL path prefix for the widget's own origin.
+    // Non-terminal mode: no Done button, no terminal submit action.
+    // Each per-row action click directly persists the full rows snapshot via POST /update.
+    var PROMPT    = __PROMPT_JSON__;
+    var ITEMS     = __ITEMS_JSON__;
+    var ACTIONS   = __ACTIONS_JSON__;
+    var WIDGET_ID = "__WIDGET_ID__";
+    var PANE_BASE = "__PANE_BASE__";
+
+    // In-memory selection state: Map<rowIndex, actionName | null>
+    var selectionMap = new Map();
+
+    document.addEventListener("DOMContentLoaded", function () {
+      // Set the prompt text
+      var promptEl = document.getElementById("prompt");
+      promptEl.textContent = PROMPT;
+
+      // Render rows
+      var listEl = document.getElementById("la-list");
+      ITEMS.forEach(function (item, idx) {
+        // Compute display label
+        var label;
+        if (typeof item === "string") {
+          label = item;
+        } else if (item !== null && typeof item === "object" && typeof item.label === "string") {
+          label = item.label;
+        } else {
+          label = JSON.stringify(item);
+        }
+
+        var rowEl = document.createElement("div");
+        rowEl.className = "la-row";
+        rowEl.setAttribute("data-idx", String(idx));
+        rowEl.setAttribute("data-item", typeof item === "string" ? item : JSON.stringify(item));
+
+        var labelEl = document.createElement("div");
+        labelEl.className = "la-label";
+        labelEl.textContent = label;
+        rowEl.appendChild(labelEl);
+
+        var actionsEl = document.createElement("div");
+        actionsEl.className = "la-actions";
+
+        ACTIONS.forEach(function (actionName) {
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "action-btn";
+          btn.setAttribute("data-action", actionName);
+          btn.textContent = actionName;
+          btn.addEventListener("click", function () {
+            handleRowAction(idx, actionName, rowEl);
+          });
+          actionsEl.appendChild(btn);
+        });
+
+        rowEl.appendChild(actionsEl);
+        listEl.appendChild(rowEl);
+
+        // Initialize selection state for this row
+        selectionMap.set(idx, null);
+      });
+    });
+
+    function handleRowAction(rowIdx, actionName, rowEl) {
+      var current = selectionMap.get(rowIdx);
+
+      // Toggle-select: clicking the same action again clears the selection
+      var newSelection = (current === actionName) ? null : actionName;
+      selectionMap.set(rowIdx, newSelection);
+
+      // Update visual state for buttons in this row
+      var btns = rowEl.querySelectorAll(".action-btn");
+      btns.forEach(function (btn) {
+        if (newSelection !== null && btn.getAttribute("data-action") === newSelection) {
+          btn.classList.add("selected");
+        } else {
+          btn.classList.remove("selected");
+        }
+      });
+
+      // Persist the full rows snapshot immediately (non-terminal: every click persists)
+      persistRows();
+    }
+
+    function setStatus(msg) {
+      var el = document.getElementById("status");
+      if (el) el.textContent = msg;
+    }
+
+    function persistRows() {
+      // Collect the current rows snapshot by iterating #la-list .la-row in DOM order.
+      // For each row, read data-item and find the .action-btn.selected (may be null).
+      var rowEls = document.querySelectorAll("#la-list .la-row");
+      var rows = [];
+      rowEls.forEach(function (rowEl) {
+        var dataItem = rowEl.getAttribute("data-item");
+        var item;
+        try {
+          item = JSON.parse(dataItem);
+        } catch (e) {
+          item = dataItem;
+        }
+        var selectedBtn = rowEl.querySelector(".action-btn.selected");
+        var action = selectedBtn ? selectedBtn.getAttribute("data-action") : null;
+        rows.push({ item: item, action: action });
+      });
+
+      setStatus("Saving…");
+
+      var updateUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
+        ? PANE_BASE + "/update"
+        : "/update";
+
+      var payload = {
+        rows: rows,
+        updated_at: new Date().toISOString()
+      };
+
+      fetch(updateUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(function (res) {
+        if (!res.ok && res.status !== 204) {
+          throw new Error("update returned " + res.status);
+        }
+        setStatus("Saved.");
+        // Widget stays interactive — do NOT disable action-btns.
+      })
+      .catch(function (err) {
+        console.error("[widget] update fetch failed:", err);
+        setStatus("Save failed — click again to retry.");
+        // Widget stays interactive — user can retry by clicking any action-btn again.
+      });
+    }
+  </script>
+</body>
+</html>

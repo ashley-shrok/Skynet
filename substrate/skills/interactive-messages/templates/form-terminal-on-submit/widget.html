@@ -1,0 +1,303 @@
+<!-- Phase 138 form-terminal-on-submit template — do not edit installed copies; edit the substrate template only -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skynet widget</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      background: #fff;
+      color: #111;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #e8e8e8; }
+    }
+
+    #prompt {
+      margin: 0 0 14px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #form {
+      display: block;
+    }
+
+    .field {
+      margin-bottom: 12px;
+    }
+
+    .field-label {
+      display: block;
+    }
+
+    .field-label span {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .fld-input {
+      display: block;
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 15px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+      color: #111;
+      box-sizing: border-box;
+      min-height: 44px;
+      font-family: inherit;
+    }
+
+    .fld-input:focus {
+      outline: 2px solid #3b82f6;
+      outline-offset: 0;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .fld-input {
+        background: #2d2d2d;
+        color: #e8e8e8;
+        border-color: #555;
+      }
+      .fld-input:focus {
+        outline-color: #3b82f6;
+      }
+      .fld-input:disabled {
+        background: #222;
+        color: #666;
+        border-color: #333;
+      }
+    }
+
+    #submit-btn {
+      display: block;
+      width: 100%;
+      padding: 10px 14px;
+      font-size: 15px;
+      font-family: inherit;
+      text-align: center;
+      cursor: pointer;
+      border: 1px solid #3b82f6;
+      border-radius: 6px;
+      background: #3b82f6;
+      color: #fff;
+      font-weight: 600;
+      margin-top: 8px;
+      min-height: 44px;
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    #submit-btn:hover:not(:disabled) {
+      background: #2563eb;
+      border-color: #2563eb;
+    }
+
+    #submit-btn:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #submit-btn {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+      }
+      #submit-btn:hover:not(:disabled) {
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+      }
+      #submit-btn:disabled {
+        background: #1e3a5f;
+        border-color: #1e3a5f;
+        color: #666;
+      }
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #555;
+      min-height: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #status { color: #aaa; }
+    }
+  </style>
+</head>
+<body>
+  <h2 id="prompt"></h2>
+  <form id="form" novalidate></form>
+  <button id="submit-btn" type="button"></button>
+  <div id="status"></div>
+
+  <script>
+    // Substitution points — the scaffold script replaces these inline literals.
+    // __PROMPT_JSON__ is the JSON-encoded form prompt (HTML-safe via JSON string escaping).
+    // __FIELDS_JSON__ is a JSON array like [{"name":"host","type":"text"},{"name":"port","type":"number"},{"name":"auth","type":"select","options":["password","ssh-key"]}].
+    // __WIDGET_ID__ is the widget slug.
+    // __PANE_BASE__ is the URL path prefix for the widget's own origin.
+    // __SUBMIT_LABEL_JSON__ is the JSON-encoded submit button label (defaults to "Submit").
+    var PROMPT       = __PROMPT_JSON__;
+    var FIELDS       = __FIELDS_JSON__;
+    var WIDGET_ID    = "__WIDGET_ID__";
+    var PANE_BASE    = "__PANE_BASE__";
+    var SUBMIT_LABEL = __SUBMIT_LABEL_JSON__;
+
+    document.addEventListener("DOMContentLoaded", function () {
+      // Set the prompt text
+      var promptEl = document.getElementById("prompt");
+      promptEl.textContent = PROMPT;
+
+      // Set the submit button label
+      var submitBtn = document.getElementById("submit-btn");
+      submitBtn.textContent = SUBMIT_LABEL;
+
+      // Render one labeled field per FIELDS entry
+      var formEl = document.getElementById("form");
+      FIELDS.forEach(function (field) {
+        var div = document.createElement("div");
+        div.className = "field";
+
+        var label = document.createElement("label");
+        label.className = "field-label";
+        label.htmlFor = "fld-" + field.name;
+
+        var span = document.createElement("span");
+        // Display field name: capitalize first letter for readability
+        span.textContent = field.name.charAt(0).toUpperCase() + field.name.slice(1);
+        label.appendChild(span);
+
+        var input;
+        if (field.type === "select") {
+          input = document.createElement("select");
+          input.className = "fld-input";
+          input.id = "fld-" + field.name;
+          input.name = field.name;
+          (field.options || []).forEach(function (opt) {
+            var option = document.createElement("option");
+            option.value = opt;
+            option.textContent = opt;
+            input.appendChild(option);
+          });
+        } else if (field.type === "number") {
+          input = document.createElement("input");
+          input.type = "number";
+          input.inputMode = "numeric";
+          input.className = "fld-input";
+          input.id = "fld-" + field.name;
+          input.name = field.name;
+        } else {
+          // text (default)
+          input = document.createElement("input");
+          input.type = "text";
+          input.className = "fld-input";
+          input.id = "fld-" + field.name;
+          input.name = field.name;
+        }
+
+        label.appendChild(input);
+        div.appendChild(label);
+        formEl.appendChild(div);
+      });
+    });
+
+    function setStatus(msg) {
+      var el = document.getElementById("status");
+      if (el) el.textContent = msg;
+    }
+
+    function handleSubmit() {
+      var submitBtn = document.getElementById("submit-btn");
+      var allInputs = document.querySelectorAll(".fld-input");
+
+      // Step 1: disable all inputs + submit button immediately to prevent double-fire
+      submitBtn.disabled = true;
+      allInputs.forEach(function (el) {
+        el.disabled = true;
+      });
+
+      setStatus("Submitting…");
+
+      // Step 2: collect field values
+      var fields = {};
+      FIELDS.forEach(function (field) {
+        var el = document.getElementById("fld-" + field.name);
+        if (!el) return;
+        if (field.type === "number") {
+          // Parse as Number when non-empty, else pass through raw string
+          fields[field.name] = el.value !== "" ? Number(el.value) : el.value;
+        } else {
+          fields[field.name] = el.value;
+        }
+      });
+
+      var submittedAt = new Date().toISOString();
+      var payload = {
+        fields: fields,
+        submitted_at: submittedAt
+      };
+
+      // Step 3: POST to /submit (widget's own origin via relative path)
+      var submitUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
+        ? PANE_BASE + "/submit"
+        : "/submit";
+
+      fetch(submitUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(function (res) {
+        if (!res.ok && res.status !== 204) {
+          throw new Error("submit returned " + res.status);
+        }
+        submitBtn.textContent = "Submitted.";
+        setStatus("Submitted.");
+
+        // Step 4: fire postMessage AFTER fetch resolves OK
+        // This guarantees state.json is written before the agent wakes.
+        // Target window.location.origin explicitly — never "*".
+        window.parent.postMessage(
+          {
+            type: "widget-submit",
+            widgetId: WIDGET_ID,
+            value: { fields: fields }
+          },
+          window.location.origin
+        );
+      })
+      .catch(function (err) {
+        // On fetch failure: log + do NOT fire postMessage.
+        // The agent must not wake to a submit that didn't persist.
+        console.error("[widget] submit fetch failed:", err);
+        setStatus("Submission failed — please try again.");
+        // Re-enable inputs + button so the user can retry
+        submitBtn.disabled = false;
+        allInputs.forEach(function (el) {
+          el.disabled = false;
+        });
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      var submitBtn = document.getElementById("submit-btn");
+      submitBtn.addEventListener("click", handleSubmit);
+    });
+  </script>
+</body>
+</html>

@@ -211,6 +211,29 @@ APP_ENUM_CAP = 50
 # still gets a valid (partial) JSONL blob for this tick.
 APP_ENUM_WALLCLOCK_BUDGET_SEC = 3.0
 
+# ---------------------------------------------------------------------------
+# Phase 137 — widget enumeration constants (source D: ~/fleet/interactive-messages/*).
+# ---------------------------------------------------------------------------
+
+# Widget slug regex — same shape as APP_SLUG_RE. Applied before any filesystem
+# read of the unit file so a malformed folder name cannot traverse outside
+# ~/fleet/interactive-messages/ (T-137-01-SL parity with T-118-01-SL).
+WIDGET_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+
+# Maximum widget slug length — same ceiling as APP_SLUG_MAX_LEN.
+WIDGET_SLUG_MAX_LEN = 40
+
+# Folder-count cap — same DoS-hardening cap as APP_ENUM_CAP (T-137-01-DoS).
+# The user's design ceiling is much fewer than 50 widgets per box; this leaves
+# wide headroom while bounding worst-case wall-time.
+WIDGET_ENUM_CAP = 50
+
+# Cumulative wall-clock budget for _enumerate_widgets — same as apps.
+WIDGET_ENUM_WALLCLOCK_BUDGET_SEC = 3.0
+
+# Note: WIDGET_ENUM_* reuses APP_UNIT_ENV_PORT_RE and APP_PORT_PROBE_TIMEOUT_SEC
+# from the Phase 118 app constants above — no duplication needed.
+
 
 # ---------------------------------------------------------------------------
 # Small logging helper — stderr only. Every op is grep-able.
@@ -1667,6 +1690,167 @@ def _enumerate_apps(home):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Phase 137 — source D: ~/fleet/interactive-messages/* enumeration + builder.
+# ---------------------------------------------------------------------------
+
+
+def _read_widget_unit_file(slug, home):
+    """Return unit-file text or None if the file doesn't exist / can't be read.
+
+    Mirrors _read_app_unit_file but reads ~/.config/systemd/user/im-<slug>.service
+    instead of app-<slug>.service. Existence of the file is the source of truth
+    for "this widget is registered on this box" — no systemd round-trip required.
+    """
+    path = os.path.join(
+        home, ".config", "systemd", "user", f"im-{slug}.service"
+    )
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return fh.read()
+    except (FileNotFoundError, PermissionError, OSError):
+        return None
+
+
+def _build_widget_line(slug, folder_path, home):
+    """Assemble a SweepInteractiveMessageLine dict, or return None when the
+    corresponding im-<slug>.service unit file does not exist.
+
+    Simpler than _build_app_line: widgets carry no metadata card (no app.json,
+    no title/description/has_icon/users — widgets are not sidebar tiles per
+    Phase 137 D-20). The inclusion gate is the unit-file existence check only.
+
+    Returns a dict with EXACTLY these keys (wire parity with TS
+    SweepInteractiveMessageLine):
+        line_kind, schema_version, slug, port, is_healthy, created_at_ms
+    """
+    # Unit file existence is the sole inclusion gate — mirrors _read_app_unit_file
+    # usage in _build_app_line's D-01 check (b), but WITHOUT the app.json check.
+    unit_text = _read_widget_unit_file(slug, home)
+    if unit_text is None:
+        return None
+
+    # Port from Environment=PORT=<n> in the unit body — reuses APP_UNIT_ENV_PORT_RE
+    # (same regex, no duplication needed). Nullable when the unit omits PORT.
+    m = APP_UNIT_ENV_PORT_RE.search(unit_text)
+    port = int(m.group(1)) if m else None
+
+    # Health via loopback probe — same two-case logic as _build_app_line, minus
+    # the health_message field (widgets don't carry it in Phase 137 per D-20).
+    #
+    #   1. No PORT declaration → is_healthy = False (can't probe).
+    #   2. HOME_HOST_DIR env set → trust unit-file presence (container carve-out
+    #      — loopback namespace isolation applies identically to widgets).
+    #   3. Normal case → probe 127.0.0.1:<port>.
+    if port is None:
+        is_healthy = False
+    elif os.environ.get("HOME_HOST_DIR"):
+        is_healthy = True
+    else:
+        is_healthy = _probe_app_port(port)
+
+    # created_at_ms: folder mtime × 1000 (D-08 parity with _build_app_line).
+    try:
+        created_at_ms = int(os.stat(folder_path).st_mtime * 1000)
+    except OSError:
+        # Improbable (scandir just succeeded) — 0 fallback prevents a
+        # per-widget try/except in the enumerator from tripping on a stat race.
+        created_at_ms = 0
+
+    # Wire shape — EXACTLY these six keys, NO title/description/has_icon/
+    # health_message/users (Phase 137 D-20: widgets are not sidebar tiles).
+    return {
+        "line_kind": "interactive-message",
+        "schema_version": SCHEMA_VERSION,
+        "slug": slug,
+        "port": port,
+        "is_healthy": is_healthy,
+        "created_at_ms": created_at_ms,
+    }
+
+
+def _enumerate_widgets(home):
+    """Return list of SweepInteractiveMessageLine dicts for
+    ~/fleet/interactive-messages/*/.
+
+    Fail-open per D-19 parity with _enumerate_apps: an absent
+    ~/fleet/interactive-messages/ dir yields []; a broken per-widget entry is
+    skipped (with a stderr log) but does not affect other widgets or the
+    identity/pid/app enumeration.
+
+    Slug validation via WIDGET_SLUG_RE + WIDGET_SLUG_MAX_LEN happens BEFORE any
+    filesystem read of the unit file (T-137-01-SL defense-in-depth). Symlinks
+    are rejected at scandir time (follow_symlinks=False) to prevent path-traversal
+    outside ~/fleet/interactive-messages/ (T-137-01-PT).
+
+    Two DoS caps apply (T-137-01-DoS, parity with _enumerate_apps MEDIUM-4):
+      1. WIDGET_ENUM_CAP folder-count cap.
+      2. WIDGET_ENUM_WALLCLOCK_BUDGET_SEC cumulative wall-clock cap.
+    Both caps preserve fail-open — identity + pid + app lines still emit.
+    """
+    root = os.path.join(home, "fleet", "interactive-messages")
+    out = []
+    total_seen = 0
+    started = time.monotonic()
+    try:
+        with os.scandir(root) as it:
+            for entry in it:
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+                total_seen += 1
+                # Folder-count cap — count BEFORE slug validation so `total_seen`
+                # reflects folders actually on disk. Cap fires on (N+1)th valid
+                # folder, so `out` may hold up to WIDGET_ENUM_CAP entries.
+                if len(out) >= WIDGET_ENUM_CAP:
+                    _log(
+                        "fleet_status_widgets_cap_hit",
+                        kind="count",
+                        cap=WIDGET_ENUM_CAP,
+                        observed=total_seen,
+                    )
+                    break
+                # Wall-clock budget — check BEFORE each iteration's I/O.
+                elapsed = time.monotonic() - started
+                if elapsed > WIDGET_ENUM_WALLCLOCK_BUDGET_SEC:
+                    _log(
+                        "fleet_status_widgets_cap_hit",
+                        kind="wallclock",
+                        budget_sec=WIDGET_ENUM_WALLCLOCK_BUDGET_SEC,
+                        elapsed_sec=round(elapsed, 3),
+                        observed=total_seen,
+                        emitted=len(out),
+                    )
+                    break
+                slug = entry.name
+                if (
+                    not WIDGET_SLUG_RE.match(slug)
+                    or len(slug) > WIDGET_SLUG_MAX_LEN
+                ):
+                    _log("widget_slug_skipped", slug=slug[:WIDGET_SLUG_MAX_LEN])
+                    continue
+                try:
+                    line = _build_widget_line(slug, entry.path, home)
+                except Exception:
+                    # Belt-and-braces: any unexpected raise inside
+                    # _build_widget_line is contained here so other widgets
+                    # (and identities/pids/apps) still emit this tick.
+                    _log(
+                        "widget_build_failed",
+                        slug=slug[:WIDGET_SLUG_MAX_LEN],
+                        err=traceback.format_exc(limit=1).strip(),
+                    )
+                    continue
+                if line is not None:
+                    out.append(line)
+    except FileNotFoundError:
+        # ~/fleet/interactive-messages/ absent is a valid empty state — D-19
+        # fail-open, not an error worth logging.
+        return out
+    except OSError as e:
+        _log("widgets_scandir_failed", errno=e.errno)
+    return out
+
+
 def _emit(record):
     """Write one JSON line to stdout — compact, terminated with \\n."""
     sys.stdout.write(json.dumps(record, separators=(",", ":")))
@@ -1687,6 +1871,9 @@ def main():
     #      RESEARCH § Q6 — the user's ~10-app ceiling makes threading complexity
     #      unnecessary at 1.5s/call and <10ms typical systemctl latency. ----
     app_records = _enumerate_apps(home)
+
+    # ---- Phase 137: enumerate ~/fleet/interactive-messages/*/ (source D). ----
+    widget_records = _enumerate_widgets(home)
 
     # ---- Resolve PID → identity via /proc/<pid>/environ + tmux. ----
     resolved_pids = []  # list of (pid, identity_or_None)
@@ -1761,10 +1948,14 @@ def main():
         )
         _emit(line)
 
-    # ---- Phase 118: emit app lines LAST so the newest source is easy to
-    #      find on future reads. Additive per D-14; each line has already
+    # ---- Phase 118: emit app lines. Additive per D-14; each line has already
     #      been through the D-01/D-02 filter inside _build_app_line. ----
     for line in app_records:
+        _emit(line)
+
+    # ---- Phase 137 source-D emit — after apps so the newest source stays
+    #      easy to find on future reads (D-14 additive-newest-last discipline).
+    for line in widget_records:
         _emit(line)
 
     sys.stdout.flush()

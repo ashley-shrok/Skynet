@@ -1,0 +1,179 @@
+<!-- Phase 139 color-picker-non-terminal template — do not edit installed copies; edit the substrate template only -->
+<!-- Non-terminal mode: radio-group-like swatch selection. Clicking a swatch marks it
+     selected, deselects others, and POSTs the chosen color to /update. The widget
+     stays interactive indefinitely — user can change their color choice freely.
+     No terminal submit, no parent frame message. Agent reads state.json on demand. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skynet widget</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      background: #fff;
+      color: #111;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #e8e8e8; }
+    }
+
+    #prompt {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #palette {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .swatch {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0;
+      cursor: pointer;
+      border: 2px solid rgba(0,0,0,0.15);
+      border-radius: 8px;
+      background-color: var(--sw);
+      transition: transform 0.1s, border-color 0.1s;
+      position: relative;
+    }
+
+    .swatch:hover {
+      transform: scale(1.06);
+      border-color: rgba(0,0,0,0.4);
+    }
+
+    .swatch.selected {
+      border-color: #000;
+      border-width: 3px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .swatch { border-color: rgba(255,255,255,0.15); }
+      .swatch:hover { border-color: rgba(255,255,255,0.5); }
+      .swatch.selected { border-color: #fff; }
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #555;
+      min-height: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #status { color: #aaa; }
+    }
+  </style>
+</head>
+<body>
+  <h2 id="prompt" hidden></h2>
+  <div id="palette"></div>
+  <div id="status"></div>
+
+  <script>
+    // Substitution points — the scaffold script replaces these inline literals.
+    // __PROMPT_JSON__ is the JSON-encoded prompt string (null if no prompt supplied).
+    // __PALETTE_JSON__ is a JSON array of hex color strings.
+    // __WIDGET_ID__ is the widget slug.
+    // __PANE_BASE__ is the URL path prefix for the widget's own origin.
+    var PROMPT    = __PROMPT_JSON__;
+    var PALETTE   = __PALETTE_JSON__;
+    var WIDGET_ID = "__WIDGET_ID__";
+    var PANE_BASE = "__PANE_BASE__";
+
+    document.addEventListener("DOMContentLoaded", function () {
+      // Set the prompt text if provided
+      var promptEl = document.getElementById("prompt");
+      if (PROMPT && typeof PROMPT === "string" && PROMPT.length > 0) {
+        promptEl.textContent = PROMPT;
+        promptEl.removeAttribute("hidden");
+      }
+
+      // Render one swatch button per palette entry
+      var paletteEl = document.getElementById("palette");
+      PALETTE.forEach(function (hex) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "swatch";
+        btn.setAttribute("data-color", hex);
+        btn.style.setProperty("--sw", hex);
+        btn.setAttribute("aria-label", "Pick color " + hex);
+        btn.addEventListener("click", function () {
+          handleChoice(hex);
+        });
+        paletteEl.appendChild(btn);
+      });
+    });
+
+    function setStatus(msg) {
+      var el = document.getElementById("status");
+      if (el) el.textContent = msg;
+    }
+
+    function handleChoice(hex) {
+      // Non-terminal: remove .selected from all swatches, add to clicked one.
+      // Swatches are NEVER disabled — user can change selection freely.
+      var swatches = document.querySelectorAll(".swatch");
+      swatches.forEach(function (s) {
+        s.classList.remove("selected");
+      });
+      var clicked = document.querySelector('.swatch[data-color="' + hex + '"]');
+      if (clicked) {
+        clicked.classList.add("selected");
+      }
+
+      persistColor(hex);
+    }
+
+    function persistColor(hex) {
+      setStatus("Saving…");
+
+      var payload = {
+        color: hex,
+        updated_at: new Date().toISOString()
+      };
+
+      // POST to /update (widget's own origin via relative path or PANE_BASE)
+      var updateUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
+        ? PANE_BASE + "/update"
+        : "/update";
+
+      fetch(updateUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(function (res) {
+        if (!res.ok && res.status !== 204) {
+          throw new Error("update returned " + res.status);
+        }
+        setStatus("Saved.");
+        // Non-terminal: swatches stay enabled — user can change their color choice freely.
+        // Agent reads state.json on demand — no parent frame message sent.
+      })
+      .catch(function (err) {
+        // On fetch failure: log + keep swatches enabled for retry.
+        // Leave .selected on the clicked swatch so the user knows what they tried to save.
+        console.error("[widget] update fetch failed:", err);
+        setStatus("Save failed — click again to retry.");
+      });
+    }
+  </script>
+</body>
+</html>

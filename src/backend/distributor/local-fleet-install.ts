@@ -1480,6 +1480,8 @@ export async function bootstrapFleetSubstrateLocally(
     skynetHostidOk,
     statusLineWireOk,
     hadError,
+    gcTimerAlreadyEnabled: false,
+    gcTimerBootstrapped: false,
   };
 
   systemLogger[hadError ? "warn" : "info"](

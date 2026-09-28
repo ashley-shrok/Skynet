@@ -47,15 +47,16 @@ vi.mock("./webAudioStreamPlayer", () => ({
 
 // The hook is mocked at module scope so per-test overrides via
 // .mockReturnValueOnce control what the ChatMessage `a` override sees.
+// Phase 137: hook now returns Map<string, "file" | "interactive-message"> (not Set).
 vi.mock("./use-editable-file-eligibility", () => ({
-  useEditableFileEligibility: vi.fn(() => new Set()),
+  useEditableFileEligibility: vi.fn(() => new Map()),
 }));
 
 const mockedHook = vi.mocked(useEditableFileEligibility);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockedHook.mockReturnValue(new Set());
+  mockedHook.mockReturnValue(new Map());
 });
 
 const URL_A = "http://100.64.0.1:8000/notes.md";
@@ -64,7 +65,7 @@ const URL_QS = "http://100.64.0.1:8000/notes.md?nocache=1";
 
 describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
   it("Test 1: assistant message + whitelist-hit URL renders anchor AND affordance as siblings", () => {
-    mockedHook.mockReturnValue(new Set([URL_A]));
+    mockedHook.mockReturnValue(new Map([[URL_A, "file"]]));
     const onOpenEditor = vi.fn();
     render(
       <ChatMessage
@@ -86,11 +87,11 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
     );
   });
 
-  it("Test 2: user message with tailnet URL — no affordance renders (hook empty Set)", () => {
+  it("Test 2: user message with tailnet URL — no affordance renders (hook empty Map)", () => {
     // The hook fires but returns empty for user messages (message content has
     // no eligible URLs from the hook's viewpoint). The wiring asserts the
     // affordance stays absent.
-    mockedHook.mockReturnValue(new Set());
+    mockedHook.mockReturnValue(new Map());
     const onOpenEditor = vi.fn();
     render(
       <ChatMessage
@@ -108,7 +109,7 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
   });
 
   it("Test 3: assistant + non-eligible URL — link only, no affordance", () => {
-    mockedHook.mockReturnValue(new Set()); // URL not in eligible set
+    mockedHook.mockReturnValue(new Map()); // URL not in eligible map
     const onOpenEditor = vi.fn();
     render(
       <ChatMessage
@@ -126,7 +127,7 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
   });
 
   it("Test 4: anchor semantics preserved — target=_blank, rel=noopener noreferrer, href unchanged", () => {
-    mockedHook.mockReturnValue(new Set([URL_A]));
+    mockedHook.mockReturnValue(new Map([[URL_A, "file"]]));
     render(
       <ChatMessage
         role="assistant"
@@ -143,7 +144,7 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
   });
 
   it("Test 5: affordance onClick fires onOpenEditor with {messageEventId,url,filename}", () => {
-    mockedHook.mockReturnValue(new Set([URL_A]));
+    mockedHook.mockReturnValue(new Map([[URL_A, "file"]]));
     const onOpenEditor = vi.fn();
     render(
       <ChatMessage
@@ -166,7 +167,7 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
   });
 
   it("Test 6: multi-URL message — one affordance per eligible URL", () => {
-    mockedHook.mockReturnValue(new Set([URL_A, URL_B]));
+    mockedHook.mockReturnValue(new Map([[URL_A, "file"], [URL_B, "file"]]));
     render(
       <ChatMessage
         role="assistant"
@@ -181,7 +182,7 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
   });
 
   it("Test 7: bubble container has pv-bubble class", () => {
-    mockedHook.mockReturnValue(new Set());
+    mockedHook.mockReturnValue(new Map());
     const { container } = render(
       <ChatMessage
         role="assistant"
@@ -195,7 +196,7 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
   });
 
   it("Test 8: onOpenEditor prop is optional — no crash + no affordance renders when omitted", () => {
-    mockedHook.mockReturnValue(new Set([URL_A]));
+    mockedHook.mockReturnValue(new Map([[URL_A, "file"]]));
     // Do NOT pass onOpenEditor — safe degrade.
     render(
       <ChatMessage
@@ -213,7 +214,7 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
   });
 
   it("Test 9: query-string URL — filename decoded from pathname (Pitfall 8 defense)", () => {
-    mockedHook.mockReturnValue(new Set([URL_QS]));
+    mockedHook.mockReturnValue(new Map([[URL_QS, "file"]]));
     render(
       <ChatMessage
         role="assistant"
@@ -230,7 +231,7 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
   });
 
   it("Test 10: hook called with (eventId, content) — asserts wiring signature", () => {
-    mockedHook.mockReturnValue(new Set());
+    mockedHook.mockReturnValue(new Map());
     render(
       <ChatMessage
         role="assistant"

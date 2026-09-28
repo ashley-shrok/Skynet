@@ -17,6 +17,7 @@ import { postSpeakStream } from "@/api/voice-api";
 import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
 import { EditableFileAffordance } from "./EditableFileAffordance";
+import { WidgetBubble } from "./WidgetBubble";
 import {
   getCurrentPlayer,
   setCurrentPlayer,
@@ -78,6 +79,7 @@ export function ChatMessage({
   onThumbsUp,
   onThumbsDown,
   onOpenEditor,
+  onWidgetSubmit,
   pendingState = null,
   attachments,
 }: {
@@ -108,6 +110,10 @@ export function ChatMessage({
     url: string;
     filename: string;
   }) => void;
+  // Phase 137 D-137: parent's widget-submit dispatcher — WidgetBubble invokes
+  // this when the iframe postMessages a widget-submit signal. Optional so
+  // tests + historical mount sites without widget-submit plumbing still work.
+  onWidgetSubmit?: (widgetId: string, value: string) => void;
   // Phase 50 D-01/D-03/D-06/D-19: optimistic-send bubble state. Only
   // meaningful for user bubbles (assistant bubbles ignore it — pending
   // state is a send-path concept). 'sending' renders a small trailing-edge
@@ -388,27 +394,35 @@ export function ChatMessage({
   // eligibleUrls. The p/pre/blockquote overrides only close over module-scope
   // imports (splitMarkers, CopyableBlock) — stable, not deps.
   const markdownComponents = useMemo<Components>(() => ({
-    // D-03: affordance renders as fragment sibling — anchor semantics
-    // (target/rel/click) preserved verbatim per LOCKED additive-not-
-    // replacive.
+    // Phase 137 D-137: URL-type dispatch on eligibleUrls.get(href).
+    // 'interactive-message' → swap for WidgetBubble (iframe replaces anchor
+    //   entirely — the URL is the embed target, not a click target).
+    // 'file' → preserve existing anchor + EditableFileAffordance render
+    //   (Phase 40 discipline — additive-not-replacive, D-03 locked).
+    // null → plain anchor (default markdown behavior with target=_blank).
     a: ({ node: _node, ...rest }) => {
       const props = rest as React.AnchorHTMLAttributes<HTMLAnchorElement>;
       const href = props.href;
-      // Compute affordance eligibility (Pitfall 1: href destructured
-      // from props, NOT from `node`).
+
+      // URL-type dispatch: eligibleUrls is now Map<string, "file" | "interactive-message">
+      const urlType = (href && eligibleUrls.get(href)) ?? null;
+
+      // interactive-message: swap anchor ENTIRELY for WidgetBubble
+      if (urlType === "interactive-message" && href) {
+        return <WidgetBubble src={href} onSubmit={onWidgetSubmit} />;
+      }
+
+      // file or null: render anchor (with optional EditableFileAffordance for files)
       let filename = "";
-      let isEligible = false;
-      if (href && eventId && onOpenEditor) {
+      if (href && eventId && onOpenEditor && urlType === "file") {
         try {
           const parsed = new URL(href);
           // Pitfall 8: URL.pathname strips ?query before we split.
           filename = decodeURIComponent(
             parsed.pathname.split("/").pop() ?? "",
           );
-          isEligible = eligibleUrls.has(href);
         } catch {
           // Invalid URL — not a tailnet pattern anyway.
-          isEligible = false;
         }
       }
       return (
@@ -418,7 +432,7 @@ export function ChatMessage({
             target="_blank"
             rel="noopener noreferrer"
           />
-          {isEligible ? (
+          {urlType === "file" && href && eventId && onOpenEditor ? (
             <EditableFileAffordance
               filename={filename}
               onOpen={() =>
@@ -442,7 +456,7 @@ export function ChatMessage({
     blockquote: ({ node, children, ...props }) => (
       <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
     ),
-  }), [eventId, onOpenEditor, eligibleUrls]);
+  }), [eventId, onOpenEditor, eligibleUrls, onWidgetSubmit]);
   // Phase 50 Plan 03 Task 1 (D-01/D-03/D-06/D-19): user-only pending-state
   // gate. Assistant bubbles ignore the prop; failed supersedes sending
   // (mutually exclusive per Test 6).

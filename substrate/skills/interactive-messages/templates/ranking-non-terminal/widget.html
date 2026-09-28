@@ -1,0 +1,313 @@
+<!-- Phase 139 ranking-non-terminal template — do not edit installed copies; edit the substrate template only -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skynet widget</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      background: #fff;
+      color: #111;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #e8e8e8; }
+    }
+
+    #prompt {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #rank-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .rank-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      min-height: 44px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #f9f9f9;
+      cursor: grab;
+    }
+
+    .rank-row.dragging {
+      opacity: 0.5;
+    }
+
+    .rank-row.drop-target {
+      border-color: #3b82f6;
+    }
+
+    .drag-handle {
+      flex-shrink: 0;
+      color: #888;
+      font-size: 18px;
+      cursor: grab;
+      user-select: none;
+    }
+
+    .rank-label {
+      flex: 1;
+    }
+
+    .up-btn, .down-btn {
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      font-size: 16px;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+      color: #111;
+      font-family: inherit;
+    }
+
+    .up-btn:hover:not(:disabled), .down-btn:hover:not(:disabled) {
+      background: #e8e8e8;
+      border-color: #888;
+    }
+
+    .up-btn:disabled, .down-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #555;
+      min-height: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .rank-row { background: #2d2d2d; border-color: #444; }
+      .rank-row.drop-target { border-color: #3b82f6; }
+      .drag-handle { color: #888; }
+      .up-btn, .down-btn { background: #2d2d2d; color: #e8e8e8; border-color: #444; }
+      .up-btn:hover:not(:disabled), .down-btn:hover:not(:disabled) { background: #3d3d3d; border-color: #888; }
+      #status { color: #aaa; }
+    }
+  </style>
+</head>
+<body>
+  <h2 id="prompt"></h2>
+  <ol id="rank-list"></ol>
+  <div id="status"></div>
+
+  <script>
+    // Substitution points — the scaffold script replaces these inline literals.
+    // __PROMPT_JSON__  is the JSON-encoded ranking question (HTML-safe via JSON string escaping).
+    // __OPTIONS_JSON__ is a JSON array of option label strings in initial order.
+    // __WIDGET_ID__    is the widget slug.
+    // __PANE_BASE__    is the URL path prefix for the widget's own origin.
+    var PROMPT    = __PROMPT_JSON__;
+    var OPTIONS   = __OPTIONS_JSON__;
+    var WIDGET_ID = "__WIDGET_ID__";
+    var PANE_BASE = "__PANE_BASE__";
+
+    // Track the currently-dragged row
+    var dragSrcRow = null;
+
+    document.addEventListener("DOMContentLoaded", function () {
+      // Set the prompt text
+      document.getElementById("prompt").textContent = PROMPT;
+
+      // Render one row per option in initial order
+      var list = document.getElementById("rank-list");
+      OPTIONS.forEach(function (label) {
+        list.appendChild(buildRow(label));
+      });
+
+      // Initial disabled-state refresh for edge buttons
+      refreshArrowStates();
+    });
+
+    function buildRow(label) {
+      var li = document.createElement("li");
+      li.className = "rank-row";
+      li.setAttribute("draggable", "true"); // draggable="true" — HTML5 drag-and-drop attribute (desktop)
+      li.setAttribute("data-label", label); // data-label used by persistOrder() to read DOM order
+
+      // Drag handle (visual affordance; touch fallback is the arrow buttons)
+      var handle = document.createElement("span");
+      handle.className = "drag-handle";
+      handle.setAttribute("aria-hidden", "true");
+      handle.textContent = "☰"; // ☰ hamburger glyph
+
+      // Item label
+      var rankLabel = document.createElement("span");
+      rankLabel.className = "rank-label";
+      rankLabel.textContent = label;
+
+      // Up arrow button — mobile / touch fallback for drag-and-drop
+      var upBtn = document.createElement("button");
+      upBtn.type = "button";
+      upBtn.className = "up-btn";
+      upBtn.setAttribute("aria-label", "Move up");
+      upBtn.textContent = "▲"; // ▲ arrow-up
+      upBtn.addEventListener("click", function () {
+        moveRow(li, -1);
+        persistOrder();
+      });
+
+      // Down arrow button — mobile / touch fallback for drag-and-drop
+      var downBtn = document.createElement("button");
+      downBtn.type = "button";
+      downBtn.className = "down-btn";
+      downBtn.setAttribute("aria-label", "Move down");
+      downBtn.textContent = "▼"; // ▼ arrow-down
+      downBtn.addEventListener("click", function () {
+        moveRow(li, 1);
+        persistOrder();
+      });
+
+      li.appendChild(handle);
+      li.appendChild(rankLabel);
+      li.appendChild(upBtn);
+      li.appendChild(downBtn);
+
+      // HTML5 drag-and-drop event handlers (desktop)
+      li.addEventListener("dragstart", function (e) {
+        dragSrcRow = li;
+        li.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+
+      li.addEventListener("dragover", function (e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        // Clear other drop-target highlights
+        var rows = document.querySelectorAll(".rank-row");
+        rows.forEach(function (r) { r.classList.remove("drop-target"); });
+        if (li !== dragSrcRow) {
+          li.classList.add("drop-target");
+        }
+      });
+
+      li.addEventListener("drop", function (e) {
+        e.preventDefault();
+        if (dragSrcRow && li !== dragSrcRow) {
+          var list = document.getElementById("rank-list");
+          var rows = Array.from(list.children);
+          var srcIdx = rows.indexOf(dragSrcRow);
+          var tgtIdx = rows.indexOf(li);
+          if (srcIdx < tgtIdx) {
+            list.insertBefore(dragSrcRow, li.nextSibling);
+          } else {
+            list.insertBefore(dragSrcRow, li);
+          }
+          refreshArrowStates();
+          persistOrder();
+        }
+        li.classList.remove("drop-target");
+      });
+
+      li.addEventListener("dragend", function () {
+        li.classList.remove("dragging");
+        var rows = document.querySelectorAll(".rank-row");
+        rows.forEach(function (r) { r.classList.remove("drop-target"); });
+        dragSrcRow = null;
+      });
+
+      return li;
+    }
+
+    function moveRow(li, direction) {
+      var list = document.getElementById("rank-list");
+      if (direction === -1) {
+        // Move up: insert before previous sibling
+        var prev = li.previousElementSibling;
+        if (prev) {
+          list.insertBefore(li, prev);
+        }
+      } else {
+        // Move down: insert after next sibling
+        var next = li.nextElementSibling;
+        if (next) {
+          list.insertBefore(li, next.nextSibling);
+        }
+      }
+      refreshArrowStates();
+    }
+
+    function refreshArrowStates() {
+      var rows = document.querySelectorAll(".rank-row");
+      rows.forEach(function (row, idx) {
+        var upBtn = row.querySelector(".up-btn");
+        var downBtn = row.querySelector(".down-btn");
+        if (upBtn) upBtn.disabled = (idx === 0);
+        if (downBtn) downBtn.disabled = (idx === rows.length - 1);
+      });
+    }
+
+    function setStatus(msg) {
+      var el = document.getElementById("status");
+      if (el) el.textContent = msg;
+    }
+
+    // persistOrder — called after every drag-drop or arrow-button reorder.
+    // Reads the current DOM order, POSTs to /update, overwrites state.json.
+    // Widget stays fully interactive — no rows are disabled, no wake signal fired.
+    function persistOrder() {
+      // Read current order from DOM by iterating #rank-list li[data-label] in DOM order
+      var order = [];
+      var rows = document.querySelectorAll("#rank-list li[data-label]");
+      rows.forEach(function (row) {
+        order.push(row.getAttribute("data-label"));
+      });
+
+      setStatus("Saving…");
+
+      var payload = {
+        order: order,
+        updated_at: new Date().toISOString()
+      };
+
+      // Build URL: use PANE_BASE when it has been substituted with a real value
+      var updateUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
+        ? PANE_BASE + "/update"
+        : "/update";
+
+      fetch(updateUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(function (res) {
+        if (!res.ok && res.status !== 204) {
+          throw new Error("update returned " + res.status);
+        }
+        setStatus("Saved.");
+        // Do NOT disable rows or arrows — widget stays interactive indefinitely.
+        // Non-terminal mode: no wake signal fired — agent reads state.json directly.
+      })
+      .catch(function (err) {
+        console.error("[widget] persistOrder fetch failed:", err);
+        setStatus("Save failed — reorder again to retry.");
+        // Do NOT disable rows or arrows — user can retry by reordering again.
+      });
+    }
+  </script>
+</body>
+</html>

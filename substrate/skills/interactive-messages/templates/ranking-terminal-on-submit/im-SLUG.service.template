@@ -1,0 +1,29 @@
+# im-SLUG.service.template — mirrors app-SLUG.service.template shape
+# Phase 138: interactive-messages templates + modes
+# Source: substrate/skills/interactive-messages/templates/ranking-terminal-on-submit/
+#
+# Substitution markers replaced by create-widget.sh at scaffold time:
+#   __SLUG__       → widget slug (e.g. rank-order)
+#   __WIDGET_DIR__ → absolute path to the widget folder (e.g. ~/fleet/interactive-messages/rank-order)
+#   __PORT__       → claimed port number from the 9601-9699 range
+#
+# This template is NOT copied into the widget folder — it is rendered by
+# create-widget.sh and written to ~/.config/systemd/user/im-<slug>.service only.
+
+[Unit]
+Description=Skynet interactive widget: __SLUG__
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__WIDGET_DIR__
+ExecStart=/usr/bin/python3 __WIDGET_DIR__/server.py
+Environment=PORT=__PORT__
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=im-__SLUG__
+
+[Install]
+WantedBy=default.target

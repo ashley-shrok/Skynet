@@ -1,0 +1,25 @@
+// SHAPE REFERENCE — the scaffold script constructs this via Python; DO NOT copy
+// this file verbatim as substitution is done in Python for correct JSON escaping.
+//
+// Phase 138: interactive messages — templates + modes + multi-widget
+// Source: substrate/skills/interactive-messages/templates/form-terminal-on-submit/
+//
+// This file documents the exact shape written by create-widget.sh to
+// ~/fleet/interactive-messages/<slug>/metadata.json. The scaffold script
+// uses python3 inline to build this with proper JSON escaping; it does NOT
+// use sed or template-substitution on this file.
+{
+  "template": "form",
+  "widget_id": "__SLUG__",
+  "message_id": "__MESSAGE_ID__",
+  "conversation_id": "__CONVERSATION_ID__",
+  "config": {
+    "prompt": "__PROMPT__",
+    "fields": [
+      {"name": "__FIELD_NAME_1__", "type": "__FIELD_TYPE_1__"},
+      {"name": "__FIELD_NAME_2__", "type": "select", "options": ["__OPT_A__", "__OPT_B__"]}
+    ],
+    "submit_label": "Submit"
+  },
+  "created_at": "__ISO_TIMESTAMP__"
+}

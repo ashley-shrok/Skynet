@@ -21,6 +21,7 @@ import {
   type SweepIdentityLine,
   type SweepPidLine,
   type SweepAppLine,
+  type SweepInteractiveMessageLine,
 } from "./sweep-schema.js";
 
 // ---------------------------------------------------------------------------
@@ -262,24 +263,28 @@ describe("parseSweepJsonl — discriminated union round-trip", () => {
 
 describe("parseSweepJsonl — empty input", () => {
   it("returns an empty result for an empty string", () => {
-    // Phase 118 Plan 118-02: SweepParseResult now includes `appLines` — the
-    // empty-input fast-path returns [] alongside the existing empty arrays.
+    // Phase 118 Plan 118-02: SweepParseResult now includes `appLines`.
+    // Phase 137 Plan 137-01: SweepParseResult now includes `interactiveMessageLines`.
+    // The empty-input fast-path returns [] alongside all empty arrays.
     expect(parseSweepJsonl("")).toEqual({
       identityLines: [],
       pidLines: [],
       appLines: [],
+      interactiveMessageLines: [],
       unknownLines: 0,
       schemaMismatch: false,
     });
   });
 
   it("returns an empty result for whitespace only", () => {
-    // Phase 118 Plan 118-02: SweepParseResult now includes `appLines` — the
-    // whitespace-only walk path also returns [] alongside the existing arrays.
+    // Phase 118 Plan 118-02: SweepParseResult now includes `appLines`.
+    // Phase 137 Plan 137-01: SweepParseResult now includes `interactiveMessageLines`.
+    // The whitespace-only walk path also returns [] alongside all empty arrays.
     expect(parseSweepJsonl("\n\n  \n")).toEqual({
       identityLines: [],
       pidLines: [],
       appLines: [],
+      interactiveMessageLines: [],
       unknownLines: 0,
       schemaMismatch: false,
     });
@@ -865,5 +870,144 @@ describe("Phase 118 Plan 118-02: SWEEP_FIELD_PARITY C-row coverage", () => {
         `parity row ${key} should map to ${field}`,
       ).toBe(field);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 137 Plan 137-01: SweepInteractiveMessageLine dispatch + type-guard
+// ---------------------------------------------------------------------------
+//
+// Plan 137-01 extends sweep-schema.ts with a `line_kind: "interactive-message"`
+// line kind that mirrors the Python side's _enumerate_widgets output. Additive
+// per Phase 118 precedent — SWEEP_SCHEMA_VERSION is NOT bumped. Identity + pid
+// + app paths must stay green.
+//
+// Tests pin:
+//   - The 6-field interface shape (no title/description/has_icon/health_message/users)
+//   - parseSweepJsonl bucketizes interactive-message lines into interactiveMessageLines
+//   - unknownLines stays 0 for valid input
+//   - isSweepLineOfCurrentSchema accepts interactive-message lines at schema_version 1
+//   - SWEEP_SCHEMA_VERSION === 1 (locked — a bump would trip this test and land in review)
+
+function makeInteractiveMessageLine(
+  overrides: Partial<SweepInteractiveMessageLine> = {},
+): SweepInteractiveMessageLine {
+  return {
+    line_kind: "interactive-message",
+    schema_version: 1,
+    slug: "poll-abc",
+    port: 9601,
+    is_healthy: true,
+    created_at_ms: 1_750_000_000_000,
+    ...overrides,
+  };
+}
+
+describe("Phase 137 Plan 137-01: SWEEP_SCHEMA_VERSION unchanged", () => {
+  it("SWEEP_SCHEMA_VERSION is still 1 after Phase 137 addition (NOT bumped)", () => {
+    // This test is the 'did NOT bump' invariant lock. Any future PR that bumps
+    // SWEEP_SCHEMA_VERSION will trip this test and surface in a plan-checker
+    // review, preventing an accidental fleet-wide fallback storm (Pitfall 3).
+    expect(SWEEP_SCHEMA_VERSION).toBe(1);
+  });
+});
+
+describe("Phase 137 Plan 137-01: parseSweepJsonl interactive-message dispatch", () => {
+  it("routes interactive-message lines into interactiveMessageLines; unknownLines stays 0", () => {
+    // Core dispatch test: an interactive-message line at schema_version 1
+    // must land in interactiveMessageLines and must NOT increment unknownLines.
+    const id = makeIdentityLine();
+    const widget = makeInteractiveMessageLine({ slug: "poll-abc" });
+    const blob = [id, widget].map((x) => JSON.stringify(x)).join("\n");
+
+    const result = parseSweepJsonl(blob);
+
+    expect(result.interactiveMessageLines).toHaveLength(1);
+    expect(result.interactiveMessageLines[0].slug).toBe("poll-abc");
+    expect(result.interactiveMessageLines[0].line_kind).toBe(
+      "interactive-message",
+    );
+    expect(result.interactiveMessageLines[0].schema_version).toBe(1);
+    expect(result.interactiveMessageLines[0].port).toBe(9601);
+    expect(result.interactiveMessageLines[0].is_healthy).toBe(true);
+    expect(result.unknownLines).toBe(0);
+    expect(result.schemaMismatch).toBe(false);
+    // Other buckets unaffected.
+    expect(result.identityLines).toHaveLength(1);
+    expect(result.appLines).toHaveLength(0);
+    expect(result.pidLines).toHaveLength(0);
+  });
+
+  it("empty input returns interactiveMessageLines: []", () => {
+    // The empty-input fast-path must always carry interactiveMessageLines so
+    // consumers can safely destructure it without undefined checks.
+    const result = parseSweepJsonl("");
+    expect(result.interactiveMessageLines).toEqual([]);
+    expect(result.identityLines).toEqual([]);
+    expect(result.pidLines).toEqual([]);
+    expect(result.appLines).toEqual([]);
+    expect(result.unknownLines).toBe(0);
+    expect(result.schemaMismatch).toBe(false);
+  });
+
+  it("mixed input — identity + pid + app + interactive-message lines bucketize correctly; unknownLines === 0", () => {
+    // Regression guard: adding the interactive-message dispatch must NOT break
+    // the existing identity / pid / app dispatch paths.
+    const id = makeIdentityLine({ identity: "the user" });
+    const pid = makePidLine({ pid: 777, identity: "the user" });
+    const app = makeAppLine({ slug: "my-app" });
+    const widget = makeInteractiveMessageLine({ slug: "my-poll" });
+    const blob = [id, pid, app, widget]
+      .map((x) => JSON.stringify(x))
+      .join("\n");
+
+    const result = parseSweepJsonl(blob);
+
+    expect(result.identityLines).toHaveLength(1);
+    expect(result.pidLines).toHaveLength(1);
+    expect(result.appLines).toHaveLength(1);
+    expect(result.interactiveMessageLines).toHaveLength(1);
+    expect(result.interactiveMessageLines[0].slug).toBe("my-poll");
+    expect(result.unknownLines).toBe(0);
+    expect(result.schemaMismatch).toBe(false);
+  });
+
+  it("schema mismatch on interactive-message — wrong schema_version flips schemaMismatch, does NOT push into interactiveMessageLines", () => {
+    // Same schema-version gate applies to interactive-message lines as to all
+    // other line kinds: schema_version check ABOVE the line_kind dispatch.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bad = { ...makeInteractiveMessageLine(), schema_version: 999 as any };
+    const result = parseSweepJsonl(JSON.stringify(bad));
+
+    expect(result.schemaMismatch).toBe(true);
+    expect(result.interactiveMessageLines).toHaveLength(0);
+    expect(result.unknownLines).toBe(0);
+  });
+
+  it("interactive-message with null port parses correctly", () => {
+    // Port is nullable (widget unit may omit Environment=PORT=<n>). Parser is
+    // lenient — the line still lands in interactiveMessageLines.
+    const widget = makeInteractiveMessageLine({ port: null, is_healthy: false });
+    const result = parseSweepJsonl(JSON.stringify(widget));
+
+    expect(result.interactiveMessageLines).toHaveLength(1);
+    expect(result.interactiveMessageLines[0].port).toBeNull();
+    expect(result.interactiveMessageLines[0].is_healthy).toBe(false);
+  });
+});
+
+describe("Phase 137 Plan 137-01: isSweepLineOfCurrentSchema interactive-message", () => {
+  it("accepts interactive-message line at schema_version 1", () => {
+    expect(isSweepLineOfCurrentSchema(makeInteractiveMessageLine())).toBe(true);
+  });
+
+  it("rejects interactive-message line at wrong schema_version", () => {
+    const bad = { ...makeInteractiveMessageLine(), schema_version: 999 };
+    expect(isSweepLineOfCurrentSchema(bad)).toBe(false);
+  });
+
+  it("rejects interactive-message line with no schema_version", () => {
+    const { schema_version: _, ...noVersion } = makeInteractiveMessageLine();
+    expect(isSweepLineOfCurrentSchema(noVersion)).toBe(false);
   });
 });

@@ -23,12 +23,13 @@ import {
   type SshChannel,
   type OrchestratorDeps,
   __scanTailForNewestMessageAtForTests,
+  __adaptWidgetLineToStateForTests,
   parseSpawnRequestBatch,
   scanSpawnRequests,
 } from "./ssh-poll-orchestrator.js";
 import type { PendingBirth } from "../spawn-requests/types.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
-import type { AppState, SessionState } from "./wire-protocol.js";
+import type { AppState, SessionState, WidgetState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
 import {
   readSessionFileCache,
@@ -41,6 +42,7 @@ import {
   SWEEP_SCHEMA_VERSION,
   type SweepAppLine,
   type SweepIdentityLine,
+  type SweepInteractiveMessageLine,
   type SweepPidLine,
   type SweepStatResult,
 } from "./sweep-schema.js";
@@ -268,6 +270,26 @@ class MockRegistry implements SubscriptionRegistry {
     return [];
   }
 
+  // Phase 137 Plan 02 — widget-scoped publish stubs. Match the SubscriptionRegistry
+  // interface additions from Plan 137-02. Each stub records calls in its own array
+  // (parallel to the app stubs above — separate lanes, separate assertion surfaces).
+  // getWidgetSnapshot returns an empty array — orchestrator tests don't exercise
+  // the subscribe-path widget snapshot (covered by subscription-registry.test.ts).
+  publishedWidgetUpdates: Array<{ hostId: string; widget: WidgetState }> = [];
+  publishedWidgetGone: Array<{ hostId: string; slug: string }> = [];
+
+  publishWidgetUpdate(hostId: string, widget: WidgetState): void {
+    this.publishedWidgetUpdates.push({ hostId, widget });
+  }
+
+  publishWidgetGoneByHostSlug(hostId: string, slug: string): void {
+    this.publishedWidgetGone.push({ hostId, slug });
+  }
+
+  getWidgetSnapshot(): WidgetState[] {
+    return [];
+  }
+
   getSnapshot(): SessionState[] {
     return this.publishedStates.map((p) => p.state);
   }
@@ -356,6 +378,10 @@ function makeSweepJsonl(input: {
   // overridden per-entry, including `line_kind` / `schema_version` for
   // negative tests.
   apps?: Array<Partial<SweepAppLine> & { slug: string }>;
+  // Phase 137 Plan 02 — source-D interactive-message widget lines. Same
+  // Partial-with-required-key discipline. Defaults describe a healthy widget
+  // on port 9601; every field can be overridden per-entry.
+  widgets?: Array<Partial<SweepInteractiveMessageLine> & { slug: string }>;
   schemaVersionOverride?: number;
 }): string {
   const version = (input.schemaVersionOverride ?? SWEEP_SCHEMA_VERSION) as 1;
@@ -435,6 +461,20 @@ function makeSweepJsonl(input: {
       created_at_ms: raw.created_at_ms ?? 1_700_000_000_000,
       is_healthy: raw.is_healthy ?? true,
       health_message: raw.health_message ?? null,
+    };
+    lines.push(JSON.stringify(line));
+  }
+  // Phase 137 Plan 02 — source-D interactive-message widget lines. Same
+  // default-when-omitted discipline. Fields default to a healthy widget on
+  // port 9601; every field can be overridden per-entry.
+  for (const raw of input.widgets ?? []) {
+    const line: SweepInteractiveMessageLine = {
+      line_kind: "interactive-message",
+      schema_version: version,
+      slug: raw.slug,
+      port: raw.port ?? 9601,
+      is_healthy: raw.is_healthy ?? true,
+      created_at_ms: raw.created_at_ms ?? 1_700_000_000_000,
     };
     lines.push(JSON.stringify(line));
   }
@@ -9233,3 +9273,324 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
   });
 
 }); // end describe Phase 111 Plan 03
+
+// ---------------------------------------------------------------------------
+// Phase 137 Plan 02 — widget line adapter + per-tick reconciliation
+//
+// Load-bearing invariants (mirrors Phase 118 Plan 118-04 discipline for apps):
+//   (W1) adaptWidgetLineToState maps snake_case wire → camelCase WidgetState
+//        correctly for every field — pure function, no defaults invented.
+//   (W2) Successful tick with N widget lines fires publishWidgetUpdate exactly
+//        N times.
+//   (W3) Reconciliation-on-success: widget that drops between two ticks fires
+//        publishWidgetGoneByHostSlug exactly once; new widget fires update;
+//        unchanged widgets get fresh updates each tick.
+//   (W4) lastTickLiveWidgets is populated after each successful tick and used
+//        for the next tick's reconciliation walk.
+//   (W5) Failed sweep tick (schemaMismatch=true) does NOT touch widgets —
+//        no publishWidgetUpdate and no reconciliation; lastTickLiveWidgets
+//        stays unchanged (matches app reconciliation-on-success discipline).
+//   (W6) Empty interactiveMessageLines on a successful tick where the previous
+//        tick had widgets fires publishWidgetGoneByHostSlug for EACH previous
+//        widget (reconciliation to zero).
+// ---------------------------------------------------------------------------
+
+describe("Phase 137 Plan 02 — widget line adapter + per-tick reconciliation", () => {
+  // Helper: wire the sweep-presence probe so the batch path is selected.
+  // Mirrors wireBatchProbe from the Phase 92 describe block above.
+  function wireBatchProbeWidget(channel: MockSshChannel): void {
+    channel.setResponse(
+      "test -x ~/.local/bin/fleet-status-sweep",
+      "yes\n",
+    );
+  }
+
+  // Helper: capture setInterval so multi-tick tests can invoke the poll fn
+  // directly. Mirrors makeSetIntervalCapture from the Phase 92 describe block.
+  function makeIntervalCapture(): {
+    fns: Array<{ fn: () => void; ms: number }>;
+    setInterval: OrchestratorDeps["setInterval"];
+  } {
+    const fns: Array<{ fn: () => void; ms: number }> = [];
+    return {
+      fns,
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        fns.push({ fn, ms });
+        return fns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    };
+  }
+
+  it("Test W1: adaptWidgetLineToState maps SweepInteractiveMessageLine snake_case → WidgetState camelCase correctly", () => {
+    // Direct unit test of the exported adapter helper.
+    const line: SweepInteractiveMessageLine = {
+      line_kind: "interactive-message",
+      schema_version: 1,
+      slug: "poll-abc",
+      port: 9601,
+      is_healthy: true,
+      created_at_ms: 1_700_000_000_000,
+    };
+    const result = __adaptWidgetLineToStateForTests("3", line);
+    expect(result).toMatchObject({
+      hostId: "3",
+      slug: "poll-abc",
+      port: 9601,
+      isHealthy: true,
+      createdAtMs: 1_700_000_000_000,
+    });
+  });
+
+  it("Test W2: successful sweep with N widget lines fires publishWidgetUpdate exactly N times", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbeWidget(channel);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        widgets: [
+          { slug: "poll-abc", port: 9601 },
+          { slug: "form-xyz", port: 9602 },
+          { slug: "check-lmn", port: 9603 },
+        ],
+      }),
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedWidgetUpdates).toHaveLength(3);
+    const slugs = deps.registry.publishedWidgetUpdates
+      .map((p) => p.widget.slug)
+      .sort();
+    expect(slugs).toEqual(["check-lmn", "form-xyz", "poll-abc"]);
+    // hostId is threaded through correctly
+    for (const { hostId, widget } of deps.registry.publishedWidgetUpdates) {
+      expect(hostId).toBe("host-1");
+      expect(widget.hostId).toBe("host-1");
+    }
+    // Zero publishWidgetGoneByHostSlug on first tick
+    expect(deps.registry.publishedWidgetGone).toHaveLength(0);
+  });
+
+  it("Test W3: tick 1 has [A, B, C], tick 2 has [A, C, D] — B gets gone; D gets update; A+C get fresh updates", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbeWidget(channel);
+
+    // Tick 1: widgets A, B, C
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        widgets: [
+          { slug: "a", port: 9601 },
+          { slug: "b", port: 9602 },
+          { slug: "c", port: 9603 },
+        ],
+      }),
+    );
+
+    const capture = makeIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    // Clear tick-1 records
+    deps.registry.publishedWidgetUpdates.length = 0;
+    deps.registry.publishedWidgetGone.length = 0;
+
+    // Tick 2: widgets A, C, D (B dropped, D added)
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        widgets: [
+          { slug: "a", port: 9601 },
+          { slug: "c", port: 9603 },
+          { slug: "d", port: 9604 },
+        ],
+      }),
+    );
+
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) await pollFn.fn();
+
+    // B got exactly one publishWidgetGoneByHostSlug
+    expect(deps.registry.publishedWidgetGone).toHaveLength(1);
+    expect(deps.registry.publishedWidgetGone[0]).toMatchObject({
+      hostId: "host-1",
+      slug: "b",
+    });
+
+    // A, C, D got publishWidgetUpdate (3 updates on tick 2)
+    expect(deps.registry.publishedWidgetUpdates).toHaveLength(3);
+    const updatedSlugs = deps.registry.publishedWidgetUpdates
+      .map((p) => p.widget.slug)
+      .sort();
+    expect(updatedSlugs).toEqual(["a", "c", "d"]);
+  });
+
+  it("Test W4: lastTickLiveWidgets is populated after a successful tick and used for next-tick reconciliation", async () => {
+    // Three-tick sequence: tick 1 = [A, B], tick 2 = [A] (B gone), tick 3 = [A] (no new gones).
+    const channel = new MockSshChannel();
+    wireBatchProbeWidget(channel);
+
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        widgets: [{ slug: "a", port: 9601 }, { slug: "b", port: 9602 }],
+      }),
+    );
+
+    const capture = makeIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (!pollFn) return;
+
+    // Tick 2: only A
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        widgets: [{ slug: "a", port: 9601 }],
+      }),
+    );
+    await pollFn.fn(); // tick 2
+
+    // B should have been gone'd after tick 2
+    expect(deps.registry.publishedWidgetGone.filter((g) => g.slug === "b")).toHaveLength(1);
+
+    deps.registry.publishedWidgetGone.length = 0;
+
+    // Tick 3: still only A — B must NOT be gone'd again
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        widgets: [{ slug: "a", port: 9601 }],
+      }),
+    );
+    await pollFn.fn(); // tick 3
+
+    expect(deps.registry.publishedWidgetGone).toHaveLength(0);
+  });
+
+  it("Test W5: failed sweep tick (schemaMismatch) does NOT fire any widget publish or reconciliation", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbeWidget(channel);
+
+    // Tick 1: healthy sweep with widget A
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        widgets: [{ slug: "a", port: 9601 }],
+      }),
+    );
+
+    const capture = makeIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1 — widget A published
+
+    // Capture state after tick 1
+    const updatesAfterTick1 = deps.registry.publishedWidgetUpdates.length;
+    deps.registry.publishedWidgetGone.length = 0;
+
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (!pollFn) return;
+
+    // Tick 2: schema mismatch — ALL lines have wrong schema_version
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [],
+        pids: [],
+        widgets: [{ slug: "b", port: 9602 }],
+        schemaVersionOverride: 999,
+      }),
+    );
+    await pollFn.fn(); // tick 2 — should fail schema check
+
+    // No new widget updates after the failed tick
+    expect(deps.registry.publishedWidgetUpdates.length).toBe(updatesAfterTick1);
+    // No gone published — lastTickLiveWidgets unchanged
+    expect(deps.registry.publishedWidgetGone).toHaveLength(0);
+  });
+
+  it("Test W6: empty interactiveMessageLines on successful tick fires publishWidgetGoneByHostSlug for EACH previous widget (reconciliation to zero)", async () => {
+    // The sweep includes an identity on both ticks so the empty-output
+    // disambiguation guard (which short-circuits on zero identities + zero pids
+    // + zero apps + zero widgets) doesn't fire — the tick is a SUCCESS with a
+    // non-empty sweep result that happens to have no widget lines on tick 2.
+    const channel = new MockSshChannel();
+    wireBatchProbeWidget(channel);
+
+    // Tick 1: one identity + two widgets (sweep has content — not empty)
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [{ identity: "sparrow" }],
+        pids: [],
+        widgets: [{ slug: "poll-abc" }, { slug: "form-xyz" }],
+      }),
+    );
+
+    const capture = makeIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    deps.registry.publishedWidgetGone.length = 0;
+
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (!pollFn) return;
+
+    // Tick 2: successful sweep — same identity, zero widget lines.
+    // identityLines.length > 0 so the empty-output guard does NOT short-circuit.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: [{ identity: "sparrow" }],
+        pids: [],
+        widgets: [],
+      }),
+    );
+    await pollFn.fn(); // tick 2 — successful with zero widget lines
+
+    // Both widgets must be gone'd (reconciliation to zero)
+    expect(deps.registry.publishedWidgetGone).toHaveLength(2);
+    const goneSlugs = deps.registry.publishedWidgetGone.map((g) => g.slug).sort();
+    expect(goneSlugs).toEqual(["form-xyz", "poll-abc"]);
+  });
+}); // end describe Phase 137 Plan 02 widget reconciliation

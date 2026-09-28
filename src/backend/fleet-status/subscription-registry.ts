@@ -11,6 +11,7 @@ import type {
   AppState,
   FrontendOutboundFrameType,
   SessionState,
+  WidgetState,
 } from "./wire-protocol.js";
 import {
   FRAME_SCHEMA_VERSION,
@@ -263,6 +264,48 @@ export interface SubscriptionRegistry {
    */
   getAppSnapshot(): AppState[];
 
+  // ─── Phase 137 Plan 02 — widget lane (separate from apps) ─────────────────
+  // Source-D widgets (~/fleet/interactive-messages/<slug>/) live in their own
+  // Map separate from apps — RESEARCH Pitfall 1: same-slug app and widget would
+  // collide if they shared a map. No outbound frame fan-out: the /interactive/
+  // proxy router (Plan 03) pulls ports synchronously via getWidgetSnapshot().
+  // Widgets are kept off the sidebar by construction — adding widget frames to
+  // FrontendOutboundFrame is explicitly deferred to a future phase if needed.
+
+  /**
+   * Phase 137 Plan 02: publish an add/mutate for one source-D widget.
+   * The widgets map is indexed by `${hostId}:${slug}` (same compound-key shape
+   * as the apps map but a DISTINCT Map — RESEARCH Pitfall 1 separation).
+   *
+   * NO frame fan-out — widgets are registry-only in Phase 137. The
+   * /interactive/ proxy router pulls widget ports synchronously via
+   * getWidgetSnapshot() rather than subscribing to widget frames.
+   *
+   * Called from ssh-poll-orchestrator.ts (Plan 137-02) inside the per-host
+   * successful-sweep widget loop.
+   */
+  publishWidgetUpdate(hostId: string, widget: WidgetState): void;
+
+  /**
+   * Phase 137 Plan 02: remove one source-D widget from the map.
+   * No-op when the key is absent (idempotent — mirrors
+   * publishAppGoneByHostSlug). NO frame fan-out — registry-only.
+   *
+   * Called from ssh-poll-orchestrator.ts (Plan 137-02) per-host
+   * reconciliation when a widget slug drops out of the sweep.
+   */
+  publishWidgetGoneByHostSlug(hostId: string, slug: string): void;
+
+  /**
+   * Phase 137 Plan 02: return all current WidgetState values as an array
+   * (order not guaranteed). Used by im-pane-router.ts (Plan 03) for
+   * synchronous port lookup.
+   *
+   * Symmetric with getAppSnapshot() but lives in the SEPARATE widget Map —
+   * widget slugs never appear in getAppSnapshot() and vice versa.
+   */
+  getWidgetSnapshot(): WidgetState[];
+
   /**
    * Return all current SessionState values as an array (order not guaranteed).
    */
@@ -503,6 +546,12 @@ export function createSubscriptionRegistry(
   // persistence, restart wipes it, next successful sweep tick rebuilds it
   // from disk-on-boxes.
   const apps = new Map<string, AppState>();
+  // Phase 137 Plan 02: separate lane from apps — same compound-key shape
+  // (`${hostId}:${slug}` via makeAppKey) but distinct Map to keep widget slugs
+  // from colliding with app slugs at lookup time (RESEARCH Pitfall 1). No
+  // outbound frames — registry-only lookup. In-memory only, same discipline
+  // as the apps map.
+  const widgets = new Map<string, WidgetState>();
 
   return {
     subscribe(sendFrame: SendFrame, ctx?: { userId: string }): () => void {
@@ -1011,6 +1060,31 @@ export function createSubscriptionRegistry(
       // Phase 118 Plan 118-03 — symmetric with getSnapshot() for sessions.
       // Order is Map insertion order; callers must not depend on it.
       return Array.from(apps.values());
+    },
+
+    publishWidgetUpdate(hostId: string, widget: WidgetState): void {
+      // Phase 137 Plan 02 — insert-or-replace at `${hostId}:${slug}` in the
+      // SEPARATE widgets map. NO frame fan-out — widgets are registry-only in
+      // Phase 137. The /interactive/ proxy router pulls widget ports
+      // synchronously via getWidgetSnapshot() rather than subscribing to widget
+      // frames. This is deliberate: widgets must never appear as sidebar tiles.
+      const key = makeAppKey(hostId, widget.slug);
+      widgets.set(key, widget);
+    },
+
+    publishWidgetGoneByHostSlug(hostId: string, slug: string): void {
+      // Phase 137 Plan 02 — remove from the widgets map. No-op if the key is
+      // absent (idempotent — mirrors publishAppGoneByHostSlug). NO frame
+      // fan-out — registry-only.
+      const key = makeAppKey(hostId, slug);
+      widgets.delete(key);
+    },
+
+    getWidgetSnapshot(): WidgetState[] {
+      // Phase 137 Plan 02 — symmetric with getAppSnapshot() but over the
+      // SEPARATE widgets map. Order is Map insertion order; callers must not
+      // depend on it. Used by im-pane-router.ts (Plan 03) for port lookup.
+      return Array.from(widgets.values());
     },
 
     getSnapshot(): SessionState[] {

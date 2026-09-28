@@ -733,6 +733,39 @@ const AppGoneFrameSchema = z.object({
   slug: z.string(),
 });
 
+// ---------------------------------------------------------------------------
+// Phase 137 Plan 02 — WidgetState: registry-only shape for source-D widgets.
+//
+// No wire frames in Phase 137 — the /interactive/ proxy looks up widgets
+// synchronously via registry.getWidgetSnapshot() rather than subscribing to
+// widget-snapshot frames. Widgets are DELIBERATELY kept off the outbound frame
+// pipeline to preserve the design invariant that widgets never appear as sidebar
+// tiles. If a future phase introduces widget frames, that is a separate plan
+// concern; the FrontendOutboundFrame union below is intentionally UNCHANGED.
+//
+// Fields mirror SweepInteractiveMessageLine snake_case → camelCase (same
+// conversion discipline as AppState vs. SweepAppLine in Phase 118 Plan 118-03).
+// ---------------------------------------------------------------------------
+
+export const WidgetStateSchema = z.object({
+  /** Compound-key component: the numeric host ID as a string. */
+  hostId: z.string(),
+  /** Widget slug: lowercase alphanumeric + hyphen, max 40 chars. */
+  slug: z.string(),
+  /**
+   * TCP port the widget server is bound to (9601-9699 range per create-widget.sh).
+   * Nullable — Python sweep sets port: null when PORT extraction from the
+   * systemd unit file fails.
+   */
+  port: z.number().nullable(),
+  /** False iff the unit exists but port probe failed. */
+  isHealthy: z.boolean(),
+  /** Widget folder mtime * 1000 — unix milliseconds. */
+  createdAtMs: z.number(),
+});
+
+export type WidgetState = z.infer<typeof WidgetStateSchema>;
+
 export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendSnapshotFrameSchema,
   FrontendUpdateFrameSchema,

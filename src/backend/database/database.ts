@@ -29,6 +29,16 @@ import {
   appPaneRouter,
   handleAppPaneUpgrade,
 } from "../apps/app-pane-router.js";
+// Phase 137 D-137 (D-08 parallel): the /interactive/:hostId/:slug/pane/*
+// widget-pane proxy router + WS upgrade handler. Reuses the SAME proxy
+// factory + resolver + auth chain as /apps/ (see im-pane-router.ts
+// docblock) — only the URL prefix, registry lookup call, and error
+// strings differ.
+import { imPaneRouter, handleImPaneUpgrade } from "../apps/im-pane-router.js";
+// Phase 137 Plan 03 Task 2: combined upgrade dispatcher — routes both
+// /apps/*/pane/* and /interactive/*/pane/* before destroying any non-matching
+// upgrade socket (RESEARCH Pitfall 6).
+import { combinedPaneUpgradeDispatcher } from "./combined-pane-upgrade-dispatcher.js";
 // @types/node types http.Server's `upgrade` callback socket as `Duplex`,
 // but the runtime object is a `net.Socket` and downstream (proxy-middleware,
 // ws) is typed against `Socket`. Import the type here purely to cast at the
@@ -283,6 +293,12 @@ app.use(serveUrlHandler);
 // router.all catches HTTP methods only, not upgrade events (BLOCKER 6
 // fix, T-120-32).
 app.use("/apps", appPaneRouter);
+// Phase 137 D-137 (D-08 parallel): /interactive/:hostId/:slug/pane/* widget-pane
+// proxy. Reuses the SAME proxy factory + resolver + auth chain as /apps/
+// (see im-pane-router.ts docblock) — only the URL prefix, registry lookup
+// call, and error strings differ. WebSocket upgrades on this path shape
+// are handled at the http.Server level via the combined dispatcher below.
+app.use("/interactive", imPaneRouter);
 
 app.use(createCorsMiddleware());
 
@@ -2496,21 +2512,33 @@ app.get(
 
 const httpServer = http.createServer(app);
 
-// Phase 120 D-08 (T-120-32, BLOCKER 6) — WebSocket upgrade dispatcher
-// for /apps/:hostId/:slug/pane/*. router.all catches HTTP methods only;
-// upgrade events fire on the http.Server BEFORE any Express dispatch.
-// The dispatcher path-shape-tests the URL and returns without touching
-// the socket if it does NOT match the pane path — other upgrade
-// consumers on this server (serve-url subdomain dispatch, terminal WS,
-// future mounts) fire normally. On matching paths it repeats the SAME
-// auth + validation + access + CSRF + port + target chain as the HTTP
-// route before calling proxyMiddleware.upgrade(req, socket, head).
+// Phase 137 Plan 03 (RESEARCH Pitfall 6): combined upgrade dispatcher.
+// TWO upgrade handlers now coexist on this server — both /apps/*/pane/*
+// and /interactive/*/pane/*. The dispatcher path-tests BEFORE routing so
+// a non-matching upgrade is destroyed by this outer handler, NOT by the
+// inner handlers. `handleAppPaneUpgrade`'s legacy internal
+// destroy-on-non-match branch (HIGH-3 fix, 2026-09-19) becomes dead code
+// once this dispatcher is in place — the outer path-test guarantees the
+// internal regex will always match. Order (im-pane tested first) is not
+// load-bearing since the two regexes have disjoint prefixes; the
+// test-first is just for readability.
+// See src/backend/database/combined-pane-upgrade-dispatcher.ts for the
+// extracted + unit-tested implementation.
+// Phase 120 D-08 (T-120-32, BLOCKER 6) origin preserved: upgrade events
+// fire on the http.Server BEFORE any Express dispatch; router.all catches
+// HTTP methods only.
+// handleImPaneUpgrade and handleAppPaneUpgrade are invoked via the
+// combined dispatcher (extracted to combined-pane-upgrade-dispatcher.ts
+// for unit testability — see that module for the routing logic).
+// Both handlers are imported above to make their dependency explicit here.
+void handleImPaneUpgrade; // referenced via combinedPaneUpgradeDispatcher
+void handleAppPaneUpgrade; // referenced via combinedPaneUpgradeDispatcher;
+                           // its internal non-match branch is now dead code
+                           // because the combined dispatcher guarantees a
+                           // path match before calling it. Retained for
+                           // defense-in-depth.
 httpServer.on("upgrade", (req, socket, head) => {
-  // Path-shape guard: handleAppPaneUpgrade matches /apps/:hostId/:slug/pane/*
-  // internally (via APP_SLUG_RE-shaped regex) and returns without touching
-  // the socket on non-matching URLs, so this binding does NOT blindly hijack
-  // every upgrade event — only /apps/*/pane requests are dispatched.
-  void handleAppPaneUpgrade(req, socket as NetSocket, head);
+  void combinedPaneUpgradeDispatcher(req, socket as NetSocket, head);
 });
 
 httpServer.on("error", (err: NodeJS.ErrnoException) => {

@@ -48,7 +48,7 @@ import {
   DISCOVERY_EXEC_TIMEOUT_MS,
 } from "../claude-session/discover-identity-session-file.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
-import type { AppState, SessionState } from "./wire-protocol.js";
+import type { AppState, SessionState, WidgetState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
 import { writeSessionFileCache } from "./session-file-cache.js";
 // Phase 92 — v1 JSONL sweep wire contract (Plan 01). parseSweepJsonl is the
@@ -59,6 +59,7 @@ import {
   parseSweepJsonl,
   SWEEP_SCHEMA_VERSION,
   type SweepAppLine,
+  type SweepInteractiveMessageLine,
   type SweepPidLine,
   type SweepIdentityLine,
 } from "./sweep-schema.js";
@@ -527,6 +528,16 @@ interface PerHostState {
   // so transient SSH failures don't flap the sidebar). Matches the identity
   // reconciliation guard.
   lastTickLiveApps: Set<string>;
+
+  // Phase 137 Plan 02 (parallel to lastTickLiveApps for source-D widgets):
+  // set of all widget slugs that were in the previous successful tick's picture
+  // for this host. Same reconciliation discipline as lastTickLiveApps — diff'd
+  // against the current tick's widget slugs on each successful sweep to fire
+  // publishWidgetGoneByHostSlug for widgets that dropped out.
+  //
+  // Reconciliation runs ONLY on sweep success (same success-gate as apps above).
+  // Initialized empty so the FIRST successful sweep publishes nothing gone.
+  lastTickLiveWidgets: Set<string>;
 
   // Per-identity raw cosmetics cache — populated by the source-B loop on every
   // successful sweep tick for EVERY live-tree identity (before the skip-and-
@@ -1283,6 +1294,45 @@ function adaptAppLineToState(hostId: string, line: SweepAppLine): AppState {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 137 Plan 02 — source-D widget adapter (snake_case wire → camelCase
+// WidgetState).
+//
+// Parallel to adaptAppLineToState but for source-D interactive-message widget
+// lines. Pure field copy — no runtime validation, no defensive undefined
+// checks. The runtime validation gate is parseSweepJsonl's shape guard
+// (SweepInteractiveMessageLine union member validated by isSweepLineOfCurrentSchema).
+//
+// Adapter carries STRICTLY FEWER fields than adaptAppLineToState (per Phase
+// 137 D-20: widgets are not sidebar tiles — no title, description, hasIcon,
+// healthMessage, users). The six fields map 1:1 from snake_case wire to
+// camelCase registry shape.
+// ---------------------------------------------------------------------------
+function adaptWidgetLineToState(
+  hostId: string,
+  line: SweepInteractiveMessageLine,
+): WidgetState {
+  return {
+    hostId,
+    slug: line.slug,
+    port: line.port,
+    isHealthy: line.is_healthy,
+    createdAtMs: line.created_at_ms,
+  };
+}
+
+/**
+ * Test-only export of adaptWidgetLineToState — mirrors the
+ * __scanTailForNewestMessageAtForTests pattern. Do NOT call from production
+ * code paths other than via the successful-sweep widget loop below.
+ */
+export function __adaptWidgetLineToStateForTests(
+  hostId: string,
+  line: SweepInteractiveMessageLine,
+): WidgetState {
+  return adaptWidgetLineToState(hostId, line);
+}
+
+// ---------------------------------------------------------------------------
 // Phase 99 — spawn-request scan helpers (D-01, D-02, D-03, D-17)
 //
 // One atomic read-and-delete exec per tick per host: lists
@@ -1983,15 +2033,24 @@ export function createSshPollOrchestrator(
     // apps is a legitimate emission, not an empty one. Without this
     // widening, an apps-only sweep would prematurely return here and
     // bypass the compose+publish + reconciliation blocks below.
+    //
+    // Phase 137 Plan 02: `interactiveMessageLines` also participates — a box
+    // with zero identities + zero PIDs + zero apps but N widgets is a
+    // legitimate emission (same rationale as the Phase 118 app widening).
     if (
       parsed.identityLines.length === 0 &&
       parsed.pidLines.length === 0 &&
-      parsed.appLines.length === 0
+      parsed.appLines.length === 0 &&
+      parsed.interactiveMessageLines.length === 0
     ) {
       const hasPriorContent =
         hostState.livenessMap.size > 0 ||
         hostState.identityRecycleState.size > 0 ||
-        hostState.lastTickLiveApps.size > 0;
+        hostState.lastTickLiveApps.size > 0 ||
+        // Phase 137 Plan 02: include widget state in the "prior content" check
+        // so that a host whose ONLY lines are widgets doesn't get treated as
+        // "empty" when all its widgets disappear on the next tick.
+        hostState.lastTickLiveWidgets.size > 0;
       if (hasPriorContent) {
         return { ok: false, reason: "empty-output-on-nonempty-box" };
       }
@@ -2141,6 +2200,48 @@ export function createSshPollOrchestrator(
       }
     }
     hostState.lastTickLiveApps = thisTickLiveApps;
+
+    // Phase 137 Plan 02 (D-20) — source-D widget compose+publish + reconciliation.
+    //
+    // Parallel to the source-C app block above but SEPARATE — the two lanes are
+    // kept visually distinct to make it easy to reason about each independently.
+    // Widget publishes carry NO frame fan-out (registry-only lookup per the
+    // Phase 137 design invariant that widgets never appear as sidebar tiles).
+    //
+    // This block sits inside the same sweep-SUCCESS scope as the app block — all
+    // {ok:false} early returns above bypass it, so transient SSH failures and
+    // schema mismatches never flap the widget picture (same D-12 success-gate
+    // discipline the app reconciliation relies on).
+    for (const widgetLine of parsed.interactiveMessageLines) {
+      deps.registry.publishWidgetUpdate(
+        host.id,
+        adaptWidgetLineToState(host.id, widgetLine),
+      );
+    }
+
+    // Widget reconciliation — diff the current tick's widget slugs against the
+    // previous tick's picture; fire publishWidgetGoneByHostSlug for any slug that
+    // dropped out (same pattern as the app reconciliation block above).
+    const thisTickLiveWidgets = new Set<string>();
+    for (const line of parsed.interactiveMessageLines) {
+      thisTickLiveWidgets.add(line.slug);
+    }
+    for (const previousSlug of hostState.lastTickLiveWidgets) {
+      if (!thisTickLiveWidgets.has(previousSlug)) {
+        deps.registry.publishWidgetGoneByHostSlug(host.id, previousSlug);
+      }
+    }
+    hostState.lastTickLiveWidgets = thisTickLiveWidgets;
+    // NOTE: The empty-sweep disambiguation guard at lines 1986-1999 above is
+    // app-and-session-focused — it checks appLines.length + identityLines.length
+    // + pidLines.length. Widget lines are additive-newest-last (D-14) and do not
+    // participate in the empty-box heuristic; a sweep with ONLY widget lines (no
+    // identities, no PIDs, no apps) would still short-circuit there. This is
+    // acceptable: a box with widgets but no identities is an unusual state and
+    // the empty-box heuristic already guards against it via the hasPriorContent
+    // check (lastTickLiveApps.size). The widget picture will still be correctly
+    // reconstructed on the next tick when identities appear. No change to the
+    // empty-sweep guard is required in Phase 137.
 
     return {
       ok: true,
@@ -3374,6 +3475,12 @@ export function createSshPollOrchestrator(
         // publishAppGoneByHostSlug for any slug that dropped out of the
         // picture (folder deleted, unit removed, ceased passing D-01/D-02).
         lastTickLiveApps: new Set<string>(),
+        // Phase 137 Plan 02: parallel reconciliation set for source-D widget
+        // slugs. Same initialization discipline as lastTickLiveApps above —
+        // initialized empty so the FIRST successful sweep fires nothing gone.
+        // Subsequent ticks compare against this and emit
+        // publishWidgetGoneByHostSlug for any slug that dropped out.
+        lastTickLiveWidgets: new Set<string>(),
         // Phase 92 — sweep-first / legacy-fallback dispatch cache. All three
         // fields are per-SSH-channel-lifetime: reset when pollOneHost sees a
         // fresh channel object reference (see PerHostState docblock above).

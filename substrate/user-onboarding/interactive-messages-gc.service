@@ -1,0 +1,11 @@
+[Unit]
+Description=Interactive-messages 7-day backstop GC sweep
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/interactive-messages-gc
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

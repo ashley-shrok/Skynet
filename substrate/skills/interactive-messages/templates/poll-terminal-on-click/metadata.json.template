@@ -1,0 +1,21 @@
+// SHAPE REFERENCE — the scaffold script constructs this via Python; DO NOT copy
+// this file verbatim as substitution is done in Python for correct JSON escaping.
+//
+// Phase 137: interactive-messages plumbing + first template
+// Source: substrate/skills/interactive-messages/templates/poll-terminal-on-click/
+//
+// This file documents the exact shape written by create-widget.sh to
+// ~/fleet/interactive-messages/<slug>/metadata.json. The scaffold script
+// uses python3 inline to build this with proper JSON escaping; it does NOT
+// use sed or template-substitution on this file.
+{
+  "template": "poll",
+  "widget_id": "__SLUG__",
+  "message_id": "__MESSAGE_ID__",
+  "conversation_id": "__CONVERSATION_ID__",
+  "config": {
+    "prompt": "__PROMPT__",
+    "options": ["__OPT1__", "__OPT2__"]
+  },
+  "created_at": "__ISO_TIMESTAMP__"
+}

@@ -89,8 +89,9 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: vi.fn(() => false),
 }));
 
+// Phase 137: hook now returns Map<string, "file" | "interactive-message"> (not Set).
 vi.mock("./use-editable-file-eligibility", () => ({
-  useEditableFileEligibility: vi.fn(() => new Set()),
+  useEditableFileEligibility: vi.fn(() => new Map()),
 }));
 
 vi.mock("@/api/editable-file-api", () => ({
@@ -221,7 +222,7 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
       identity: null,
       identityHue: null,
     });
-    mockedHook.mockReturnValue(new Set());
+    mockedHook.mockReturnValue(new Map());
     mockedFetch.mockReset();
     resizeObserverStub = vi.fn(function () {
       return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
@@ -264,7 +265,7 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
   });
 
   it("Test 1: affordance click opens the EditableFileModal", async () => {
-    mockedHook.mockReturnValue(new Set([URL_A]));
+    mockedHook.mockReturnValue(new Map([[URL_A, "file"]]));
     // Fetch resolves so the modal's fetch-at-open effect settles cleanly.
     mockedFetch.mockResolvedValue({
       filename: "notes.md",
@@ -302,7 +303,7 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
   }, 20000);
 
   it("Test 2: close button clears the modal open state", async () => {
-    mockedHook.mockReturnValue(new Set([URL_A]));
+    mockedHook.mockReturnValue(new Map([[URL_A, "file"]]));
     mockedFetch.mockResolvedValue({
       filename: "notes.md",
       contentBase64: btoa("hello"),
@@ -342,7 +343,7 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
   });
 
   it("Test 3: save deposits a File into uploads.stageAttachments('primary', ...)", async () => {
-    mockedHook.mockReturnValue(new Set([URL_A]));
+    mockedHook.mockReturnValue(new Map([[URL_A, "file"]]));
     mockedFetch.mockResolvedValue({
       filename: "notes.md",
       contentBase64: btoa("original"),
@@ -449,7 +450,7 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
       } as unknown,
       identityHue: 200,
     });
-    mockedHook.mockReturnValue(new Set([URL_A]));
+    mockedHook.mockReturnValue(new Map([[URL_A, "file"]]));
     mockedFetch.mockResolvedValue({
       filename: "notes.md",
       contentBase64: btoa("x"),
@@ -481,7 +482,7 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
   });
 
   it("Test 5: multiple opens — second open uses the new URL, not stale state", async () => {
-    mockedHook.mockReturnValue(new Set([URL_A, URL_B]));
+    mockedHook.mockReturnValue(new Map([[URL_A, "file"], [URL_B, "file"]]));
     // Sequence of fetch responses per URL.
     mockedFetch.mockImplementation(async (u: string) => ({
       filename: u.endsWith("notes.md") ? "notes.md" : "report.md",

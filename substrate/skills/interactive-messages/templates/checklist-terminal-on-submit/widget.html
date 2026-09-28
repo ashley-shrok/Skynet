@@ -1,0 +1,271 @@
+<!-- Phase 138 checklist-terminal-on-submit template — do not edit installed copies; edit the substrate template only -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skynet widget</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      background: #fff;
+      color: #111;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #e8e8e8; }
+    }
+
+    #prompt {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #checklist {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .checklist-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px;
+      min-height: 44px;
+      cursor: pointer;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    .checklist-row:hover {
+      background: #f0f0f0;
+      border-color: #ccc;
+    }
+
+    .checklist-row:has(.opt-cb:checked) {
+      background: #d0e8ff;
+      border-color: #3b82f6;
+    }
+
+    .opt-cb {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      cursor: pointer;
+      accent-color: #3b82f6;
+    }
+
+    .opt-cb:disabled {
+      cursor: default;
+      opacity: 0.6;
+    }
+
+    .opt-label {
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .checklist-row:hover { background: #2d2d2d; border-color: #555; }
+      .checklist-row:has(.opt-cb:checked) { background: #1e3a5f; border-color: #3b82f6; }
+      .opt-label { color: #e8e8e8; }
+    }
+
+    .submit-btn {
+      display: block;
+      width: 100%;
+      margin-top: 12px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      border: 1px solid #3b82f6;
+      border-radius: 6px;
+      background: #3b82f6;
+      color: #fff;
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    .submit-btn:hover:not(:disabled) {
+      background: #2563eb;
+      border-color: #2563eb;
+    }
+
+    .submit-btn:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .submit-btn { background: #2563eb; border-color: #3b82f6; color: #fff; }
+      .submit-btn:hover:not(:disabled) { background: #1d4ed8; border-color: #1d4ed8; }
+      .submit-btn:disabled { background: #1e3a5f; border-color: #1e3a5f; opacity: 0.55; }
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #555;
+      min-height: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #status { color: #aaa; }
+    }
+  </style>
+</head>
+<body>
+  <h2 id="prompt"></h2>
+  <!-- #checklist is populated by JS: one <label class="checklist-row"> per option,
+       each wrapping an <input type="checkbox" class="opt-cb"> + <span class="opt-label"> -->
+  <div id="checklist"></div>
+  <button id="submit-btn" class="submit-btn" type="button"></button>
+  <div id="status"></div>
+
+  <script>
+    // Substitution points — the scaffold script replaces these inline literals.
+    // __PROMPT_JSON__ is the JSON-encoded checklist question (HTML-safe via JSON string escaping).
+    // __OPTIONS_JSON__ is a JSON array of option label strings.
+    // __WIDGET_ID__ is the widget slug.
+    // __PANE_BASE__ is the URL path prefix for the widget's own origin.
+    // __SUBMIT_LABEL_JSON__ is the JSON-encoded submit label template string (contains {N}).
+    var PROMPT               = __PROMPT_JSON__;
+    var OPTIONS              = __OPTIONS_JSON__;
+    var WIDGET_ID            = "__WIDGET_ID__";
+    var PANE_BASE            = "__PANE_BASE__";
+    var SUBMIT_LABEL_TEMPLATE = __SUBMIT_LABEL_JSON__;
+
+    document.addEventListener("DOMContentLoaded", function () {
+      // Set the prompt text
+      var promptEl = document.getElementById("prompt");
+      promptEl.textContent = PROMPT;
+
+      // Render one row per option into #checklist
+      var checklistEl = document.getElementById("checklist");
+      OPTIONS.forEach(function (label) {
+        var row = document.createElement("label");
+        row.className = "checklist-row";
+
+        // Each row contains an <input type="checkbox" class="opt-cb"> for the option
+        var cb = document.createElement("input");
+        cb.setAttribute("type", "checkbox");
+        cb.className = "opt-cb";
+        cb.value = label;
+
+        var span = document.createElement("span");
+        span.className = "opt-label";
+        span.textContent = label;
+
+        row.appendChild(cb);
+        row.appendChild(span);
+        checklistEl.appendChild(row);
+
+        // Update submit button label live on each change
+        cb.addEventListener("change", function () {
+          updateSubmitLabel();
+        });
+      });
+
+      // Initial label render (0 selected)
+      updateSubmitLabel();
+    });
+
+    function getCheckedLabels() {
+      var cbs = document.querySelectorAll(".opt-cb");
+      var checked = [];
+      cbs.forEach(function (cb) {
+        if (cb.checked) checked.push(cb.value);
+      });
+      return checked;
+    }
+
+    function updateSubmitLabel() {
+      var btn = document.getElementById("submit-btn");
+      if (!btn || btn.disabled) return;
+      var n = getCheckedLabels().length;
+      var tmpl = (SUBMIT_LABEL_TEMPLATE && SUBMIT_LABEL_TEMPLATE.indexOf("{N}") !== -1)
+        ? SUBMIT_LABEL_TEMPLATE
+        : "Submit {N} selected";
+      btn.textContent = tmpl.replace("{N}", String(n));
+    }
+
+    function setStatus(msg) {
+      var el = document.getElementById("status");
+      if (el) el.textContent = msg;
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      var submitBtn = document.getElementById("submit-btn");
+      if (!submitBtn) return;
+
+      submitBtn.addEventListener("click", function () {
+        var checked = getCheckedLabels();
+
+        // Step 1: disable all checkboxes + submit button immediately (anti-double-fire)
+        var cbs = document.querySelectorAll(".opt-cb");
+        cbs.forEach(function (cb) { cb.disabled = true; });
+        submitBtn.disabled = true;
+
+        setStatus("Submitting…");
+
+        var now = new Date().toISOString();
+        var payload = {
+          checked: checked,
+          submitted_at: now
+        };
+
+        // Step 2: POST to /submit (widget's own origin via relative path)
+        var submitUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
+          ? PANE_BASE + "/submit"
+          : "/submit";
+
+        fetch(submitUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        })
+        .then(function (res) {
+          if (!res.ok && res.status !== 204) {
+            throw new Error("submit returned " + res.status);
+          }
+          submitBtn.textContent = "Submitted.";
+          setStatus("Submitted.");
+
+          // Step 3: fire postMessage AFTER fetch resolves OK
+          // This guarantees state.json is written before the agent wakes.
+          // Target window.location.origin explicitly — never "*".
+          window.parent.postMessage(
+            {
+              type: "widget-submit",
+              widgetId: WIDGET_ID,
+              value: { checked: checked }
+            },
+            window.location.origin
+          );
+        })
+        .catch(function (err) {
+          // On fetch failure: log + do NOT fire postMessage.
+          // The agent must not wake to a submit that didn't persist.
+          console.error("[widget] submit fetch failed:", err);
+          setStatus("Submission failed — please try again.");
+          // Re-enable everything so the user can retry
+          cbs.forEach(function (cb) { cb.disabled = false; });
+          submitBtn.disabled = false;
+          updateSubmitLabel();
+        });
+      });
+    });
+  </script>
+</body>
+</html>

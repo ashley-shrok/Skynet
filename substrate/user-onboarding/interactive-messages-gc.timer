@@ -1,0 +1,10 @@
+[Unit]
+Description=Fire the interactive-messages 7-day backstop GC sweep daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=interactive-messages-gc.service
+
+[Install]
+WantedBy=timers.target

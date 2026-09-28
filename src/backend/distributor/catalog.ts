@@ -423,7 +423,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- user-onboarding/ (1 row) ---
+  // --- user-onboarding/ (1 row: agent-supervisor.service) ---
   // The .service unit file must land in ~/.config/systemd/user/ on every
   // managed host. runBootstrapForHost runs `systemctl --user daemon-reload`
   // unconditionally at the start of each sweep, so when bytes here change
@@ -434,6 +434,27 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     bundledPath: "/app/fleet-substrate/user-onboarding/agent-supervisor.service",
     installPath: "~/.config/systemd/user/agent-supervisor.service",
     restartHook: "agent-supervisor.service",
+  },
+
+  // interactive-messages-gc.service — oneshot user service, fired by the
+  // .timer below. No restart hook — the service is a short-lived oneshot.
+  {
+    slug: "interactive-messages-gc-service-unit",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/user-onboarding/interactive-messages-gc.service",
+    installPath: "~/.config/systemd/user/interactive-messages-gc.service",
+    restartHook: null,
+  },
+  // interactive-messages-gc.timer — daily user timer that fires the GC
+  // service. run-bootstrap.ts enables + starts this on every host (mirrors
+  // agent-supervisor.service bootstrap pattern). No restart hook — timer
+  // bytes changes are picked up on daemon-reload (which every sweep runs).
+  {
+    slug: "interactive-messages-gc-timer-unit",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/user-onboarding/interactive-messages-gc.timer",
+    installPath: "~/.config/systemd/user/interactive-messages-gc.timer",
+    restartHook: null,
   },
 
   // --- fleet-status-sweep (1 row: python batch sweep for fleet-status poller — Phase 92) ---
@@ -457,6 +478,20 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/pv-context-pct-sweep.py",
     installPath: "~/.local/bin/pv-context-pct-sweep",
+    restartHook: null,
+  },
+
+  // --- interactive-messages-gc (Phase 140: seven-day backstop) ---
+  // Daily sweep script. Enumerates ~/fleet/interactive-messages/*/, tears
+  // down any widget older than 7 days by shelling out to teardown-widget.sh
+  // via ~/.claude/skills/interactive-messages/. No restart hook — short-
+  // lived on-demand script fired by its .timer; new bytes are picked up
+  // on the next fire.
+  {
+    slug: "interactive-messages-gc",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/interactive-messages-gc.py",
+    installPath: "~/.local/bin/interactive-messages-gc",
     restartHook: null,
   },
 

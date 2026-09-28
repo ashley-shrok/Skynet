@@ -1,0 +1,189 @@
+<!-- Phase 138 color-picker-terminal-on-click template — do not edit installed copies; edit the substrate template only -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skynet widget</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      background: #fff;
+      color: #111;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #e8e8e8; }
+    }
+
+    #prompt {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #palette {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .swatch {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0;
+      cursor: pointer;
+      border: 2px solid rgba(0,0,0,0.15);
+      border-radius: 8px;
+      background-color: var(--sw);
+      transition: transform 0.1s, border-color 0.1s;
+      position: relative;
+    }
+
+    .swatch:hover:not(:disabled) {
+      transform: scale(1.06);
+      border-color: rgba(0,0,0,0.4);
+    }
+
+    .swatch.selected {
+      border-color: #000;
+      border-width: 3px;
+    }
+
+    .swatch:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .swatch { border-color: rgba(255,255,255,0.15); }
+      .swatch:hover:not(:disabled) { border-color: rgba(255,255,255,0.5); }
+      .swatch.selected { border-color: #fff; }
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #555;
+      min-height: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #status { color: #aaa; }
+    }
+  </style>
+</head>
+<body>
+  <h2 id="prompt" hidden></h2>
+  <div id="palette"></div>
+  <div id="status"></div>
+
+  <script>
+    // Substitution points — the scaffold script replaces these inline literals.
+    // __PROMPT_JSON__ is the JSON-encoded prompt string (null if no prompt supplied).
+    // __PALETTE_JSON__ is a JSON array of hex color strings.
+    // __WIDGET_ID__ is the widget slug.
+    // __PANE_BASE__ is the URL path prefix for the widget's own origin.
+    var PROMPT    = __PROMPT_JSON__;
+    var PALETTE   = __PALETTE_JSON__;
+    var WIDGET_ID = "__WIDGET_ID__";
+    var PANE_BASE = "__PANE_BASE__";
+
+    document.addEventListener("DOMContentLoaded", function () {
+      // Set the prompt text if provided
+      var promptEl = document.getElementById("prompt");
+      if (PROMPT && typeof PROMPT === "string" && PROMPT.length > 0) {
+        promptEl.textContent = PROMPT;
+        promptEl.removeAttribute("hidden");
+      }
+
+      // Render one swatch button per palette entry
+      var paletteEl = document.getElementById("palette");
+      PALETTE.forEach(function (hex) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "swatch";
+        btn.setAttribute("data-color", hex);
+        btn.style.setProperty("--sw", hex);
+        btn.setAttribute("aria-label", "Pick color " + hex);
+        btn.addEventListener("click", function () {
+          handleChoice(hex);
+        });
+        paletteEl.appendChild(btn);
+      });
+    });
+
+    function setStatus(msg) {
+      var el = document.getElementById("status");
+      if (el) el.textContent = msg;
+    }
+
+    function handleChoice(hex) {
+      // Step 1: disable ALL swatches immediately to prevent double-fire
+      var swatches = document.querySelectorAll(".swatch");
+      swatches.forEach(function (s) {
+        s.disabled = true;
+        if (s.getAttribute("data-color") === hex) {
+          s.classList.add("selected");
+        }
+      });
+
+      setStatus("Submitting…");
+
+      var payload = {
+        color: hex,
+        submitted_at: new Date().toISOString()
+      };
+
+      // Step 2: POST to /submit (widget's own origin via relative path)
+      var submitUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
+        ? PANE_BASE + "/submit"
+        : "/submit";
+
+      fetch(submitUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(function (res) {
+        if (!res.ok && res.status !== 204) {
+          throw new Error("submit returned " + res.status);
+        }
+        setStatus("Submitted.");
+
+        // Step 3: fire postMessage AFTER fetch resolves OK
+        // This guarantees state.json is written before the agent wakes.
+        // Target window.location.origin explicitly — never "*".
+        window.parent.postMessage(
+          {
+            type: "widget-submit",
+            widgetId: WIDGET_ID,
+            value: { color: hex }
+          },
+          window.location.origin
+        );
+      })
+      .catch(function (err) {
+        // On fetch failure: log + do NOT fire postMessage.
+        // The agent must not wake to a submit that didn't persist.
+        console.error("[widget] submit fetch failed:", err);
+        setStatus("Submission failed — please try again.");
+        // Re-enable swatches so the user can retry
+        swatches.forEach(function (s) {
+          s.disabled = false;
+          s.classList.remove("selected");
+        });
+      });
+    }
+  </script>
+</body>
+</html>

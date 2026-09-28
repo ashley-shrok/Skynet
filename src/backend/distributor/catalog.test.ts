@@ -32,7 +32,7 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 53 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 26 app-development shape-1 rows + task-field-check hook)", () => {
+  it("Test 1: contains exactly 58 entries (17 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 26 app-development shape-1 rows + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit))", () => {
     // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
@@ -74,7 +74,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // self-edit-baseline-sync adds 1 helper script (PostToolUse hook for
     // role-file-watch self-edit suppression, 2026-09-27 — see
     // .planning/shapes/shape-stop-self-edit-events.md).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(55);
+    // +3 rows for interactive-messages-gc (Phase 140: seven-day backstop):
+    // interactive-messages-gc .py script + .service unit + .timer unit.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(58);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -176,7 +178,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +5 for pane-safe starter files (see Test 1 comment) — 32 → 37.
     // +1 for agent-phone (SKILL.md) — 37 → 38.
     expect(skillRows.length).toBe(38);
-    // 15 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
+    // 16 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + usage-report
     // (distributor-shipped node POSTer — install-usage-reporter.sh was
     // retired in favor of the run-bootstrap.ts Step 6 wire-up so the
@@ -190,10 +192,12 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // allow-all-tools (PreToolUse hook — fleet-wide auto-allow, eliminates
     // residual permission prompts that --dangerously-skip-permissions doesn't) +
     // self-edit-baseline-sync (PostToolUse hook for role-file-watch self-edit
-    // suppression, 2026-09-27)
-    expect(scriptRows.length).toBe(15);
-    // 1 user-onboarding file: agent-supervisor.service
-    expect(userOnboardingRows.length).toBe(1);
+    // suppression, 2026-09-27) +
+    // interactive-messages-gc (Phase 140: seven-day widget backstop sweep script)
+    expect(scriptRows.length).toBe(16);
+    // 3 user-onboarding files: agent-supervisor.service +
+    // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
+    expect(userOnboardingRows.length).toBe(3);
 
     // id has 4 entries (SKILL.md + 3 companions)
     const idRows = skillRows.filter((e) =>
@@ -277,7 +281,29 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     },
   );
 
-  it("Test T-07: sourceKind discriminant — bundled + runtime row split (Phase 114 D-22 + Phase 116 additions + task-field-check + allow-all-tools + agent-phone + pane-safe starter + 26 app-development rows + self-edit-baseline-sync)", () => {
+  it("Test 9: interactive-messages-gc trio (Phase 140) is present in catalog", () => {
+    const slugs = FLEET_SUBSTRATE_CATALOG.map((e) => e.slug);
+    expect(slugs).toContain("interactive-messages-gc");
+    expect(slugs).toContain("interactive-messages-gc-service-unit");
+    expect(slugs).toContain("interactive-messages-gc-timer-unit");
+
+    const script = FLEET_SUBSTRATE_CATALOG.find((e) => e.slug === "interactive-messages-gc");
+    expect(script?.bundledPath).toBe("/app/fleet-substrate/scripts/interactive-messages-gc.py");
+    expect(script?.installPath).toBe("~/.local/bin/interactive-messages-gc");
+    expect(script?.restartHook).toBeNull();
+
+    const svc = FLEET_SUBSTRATE_CATALOG.find((e) => e.slug === "interactive-messages-gc-service-unit");
+    expect(svc?.bundledPath).toBe("/app/fleet-substrate/user-onboarding/interactive-messages-gc.service");
+    expect(svc?.installPath).toBe("~/.config/systemd/user/interactive-messages-gc.service");
+    expect(svc?.restartHook).toBeNull();
+
+    const timer = FLEET_SUBSTRATE_CATALOG.find((e) => e.slug === "interactive-messages-gc-timer-unit");
+    expect(timer?.bundledPath).toBe("/app/fleet-substrate/user-onboarding/interactive-messages-gc.timer");
+    expect(timer?.installPath).toBe("~/.config/systemd/user/interactive-messages-gc.timer");
+    expect(timer?.restartHook).toBeNull();
+  });
+
+  it("Test T-07: sourceKind discriminant — bundled + runtime row split (Phase 114 D-22 + Phase 116 additions + task-field-check + allow-all-tools + agent-phone + pane-safe starter + 26 app-development rows + self-edit-baseline-sync + Phase 140 interactive-messages-gc trio)", () => {
     // Regression guard for Phase 114 D-12 + D-14: the catalog is a
     // discriminated union on sourceKind. Phase 116 added 2 bundled rows
     // (image-gen-skill + image-gen-helper); task-field-check adds one more
@@ -286,6 +312,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // shape 1 adds 26 bundled rows (app-development skill + helpers +
     // starter template); self-edit-baseline-sync adds one bundled row
     // (PostToolUse hook — role-file-watch self-edit suppression).
+    // Phase 140 adds 3 bundled rows: interactive-messages-gc script +
+    // interactive-messages-gc.service + interactive-messages-gc.timer.
     // Runtime row (twinkie) unchanged at 1.
     const bundled = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "bundled",
@@ -297,7 +325,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +2 for agent-phone (skill + helper) — 50 → 52.
     // +1 for allow-all-tools helper — 52 → 53.
     // +1 for self-edit-baseline-sync helper — 53 → 54.
-    expect(bundled.length).toBe(54);
+    // +3 for interactive-messages-gc (Phase 140: script + .service + .timer) — 54 → 57.
+    expect(bundled.length).toBe(57);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

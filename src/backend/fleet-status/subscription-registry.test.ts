@@ -30,6 +30,8 @@ import type {
   SessionState,
 } from "./wire-protocol.js";
 import { FRAME_SCHEMA_VERSION } from "./wire-protocol.js";
+import { WidgetStateSchema } from "./wire-protocol.js";
+import type { WidgetState } from "./wire-protocol.js";
 import { systemLogger } from "../utils/logger.js";
 // Phase 90 Plan 00 Wave 0 — contextPct promotion.
 import {
@@ -1615,6 +1617,155 @@ describe("subscription-registry", () => {
       // `subscribers.has(entry)` first.
       const queuedUpdates = appFrames.filter((f) => f.type === "app-update");
       expect(queuedUpdates).toHaveLength(0);
+    });
+  });
+
+  // ─── Phase 137 Plan 02 — WidgetState + widget lane in registry ─────────────
+  // Separate lane from apps: widgets live in their own Map<`${hostId}:${slug}`,
+  // WidgetState> and are NEVER fanned out on the outbound frame pipeline in
+  // Phase 137. The /interactive/ proxy router (Plan 03) looks up widget ports
+  // synchronously via getWidgetSnapshot() rather than subscribing to widget
+  // frames — keeping widgets off the sidebar by construction.
+  describe("Phase 137 Plan 02 — WidgetState schema + widget registry lane", () => {
+    function makeWidgetState(
+      hostId: string,
+      slug: string,
+      overrides: Partial<WidgetState> = {},
+    ): WidgetState {
+      return {
+        hostId,
+        slug,
+        port: 9601,
+        isHealthy: true,
+        createdAtMs: 1_700_000_000_000,
+        ...overrides,
+      };
+    }
+
+    it("Test 1: WidgetStateSchema.parse succeeds with all fields populated (port + isHealthy=true)", () => {
+      const result = WidgetStateSchema.parse({
+        hostId: "3",
+        slug: "poll-abc",
+        port: 9601,
+        isHealthy: true,
+        createdAtMs: 1_700_000_000_000,
+      });
+      expect(result).toMatchObject({
+        hostId: "3",
+        slug: "poll-abc",
+        port: 9601,
+        isHealthy: true,
+        createdAtMs: 1_700_000_000_000,
+      });
+    });
+
+    it("Test 2: WidgetStateSchema.parse succeeds with port=null and isHealthy=false", () => {
+      const result = WidgetStateSchema.parse({
+        hostId: "3",
+        slug: "poll-abc",
+        port: null,
+        isHealthy: false,
+        createdAtMs: 0,
+      });
+      expect(result).toMatchObject({
+        hostId: "3",
+        slug: "poll-abc",
+        port: null,
+        isHealthy: false,
+        createdAtMs: 0,
+      });
+    });
+
+    it("Test 3: registry.getWidgetSnapshot() returns [] initially", () => {
+      const registry = createSubscriptionRegistry();
+      expect(registry.getWidgetSnapshot()).toEqual([]);
+    });
+
+    it("Test 4: publishWidgetUpdate inserts into the widget map; getWidgetSnapshot returns it", () => {
+      const registry = createSubscriptionRegistry();
+      const widget = makeWidgetState("3", "poll-abc");
+      registry.publishWidgetUpdate("3", widget);
+
+      const snap = registry.getWidgetSnapshot();
+      expect(snap).toHaveLength(1);
+      expect(snap[0]).toMatchObject({ hostId: "3", slug: "poll-abc", port: 9601 });
+    });
+
+    it("Test 5: second publishWidgetUpdate for the same hostId:slug REPLACES the entry (no duplicates)", () => {
+      const registry = createSubscriptionRegistry();
+      registry.publishWidgetUpdate("3", makeWidgetState("3", "poll-abc", { port: 9601 }));
+      registry.publishWidgetUpdate("3", makeWidgetState("3", "poll-abc", { port: 9602 }));
+
+      const snap = registry.getWidgetSnapshot();
+      expect(snap).toHaveLength(1);
+      expect(snap[0]!.port).toBe(9602);
+    });
+
+    it("Test 6: publishWidgetUpdate for a DIFFERENT slug on the SAME host adds a second entry", () => {
+      const registry = createSubscriptionRegistry();
+      registry.publishWidgetUpdate("3", makeWidgetState("3", "poll-abc"));
+      registry.publishWidgetUpdate("3", makeWidgetState("3", "form-xyz"));
+
+      const snap = registry.getWidgetSnapshot();
+      expect(snap).toHaveLength(2);
+    });
+
+    it("Test 7: publishWidgetGoneByHostSlug removes the entry; calling twice is idempotent", () => {
+      const registry = createSubscriptionRegistry();
+      registry.publishWidgetUpdate("3", makeWidgetState("3", "poll-abc"));
+      expect(registry.getWidgetSnapshot()).toHaveLength(1);
+
+      registry.publishWidgetGoneByHostSlug("3", "poll-abc");
+      expect(registry.getWidgetSnapshot()).toHaveLength(0);
+
+      // Second call is a no-op — must not throw
+      expect(() => registry.publishWidgetGoneByHostSlug("3", "poll-abc")).not.toThrow();
+      expect(registry.getWidgetSnapshot()).toHaveLength(0);
+    });
+
+    it("Test 8: getWidgetSnapshot and getAppSnapshot return DIFFERENT arrays even when a widget and app share the same slug", () => {
+      const registry = createSubscriptionRegistry();
+      const sharedSlug = "same-slug";
+
+      const app: AppState = {
+        hostId: "3",
+        slug: sharedSlug,
+        title: "Same slug app",
+        description: "desc",
+        port: 9501,
+        hasIcon: false,
+        createdAtMs: 1_700_000_000_000,
+        isHealthy: true,
+        healthMessage: null,
+        users: null,
+      };
+      registry.publishAppUpdate("3", app);
+      registry.publishWidgetUpdate("3", makeWidgetState("3", sharedSlug));
+
+      const appSnap = registry.getAppSnapshot();
+      const widgetSnap = registry.getWidgetSnapshot();
+
+      // Both have exactly 1 entry
+      expect(appSnap).toHaveLength(1);
+      expect(widgetSnap).toHaveLength(1);
+
+      // They are DIFFERENT objects (separate Maps — not aliased)
+      expect(appSnap).not.toBe(widgetSnap);
+      // App entry has port 9501; widget entry has port 9601
+      expect(appSnap[0]!.port).toBe(9501);
+      expect(widgetSnap[0]!.port).toBe(9601);
+    });
+
+    it("Test 9: publishWidgetUpdate does NOT trigger any subscriber callbacks (widgets are registry-only in Phase 137)", () => {
+      const registry = createSubscriptionRegistry();
+      const spy = vi.fn();
+      registry.subscribe(spy);
+      spy.mockClear(); // discard the initial snapshot frames
+
+      registry.publishWidgetUpdate("3", makeWidgetState("3", "poll-abc"));
+
+      // The spy must NOT have been called — no frame fan-out for widgets
+      expect(spy).not.toHaveBeenCalled();
     });
   });
 });

@@ -545,6 +545,20 @@ const isIdCommand = (content: string): boolean =>
   content.trimStart().startsWith("/id ") ||
   content.includes("<command-name>/id</command-name>");
 
+// Phase 137 D-137: interactive-message widget submit signals. When a
+// WidgetBubble's iframe fires a widget-submit postMessage, PrettyView's
+// handleWidgetSubmit dispatcher synthesizes a WS input frame with body
+// `/widget-submit <widgetId> <value>` — reaches the backend Phase 56
+// wake gate, wakes the agent, but is render-blacklisted here so no
+// visible bubble is created (the agent reads the actual state from
+// ~/fleet/interactive-messages/<slug>/state.json directly). The prefix
+// is a raw text form (agents never type it — the harness constructs it
+// programmatically in handleWidgetSubmit below). Module-local by design
+// (no export, no shared-utils hoist) per Phase 14 no-new-shared-utils
+// posture, mirroring isIdCommand's placement discipline.
+const isWidgetSubmit = (content: string): boolean =>
+  content.trimStart().startsWith("/widget-submit ");
+
 // Phase 40 (Research A8): nice-to-have MIME hint for chip UX. Not
 // load-bearing — the composebox chip strip renders name + size, NOT MIME.
 // The MIME is set on the File object so downstream mediation (e.g., copy-
@@ -1644,6 +1658,14 @@ export function PrettyView({
       // arriving with no matching pending record, and the FIFO head-match
       // would silently clear an unrelated in-flight pending (code-review M2,
       // 2026-09-07 — /id-with-attachment corner case).
+      //
+      // Phase 137 D-137: extend the render-blacklist gate to cover widget-
+      // submit signals (parallel to /id — the WS frame still fires, the wake
+      // still happens, but no bubble appears). Widget-submit is NEVER paired
+      // with attachments (synthetic backend signal, not a user compose action),
+      // so the attachments carve-out does not apply to it — unconditionally
+      // short-circuit when isWidgetSubmit matches.
+      if (isWidgetSubmit(payload)) { return; }
       if (isIdCommand(payload) && !(attachments && attachments.length > 0)) { return; }
       const normalized = normalizeNewlinesForBubble(payload);
       if (immediateFailure) {
@@ -2128,6 +2150,31 @@ export function PrettyView({
     },
     [pvIdentity?.displayName],
   );
+
+  // Phase 137 D-137: WidgetBubble → PrettyView bridge. Synthesizes an invisible
+  // WS input frame carrying the widget-submit signal. Payload shape:
+  // `/widget-submit <widgetId> <value>`. Goes through the SAME send-input funnel
+  // the ComposeBox uses so the backend Phase 56 wake gate fires — but the
+  // isWidgetSubmit blacklist gate above short-circuits BEFORE any pending-bubble
+  // record is created, so the message is invisible. The agent reads the actual
+  // submit data from ~/fleet/interactive-messages/<slug>/state.json on its own
+  // filesystem — this WS frame carries only the wake ping, not the state contents.
+  // Trust boundary validation lives in WidgetBubble.tsx (Plan 04 T2);
+  // handleWidgetSubmit assumes the (widgetId, value) tuple is already validated.
+  const handleWidgetSubmit = useCallback(
+    (widgetId: string, value: string): void => {
+      const payload = "/widget-submit " + widgetId + " " + value;
+      // Reuse the same mqid generation pattern as ComposeBox (Phase 50 D-01/D-18):
+      // `pv-optim-<ms>-<8hex>` — deterministic-enough for FIFO ordering + unique
+      // enough that concurrent sends don't collide. The mqid presence arms the
+      // backend Phase 56 wake gate.
+      const mqid = `pv-optim-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
+      const ok = sendInput(payload, mqid);
+      handleOptimisticSend({ payload, mqid, immediateFailure: !ok });
+    },
+    [sendInput, handleOptimisticSend],
+  );
+
   // Phase 89 Plan 06: Runbooks tab row click handler. D-06 swap-not-stack —
   // closes the identity modal at the same tick the runbook editor opens.
   // Defensive guard: if the identity has no resolved role, silently no-op
@@ -4284,6 +4331,12 @@ export function PrettyView({
                   autoplayTargetEventId={autoplayTargetEventId}
                   onLongPressSpeak={handleLongPressSpeak}
                   onOpenEditor={handleOpenEditor}
+                  // Phase 137 D-137: wire widget-submit handler so WidgetBubble
+                  // iframes in confirmed messages can fire invisible wake pings.
+                  // Parallel to onOpenEditor — same threading pattern. The pending-
+                  // sends ChatMessage mount below does NOT receive this prop:
+                  // pending bubbles never contain widget URLs (Plan 04 discipline).
+                  onWidgetSubmit={handleWidgetSubmit}
                   // Phase 124 Plan 02 (shape 3 — message thumbs, D-38):
                   // wire the thumbs callback plumbing ONLY to the
                   // ChatMessage-branch of the message-type conditional.

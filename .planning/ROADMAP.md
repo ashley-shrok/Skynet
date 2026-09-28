@@ -2953,3 +2953,85 @@ Plans:
 **Wave 6** *(blocked on Wave 5 completion)*
 
 - [x] 137-06-PLAN.md — reopenTabsOnLogin consumer-site purge (AppShell + tab-url) + Playwright smoke coverage + full-suite green
+
+### Phase 138: Interactive messages: plumbing + first template
+
+**Goal:** Prove the end-to-end loop for interactive messages — a new kind of agent message where a widget renders inline inside a chat bubble, users interact, and a submit fires an invisible-message wake back to the agent. This phase lands the plumbing (new folder root separate from full apps, sweep type-tagging, forked URL prefix + proxy path, server-allowlist URL-type discriminator, in-bubble URL detection + iframe swap, invisible-submit-message routing via the existing message blacklist, agent scaffold command) plus ONE template implemented end-to-end (poll in terminal-on-click mode). No lifecycle infra this phase — widgets accumulate until phase 3.
+**Requirements**: TBD
+**Depends on:** Phase 136
+**Canonical refs:** `.planning/shapes/shape-interactive-messages.md` (full design contract for the whole 3-4 phase arc — read first)
+**Plans:** 6/6 plans complete
+
+Plans:
+- [x] 138-01-PLAN.md — Wave 1: fleet-status-sweep source-D (`~/fleet/interactive-messages/*`) + additive `line_kind:"interactive-message"` in sweep-schema parser (no SCHEMA_VERSION bump)
+- [x] 138-02-PLAN.md — Wave 2: `WidgetState` registry lane + `getWidgetSnapshot()` + orchestrator adapter + per-tick reconciliation (widgets stay off outbound frame pipeline)
+- [x] 138-03-PLAN.md — Wave 3: `/interactive/:hostId/:slug/pane/*` backend proxy (`im-pane-router.ts`) + combined WS upgrade dispatcher in database.ts + `location ^~ /interactive/` in both nginx confs
+- [x] 138-04-PLAN.md — Wave 1: frontend URL-type discriminator (`INTERACTIVE_MSG_URL_RE_CLIENT`, `Map<string,"file"|"interactive-message">`) + `WidgetBubble.tsx` component + ChatMessage `a`-override swap
+- [x] 138-05-PLAN.md — Wave 2: `isWidgetSubmit` render-blacklist gate + `handleWidgetSubmit` dispatcher + ChatMessage prop wiring — invisible submit-message routing
+- [x] 138-06-PLAN.md — Wave 1: substrate skill (`interactive-messages/SKILL.md`, `create-widget.sh`) + poll-terminal-on-click template (widget.html buttons-not-radios, server.py stdlib, im-SLUG.service.template)
+
+### Phase 139: Interactive messages: 5 remaining templates + CLI multi-template support
+
+**Goal:** Add the five remaining widget templates from the arc — checklist, form, ranking, list-with-per-row-actions, color-picker — each in ONE primary mode (terminal-on-submit for checklist/form/ranking/list-actions; terminal-on-click for color-picker), and extend `create-widget.sh` to accept `--template <name>` and dispatch to the correct template dir. Each template ships widget.html + server.py + im-SLUG.service.template + metadata.json.template, following the poll template's shape. Every template earns its interactivity over a plain text reply (design principle). Affordance always matches behavior: checklist=checkboxes+button, form=fields+button, ranking=drag-handles+arrow-fallback+button, list-actions=rows-with-per-row-buttons+Done-button, color-picker=clickable-swatches (no button — terminal-on-click). Mobile-friendly by default (touch targets, responsive width). SKILL.md updates to teach agents the full template menu + which mode each template is in.
+**Requirements**: TBD
+**Depends on:** Phase 138
+**Canonical refs:** `.planning/shapes/shape-interactive-messages.md` (arc-wide design contract), `.planning/phases/138-interactive-messages-plumbing-first-template/` (poll template precedent, all mechanism from Phase 138)
+**Explicitly deferred to Phase 140:** non-terminal mode variants for every template, multi-widget per message support.
+**Plans:** 7/7 plans complete
+
+Plans:
+- [x] 139-01-PLAN.md — Refactor create-widget.sh into template-agnostic dispatcher + per-template args.sh hook + tests/run-all.sh runner (Wave 1)
+- [x] 139-02-PLAN.md — checklist template (terminal-on-submit): checkboxes + submit button (Wave 2)
+- [x] 139-03-PLAN.md — form template (terminal-on-submit): labeled fields (text/number/select) + submit button (Wave 2)
+- [x] 139-04-PLAN.md — ranking template (terminal-on-submit): drag-handles + up/down arrow fallback + submit button (Wave 2)
+- [x] 139-05-PLAN.md — list-actions template (terminal-on-submit): per-row action buttons + Done button (Wave 2)
+- [x] 139-06-PLAN.md — color-picker template (terminal-on-click): clickable swatch grid, no submit button (Wave 2)
+- [x] 139-07-PLAN.md — SKILL.md rewrite for six-template menu + integrated all-templates scaffold test (Wave 3)
+
+### Phase 140: Interactive messages: non-terminal mode variants + multi-widget per message
+
+**Goal:** Add non-terminal mode variants for every template (6 templates → 6 new `<template>-non-terminal/` template dirs). Non-terminal mode = widget contributes to a text reply that hasn't happened yet; state persists on every interaction; NO submit signal fires from inside the widget; the user's own text reply is what wakes the agent, and the agent reads widget state on demand alongside the text. Concrete per-widget: widget.html has no submit button (or the submit button is repurposed to just "save selection" with no postMessage); every interaction POSTs to a `/update` endpoint on the widget server that persists incremental state; no postMessage to parent fires; widget stays interactive indefinitely for further changes. `create-widget.sh` extends to accept `--mode <terminal-on-click|terminal-on-submit|non-terminal>` selection and dispatches to the correct `<template>-<mode>/` dir. Also: add multi-widget-per-message support — verify frontend correctly renders multiple widget iframes in one message (each independent), and ensure the skill instructs agents on the "if you embed multiple widgets in one message, prefer non-terminal for all of them" rule from the shape file (avoids multiple submit-wake events from one user action). SKILL.md updates.
+**Requirements**: TBD
+**Depends on:** Phase 139
+**Canonical refs:** `.planning/shapes/shape-interactive-messages.md` (arc-wide design), `.planning/phases/139-interactive-messages-templates-modes-multi-widget/` (terminal-mode template precedent — non-terminal variants follow the same widget.html + server.py + args.sh shape)
+**Plans:** 9/9 plans complete
+
+Plans:
+- [x] 140-01-PLAN.md — Dispatcher `--mode` extension + supported-combo enforcement + base-harness test coverage (Wave 1)
+- [x] 140-02-PLAN.md — poll-non-terminal template: radio selectors, /update endpoint, no postMessage (Wave 2)
+- [x] 140-03-PLAN.md — checklist-non-terminal template: passive checkboxes with live persistence, no submit button, rejects --submit-label (Wave 2)
+- [x] 140-04-PLAN.md — form-non-terminal template: text/number/select fields with debounced live persistence, no submit button (Wave 2)
+- [x] 140-05-PLAN.md — ranking-non-terminal template: drag+arrow reorder with live persistence, no submit button (Wave 2)
+- [x] 140-06-PLAN.md — list-actions-non-terminal template: per-row action clicks persist immediately, no Done button (Wave 2)
+- [x] 140-07-PLAN.md — color-picker-non-terminal template: swatch grid with radio-group-like single-selection persistence, no submit-inert state (Wave 2)
+- [x] 140-08-PLAN.md — Multi-widget frontend tests: ChatMessage renders N iframes independently; WidgetBubble concurrent-mount independence (Wave 3)
+- [x] 140-09-PLAN.md — SKILL.md rewrite (three-mode menu + non-terminal + multi-widget sections) + integrated all-templates-non-terminal scaffold test (Wave 3)
+
+### Phase 141: Interactive messages: lifecycle — teardown + 7-day backstop + expired-placeholder UI
+
+**Goal:** Add widget lifecycle management. Three deliverables: (1) **Agent teardown CLI** — new `teardown-widget.sh` bundled with the interactive-messages skill. Atomically stops the widget's systemd unit, removes the unit file (`~/.config/systemd/user/im-<slug>.service`), removes the widget dir (`~/fleet/interactive-messages/<slug>/`). Agents invoke this when they're done reading a widget's state. (2) **Seven-day backstop timer** — substrate-distributed scheduled local sweep. A new script + systemd user timer on each host runs daily; enumerates `~/fleet/interactive-messages/*`; for any widget whose `metadata.json.created_at` is older than 7 days, invokes the teardown flow. Substrate-distributed via `substrate/services/` (or `substrate/scripts/`) with distributor catalog entry so it lands on every managed host. (3) **Expired-placeholder UI** — when `WidgetBubble.tsx` load-retry finally fails (after the 2s/4s/8s exponential backoff exhausts), render an inline placeholder ("This interactive message expired. Ask the agent to send it again if you still need it.") instead of leaving a broken iframe. SKILL.md updates to (a) document the teardown command as the primary agent-driven mechanism, (b) name the seven-day backstop explicitly so an agent encountering a "widget is broken" report understands the situation and reconstructs on their next reply.
+**Requirements**: TBD
+**Depends on:** Phase 140
+**Canonical refs:** `.planning/shapes/shape-interactive-messages.md` (arc-wide design), phase 137-139 shipped artifacts (existing `create-widget.sh` + registry lane + WidgetBubble.tsx retry mechanism to extend)
+**Plans:** 4/4 plans complete
+
+Plans:
+- [x] 141-01-PLAN.md — Agent teardown CLI (`teardown-widget.sh`) + test harness
+- [x] 141-02-PLAN.md — Expired-placeholder UI in `WidgetBubble.tsx` after retry exhaustion
+- [x] 141-03-PLAN.md — Seven-day backstop: `interactive-messages-gc.py` + service + timer + distributor wiring
+- [x] 141-04-PLAN.md — `SKILL.md` Lifecycle section + Phase 141 limits (completed 2026-09-27)
+
+### Phase 142: Interactive messages: custom-widget authoring + comprehensive mobile audit
+
+**Goal:** Final phase of the interactive-messages arc. Two deliverables: (1) **Custom-widget authoring guidance** — extend SKILL.md with a "Custom widget authoring" section teaching agents how to build widgets from scratch when the 6 preset templates don't fit their case. Documents the substrate skill's minimal contract (dir shape, systemd unit shape, args.sh hook, widget.html + server.py conventions, state.json shapes, postMessage discipline for terminal vs non-terminal modes). Also add an example custom-widget scaffolding recipe agents can follow. The design principle "every widget earns its interactivity over a plain text reply" continues to apply — the skill instructs agents to check that discipline before authoring. Also documents the mobile-first-class discipline (touch targets, responsive width) as a requirement for custom widgets, not just presets. (2) **Comprehensive mobile audit** — responsive verification pass across all 12 template+mode combos. Verify each widget.html renders correctly on narrow viewports (mobile-sized bubble width ~320-480px), touch targets are ≥44px per Apple HIG, drag interactions on ranking have arrow-fallback that works on touch (already exists but verify), color-picker swatches are tappable at 44px minimum, form fields don't overflow on mobile. Where widgets need mobile-specific fixes, ship the fixes. Add responsive-audit test coverage (playwright viewport tests or CSS-media-query assertions). Update SKILL.md's per-template blocks with any mobile-specific caveats discovered.
+**Requirements**: TBD
+**Depends on:** Phase 141
+**Canonical refs:** `.planning/shapes/shape-interactive-messages.md`, all phase 137-140 shipped artifacts (12 template+mode combos to audit, existing skill structure to extend)
+**Plans:** 4/4 plans complete
+
+Plans:
+- [x] 142-01-PLAN.md — Mobile audit fixes: bump touch targets to ≥44px on 8 template widget.html files (poll, checklist, list-actions, ranking — both modes) (Wave 1)
+- [x] 142-02-PLAN.md — SKILL.md `## Custom widget authoring` section: when-to-reach, minimal-contract, two authoring recipes (terminal + non-terminal), mandatory disciplines, scaffold-by-drop-in (Wave 1)
+- [x] 142-03-PLAN.md — `mobile-audit.test.sh` automated grep-audit of all 12 templates for viewport meta, ≥44px targets, no overflow-x hacks, postMessage-origin discipline, no streaming; wired into `run-all.sh` (Wave 2)
+- [x] 142-04-PLAN.md — SKILL.md per-template `**Mobile:**` caveats + rewrite `## Phase 141 limits` → `## Live constraints` with arc-complete note (Wave 2)
+

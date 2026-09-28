@@ -297,10 +297,59 @@ export interface SweepAppLine {
 }
 
 // ---------------------------------------------------------------------------
+// SweepInteractiveMessageLine — one per `~/fleet/interactive-messages/<slug>/`
+// folder that has a matching `im-<slug>.service` systemd unit
+// ---------------------------------------------------------------------------
+
+/**
+ * Phase 137 source-D — one line per ~/fleet/interactive-messages/<slug>/
+ * folder that has a matching im-<slug>.service systemd unit.
+ *
+ * Rolling-deploy safety: additive per Phase 118 precedent. SWEEP_SCHEMA_VERSION
+ * is NOT bumped — older TS parsers hit the `else { unknownLines += 1 }` branch
+ * and continue. Newer parser with older Python gets an empty
+ * interactiveMessageLines array (valid state — box has no widgets to report).
+ *
+ * Field-by-field:
+ *   • line_kind      — literal discriminator "interactive-message" for type dispatch.
+ *   • schema_version — same wire version as all other line kinds (currently 1).
+ *   • slug           — kebab-case folder name, WIDGET_SLUG_RE-validated on emit.
+ *   • port           — port number from `Environment=PORT=<n>` in the unit body,
+ *                      or null when no PORT is declared.
+ *   • is_healthy     — true iff a TCP connect to 127.0.0.1:<port> succeeds within
+ *                      APP_PORT_PROBE_TIMEOUT_SEC, or true via unit-file-presence
+ *                      carve-out when HOME_HOST_DIR is set (container self-poll).
+ *                      False when port is null.
+ *   • created_at_ms  — folder mtime × 1000, matches _build_widget_line's D-08
+ *                      parity with _build_app_line.
+ *
+ * NO title/description/has_icon/health_message/users — widgets are not sidebar
+ * tiles (Phase 137 D-20). Downstream consumers (Plan 137-02 registry adapter →
+ * Plan 137-03 backend router) iterate this array to look up widget ports.
+ *
+ * Wire-name discipline: byte-identical snake_case to the Python emit dict in
+ * `_build_widget_line`. The parser dispatch below casts, does NOT runtime-
+ * validate — downstream (Plan 137-02 adapter → Zod schema) is the runtime-
+ * validation gate.
+ */
+export interface SweepInteractiveMessageLine {
+  line_kind: "interactive-message";
+  schema_version: SweepSchemaVersion;
+  slug: string;
+  port: number | null;
+  is_healthy: boolean;
+  created_at_ms: number;
+}
+
+// ---------------------------------------------------------------------------
 // Union + narrow validator
 // ---------------------------------------------------------------------------
 
-export type SweepLine = SweepIdentityLine | SweepPidLine | SweepAppLine;
+export type SweepLine =
+  | SweepIdentityLine
+  | SweepPidLine
+  | SweepAppLine
+  | SweepInteractiveMessageLine;
 
 /**
  * Narrow type-guard used by parseSweepJsonl (and available to tests). Returns
@@ -315,12 +364,14 @@ export function isSweepLineOfCurrentSchema(obj: unknown): obj is SweepLine {
   const rec = obj as Record<string, unknown>;
   if (rec.schema_version !== SWEEP_SCHEMA_VERSION) return false;
   // Phase 118 Plan 118-02: widened for `line_kind: "app"` (source-C, D-20).
-  // The schema_version gate ABOVE this check still applies — an app line at
-  // a mismatched version is rejected before the line_kind branch is reached.
+  // Phase 137 Plan 137-01: widened for `line_kind: "interactive-message"` (source-D).
+  // The schema_version gate ABOVE this check still applies — a line at a
+  // mismatched version is rejected before the line_kind branch is reached.
   return (
     rec.line_kind === "identity" ||
     rec.line_kind === "pid" ||
-    rec.line_kind === "app"
+    rec.line_kind === "app" ||
+    rec.line_kind === "interactive-message"
   );
 }
 
@@ -340,11 +391,20 @@ export interface SweepParseResult {
    */
   appLines: SweepAppLine[];
   /**
+   * Phase 137 (source D): interactive-message widget enumeration lines from
+   * `_enumerate_widgets` in `fleet-status-sweep.py`. Empty when no
+   * `~/fleet/interactive-messages/` folder exists on the box or when no widget
+   * folder has a matching `im-<slug>.service` unit. Downstream consumers
+   * (Plan 137-02 registry adapter) iterate this array to look up widget ports
+   * for the `/interactive/` proxy router (Plan 137-03).
+   */
+  interactiveMessageLines: SweepInteractiveMessageLine[];
+  /**
    * Count of JSON-parseable lines whose `line_kind` was neither "identity",
-   * "pid", nor "app". Observability only; not a failure signal — the parser
-   * stays forward-compatible if a future schema adds line kinds. Phase 118
-   * (Plan 118-02) added `app` to the known set — pre-118-02 parsers hit
-   * this counter for app lines during the rolling-deploy window.
+   * "pid", "app", nor "interactive-message". Observability only; not a failure
+   * signal — the parser stays forward-compatible if a future schema adds line
+   * kinds. Phase 118 (Plan 118-02) added `app`; Phase 137 (Plan 137-01) added
+   * `interactive-message` to the known set.
    */
   unknownLines: number;
   /**
@@ -381,6 +441,10 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
   // Sibling to identityLines / pidLines; the empty-input fast-path below
   // returns this array so consumers can safely destructure appLines.
   const appLines: SweepAppLine[] = [];
+  // Phase 137 Plan 137-01 (source-D): interactive-message widget lines from
+  // `_enumerate_widgets`. Sibling to the other arrays; the empty-input fast-
+  // path returns this array so consumers can safely destructure it.
+  const interactiveMessageLines: SweepInteractiveMessageLine[] = [];
   let unknownLines = 0;
   let schemaMismatch = false;
 
@@ -389,6 +453,7 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
       identityLines,
       pidLines,
       appLines,
+      interactiveMessageLines,
       unknownLines,
       schemaMismatch,
     };
@@ -432,6 +497,13 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
       // (118-04 orchestrator adapter → 118-03 Zod schema) is the runtime-
       // validation gate for the ten-key D-05 shape. Threat T-118-02-IV.
       appLines.push(parsed as SweepAppLine);
+    } else if (rec.line_kind === "interactive-message") {
+      // Phase 137 Plan 137-01 (source-D): interactive-message widget lines
+      // from `_enumerate_widgets`. Same lenience discipline — cast, no
+      // runtime validation beyond the schema_version + line_kind gates above.
+      // Downstream (Plan 137-02 registry adapter → Zod schema) is the
+      // runtime-validation gate for the 6-field source-D shape.
+      interactiveMessageLines.push(parsed as SweepInteractiveMessageLine);
     } else {
       // Unknown line_kind at the current schema version — forward-compat
       // marker, not a failure. Bump the counter for observability.
@@ -439,7 +511,14 @@ export function parseSweepJsonl(raw: string): SweepParseResult {
     }
   }
 
-  return { identityLines, pidLines, appLines, unknownLines, schemaMismatch };
+  return {
+    identityLines,
+    pidLines,
+    appLines,
+    interactiveMessageLines,
+    unknownLines,
+    schemaMismatch,
+  };
 }
 
 // ---------------------------------------------------------------------------

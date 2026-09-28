@@ -248,7 +248,8 @@ describe("useEditableFileEligibility — per-message tailnet-URL eligibility sca
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    expect(result.current).toBeInstanceOf(Set);
+    // Phase 137: return type is now Map (not Set)
+    expect(result.current).toBeInstanceOf(Map);
   });
 
   it("Test 9 (cancel on unmount before fetch resolves): no setState after unmount", async () => {
@@ -293,7 +294,7 @@ describe("useEditableFileEligibility — per-message tailnet-URL eligibility sca
     expect(initialSet.size).toBe(0);
   });
 
-  it("Test 10 (contentBase64 leak guard — D-04 architectural invariant): the return value is a Set<string> and does NOT expose contentBase64 anywhere", async () => {
+  it("Test 10 (contentBase64 leak guard — D-04 architectural invariant): the return value is a Map<string, 'file'|'interactive-message'> and does NOT expose contentBase64 anywhere", async () => {
     mockFetch.mockResolvedValue({
       ...BASE_RESPONSE,
       filename: "myscript",
@@ -311,21 +312,23 @@ describe("useEditableFileEligibility — per-message tailnet-URL eligibility sca
       expect(result.current.has("http://100.64.0.1:8000/myscript")).toBe(true);
     });
 
-    // Structural check: the return is a Set instance (not an object masquerading
-    // as one, e.g. { urls: Set, bytes: Map<url, bytes> }).
-    expect(result.current).toBeInstanceOf(Set);
+    // Phase 137: return type is now Map (not Set) — structural check.
+    // The Map distinguishes "file" | "interactive-message" values and never
+    // carries byte payloads (D-04 DISCARD-BYTES invariant preserved).
+    expect(result.current).toBeInstanceOf(Map);
 
     // Runtime type check for the D-04 invariant: no contentBase64 property
-    // on the Set (would only exist if the hook illegitimately attached it).
+    // on the Map (would only exist if the hook illegitimately attached it).
     expect(
       typeof (result.current as unknown as { contentBase64?: unknown })
         .contentBase64,
     ).toBe("undefined");
 
-    // Every entry in the Set must be a plain string URL — never an object
+    // Every key in the Map must be a plain string URL — never an object
     // shape carrying byte payloads.
-    for (const entry of result.current) {
-      expect(typeof entry).toBe("string");
+    for (const [key, value] of result.current) {
+      expect(typeof key).toBe("string");
+      expect(["file", "interactive-message"]).toContain(value);
     }
   });
 
@@ -436,16 +439,16 @@ describe("useEditableFileEligibility — per-message tailnet-URL eligibility sca
       expect(result.current.has(file)).toBe(true);
     });
 
-    // Structural check: the return is a Set instance — no wrapping object
-    // that could carry the byte payload alongside the URL.
-    expect(result.current).toBeInstanceOf(Set);
-    for (const entry of result.current) {
-      expect(typeof entry).toBe("string");
+    // Phase 137: return type is now Map (not Set) — structural check.
+    // No wrapping object that could carry the byte payload alongside the URL.
+    expect(result.current).toBeInstanceOf(Map);
+    for (const [key] of result.current) {
+      expect(typeof key).toBe("string");
       // The URL itself must not contain the base64 payload snuck in via
       // any code path.
-      expect(entry).not.toContain("c2VjcmV0");
+      expect(key).not.toContain("c2VjcmV0");
     }
-    // No contentBase64 property attached to the Set.
+    // No contentBase64 property attached to the Map.
     expect(
       typeof (result.current as unknown as { contentBase64?: unknown })
         .contentBase64,

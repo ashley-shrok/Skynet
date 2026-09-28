@@ -198,6 +198,47 @@ export const SKYNET_SERVE_URL_RE_CLIENT =
   /https:\/\/[a-zA-Z0-9._-]+-\d{1,5}\.serve\.[a-zA-Z0-9.-]+(?::\d{1,5})?(?:\/[^\s)?#]*)?/g;
 
 /**
+ * Phase 137 D-137: interactive-message widget URL shape.
+ * `https://<skynet-domain>[:port]/interactive/<hostId>/<slug>/pane[/<rest>]`
+ * Example: https://term.example.com/interactive/3/poll-abc/pane/
+ *
+ * Grammar (locked in Phase 137 D-137):
+ *   - scheme:      https:// only (agents on Skynet always run on the HTTPS
+ *                  deployment; same restriction as SKYNET_FILE_URL_RE_CLIENT)
+ *   - domain:      any DNS-legal hostname + optional :port
+ *                  ([a-zA-Z0-9.-]+(?::\d{1,5})?)
+ *   - literal:     /interactive/
+ *   - hostId:      \d+ — positive integer, matches the host's numeric ID
+ *   - literal:     /
+ *   - slug:        [a-z0-9-]{1,64} — mirrors APP_SLUG_RE character class +
+ *                  max length; lowercase alphanumeric + hyphens, 1-64 chars
+ *   - literal:     /pane
+ *   - optional rest: (?:\/[^\s)?#]*)? — stops at whitespace, closing paren,
+ *                  query start, or fragment start (same terminator style as
+ *                  SKYNET_FILE_URL_RE_CLIENT)
+ *
+ * The /g flag is INTENTIONAL: consumers scan message bodies for MULTIPLE
+ * matches per message. When using `.match()`, no state reset is needed
+ * (each call is stateless).
+ *
+ * ⚠️ Same /g gotcha as TAILNET_URL_RE_CLIENT (L89-91) and
+ * SKYNET_FILE_URL_RE_CLIENT (L125-131): NEVER call `.test()` on this regex —
+ * it mutates `.lastIndex` and returns alternating true/false. For dispatch
+ * decisions, use a fresh non-global regex (`INTERACTIVE_MSG_DISPATCH_RE` in
+ * `use-editable-file-eligibility.ts`). See comments there for the rationale.
+ *
+ * MIRROR-RULE bookkeeping (Phase 137 D-137): this regex is CLIENT-ONLY.
+ * The backend uses the anchored path regex `IM_PANE_UPGRADE_PATH_RE` in
+ * `src/backend/apps/im-pane-router.ts` for validation at the proxy boundary.
+ * Backend twin `src/backend/utils/editable-file-whitelist.ts` does NOT
+ * re-export this regex — same posture as TAILNET_URL_RE_CLIENT and
+ * SKYNET_FILE_URL_RE_CLIENT being client-only. The backend twin's docblock
+ * carries a Phase 137 mirror-rule note to preserve the paper trail.
+ */
+export const INTERACTIVE_MSG_URL_RE_CLIENT =
+  /https:\/\/[a-zA-Z0-9.-]+(?::\d{1,5})?\/interactive\/\d+\/[a-z0-9-]{1,64}\/pane(?:\/[^\s)?#]*)?/g;
+
+/**
  * Strip trailing prose punctuation from an extracted URL (rev-3 2026-08-14
  * code-review H2). GFM autolink literals trim `.,;:!?` from the end of a URL
  * when rendering an `<a>` (so `see http://100.64.0.1:8000/notes.md.` renders

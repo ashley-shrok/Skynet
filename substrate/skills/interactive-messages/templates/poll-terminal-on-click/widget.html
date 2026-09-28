@@ -1,0 +1,187 @@
+<!-- Phase 137 poll-terminal-on-click template — do not edit installed copies; edit the substrate template only -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skynet widget</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      background: #fff;
+      color: #111;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #e8e8e8; }
+      .btn { background: #2d2d2d; color: #e8e8e8; border-color: #444; }
+      .btn:hover:not(:disabled) { background: #3d3d3d; border-color: #888; }
+      .btn:disabled { background: #222; color: #666; border-color: #333; cursor: default; }
+    }
+
+    #prompt {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #poll {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #f5f5f5;
+      color: #111;
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: #e8e8e8;
+      border-color: #888;
+    }
+
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
+    .btn.selected {
+      background: #d0e8ff;
+      border-color: #3b82f6;
+      color: #1d4ed8;
+      font-weight: 600;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .btn.selected { background: #1e3a5f; border-color: #3b82f6; color: #93c5fd; }
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #555;
+      min-height: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #status { color: #aaa; }
+    }
+  </style>
+</head>
+<body>
+  <h2 id="prompt"></h2>
+  <div id="poll"></div>
+  <div id="status"></div>
+
+  <script>
+    // Substitution points — the scaffold script replaces these inline literals.
+    // __PROMPT_JSON__ is the JSON-encoded poll question (HTML-safe via JSON string escaping).
+    // __OPTIONS_JSON__ is a JSON array of option label strings.
+    // __WIDGET_ID__ is the widget slug.
+    // __PANE_BASE__ is the URL path prefix for the widget's own origin.
+    var PROMPT   = __PROMPT_JSON__;
+    var OPTIONS  = __OPTIONS_JSON__;
+    var WIDGET_ID = "__WIDGET_ID__";
+    var PANE_BASE = "__PANE_BASE__";
+
+    document.addEventListener("DOMContentLoaded", function () {
+      // Set the prompt text
+      var promptEl = document.getElementById("prompt");
+      promptEl.textContent = PROMPT;
+
+      // Render one button per option
+      var pollEl = document.getElementById("poll");
+      OPTIONS.forEach(function (label) {
+        var btn = document.createElement("button");
+        btn.className = "btn";
+        btn.textContent = label;
+        btn.addEventListener("click", function () {
+          handleChoice(label);
+        });
+        pollEl.appendChild(btn);
+      });
+    });
+
+    function setStatus(msg) {
+      var el = document.getElementById("status");
+      if (el) el.textContent = msg;
+    }
+
+    function handleChoice(label) {
+      // Step 1: disable ALL buttons immediately to prevent double-fire
+      var buttons = document.querySelectorAll(".btn");
+      buttons.forEach(function (b) {
+        b.disabled = true;
+        if (b.textContent === label) {
+          b.classList.add("selected");
+        }
+      });
+
+      setStatus("Submitting…");
+
+      var payload = {
+        choice: label,
+        submitted_at: new Date().toISOString()
+      };
+
+      // Step 2: POST to /submit (widget's own origin via relative path)
+      var submitUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
+        ? PANE_BASE + "/submit"
+        : "/submit";
+
+      fetch(submitUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(function (res) {
+        if (!res.ok && res.status !== 204) {
+          throw new Error("submit returned " + res.status);
+        }
+        setStatus("Submitted.");
+
+        // Step 3: fire postMessage AFTER fetch resolves OK
+        // This guarantees state.json is written before the agent wakes.
+        // Target window.location.origin explicitly — never "*".
+        window.parent.postMessage(
+          {
+            type: "widget-submit",
+            widgetId: WIDGET_ID,
+            value: label
+          },
+          window.location.origin
+        );
+      })
+      .catch(function (err) {
+        // On fetch failure: log + do NOT fire postMessage.
+        // The agent must not wake to a submit that didn't persist.
+        console.error("[widget] submit fetch failed:", err);
+        setStatus("Submission failed — please try again.");
+        // Re-enable buttons so the user can retry
+        buttons.forEach(function (b) {
+          b.disabled = false;
+          b.classList.remove("selected");
+        });
+      });
+    }
+  </script>
+</body>
+</html>

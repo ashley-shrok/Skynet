@@ -103,6 +103,10 @@ function makeChannel(
     // exercising the hostid step override this key with their own value.
     // Same shape as tests explicitly seeding "skynet-hostname" for Step 5.
     "skynet-hostid": "__SKYNET_HOSTID_OK__",
+    // Default happy-path for Step 1b (gc-timer is-enabled check). Returns
+    // EXIT:0 so existing tests see gcTimerAlreadyEnabled=true and no hadError.
+    // Tests specifically exercising Step 1b override this key.
+    "interactive-messages-gc.timer": "enabled\nEXIT:0",
     ...handlers,
   };
   const exec = vi.fn(async (cmd: string) => {
@@ -1276,6 +1280,160 @@ describe("runBootstrapForHost", () => {
       if (!summary) return;
       const ctx = summary[1] as Record<string, unknown>;
       expect(ctx.statusLineWireOk).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Step 1b: interactive-messages-gc.timer enable (Phase 140).
+  //   (gc-1) BootstrapResult has gcTimerAlreadyEnabled and gcTimerBootstrapped fields.
+  //   (gc-2) Already-enabled host → gcTimerAlreadyEnabled=true, gcTimerBootstrapped=false,
+  //          no enable --now command fired.
+  //   (gc-3) Not-enabled host → gcTimerBootstrapped=true, gcTimerAlreadyEnabled=false,
+  //          enable --now command fired with interactive-messages-gc.timer.
+  //   (gc-4) Channel returns null on is-enabled check → hadError=true,
+  //          gcTimerAlreadyEnabled=false, gcTimerBootstrapped=false.
+  //   (gc-5) Channel returns null on enable-now command → hadError=true,
+  //          gcTimerBootstrapped=false.
+  //   (gc-6) enable-now returns without sentinel → hadError=true, gcTimerBootstrapped=false.
+  //
+  // The seeded default in makeChannel supplies "enabled\nEXIT:0" for the
+  // "interactive-messages-gc.timer" key so all pre-existing tests keep passing.
+  // -------------------------------------------------------------------------
+  describe("step 1b: interactive-messages-gc.timer enable (Phase 140)", () => {
+    it("(gc-1) BootstrapResult has gcTimerAlreadyEnabled and gcTimerBootstrapped fields", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        "interactive-messages-gc.timer": "enabled\nEXIT:0",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result).toHaveProperty("gcTimerAlreadyEnabled");
+      expect(result).toHaveProperty("gcTimerBootstrapped");
+      expect(typeof result.gcTimerAlreadyEnabled).toBe("boolean");
+      expect(typeof result.gcTimerBootstrapped).toBe("boolean");
+    });
+
+    it("(gc-2) timer already enabled → gcTimerAlreadyEnabled=true, gcTimerBootstrapped=false, no enable --now fired", async () => {
+      const { channel, exec } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-hostname": "__SKYNET_HOSTNAME_OK__",
+        "interactive-messages-gc.timer": "enabled\nEXIT:0",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.gcTimerAlreadyEnabled).toBe(true);
+      expect(result.gcTimerBootstrapped).toBe(false);
+      expect(result.hadError).toBe(false);
+
+      const cmds = captureCommands(exec);
+      // The is-enabled probe must be sent.
+      expect(cmds.some((c) => c.includes("is-enabled interactive-messages-gc.timer"))).toBe(true);
+      // enable --now must NOT be sent (timer is already enabled).
+      expect(cmds.some((c) => c.includes("enable --now interactive-messages-gc.timer"))).toBe(false);
+    });
+
+    it("(gc-3) timer not enabled → gcTimerBootstrapped=true, enable --now interactive-messages-gc.timer fired", async () => {
+      // Use a custom exec that distinguishes the is-enabled probe from the
+      // enable-now command by looking for "enable --now" specifically.
+      // Order matters: more specific patterns before general ones.
+      const exec = vi.fn(async (cmd: string) => {
+        if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
+        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
+        // Step 1b: enable-now BEFORE is-enabled so the --now variant matches first.
+        if (cmd.includes("enable --now interactive-messages-gc.timer")) return "__GC_TIMER_OK__";
+        // Step 1b: is-enabled probe for gc.timer.
+        if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
+        // Step 6 statusLine wire: check sentinel first since cmd also has SETTINGS=.
+        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
+        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
+        if (cmd.includes("skynet-parent")) return "__SKYNET_PARENT_OK__";
+        if (cmd.includes("skynet-hostname")) return "__SKYNET_HOSTNAME_OK__";
+        if (cmd.includes("skynet-hostid")) return "__SKYNET_HOSTID_OK__";
+        return null;
+      });
+      const ch: SshChannel = { exec };
+
+      const result = await runBootstrapForHost(ch, HOST);
+
+      expect(result.gcTimerAlreadyEnabled).toBe(false);
+      expect(result.gcTimerBootstrapped).toBe(true);
+      expect(result.hadError).toBe(false);
+
+      const cmds = captureCommands(exec);
+      // enable --now must be sent.
+      expect(cmds.some((c) => c.includes("enable --now interactive-messages-gc.timer"))).toBe(true);
+    });
+
+    it("(gc-4) channel returns null on gc-timer is-enabled check → hadError=true, gcTimerAlreadyEnabled=false, gcTimerBootstrapped=false", async () => {
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        // Override: null for gc-timer probe.
+        "interactive-messages-gc.timer": null,
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.gcTimerAlreadyEnabled).toBe(false);
+      expect(result.gcTimerBootstrapped).toBe(false);
+      expect(result.hadError).toBe(true);
+    });
+
+    it("(gc-5) channel returns null on gc-timer enable-now → hadError=true, gcTimerBootstrapped=false", async () => {
+      const exec = vi.fn(async (cmd: string) => {
+        if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
+        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
+        if (cmd.includes("enable --now interactive-messages-gc.timer")) return null;
+        if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
+        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
+        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
+        if (cmd.includes("skynet-parent")) return "__SKYNET_PARENT_OK__";
+        if (cmd.includes("skynet-hostname")) return "__SKYNET_HOSTNAME_OK__";
+        if (cmd.includes("skynet-hostid")) return "__SKYNET_HOSTID_OK__";
+        return null;
+      });
+      const ch: SshChannel = { exec };
+
+      const result = await runBootstrapForHost(ch, HOST);
+
+      expect(result.gcTimerBootstrapped).toBe(false);
+      expect(result.hadError).toBe(true);
+    });
+
+    it("(gc-6) enable-now returns without sentinel → hadError=true, gcTimerBootstrapped=false", async () => {
+      const exec = vi.fn(async (cmd: string) => {
+        if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
+        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
+        if (cmd.includes("enable --now interactive-messages-gc.timer"))
+          return "Failed to start interactive-messages-gc.timer\n";
+        if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
+        if (cmd.includes("__STATUSLINE_OK__")) return "__STATUSLINE_OK__";
+        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
+        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
+        if (cmd.includes("skynet-parent")) return "__SKYNET_PARENT_OK__";
+        if (cmd.includes("skynet-hostname")) return "__SKYNET_HOSTNAME_OK__";
+        if (cmd.includes("skynet-hostid")) return "__SKYNET_HOSTID_OK__";
+        return null;
+      });
+      const ch: SshChannel = { exec };
+
+      const result = await runBootstrapForHost(ch, HOST);
+
+      expect(result.gcTimerBootstrapped).toBe(false);
+      expect(result.hadError).toBe(true);
     });
   });
 });

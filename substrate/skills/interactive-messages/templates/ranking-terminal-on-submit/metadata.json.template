@@ -1,0 +1,22 @@
+// SHAPE REFERENCE — the scaffold script constructs this via Python; DO NOT copy
+// this file verbatim as substitution is done in Python for correct JSON escaping.
+//
+// Phase 138: interactive-messages templates + modes
+// Source: substrate/skills/interactive-messages/templates/ranking-terminal-on-submit/
+//
+// This file documents the exact shape written by create-widget.sh to
+// ~/fleet/interactive-messages/<slug>/metadata.json. The scaffold script
+// uses python3 inline to build this with proper JSON escaping; it does NOT
+// use sed or template-substitution on this file.
+{
+  "template": "ranking",
+  "widget_id": "__SLUG__",
+  "message_id": "__MESSAGE_ID__",
+  "conversation_id": "__CONVERSATION_ID__",
+  "config": {
+    "prompt": "__PROMPT__",
+    "items": ["__ITEM_1__", "__ITEM_2__", "__ITEM_3__"],
+    "submit_label": "Submit order"
+  },
+  "created_at": "__ISO_TIMESTAMP__"
+}
