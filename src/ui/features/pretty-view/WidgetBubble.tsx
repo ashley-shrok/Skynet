@@ -49,11 +49,13 @@ export interface WidgetBubbleProps {
 
 export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [retrySrc, setRetrySrc] = useState(src);
   const [expired, setExpired] = useState(false);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
   const [isClamped, setIsClamped] = useState(false);
+  const [thumb, setThumb] = useState<{ top: number; height: number } | null>(null);
 
   // Retry effect: attaches an error listener to the iframe and schedules
   // exponential-backoff retries on load failure. Runs on [src, retryCount]
@@ -125,6 +127,46 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
     return () => window.removeEventListener("message", handler);
   }, [onSubmit]);
 
+  // Phase 143: track scroll position for the DOM-based fake thumb. Modern
+  // Chromium's overlay-scrollbar mode auto-hides the native scrollbar even
+  // under ::-webkit-scrollbar styling, so we paint our own always-visible
+  // thumb absolutely-positioned inside the wrapper. Recomputes on scroll +
+  // wrapper resize + iframe height change.
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper || !isClamped) {
+      setThumb(null);
+      return;
+    }
+    const update = () => {
+      const { scrollTop, scrollHeight, clientHeight } = wrapper;
+      if (scrollHeight <= clientHeight + 1) {
+        setThumb(null);
+        return;
+      }
+      const padding = 8; // top/bottom breathing room inside the track
+      const trackHeight = clientHeight - padding * 2;
+      const minThumb = 30;
+      const ratio = clientHeight / scrollHeight;
+      const height = Math.max(minThumb, Math.round(trackHeight * ratio));
+      const scrollable = scrollHeight - clientHeight;
+      const scrollRatio = scrollable > 0 ? scrollTop / scrollable : 0;
+      const top = padding + Math.round((trackHeight - height) * scrollRatio);
+      setThumb({ top, height });
+    };
+    update();
+    wrapper.addEventListener("scroll", update, { passive: true });
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(update);
+      ro.observe(wrapper);
+    }
+    return () => {
+      wrapper.removeEventListener("scroll", update);
+      ro?.disconnect();
+    };
+  }, [isClamped, contentHeight]);
+
   // Phase 140: expired-placeholder branch — renders after retry exhaustion.
   // Replaces the iframe with an inline dark-theme card that names the recovery
   // path. Visually inert (no clickable elements); role="status" signals the
@@ -147,35 +189,57 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
     );
   }
 
-  // Phase 143: outer scroll wrapper owns the scrollbar. Iframe renders at its
-  // natural (reported) height; wrapper caps + scrolls. This puts the scrollbar
-  // on the parent's DOM so we can style it with the `chunky-scrollbar`
-  // utility — the iframe's own scrollbar (macOS Chromium overlay/auto-hide)
-  // never comes into play.
+  // Phase 143: relative container holds the scrolling wrapper + a
+  // sibling fake thumb. Sibling (not child of the scroll wrapper) so the
+  // thumb's absolute position is relative to the VIEWPORT area of the
+  // container, not the scrollable content — it stays visually anchored to
+  // the right edge as the iframe scrolls inside the wrapper.
   //
-  // overflow-y toggles: `scroll` when clamped (rail reserved + always visible),
-  // `hidden` when fits (no rail, iframe already sized to natural height).
+  // Native scrollbar is hidden via widget-scroll-wrapper utility (Chromium's
+  // overlay-scrollbar auto-hide beats CSS styling; can't fight it). The
+  // wrapper still scrolls via wheel/touch/keyboard — only the native
+  // indicator is invisible.
   return (
-    <div
-      className={`relative w-full rounded-md ${isClamped ? "chunky-scrollbar" : ""}`}
-      style={{
-        maxHeight: `${MAX_HEIGHT_PX}px`,
-        overflowY: isClamped ? "scroll" : "hidden",
-      }}
-    >
-      <iframe
-        ref={iframeRef}
-        src={retrySrc}
-        title="Interactive widget"
-        referrerPolicy="no-referrer"
-        loading="eager"
-        className="w-full border-0 rounded-md"
+    <div className="relative w-full">
+      <div
+        ref={wrapperRef}
+        className={`w-full rounded-md ${isClamped ? "widget-scroll-wrapper" : ""}`}
         style={{
-          height: `${contentHeight ?? INITIAL_HEIGHT_PX}px`,
-          transition: "height 120ms ease-out",
-          display: "block",
+          maxHeight: `${MAX_HEIGHT_PX}px`,
+          overflowY: isClamped ? "auto" : "hidden",
         }}
-      />
+      >
+        <iframe
+          ref={iframeRef}
+          src={retrySrc}
+          title="Interactive widget"
+          referrerPolicy="no-referrer"
+          loading="eager"
+          className="w-full border-0 rounded-md"
+          style={{
+            height: `${contentHeight ?? INITIAL_HEIGHT_PX}px`,
+            transition: "height 120ms ease-out",
+            display: "block",
+          }}
+        />
+      </div>
+      {thumb && (
+        <div
+          aria-hidden="true"
+          data-testid="widget-scroll-thumb"
+          style={{
+            position: "absolute",
+            top: thumb.top,
+            right: 4,
+            width: 8,
+            height: thumb.height,
+            background: "rgba(255,255,255,0.4)",
+            borderRadius: 4,
+            pointerEvents: "none",
+            zIndex: 10,
+          }}
+        />
+      )}
     </div>
   );
 }

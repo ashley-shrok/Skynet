@@ -392,10 +392,10 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
     });
     const wrapper = iframe.parentElement as HTMLDivElement;
     expect(wrapper.style.overflowY).toBe("hidden");
-    expect(wrapper.className).not.toContain("chunky-scrollbar");
+    expect(wrapper.className).not.toContain("widget-scroll-wrapper");
   });
 
-  it("Test 19: wrapper scrolls + gets chunky-scrollbar when reported height exceeds cap", () => {
+  it("Test 19: wrapper scrolls + gets widget-scroll-wrapper when reported height exceeds cap", () => {
     const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const fakeContentWindow = {} as Window;
@@ -409,12 +409,12 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
       }));
     });
     const wrapper = iframe.parentElement as HTMLDivElement;
-    expect(wrapper.style.overflowY).toBe("scroll");
-    expect(wrapper.className).toContain("chunky-scrollbar");
+    expect(wrapper.style.overflowY).toBe("auto");
+    expect(wrapper.className).toContain("widget-scroll-wrapper");
     expect(wrapper.style.maxHeight).toBe("480px");
   });
 
-  it("Test 20: chunky-scrollbar drops off when a later resize fits under the cap", () => {
+  it("Test 20: widget-scroll-wrapper drops off when a later resize fits under the cap", () => {
     const { container } = render(<WidgetBubble src={WIDGET_SRC} />);
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     const fakeContentWindow = {} as Window;
@@ -428,7 +428,7 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
       }));
     });
     let wrapper = iframe.parentElement as HTMLDivElement;
-    expect(wrapper.className).toContain("chunky-scrollbar");
+    expect(wrapper.className).toContain("widget-scroll-wrapper");
 
     act(() => {
       window.dispatchEvent(new MessageEvent("message", {
@@ -438,7 +438,7 @@ describe("WidgetBubble — Phase 137 Plan 04 Task 2", () => {
       }));
     });
     wrapper = iframe.parentElement as HTMLDivElement;
-    expect(wrapper.className).not.toContain("chunky-scrollbar");
+    expect(wrapper.className).not.toContain("widget-scroll-wrapper");
     expect(wrapper.style.overflowY).toBe("hidden");
   });
 });
