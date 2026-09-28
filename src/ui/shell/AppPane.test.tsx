@@ -24,7 +24,7 @@
  *   - `data-*` attributes for downstream test/debug identification.
  */
 
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { AppPane, injectDarkViewerStylesheetIfApplicable } from "./AppPane";
 
@@ -46,7 +46,7 @@ function makeDataTransferStub(entries: Record<string, string> = {}) {
 }
 
 function fireWindowDragEvent(
-  type: "dragstart" | "dragend" | "drop",
+  type: "dragstart" | "dragend" | "drop" | "dragover",
   dataTransfer: ReturnType<typeof makeDataTransferStub> | null,
 ) {
   // jsdom does not implement DragEvent; a plain Event with a monkey-patched
@@ -220,6 +220,53 @@ describe("AppPane drag-passthrough", () => {
     const iframe = container.querySelector("iframe") as HTMLIFrameElement;
     fireWindowDragEvent("dragstart", null);
     expect(iframe.style.pointerEvents).toBe("");
+  });
+
+  // Watchdog: covers the drag-source-unmounted-then-ESC-cancelled path where
+  // neither dragend nor drop ever fires. Prior to the watchdog the iframe
+  // stayed muted for the rest of the session.
+  it("watchdog restores pointer-events if dragover falls silent (no dragend/drop)", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(
+        <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+      );
+      const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+      fireWindowDragEvent(
+        "dragstart",
+        makeDataTransferStub({ "application/x-skynet-badge": "x" }),
+      );
+      expect(iframe.style.pointerEvents).toBe("none");
+      // Live drag: dragover heartbeat keeps the watchdog alive.
+      vi.advanceTimersByTime(1500);
+      fireWindowDragEvent("dragover", null);
+      vi.advanceTimersByTime(1500);
+      expect(iframe.style.pointerEvents).toBe("none");
+      // Drag dies silently — no more dragover, no dragend, no drop.
+      vi.advanceTimersByTime(2000);
+      expect(iframe.style.pointerEvents).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("watchdog is NOT armed for non-Skynet drags (dragover on text drag does nothing)", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(
+        <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+      );
+      const iframe = container.querySelector("iframe") as HTMLIFrameElement;
+      fireWindowDragEvent(
+        "dragstart",
+        makeDataTransferStub({ "text/plain": "selected" }),
+      );
+      fireWindowDragEvent("dragover", null);
+      vi.advanceTimersByTime(5000);
+      expect(iframe.style.pointerEvents).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

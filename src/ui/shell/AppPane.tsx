@@ -53,6 +53,14 @@ import { hasSkynetDragPayload } from "./SplitView";
 // underneath; dragend/drop restore. Gated on hasSkynetDragPayload so browser
 // text-selection drags and OS file drags leave the iframe interactive.
 //
+// Watchdog (2026-09-28): dragend does NOT fire when the drag source is
+// removed from the DOM mid-drag AND the user cancels via ESC / drops off-
+// window (drop only fires on successful drops; dragend on a detached source
+// does not bubble to window). Without a backstop the iframe stays muted for
+// the rest of the session. dragover fires continuously during ANY live drag,
+// so we treat 2s of dragover silence while muted as "drag definitely ended
+// one way or another" and force-restore.
+//
 // ─── Chrome auto-rendered-viewer dark-mode injection ──────────────────────
 // When an app route returns Content-Type: application/json or text/plain,
 // Chrome hands the response to its built-in viewer (JSON tree + Pretty-print
@@ -104,16 +112,37 @@ export function AppPane({
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
+    const armWatchdog = () => {
+      if (watchdog !== null) clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        watchdog = null;
+        const el = iframeRef.current;
+        if (el !== null) el.style.pointerEvents = "";
+      }, 2000);
+    };
+    const restore = () => {
+      if (watchdog !== null) {
+        clearTimeout(watchdog);
+        watchdog = null;
+      }
+      const el = iframeRef.current;
+      if (el !== null) el.style.pointerEvents = "";
+    };
     const onDragStart = (e: DragEvent) => {
       if (!hasSkynetDragPayload(e.dataTransfer)) return;
       const el = iframeRef.current;
       if (el !== null) el.style.pointerEvents = "none";
+      armWatchdog();
     };
-    const restore = () => {
-      const el = iframeRef.current;
-      if (el !== null) el.style.pointerEvents = "";
+    const onDragOver = () => {
+      // Heartbeat: drag is still alive. Only re-arm while the watchdog is
+      // active (i.e. we muted the iframe for a Skynet drag) — non-Skynet
+      // drags never armed it and shouldn't now.
+      if (watchdog !== null) armWatchdog();
     };
     window.addEventListener("dragstart", onDragStart);
+    window.addEventListener("dragover", onDragOver);
     window.addEventListener("dragend", restore);
     // Belt-and-braces: some drag sources (e.g. rows removed from a filtered
     // list mid-drop) are unmounted before dragend fires. drop on window is
@@ -121,8 +150,10 @@ export function AppPane({
     window.addEventListener("drop", restore);
     return () => {
       window.removeEventListener("dragstart", onDragStart);
+      window.removeEventListener("dragover", onDragOver);
       window.removeEventListener("dragend", restore);
       window.removeEventListener("drop", restore);
+      if (watchdog !== null) clearTimeout(watchdog);
     };
   }, []);
 
