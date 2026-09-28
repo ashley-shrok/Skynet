@@ -617,17 +617,39 @@ export function handleUploadChunk(
     return;
   }
 
-  // Best-effort backpressure — pause the WS while the stream drains.
+  // Backpressure signal — writeStream buffers internally when it returns
+  // false. We intentionally do NOT pause the WS: `ws.pause()` suspends
+  // the receiver globally (all inbound frames including control frames
+  // like pong), which starves the pane connection's heartbeat and lets
+  // its keep-alive timer terminate the connection during legitimate
+  // uploads. Client-side pumpFile in use-pretty-view-uploads.ts already
+  // throttles based on outbound bufferedAmount, so we accept some
+  // in-memory buffering on the writeStream instead of pausing the pipe.
   const acceptedMore = fileState.writeStream.write(buf);
   if (!acceptedMore) {
-    const wsAny = ws as unknown as {
-      pause?: () => void;
-      resume?: () => void;
-    };
-    if (typeof wsAny.pause === "function" && typeof wsAny.resume === "function") {
-      wsAny.pause();
-      fileState.writeStream.once("drain", () => wsAny.resume?.());
-    }
+    sshLogger.info(
+      "[pv-upload] backpressure write-returned-false",
+      {
+        operation: "pv_upload_backpressure_write_full",
+        messageQueueItemId: mqid,
+        tempId: fileState.tempId,
+        bytesReceived: fileState.bytesReceived,
+        totalSize: fileState.size,
+        chunkBytes: buf.length,
+      },
+    );
+    fileState.writeStream.once("drain", () => {
+      sshLogger.info(
+        "[pv-upload] backpressure drain-fired",
+        {
+          operation: "pv_upload_backpressure_drain",
+          messageQueueItemId: mqid,
+          tempId: fileState.tempId,
+          bytesReceived: fileState.bytesReceived,
+          totalSize: fileState.size,
+        },
+      );
+    });
   }
 
   fileState.bytesReceived += buf.length;
@@ -647,6 +669,16 @@ export function handleUploadChunk(
       bytesReceived: fileState.bytesReceived,
       total: fileState.size,
     });
+    sshLogger.info(
+      "[pv-upload] progress emitted",
+      {
+        operation: "pv_upload_progress_emit",
+        messageQueueItemId: mqid,
+        tempId: fileState.tempId,
+        bytesReceived: fileState.bytesReceived,
+        totalSize: fileState.size,
+      },
+    );
   }
 
   if (fileState.bytesReceived === fileState.size) {
@@ -687,6 +719,17 @@ async function finalizeFile(
     landingPath: fileState.finalPath,
     uploadTimestamp: fileState.uploadTimestamp,
   });
+  sshLogger.info(
+    "[pv-upload] complete emitted",
+    {
+      operation: "pv_upload_complete_emit",
+      messageQueueItemId: batch.messageQueueItemId,
+      tempId: fileState.tempId,
+      landingPath: fileState.finalPath,
+      totalSize: fileState.size,
+      elapsedMs: Date.now() - batch.startedAt,
+    },
+  );
   // If every file has landed, emit ready_to_inject and free the batch.
   const allDone = Array.from(batch.files.values()).every((f) => f.completed);
   if (allDone) {
@@ -702,6 +745,15 @@ async function finalizeFile(
         uploadTimestamp: f.uploadTimestamp,
       })),
     });
+    sshLogger.info(
+      "[pv-upload] ready_to_inject emitted",
+      {
+        operation: "pv_upload_ready_to_inject_emit",
+        messageQueueItemId: batch.messageQueueItemId,
+        fileCount: batch.files.size,
+        elapsedMs: Date.now() - batch.startedAt,
+      },
+    );
     activeBatches.delete(batch.messageQueueItemId);
   }
 }

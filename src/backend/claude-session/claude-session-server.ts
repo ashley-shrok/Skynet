@@ -4936,7 +4936,19 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let wsAlive = true;
 
   ws.on("pong", () => {
+    const wasAlive = wsAlive;
     wsAlive = true;
+    sshLogger.info(
+      "[claude-session-heartbeat] pong received",
+      {
+        operation: "claude_session_heartbeat_pong",
+        userId,
+        sessionId,
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        wsAliveBefore: wasAlive,
+      },
+    );
   });
 
   const wsPingInterval = setInterval(() => {
@@ -4948,6 +4960,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
             operation: "claude_session_ws_error",
             userId,
             sessionId,
+            hostId: currentHostId,
+            tmuxSession: currentTmuxSession,
           },
         );
         ws.terminate();
@@ -4955,6 +4969,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
       wsAlive = false;
       ws.ping();
+      sshLogger.info(
+        "[claude-session-heartbeat] ping sent",
+        {
+          operation: "claude_session_heartbeat_ping",
+          userId,
+          sessionId,
+          hostId: currentHostId,
+          tmuxSession: currentTmuxSession,
+          bufferedAmount: ws.bufferedAmount,
+        },
+      );
     }
   }, 30000);
 

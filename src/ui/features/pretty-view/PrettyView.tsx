@@ -1463,7 +1463,17 @@ export function PrettyView({
     options?: { skipTagNeutralize?: boolean },
   ): boolean => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      // pv-input diag (attachment-vanish-instrumentation): log guard-trip so
+      // we can see when a caller tried to send but the connection wasn't OPEN.
+      console.warn("[pv-input-client] sendInput guard-trip", {
+        mqid: mqid ?? null,
+        textLen: text.length,
+        wsPresent: !!ws,
+        wsReadyState: ws?.readyState ?? null,
+      });
+      return false;
+    }
     // Neutralize harness-control-shaped tags before they land in claude's stdin.
     // Anthropic's Claude Code parses `<bash-input>…</bash-input>`, `<system-reminder>`,
     // etc. as its own control frames when they appear in user input, so pasting/typing
@@ -1479,6 +1489,10 @@ export function PrettyView({
     const data = options?.skipTagNeutralize
       ? text
       : text.replace(/<(\/?[a-zA-Z][a-zA-Z0-9_-]*)/g, "<\u200B$1");
+    // pv-input diag (attachment-vanish-instrumentation): sample outbound queue
+    // depth at every text-input send so we can see whether the client's WS
+    // outbound was jammed when the injected turn was dispatched.
+    const bufBefore = ws.bufferedAmount;
     try {
       ws.send(
         JSON.stringify({
@@ -1487,8 +1501,21 @@ export function PrettyView({
           ...(mqid ? { messageQueueItemId: mqid } : {}),
         }),
       );
+      console.info("[pv-input-client] sendInput sent", {
+        mqid: mqid ?? null,
+        dataLen: data.length,
+        bufferedAmountBefore: bufBefore,
+        bufferedAmountAfter: ws.bufferedAmount,
+        wsReadyState: ws.readyState,
+      });
       return true;
-    } catch {
+    } catch (err) {
+      console.warn("[pv-input-client] sendInput threw", {
+        mqid: mqid ?? null,
+        dataLen: data.length,
+        bufferedAmountBefore: bufBefore,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return false;
     }
   }, []);

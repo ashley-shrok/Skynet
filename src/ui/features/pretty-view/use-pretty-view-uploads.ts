@@ -377,6 +377,16 @@ export function usePrettyViewUploads(
       const ourBatch = batchIdRef.current;
       if (!ourBatch || event.messageQueueItemId !== ourBatch) return;
 
+      // pv-upload diag (attachment-vanish-instrumentation): log every server
+      // event received for our batch, so we can see the wire flow client-side.
+      const rxWs = wsRef.current;
+      console.info("[pv-upload-client] server-event-rx", {
+        mqid: event.messageQueueItemId,
+        type: event.type,
+        bufferedAmountAtRx: rxWs?.bufferedAmount ?? null,
+        wsReadyState: rxWs?.readyState ?? null,
+      });
+
       switch (event.type) {
         case "upload_progress": {
           // quick-260829-nt9 KNOWN LIMITATION: these chip-mutation branches
@@ -634,6 +644,15 @@ export function usePrettyViewUploads(
         resolveOutcome(batchId, { ok: false, reason: "ws_send_threw" });
         return { messageQueueItemId: batchId, outcome: outcomePromise };
       }
+      // pv-upload diag (attachment-vanish-instrumentation): mark upload_start
+      // sent with connection state at moment of send.
+      console.info("[pv-upload-client] upload_start-sent", {
+        mqid: batchId,
+        fileCount: currentAttachments.length,
+        totalBytes: currentAttachments.reduce((s, a) => s + a.file.size, 0),
+        bufferedAmountAfter: ws.bufferedAmount,
+        wsReadyState: ws.readyState,
+      });
 
       // Quick 260823-8ji: WS accepted upload_start — arm the 30s "no
       // terminal event" timer. Cleared by resolveOutcome on any terminal
@@ -965,12 +984,26 @@ export function usePrettyViewUploads(
           setPendingSendWaitingForWs(true);
           return;
         }
+        // pv-upload diag (attachment-vanish-instrumentation): sample outbound
+        // queue depth at every chunk send. If bufferedAmount is climbing when
+        // the vanish repros, the client-side outbound is jammed; if flat, the
+        // server is not draining what we send.
+        const bufBefore = ws.bufferedAmount;
         try {
           ws.send(JSON.stringify(payload));
         } catch {
           setPendingSendWaitingForWs(true);
           return;
         }
+        console.info("[pv-upload-client] chunk-sent", {
+          mqid: batchId,
+          tempId: att.tempId,
+          offset,
+          chunkBytes: end - offset,
+          bufferedAmountBefore: bufBefore,
+          bufferedAmountAfter: ws.bufferedAmount,
+          wsReadyState: ws.readyState,
+        });
         lastOffsetSentRef.current.set(att.tempId, end);
         offset = end;
         // Yield to the event loop between chunks so state updates flush
