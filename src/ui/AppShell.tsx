@@ -1875,6 +1875,30 @@ export function AppShell({
               }
               return null;
             }
+            // Phase 120 D-16 — app branch, symmetric with relay above.
+            // Key matches the population loop at :1828 (`app:${hostId}:${slug}`);
+            // fallback walks tabs for a matching (hostId, slug) tuple. Without
+            // this branch the fall-through built `app:undefined:` (spec.host is
+            // never on the app variant), missed specToTabId, then threw
+            // TypeError on `spec.host.toLowerCase()`. decodeSplitTreeFromUrl's
+            // outer try/catch swallowed it and returned null, collapsing the
+            // whole splitTree on reload — visible as "only one tab shows up
+            // after reload" for any mixed workspace with an app leaf.
+            if (spec.protocol === "app") {
+              const key = `app:${spec.hostId}:${spec.slug}`;
+              const hit = specToTabId.get(key);
+              if (hit) return hit;
+              for (const t of [...restoredTabs, ...tabs]) {
+                if (
+                  isAppTab(t) &&
+                  String(t.app.hostId) === spec.hostId &&
+                  t.app.slug === spec.slug
+                ) {
+                  return t.id;
+                }
+              }
+              return null;
+            }
             const key = `${spec.protocol}:${spec.host}:${spec.session ?? ""}`;
             const hit = specToTabId.get(key);
             if (hit) return hit;

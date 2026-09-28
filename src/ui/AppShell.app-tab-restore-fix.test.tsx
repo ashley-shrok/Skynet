@@ -76,3 +76,50 @@ describe("AppShell.tsx — MEDIUM-6 app tab restore (Phase 137 D-31 update)", ()
 // per-branch assertions; AppShell.tsx's callsite is unchanged (still
 // `Number(spec.hostId)` — safe because the wire validator has already
 // enforced the positive-integer shape upstream).
+
+/* ------------------------------------------------------------------------ */
+/*  splitTree resolver — app-leaf branch (2026-09-28 fix)                    */
+/* ------------------------------------------------------------------------ */
+
+// Symmetric with the Phase 97 Plan 05 BLOCKER-1 relay-branch fix
+// (AppShell.relay-url-restore.test.tsx Test 3). The splitTree positional
+// resolver at ~L1857 iterates every TabSpec variant; without an explicit
+// `spec.protocol === "app"` branch the fall-through built key
+// `app:${spec.host}:${spec.session ?? ""}` → `"app:undefined:"` (spec.host
+// is `never` on the app variant), missed specToTabId, then hit
+// `spec.host.toLowerCase()` → TypeError. decodeSplitTreeFromUrl's outer
+// try/catch swallowed the exception and returned null, collapsing the
+// entire splitTree on reload — visible as "only one tab shows up after
+// reload" for any mixed workspace containing an app leaf. The
+// split-tree-url.ts codec-side of this class of bug was fixed in
+// fdbcd6d3; this is the resolver-side.
+
+describe("AppShell.tsx — splitTree resolver app-leaf branch", () => {
+  it("splitTree resolver has an if (spec.protocol === \"app\") branch (symmetric with the relay branch)", () => {
+    // Regression floor: the resolver must relay- AND app-branch before
+    // reaching the host-required fall-through. Both variants carry
+    // `host?: never` and would TypeError otherwise.
+    const matches = appShellSrc.match(/spec\.protocol === "app"/g) ?? [];
+    // Sites: URL-restore loop 1 (opens the tab), specToTabId population
+    // loop, AND the resolver — 3 minimum.
+    expect(matches.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("splitTree resolver builds an app-flavored key (`app:${spec.hostId}:${spec.slug}`) matching the population loop", () => {
+    // The population loop at ~L1828 writes `app:${spec.hostId}:${spec.slug}`
+    // into specToTabId; the resolver MUST look up the same shape. A key
+    // built from `spec.host` / `spec.session` misses every populated entry
+    // and falls into the TypeError path.
+    const matches = appShellSrc.match(/`app:\$\{spec\.hostId\}:\$\{spec\.slug\}`/g) ?? [];
+    // Two sites: the population-loop set, and the resolver lookup.
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("splitTree resolver fallback walk matches on isAppTab + hostId + slug identity", () => {
+    // Whitespace-tolerant regex — Prettier may wrap the && conjunction
+    // across lines. The fallback must use the app tuple, not host lookup.
+    expect(appShellSrc).toMatch(
+      /isAppTab\(t\)\s+&&\s+String\(t\.app\.hostId\) === spec\.hostId\s+&&\s+t\.app\.slug === spec\.slug/,
+    );
+  });
+});
