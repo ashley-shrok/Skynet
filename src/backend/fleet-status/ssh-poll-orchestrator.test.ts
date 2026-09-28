@@ -5839,6 +5839,100 @@ describe("Phase 55: session-file cache writes", () => {
     const entryByHostTmux = readSessionFileCache("host-1", "tina");
     expect(entryByHostTmux).toBeNull();
   });
+
+  // ---------------------------------------------------------------------------
+  // Test 55-G: local-host container-perspective jsonlPath is translated to
+  // host-perspective before landing in sessionFileCache.
+  //
+  // Regression guard for the failure mode where the local-host sweep (running
+  // inside the Skynet container via acquireLocalChannel with HOME=/host-home)
+  // emits jsonlPath rooted at /host-home/... which then flows verbatim into
+  // the cache. Downstream SSH consumers (claude-session-server's totalLines
+  // probe, tail -F, fetch_older_range) run against the host filesystem where
+  // /host-home does not exist — they fail with "sed: can't read" and the
+  // PrettyView load-more button hides silently. Companion regression to the
+  // 39e773b9 fix in discover-identity-session-file.ts's readLocalDiscovery
+  // (same principle, second entry point).
+  // ---------------------------------------------------------------------------
+
+  it("Test 55-G: translates container-perspective jsonlPath to host-perspective at cache write", async () => {
+    const prevHomeHost = process.env.HOME_HOST_DIR;
+    const prevHomeSrc = process.env.SKYNET_HOME_MOUNT_SRC;
+    process.env.HOME_HOST_DIR = "/host-home";
+    process.env.SKYNET_HOME_MOUNT_SRC = "/home/ubuntu";
+    try {
+      const channel = new MockSshChannel();
+      // Sweep emits a /host-home/... path (in-container perspective).
+      const discovery = buildDiscoveryFixture55(
+        "aqua",
+        "/host-home/.claude/projects/-home-ubuntu-fleet-identities-aqua-workspace/id.jsonl",
+      );
+      wireSourceAResponses(channel, { discoveryStdout: discovery });
+
+      const deps = buildDeps({
+        acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      });
+
+      const orchestrator = createSshPollOrchestrator(deps);
+      await orchestrator.start();
+
+      // Cache must hold the HOST-perspective form so downstream SSH consumers
+      // can read the file against the host filesystem.
+      const entry = readSessionFileCache("host-1", "aqua");
+      expect(entry).not.toBeNull();
+      expect(entry!.sessionFile).toBe(
+        "/home/ubuntu/.claude/projects/-home-ubuntu-fleet-identities-aqua-workspace/id.jsonl",
+      );
+      expect(entry!.pid).toBe(12345);
+    } finally {
+      if (prevHomeHost === undefined) delete process.env.HOME_HOST_DIR;
+      else process.env.HOME_HOST_DIR = prevHomeHost;
+      if (prevHomeSrc === undefined) delete process.env.SKYNET_HOME_MOUNT_SRC;
+      else process.env.SKYNET_HOME_MOUNT_SRC = prevHomeSrc;
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 55-H: remote-host jsonlPath (already host-perspective) passes through
+  // unchanged. Guards against a translation regression that would rewrite
+  // remote paths (which happen to sit under /home/ubuntu already) into
+  // something else, or that would apply the container-root strip when the
+  // path doesn't sit under it.
+  // ---------------------------------------------------------------------------
+
+  it("Test 55-H: host-perspective jsonlPath passes through cache write unchanged", async () => {
+    const prevHomeHost = process.env.HOME_HOST_DIR;
+    const prevHomeSrc = process.env.SKYNET_HOME_MOUNT_SRC;
+    process.env.HOME_HOST_DIR = "/host-home";
+    process.env.SKYNET_HOME_MOUNT_SRC = "/home/ubuntu";
+    try {
+      const channel = new MockSshChannel();
+      // Path does NOT sit under /host-home → translation is a no-op.
+      const discovery = buildDiscoveryFixture55(
+        "aqua",
+        "/home/thenasty/.claude/projects/-home-thenasty/id.jsonl",
+      );
+      wireSourceAResponses(channel, { discoveryStdout: discovery });
+
+      const deps = buildDeps({
+        acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      });
+
+      const orchestrator = createSshPollOrchestrator(deps);
+      await orchestrator.start();
+
+      const entry = readSessionFileCache("host-1", "aqua");
+      expect(entry).not.toBeNull();
+      expect(entry!.sessionFile).toBe(
+        "/home/thenasty/.claude/projects/-home-thenasty/id.jsonl",
+      );
+    } finally {
+      if (prevHomeHost === undefined) delete process.env.HOME_HOST_DIR;
+      else process.env.HOME_HOST_DIR = prevHomeHost;
+      if (prevHomeSrc === undefined) delete process.env.SKYNET_HOME_MOUNT_SRC;
+      else process.env.SKYNET_HOME_MOUNT_SRC = prevHomeSrc;
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -46,6 +46,7 @@ import {
   buildIdentityMatchScript,
   shellSingleQuote,
   DISCOVERY_EXEC_TIMEOUT_MS,
+  toHostPerspectivePath,
 } from "../claude-session/discover-identity-session-file.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
 import type { AppState, SessionState, WidgetState } from "./wire-protocol.js";
@@ -3204,8 +3205,23 @@ export function createSshPollOrchestrator(
     // shared session-file cache. Sits in COMPOSE (not fetch) so BOTH batch
     // and legacy paths trigger the write identically per tick — a non-
     // negotiable of Phase 92.
+    //
+    // Translate container-perspective → host-perspective at the cache
+    // boundary. On local hosts the sweep runs inside the Skynet container
+    // (acquireLocalChannel spawns bash with HOME=HOME_HOST_DIR), so the
+    // batch AND legacy jsonlPath resolvers both emit /host-home/... paths.
+    // Every downstream consumer of this cache is an SSH-exec consumer that
+    // runs against the HOST filesystem where /host-home does not exist
+    // (claude-session-server's connect-time totalLines probe, tail -F, and
+    // fetch_older_range). Companion to the 39e773b9 fix in
+    // discover-identity-session-file.ts's readLocalDiscovery — same
+    // principle, second entry point. No-op for remote hosts (their sweep
+    // runs via SSH with $HOME=/home/ubuntu, so paths are already host-side).
     if (jsonlPath !== null && tmuxSession !== null) {
-      writeSessionFileCache(host.id, tmuxSession, { sessionFile: jsonlPath, pid });
+      writeSessionFileCache(host.id, tmuxSession, {
+        sessionFile: toHostPerspectivePath(jsonlPath),
+        pid,
+      });
     }
 
     // Compose SessionState — same shape as pre-refactor processPid.
