@@ -1507,14 +1507,10 @@ export function PrettyConversationsPanel({
   //      rows, relay-room rows, and rows without host + targetTmuxSession
   //      are excluded — the row-side menu builder never even shows the item
   //      for those cases, but the guard is defense-in-depth).
-  //   2. window.confirm with EXACT copy `archive <displayName>? this can't
-  //      be undone.` (D-03 user-locked verbatim). The displayName is the
-  //      identity's `displayName` (mirrors the row's own label field per
-  //      115-06 plan-check refinement — Test 8 asserts exact-string equality
-  //      with a fixture identity name `wren`). If the identity is not yet
-  //      resolved on the frontend, fall back to the identity key from the
-  //      row's targetTmuxSession (safe default — the sentinel drop still
-  //      succeeds regardless of the confirmation copy).
+  //   2. window.confirm with copy `archive <label>? this can't be undone.`,
+  //      where <label> mirrors the sidebar row's label preference: task if
+  //      present, else displayName, else identityKey fallback (when the
+  //      identity hasn't yet resolved on the frontend).
   //   3. If confirm=false → return immediately, no API call, no pane close.
   //   4. If confirm=true → D-04 side effect: if the row is in the active-set
   //      (identity has a visible pane), call handleRowDeactivate(row) to
@@ -1539,23 +1535,14 @@ export function PrettyConversationsPanel({
     const hostIdNum = parseInt(row.host.id, 10);
     if (!Number.isFinite(hostIdNum)) return;
     const identityKey = row.targetTmuxSession;
-    // Prefer the resolved identity's displayName so the confirmation reads
-    // consistent with the row's label (same field the row's header line
-    // renders). Fall back to the identity key if the identity hasn't yet
-    // resolved (fleet-status enrichment race — no drift from displayName in
-    // steady state because the row itself falls back the same way).
     const resolved =
       (Number.isFinite(hostIdNum)
         ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
         : undefined) ?? identitiesByKey.get(identityKey);
-    const displayName = resolved?.displayName ?? identityKey;
-    // D-03 EXACT COPY — do NOT wrap displayName in backticks or quotes in
-    // the actual string; the CONTEXT.md formatting uses backticks as
-    // MARKDOWN emphasis around the <identity> placeholder, not as literal
-    // characters in the dialog. Test 8 asserts byte-identical equality
-    // against `archive wren? this can't be undone.` with fixture `wren`.
-    // Apostrophe is a straight ASCII apostrophe (U+0027), not a curly one.
-    if (!window.confirm(`archive ${displayName}? this can't be undone.`)) return;
+    // Mirror the sidebar row's label preference (PrettyConversationRow.tsx):
+    // task if present, else displayName, else identityKey.
+    const label = resolved?.task || resolved?.displayName || identityKey;
+    if (!window.confirm(`archive ${label}? this can't be undone.`)) return;
     if (activeSet.has(row.id)) {
       handleRowDeactivate(row);
     }

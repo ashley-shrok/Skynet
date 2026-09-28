@@ -61,7 +61,7 @@ vi.mock("@/features/terminal/session-hue", () => ({
 // (empty Map) — beforeEach resets it — so their behavior is unchanged.
 let mockIdentitiesByKey: Map<
   string,
-  { identityKey: string; title?: string | null; displayName?: string | null }
+  { identityKey: string; title?: string | null; displayName?: string | null; task?: string | null }
 > = new Map();
 
 // quick-260912-5q2: mutable flag for identities-store loaded state.
@@ -83,7 +83,7 @@ let mockIdentitiesLoaded = true;
 // the hydrate effect repeatedly.
 const TEST_DEFAULT_BY_KEY = new Map<
   string,
-  { identityKey: string; title?: string | null; displayName?: string | null }
+  { identityKey: string; title?: string | null; displayName?: string | null; task?: string | null }
 >([["__test_default__", { identityKey: "__test_default__" }]]);
 
 // Phase 92 Plan 04: identities-store now exports deriveDiskPinnedIds +
@@ -2409,6 +2409,60 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     // quotes around the displayName in the actual dialog string.
     expect(confirmSpy).toHaveBeenCalledWith(
       "archive wren? this can't be undone.",
+    );
+
+    confirmSpy.mockRestore();
+  });
+
+  // A5b: identity has task → confirmation copy uses task instead of displayName,
+  //      mirroring the sidebar row's task-primary label preference.
+  it("A5b: identity with task → confirm uses task string, not displayName", () => {
+    const hostA = makeHost("1", "hostA");
+    mockIdentitiesByKey = new Map([
+      [
+        "wren",
+        {
+          identityKey: "wren",
+          displayName: "wren",
+          title: null,
+          task: "Fixing the auth bug",
+        },
+      ],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "arch-row-1b",
+          label: "wren",
+          host: hostA,
+          targetTmuxSession: "wren",
+        }),
+      ],
+      rdpGroup: null,
+    });
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowEl = container.querySelector(
+      '[data-conversation-id="arch-row-1b"]',
+    ) as HTMLElement | null;
+    const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(body, { clientX: 200, clientY: 150 });
+    const menu = screen.getByRole("menu");
+    const archiveItem = within(menu).getByRole("menuitem", { name: "Archive" });
+    fireEvent.click(archiveItem);
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "archive Fixing the auth bug? this can't be undone.",
     );
 
     confirmSpy.mockRestore();

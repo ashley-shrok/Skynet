@@ -337,17 +337,14 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
           (Number.isFinite(hostIdNum)
             ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
             : undefined) ?? identitiesByKey.get(identityKey);
-        const displayName = resolved?.displayName ?? identityKey;
+        // Mirror the sidebar row's label preference + panel-side handler:
+        // task if present, else displayName, else identityKey.
+        const label = resolved?.task || resolved?.displayName || identityKey;
         items.push({
           label: "Archive",
           danger: true,
           onClick: () => {
-            // D-03 EXACT COPY — byte-identical to the panel-side handler.
-            // Do NOT wrap displayName in backticks or quotes inside the
-            // dialog string (Test 8's fixture asserts exact-string
-            // equality against `archive wren? this can't be undone.`
-            // with a fixture identity name `wren`).
-            if (!window.confirm(`archive ${displayName}? this can't be undone.`)) return;
+            if (!window.confirm(`archive ${label}? this can't be undone.`)) return;
             // D-04 side effect: close the visible pane BEFORE firing the
             // API call (mirrors the deleted Hide handler + the panel's
             // handleArchive).
