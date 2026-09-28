@@ -164,7 +164,7 @@ export function FileChip({
         onClick={handleOpen}
         className={cn(
           "inline-flex max-w-full items-center gap-2 px-2.5 py-1.5",
-          "rounded-md border text-xs no-underline",
+          "rounded-lg border text-xs no-underline",
           "bg-[rgba(10,12,20,0.5)] border-white/10 text-[#e8e4d8]",
           "shadow-[inset_0_1px_0_rgba(220,225,245,0.05)]",
           "hover:bg-[rgba(20,24,34,0.65)] hover:border-white/[0.18]",
@@ -201,7 +201,7 @@ export function FileChip({
       href={url}
       onClick={handleOpen}
       className={cn(
-        "block max-w-[340px] rounded-xl overflow-hidden no-underline",
+        "block max-w-[340px] rounded-2xl overflow-hidden no-underline",
         "bg-[rgba(10,12,20,0.5)] border border-white/10",
         "text-[#e8e4d8]",
         "hover:border-white/[0.22]",
