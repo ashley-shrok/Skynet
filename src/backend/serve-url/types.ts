@@ -49,7 +49,7 @@ export interface ServeTarget {
 }
 
 /**
- * The five distinct interstitial failure classes per D-14. Each maps 1:1
+ * The distinct interstitial failure classes per D-14. Each maps 1:1
  * to a rendered response in interstitial.ts:
  *
  * - port_not_listening → 502 HTML — SSH tunnel opened but agent's port
@@ -66,13 +66,24 @@ export interface ServeTarget {
  * - auth_missing       → 302 redirect to `https://<primaryDomain>/login`
  *                       — user has no valid session cookie (D-14 last
  *                       bullet: redirect to primary for re-auth).
+ * - app_not_serving    → 404 HTML — the pane's registered app has no
+ *                       live port in the fleet-status registry (nothing
+ *                       is running yet, or the agent stopped it). Used
+ *                       by app-pane-router when getAppSnapshot returns
+ *                       no matching entry or the matching entry has an
+ *                       invalid port. Distinct from port_not_listening,
+ *                       which fires AFTER a port is known and the tunnel
+ *                       fails to reach it — this class fires BEFORE any
+ *                       tunnel work, so the message must not reference a
+ *                       port number.
  */
 export type ErrorClass =
   | "port_not_listening"
   | "host_unreachable"
   | "permission_denied"
   | "ssh_failure"
-  | "auth_missing";
+  | "auth_missing"
+  | "app_not_serving";
 
 /**
  * Exact, lowercase, ordered list of HTTP headers permitted to pass through

@@ -896,22 +896,33 @@ describe("app-pane-router", () => {
   /* -------------------- Port lookup miss (case 12) -------------------- */
 
   describe("port lookup", () => {
-    it("returns 404 when getAppSnapshot has no matching app", async () => {
+    it("renders the app_not_serving interstitial when getAppSnapshot has no matching app", async () => {
       mocks.getAppSnapshot.mockReturnValueOnce([]);
+      mocks.renderInterstitial.mockReturnValueOnce({
+        status: 404,
+        body: "<html>app_not_serving</html>",
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+      mocks.writeInterstitial.mockImplementationOnce((res: Response) => {
+        res.status(404).setHeader("content-type", "text/html; charset=utf-8");
+        res.send("<html>app_not_serving</html>");
+      });
       const { port, close } = await makeServer(false);
       try {
         const res = await sendHttp(port, "GET", "/apps/5/todo/pane/");
         expect(res.status).toBe(404);
-        expect(JSON.parse(res.body).error).toBe(
-          "app is not currently serving on a port",
-        );
+        expect(res.body).toBe("<html>app_not_serving</html>");
+        expect(mocks.renderInterstitial).toHaveBeenCalled();
+        const args = mocks.renderInterstitial.mock.calls[0];
+        expect(args[0]).toBe("app_not_serving");
+        expect(args[3]).toBe("skynet.test");
         expect(mocks.getOrCreateAppPaneProxyForTarget).not.toHaveBeenCalled();
       } finally {
         await close();
       }
     });
 
-    it("returns 404 when the matching app has a null port", async () => {
+    it("renders the app_not_serving interstitial when the matching app has a null port", async () => {
       mocks.getAppSnapshot.mockReturnValueOnce([
         {
           hostId: "5",
@@ -926,12 +937,23 @@ describe("app-pane-router", () => {
           users: null,
         },
       ]);
+      mocks.renderInterstitial.mockReturnValueOnce({
+        status: 404,
+        body: "<html>app_not_serving</html>",
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+      mocks.writeInterstitial.mockImplementationOnce((res: Response) => {
+        res.status(404).setHeader("content-type", "text/html; charset=utf-8");
+        res.send("<html>app_not_serving</html>");
+      });
       const { port, close } = await makeServer(false);
       try {
         const res = await sendHttp(port, "GET", "/apps/5/todo/pane/");
         expect(res.status).toBe(404);
-        expect(JSON.parse(res.body).error).toBe(
-          "app is not currently serving on a port",
+        expect(res.body).toBe("<html>app_not_serving</html>");
+        expect(mocks.renderInterstitial).toHaveBeenCalled();
+        expect(mocks.renderInterstitial.mock.calls[0][0]).toBe(
+          "app_not_serving",
         );
       } finally {
         await close();

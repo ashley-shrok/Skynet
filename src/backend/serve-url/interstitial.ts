@@ -211,6 +211,21 @@ export function renderInterstitial(
         headers: { ...HTML_HEADERS },
       };
 
+    case "app_not_serving":
+      // Deliberately does NOT reference target.port — this class fires
+      // before any port is known (registry lookup miss or invalid port),
+      // so the port field on the stub ServeTarget is a placeholder the
+      // caller could not fill meaningfully.
+      return {
+        status: 404,
+        body: renderHtmlPage({
+          title: "app not serving",
+          message: `This app on ${safeHost} isn't currently serving on a port. The agent may not have started it yet, or may have stopped it.`,
+          originalUrl,
+        }),
+        headers: { ...HTML_HEADERS },
+      };
+
     case "auth_missing": {
       // No body. Browser follows Location before rendering anything. Do
       // NOT include HTML_HEADERS (no content-type on an empty body), only

@@ -203,17 +203,44 @@ router.all(
     const app = registry
       .getAppSnapshot()
       .find((a) => a.hostId === hostIdStr && a.slug === slug);
-    if (!app) {
-      return res
-        .status(404)
-        .json({ error: "app is not currently serving on a port" });
+    const hasLivePort =
+      app !== undefined &&
+      app.port !== null &&
+      Number.isFinite(app.port) &&
+      app.port > 0;
+    if (!hasLivePort) {
+      // Render the shared Skynet-styled interstitial instead of raw JSON —
+      // the iframe would otherwise show Chrome's built-in JSON viewer
+      // (tree + Pretty-print checkbox) on refresh whenever the app isn't
+      // currently registered on a live port. Mirrors the tunnel-error
+      // branch below.
+      sshLogger.warn("app pane: app not currently serving on a port", {
+        operation: "apps_pane_app_not_serving",
+        hostId: hostIdNum,
+        slug,
+        appPresent: app !== undefined,
+      });
+      const hostHeader = req.headers.host ?? "";
+      const originalUrl = hostHeader
+        ? `https://${hostHeader}${req.originalUrl}`
+        : req.originalUrl;
+      const stubTarget = {
+        hostname: host.name,
+        port: 0,
+        host,
+      };
+      writeInterstitial(
+        res,
+        renderInterstitial(
+          "app_not_serving",
+          stubTarget,
+          originalUrl,
+          PRIMARY_DOMAIN,
+        ),
+      );
+      return;
     }
-    if (app.port === null || !Number.isFinite(app.port) || app.port <= 0) {
-      return res
-        .status(404)
-        .json({ error: "app is not currently serving on a port" });
-    }
-    const port = app.port;
+    const port = app.port as number;
 
     // Anti-clickjacking headers (T-120-30, Task 3(g)). Set BEFORE the
     // proxy handoff — http-proxy-middleware preserves upstream-set
