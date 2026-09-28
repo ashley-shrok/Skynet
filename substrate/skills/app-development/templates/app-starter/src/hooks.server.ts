@@ -5,7 +5,7 @@ import { PANE_BASE } from '$lib/pane';
 // into every HTML response so links written as relative URLs resolve back
 // through the proxy. But it clashes with SvelteKit's absolute-from-root
 // asset URLs (/_app/immutable/…): those bypass <base> per URL spec and hit
-// Skynet's own root, 404. Rewrite /_app/ and /favicon references to include
+// Skynet's own root, 404. Rewrite /_app/ and /icon.webp references to include
 // the pane prefix so the browser routes them back through the proxy. Same
 // rewrite works on the .serve. tab origin (the app strips PANE_BASE via
 // the reroute hook).
@@ -14,7 +14,7 @@ export const handle: Handle = async ({ event, resolve }) => {
         transformPageChunk: ({ html }) => {
             return html
                 .replaceAll('"/_app/', `"${PANE_BASE}/_app/`)
-                .replaceAll('"/favicon.svg"', `"${PANE_BASE}/favicon.svg"`);
+                .replaceAll('"/icon.webp"', `"${PANE_BASE}/icon.webp"`);
         }
     });
     // SvelteKit also emits </_app/…> URLs in the `Link:` preload response

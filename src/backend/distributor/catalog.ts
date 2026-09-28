@@ -53,9 +53,11 @@
  *       retirement; promote-to-coordinator retired 2026-09-20 with the
  *       coord-as-mode retirement
  *     - 1 row for image-gen skill (Phase 116 file-drop broker SKILL.md)
- *     - 26 rows for app-development/ (SKILL.md + 5 helper scripts +
- *       20 starter-template files including a pre-generated initial
- *       Drizzle migration; first-class-apps campaign shape 1, 2026-09-17)
+ *     - 25 rows for app-development/ (SKILL.md + 5 helper scripts +
+ *       19 starter-template files including a pre-generated initial
+ *       Drizzle migration; first-class-apps campaign shape 1, 2026-09-17;
+ *       favicon.svg row retired 2026-09-28 when the scaffold switched to
+ *       a static/icon.webp symlink to the app's own icon.webp)
  *     - 11 rows for helper scripts under scripts/
  *       (role-file-watch is one of the four ambient watchers, all four
  *       spawned as children of ambient-monitor rather than launched
@@ -499,7 +501,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- app-development skill (26 rows: SKILL.md + 5 helper scripts + 20 starter template files) ---
+  // --- app-development skill (25 rows: SKILL.md + 5 helper scripts + 19 starter template files) ---
   // First-class-apps campaign, shape 1 (2026-09-17). Ships the canonical
   // app-development skill that teaches fleet agents to build user-facing apps
   // under ~/fleet/apps/<slug>/. The skill folder on managed boxes lands at
@@ -638,13 +640,6 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/routes/+page.svelte",
     installPath: "~/.claude/skills/app-development/templates/app-starter/src/routes/+page.svelte",
-    restartHook: null,
-  },
-  {
-    slug: "app-development-template-favicon",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/static/favicon.svg",
-    installPath: "~/.claude/skills/app-development/templates/app-starter/static/favicon.svg",
     restartHook: null,
   },
   {

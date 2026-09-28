@@ -99,7 +99,13 @@ file that already has to exist:
   `icon.webp`. New apps get one generated via the `image-gen` skill during
   step 8 of § Making a new app; if the file doesn't exist, the client falls
   back to a generic app glyph. Icons in another format must be converted
-  to `.webp` before dropping in — one filename, no drift.
+  to `.webp` before dropping in — one filename, no drift. Step 8 also
+  symlinks `static/icon.webp` → `../icon.webp` so the same file doubles as
+  the browser tab favicon when the user opens the app in a new tab. If you
+  replace or re-generate the icon on an existing app, rebuild
+  (`bun run build`) and restart (`systemctl --user restart app-<slug>`)
+  for the new favicon to land — the symlink stays in place, but the built
+  output under `build/client/` holds a copy of the bytes.
 - **Created-at** — the folder's filesystem timestamp.
 
 Do NOT add fields to `app.json`. Two fields today, two fields forever. The
@@ -231,6 +237,9 @@ everything else.
          --out ~/fleet/apps/<slug>/icon.png
        convert ~/fleet/apps/<slug>/icon.png ~/fleet/apps/<slug>/icon.webp
        rm ~/fleet/apps/<slug>/icon.png
+       ln -sf ../icon.webp ~/fleet/apps/<slug>/static/icon.webp
+       (cd ~/fleet/apps/<slug> && bun run build)
+       systemctl --user restart app-<slug>
 
    Rules:
 

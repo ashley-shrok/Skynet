@@ -188,6 +188,14 @@ rm -f "$APP_DIR/app.json"
 # already exists on disk.
 mv "$APP_DIR/README.md" "$APP_DIR/README.md.pending"
 
+# Ensure static/ exists so SKILL.md step 8 can drop the icon.webp symlink
+# into it after image-gen. We do NOT create the symlink here at scaffold —
+# SvelteKit's build walker calls statSync (not lstatSync) on entries under
+# static/, and a dangling symlink (target = icon.webp, which doesn't exist
+# until step 8) crashes the build with ENOENT. The symlink is created in
+# step 8 alongside a rebuild + restart, once icon.webp is real.
+mkdir -p "$APP_DIR/static"
+
 # --- Substitutions ---------------------------------------------------------
 
 # app.json.pending — same shape as the final app.json (two fields: title,
