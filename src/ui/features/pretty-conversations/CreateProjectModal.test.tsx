@@ -155,7 +155,7 @@ describe("CreateProjectModal", () => {
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/project name/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /create project/i }),
+      screen.getByRole("button", { name: /^create$/i }),
     ).toBeInTheDocument();
     // Cancel button retired; close is now the top-right glass X (aria-label="Close").
     expect(screen.getByRole("button", { name: /close/i })).toBeInTheDocument();
@@ -170,14 +170,14 @@ describe("CreateProjectModal", () => {
 
   it("Test 3 (submit disabled empty): Create button disabled when input empty", () => {
     renderModal({ open: true });
-    const submit = screen.getByRole("button", { name: /create project/i });
+    const submit = screen.getByRole("button", { name: /^create$/i });
     expect(submit).toBeDisabled();
   });
 
   it("Test 4 (submit enabled with text): Create button enabled after valid input", () => {
     renderModal({ open: true });
     typeName("My Project");
-    const submit = screen.getByRole("button", { name: /create project/i });
+    const submit = screen.getByRole("button", { name: /^create$/i });
     expect(submit).not.toBeDisabled();
   });
 
@@ -191,7 +191,7 @@ describe("CreateProjectModal", () => {
       hostId: 42,
     });
     typeName("My Project");
-    fireEvent.click(screen.getByRole("button", { name: /create project/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
       expect(createProjectSpy).toHaveBeenCalledTimes(1);
@@ -222,7 +222,7 @@ describe("CreateProjectModal", () => {
     );
     const { onOpenChange, onCreated } = renderModal({ open: true });
     typeName("My Project");
-    fireEvent.click(screen.getByRole("button", { name: /create project/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     // Modal stays open.
     await waitFor(() => {
@@ -244,7 +244,7 @@ describe("CreateProjectModal", () => {
     );
     const { onOpenChange } = renderModal({ open: true });
     typeName("My Project");
-    fireEvent.click(screen.getByRole("button", { name: /create project/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -262,7 +262,7 @@ describe("CreateProjectModal", () => {
     createProjectSpy.mockReturnValueOnce(pending);
     renderModal({ open: true });
     typeName("My Project");
-    const submit = screen.getByRole("button", { name: /create project/i });
+    const submit = screen.getByRole("button", { name: /^create$/i });
     fireEvent.click(submit);
 
     // While in-flight — input + Submit disabled.
@@ -281,7 +281,7 @@ describe("CreateProjectModal", () => {
   it("Test 10 (whitespace-only input): Create button stays disabled", () => {
     renderModal({ open: true });
     typeName("   ");
-    const submit = screen.getByRole("button", { name: /create project/i });
+    const submit = screen.getByRole("button", { name: /^create$/i });
     expect(submit).toBeDisabled();
   });
 
@@ -319,7 +319,7 @@ describe("CreateProjectModal", () => {
       ],
     });
     typeName("Trip Planning");
-    const submit = screen.getByRole("button", { name: /create project/i });
+    const submit = screen.getByRole("button", { name: /^create$/i });
     expect(submit).toBeDisabled();
     // Picking a host enables submission.
     fireEvent.click(screen.getByTestId("create-project-host-option-6"));
@@ -341,7 +341,7 @@ describe("CreateProjectModal", () => {
     typeName("Trip Planning");
     // Pick the SECOND host (id=6), not the first (id=3).
     fireEvent.click(screen.getByTestId("create-project-host-option-6"));
-    fireEvent.click(screen.getByRole("button", { name: /create project/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
       expect(createProjectSpy).toHaveBeenCalledTimes(1);

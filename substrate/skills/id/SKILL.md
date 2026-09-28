@@ -556,7 +556,7 @@ Six controls sit at the top of the conversation list:
   the agent-side lets you seed the newborn with an initial prompt, which
   the button cannot. User-gated.
 
-- **📁 Folder — create project.** Takes a display name and creates the
+- **📁 Folder — new project.** Takes a display name and creates the
   project. Slug is derived from the name (kebab-case, `/^[a-z0-9-]{1,64}$/`).
   Duplicate slug = error.
   *Agent-side:* a project is just a folder on disk at
@@ -565,7 +565,7 @@ Six controls sit at the top of the conversation list:
   but bypasses the wire event, so open frontends won't see it appear until
   they refresh or the periodic sweep picks it up. **User-gated.**
 
-- **🎭 Drama masks — edit roles.** Opens a modal listing every role the
+- **🎭 Drama masks — roles.** Opens a modal listing every role the
   user has access to on this box. Clicking one drills in; a **"new
   role"** button inside the modal creates a fresh role (name, description,
   host, color, avatar).
@@ -593,7 +593,7 @@ Six controls sit at the top of the conversation list:
     work day-to-day; see the `agent-relay` skill. Inviting a human as
     one of the participants is a natural extension of that same
     mechanism.
-  - **Edit skills** — lists the user's skills; view/edit any, or create
+  - **Skills** — lists the user's skills; view/edit any, or create
     a new one. Skills here are surfaced to every one of the user's agent
     sessions.
     *Agent-side:* skills live at `~/.claude/skills/<skill-name>/SKILL.md`

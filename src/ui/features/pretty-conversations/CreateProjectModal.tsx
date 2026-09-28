@@ -405,7 +405,7 @@ export function CreateProjectModal({
               disabled={!canSubmit}
               data-testid="create-project-submit"
             >
-              Create project
+              Create
             </Button>
           </div>
         </DialogPrimitive.Content>

@@ -208,8 +208,8 @@ describe("PrettyConversationsPanel: Edit roles header button (quick-260914-liu r
     // Dedicated header button exists.
     const editRolesBtn = screen.getByTestId("pv-header-edit-roles-button");
     expect(editRolesBtn).toBeTruthy();
-    expect(editRolesBtn.getAttribute("aria-label")).toBe("Edit roles");
-    expect(editRolesBtn.getAttribute("title")).toBe("Edit roles");
+    expect(editRolesBtn.getAttribute("aria-label")).toBe("Roles");
+    expect(editRolesBtn.getAttribute("title")).toBe("Roles");
 
     // Open the kebab to verify Edit roles is gone from the menu.
     fireEvent.click(screen.getByTestId("pv-header-menu-button"));
@@ -221,7 +221,7 @@ describe("PrettyConversationsPanel: Edit roles header button (quick-260914-liu r
     expect(within(menu).queryByRole("menuitem", { name: /^new role$/i })).toBeNull();
     expect(within(menu).queryByRole("menuitem", { name: /edit roles/i })).toBeNull();
     // Kebab now holds exactly two survivors in locked order.
-    expect(kebabItems).toEqual(["New group conversation", "Edit skills…"]);
+    expect(kebabItems).toEqual(["New group conversation", "Skills"]);
   });
 
   it("Test 21b (quick-260914-liu extend): all four header buttons absent when onCreateSession is undefined — they share one showPencilButton guard", () => {

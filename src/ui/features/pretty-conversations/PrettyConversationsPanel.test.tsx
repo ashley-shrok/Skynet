@@ -3932,8 +3932,8 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
   // Test 4: kebab now holds exactly two items in locked order.
   // quick-260914-liu: New agent, Edit roles, Edit global files were promoted
   // to dedicated header icon buttons. The kebab survivors are:
-  // New group conversation → Edit skills… (Phase 44 Pitfall 8 guard still applies).
-  it("Test 4 (quick-260914-liu rewrite): kebab holds exactly two items in locked order: 'New group conversation' then 'Edit skills…'", () => {
+  // New group conversation → Skills (Phase 44 Pitfall 8 guard still applies).
+  it("Test 4 (quick-260914-liu rewrite): kebab holds exactly two items in locked order: 'New group conversation' then 'Skills'", () => {
     renderPanelWithCreateRelayRoom();
     openThreeDotMenu();
 
@@ -3947,7 +3947,7 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     // always renders in this exact order.
     const guardedLabels = labels.filter((l) => l !== "Enable notifications…");
 
-    expect(guardedLabels).toEqual(["New group conversation", "Edit skills…"]);
+    expect(guardedLabels).toEqual(["New group conversation", "Skills"]);
   });
 
   // Test 5: portal-mount pattern — NewConversationModal is sibling of GlobalFilesModal

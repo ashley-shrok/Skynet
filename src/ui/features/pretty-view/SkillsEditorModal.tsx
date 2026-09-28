@@ -499,7 +499,7 @@ export default function SkillsEditorModal({
             style={{ borderBottom: "1px solid rgba(220, 225, 245, 0.10)" }}
           >
             <DialogTitle className="text-[15px] font-semibold text-[#f0ebe0]">
-              Edit skills
+              Skills
             </DialogTitle>
 
             {/* Host picker — verbatim shape from GlobalFilesModal L228-242.

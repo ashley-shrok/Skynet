@@ -2659,8 +2659,8 @@ export function PrettyConversationsPanel({
                 <button
                   type="button"
                   className="pv-pencil"
-                  aria-label="Create project"
-                  title="Create project"
+                  aria-label="New project"
+                  title="New project"
                   data-testid="pv-header-create-project-button"
                   onClick={() => {
                     setPendingProjectSlug(null);
@@ -2672,8 +2672,8 @@ export function PrettyConversationsPanel({
                 <button
                   type="button"
                   className="pv-pencil"
-                  aria-label="Edit roles"
-                  title="Edit roles"
+                  aria-label="Roles"
+                  title="Roles"
                   data-testid="pv-header-edit-roles-button"
                   onClick={() => setRolesListModalOpen(true)}
                 >
@@ -3551,7 +3551,7 @@ export function PrettyConversationsPanel({
               applies to the two items that remain. */}
           {[
             { label: "New group conversation", onClick: () => setNewConversationModalOpen(true) }, // Phase 91 Plan 05
-            { label: "Edit skills…", onClick: () => setSkillsEditorModalOpen(true) },
+            { label: "Skills", onClick: () => setSkillsEditorModalOpen(true) },
             // (Phase 137 D-21) kebab notification-entry retired; use Preferences modal.
           ].map((item) => (
             <button

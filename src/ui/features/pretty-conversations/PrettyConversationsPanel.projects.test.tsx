@@ -718,7 +718,7 @@ describe("PrettyConversationsPanel: create-project header button", () => {
     // Placeholder modal NOT visible before click.
     expect(queryByTestId("create-project-modal-placeholder")).toBeNull();
     // Click the header create-project button.
-    const btn = getByLabelText("Create project");
+    const btn = getByLabelText("New project");
     fireEvent.click(btn);
     // Placeholder modal visible (state toggled to true).
     expect(queryByTestId("create-project-modal-placeholder")).not.toBeNull();
@@ -979,7 +979,7 @@ describe("PrettyConversationsPanel: CreateProjectModal wire (117-09 Task 1)", ()
     );
     // Real modal not visible before click.
     expect(queryByTestId("create-project-modal")).toBeNull();
-    fireEvent.click(getByLabelText("Create project"));
+    fireEvent.click(getByLabelText("New project"));
     // Real modal now visible (data-testid matches CreateProjectModal.tsx).
     expect(queryByTestId("create-project-modal")).not.toBeNull();
   });
