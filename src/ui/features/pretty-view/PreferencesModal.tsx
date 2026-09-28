@@ -5,7 +5,8 @@
  *
  * Modal chrome pattern: byte-copy of the retired notifications modal with
  * two swaps:
- *   - Size: 760x600 px (D-03)
+ *   - Size: fixed 1000x760 (capped to viewport), stable across all tabs so
+ *     General doesn't look tiny and About-you file editor has room to work.
  *   - data-testid=preferences-modal
  *
  * Glass close button: verbatim from GlobalFilesModal L252-276.
@@ -112,7 +113,7 @@ export default function PreferencesModal({
           className={cn(
             "absolute inset-4 z-[120] outline-none",
             "flex flex-col overflow-hidden rounded-[24px]",
-            "md:max-w-[760px] md:max-h-[600px] md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2",
+            "md:w-[min(92vw,1000px)] md:h-[min(90vh,760px)] md:max-w-none md:max-h-none md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2",
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
             "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           )}
