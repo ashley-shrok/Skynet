@@ -481,6 +481,50 @@ describe("CASE-DT10: probeTotalLines absent — no emit, backward-compat with pr
   });
 });
 
+// ─── CASE-DT12 ───────────────────────────────────────────────────────────────
+
+describe("CASE-DT12: fetch_older_range dispatch coalesces dormantSessionFile when currentSessionFile is null (Bug 3 companion to Bug 2 dormant_session_meta)", () => {
+  // Bug 2 wired dormant_session_meta so the load-more button APPEARS on
+  // dormant panes. Bug 3 wired the click path so it actually WORKS —
+  // handleFetchOlderRange reads deps.currentSessionFile, which is only ever
+  // populated by startActiveSessionFlow (never runs on dormant), so a
+  // dormant pane's currentSessionFile stays null and the click errors with
+  // "no active session". Fix: at the fetch_older_range dispatch site, pass
+  // `currentSessionFile ?? dormantSessionFile` so the handler sees the
+  // dormant-branch-discovered path when the active one is absent.
+  //
+  // Structural invariant (mirrors CASE-DT7's shape): the dispatch site MUST
+  // apply the nullish-coalesce. Testing this dynamically requires driving a
+  // full WebSocketServer + SSH stub through connectToPane's dormant branch
+  // and then handling a real WS message — a wildly larger surface than the
+  // invariant justifies. Structural pattern-match is proportionate.
+  it("claude-session-server.ts fetch_older_range dispatch passes currentSessionFile ?? dormantSessionFile", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(
+      join(here, "claude-session-server.ts"),
+      "utf8",
+    );
+    // Pattern gate 1: the coalesce pattern is present somewhere in the file
+    // (fast fail if a refactor deleted it entirely).
+    expect(source).toMatch(
+      /currentSessionFile\s*\?\?\s*dormantSessionFile/,
+    );
+    // Pattern gate 2: it appears INSIDE the fetch_older_range dispatch
+    // branch (guards against the pattern being present but wired to some
+    // other consumer). Window from the branch-guard string to a reasonable
+    // close-of-block distance.
+    const dispatchIdx = source.indexOf(
+      'msg.type === "fetch_older_range"',
+    );
+    expect(dispatchIdx).toBeGreaterThan(-1);
+    const dispatchWindow = source.slice(dispatchIdx, dispatchIdx + 1500);
+    expect(dispatchWindow).toMatch(
+      /currentSessionFile\s*\?\?\s*dormantSessionFile/,
+    );
+    expect(dispatchWindow).toMatch(/handleFetchOlderRange\s*\(/);
+  });
+});
+
 // ─── CASE-DT11 ───────────────────────────────────────────────────────────────
 
 describe("CASE-DT11: null discovery does NOT invoke probeTotalLines or emit", () => {

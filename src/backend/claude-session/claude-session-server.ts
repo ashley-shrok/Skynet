@@ -5800,9 +5800,21 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // from closure scope, never from msg), and emits a single
     // `fetch_older_range_batch` response frame.
     if (msg.type === "fetch_older_range") {
+      // Dormant-pane fallback: startActiveSessionFlow is the only site that
+      // populates `currentSessionFile`, so on a dormant pane it stays null
+      // even after the dormant-branch tail-open seam has discovered the
+      // identity's most-recent JSONL into `dormantSessionFile` (companion
+      // to the Bug #2 dormant_session_meta emit — that made the button
+      // APPEAR; this makes the click WORK). The dormant tail already runs
+      // `tail -F` against this exact path over the same sshConn, so
+      // handing it to readSessionFileRange is semantically identical to
+      // handing it currentSessionFile on an active pane. Coalesce at the
+      // call site rather than inside the handler so the handler's
+      // trust-boundary contract (single "sessionFile from connection
+      // scope") stays clean.
       await handleFetchOlderRange(ws, msg, {
         sshConn,
-        currentSessionFile,
+        currentSessionFile: currentSessionFile ?? dormantSessionFile,
         currentHostId,
         // Phase 50 Plan 01 Task 2 — thread the JSONL session UUID so
         // the parser's queue-operation branch derives the same
