@@ -36,7 +36,7 @@
 
 import net from "node:net";
 import type { Client as SSHClient } from "ssh2";
-import { withConnection } from "../ssh/ssh-connection-pool.js";
+import { getClientBornAt, withConnection } from "../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { sshLogger } from "../utils/logger.js";
 import type { ServeTarget } from "./types.js";
@@ -173,6 +173,31 @@ class TunnelCache {
         // to the top of net.Server's event emitter and crashes Node.
         // Close-the-server triggers the D-15 cache eviction below, so the
         // next request rebuilds a fresh tunnel via a fresh pooled client.
+        //
+        // Diagnostic instrumentation (2026-09-28 wyvern): the captured
+        // `sshClient` reference goes stale when its underlying socket dies
+        // between tunnel-build and forwardOut. Every browser TCP connection
+        // to this tunnel logs an attempt line with the client's current
+        // sock state + age; sync-throw and async-error paths log with the
+        // same shape so we can correlate death signal (pool's client-death
+        // log) with the specific requests that hit the dead client.
+        const bornAt = getClientBornAt(sshClient);
+        const underlying = (
+          sshClient as unknown as {
+            _sock?: { destroyed?: boolean; writable?: boolean };
+          }
+        )._sock;
+        const sockDestroyed = underlying?.destroyed ?? true;
+        const sockWritable = underlying?.writable ?? false;
+        const sshClientAgeMs = bornAt !== null ? Date.now() - bornAt : -1;
+        sshLogger.info("serve-url tunnel: forwardOut attempt", {
+          operation: "serve_url_tunnel_forward_out_attempt",
+          target: cacheKey,
+          sshPoolKey,
+          sshClientAgeMs,
+          sockDestroyed,
+          sockWritable,
+        });
         try {
           sshClient.forwardOut(
             "127.0.0.1",
@@ -181,6 +206,25 @@ class TunnelCache {
             target.port,
             (err, stream) => {
               if (err) {
+                const e = (err ?? {}) as {
+                  code?: string;
+                  name?: string;
+                  message?: string;
+                };
+                sshLogger.warn("serve-url tunnel: forwardOut async error", {
+                  operation: "serve_url_tunnel_forward_out_async_error",
+                  target: cacheKey,
+                  sshPoolKey,
+                  sshClientAgeMs:
+                    bornAt !== null ? Date.now() - bornAt : -1,
+                  sockDestroyed:
+                    underlying?.destroyed ?? true,
+                  sockWritable:
+                    underlying?.writable ?? false,
+                  errCode: typeof e.code === "string" ? e.code : "",
+                  errName: typeof e.name === "string" ? e.name : "",
+                  errMessage: typeof e.message === "string" ? e.message : "",
+                });
                 sock.destroy();
                 return;
               }
@@ -190,10 +234,22 @@ class TunnelCache {
             },
           );
         } catch (err) {
+          const e = (err ?? {}) as {
+            code?: string;
+            name?: string;
+            message?: string;
+          };
           sshLogger.warn("serve-url tunnel: forwardOut sync throw", {
             operation: "serve_url_tunnel_forward_out_sync_error",
             target: cacheKey,
+            sshPoolKey,
+            sshClientAgeMs: bornAt !== null ? Date.now() - bornAt : -1,
+            sockDestroyed,
+            sockWritable,
             errorClass: err instanceof Error ? err.name : "unknown",
+            errCode: typeof e.code === "string" ? e.code : "",
+            errName: typeof e.name === "string" ? e.name : "",
+            errMessage: typeof e.message === "string" ? e.message : "",
           });
           sock.destroy();
           server.close();

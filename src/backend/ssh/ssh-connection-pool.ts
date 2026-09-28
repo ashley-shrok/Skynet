@@ -8,6 +8,16 @@ interface PooledConnection {
   hostKey: string;
 }
 
+// Client-birth-time table for diagnostic logging. Keyed weakly so a
+// removed client is GC'd along with its timestamp. Exposed via
+// `getClientBornAt` so downstream layers (e.g. tunnel-cache) can log
+// per-request ageMs at forwardOut-time.
+const clientBornAt = new WeakMap<Client, number>();
+
+export function getClientBornAt(client: Client): number | null {
+  return clientBornAt.get(client) ?? null;
+}
+
 class SSHConnectionPool {
   private connections = new Map<string, PooledConnection[]>();
   private maxConnectionsPerHost = 3;
@@ -75,14 +85,7 @@ class SSHConnectionPool {
       };
       connections.push(pooled);
       this.connections.set(key, connections);
-
-      client.on("end", () => {
-        this.removeConnection(key, client);
-      });
-      client.on("close", () => {
-        this.removeConnection(key, client);
-      });
-
+      this.wireClientDiagnostics(client, pooled);
       return client;
     }
 
@@ -108,8 +111,7 @@ class SSHConnectionPool {
               };
               filtered.push(pooled);
               this.connections.set(key, filtered);
-              client.on("end", () => this.removeConnection(key, client));
-              client.on("close", () => this.removeConnection(key, client));
+              this.wireClientDiagnostics(client, pooled);
               resolve(client);
             });
           } else {
@@ -143,6 +145,52 @@ class SSHConnectionPool {
     } else {
       this.connections.set(key, filtered);
     }
+  }
+
+  // Stamp bornAt and attach diagnostic listeners (end / close / error) that
+  // log lifetime + idle deltas at death. Consolidates the two identical
+  // `on("end") / on("close")` blocks the two client-creation paths had
+  // before. Called EXACTLY ONCE per Client. Duplicate death logs across
+  // end→close or error→close pairings are intentional — timestamps + kind
+  // disambiguate, and seeing the pairing is diagnostic signal.
+  private wireClientDiagnostics(
+    client: Client,
+    pooled: PooledConnection,
+  ): void {
+    clientBornAt.set(client, Date.now());
+    const emitDeath = (kind: "end" | "close" | "error", err?: unknown): void => {
+      const bornAt = clientBornAt.get(client);
+      const e = (err ?? {}) as {
+        code?: string;
+        name?: string;
+        message?: string;
+      };
+      sshLogger.warn("ssh pool: client death", {
+        operation: "ssh_pool_client_death",
+        hostKey: pooled.hostKey,
+        kind,
+        ageMs: bornAt !== undefined ? Date.now() - bornAt : -1,
+        idleMs: Date.now() - pooled.lastUsed,
+        inUse: pooled.inUse,
+        errCode: typeof e.code === "string" ? e.code : "",
+        errName: typeof e.name === "string" ? e.name : "",
+        errMessage: typeof e.message === "string" ? e.message : "",
+      });
+    };
+    client.on("end", () => {
+      emitDeath("end");
+      this.removeConnection(pooled.hostKey, client);
+    });
+    client.on("close", () => {
+      emitDeath("close");
+      this.removeConnection(pooled.hostKey, client);
+    });
+    client.on("error", (err) => {
+      emitDeath("error", err);
+      // Do NOT remove on error — ssh2 emits "close" after "error", and
+      // the "close" handler above will remove. Removing here too would
+      // duplicate map churn without changing semantics.
+    });
   }
 
   clearKeyConnections(key: string): void {
