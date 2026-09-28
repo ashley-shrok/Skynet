@@ -244,8 +244,16 @@ export function ChatMessage({
     const owner = bubbleIdRef.current;
 
     // Speak-start — entry log for every TTS invocation.
-    const text = containerRef.current?.innerText ?? content;
-    console.info(`[tts] speak-start owner=${owner.toString()} textLen=${text.length} voice="${identityVoice ?? "default"}" trigger=${trigger}`);
+    // 2026-09-28 cutoff investigation: pin whether innerText silently drops
+    // rendered content vs the raw message prop by logging both lengths on
+    // every invocation. A gap here (innerText < content) means the DOM is
+    // hiding text from the speak path — a different bug from Polly
+    // truncation, and one we can't tell apart from the backend alone.
+    const innerText = containerRef.current?.innerText;
+    const text = innerText ?? content;
+    const contentLen = content?.length ?? 0;
+    const innerTextLen = innerText?.length ?? -1;
+    console.info(`[tts] speak-start owner=${owner.toString()} textLen=${text.length} contentLen=${contentLen} innerTextLen=${innerTextLen} voice="${identityVoice ?? "default"}" trigger=${trigger}`);
 
     const player = createWebAudioStreamPlayer({
       onEnded: () => {

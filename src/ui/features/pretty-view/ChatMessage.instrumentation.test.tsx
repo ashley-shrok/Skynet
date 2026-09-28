@@ -144,7 +144,7 @@ describe("ChatMessage [tts] instrumentation", () => {
       expect(infoLines()).toEqual(
         expect.arrayContaining([
           expect.stringMatching(
-            /^\[tts\] speak-start owner=\S+ textLen=\d+ voice="[^"]+" trigger=/,
+            /^\[tts\] speak-start owner=\S+ textLen=\d+ contentLen=\d+ innerTextLen=-?\d+ voice="[^"]+" trigger=/,
           ),
         ]),
       );

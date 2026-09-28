@@ -282,6 +282,71 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
   }
 }
 
+// --- TTS diagnostic bank — WAV-per-chunk fire-and-forget writer + rotation ---
+// Purpose: prove/disprove "Polly returned less audio than the text should
+// produce" reports (2026-09-28 cutoff investigation). Each speak-stream
+// request writes one WAV per Polly chunk to the bank so we can play back
+// exactly what came off Polly's wire and hear whether the tail was
+// truncated at the provider or lost downstream.
+//
+// Path defaults to /app/stt-recordings/tts-bank — a SUBDIRECTORY of the
+// existing stt-recordings bind mount, so no docker-compose change needed
+// (host: /opt/skynet/stt-recordings/tts-bank/). Rotation caps disk use.
+const TTS_BANK_ENABLED = process.env.TTS_BANK_ENABLED !== "0";
+const TTS_BANK_DIR = process.env.TTS_BANK_DIR ?? "/app/stt-recordings/tts-bank";
+const TTS_BANK_MAX_FILES = Number(process.env.TTS_BANK_MAX_FILES ?? 200);
+
+async function rotateTtsBank(dir: string, maxFiles: number): Promise<void> {
+  const entries = await fs.promises.readdir(dir).catch(() => [] as string[]);
+  const wavs = entries.filter((f) => f.endsWith(".wav"));
+  if (wavs.length <= maxFiles) return;
+  const stats = await Promise.all(
+    wavs.map(async (f) => ({
+      name: f,
+      mtime: (await fs.promises.stat(path.join(dir, f))).mtimeMs,
+    })),
+  );
+  stats.sort((a, b) => a.mtime - b.mtime);
+  const toDelete = stats.slice(0, wavs.length - maxFiles);
+  await Promise.all(
+    toDelete.map((s) =>
+      fs.promises.unlink(path.join(dir, s.name)).catch(() => {}),
+    ),
+  );
+}
+
+function writeTtsBankChunk(
+  pcmChunks: Buffer[],
+  meta: { reqId: string; chunkIndex: number; voiceId: string; textLen: number },
+): void {
+  if (!TTS_BANK_ENABLED) return;
+  const pcm = Buffer.concat(pcmChunks);
+  const header = buildRiffHeader({
+    channels: 1,
+    sampleRate: 16000,
+    bitDepth: 16,
+    dataSize: pcm.length,
+  });
+  const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+  const filename = `${timestamp}-${meta.reqId}-chunk${meta.chunkIndex}-${meta.voiceId}-len${meta.textLen}.wav`;
+  const fullPath = path.join(TTS_BANK_DIR, filename);
+  databaseLogger.info(
+    `[voice-server] tts-bank-write reqId=${meta.reqId} chunk=${meta.chunkIndex} filename=${filename} pcmBytes=${pcm.length}`,
+    { operation: "voice_tts_bank_write", reqId: meta.reqId, filename },
+  );
+  void fs.promises
+    .mkdir(TTS_BANK_DIR, { recursive: true })
+    .then(() => fs.promises.writeFile(fullPath, Buffer.concat([header, pcm])))
+    .then(() => rotateTtsBank(TTS_BANK_DIR, TTS_BANK_MAX_FILES))
+    .catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      databaseLogger.warn(
+        `[voice-server] tts-bank-write-failed reqId=${meta.reqId} chunk=${meta.chunkIndex} filename=${filename} error=${message}`,
+        { operation: "voice_tts_bank_write_failed", reqId: meta.reqId, filename, error: message },
+      );
+    });
+}
+
 // --- handleSpeakStream — POST /voice/speak-stream (streaming, chunk-and-stitch) ---
 // Splits long text into ≤2900-char chunks (packChunks), fires one Polly synth
 // per chunk with prefetch of chunk N+1 while chunk N streams (concurrency cap 2
@@ -290,6 +355,15 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
 // sentinel (total size unknown at header-write time — this IS the case the
 // sentinel exists for; the client-side riffPcmDecode ignores dataSize on
 // streaming input).
+//
+// Diagnostic instrumentation (2026-09-28): every speak-stream request carries
+// a short reqId that ties `speak-stream-plan` → `speak-stream-chunk-out` →
+// `speak-stream-ok` log lines together, and each Polly chunk's PCM is banked
+// to disk (see writeTtsBankChunk above) so a suspected truncation can be
+// played back and heard directly. 16000 Hz mono 16-bit means 32000 bytes/s
+// of PCM; audioSec = pcmBytes / 32000 and charsPerSec = textLen / audioSec.
+// Anything wildly higher than typical English speech (~15 chars/sec) means
+// Polly returned less audio than the text should have produced.
 export async function handleSpeakStream(req: Request, res: Response): Promise<void> {
   // (a) Validate body.text
   if (!req.body || typeof req.body.text !== "string" || req.body.text.length === 0) {
@@ -311,10 +385,13 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
 
   const voiceId = (req.body.voice as string | undefined) ?? DEFAULT_VOICE;
   const text = req.body.text as string;
+  // Short random id to correlate every log line for THIS request. Included
+  // in bank filenames so a specific request's chunks can be located on disk.
+  const reqId = Math.random().toString(36).slice(2, 10);
 
   databaseLogger.info(
-    `[voice-server] speak-stream-req textLen=${text.length} voice="${voiceId}"`,
-    { operation: "voice_speak_stream" },
+    `[voice-server] speak-stream-req reqId=${reqId} textLen=${text.length} voice="${voiceId}"`,
+    { operation: "voice_speak_stream", reqId },
   );
 
   // Track whether we've already flushed the response headers + first bytes.
@@ -332,6 +409,16 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
       res.status(400).json({ error: "body.text produced zero synthesizable chunks" });
       return;
     }
+
+    // Log the chunk plan up front so a suspected loss can be traced back to
+    // exactly which char range fed which Polly call.
+    databaseLogger.info(
+      `[voice-server] speak-stream-plan reqId=${reqId} chunkCount=${chunks.length} chunkLens=[${chunks.map((c) => c.length).join(",")}] totalTextLen=${text.length}`,
+      { operation: "voice_speak_stream_plan", reqId, chunkCount: chunks.length },
+    );
+
+    // Per-request PCM accounting — populated inside the loop, summarised at end.
+    let totalPcmBytes = 0;
 
     // (d) Fire first Polly call; then loop with prefetch of N+1 while N streams.
     let currentPromise: Promise<import("node:stream").Readable> = synthesizeToPcm(chunks[0], voiceId);
@@ -362,11 +449,38 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         headersFlushed = true;
       }
 
-      // Pipe this chunk's PCM Readable to res (do NOT end res yet).
+      // Manual data/end/error handling instead of .pipe() so we can (a)
+      // count Polly's exact per-chunk PCM byte output and (b) accumulate
+      // the bytes for the disk bank. Backpressure preserved by pausing
+      // the source when res.write returns false.
+      const chunkTextLen = chunks[i].length;
+      const chunkPcmBuffers: Buffer[] = [];
+      let chunkPcmBytes = 0;
       await new Promise<void>((resolve, reject) => {
-        currentStream.on("end", resolve);
+        currentStream.on("data", (buf: Buffer) => {
+          chunkPcmBytes += buf.length;
+          if (TTS_BANK_ENABLED) chunkPcmBuffers.push(buf);
+          if (!res.write(buf)) {
+            currentStream.pause();
+            res.once("drain", () => currentStream.resume());
+          }
+        });
+        currentStream.on("end", () => resolve());
         currentStream.on("error", reject);
-        currentStream.pipe(res, { end: false });
+      });
+
+      totalPcmBytes += chunkPcmBytes;
+      const chunkAudioSec = chunkPcmBytes / 32000; // 16kHz mono 16bit = 32000 bytes/sec
+      const chunkCharsPerSec = chunkAudioSec > 0 ? chunkTextLen / chunkAudioSec : 0;
+      databaseLogger.info(
+        `[voice-server] speak-stream-chunk-out reqId=${reqId} i=${i} textLen=${chunkTextLen} pcmBytes=${chunkPcmBytes} audioSec=${chunkAudioSec.toFixed(3)} charsPerSec=${chunkCharsPerSec.toFixed(2)}`,
+        { operation: "voice_speak_stream_chunk_out", reqId, i, textLen: chunkTextLen, pcmBytes: chunkPcmBytes },
+      );
+      writeTtsBankChunk(chunkPcmBuffers, {
+        reqId,
+        chunkIndex: i,
+        voiceId,
+        textLen: chunkTextLen,
       });
 
       // Advance to the prefetched next chunk (or null on the last iteration).
@@ -375,9 +489,11 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
       }
     }
 
+    const totalAudioSec = totalPcmBytes / 32000;
+    const totalCharsPerSec = totalAudioSec > 0 ? text.length / totalAudioSec : 0;
     databaseLogger.info(
-      `[voice-server] speak-stream-ok chunks=${chunks.length}`,
-      { operation: "voice_speak_stream" },
+      `[voice-server] speak-stream-ok reqId=${reqId} chunks=${chunks.length} totalTextLen=${text.length} totalPcmBytes=${totalPcmBytes} totalAudioSec=${totalAudioSec.toFixed(3)} charsPerSec=${totalCharsPerSec.toFixed(2)}`,
+      { operation: "voice_speak_stream", reqId },
     );
 
     res.end();
@@ -385,8 +501,8 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     // AccessDenied → 503 (if we can still send status) OR destroy() (if bytes flushed).
     if (isAwsAccessDenied(err)) {
       databaseLogger.info(
-        `[voice-server] speak-stream-access-denied — policy not attached headersFlushed=${headersFlushed}`,
-        { operation: "voice_speak_stream_access_denied", headersFlushed },
+        `[voice-server] speak-stream-access-denied reqId=${reqId} — policy not attached headersFlushed=${headersFlushed}`,
+        { operation: "voice_speak_stream_access_denied", reqId, headersFlushed },
       );
       if (!headersFlushed) {
         res.status(503).json({ error: "voice TTS unavailable", status: 503 });
@@ -397,9 +513,9 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     }
 
     databaseLogger.error(
-      `[voice-server] speak-stream-error`,
+      `[voice-server] speak-stream-error reqId=${reqId}`,
       err instanceof Error ? err : new Error(String(err)),
-      { operation: "voice_speak_stream_error", headersFlushed },
+      { operation: "voice_speak_stream_error", reqId, headersFlushed },
     );
     if (!headersFlushed) {
       res.status(502).json({ error: "TTS stream error", status: 502 });

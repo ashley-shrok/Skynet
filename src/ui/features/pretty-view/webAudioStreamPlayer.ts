@@ -311,6 +311,12 @@ export function createWebAudioStreamPlayer(
     // underrun on the very first scheduled source.
     const nextStartTimeRef = { value: audioContext.currentTime + 0.02 };
     let firstChunkScheduled = false;
+    // Total bytes read off the response body — surfaced in reader-done so we
+    // can compare client-received bytes against the backend's per-request
+    // totalPcmBytes accounting (2026-09-28 cutoff investigation). A gap
+    // between backend-emitted and client-received pins the loss to network
+    // / HTTP transport rather than Polly or the app.
+    let totalBytesRead = 0;
 
     try {
       while (true) {
@@ -322,7 +328,7 @@ export function createWebAudioStreamPlayer(
           const ctxTime = audioContext?.currentTime ?? -1;
           const lastMeta = scheduledMeta[scheduledMeta.length - 1];
           console.info(
-            `[tts-player] reader-done sources=${sources.length} endedSoFar=${endedSources} ctxTime=${ctxTime.toFixed(3)} lastScheduledEnd=${lastMeta?.expectedEnd.toFixed(3) ?? "n/a"} ctxState=${audioContext?.state ?? "null"}`,
+            `[tts-player] reader-done sources=${sources.length} endedSoFar=${endedSources} ctxTime=${ctxTime.toFixed(3)} lastScheduledEnd=${lastMeta?.expectedEnd.toFixed(3) ?? "n/a"} totalBytesRead=${totalBytesRead} ctxState=${audioContext?.state ?? "null"}`,
           );
           maybeFireEnded();
           return;
@@ -333,6 +339,7 @@ export function createWebAudioStreamPlayer(
           opts.onStalled?.();
           continue;
         }
+        totalBytesRead += value.byteLength;
 
         // Accumulate bytes until we have the full 44-byte RIFF header.
         let pcmChunk: Uint8Array;
