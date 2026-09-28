@@ -150,9 +150,7 @@
       };
 
       // POST to /update (widget's own origin via relative path or PANE_BASE)
-      var updateUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
-        ? PANE_BASE + "/update"
-        : "/update";
+      var updateUrl = PANE_BASE + "/update";
 
       fetch(updateUrl, {
         method: "POST",

@@ -98,20 +98,26 @@ Requesting an unsupported (template, mode) combination — e.g. `form` with `ter
 
 ```
 SLUG=<slug>
-URL=/interactive/<hostId>/<slug>/pane/
+URL=https://<skynet-domain>/interactive/<hostId>/<slug>/pane/
 ```
+
+The URL is absolute HTTPS — `create-widget.sh` reads `~/.claude/skynet-parent`
+at scaffold time and prepends it. The frontend's in-bubble widget detector
+requires an absolute `https://` URL; a bare `/interactive/...` path will
+render as a plain link instead of an inline widget bubble.
 
 **Embed in your message:**
 
 ```
 Here is the widget:
 
-[Label text](/interactive/42/<slug>/pane/)
+[Label text](https://term.example.com/interactive/42/<slug>/pane/)
 ```
 
-The anchor text does not matter. The frontend replaces the entire `<a>` tag
-with the inline widget frame. Keep the message brief — the widget IS the
-interaction.
+Paste the URL exactly as `create-widget.sh` emitted it — do NOT strip the
+scheme or domain. The anchor text does not matter. The frontend replaces the
+entire `<a>` tag with the inline widget frame. Keep the message brief — the
+widget IS the interaction.
 
 ---
 
@@ -148,7 +154,7 @@ bash ~/.claude/skills/interactive-messages/create-widget.sh \
 
 ```
 SLUG=poll-color
-URL=/interactive/42/poll-color/pane/
+URL=https://term.example.com/interactive/42/poll-color/pane/
 ```
 
 **State on submit** (`~/fleet/interactive-messages/poll-color/state.json`):
@@ -206,7 +212,7 @@ bash ~/.claude/skills/interactive-messages/create-widget.sh \
 
 ```
 SLUG=check-pkgs
-URL=/interactive/42/check-pkgs/pane/
+URL=https://term.example.com/interactive/42/check-pkgs/pane/
 ```
 
 **State on submit** (`~/fleet/interactive-messages/check-pkgs/state.json`):
@@ -275,7 +281,7 @@ Field names must be lowercase snake_case, max 40 chars.
 
 ```
 SLUG=form-deploy
-URL=/interactive/42/form-deploy/pane/
+URL=https://term.example.com/interactive/42/form-deploy/pane/
 ```
 
 **State on submit** (`~/fleet/interactive-messages/form-deploy/state.json`):
@@ -339,7 +345,7 @@ bash ~/.claude/skills/interactive-messages/create-widget.sh \
 
 ```
 SLUG=rank-features
-URL=/interactive/42/rank-features/pane/
+URL=https://term.example.com/interactive/42/rank-features/pane/
 ```
 
 **State on submit** (`~/fleet/interactive-messages/rank-features/state.json`):
@@ -407,7 +413,7 @@ because item text may itself contain commas.
 
 ```
 SLUG=la-prs
-URL=/interactive/42/la-prs/pane/
+URL=https://term.example.com/interactive/42/la-prs/pane/
 ```
 
 **State on submit** (`~/fleet/interactive-messages/la-prs/state.json`):
@@ -477,7 +483,7 @@ purple, pink, slate).
 
 ```
 SLUG=cp-brand
-URL=/interactive/42/cp-brand/pane/
+URL=https://term.example.com/interactive/42/cp-brand/pane/
 ```
 
 **State on submit** (`~/fleet/interactive-messages/cp-brand/state.json`):
@@ -1095,7 +1101,7 @@ systemctl --user status im-<slug>.service
 Wait ~5-10 seconds for the discovery sweep, then embed the anchor URL:
 
 ```
-[Label text](/interactive/<hostid>/<slug>/pane/)
+[Label text](https://<skynet-domain>/interactive/<hostid>/<slug>/pane/)
 ```
 
 **Teardown:** `teardown-widget.sh` works on custom widgets — it operates on

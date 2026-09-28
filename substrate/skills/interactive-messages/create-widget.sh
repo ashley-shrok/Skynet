@@ -478,7 +478,7 @@ out_path.write_text(
             "message_id":      message_id,
             "conversation_id": conversation_id,
             "config":          config,
-            "created_at":      datetime.datetime.utcnow().isoformat() + "Z",
+            "created_at":      datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         },
         indent=2,
     )
@@ -521,13 +521,27 @@ fi
 
 CLEANUP_ON_FAIL=0
 
+# Read the Skynet parent domain so we can emit an absolute HTTPS URL. The
+# frontend's in-bubble widget detector regex (INTERACTIVE_MSG_URL_RE_CLIENT)
+# requires https:// — a relative path won't render as an inline widget bubble.
+# The distributor writes ~/.claude/skynet-parent to every managed box; if it's
+# missing, surface a clean error rather than emitting an unrenderable URL.
+SKYNET_PARENT_FILE="$HOME/.claude/skynet-parent"
+if [ ! -s "$SKYNET_PARENT_FILE" ]; then
+    log "ERROR: $SKYNET_PARENT_FILE is missing or empty — cannot emit an absolute widget URL."
+    log "       The frontend URL detector requires https://<domain>/..., not a relative path."
+    log "       Ask the box-maintainer role to check the distributor sweep."
+    exit 1
+fi
+SKYNET_PARENT=$(cat "$SKYNET_PARENT_FILE")
+
 # Print machine-parseable output to stdout (the agent's harness reads these).
 printf 'SLUG=%s\n' "$SLUG"
-printf 'URL=/interactive/%s/%s/pane/\n' "$HOSTID" "$SLUG"
+printf 'URL=%s/interactive/%s/%s/pane/\n' "$SKYNET_PARENT" "$HOSTID" "$SLUG"
 
 log "done"
 log "  port:   $PORT (bound to 127.0.0.1)"
 log "  folder: $WIDGET_DIR"
-log "  url:    /interactive/$HOSTID/$SLUG/pane/"
+log "  url:    $SKYNET_PARENT/interactive/$HOSTID/$SLUG/pane/"
 log "  logs:   journalctl --user -u im-$SLUG -f"
 log "  status: systemctl --user status im-$SLUG"

@@ -328,7 +328,9 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
     expect(sentPayload.type).toBe("input");
     // The data carries the payload AFTER the harness-control-tag neutralization in sendInput.
     // The /widget-submit prefix has no XML-tag shapes, so neutralization is a no-op here.
-    expect(sentPayload.data).toBe("/widget-submit poll-abc red");
+    // Trailing "\r" required by the backend split-send gate — see the block
+    // comment in handleWidgetSubmit for the full rationale.
+    expect(sentPayload.data).toBe("/widget-submit poll-abc red\r");
     // An auto-generated mqid MUST be present so the backend Phase 56 wake gate fires.
     expect(typeof sentPayload.messageQueueItemId).toBe("string");
     expect(sentPayload.messageQueueItemId!.length).toBeGreaterThan(0);

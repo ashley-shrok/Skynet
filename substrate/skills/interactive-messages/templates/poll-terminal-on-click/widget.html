@@ -143,9 +143,7 @@
       };
 
       // Step 2: POST to /submit (widget's own origin via relative path)
-      var submitUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
-        ? PANE_BASE + "/submit"
-        : "/submit";
+      var submitUrl = PANE_BASE + "/submit";
 
       fetch(submitUrl, {
         method: "POST",

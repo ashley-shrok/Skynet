@@ -2175,7 +2175,15 @@ export function PrettyView({
   // handleWidgetSubmit assumes the (widgetId, value) tuple is already validated.
   const handleWidgetSubmit = useCallback(
     (widgetId: string, value: string): void => {
-      const payload = "/widget-submit " + widgetId + " " + value;
+      // Trailing "\r" is required by the backend split-send gate at
+      // claude-session-server.ts (isSplitSend = mqid.length > 0 && data.endsWith("\r")).
+      // Without it, backend falls into the non-split branch which fires ONLY
+      // `tmux send-keys -l <body>` and NEVER a `tmux send-keys Enter`, so the
+      // /widget-submit text is never submitted to the agent's prompt.
+      // Normal ComposeBox sends get the "\r" appended at IdentitySessionPane.tsx:609
+      // (`send(text + "\r", mqid ?? "")`); handleWidgetSubmit bypasses that
+      // wrap and calls sendInput directly, so append here.
+      const payload = "/widget-submit " + widgetId + " " + value + "\r";
       // Reuse the same mqid generation pattern as ComposeBox (Phase 50 D-01/D-18):
       // `pv-optim-<ms>-<8hex>` — deterministic-enough for FIFO ordering + unique
       // enough that concurrent sends don't collide. The mqid presence arms the

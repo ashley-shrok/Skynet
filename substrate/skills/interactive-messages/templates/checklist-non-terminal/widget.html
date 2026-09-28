@@ -168,9 +168,7 @@
       };
 
       // POST to /update (non-terminal: state persisted on every change, widget stays interactive)
-      var updateUrl = (PANE_BASE && PANE_BASE !== "__PANE_BASE__")
-        ? PANE_BASE + "/update"
-        : "/update";
+      var updateUrl = PANE_BASE + "/update";
 
       fetch(updateUrl, {
         method: "POST",
