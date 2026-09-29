@@ -107,6 +107,120 @@ describe("IdentityBadge — core render", () => {
     const root = screen.getByTestId("identity-badge-root");
     expect(root.className).toContain("[-webkit-touch-callout:none]");
   });
+
+  // On mobile the browser-native contextmenu event doesn't fire reliably
+  // on long-press (iOS Safari suppresses it when the callout is disabled;
+  // Chrome Android is inconsistent on <button> + select-none). The badge
+  // restores parity via a 500ms pointerdown timer that synthesizes the
+  // onContextMenu call. This test locks that behavior.
+  //   L1: pointerdown + 500ms fires onContextMenu once with badge rect
+  //   L2: pointerup BEFORE 500ms does NOT fire onContextMenu; click fires
+  //   L3: completed long-press swallows the trailing click
+  //   L4: desktop viewport does NOT fire onContextMenu from pointerdown
+  //       (native contextmenu still handles right-click there)
+  describe("mobile long-press → onContextMenu (parity restore)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      setMobileViewport(false);
+    });
+
+    it("L1: mobile pointerdown + 500ms fires onContextMenu once with currentTarget = badge", () => {
+      setMobileViewport(true);
+      const onClick = vi.fn();
+      const onContextMenu = vi.fn();
+      render(
+        <IdentityBadge
+          identityKey="tina"
+          onClick={onClick}
+          onContextMenu={onContextMenu}
+        />,
+      );
+      const root = screen.getByTestId("identity-badge-root");
+      fireEvent.pointerDown(root, {
+        pointerType: "touch",
+        button: 0,
+        clientX: 100,
+        clientY: 40,
+      });
+      expect(onContextMenu).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(500);
+      expect(onContextMenu).toHaveBeenCalledTimes(1);
+      const arg = onContextMenu.mock.calls[0][0];
+      expect(arg.currentTarget).toBe(root);
+      expect(arg.clientX).toBe(100);
+      expect(arg.clientY).toBe(40);
+      expect(typeof arg.preventDefault).toBe("function");
+    });
+
+    it("L2: mobile pointerup BEFORE 500ms does NOT fire onContextMenu; onClick fires normally", () => {
+      setMobileViewport(true);
+      const onClick = vi.fn();
+      const onContextMenu = vi.fn();
+      render(
+        <IdentityBadge
+          identityKey="tina"
+          onClick={onClick}
+          onContextMenu={onContextMenu}
+        />,
+      );
+      const root = screen.getByTestId("identity-badge-root");
+      fireEvent.pointerDown(root, { pointerType: "touch", button: 0 });
+      vi.advanceTimersByTime(200);
+      fireEvent.pointerUp(root, { pointerType: "touch", button: 0 });
+      vi.advanceTimersByTime(500);
+      expect(onContextMenu).not.toHaveBeenCalled();
+      fireEvent.click(root);
+      expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    it("L3: completed long-press swallows the trailing synthetic click", () => {
+      setMobileViewport(true);
+      const onClick = vi.fn();
+      const onContextMenu = vi.fn();
+      render(
+        <IdentityBadge
+          identityKey="tina"
+          onClick={onClick}
+          onContextMenu={onContextMenu}
+        />,
+      );
+      const root = screen.getByTestId("identity-badge-root");
+      fireEvent.pointerDown(root, { pointerType: "touch", button: 0 });
+      vi.advanceTimersByTime(500);
+      fireEvent.pointerUp(root, { pointerType: "touch", button: 0 });
+      fireEvent.click(root);
+      expect(onContextMenu).toHaveBeenCalledTimes(1);
+      expect(onClick).not.toHaveBeenCalled();
+      // Next tap works normally.
+      fireEvent.click(root);
+      expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    it("L4: desktop pointerdown + 500ms does NOT fire onContextMenu (native contextmenu handles it)", () => {
+      setMobileViewport(false);
+      const onClick = vi.fn();
+      const onContextMenu = vi.fn();
+      render(
+        <IdentityBadge
+          identityKey="tina"
+          onClick={onClick}
+          onContextMenu={onContextMenu}
+        />,
+      );
+      const root = screen.getByTestId("identity-badge-root");
+      fireEvent.pointerDown(root, {
+        pointerType: "mouse",
+        button: 0,
+        clientX: 100,
+        clientY: 40,
+      });
+      vi.advanceTimersByTime(500);
+      expect(onContextMenu).not.toHaveBeenCalled();
+    });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
