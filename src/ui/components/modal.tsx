@@ -30,8 +30,12 @@ import { cn } from "@/lib/utils";
 // to all hue-tinted styles (border, background gradient, header separator,
 // button accents). Default 190 matches the app-wide accent.
 //
-// For required-shell modals (reload-required, version-check), pass
-// `dismissible={false}` — backdrop click + ESC + close-X all become no-ops.
+// Backdrop click never dismisses. The backdrop is decorative-only for every
+// Modal instance — closes are always via the close-X or Esc. This is a
+// unified rule (2026-09-29): no per-modal opt-in, no exception. Passing
+// `dismissible={false}` additionally blocks Esc + close-X, reserved for
+// required-shell modals (SkewLockModal, ElectronVersionCheck) where the
+// user must resolve the modal before continuing.
 
 // ─── Size scale ──────────────────────────────────────────────────────────
 
@@ -61,14 +65,10 @@ interface ModalProps
   hue?: number;
   /** Modal size. See SIZE_CLASSES. */
   size?: ModalSize;
-  /** When false, backdrop click + ESC + close-X do NOT dismiss the modal.
-   *  Reserved for required-shell modals like SkewLockModal. */
+  /** When false, ESC + close-X do NOT dismiss the modal. Backdrop click
+   *  is ALWAYS blocked regardless of this flag (see file header). Reserved
+   *  for required-shell modals (SkewLockModal, ElectronVersionCheck). */
   dismissible?: boolean;
-  /** When false, backdrop click alone does NOT dismiss the modal (but ESC
-   *  and the close-X still work if `dismissible` is true). Used by forms
-   *  where accidentally clicking outside would trash user input —
-   *  CreateProjectModal, CreateRoleDialog, NewSessionDialog. */
-  dismissOnBackdrop?: boolean;
   /** Portal container. Defaults to document.body. */
   container?: HTMLElement | null;
   /** Extra class for the modal content shell. */
@@ -83,14 +83,12 @@ function Modal({
   hue = 190,
   size = "sm",
   dismissible = true,
-  dismissOnBackdrop = true,
   container,
   className,
   "data-testid": dataTestId,
   children,
   ...props
 }: ModalProps) {
-  const blockBackdrop = !dismissible || !dismissOnBackdrop;
   const blockEsc = !dismissible;
   return (
     <DialogPrimitive.Root {...props} modal={true}>
@@ -123,12 +121,10 @@ function Modal({
               fontFamily: '"Inter Variable", system-ui, sans-serif',
             } as React.CSSProperties
           }
-          onPointerDownOutside={
-            blockBackdrop ? (e) => e.preventDefault() : undefined
-          }
-          onInteractOutside={
-            blockBackdrop ? (e) => e.preventDefault() : undefined
-          }
+          // Backdrop click never dismisses — the backdrop is decorative-only
+          // across every Modal. Unified 2026-09-29; see file header.
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={
             blockEsc ? (e) => e.preventDefault() : undefined
           }

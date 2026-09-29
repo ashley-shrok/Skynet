@@ -535,7 +535,6 @@ export function CreateRoleDialog({
       }}
       hue={190}
       size="md"
-      dismissOnBackdrop={false}
       className="max-h-[90vh] flex flex-col"
     >
       <div

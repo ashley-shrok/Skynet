@@ -269,7 +269,6 @@ export function NewConversationModal({
       onOpenChange={onOpenChange}
       hue={220}
       size="xl"
-      dismissOnBackdrop={false}
       className="max-h-[720px] flex flex-col"
     >
       <ModalHead title="New group conversation" />

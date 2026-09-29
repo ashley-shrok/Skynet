@@ -13,9 +13,9 @@
 // All errors keep the modal open so the user can retry. No toast infra
 // in v1 (D-07 graceful degradation).
 //
-// Composes from Modal + ModalHead + ModalBody + ModalFoot. `dismissOnBackdrop`
-// is false so a stray outside click doesn't trash the user's typed name; ESC
-// and the header close-X still work.
+// Composes from Modal + ModalHead + ModalBody + ModalFoot. Backdrop click
+// is blocked at the Modal layer (unified 2026-09-29) so a stray outside click
+// doesn't trash the user's typed name; ESC and the header close-X still work.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
@@ -177,7 +177,6 @@ export function CreateProjectModal({
       onOpenChange={onOpenChange}
       hue={220}
       size="md"
-      dismissOnBackdrop={false}
       data-testid="create-project-modal"
       className={cn(
         isSingleHost ? "max-h-[320px]" : "max-h-[560px]",
