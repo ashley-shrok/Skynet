@@ -2992,24 +2992,24 @@ export function PrettyConversationsPanel({
           <button
             type="button"
             onClick={() => setAppsExpanded((v) => !v)}
-            className="flex items-center gap-2 pl-1 pr-4 pt-1 pb-1.5 w-full text-left"
+            className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5 w-full text-left"
             data-testid="pretty-conversations-apps-header"
             aria-expanded={appsExpanded || sidebarSearchActive}
             aria-controls="pv-apps-section-content"
           >
             <AppWindow
-              className="size-3 text-[#5c6070]/85 shrink-0"
+              className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
               aria-hidden="true"
             />
-            <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+            <span className="text-[13px] font-semibold text-[#a89a80] shrink-0">
               Apps
             </span>
             <span
               aria-hidden="true"
-              className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+              className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
             />
             <ChevronDown
-              className={`size-3 text-[#5c6070]/85 shrink-0 transition-transform ${appsExpanded || sidebarSearchActive ? "rotate-180" : ""}`}
+              className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${appsExpanded || sidebarSearchActive ? "rotate-180" : ""}`}
               aria-hidden="true"
             />
           </button>
@@ -3092,19 +3092,19 @@ export function PrettyConversationsPanel({
                 />
               )}
               <div
-                className="flex items-center gap-2 pl-1 pr-4 pt-1 pb-1.5"
+                className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5"
                 data-testid="pretty-conversations-pinned-header"
               >
                 <Pin
-                  className="size-3 text-[#5c6070]/85 shrink-0"
+                  className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
                   aria-hidden="true"
                 />
-                <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                <span className="text-[13px] font-semibold text-[#a89a80] shrink-0">
                   Pinned
                 </span>
                 <span
                   aria-hidden="true"
-                  className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+                  className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
                 />
               </div>
               {searchedPinned.length === 0 ? (
@@ -3254,19 +3254,19 @@ export function PrettyConversationsPanel({
                     follows so the section reads as a real fixture, not a
                     stray label. */}
                 <div
-                  className="flex items-center gap-2 pl-1 pr-4 pt-3 pb-1.5"
+                  className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5"
                   data-testid="pv-flat-middle-section-header"
                 >
                   <MessagesSquare
-                    className="size-3 text-[#5c6070]/85 shrink-0"
+                    className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
                     aria-hidden="true"
                   />
-                  <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
+                  <span className="text-[13px] font-semibold text-[#a89a80] shrink-0">
                     Conversations
                   </span>
                   <span
                     aria-hidden="true"
-                    className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+                    className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
                   />
                 </div>
                 {searchedMiddle.length === 0 && (

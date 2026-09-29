@@ -130,7 +130,7 @@ afterEach(() => {
 });
 
 describe("PrettyProjectSectionHeader — render", () => {
-  it("Test 1: renders header with 'Project:' prefix + displayName + rows region (collapsed=false)", () => {
+  it("Test 1: renders header with displayName + rows region (collapsed=false)", () => {
     const { getByTestId, queryByTestId, container } = render(
       <PrettyProjectSectionHeader
         slug="alpha"
@@ -144,7 +144,7 @@ describe("PrettyProjectSectionHeader — render", () => {
     );
     const header = getByTestId("pv-project-section-header-alpha");
     expect(header).not.toBeNull();
-    expect(header.textContent).toContain("Project:");
+    expect(header.textContent).not.toContain("Project:");
     expect(header.textContent).toContain("Alpha");
     // Rows region present with children.
     expect(queryByTestId("row-child")).not.toBeNull();

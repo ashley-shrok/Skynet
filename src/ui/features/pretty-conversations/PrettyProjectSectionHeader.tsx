@@ -1,8 +1,8 @@
 // ─── PrettyProjectSectionHeader ─────────────────────────────────────────────
 // Phase 117 Plan 117-08 Task 1 — reusable per-project section wrapper that
-// implements the D-12 header shape (FolderOpen icon + "Project:" literal
-// prefix + display name + SquarePen new-conversation button + ChevronDown
-// collapse toggle) AND the D-22 gesture #1 per-section drop lane (type-gated
+// implements the D-12 header shape (FolderOpen icon + display name +
+// SquarePen new-conversation button + ChevronDown collapse toggle) AND
+// the D-22 gesture #1 per-section drop lane (type-gated
 // on application/x-skynet-row, hover-only coral overlay per D-23, bounding-
 // rect dragleave guard, window-level dragend for Escape-cancel, RDP row
 // refusal per D-08).
@@ -74,7 +74,7 @@ export type PrettyProjectDropPayload = {
 export interface PrettyProjectSectionHeaderProps {
   /** Kebab-case project slug — stable identifier. Emitted verbatim in callbacks. */
   slug: string;
-  /** User-facing project name. Rendered after the "Project:" prefix per D-12. */
+  /** User-facing project name. Rendered as the section label per D-12. */
   displayName: string;
   /** Pre-rendered per-project rows. Rendered inside the collapsible content region. */
   rows: ReactNode;
@@ -332,27 +332,27 @@ export function PrettyProjectSectionHeader({
           // Mirror .pv-row (pretty-conversations.css § .pv-row): the 500ms
           // long-press → context-menu timer must not fight iOS Safari's
           // native tap-and-hold text-selection UI, which would otherwise
-          // highlight "Project: <name>" underneath the opening menu.
+          // highlight the project name underneath the opening menu.
           userSelect: "none",
           WebkitUserSelect: "none",
           WebkitTouchCallout: "none",
           WebkitTapHighlightColor: "transparent",
         }}
-        className="flex items-center gap-2 pl-1 pr-4 pt-3 pb-0 w-full text-left cursor-pointer"
+        className="flex items-center gap-2.5 pl-1 pr-4 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
         data-testid={`pv-project-section-header-${slug}`}
         aria-expanded={!collapsed}
         aria-controls={`pv-project-section-content-${slug}`}
       >
         <FolderOpen
-          className="size-3 text-[#5c6070]/85 shrink-0"
+          className="size-3.5 text-[#a89a80] opacity-90 shrink-0"
           aria-hidden="true"
         />
-        <span className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#5c6070]/85 shrink-0">
-          Project: {displayName}
+        <span className="text-[13px] font-semibold text-[#a89a80] shrink-0">
+          {displayName}
         </span>
         <span
           aria-hidden="true"
-          className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
+          className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
         />
         {/* Sibling <button>, not nested. stopPropagation on click/key so
             the outer div's collapse toggle does NOT fire when the new-
@@ -376,7 +376,7 @@ export function PrettyProjectSectionHeader({
           <SquarePen className="size-3" aria-hidden="true" />
         </button>
         <ChevronDown
-          className={`size-3 text-[#5c6070]/85 shrink-0 transition-transform ${collapsed ? "" : "rotate-180"}`}
+          className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${collapsed ? "" : "rotate-180"}`}
           aria-hidden="true"
         />
       </div>
