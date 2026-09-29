@@ -1710,9 +1710,9 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
 <section class="category" style="--pv-id-hue: 210;">
   <div class="category-header">
     <span class="category-mark"></span>
-    <p class="category-kicker">Category · Auth-prompt family</p>
+    <p class="category-kicker">Category · Auth-prompt family — OUT OF SCOPE (2026-09-29)</p>
     <h2 class="category-name">SSH auth, TOTP, host-key, OPKSSH, Warpgate, passphrase, tmux picker</h2>
-    <p class="category-body">The tightest sibling group in the app — seven modals that all appear <em>mid-flow, while connecting to something</em>. They should feel like one family. Cool-slate hue (210) because they're the app talking to the network layer, not identity-scoped. Shared vocabulary: short block of guidance, one focused input or choice, one primary "Connect / Verify / Accept" and one Cancel.</p>
+    <p class="category-body"><strong>Not translated.</strong> These seven modals live under <code>src/ui/ssh/dialogs/</code> and are only mounted inside <code>Terminal.tsx</code> — the raw xterm.js terminal view that pretty-view has replaced. They're not reachable in the current Skynet experience, so we're deliberately skipping them. Mockups below are kept as reference for what the pattern WOULD look like if these become live again, but no code changes are landing for them under this arc.</p>
   </div>
 
   <div class="stage-row">

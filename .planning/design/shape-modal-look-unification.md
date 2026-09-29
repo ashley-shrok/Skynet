@@ -58,7 +58,7 @@ Load-bearing invariants:
 ## Scope edges
 
 **In:**
-- ~24 app modals (see modal-tasting.html for the full list across categories 1-11)
+- ~17 app modals (see modal-tasting.html for the full list — Categories 1-7, 9, 10, 11 minus retired items and vestigial group)
 - The 2 hand-rolled shell modals (SkewLockModal, ElectronVersionCheck)
 - Canonical `<Modal>` container as the shared foundation
 - Convention updates in the id skill + box-maintainer role file naming the canonical
@@ -68,9 +68,11 @@ Load-bearing invariants:
 - The internal surface of content editors (Monaco/CodeMirror handles that)
 - The multi-file About-you concept in PreferencesModal — the tasting drops it deliberately per Ashley
 - Nested modals used for simple destructive confirms (Ashley 2026-09-29: switch these to natives instead of stacking)
+- The SSH auth family + tmux session picker (Ashley 2026-09-29: not accessible in the current app — vestigial fork code from `src/ui/features/terminal/Terminal.tsx`, which is no longer part of the live user experience)
 
 **Retired 2026-09-29:**
 - **DeleteConfirmDialog** — the only nested app-modal in Skynet, used inside RunbookEditorModal + SkillsEditorModal for delete-file / delete-runbook / delete-skill. Replaced with `window.confirm()` + `window.alert()` for errors, matching the fleet convention already used across ~30 destructive confirms in the app. The component file was deleted; the tasting no longer carries a mockup for it.
+- **SSHAuthDialog, TOTPDialog, PassphraseDialog, HostKeyVerificationDialog, OPKSSHDialog, WarpgateDialog, TmuxSessionPicker** — all under `src/ui/ssh/dialogs/`, mounted only inside `Terminal.tsx`. The raw-terminal experience is not part of live Skynet — these dialogs are reachable only if a user opens a terminal session (which pretty-view has replaced). The component files stay in place (they're vestigial code, but deleting them is a separate cleanup decision), but they're EXCLUDED from the modal-look-unification scope. The tasting still shows them for reference but labels them out-of-scope.
 
 ## Vehicle notes
 
