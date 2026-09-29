@@ -35,9 +35,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, X } from "lucide-react";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import { DialogHeader, DialogTitle, DialogClose } from "@/components/dialog";
+import { ChevronRight } from "lucide-react";
+import { Modal, ModalHead, ModalBody } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
@@ -259,128 +258,76 @@ export function RolesListModal({
   }, [selectedHostId]);
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={false}>
-      {/* D-03: global modal — no portal-target prop; defaults to document.body. */}
-      <DialogPrimitive.Portal>
-        {/* Overlay — same z-index ladder as IdentityModal + GlobalFilesModal. */}
-        <DialogPrimitive.Overlay
-          className={cn(
-            "fixed inset-0 z-[110] bg-black/15",
-            "supports-backdrop-filter:backdrop-blur-xs duration-100",
-            "data-open:animate-in data-open:fade-in-0",
-            "data-closed:animate-out data-closed:fade-out-0",
-          )}
-        />
-        <DialogPrimitive.Content
-          onInteractOutside={(e) => {
-            // Patch #111f pattern: prevent modal from closing when clicking
-            // outside. X and Esc remain valid close paths.
-            e.preventDefault();
-          }}
-          className={cn(
-            "fixed inset-4 z-[120] outline-none",
-            "flex flex-col overflow-hidden rounded-[24px]",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
-            "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          )}
-          style={{
-            // Neutral hue 220 gradient — this modal displays MULTIPLE roles
-            // at once (per-row hue variation), so the chrome stays hue-agnostic
-            // (matches GlobalFilesModal L216-220 shape).
-            background:
-              "linear-gradient(160deg, hsla(220, 45%, 25%, 0.82), hsla(220, 40%, 15%, 0.88))",
-            backdropFilter: "blur(28px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(28px) saturate(1.4)",
-            border: "1px solid hsla(220, 65%, 55%, 0.32)",
-            boxShadow:
-              "0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 80px hsla(220, 65%, 55%, 0.2)",
-            color: "#e8e4d8",
-          }}
-        >
-          {/* Header — title + host-picker (multi-host only) + '+ New role' + close X */}
-          <DialogHeader
-            className="px-6 py-4 shrink-0 flex flex-row items-center gap-2 flex-wrap"
-            style={{ borderBottom: "1px solid rgba(220, 225, 245, 0.10)" }}
-          >
-            <DialogTitle className="text-[15px] font-semibold text-[#f0ebe0]">
-              Roles
-            </DialogTitle>
-
-            {/* D-02: single-host primitive — hide host picker when
-                flatHosts.length === 1 (matches CreateRoleDialog L762). */}
-            {!hidePicker && (
-              <select
-                aria-label="Host"
-                value={selectedHostId ?? ""}
-                onChange={(e) =>
-                  setSelectedHostId(e.target.value ? Number(e.target.value) : null)
-                }
-                className="ml-2 px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] text-sm outline-none cursor-pointer"
-              >
-                <option value="" style={OPTION_STYLE}>
-                  Pick a host…
-                </option>
-                {flatHosts.map((h) => (
-                  <option key={h.id} value={h.id} style={OPTION_STYLE}>
-                    {h.name}
-                  </option>
-                ))}
-              </select>
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      hue={190}
+      size="list"
+    >
+      {/* Header — title + '+ New role' action + close X. Host picker (when
+          multi-host) renders as a separate row BELOW the header per the
+          modal-look-unification pattern. */}
+      <ModalHead
+        title="Roles"
+        actions={
+          <button
+            type="button"
+            onClick={onNewRole}
+            className={cn(
+              "px-3 py-1.5 rounded-md text-sm cursor-pointer",
+              "bg-[hsla(var(--pv-id-hue),65%,55%,0.30)]",
+              "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.42)]",
+              "border border-[hsla(var(--pv-id-hue),75%,70%,0.45)]",
+              "text-[#fbf5e8]",
             )}
+          >
+            + New role
+          </button>
+        }
+      />
 
-            <div className="flex-1" />
+      {/* Host picker — hidden when flatHosts.length === 1 (Phase 84 D-02). */}
+      {!hidePicker && (
+        <div
+          className={cn(
+            "px-5 py-2.5 flex-shrink-0",
+            "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
+            "bg-black/25",
+          )}
+        >
+          <select
+            aria-label="Host"
+            value={selectedHostId ?? ""}
+            onChange={(e) =>
+              setSelectedHostId(e.target.value ? Number(e.target.value) : null)
+            }
+            className={cn(
+              "w-full px-3 py-1.5 rounded-md text-sm cursor-pointer outline-none",
+              "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
+              "text-[#fbf5e8]",
+              "focus:border-[hsla(var(--pv-id-hue),70%,60%,0.5)]",
+            )}
+          >
+            <option value="" style={OPTION_STYLE}>
+              Pick a host…
+            </option>
+            {flatHosts.map((h) => (
+              <option key={h.id} value={h.id} style={OPTION_STYLE}>
+                {h.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
-            {/* D-10 (revised 2026-09-11): '+ New role' button in header. Fires
-                onNewRole — parent closes this modal and opens CreateRoleDialog
-                as a sibling swap target. Restores the CRD → NewSessionDialog
-                chain that lived here pre-Plan-90-06. */}
-            <button
-              type="button"
-              onClick={onNewRole}
-              className="px-3 py-1.5 rounded-md bg-[hsla(220,80%,60%,0.20)] hover:bg-[hsla(220,80%,60%,0.30)] text-[#e8e4d8] text-sm cursor-pointer"
-            >
-              + New role
-            </button>
-
-            {/* Glass X close button — verbatim from GlobalFilesModal L253-276. */}
-            <DialogClose asChild>
-              <button
-                type="button"
-                aria-label="Close"
-                title="Close"
-                className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color,box-shadow] duration-200"
-                style={{
-                  background: "rgba(255, 255, 255, 0.04)",
-                  border: "1px solid rgba(220, 225, 245, 0.10)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background =
-                    "rgba(255, 255, 255, 0.10)";
-                  e.currentTarget.style.border =
-                    "1px solid rgba(220, 225, 245, 0.22)";
-                  e.currentTarget.style.boxShadow =
-                    "0 0 20px hsla(220, 60%, 50%, 0.25)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background =
-                    "rgba(255, 255, 255, 0.04)";
-                  e.currentTarget.style.border =
-                    "1px solid rgba(220, 225, 245, 0.10)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-              >
-                <X className="size-4" />
-              </button>
-            </DialogClose>
-          </DialogHeader>
-
-          {/* Body — layered branches: no-host / loading / error / empty / list. */}
-          {selectedHostId == null ? (
-            <div className="flex-1 flex items-center justify-center text-[#a89a80] text-sm">
+      {/* Body — layered branches: no-host / loading / error / empty / list. */}
+      <ModalBody className="p-0 overflow-y-auto flex flex-col">
+      {selectedHostId == null ? (
+            <div className="flex-1 flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
               Pick a host to see its roles.
             </div>
           ) : rolesState.status === "loading" ? (
-            <div className="flex-1 flex items-center justify-center text-[#a89a80] text-sm">
+            <div className="flex-1 flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
               Loading…
             </div>
           ) : rolesState.status === "error" ? (
@@ -392,12 +339,12 @@ export function RolesListModal({
             // prominently. The header button is always available; a
             // secondary in-body button gives the empty-state its own
             // affordance so the user isn't hunting.
-            <div className="flex-1 flex flex-col items-center justify-center text-[#a89a80] gap-3 text-sm text-center px-6">
+            <div className="flex-1 flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-3 text-sm text-center px-6">
               <div>This host has no roles yet.</div>
               <button
                 type="button"
                 onClick={onNewRole}
-                className="px-3 py-1.5 rounded-md bg-[hsla(220,80%,60%,0.20)] hover:bg-[hsla(220,80%,60%,0.30)] text-[#e8e4d8] text-sm cursor-pointer"
+                className="px-3 py-1.5 rounded-md bg-[hsla(var(--pv-id-hue),65%,55%,0.30)] hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.42)] border border-[hsla(var(--pv-id-hue),75%,70%,0.45)] text-[#fbf5e8] text-sm cursor-pointer"
               >
                 + New role
               </button>
@@ -537,34 +484,32 @@ export function RolesListModal({
               })}
             </div>
           )}
+      </ModalBody>
 
-        </DialogPrimitive.Content>
-
-        {/* Phase 133 Plan 133-05 (D-02): the right-click context menu.
-            PrettyConversationContextMenu portals to document.body internally
-            (via createPortal); mounting it inside DialogPrimitive.Portal
-            here is stylistic — the menu's own portal decides its DOM home. */}
-        {menuOpen && (
-          <PrettyConversationContextMenu
-            x={menuOpen.x}
-            y={menuOpen.y}
-            hue={menuOpen.hue}
-            items={[
-              {
-                label: "Archive",
-                danger: true,
-                onClick: () =>
-                  handleArchiveClick(
-                    menuOpen.roleName,
-                    menuOpen.roleDisplayLabel,
-                  ),
-              } satisfies PrettyContextMenuItem,
-            ]}
-            onClose={() => setMenuOpen(null)}
-          />
-        )}
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+      {/* Phase 133 Plan 133-05 (D-02): the right-click context menu.
+          PrettyConversationContextMenu portals to document.body internally
+          (via createPortal), so mounting it inside/outside the Modal here
+          is stylistic — the menu decides its own DOM home. */}
+      {menuOpen && (
+        <PrettyConversationContextMenu
+          x={menuOpen.x}
+          y={menuOpen.y}
+          hue={menuOpen.hue}
+          items={[
+            {
+              label: "Archive",
+              danger: true,
+              onClick: () =>
+                handleArchiveClick(
+                  menuOpen.roleName,
+                  menuOpen.roleDisplayLabel,
+                ),
+            } satisfies PrettyContextMenuItem,
+          ]}
+          onClose={() => setMenuOpen(null)}
+        />
+      )}
+    </Modal>
   );
 }
 
