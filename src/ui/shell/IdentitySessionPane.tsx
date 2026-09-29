@@ -9,7 +9,7 @@ import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { IdentityModal } from "@/features/pretty-view/IdentityModal";
 import { MessageQueueDrawer } from "@/features/terminal/MessageQueueDrawer";
 import { sessionMatchKey, hueFromSessionName } from "@/features/terminal/session-hue";
-import { useIdentities } from "@/state/identities-store";
+import { useIdentities, applyIdentityChange } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTabsSafe } from "@/shell/TabContext";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
@@ -24,6 +24,9 @@ import {
   pinConversation,
   unpinConversation,
   useProjects,
+  markPendingArchive,
+  clearPendingArchive,
+  removeFleetSession,
 } from "@/state/conversation-store";
 // Phase 115 Plan 115-06 (D-01): archive API client for the badge-menu
 // Archive item. Same helper the panel's handleArchive uses so both entry
@@ -349,14 +352,30 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             // API call (mirrors the deleted Hide handler + the panel's
             // handleArchive).
             onCloseTab?.(tabId);
-            void archiveIdentity(hostIdNum, identityKey).catch((err) => {
-              console.warn({
-                operation: "identity_archive_failed",
-                hostId: hostIdNum,
-                identityKey,
-                errMessage: err instanceof Error ? err.message : String(err),
-              });
-            });
+            // Optimistic sidebar removal — mirrors
+            // PrettyConversationsPanel.handleArchive so the row disappears
+            // immediately from the sidebar instead of lingering until the
+            // next fleet-status pulse retires it. markPendingArchive FIRST so
+            // any in-flight upsert races silent-drop rather than re-inserting.
+            markPendingArchive(hostIdNum, identityKey);
+            removeFleetSession(hostIdNum, identityKey);
+            applyIdentityChange(null, identityKey, hostIdNum);
+            void (async () => {
+              try {
+                await archiveIdentity(hostIdNum, identityKey);
+              } catch (err) {
+                clearPendingArchive(hostIdNum, identityKey);
+                console.warn({
+                  operation: "identity_archive_failed",
+                  hostId: hostIdNum,
+                  identityKey,
+                  errMessage: err instanceof Error ? err.message : String(err),
+                });
+                window.alert(
+                  `archive failed: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              }
+            })();
           },
         });
       }
