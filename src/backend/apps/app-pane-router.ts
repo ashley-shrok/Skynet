@@ -248,6 +248,10 @@ router.all(
     // existing rule in docker/nginx.conf* covers /apps/*.
     res.setHeader("X-Frame-Options", "SAMEORIGIN");
     res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
+    // Phase 143: no-store on all app responses so agents editing app files
+    // are reflected on the user's next iframe reload without a hard-refresh.
+    // Same rationale as im-pane-router — matches the widget-side change.
+    res.setHeader("Cache-Control", "no-store, must-revalidate");
 
     // (viii) Target resolution via the shared SSH tunnel cache
     // (D-10 as amended by Q1 RESOLVED — always tunnel). Tunnel-time

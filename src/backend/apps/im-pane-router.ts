@@ -116,6 +116,7 @@ function sendExpiredHtml(res: Response, slug: string): Response {
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
   res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store, must-revalidate");
   const safeSlug = JSON.stringify(slug);
   return res.status(404).send(`<!doctype html>
 <html lang="en"><head>
@@ -261,6 +262,10 @@ router.all(
     // the proxy handoff so they survive to the client.
     res.setHeader("X-Frame-Options", "SAMEORIGIN");
     res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
+    // Phase 143: no-store on all widget responses so agents editing a
+    // widget's files are reflected on the user's next iframe reload without
+    // a hard-refresh. Widgets are small; the fetch cost is negligible.
+    res.setHeader("Cache-Control", "no-store, must-revalidate");
 
     // (viii) Target resolution via the shared SSH tunnel cache.
     let tunnelPort: number;
