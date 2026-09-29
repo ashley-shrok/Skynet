@@ -1,31 +1,28 @@
 /**
- * PreferencesModal — the user preferences modal shell with left-nav navigation.
+ * PreferencesModal — user preferences modal with left-nav navigation.
  *
- * Phase 137 D-01..D-09: modal chrome + four-tab left-nav shell.
+ * Modal-unification 2026-09-29:
+ *   - Shell: canonical <Modal size="settings" hue={220}>. 640×480 fixed
+ *     per tasting (was 1000×760 pre-unification).
+ *   - Head: canonical <ModalHead title="Preferences" /> — replaces the
+ *     bare glass-close-button-only header of the pre-unification impl.
+ *   - Body: two-column flex (~180px left nav + right pane). ModalBody
+ *     overrides its default padding to p-0 so the nav's own darker
+ *     sub-surface + right pane can span edge-to-edge.
+ *   - Foot: canonical <ModalFoot> with a single Close button.
+ *   - Neutral blue-gray hue (220) preserved from pre-unification — settings
+ *     aren't identity-scoped, so no dynamic hue.
  *
- * Modal chrome pattern: byte-copy of the retired notifications modal with
- * two swaps:
- *   - Size: fixed 1000x760 (capped to viewport), stable across all tabs so
- *     General doesn't look tiny and About-you file editor has room to work.
- *   - data-testid=preferences-modal
+ * Log out button — pinned to the bottom of the left nav below a divider;
+ * verified as the only UI logout path in the frontend (2026-09-29 grep).
  *
- * Glass close button: verbatim from GlobalFilesModal L252-276.
- *
- * NAV_SECTIONS: adapted from IdentityModal L308-314, rendered VERTICALLY on the
- * left side (only genuinely new layout pattern in this phase — no existing
- * vertical-left-nav modal in Skynet).
- *
- * D-04 invariant: backdrop-click does NOT close the modal. X + Esc are
- * the only close paths (prevent-default on the outside-interact event).
- *
- * D-05 invariant: useEffect resets activeSection to "general" whenever open
- * transitions from true → false.
+ * D-05 invariant preserved: useEffect resets activeSection to "general"
+ * whenever open transitions true → false.
  */
 
 import { useEffect, useState } from "react";
-import { X, User, Volume2, Bell, Sparkles, LogOut } from "lucide-react";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import { DialogTitle, DialogClose } from "@/components/dialog";
+import { User, Volume2, Bell, Sparkles, LogOut } from "lucide-react";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import { PreferencesGeneralPane } from "./PreferencesGeneralPane";
 import { PreferencesVoicePane } from "./PreferencesVoicePane";
@@ -95,169 +92,133 @@ export default function PreferencesModal({
   }, [open]);
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={true}>
-      <DialogPrimitive.Portal>
-        {/* Overlay — same z-index ladder as IdentityModal (patch #111) */}
-        <DialogPrimitive.Overlay
-          className={cn(
-            "absolute inset-0 z-[110] bg-black/40",
-            "supports-backdrop-filter:backdrop-blur-xs duration-100",
-            "data-open:animate-in data-open:fade-in-0",
-            "data-closed:animate-out data-closed:fade-out-0",
-          )}
-        />
-        {/* Content — D-04: backdrop-click does NOT close; X + Esc close */}
-        <DialogPrimitive.Content
-          onInteractOutside={(e) => {
-            e.preventDefault();
-          }}
-          className={cn(
-            "absolute inset-4 z-[120] outline-none",
-            "flex flex-col overflow-hidden rounded-[24px]",
-            "md:w-[min(92vw,1000px)] md:h-[min(90vh,760px)] md:max-w-none md:max-h-none md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
-            "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          )}
-          style={{
-            background:
-              "linear-gradient(160deg, hsla(220, 45%, 25%, 0.82), hsla(220, 40%, 15%, 0.88))",
-            backdropFilter: "blur(28px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(28px) saturate(1.4)",
-            border: "1px solid hsla(220, 65%, 55%, 0.32)",
-            boxShadow:
-              "0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 80px hsla(220, 65%, 55%, 0.2)",
-            color: "#e8e4d8",
-          }}
-          data-testid="preferences-modal"
-        >
-          {/* a11y: sr-only DialogTitle required by Radix DialogPrimitive */}
-          <DialogTitle className="sr-only">Preferences</DialogTitle>
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      hue={220}
+      size="settings"
+      className="flex flex-col"
+      data-testid="preferences-modal"
+    >
+      <ModalHead title="Preferences" />
 
-          {/* Glass close button — verbatim from GlobalFilesModal L252-276 */}
-          <DialogClose asChild>
+      {/* Two-column body: 180px left nav + right pane. Override the
+          canonical ModalBody's default px-5 py-3.5 padding so the nav's
+          darker sub-surface + right pane span edge-to-edge. */}
+      <ModalBody className="p-0 flex flex-row overflow-hidden">
+        {/* Left nav */}
+        <nav
+          data-testid="preferences-modal-nav"
+          className="shrink-0 flex flex-col py-3 gap-1"
+          style={{
+            width: 180,
+            background: "rgba(0, 0, 0, 0.28)",
+            borderRight: "1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22)",
+          }}
+        >
+          {NAV_SECTIONS.map(({ value, label, Icon }) => {
+            const isActive = activeSection === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                data-testid={`preferences-nav-${value}`}
+                aria-current={isActive ? "page" : undefined}
+                onClick={() => setActiveSection(value)}
+                className={cn(
+                  "flex items-center gap-2.5 px-4 py-2 mx-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left",
+                  isActive
+                    ? "bg-[hsla(var(--pv-id-hue),65%,55%,0.24)] text-[#fbf5e8] font-medium"
+                    : "text-[hsla(var(--pv-id-hue),22%,88%,0.7)] hover:text-[#d8d4c8] hover:bg-white/5",
+                )}
+              >
+                <Icon size={16} className="shrink-0" />
+                <span>{label}</span>
+              </button>
+            );
+          })}
+
+          {/* Log out — pinned to the bottom of the nav below a divider,
+              reachable from every tab. Confirmed only UI logout path in
+              the frontend (2026-09-29 grep). */}
+          <div
+            className="mt-auto pt-2 mx-2"
+            style={{
+              borderTop:
+                "1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22)",
+            }}
+          >
             <button
               type="button"
-              aria-label="Close"
-              title="Close"
-              data-testid="preferences-close-button"
-              className="absolute top-4 right-4 z-10 shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color,box-shadow] duration-200"
-              style={{
-                background: "rgba(255, 255, 255, 0.04)",
-                border: "1px solid rgba(220, 225, 245, 0.10)",
+              data-testid="preferences-nav-logout"
+              aria-label="Log out"
+              onClick={() => {
+                if (!window.confirm("Log out?")) return;
+                void logoutUser()
+                  .catch(() => {})
+                  .finally(() => {
+                    window.dispatchEvent(new Event("skynet:logout"));
+                  });
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.10)";
-                e.currentTarget.style.border = "1px solid rgba(220, 225, 245, 0.22)";
-                e.currentTarget.style.boxShadow = "0 0 20px hsla(220, 60%, 50%, 0.25)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)";
-                e.currentTarget.style.border = "1px solid rgba(220, 225, 245, 0.10)";
-                e.currentTarget.style.boxShadow = "none";
-              }}
+              className={cn(
+                "flex items-center gap-2.5 px-4 py-2 mt-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left w-full",
+                "text-[hsla(var(--pv-id-hue),22%,88%,0.6)] hover:text-[#f0ebe0] hover:bg-white/5",
+              )}
             >
-              <X className="size-4" />
+              <LogOut size={16} className="shrink-0" />
+              <span>Log out</span>
             </button>
-          </DialogClose>
-
-          {/* Body — two-column flex layout: left nav (~180px) + right pane */}
-          <div className="flex flex-1 min-h-0 overflow-hidden">
-            {/* Left nav */}
-            <nav
-              data-testid="preferences-modal-nav"
-              className="shrink-0 flex flex-col py-4 gap-1"
-              style={{
-                width: 180,
-                borderRight: "1px solid rgba(220, 225, 245, 0.08)",
-              }}
-            >
-              {NAV_SECTIONS.map(({ value, label, Icon }) => {
-                const isActive = activeSection === value;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    data-testid={`preferences-nav-${value}`}
-                    aria-current={isActive ? "page" : undefined}
-                    onClick={() => setActiveSection(value)}
-                    className={cn(
-                      "flex items-center gap-2.5 px-4 py-2 mx-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left",
-                      isActive
-                        ? "bg-white/10 text-[#f0ebe0] font-medium"
-                        : "text-[#a89a80] hover:text-[#d8d4c8] hover:bg-white/5",
-                    )}
-                  >
-                    <Icon size={16} className="shrink-0" />
-                    <span>{label}</span>
-                  </button>
-                );
-              })}
-
-              {/* Log out — pinned to bottom of nav, visible on every tab.
-                  Divider separates it from the section tabs so it doesn't
-                  read as another section. Handler byte-copied from the
-                  retired sidebar-footer button so behavior is identical. */}
-              <div
-                className="mt-auto pt-2"
-                style={{ borderTop: "1px solid rgba(220, 225, 245, 0.08)" }}
-              >
-                <button
-                  type="button"
-                  data-testid="preferences-nav-logout"
-                  aria-label="Log out"
-                  onClick={() => {
-                    if (!window.confirm("Log out?")) return;
-                    void logoutUser()
-                      .catch(() => {})
-                      .finally(() => {
-                        window.dispatchEvent(new Event("skynet:logout"));
-                      });
-                  }}
-                  className={cn(
-                    "flex items-center gap-2.5 px-4 py-2 mx-2 mt-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left w-[calc(100%-1rem)]",
-                    "text-[#a89a80] hover:text-[#f0ebe0] hover:bg-white/5",
-                  )}
-                >
-                  <LogOut size={16} className="shrink-0" />
-                  <span>Log out</span>
-                </button>
-              </div>
-            </nav>
-
-            {/* Right pane — renders the active section */}
-            <main
-              data-testid="preferences-modal-pane"
-              className="flex-1 min-w-0 overflow-auto"
-            >
-              {activeSection === "general" && (
-                <PreferencesGeneralPane
-                  userId={userId}
-                  username={username ?? null}
-                  avatarPath={avatarPath}
-                  onAvatarChanged={onAvatarChanged}
-                />
-              )}
-              {activeSection === "voice" && (
-                <PreferencesVoicePane
-                  userId={userId}
-                  userPrefs={userPrefs}
-                  onUserPrefsChanged={onUserPrefsChanged}
-                />
-              )}
-              {activeSection === "notifications" && (
-                <PreferencesNotificationsPane userId={userId} />
-              )}
-              {activeSection === "about-you" && (
-                <PreferencesAboutYouPane
-                  userId={userId}
-                  hostTree={hostTree ?? null}
-                  defaultHostId={defaultHostId ?? null}
-                />
-              )}
-            </main>
           </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+        </nav>
+
+        {/* Right pane — renders the active section */}
+        <main
+          data-testid="preferences-modal-pane"
+          className="flex-1 min-w-0 overflow-auto"
+        >
+          {activeSection === "general" && (
+            <PreferencesGeneralPane
+              userId={userId}
+              username={username ?? null}
+              avatarPath={avatarPath}
+              onAvatarChanged={onAvatarChanged}
+            />
+          )}
+          {activeSection === "voice" && (
+            <PreferencesVoicePane
+              userId={userId}
+              userPrefs={userPrefs}
+              onUserPrefsChanged={onUserPrefsChanged}
+            />
+          )}
+          {activeSection === "notifications" && (
+            <PreferencesNotificationsPane userId={userId} />
+          )}
+          {activeSection === "about-you" && (
+            <PreferencesAboutYouPane
+              userId={userId}
+              hostTree={hostTree ?? null}
+              defaultHostId={defaultHostId ?? null}
+            />
+          )}
+        </main>
+      </ModalBody>
+
+      <ModalFoot>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          data-testid="preferences-close-foot"
+          className={cn(
+            "px-3 py-1.5 rounded-md text-[12.5px] cursor-pointer",
+            "bg-black/20 border border-white/10",
+            "hover:bg-black/30",
+            "text-[#e8e4d8]",
+          )}
+        >
+          Close
+        </button>
+      </ModalFoot>
+    </Modal>
   );
 }
