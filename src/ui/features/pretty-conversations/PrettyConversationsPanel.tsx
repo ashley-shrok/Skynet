@@ -2744,10 +2744,11 @@ export function PrettyConversationsPanel({
                 its individual rationale. The showPencilButton-gated cluster
                 (New conversation, Create project, Scheduled Agents, kebab)
                 appears/disappears together based on typeof onCreateSession
-                === "function". Send feedback lives above the sidebar footer,
-                not here — see the .pv-feedback-slot render below. Search
-                moved OUT of this cluster to a dedicated sidebar-search input
-                row below the header (shape-sidebar-search-inline). No
+                === "function". Send feedback lives inside the sidebar
+                footer (docked above the anchor+actions row) — see the
+                .pv-panel-footer render below. Search moved OUT of this
+                cluster to a dedicated sidebar-search input row below the
+                header (shape-sidebar-search-inline). No
                 numbered enumeration here because it goes stale every time
                 the shape shifts; walking the JSX in order is authoritative. */}
             {showPencilButton && (
@@ -3370,16 +3371,18 @@ export function PrettyConversationsPanel({
         </>
       </div>
 
-      {/* Full-width "Send feedback" CTA docked just above the footer.
-          Migrated out of the header cluster so the beta feedback ask
-          reads as a real button, not a sixth icon. Shape matches the
-          shadcn <Button> default variant (warm hue-glow) used by the
-          Create-project modal — same design language, full-width. Gate:
-          feedbackEnabled (per D-11); optional-chaining call on
-          onOpenFeedback keeps the panel renderable in tests without
-          wiring the callback. */}
-      {feedbackEnabled && (
-        <div className="pv-feedback-slot">
+      {/* Sidebar footer — the "about me" zone. Sibling of .pv-panel-header
+          and .pv-panel-scroll in the panel's flex column. Column-oriented
+          so an optional full-width "Send feedback" CTA can dock on top
+          without the border-top reading as a divider under it. Row-1 (when
+          feedbackEnabled): the CTA. Row-2 (always): anchor block on the
+          left (avatar/initials + username) + actions on the right
+          (preferences gear + logout). When feedback is disabled the
+          footer has only Row-2, which visually matches the pre-CTA
+          layout since .pv-footer-row is a flex row w/ align-items:center
+          and gap:8px (same values the old direct-child layout used). */}
+      <div className="pv-panel-footer" data-testid="pv-panel-footer">
+        {feedbackEnabled && (
           <Button
             type="button"
             className="w-full"
@@ -3389,15 +3392,8 @@ export function PrettyConversationsPanel({
             <MessageSquare />
             Send feedback
           </Button>
-        </div>
-      )}
-      {/* Sidebar footer — the "about me" zone. Sibling of .pv-panel-header
-          and .pv-panel-scroll in the panel's flex column. Left slot: avatar
-          <img> (Phase 137 D-30) or initials circle (fallback) + username.
-          Right slot: the Settings-gear (opens PreferencesModal — Phase 137
-          D-08) and the Log-out button. The anchor slot renders only when
-          username is populated; the actions slot always renders. */}
-      <div className="pv-panel-footer" data-testid="pv-panel-footer">
+        )}
+        <div className="pv-footer-row">
         <div className="pv-footer-anchor">
           {(() => {
             // Trim first so whitespace-only usernames collapse to no-anchor
@@ -3459,6 +3455,7 @@ export function PrettyConversationsPanel({
           >
             <Settings size={18} />
           </button>
+        </div>
         </div>
       </div>
 
