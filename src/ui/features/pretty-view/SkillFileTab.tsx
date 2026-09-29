@@ -47,6 +47,9 @@ export default function SkillFileTab({
   onSave,
   onRequestDelete,
   filename,
+  hideSaveButton = false,
+  onDraftContentChange,
+  onDraftChange,
 }: {
   state: TabState<SkillFileTabData>;
   onSave: (content: string, expectedMtime: number) => Promise<void>;
@@ -64,6 +67,28 @@ export default function SkillFileTab({
    * (SkillsEditorModal, RunbookEditorModal) always know the filename.
    */
   filename: string;
+  /**
+   * When true, the tab does NOT render its own Save button — the outer chrome
+   * owns save placement in its own foot. Consumers still receive onSave
+   * calls through the outer Save button (via onDraftContentChange +
+   * external save handler). Modal-unification 2026-09-29 seam:
+   * RunbookEditorModal passes true to move Save into the canonical
+   * <ModalFoot>. Default false preserves the pre-unification behavior
+   * SkillsEditorModal relies on.
+   */
+  hideSaveButton?: boolean;
+  /**
+   * Fires with the raw draft string on every keystroke. Consumers that
+   * host their own outer Save button use this to know what to write.
+   * Guarded on `ready` state — no-op until content loads.
+   */
+  onDraftContentChange?: (draft: string) => void;
+  /**
+   * Fires when the draft diverges from or converges back to the fetched
+   * content. Consumers use this to compute cross-tab dirty state for a
+   * close-confirm draft-guard. Guarded on `ready` state.
+   */
+  onDraftChange?: (dirty: boolean) => void;
 }): JSX.Element {
   // Seed draft from state.data.content at mount time so the underlying
   // MarkdownEditor (uncontrolled MDXEditor after mount, per Phase 112 D-05)
@@ -91,6 +116,22 @@ export default function SkillFileTab({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status === "ready" ? state.data.mtime : null]);
+
+  // Fire onDraftContentChange to consumers that own their outer Save button.
+  // Guarded on `ready` state — no-op before content loads. Runs after every
+  // keystroke; existing callers that omit the prop see zero cost.
+  useEffect(() => {
+    if (!onDraftContentChange) return;
+    if (state.status !== "ready") return;
+    onDraftContentChange(draft);
+  }, [draft, state, onDraftContentChange]);
+
+  // Fire onDraftChange with the dirty flag. Guarded on `ready` state.
+  useEffect(() => {
+    if (!onDraftChange) return;
+    if (state.status !== "ready") return;
+    onDraftChange(draft !== state.data.content);
+  }, [draft, state, onDraftChange]);
 
   const handleSave = useCallback(async () => {
     if (state.status !== "ready") return;
@@ -160,14 +201,16 @@ export default function SkillFileTab({
             <Trash2 size={16} />
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => { void handleSave(); }}
-          disabled={saving || draft === state.data.content}
-          className="px-4 py-2 rounded-md bg-[hsla(var(--pv-id-hue,220),80%,60%,0.2)] hover:bg-[hsla(var(--pv-id-hue,220),80%,60%,0.3)] text-[#e8e4d8] disabled:opacity-40 disabled:cursor-not-allowed text-sm cursor-pointer"
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
+        {!hideSaveButton && (
+          <button
+            type="button"
+            onClick={() => { void handleSave(); }}
+            disabled={saving || draft === state.data.content}
+            className="px-4 py-2 rounded-md bg-[hsla(var(--pv-id-hue,220),80%,60%,0.2)] hover:bg-[hsla(var(--pv-id-hue,220),80%,60%,0.3)] text-[#e8e4d8] disabled:opacity-40 disabled:cursor-not-allowed text-sm cursor-pointer"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        )}
       </div>
       <div className="flex-1 min-h-0">
         <MarkdownEditor
