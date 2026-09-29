@@ -1713,10 +1713,10 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
     </div>
   </div>
 
-  <div class="stage-row" style="margin-top: 24px;">
+  <div class="stage-row" id="editable-file" style="margin-top: 24px;">
     <div class="stage" style="--pv-id-hue: 190;">
-      <div class="stage-label">Editable file</div>
-      <div class="stage-source">EditableFileModal</div>
+      <div class="stage-label">Editable file · text</div>
+      <div class="stage-source">EditableFileModal (plain text)</div>
       <div class="mock-bubbles">
         <div class="mock-bubble">Sharing the compose config — click to edit.</div>
         <div class="mock-bubble user">open it</div>
@@ -1725,9 +1725,7 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
         <div class="modal editor" style="max-width: 480px; height: 420px;">
           <div class="head">
             <div class="head-text">
-              <p class="meta">Editable file</p>
               <p class="title">docker-compose.yml</p>
-              <p class="subtitle">edit and save sends back</p>
             </div>
             <button class="close">✕</button>
           </div>
@@ -1742,6 +1740,82 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
             &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- "8080:8080"<br/>
             &nbsp;&nbsp;&nbsp;&nbsp;<span class="h">volumes:</span><br/>
             &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- skynet-data:/data<br/>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Close</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage" style="--pv-id-hue: 190;">
+      <div class="stage-label">Editable file · SVG rendered</div>
+      <div class="stage-source">EditableFileModal (SVG — rendered mode, read-only)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble">Here's the wave-3 sketch — click to edit.</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal editor" style="max-width: 480px; height: 420px;">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">wave-3-sketch.svg</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="variant-tabs" style="margin-bottom: 0;">
+                <span class="variant-tab on">Rendered</span>
+                <span class="variant-tab">Source</span>
+              </div>
+              <button class="close">✕</button>
+            </div>
+          </div>
+          <div class="editor-pane" style="display: flex; align-items: center; justify-content: center; background: rgba(8, 10, 16, 0.55); padding: 12px;">
+            <svg viewBox="0 0 200 120" style="width: 90%; max-height: 220px;" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="hsla(190, 70%, 60%, 0.9)" />
+                  <stop offset="1" stop-color="hsla(280, 65%, 55%, 0.9)" />
+                </linearGradient>
+              </defs>
+              <rect x="10" y="10" width="180" height="100" rx="14" fill="url(#g1)" opacity="0.7"/>
+              <circle cx="60" cy="60" r="22" fill="hsla(35, 75%, 60%, 0.9)"/>
+              <path d="M 90 80 Q 130 40 170 70" stroke="#fbf5e8" stroke-width="3" fill="none"/>
+              <text x="100" y="105" fill="#fbf5e8" font-size="9" font-family="system-ui">rendered mode — click Source to edit</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-row" style="margin-top: 24px;">
+    <div class="stage" style="--pv-id-hue: 190;">
+      <div class="stage-label">Editable file · SVG source</div>
+      <div class="stage-source">EditableFileModal (SVG — source mode, editable → foot appears)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble">Here's the wave-3 sketch — click to edit.</div>
+        <div class="mock-bubble user">let me tweak the arc</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal editor" style="max-width: 480px; height: 420px;">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">wave-3-sketch.svg</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="variant-tabs" style="margin-bottom: 0;">
+                <span class="variant-tab">Rendered</span>
+                <span class="variant-tab on">Source</span>
+              </div>
+              <button class="close">✕</button>
+            </div>
+          </div>
+          <div class="editor-pane">
+            <span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">&lt;svg</span> <span class="h">viewBox</span>=<span style="color: hsla(35, 60%, 78%, 1);">"0 0 200 120"</span> <span class="h">xmlns</span>=<span style="color: hsla(35, 60%, 78%, 1);">"http://www.w3.org/2000/svg"</span><span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">&gt;</span><br/>
+            &nbsp;&nbsp;<span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">&lt;</span><span class="h">rect</span> <span class="h">x</span>=<span style="color: hsla(35, 60%, 78%, 1);">"10"</span> <span class="h">y</span>=<span style="color: hsla(35, 60%, 78%, 1);">"10"</span> <span class="h">width</span>=<span style="color: hsla(35, 60%, 78%, 1);">"180"</span> <span class="h">height</span>=<span style="color: hsla(35, 60%, 78%, 1);">"100"</span><span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);"> /&gt;</span><br/>
+            &nbsp;&nbsp;<span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">&lt;</span><span class="h">circle</span> <span class="h">cx</span>=<span style="color: hsla(35, 60%, 78%, 1);">"60"</span> <span class="h">cy</span>=<span style="color: hsla(35, 60%, 78%, 1);">"60"</span> <span class="h">r</span>=<span style="color: hsla(35, 60%, 78%, 1);">"22"</span><span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);"> /&gt;</span><br/>
+            &nbsp;&nbsp;<span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">&lt;</span><span class="h">path</span> <span class="h">d</span>=<span style="color: hsla(35, 60%, 78%, 1);">"M 90 80 Q 130 40 170 70"</span><span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);"> /&gt;</span><br/>
+            <span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">&lt;/svg&gt;</span><br/>
           </div>
           <div class="foot">
             <button class="btn secondary">Close</button>
