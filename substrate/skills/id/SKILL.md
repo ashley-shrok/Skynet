@@ -761,6 +761,26 @@ not something agents drive.
   fires, it arrives as a real `/id reset` — save + recycle sentinel +
   stop, same as always.
 
+### Interactive messages (widgets in chat bubbles)
+
+Agents can embed a widget inline in their message bubble instead of (or
+alongside) plain text — polls, forms, ranked lists, and so on. The user
+interacts with it directly in the bubble.
+
+Reach for a widget only when the interaction is genuinely easier or
+better than typing — picking one of a few options, ordering a list,
+picking a color. If a plain text reply would be easier for the user,
+the widget is wrong.
+
+- **Interaction modes.**
+  - **Terminal-on-click** — the click IS the submit (poll, color-picker).
+  - **Terminal-on-submit** — user assembles then hits a submit button.
+  - **Non-terminal** — state persists on every interaction; the user's
+    own text reply is what wakes the agent.
+
+*Agent-side: the `interactive-messages` skill is the source of truth on
+scaffolding, teardown, templates, and behavior.*
+
 ---
 
 ## Reaching the user by relay DM
