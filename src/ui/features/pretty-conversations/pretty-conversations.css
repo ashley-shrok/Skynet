@@ -162,6 +162,17 @@
   -webkit-user-drag: none;
 }
 
+/* Wrapper for the full-width "Send feedback" CTA docked just above the
+   footer. Sits between .pv-panel-scroll and .pv-panel-footer as a sibling.
+   Only mounts when feedbackEnabled is true. Horizontal padding matches
+   the footer (16px) so the button aligns with the anchor + actions below;
+   top padding 12px, bottom 0 so the CTA visually leans into the footer
+   as one bottom cluster. */
+.pv-feedback-slot {
+  padding: 12px 16px 0;
+  flex-shrink: 0;
+}
+
 /* Sidebar footer — mirrors .pv-panel-header treatment. Sibling of
    .pv-panel-header and .pv-panel-scroll at the bottom of the panel.
    Carries the "about me" zone: initials-circle anchor + username on the
@@ -1460,6 +1471,12 @@
   .pv-panel-footer .pv-footer-btn svg {
     width: 24px;
     height: 24px;
+  }
+
+  /* Feedback slot — mobile tightens top padding to match the 8px vertical
+     rhythm the header + footer use on mobile. */
+  .pv-feedback-slot {
+    padding-top: 8px;
   }
 
   /* Phase 104 Plan 02 — trapped-work indicator mobile bump. Scales to ~28px

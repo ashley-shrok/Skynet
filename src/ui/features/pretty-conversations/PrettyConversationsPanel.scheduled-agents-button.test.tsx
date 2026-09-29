@@ -8,7 +8,7 @@
 //   Test 1: pv-header-scheduled-agents-button renders with correct chrome + a11y attrs
 //   Test 2: button absent when onCreateSession is undefined (showPencilButton guard)
 //   Test 3: clicking the button opens ScheduledAgentsModal (stubbed)
-//   Test 4: button position — after Globe, before feedback + kebab
+//   Test 4: button position — after Create project, before kebab
 //
 // Kept as a sibling test file (not appended to the main panel test) so the
 // surface stays isolated from the 25+ pre-existing tests in the main suite —

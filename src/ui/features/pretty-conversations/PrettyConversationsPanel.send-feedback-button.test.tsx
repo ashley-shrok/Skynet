@@ -1,19 +1,17 @@
-// ─── PrettyConversationsPanel — "Send feedback" header button coverage
-// (Phase 123 Plan 01 Task 3 — D-23 test scope for the shape-2 general button).
+// ─── PrettyConversationsPanel — "Send feedback" CTA coverage
+// The Send feedback affordance lives as a full-width shadcn <Button>
+// docked just above the sidebar footer (migrated out of the header).
 //
-// Analog A from PATTERNS.md: colocated sibling test file, mirroring
-// PrettyConversationsPanel.new-role-button.test.tsx (which established the
-// header-button-in-its-own-file convention for the quick-260914-liu repoint).
-//
-// D-23 requires four cases:
-//   (a) Button renders with correct chrome when useFeedbackEnabled() is true.
-//   (b) Button is ABSENT from the DOM (not disabled, not hidden-via-CSS) when
-//       useFeedbackEnabled() returns false — matches shape-1's
-//       hide-when-unconfigured discipline per D-11.
+// Four cases:
+//   (a) Button renders when useFeedbackEnabled() is true, with the
+//       shadcn Button chrome + "Send feedback" text.
+//   (b) Button is ABSENT from the DOM (not disabled, not hidden-via-CSS)
+//       when useFeedbackEnabled() returns false.
 //   (c) Clicking the button fires onOpenFeedback exactly once.
-//   (d) Independent-gate assertion (D-12): render WITHOUT onCreateSession;
-//       assert all five sibling testids absent AND the feedback button IS
-//       present — proves the gate divergence structurally + behaviorally.
+//   (d) Independent-gate assertion: render WITHOUT onCreateSession;
+//       assert the header showPencilButton siblings are absent AND the
+//       feedback CTA is present — the CTA is gated on feedbackEnabled
+//       alone, not on onCreateSession.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, screen } from "@testing-library/react";
@@ -211,8 +209,8 @@ beforeEach(() => {
   vi.mocked(useFeedbackEnabled).mockReturnValue(false);
 });
 
-describe("PrettyConversationsPanel: Send feedback header button (Phase 123 Plan 01, D-23)", () => {
-  it("Test 1 (D-01/D-03/D-04/D-05/D-06/D-22): pv-header-send-feedback-button exists with correct chrome when feedback is enabled", () => {
+describe("PrettyConversationsPanel: Send feedback CTA (above-footer, feedbackEnabled-gated)", () => {
+  it("Test 1: pv-footer-send-feedback-button exists with correct chrome when feedback is enabled", () => {
     vi.mocked(useFeedbackEnabled).mockReturnValue(true);
     render(
       <PrettyConversationsPanel
@@ -224,19 +222,21 @@ describe("PrettyConversationsPanel: Send feedback header button (Phase 123 Plan 
       />,
     );
 
-    const btn = screen.getByTestId("pv-header-send-feedback-button");
+    const btn = screen.getByTestId("pv-footer-send-feedback-button");
     expect(btn).toBeTruthy();
-    // D-04: reuses the .pv-pencil sibling chrome class exactly.
-    expect(btn.className).toContain("pv-pencil");
-    // D-05: aria-label + title both "Send feedback" verbatim.
-    expect(btn.getAttribute("aria-label")).toBe("Send feedback");
-    expect(btn.getAttribute("title")).toBe("Send feedback");
-    // Native button element (not shadcn wrapper) per sibling pattern.
+    // Shadcn <Button> emits data-slot="button"; that's the stable
+    // "this is a design-system Button" marker.
+    expect(btn.getAttribute("data-slot")).toBe("button");
+    // Native <button type="button"> under the hood.
     expect(btn.tagName).toBe("BUTTON");
     expect(btn.getAttribute("type")).toBe("button");
+    // Full-width in the .pv-feedback-slot wrapper.
+    expect(btn.className).toContain("w-full");
+    // Visible label — literal "Send feedback" text renders inside the button.
+    expect(btn.textContent).toContain("Send feedback");
   });
 
-  it("Test 2 (D-11): pv-header-send-feedback-button absent from DOM when useFeedbackEnabled() returns false — NOT disabled, NOT hidden-via-CSS", () => {
+  it("Test 2: pv-footer-send-feedback-button absent from DOM when useFeedbackEnabled() returns false — NOT disabled, NOT hidden-via-CSS", () => {
     vi.mocked(useFeedbackEnabled).mockReturnValue(false);
     render(
       <PrettyConversationsPanel
@@ -247,12 +247,12 @@ describe("PrettyConversationsPanel: Send feedback header button (Phase 123 Plan 
         onOpenFeedback={vi.fn()}
       />,
     );
-    // D-11: the button is ABSENT — not disabled, not hidden-via-CSS.
+    // The button is ABSENT — not disabled, not hidden-via-CSS.
     // queryByTestId returns null when the element is not in the DOM at all.
-    expect(screen.queryByTestId("pv-header-send-feedback-button")).toBeNull();
+    expect(screen.queryByTestId("pv-footer-send-feedback-button")).toBeNull();
   });
 
-  it("Test 3 (D-07): clicking pv-header-send-feedback-button fires onOpenFeedback exactly once", () => {
+  it("Test 3: clicking pv-footer-send-feedback-button fires onOpenFeedback exactly once", () => {
     vi.mocked(useFeedbackEnabled).mockReturnValue(true);
     const onOpenFeedback = vi.fn();
     render(
@@ -264,37 +264,31 @@ describe("PrettyConversationsPanel: Send feedback header button (Phase 123 Plan 
         onOpenFeedback={onOpenFeedback}
       />,
     );
-    fireEvent.click(screen.getByTestId("pv-header-send-feedback-button"));
+    fireEvent.click(screen.getByTestId("pv-footer-send-feedback-button"));
     expect(onOpenFeedback).toHaveBeenCalledTimes(1);
-    // No-arg callback per D-07 interface contract (variant is hardcoded to
-    // "general" inside AppShell's setter closure).
+    // No-arg callback — variant is hardcoded to "general" inside AppShell's
+    // setter closure.
     expect(onOpenFeedback).toHaveBeenCalledWith();
   });
 
-  it("Test 4 (D-12): pv-header-send-feedback-button renders even when onCreateSession is undefined — gate is independent of showPencilButton", () => {
+  it("Test 4: pv-footer-send-feedback-button renders even when onCreateSession is undefined — gate is independent of showPencilButton", () => {
     vi.mocked(useFeedbackEnabled).mockReturnValue(true);
     render(
       <PrettyConversationsPanel
         variant="desktop"
-        // onCreateSession INTENTIONALLY OMITTED — all five siblings hidden
-        // because showPencilButton === false. The feedback button must still
-        // render because its gate is `feedbackEnabled` INDEPENDENTLY.
+        // onCreateSession INTENTIONALLY OMITTED — the showPencilButton
+        // siblings hide because showPencilButton === false. The feedback
+        // CTA must still render because its gate is `feedbackEnabled`
+        // INDEPENDENTLY.
         onDeactivateRow={() => {}}
         onOpenFeedback={vi.fn()}
       />,
     );
-    // The showPencilButton siblings are absent (showPencilButton === false
-    // because typeof onCreateSession !== "function"). Globe is no longer in
-    // this list — it migrated to the sidebar footer in
-    // shape-sidebar-header-footer-redesign and its test-id changed to
-    // pv-footer-global-files-button. The footer is not under the
-    // showPencilButton gate.
     expect(screen.queryByTestId("pv-header-new-agent-button")).toBeNull();
     expect(screen.queryByTestId("pv-header-create-project-button")).toBeNull();
     expect(screen.queryByTestId("pv-header-edit-roles-button")).toBeNull();
     expect(screen.queryByTestId("pv-header-menu-button")).toBeNull();
-    // …but the feedback button IS present because its gate is independent
-    // per D-12 — this is the whole point of the shape's placement choice.
-    expect(screen.getByTestId("pv-header-send-feedback-button")).toBeTruthy();
+    // …but the CTA IS present because its gate is independent.
+    expect(screen.getByTestId("pv-footer-send-feedback-button")).toBeTruthy();
   });
 });

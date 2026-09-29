@@ -64,6 +64,7 @@ import { createPortal } from "react-dom";
 // Apps and pinned rows that the earlier design didn't have).
 import { AppWindow, ChevronDown, Clock, Drama, FolderOpen, Loader2, LogOut, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
 import { logoutUser } from "@/main-axios";
+import { Button } from "@/components/button";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
 import PreferencesModal from "@/features/pretty-view/PreferencesModal";
@@ -158,7 +159,7 @@ import { ConversationSearchModal } from "./ConversationSearchModal";
 // Phase 135 Plan 135-01 Task 4 (shape 3, wake-ups-redesign) — ScheduledAgentsModal:
 // portal-mounted sibling of ConversationSearchModal, opened via the new
 // Clock header button below (position 6 in the .pv-header-actions
-// cluster, between Edit-global-files and the feedback + kebab buttons).
+// cluster, between Edit-global-files and the kebab).
 // Owns its own list + form + refetch lifecycle (D-03 no client cache);
 // controlled open state lifted to this panel per D-26 (mirrors sibling
 // modals). Consumes the fleet-wide LIST + CRUD helpers from
@@ -245,11 +246,11 @@ import type { CreateRelayRoomResponse } from "./participant-types";
 // hardcoded inline-SVG logo import removed — no remaining consumers in this
 // file after the JSX below switched to <img src={brandingConfig.iconPath}>.
 import { useBrandingConfig } from "@/branding/branding-store";
-// Phase 123 shape 2 (D-11): leaf-level subscription to the shape-1
-// useSyncExternalStore singleton that tells us whether feedback is enabled
-// on this deployment. Consumed at the top of the component body — controls
-// the "Send feedback" header button's DOM presence (button ABSENT when
-// disabled, not disabled-and-hidden, per D-11).
+// Leaf-level subscription to the useSyncExternalStore singleton that tells
+// us whether feedback is enabled on this deployment. Consumed at the top
+// of the component body — controls the full-width "Send feedback" CTA's
+// DOM presence above the sidebar footer (button ABSENT when disabled, not
+// disabled-and-hidden).
 import { useFeedbackEnabled } from "@/feedback/feedback-store";
 import { getBasePath } from "@/lib/base-path";
 import { roleDisplayName } from "@/lib/role-display-name";
@@ -626,14 +627,12 @@ export function PrettyConversationsPanel({
    */
   onArchiveApp?: (hostId: number, slug: string, title: string) => void;
   /**
-   * Phase 124 shape 2 (rescue-rebased from Phase 123) — fired when the
-   * user clicks the header "Send feedback" button (sixth icon in the
-   * header row, between Search and the kebab). AppShell lifts its
-   * existing feedbackOpen state atom to "general", opening the shared
-   * FeedbackModal that Phase 123 already mounted unconditionally at
-   * AppShell. Optional so tests can render the panel without wiring
-   * feedback (the button will still render if feedbackEnabled is true —
-   * clicking it with no callback is a silent no-op via optional
+   * Fired when the user clicks the full-width "Send feedback" CTA docked
+   * just above the sidebar footer. AppShell lifts its existing
+   * feedbackOpen state atom to "general", opening the shared FeedbackModal
+   * mounted at AppShell. Optional so tests can render the panel without
+   * wiring feedback (the button will still render if feedbackEnabled is
+   * true — clicking it with no callback is a silent no-op via optional
    * chaining).
    */
   onOpenFeedback?: () => void;
@@ -687,14 +686,11 @@ export function PrettyConversationsPanel({
   // from the branding store instead of importing an inline-SVG logo /
   // hardcoding the wordmark asset path.
   const brandingConfig = useBrandingConfig();
-  // Phase 123 shape 2 (D-11/D-12): leaf-level subscription to the
-  // feedback-enabled useSyncExternalStore singleton (shape-1 D-08).
-  // Gates ONLY the header "Send feedback" button — INDEPENDENT of the
-  // showPencilButton gate below (D-12), so the button renders on any
-  // header where feedback is configured even when the create-buttons are
-  // hidden. Starts as false (default-disabled sentinel per shape-1 D-08)
-  // and resolves after feedback-fetch answers — small load-time pop-in
-  // is accepted (D-13; no reserved space, no fade-in, no placeholder).
+  // Leaf-level subscription to the feedback-enabled useSyncExternalStore
+  // singleton. Gates the full-width "Send feedback" CTA docked above the
+  // sidebar footer. Starts as false (default-disabled sentinel) and
+  // resolves after feedback-fetch answers — small load-time pop-in
+  // is accepted.
   const feedbackEnabled = useFeedbackEnabled();
   // Phase 41 Plan 01: destructure the three-zone shape — `middle` (flat
   // recency-sorted rows) + `rdpGroup` (nullable RDP sentinel group) replace
@@ -1020,7 +1016,7 @@ export function PrettyConversationsPanel({
   // Phase 129 (shape 3, wake-ups-redesign) Plan 129-01 Task 4 — controlled
   // open state for the new ScheduledAgentsModal. Opened via the Clock button
   // in .pv-header-actions below (inserted after the Edit-global-files
-  // Globe, before the feedback + kebab buttons). No preserved query
+  // Globe, before the kebab). No preserved query
   // state — modal refetches every open (D-03) and resets filter state on
   // close (D-17). Sibling of ConversationSearchModal's controlled state.
   const [scheduledAgentsModalOpen, setScheduledAgentsModalOpen] = useState(false);
@@ -2631,11 +2627,10 @@ export function PrettyConversationsPanel({
                 its individual rationale. The showPencilButton-gated cluster
                 (Search, New conversation, Create project, Scheduled Agents, kebab)
                 appears/disappears together based on typeof onCreateSession
-                === "function". Send feedback is deliberately OUTSIDE that
-                guard — it renders on any header where feedback is configured
-                (its own feedbackEnabled gate, D-12). No numbered enumeration
-                here because it goes stale every time the shape shifts;
-                walking the JSX in order is authoritative. */}
+                === "function". Send feedback lives above the sidebar footer,
+                not here — see the .pv-feedback-slot render below. No
+                numbered enumeration here because it goes stale every time
+                the shape shifts; walking the JSX in order is authoritative. */}
             {showPencilButton && (
               <>
                 <button
@@ -2707,34 +2702,6 @@ export function PrettyConversationsPanel({
                   <Clock size={18} />
                 </button>
               </>
-            )}
-            {/* Phase 123 shape 2 (D-01/D-02/D-11/D-12): "Send feedback" header
-                button. Position (as of shape-sidebar-header-footer-redesign):
-                after Scheduled Agents, before the kebab. Rationale for keeping it
-                top-level: feedback capability should always be surfaced to
-                users regardless of app state; do NOT fold it into the kebab.
-                Gate: feedbackEnabled ONLY — deliberately INDEPENDENT of the
-                showPencilButton fragment above and below so the button renders
-                on any header where feedback is configured, even when
-                onCreateSession is undefined (D-12). Chrome mirrors sibling
-                header buttons exactly: same .pv-pencil class, MessageSquare
-                at size 18, aria-label + title both "Send feedback" verbatim
-                (D-03/D-04/D-05/D-22). Click lifts AppShell's existing
-                feedbackOpen atom to "general" via the onOpenFeedback callback
-                (D-07/D-08); optional-chaining call is a silent no-op if the
-                prop is absent, so tests can render the panel without wiring
-                feedback. */}
-            {feedbackEnabled && (
-              <button
-                type="button"
-                className="pv-pencil"
-                aria-label="Send feedback"
-                title="Send feedback"
-                data-testid="pv-header-send-feedback-button"
-                onClick={() => onOpenFeedback?.()}
-              >
-                <MessageSquare size={18} />
-              </button>
             )}
             {showPencilButton && (
               <button
@@ -3184,12 +3151,33 @@ export function PrettyConversationsPanel({
         </>
       </div>
 
+      {/* Full-width "Send feedback" CTA docked just above the footer.
+          Migrated out of the header cluster so the beta feedback ask
+          reads as a real button, not a sixth icon. Shape matches the
+          shadcn <Button> default variant (warm hue-glow) used by the
+          Create-project modal — same design language, full-width. Gate:
+          feedbackEnabled (per D-11); optional-chaining call on
+          onOpenFeedback keeps the panel renderable in tests without
+          wiring the callback. */}
+      {feedbackEnabled && (
+        <div className="pv-feedback-slot">
+          <Button
+            type="button"
+            className="w-full"
+            data-testid="pv-footer-send-feedback-button"
+            onClick={() => onOpenFeedback?.()}
+          >
+            <MessageSquare />
+            Send feedback
+          </Button>
+        </div>
+      )}
       {/* Sidebar footer — the "about me" zone. Sibling of .pv-panel-header
           and .pv-panel-scroll in the panel's flex column. Left slot: avatar
           <img> (Phase 137 D-30) or initials circle (fallback) + username.
-          Right slot: the Globe (global files) and the Settings-gear (opens
-          PreferencesModal — Phase 137 D-08). The anchor slot renders only
-          when username is populated; the actions slot always renders. */}
+          Right slot: the Settings-gear (opens PreferencesModal — Phase 137
+          D-08) and the Log-out button. The anchor slot renders only when
+          username is populated; the actions slot always renders. */}
       <div className="pv-panel-footer" data-testid="pv-panel-footer">
         <div className="pv-footer-anchor">
           {(() => {
