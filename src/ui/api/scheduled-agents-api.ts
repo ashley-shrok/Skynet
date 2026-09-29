@@ -50,6 +50,13 @@ export type ScheduledAgentListItem = {
   prompt: string;
   roles: string[];
   skills: string[];
+  /**
+   * First-role's resolved colorHue from the OWNING host's role file
+   * frontmatter. Piggybacks on a memoized per-host role-file read at
+   * list-assembly time (see backend attachColorHuesForHost). Frontend row
+   * uses this for the avatar-sm hue + `--row-hue` CSS custom-property;
+   * falls back to 190 when null. */
+  colorHue: number | null;
 };
 
 /** Mirror of backend `ScheduledAgentSpec` (scheduled-agents-write.ts). The

@@ -50,7 +50,10 @@ import {
   isLocalHostId,
   getLocalScheduledAgentsRoot,
   IDENTITY_SLUG_RE,
+  readRoleFileByName,
+  extractCosmeticsFromFrontmatter,
 } from "../../claude-session/identity-artifact-reader.js";
+import type { Client as SSHClientType } from "ssh2";
 // Per-user READ-side gate. Pure function; consumes the users list parsed from
 // scheduled-agent.json and returns visible/hidden per caller. Kept file-parallel
 // with project-visibility-gate.ts + app-visibility-gate.ts so a grep for
@@ -94,6 +97,15 @@ export type ScheduledAgentListItem = {
   prompt: string;
   roles: string[];
   skills: string[];
+  /**
+   * First-role's colorHue, resolved from the role file's frontmatter on the
+   * OWNING host. Cascade: `roleCosmetics.colorHue ?? null`. Populated
+   * per-row via a memoized per-host `readRoleFileByName` pass alongside the
+   * spec read (see readRoleHueMemo). Frontend row uses this for the
+   * avatar-sm hue + `--row-hue` CSS custom-property; falls back to 190
+   * when null.
+   */
+  colorHue: number | null;
   /**
    * Per-user visibility gate list. Mirrors the `users` field on projects +
    * apps + identity/role frontmatter. GATE-ONLY — this field MUST be
@@ -160,8 +172,72 @@ function specToRow(
     prompt: typeof spec.prompt === "string" ? spec.prompt : "",
     roles: Array.isArray(spec.roles) ? (spec.roles as string[]) : [],
     skills: Array.isArray(spec.skills) ? (spec.skills as string[]) : [],
+    // colorHue starts null; the caller populates it via readRoleHueMemo
+    // after specToRow returns (batched per-unique-role read reuses the
+    // already-open SSH connection / local fs handle for that host).
+    colorHue: null,
     users,
   };
+}
+
+/**
+ * Batched per-unique-role colorHue read for one host. Piggybacks on the
+ * per-host branch's existing connection (SSH or null-for-LOCAL). Mirrors
+ * the gateHostRows memo in conversation-search.ts — Promise-valued map so
+ * parallel duplicate reads collapse.
+ *
+ * Fail-open: role read failures OR frontmatter without colorHue both
+ * resolve to null. The frontend row falls back to hue 190 on null.
+ *
+ * The gate on ROLE_NAME_PATTERN inside readRoleFileByName means a
+ * garbage/invalid role slug in the scheduled-agent spec throws; catch
+ * silently and set null (not our job to police spec content here — the
+ * downstream identity-birth flow handles invalid roles).
+ */
+async function attachColorHuesForHost(
+  conn: SSHClientType | null,
+  rows: ScheduledAgentListItem[],
+  hostId: number,
+  hostName: string,
+): Promise<void> {
+  if (rows.length === 0) return;
+  const uniqueRoles = new Set<string>();
+  for (const row of rows) {
+    const first = row.roles[0];
+    if (typeof first === "string" && first.length > 0) uniqueRoles.add(first);
+  }
+  if (uniqueRoles.size === 0) return;
+
+  const hueMap = new Map<string, Promise<number | null>>();
+  for (const roleName of uniqueRoles) {
+    hueMap.set(
+      roleName,
+      (async () => {
+        try {
+          const { markdown } = await readRoleFileByName(conn, roleName);
+          if (!markdown) return null;
+          const cos = extractCosmeticsFromFrontmatter(markdown);
+          return typeof cos.colorHue === "number" ? cos.colorHue : null;
+        } catch (err) {
+          sshLogger.debug("scheduled-agents-list: role hue read failed", {
+            operation: "scheduled_agents_list_role_hue_read",
+            hostId,
+            hostName,
+            roleName,
+            error: err instanceof Error ? err.message : "unknown",
+          });
+          return null;
+        }
+      })(),
+    );
+  }
+  await Promise.all(hueMap.values());
+  for (const row of rows) {
+    const first = row.roles[0];
+    if (typeof first === "string" && hueMap.has(first)) {
+      row.colorHue = (await hueMap.get(first)!) ?? null;
+    }
+  }
 }
 
 /**
@@ -234,6 +310,7 @@ async function readScheduledAgentsLocal(
       // Skip poisoned entry.
     }
   }
+  await attachColorHuesForHost(null, out, hostId, hostName);
   return out;
 }
 
@@ -309,6 +386,7 @@ async function readScheduledAgentsRemote(
       // Skip poisoned entry — one bad file must not poison the aggregate.
     }
   }
+  await attachColorHuesForHost(conn, out, hostId, hostName);
   return out;
 }
 

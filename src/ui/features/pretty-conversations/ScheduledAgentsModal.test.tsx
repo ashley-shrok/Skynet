@@ -70,6 +70,7 @@ function makeRow(overrides: Partial<ScheduledAgentListItem> = {}): ScheduledAgen
     prompt: "check inbox",
     roles: ["assistant"],
     skills: [],
+    colorHue: null,
     ...overrides,
   };
 }
@@ -322,7 +323,9 @@ describe("ScheduledAgentsModal: pessimistic toggle (D-12)", () => {
     let toggle = await screen.findByTestId(
       "scheduled-agents-modal-row-morning-triage-toggle",
     );
-    expect(toggle.textContent).toBe("On");
+    // Modal-unification 2026-09-29: toggle is a visual pill (no text). On/off
+    // state signals via `.on` class on the button.
+    expect(toggle.classList.contains("on")).toBe(true);
     fireEvent.click(toggle);
     await waitFor(() => {
       expect(toggleScheduledAgentEnabledMock).toHaveBeenCalledWith(
@@ -331,12 +334,12 @@ describe("ScheduledAgentsModal: pessimistic toggle (D-12)", () => {
         false,
       );
     });
-    // After refetch, row now shows Off
+    // After refetch, row toggle is off
     await waitFor(() => {
       toggle = screen.getByTestId(
         "scheduled-agents-modal-row-morning-triage-toggle",
       );
-      expect(toggle.textContent).toBe("Off");
+      expect(toggle.classList.contains("on")).toBe(false);
     });
 
     // Failure path: cleanup + re-render.
@@ -356,14 +359,15 @@ describe("ScheduledAgentsModal: pessimistic toggle (D-12)", () => {
     toggle = await screen.findByTestId(
       "scheduled-agents-modal-row-morning-triage-toggle",
     );
-    expect(toggle.textContent).toBe("On");
+    expect(toggle.classList.contains("on")).toBe(true);
     fireEvent.click(toggle);
-    // Banner appears with API message verbatim
-    const banner = await screen.findByTestId("scheduled-agents-modal-toggle-error");
+    // Banner appears with API message verbatim — unified write-error slot
+    // replaces the pre-unification per-op banners (toggle/delete/load).
+    const banner = await screen.findByTestId("scheduled-agents-modal-write-error");
     expect(banner.textContent).toMatch(/Boom/);
-    // Row toggle STILL says On — no local flip on failure
+    // Row toggle STILL on — no local flip on failure
     toggle = screen.getByTestId("scheduled-agents-modal-row-morning-triage-toggle");
-    expect(toggle.textContent).toBe("On");
+    expect(toggle.classList.contains("on")).toBe(true);
   });
 });
 
@@ -540,6 +544,21 @@ describe("ScheduledAgentsModal: filter reset on close (D-17)", () => {
       makeRow({ slug: "a", name: "Alpha", roles: ["writer"] }),
     ]);
 
+    // Multi-host tree — the host filter is hidden on single-host boxes
+    // (Ashley 2026-09-29), so use a two-host tree to keep the host select
+    // rendered for the assertion below.
+    const TWO_HOST_TREE_T15: HostFolder = {
+      name: "root",
+      children: [
+        (ONE_HOST_TREE.children[0] as never),
+        {
+          ...(ONE_HOST_TREE.children[0] as never),
+          id: "2",
+          name: "host-b",
+        } as never,
+      ],
+    };
+
     function Harness(): JSX.Element {
       const [open, setOpen] = useState(true);
       return (
@@ -554,7 +573,7 @@ describe("ScheduledAgentsModal: filter reset on close (D-17)", () => {
           <ScheduledAgentsModal
             open={open}
             onOpenChange={setOpen}
-            hostTree={ONE_HOST_TREE}
+            hostTree={TWO_HOST_TREE_T15}
           />
         </>
       );

@@ -490,7 +490,7 @@ export function ScheduledAgentsModalForm({
           <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
             This becomes the first user message to a freshly-born agent.
             Assume it starts with no memory — reference logs, role files,
-            or bounties if continuity matters.
+            or prior handoffs if continuity matters.
           </p>
         </div>
 

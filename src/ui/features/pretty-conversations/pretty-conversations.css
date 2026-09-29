@@ -2026,3 +2026,252 @@
   color: #e8e4d8;
   border-radius: 999px;
 }
+
+/* ─── ScheduledAgents modal — row rules ──────────────────────────────────
+   Modal-unification 2026-09-29. Ported from modal-tasting.html
+   § scheduled-agents. `--pv-agent-row-hue` is the per-row hue custom
+   property (keyed on the first role's colorHue from the backend). All
+   hue-tinted surfaces cascade off it. */
+
+.pv-agent-row {
+  --pv-agent-row-hue: 190;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(
+    160deg,
+    hsla(var(--pv-agent-row-hue), 45%, 32%, 0.42),
+    hsla(var(--pv-agent-row-hue), 40%, 20%, 0.5)
+  );
+  border: 1px solid hsla(var(--pv-agent-row-hue), 60%, 55%, 0.22);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    0 1px 0 rgba(255, 220, 190, 0.1) inset;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: filter 120ms ease;
+  width: 100%;
+}
+
+.pv-agent-row:hover {
+  filter: brightness(1.08);
+}
+
+.pv-agent-row.disabled {
+  opacity: 0.55;
+}
+
+.pv-agent-row-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(
+    160deg,
+    hsla(var(--pv-agent-row-hue), 70%, 50%, 0.8),
+    hsla(var(--pv-agent-row-hue), 65%, 32%, 0.85)
+  );
+  border: 1px solid hsla(var(--pv-agent-row-hue), 75%, 70%, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fbf5e8;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.pv-agent-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pv-agent-row-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #fbf5e8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-agent-row-sub {
+  font-size: 11px;
+  color: hsla(var(--pv-agent-row-hue), 22%, 88%, 0.62);
+}
+
+.pv-agent-row-prompt {
+  font-size: 12px;
+  color: hsla(var(--pv-agent-row-hue), 22%, 92%, 0.72);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.pv-agent-row-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.pv-agent-row-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 15px;
+}
+
+.pv-agent-row-chip.role {
+  background: hsla(285, 55%, 55%, 0.16);
+  border: 1px solid hsla(285, 55%, 60%, 0.32);
+  color: hsla(285, 60%, 84%, 1);
+}
+
+.pv-agent-row-chip.skill {
+  background: hsla(200, 55%, 55%, 0.14);
+  border: 1px solid hsla(200, 55%, 60%, 0.30);
+  color: hsla(200, 60%, 84%, 1);
+}
+
+.pv-agent-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.pv-agent-row-toggle {
+  position: relative;
+  width: 30px;
+  height: 17px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid hsla(var(--pv-agent-row-hue), 65%, 55%, 0.28);
+  border-radius: 999px;
+  flex-shrink: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.pv-agent-row-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: hsla(var(--pv-agent-row-hue), 25%, 92%, 0.75);
+  transition: transform 200ms ease, background 200ms ease;
+}
+
+.pv-agent-row-toggle.on {
+  background: hsla(var(--pv-agent-row-hue), 65%, 55%, 0.5);
+  border-color: hsla(var(--pv-agent-row-hue), 75%, 70%, 0.55);
+}
+
+.pv-agent-row-toggle.on::after {
+  transform: translateX(13px);
+  background: #fbf5e8;
+}
+
+.pv-agent-row-kebab {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(220, 225, 245, 0.10);
+  color: hsla(var(--pv-agent-row-hue), 22%, 88%, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pv-agent-row-kebab:hover {
+  color: #fbf5e8;
+}
+
+/* Kebab popover — anchored to the actions bar, position via inline style
+   on the container (parent uses position: relative). */
+.pv-agent-row-kebab-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 10;
+  min-width: 128px;
+  padding: 4px 0;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(
+    160deg,
+    hsla(var(--pv-agent-row-hue), 40%, 22%, 0.94),
+    hsla(var(--pv-agent-row-hue), 40%, 15%, 0.94)
+  );
+  border: 1px solid rgba(220, 225, 245, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.pv-agent-row-kebab-item {
+  text-align: left;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: #e8e4d8;
+  background: transparent;
+  border: none;
+}
+
+.pv-agent-row-kebab-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pv-agent-row-kebab-item.destructive {
+  color: hsla(0, 60%, 76%, 1);
+}
+
+/* Compact single error banner at the top of the ScheduledAgents list-body.
+   Replaces the pre-unification triple-banner stack. */
+.pv-agent-list-error {
+  margin-bottom: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: hsla(4, 60%, 40%, 0.16);
+  border: 1px solid hsla(4, 60%, 55%, 0.32);
+  color: hsla(4, 60%, 88%, 1);
+  font-size: 11.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pv-agent-list-error-dismiss {
+  opacity: 0.7;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  color: inherit;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pv-agent-list-error-dismiss:hover {
+  opacity: 1;
+}

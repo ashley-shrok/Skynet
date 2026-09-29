@@ -69,6 +69,7 @@ function makeItem(overrides: Partial<ScheduledAgentListItem> = {}): ScheduledAge
     prompt: "check inbox",
     roles: ["assistant"],
     skills: [],
+    colorHue: null,
     ...overrides,
   };
 }
