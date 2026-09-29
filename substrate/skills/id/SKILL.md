@@ -743,13 +743,12 @@ not something agents drive.
     folder: browse, download, upload, create files and folders, and
     edit files inline in the modal for supported types (text, code,
     etc.).
-  *Agent-side:* the underlying artifacts are the standard ones — the
-  identity file, `~/fleet/identities/<name>/wakeups/`, and
-  `~/fleet/identities/<name>/workspace/`. ⚠️ **File-change ambient
-  events fire on identity-file edits made through this modal, but NOT
-  on workspace-file edits.** If the user changes something in your
-  workspace via the modal, you don't automatically notice — she'll
-  tell you, or you re-read when relevant.
+
+- **Role modal (jump to via the identity modal header, or from the
+  drama-masks header icon → roles → click a role).** Two tabs:
+  - **Role file** — view and edit the role's own `<role>.md`.
+  - **Runbooks** — list the role's runbooks; click one to open the
+    runbook editor.
 
 - **Context meter (above the compose box).** Shows how full the agent's
   context window is — the same "runway left" the agent's own
