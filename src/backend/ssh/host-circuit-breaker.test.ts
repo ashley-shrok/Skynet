@@ -1,0 +1,233 @@
+/**
+ * host-circuit-breaker.test.ts — unit tests for the per-peer circuit breaker.
+ *
+ * Covers:
+ *   - Fresh peer starts CLOSED, allows attempts.
+ *   - Failures below threshold stay CLOSED, no state exposure.
+ *   - Threshold failures open the breaker with backoff step 0 (30s).
+ *   - CLOSED success resets counters.
+ *   - OPEN refuses attempts inside the backoff window (with reason + nextAttemptAt).
+ *   - OPEN transitions to PROBING when window elapses (single probe allowed).
+ *   - PROBING refuses concurrent additional attempts.
+ *   - PROBING success closes and resets backoff step.
+ *   - PROBING failure re-opens with escalated backoff step.
+ *   - Backoff schedule saturates at the cap (15min).
+ *   - Peers are independent — one peer's state doesn't affect another.
+ */
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  __resetBreakerRegistryForTests,
+  BACKOFF_SCHEDULE_MS,
+  CircuitBreakerOpenError,
+  FAILURE_THRESHOLD,
+  checkBreaker,
+  getBreakerSnapshot,
+  recordFailure,
+  recordSuccess,
+} from "./host-circuit-breaker.js";
+
+beforeEach(() => {
+  __resetBreakerRegistryForTests();
+  vi.useRealTimers();
+});
+
+describe("host-circuit-breaker — starting state", () => {
+  it("returns allowed=true for a fresh peer", () => {
+    const result = checkBreaker("1.2.3.4:22");
+    expect(result.allowed).toBe(true);
+  });
+
+  it("getBreakerSnapshot returns null for a never-touched peer", () => {
+    expect(getBreakerSnapshot("never-seen:22")).toBeNull();
+  });
+});
+
+describe("host-circuit-breaker — CLOSED failure counting", () => {
+  it("stays CLOSED under threshold, no allowed=false", () => {
+    const peer = "10.0.0.1:22";
+    for (let i = 0; i < FAILURE_THRESHOLD - 1; i++) {
+      recordFailure(peer);
+      expect(checkBreaker(peer).allowed).toBe(true);
+    }
+    const snap = getBreakerSnapshot(peer);
+    expect(snap?.state).toBe("CLOSED");
+    expect(snap?.consecutiveFailures).toBe(FAILURE_THRESHOLD - 1);
+  });
+
+  it("opens on the Nth consecutive failure with backoff step 0", () => {
+    const peer = "10.0.0.2:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
+    const snap = getBreakerSnapshot(peer);
+    expect(snap?.state).toBe("OPEN");
+    expect(snap?.backoffStep).toBe(0);
+    expect(snap?.nextAttemptAt).toBeGreaterThan(Date.now());
+    // Next attempt should be ~30s away (BACKOFF_SCHEDULE_MS[0]).
+    const msUntil = snap!.nextAttemptAt - Date.now();
+    expect(msUntil).toBeGreaterThan(BACKOFF_SCHEDULE_MS[0]! - 1_000);
+    expect(msUntil).toBeLessThanOrEqual(BACKOFF_SCHEDULE_MS[0]!);
+  });
+
+  it("recordSuccess resets consecutive failure count", () => {
+    const peer = "10.0.0.3:22";
+    recordFailure(peer);
+    recordFailure(peer);
+    recordSuccess(peer);
+    expect(getBreakerSnapshot(peer)?.consecutiveFailures).toBe(0);
+    expect(getBreakerSnapshot(peer)?.state).toBe("CLOSED");
+  });
+});
+
+describe("host-circuit-breaker — OPEN refusal", () => {
+  it("refuses attempts inside the backoff window with reason + nextAttemptAt", () => {
+    const peer = "10.0.0.4:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
+    const result = checkBreaker(peer);
+    expect(result.allowed).toBe(false);
+    if (result.allowed === false) {
+      expect(result.reason).toBe("backoff window active");
+      expect(result.nextAttemptAt).toBeGreaterThan(Date.now());
+    }
+  });
+
+  it("CircuitBreakerOpenError carries peer and nextAttemptAt", () => {
+    const nextAt = Date.now() + 45_000;
+    const err = new CircuitBreakerOpenError("10.0.0.5:22", nextAt);
+    expect(err.peer).toBe("10.0.0.5:22");
+    expect(err.nextAttemptAt).toBe(nextAt);
+    expect(err.name).toBe("CircuitBreakerOpenError");
+    expect(err.message).toContain("10.0.0.5:22");
+    expect(err.message).toContain("OPEN");
+  });
+});
+
+describe("host-circuit-breaker — OPEN → PROBING transition", () => {
+  it("transitions to PROBING and allows one attempt when backoff window elapses", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-29T17:00:00Z"));
+    const peer = "10.0.0.6:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
+    expect(getBreakerSnapshot(peer)?.state).toBe("OPEN");
+
+    // Advance beyond the 30s window.
+    vi.advanceTimersByTime(BACKOFF_SCHEDULE_MS[0]! + 500);
+
+    const result = checkBreaker(peer);
+    expect(result.allowed).toBe(true);
+    expect(getBreakerSnapshot(peer)?.state).toBe("PROBING");
+  });
+
+  it("PROBING refuses concurrent additional attempts", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-29T17:00:00Z"));
+    const peer = "10.0.0.7:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
+    vi.advanceTimersByTime(BACKOFF_SCHEDULE_MS[0]! + 500);
+
+    // First check moves to PROBING and allows.
+    const first = checkBreaker(peer);
+    expect(first.allowed).toBe(true);
+
+    // Second check while probe is in-flight → refused with reason.
+    const second = checkBreaker(peer);
+    expect(second.allowed).toBe(false);
+    if (second.allowed === false) {
+      expect(second.reason).toBe("probe in flight");
+    }
+  });
+});
+
+describe("host-circuit-breaker — PROBING resolution", () => {
+  it("probe success closes the breaker and resets backoff step", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-29T17:00:00Z"));
+    const peer = "10.0.0.8:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
+    vi.advanceTimersByTime(BACKOFF_SCHEDULE_MS[0]! + 500);
+    checkBreaker(peer); // → PROBING
+
+    recordSuccess(peer);
+
+    const snap = getBreakerSnapshot(peer);
+    expect(snap?.state).toBe("CLOSED");
+    expect(snap?.consecutiveFailures).toBe(0);
+    expect(snap?.backoffStep).toBe(0);
+    expect(snap?.nextAttemptAt).toBe(0);
+  });
+
+  it("probe failure re-opens with escalated backoff step", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-29T17:00:00Z"));
+    const peer = "10.0.0.9:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
+    expect(getBreakerSnapshot(peer)?.backoffStep).toBe(0);
+
+    vi.advanceTimersByTime(BACKOFF_SCHEDULE_MS[0]! + 500);
+    checkBreaker(peer); // → PROBING
+
+    recordFailure(peer); // probe fails
+
+    const snap = getBreakerSnapshot(peer);
+    expect(snap?.state).toBe("OPEN");
+    expect(snap?.backoffStep).toBe(1);
+    // Next window should be BACKOFF_SCHEDULE_MS[1] = 60s from probe-fail time.
+    const msUntil = snap!.nextAttemptAt - Date.now();
+    expect(msUntil).toBeGreaterThan(BACKOFF_SCHEDULE_MS[1]! - 1_000);
+    expect(msUntil).toBeLessThanOrEqual(BACKOFF_SCHEDULE_MS[1]!);
+  });
+
+  it("consecutive probe failures escalate through the schedule and saturate at the cap", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-29T17:00:00Z"));
+    const peer = "10.0.0.10:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
+
+    // Walk through the full schedule + a few extra to prove saturation.
+    for (let step = 0; step < BACKOFF_SCHEDULE_MS.length + 3; step++) {
+      const currentWindow = BACKOFF_SCHEDULE_MS[
+        Math.min(step, BACKOFF_SCHEDULE_MS.length - 1)
+      ]!;
+      vi.advanceTimersByTime(currentWindow + 500);
+      checkBreaker(peer); // → PROBING
+      recordFailure(peer); // probe fails
+    }
+
+    const snap = getBreakerSnapshot(peer);
+    expect(snap?.state).toBe("OPEN");
+    // backoffStep grows unbounded, but the window saturates.
+    const msUntil = snap!.nextAttemptAt - Date.now();
+    const cap = BACKOFF_SCHEDULE_MS[BACKOFF_SCHEDULE_MS.length - 1]!;
+    expect(msUntil).toBeGreaterThan(cap - 1_000);
+    expect(msUntil).toBeLessThanOrEqual(cap);
+  });
+});
+
+describe("host-circuit-breaker — peer independence", () => {
+  it("one peer's state does not affect another", () => {
+    const peerA = "10.0.0.11:22";
+    const peerB = "10.0.0.12:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peerA);
+
+    expect(getBreakerSnapshot(peerA)?.state).toBe("OPEN");
+    expect(checkBreaker(peerB).allowed).toBe(true);
+    expect(getBreakerSnapshot(peerB)?.state).toBe("CLOSED");
+  });
+});
+
+describe("host-circuit-breaker — defensive edge cases", () => {
+  it("recordFailure while OPEN is a no-op (defensive; no state corruption)", () => {
+    const peer = "10.0.0.13:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
+    const before = getBreakerSnapshot(peer)!;
+
+    // A stray recordFailure while OPEN — should not corrupt state.
+    recordFailure(peer);
+    const after = getBreakerSnapshot(peer)!;
+
+    expect(after.state).toBe(before.state);
+    expect(after.consecutiveFailures).toBe(before.consecutiveFailures);
+    expect(after.backoffStep).toBe(before.backoffStep);
+    expect(after.nextAttemptAt).toBe(before.nextAttemptAt);
+  });
+});

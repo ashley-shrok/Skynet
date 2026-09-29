@@ -1,6 +1,12 @@
 import ssh2Pkg from "ssh2";
 import type { Client as SSHClient } from "ssh2";
 import { sshLogger } from "../utils/logger.js";
+import {
+  CircuitBreakerOpenError,
+  checkBreaker,
+  recordFailure,
+  recordSuccess,
+} from "./host-circuit-breaker.js";
 
 const { Client } = ssh2Pkg;
 
@@ -16,6 +22,15 @@ const { Client } = ssh2Pkg;
  * on connect error / timeout. The host-key fingerprint is not checked
  * — this is fine for server-side fan-out where there's no UI to prompt
  * and any spoofing already requires being inside the user's tailnet.
+ *
+ * Circuit breaker (2026-09-29): every call consults the per-peer breaker
+ * before opening a socket. When a peer has failed FAILURE_THRESHOLD
+ * consecutive connects, further attempts short-circuit with
+ * CircuitBreakerOpenError until an exponentially-backed-off probe window
+ * elapses. See host-circuit-breaker.ts for the full state machine and
+ * rationale (2026-09-29 workstation collapse). Callers can `instanceof`
+ * check CircuitBreakerOpenError to log the refusal differently from a
+ * real connect failure.
  */
 export function connectOneShot(
   host: {
@@ -39,6 +54,17 @@ export function connectOneShot(
     // produces one line per pane with the peer + duration.
     const tStart = Date.now();
     const peer = `${host.ip}:${host.sshPort ?? host.port ?? 22}`;
+
+    // Circuit breaker gate — refuse the attempt entirely if the peer is
+    // in a backoff window. No socket, no timer, no state on the ssh2 side.
+    // Breaker state transitions happen inside recordSuccess/recordFailure
+    // in finish() below.
+    const gate = checkBreaker(peer);
+    if (gate.allowed === false) {
+      reject(new CircuitBreakerOpenError(peer, gate.nextAttemptAt));
+      return;
+    }
+
     const conn = new Client();
     let settled = false;
     const finish = (err?: Error) => {
@@ -47,6 +73,7 @@ export function connectOneShot(
       clearTimeout(timer);
       const durationMs = Date.now() - tStart;
       if (err) {
+        recordFailure(peer);
         sshLogger.warn(
           `[ssh-one-shot] connect-failed peer=${peer} durationMs=${durationMs} err="${err.message}"`,
           { operation: "ssh_one_shot_connect_failed", peer, durationMs, error: err.message },
@@ -58,6 +85,7 @@ export function connectOneShot(
         }
         reject(err);
       } else {
+        recordSuccess(peer);
         // Only log slow-side connects — a healthy connect is <200ms; anything
         // >500ms is worth eyeballing in a reload-burst trace.
         if (durationMs >= 500) {
