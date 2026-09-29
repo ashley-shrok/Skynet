@@ -1441,15 +1441,16 @@ describe("PrettyConversationsPanel: header New agent button opens NewSessionDial
     // NewSessionDialog uses shadcn Dialog which renders inside a portal.
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
     expect(dialog).toBeTruthy();
-    // Title reads "Create a new agent conversation". Target dialog-title
-    // specifically to avoid false-positive matches against other portal DOM text.
+    // Title reads "New conversation" (renamed 2026-09-29 as part of the
+    // modal-look-unification arc; the paired NewConversationModal is now
+    // "New group conversation" so the two flows are properly disambiguated).
+    // Target dialog-title specifically to avoid false-positive matches
+    // against other portal DOM text.
     const dialogTitle = dialog!.querySelector(
       '[data-slot="dialog-title"]',
     ) as HTMLElement | null;
     expect(dialogTitle).toBeTruthy();
-    expect(dialogTitle!.textContent).toMatch(
-      /^\s*create a new agent conversation\s*$/i,
-    );
+    expect(dialogTitle!.textContent).toMatch(/^\s*new conversation\s*$/i);
   });
 });
 

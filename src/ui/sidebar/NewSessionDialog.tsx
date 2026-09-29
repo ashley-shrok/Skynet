@@ -111,14 +111,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Search, Loader2 } from "lucide-react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/dialog";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import type { Host, HostFolder } from "@/types/ui-types";
@@ -933,8 +926,12 @@ export function NewSessionDialog({
   // the 5-step checklist (the Create button IS the spinner surface per D-14).
   const formDisabled = birthing;
 
+  // Title copy updated 2026-09-29 per Ashley's tasting: this modal is now
+  // "New conversation" (paired with NewConversationModal's rename to
+  // "New group conversation"). The i18n key stays the same for translation
+  // continuity; only the defaultValue changes.
   const startTitle = t("nav.newSessionTitle", {
-    defaultValue: "Create a new agent conversation",
+    defaultValue: "New conversation",
   });
   // Phase 88 (paired-blurb revision): in-place defaultValue edit only,
   // no new i18n key. Sibling role blurb ships in CreateRoleDialog.tsx
@@ -964,7 +961,7 @@ export function NewSessionDialog({
   });
 
   return (
-    <Dialog
+    <Modal
       open={open}
       onOpenChange={(next) => {
         // Phase 106 Plan 106-02 (D-15): modal is fully locked from Create
@@ -974,17 +971,16 @@ export function NewSessionDialog({
         // handleBirth after clearing the `birthing` flag.
         if (!next && !birthing) onClose();
       }}
+      hue={190}
+      size="md"
+      className="max-h-[90vh] flex flex-col"
     >
-      <DialogContent
-        className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto"
-        style={{ "--pv-hue": "190", "--color-pv-code-fg": "#92eafc" } as React.CSSProperties}
+      <div
+        style={{ "--color-pv-code-fg": "#92eafc" } as React.CSSProperties}
+        className="flex flex-col flex-1 min-h-0 overflow-hidden"
       >
-        <DialogHeader>
-          <DialogTitle>{startTitle}</DialogTitle>
-          <DialogDescription>{startDescription}</DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
+        <ModalHead title={startTitle} subtitle={startDescription} />
+        <ModalBody className="overflow-y-auto flex flex-col gap-3">
           {/*
            * Phase 84 (D-CONTEXT item 8): hide the host search input + host listbox
            * entirely when the user has exactly one pickable host. The existing
@@ -1319,11 +1315,11 @@ export function NewSessionDialog({
 
           {/* Phase 106 Plan 106-02 (D-13): the per-step birth checklist was
               removed. Under the sole-spawner shape the modal shows a spinner
-              in the Create button (see DialogFooter below) instead of a
+              in the Create button (see ModalFoot below) instead of a
               per-step ticking list. */}
-        </div>
+        </ModalBody>
 
-        <DialogFooter>
+        <ModalFoot>
           <Button
             variant="outline"
             disabled={!canOpen}
@@ -1383,8 +1379,8 @@ export function NewSessionDialog({
               openLabel
             )}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ModalFoot>
+      </div>
+    </Modal>
   );
 }

@@ -222,7 +222,10 @@ function ModalHead({
           </p>
         )}
         <DialogPrimitive.Title
-          data-slot="modal-head-title"
+          // data-slot="dialog-title" matches the shadcn/Dialog convention so
+          // test queries like `[data-slot="dialog-title"]` find Modal titles
+          // the same way they find legacy Dialog titles.
+          data-slot="dialog-title"
           // Only pass `id` when the caller explicitly provided one — passing
           // undefined here clobbers Radix's auto-generated id, which breaks
           // the auto-wired aria-labelledby on DialogContent.
@@ -233,7 +236,7 @@ function ModalHead({
         </DialogPrimitive.Title>
         {subtitle && (
           <DialogPrimitive.Description
-            data-slot="modal-head-subtitle"
+            data-slot="dialog-description"
             className="m-0 mt-1 text-[12.5px] leading-[1.4] text-[hsla(var(--pv-id-hue),25%,90%,0.72)]"
           >
             {subtitle}
