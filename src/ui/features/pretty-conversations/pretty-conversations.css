@@ -367,6 +367,91 @@
   gap: 8px;
 }
 
+/* shape-sidebar-search-inline: dedicated search input row that sits between
+ * .pv-panel-header and .pv-panel-scroll — always visible, never part of the
+ * scrolling list. Palette matches the sidebar's ambient chrome via the same
+ * --color-pv-* tokens the header/footer buttons use.
+ *
+ *   .pv-sidebar-search           — the row container (padding + hairline border)
+ *   .pv-sidebar-search-wrap      — the pill wrapping icon + input + trailing content
+ *   .pv-sidebar-search-icon      — leading magnifier glyph, dim by default
+ *   .pv-sidebar-search-input     — the actual <input>, transparent on the wrap
+ *
+ * Task-2 wires the surface only. Everywhere-link + on-input reveal transitions
+ * live in the follow-up tasks and will attach as trailing children of .wrap. */
+.pv-sidebar-search {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-pv-border-quiet);
+}
+.pv-sidebar-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: rgba(220, 225, 245, 0.04);
+  border: 1px solid var(--color-pv-border-quiet);
+  border-radius: 8px;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.pv-sidebar-search-wrap:focus-within {
+  border-color: var(--color-pv-border-quiet-strong);
+  background: rgba(220, 225, 245, 0.06);
+}
+.pv-sidebar-search-icon {
+  color: var(--color-pv-fg-dim);
+  flex-shrink: 0;
+}
+.pv-sidebar-search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-pv-fg);
+  font-size: 12px;
+  padding: 7px 4px;
+  font-family: inherit;
+}
+.pv-sidebar-search-input::placeholder {
+  color: var(--color-pv-fg-dim);
+}
+/* shape-sidebar-search-inline: "everywhere ↗" escalation link inside the
+ * search input row. Hidden at rest via opacity + max-width collapse (so it
+ * takes no horizontal space when the input is empty). Adds .visible when
+ * the input has content — smooth fade-in + width expansion. Pointer-events
+ * gate matches visibility so a hidden link can't be clicked. */
+.pv-sidebar-search-everywhere {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  color: var(--color-pv-fg-dim);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  opacity: 0;
+  max-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    max-width 200ms ease,
+    padding 200ms ease,
+    color 120ms ease;
+}
+.pv-sidebar-search-everywhere.visible {
+  opacity: 1;
+  max-width: 120px;
+  padding: 0 4px 0 6px;
+  pointer-events: auto;
+}
+.pv-sidebar-search-everywhere:hover {
+  color: var(--color-pv-fg);
+}
+
 /* Patch #144 Fix (e): intra-group row gap matches the between-groups gap
  * (8px on .pv-panel-scroll) so vertical rhythm is consistent whether or
  * not rows span multiple groups. The three group wrappers in

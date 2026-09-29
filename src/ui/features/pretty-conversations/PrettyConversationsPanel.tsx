@@ -224,6 +224,21 @@ import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
+// shape-sidebar-search-inline: pure filter helpers for the sidebar-search
+// input row. Extracts the union of every candidate string that could render
+// on either of a row's two lines, matches against a case-insensitive
+// substring, resolves an identity for a row using the panel's existing maps.
+import {
+  rowMatchesSearchQuery,
+  resolveIdentityForRow,
+  projectSectionTitleMatches,
+  appTileMatches,
+} from "./sidebar-search-match";
+// shape-sidebar-search-inline: pre-populate the ConversationSearchModal's
+// module-scoped query state so the modal opens with the sidebar-search
+// query already in place — the "everywhere ↗" escalation carries the user's
+// current query into the deeper view without a retype.
+import { setSearchQuery } from "@/state/search-store";
 // Phase 115 Plan 115-06 (Task 2): archive API client — invoked by row context
 // menu; archived identities are searchable via the Phase 122 modal.
 import { archiveIdentity } from "@/api/identity-archive-api";
@@ -975,12 +990,32 @@ export function PrettyConversationsPanel({
     };
   }, []);
   // Phase 122 Plan 03 Task 3 — ConversationSearchModal open/closed toggle.
-  // Opened via the new magnifying-glass button in the header cluster
-  // (first child of .pv-header-actions below). Query + accumulated results
-  // live in the module-scoped search-store, NOT in this useState — this
-  // flag is only whether the modal is currently mounted-open (D-05
-  // persistence uses the store, this useState is the visibility gate).
+  // shape-sidebar-search-inline: no longer opened via a magnifier icon in the
+  // header cluster (that button is retired); the everywhere-link inside the
+  // sidebar-search input row now opens this modal, pre-populated with the
+  // current sidebar-search query. Query + accumulated results live in the
+  // module-scoped search-store, NOT in this useState — this flag is only
+  // whether the modal is currently mounted-open (D-05 persistence uses the
+  // store, this useState is the visibility gate).
   const [searchModalOpen, setSearchModalOpen] = useState(false);
+  // shape-sidebar-search-inline: query for the dedicated sidebar-search input
+  // row (below the header icon-button row, above the scroll region). Ephemeral
+  // — resets to "" on every mount (no localStorage persistence per the shape's
+  // "reset every time" invariant). Empty string = no filter (all rows visible).
+  const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
+  // shape-sidebar-search-inline: imperative handle to the sidebar-search input
+  // so Escape (task 6) can programmatically blur, and the all-empty fallback's
+  // "search everywhere" CTA can pre-populate the modal from the current query.
+  const sidebarSearchInputRef = useRef<HTMLInputElement | null>(null);
+  // shape-sidebar-search-inline: escalation helper. Pre-seeds the search-store
+  // with the trimmed sidebar-search query, then opens the ConversationSearchModal.
+  // Wired from (a) the everywhere-link inside the search input (task 5), (b)
+  // Enter-key-in-input (task 5), (c) the all-empty fallback CTA (task 4).
+  const openSearchEverywhere = useCallback(() => {
+    const q = sidebarSearchQuery.trim();
+    if (q.length > 0) setSearchQuery(q);
+    setSearchModalOpen(true);
+  }, [sidebarSearchQuery]);
   // Phase 44 SKILLED-01: SkillsEditorModal open/closed toggle (opened from menu item, sibling of GlobalFilesModal).
   const [skillsEditorModalOpen, setSkillsEditorModalOpen] = useState(false);
   // Phase 137 D-08: PreferencesModal open/closed toggle (opened from the
@@ -1057,12 +1092,12 @@ export function PrettyConversationsPanel({
   const [appsExpanded, setAppsExpanded] = useState(false);
   const appTiles = useAppTiles();
 
-  // Phase 122 Plan 04 (D-17 removal): the old label-only `searchQuery` state,
-  // `searchContainerRef` + `scrollContainerRef` refs, and the one-shot cold-
-  // load scroll-hide useEffect (all Phase 41 Plan 02) are retired together
-  // with the inline filter-as-you-type input the modal (Phase 122 Plan 03)
-  // replaced. Search is now driven by ConversationSearchModal mounted below,
-  // opened via the pv-header-search-button in the header-actions cluster.
+  // shape-sidebar-search-inline: sidebar search lives in a dedicated input
+  // row directly below the header icon-button row (added in task 2). It
+  // filters visible rows against the union of every candidate string that
+  // could render on either of a row's two lines. ConversationSearchModal
+  // remains as the "search everywhere" escalation target, opened from the
+  // everywhere-link that materializes on-input in that search row.
 
   // Phase 23 (GEFM-01): open the header menu anchored below the trigger button.
   const openMenu = useCallback(() => {
@@ -1248,6 +1283,71 @@ export function PrettyConversationsPanel({
         rows: s.rows.filter(matchesFilterForRow),
       }))
     : projectSections;
+
+  // ── shape-sidebar-search-inline: derive per-section arrays after applying
+  //    the sidebar-search substring filter, on top of the bounty toggles
+  //    (both filters are AND-intersected — a row survives only if it passes
+  //    both). Each derivation is O(n) over its section; identity lookups
+  //    reuse the maps already in scope. Aggregate flags below drive task 4's
+  //    section-collapse + all-empty fallback render behavior.
+  const trimmedSidebarSearchQuery = sidebarSearchQuery.trim();
+  const sidebarSearchActive = trimmedSidebarSearchQuery.length > 0;
+
+  const searchFilterRow = (row: ConversationRowShape): boolean => {
+    if (!sidebarSearchActive) return true;
+    const identity = resolveIdentityForRow(row, identitiesByHostKey, identitiesByKey);
+    return rowMatchesSearchQuery(row, identity, trimmedSidebarSearchQuery);
+  };
+
+  // Pinned / flat middle: rows filter individually. No "section header
+  // matches all rows" semantics because these are categorical labels, not
+  // per-user-authored titles.
+  const searchedPinned = sidebarSearchActive
+    ? displayedPinned.filter(searchFilterRow)
+    : displayedPinned;
+  const searchedMiddle = sidebarSearchActive
+    ? displayedMiddle.filter(searchFilterRow)
+    : displayedMiddle;
+
+  // Projects: if the section's user-authored displayName matches the query,
+  // ALL rows in the section pass through (typing a project name reveals
+  // every conversation inside it, not just an empty header). Otherwise rows
+  // filter individually.
+  const searchedProjectSections = sidebarSearchActive
+    ? displayedProjectSections.map((s) => {
+        const titleHit = projectSectionTitleMatches(s.displayName, trimmedSidebarSearchQuery);
+        return {
+          slug: s.slug,
+          displayName: s.displayName,
+          rows: titleHit ? s.rows : s.rows.filter(searchFilterRow),
+        };
+      })
+    : displayedProjectSections;
+
+  // RDP group: hostname + username are match candidates on the row itself
+  // (see getRowCandidateStrings). The store's rdpGroup carries a rows array;
+  // apply the same per-row filter when a search is active.
+  const searchedRdpGroup =
+    sidebarSearchActive && displayedRdpGroup !== null
+      ? { ...displayedRdpGroup, rows: displayedRdpGroup.rows.filter(searchFilterRow) }
+      : displayedRdpGroup;
+
+  // Apps: filter tile array by tile name. Task 4 will hide the entire Apps
+  // section when this ends up empty under an active search.
+  const searchedAppTiles = sidebarSearchActive
+    ? appTiles.filter((a) => appTileMatches(a.title, trimmedSidebarSearchQuery))
+    : appTiles;
+
+  // Aggregate — does ANY section have at least one visible row under the
+  // active search? Drives task 4's all-empty fallback CTA. When no search
+  // is active this is always true (feature off = normal render).
+  const sidebarSearchHasAnyMatch =
+    !sidebarSearchActive ||
+    searchedPinned.length > 0 ||
+    searchedMiddle.length > 0 ||
+    searchedProjectSections.some((s) => s.rows.length > 0) ||
+    (searchedRdpGroup !== null && searchedRdpGroup.rows.length > 0) ||
+    searchedAppTiles.length > 0;
 
   // (Phase 115 Plan 115-02: prior `hiddenRows` accumulator retired per D-21
   //  alongside the Hidden section render block. Phase 115 Plan 115-06's
@@ -2624,24 +2724,16 @@ export function PrettyConversationsPanel({
           <div className="pv-header-actions">
             {/* Header icon buttons — see each button's own inline note for
                 its individual rationale. The showPencilButton-gated cluster
-                (Search, New conversation, Create project, Scheduled Agents, kebab)
+                (New conversation, Create project, Scheduled Agents, kebab)
                 appears/disappears together based on typeof onCreateSession
                 === "function". Send feedback lives above the sidebar footer,
-                not here — see the .pv-feedback-slot render below. No
+                not here — see the .pv-feedback-slot render below. Search
+                moved OUT of this cluster to a dedicated sidebar-search input
+                row below the header (shape-sidebar-search-inline). No
                 numbered enumeration here because it goes stale every time
                 the shape shifts; walking the JSX in order is authoritative. */}
             {showPencilButton && (
               <>
-                <button
-                  type="button"
-                  className="pv-pencil"
-                  aria-label="Search conversations"
-                  title="Search conversations"
-                  data-testid="pv-header-search-button"
-                  onClick={() => setSearchModalOpen(true)}
-                >
-                  <Search size={18} />
-                </button>
                 <button
                   type="button"
                   className="pv-pencil"
@@ -2725,13 +2817,62 @@ export function PrettyConversationsPanel({
         {isAdmin && <WeeklyUsageMeter />}
       </div>
 
+      {/* shape-sidebar-search-inline: sidebar-search input row. Sibling of
+          .pv-panel-header and .pv-panel-scroll — sits in the fixed top region
+          directly below the header icon-button row and never scrolls. Live
+          substring filter (case-insensitive) across every sidebar row against
+          the union of every candidate string that could render on either of
+          the row's two lines. The everywhere-link + Escape + filter apply
+          land in follow-up tasks; task 2 wires the input surface only. */}
+      <div className="pv-sidebar-search shrink-0" data-testid="pv-sidebar-search-container">
+        <label className="pv-sidebar-search-wrap">
+          <Search size={14} className="pv-sidebar-search-icon" aria-hidden="true" />
+          <input
+            ref={sidebarSearchInputRef}
+            type="text"
+            value={sidebarSearchQuery}
+            onChange={(e) => setSidebarSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                openSearchEverywhere();
+              } else if (e.key === "Escape") {
+                // shape-sidebar-search-inline task 6: Escape clears + blurs.
+                setSidebarSearchQuery("");
+                sidebarSearchInputRef.current?.blur();
+              }
+            }}
+            placeholder="Search"
+            className="pv-sidebar-search-input"
+            data-testid="pv-sidebar-search-input"
+            aria-label="Search sidebar"
+          />
+          {/* shape-sidebar-search-inline: "everywhere ↗" escalation link.
+              Hidden at rest; fades in when the input has content (see
+              .pv-sidebar-search-everywhere.visible in the CSS). Clicking
+              opens ConversationSearchModal pre-populated with the current
+              trimmed query via openSearchEverywhere. tabIndex flips with
+              visibility so keyboard focus doesn't land on an invisible link. */}
+          <button
+            type="button"
+            className={`pv-sidebar-search-everywhere${sidebarSearchActive ? " visible" : ""}`}
+            onClick={openSearchEverywhere}
+            data-testid="pv-sidebar-search-everywhere-link"
+            aria-label="Search everywhere"
+            tabIndex={sidebarSearchActive ? 0 : -1}
+          >
+            everywhere ↗
+          </button>
+        </label>
+      </div>
+
       {/* Scroll region: safe-area padding lives on outer container (patch #131)
           so the panel bottom sits ABOVE the safe-area — settings row is not
-          covered when scroll is at rest. Phase 122 Plan 04 (D-17 removal):
-          the Phase 41 Plan 02 scrollContainerRef + inline search input +
-          one-shot cold-load scroll-hide have all been retired. Search is now
-          the pv-header-search-button in the header-actions cluster which
-          opens ConversationSearchModal (portal-mounted below). */}
+          covered when scroll is at rest. Search entry lives in a dedicated
+          input row directly above this scroll region (see
+          shape-sidebar-search-inline); ConversationSearchModal remains as
+          the "search everywhere" escalation target, opened from the
+          everywhere-link that materializes on-input in that search row. */}
       <div ref={scrollRegionRef} className="pv-panel-scroll min-h-0">
         {/* Load-in-flight affordance. Renders at the top of the scroll region
             while the fleet enumeration is still in flight; disappears once
@@ -2755,6 +2896,30 @@ export function PrettyConversationsPanel({
               aria-hidden="true"
             />
             <span>{loadingLabel}</span>
+          </div>
+        )}
+        {/* shape-sidebar-search-inline: all-empty fallback. Renders when the
+            sidebar-search filter is active AND every section has zero rows —
+            the sidebar would otherwise be blank. Presents the query back to
+            the user and offers escalation to the full search view (which
+            covers content + archives that the sidebar can't). Clicking the
+            CTA pre-populates the modal via openSearchEverywhere. */}
+        {sidebarSearchActive && !sidebarSearchHasAnyMatch && (
+          <div
+            className="pv-sidebar-search-empty flex flex-col items-center gap-3 px-6 py-10 text-center"
+            data-testid="pv-sidebar-search-empty"
+          >
+            <div className="text-[13px] italic text-[color:var(--color-pv-fg-dim)]">
+              no matches for &ldquo;{trimmedSidebarSearchQuery}&rdquo;
+            </div>
+            <button
+              type="button"
+              className="pv-sidebar-search-empty-cta text-[12px] text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] underline underline-offset-2 decoration-dotted"
+              onClick={openSearchEverywhere}
+              data-testid="pv-sidebar-search-everywhere-cta"
+            >
+              search everywhere ↗
+            </button>
           </div>
         )}
         {/* Phase 119 Plan 04 (D-01/D-02/D-03/D-04/D-05):
@@ -2785,13 +2950,21 @@ export function PrettyConversationsPanel({
             key={`${hostId}:${slug}`} app={app}/> per entry in the sort
             order returned by useAppTiles() (D-15 sort applied at the
             store level; the panel does not re-sort). */}
+        {/* shape-sidebar-search-inline: Apps section hides ENTIRELY when a
+            sidebar-search is active AND no app tiles match, per the shape's
+            "sections whose rows all filter away disappear" rule. When the
+            search IS active AND at least one app matches, the section is
+            force-expanded (appsExpanded || sidebarSearchActive) so matches
+            are visible without requiring the user to click through the
+            collapse toggle. */}
+        {!(sidebarSearchActive && searchedAppTiles.length === 0) && (
         <div className="pv-panel-group pv-apps-section">
           <button
             type="button"
             onClick={() => setAppsExpanded((v) => !v)}
             className="flex items-center gap-2 pl-1 pr-4 pt-1 pb-1.5 w-full text-left"
             data-testid="pretty-conversations-apps-header"
-            aria-expanded={appsExpanded}
+            aria-expanded={appsExpanded || sidebarSearchActive}
             aria-controls="pv-apps-section-content"
           >
             <AppWindow
@@ -2806,18 +2979,18 @@ export function PrettyConversationsPanel({
               className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
             />
             <ChevronDown
-              className={`size-3 text-[#5c6070]/85 shrink-0 transition-transform ${appsExpanded ? "rotate-180" : ""}`}
+              className={`size-3 text-[#5c6070]/85 shrink-0 transition-transform ${appsExpanded || sidebarSearchActive ? "rotate-180" : ""}`}
               aria-hidden="true"
             />
           </button>
-          {appsExpanded && (
+          {(appsExpanded || sidebarSearchActive) && (
             <div id="pv-apps-section-content">
-              {appTiles.length === 0 ? (
+              {searchedAppTiles.length === 0 ? (
                 <div className="pv-apps-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85">
                   Ask an agent to make an app for you.
                 </div>
               ) : (
-                appTiles.map((app) => (
+                searchedAppTiles.map((app) => (
                   <AppTile
                     key={`${app.hostId}:${app.slug}`}
                     app={app}
@@ -2830,6 +3003,7 @@ export function PrettyConversationsPanel({
             </div>
           )}
         </div>
+        )}
         {/* Phase 122 Plan 04 (D-17 removal): the Phase 41 Plan 02
             `searchMatches !== null` ternary that swapped between a flat
             match list and the three-zone view is retired. The three-zone
@@ -2863,6 +3037,11 @@ export function PrettyConversationsPanel({
                 unpin gesture. Empty state gets a "Drag a conversation here
                 to pin" italic muted line mirroring the empty-project
                 pattern. */}
+            {/* shape-sidebar-search-inline: hide the Pinned section entirely
+                when a sidebar-search is active AND no pinned rows match. When
+                search is inactive OR at least one pinned row matches, the
+                section renders (drop-lane preserved for the pin gesture). */}
+            {!(sidebarSearchActive && searchedPinned.length === 0) && (
             <div
               className="pv-panel-group relative"
               data-pinned-group="true"
@@ -2898,7 +3077,7 @@ export function PrettyConversationsPanel({
                   className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
                 />
               </div>
-              {displayedPinned.length === 0 ? (
+              {searchedPinned.length === 0 ? (
                 <div
                   className="pv-pinned-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85"
                   data-testid="pretty-conversations-pinned-empty"
@@ -2906,7 +3085,7 @@ export function PrettyConversationsPanel({
                   Drag a conversation here to pin.
                 </div>
               ) : (
-                displayedPinned.map((row) => (
+                searchedPinned.map((row) => (
                   <PrettyConversationRowLive
                     key={row.id}
                     row={row}
@@ -2932,14 +3111,20 @@ export function PrettyConversationsPanel({
                 ))
               )}
             </div>
+            )}
             {/* Phase 117 Plan 117-08 (D-09, D-10, D-11) — projects zone.
                 Inserted BETWEEN the pinned zone (above) and the flat middle
                 (below) per D-09's vertical order lock. NO wrapping
                 super-section "Projects" label per D-10 — each header stands
-                alone. Empty sections still render as header-only per D-11.
+                alone. Empty sections still render as header-only per D-11
+                UNLESS shape-sidebar-search-inline: when a sidebar search is
+                active, empty sections disappear entirely.
                 Each section wraps its rows in a coral drop lane (D-22
                 gesture #1) via PrettyProjectSectionHeader. */}
-            {displayedProjectSections.map((section) => (
+            {(sidebarSearchActive
+              ? searchedProjectSections.filter((s) => s.rows.length > 0)
+              : searchedProjectSections
+            ).map((section) => (
               <PrettyProjectSectionHeader
                 key={section.slug}
                 slug={section.slug}
@@ -3009,7 +3194,11 @@ export function PrettyConversationsPanel({
                 renders now — the section is a permanent
                 sidebar fixture with header + empty-state, not gated on
                 content presence. */}
-            {(
+            {/* shape-sidebar-search-inline: hide the Conversations section
+                entirely when a sidebar-search is active AND no middle rows
+                match. Otherwise the section renders as normal (header +
+                empty-state placeholder OR rows). */}
+            {!(sidebarSearchActive && searchedMiddle.length === 0) && (
               <div
                 className="pv-panel-group relative"
                 data-middle-group="true"
@@ -3050,7 +3239,7 @@ export function PrettyConversationsPanel({
                     className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
                   />
                 </div>
-                {displayedMiddle.length === 0 && (
+                {searchedMiddle.length === 0 && (
                   <div
                     className="px-4 py-2 text-[12px] leading-snug text-center text-[#5c6070]/70"
                     data-testid="pv-flat-middle-empty"
@@ -3058,7 +3247,7 @@ export function PrettyConversationsPanel({
                     Start your first conversation with an agent using the button at the top-left of the page
                   </div>
                 )}
-                {displayedMiddle.map((row) => (
+                {searchedMiddle.map((row) => (
                   <PrettyConversationRowLive
                     key={row.id}
                     row={row}
@@ -3084,14 +3273,16 @@ export function PrettyConversationsPanel({
                 ))}
               </div>
             )}
-            {/* Phase 41 Plan 01: RDP zone renderer. When `displayedRdpGroup`
+            {/* Phase 41 Plan 01: RDP zone renderer. When `searchedRdpGroup`
                 is null (zero RDP-eligible hosts), the entire section —
                 divider chip + rows — is suppressed (user lock #7).
                 When non-null, renders the "Remote desktop" divider chip +
-                Monitor-glyph rows. */}
-            {displayedRdpGroup !== null && (
+                Monitor-glyph rows.
+                shape-sidebar-search-inline: also hides entirely when a
+                sidebar-search is active AND no RDP rows match. */}
+            {searchedRdpGroup !== null && searchedRdpGroup.rows.length > 0 && (
               <div
-                key={displayedRdpGroup.hostId}
+                key={searchedRdpGroup.hostId}
                 className="pv-panel-group"
                 data-rdp-group="true"
               >
@@ -3118,7 +3309,7 @@ export function PrettyConversationsPanel({
                     className="flex-1 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.06),transparent)]"
                   />
                 </div>
-                {displayedRdpGroup.rows.map((row) => (
+                {searchedRdpGroup.rows.map((row) => (
                   <PrettyConversationRowLive
                     key={row.id}
                     row={row}

@@ -2812,17 +2812,15 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
 //  identities now surface via the ConversationSearchModal only.)
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 122 Plan 04 (D-17 removal): the Phase 41 Plan 02 describes
-// ("search input mount + scroll-hide" and "filter predicate + flat match
-// render") — L2783-L3278 pre-removal — are RETIRED together with the
-// inline filter-as-you-type input the modal (Phase 122 Plan 03) replaced.
-// The compact describe below asserts (a) the OLD inline-filter selectors
-// are absent and (b) the NEW pv-header-search-button is present and opens
-// the modal — the positive proof that D-17 is done under D-18 ordering.
+// shape-sidebar-search-inline: the Phase 122 Plan 03 header magnifier button
+// (pv-header-search-button) has been retired. Search now lives in a dedicated
+// input row directly below the icon-button row (see the sidebar-search input
+// section further down for positive coverage). The R1 test below is preserved
+// as historical guard against the Phase 41 Plan 02 selectors ever coming back.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("PrettyConversationsPanel (Phase 122 Plan 04): D-17 filter-as-you-type removal", () => {
-  it("R1: the old inline filter selectors are ABSENT from the panel DOM", () => {
+describe("PrettyConversationsPanel: retired inline-filter selectors stay absent", () => {
+  it("R1: the old Phase 41 Plan 02 inline-filter selectors are ABSENT from the panel DOM", () => {
     // Empty snapshot — mirrors the smallest render surface the panel accepts.
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     const { container } = render(
@@ -2840,36 +2838,17 @@ describe("PrettyConversationsPanel (Phase 122 Plan 04): D-17 filter-as-you-type 
       container.querySelector('[data-testid="pretty-conversations-search-clear"]'),
     ).toBeNull();
 
+    // The Phase 122 Plan 03 header search button is also retired
+    // (shape-sidebar-search-inline moved search entry to a dedicated input row).
+    expect(
+      container.querySelector('[data-testid="pv-header-search-button"]'),
+    ).toBeNull();
+
     // Neither an <input type="search"> nor an ARIA searchbox exists anywhere
     // in the panel — the ParticipantSearchInput reuse lives inside a different
-    // modal (NewConversationModal) which is not mounted by default here.
+    // modal (NewConversationModal) which is not mounted by default here. The
+    // new sidebar-search input row uses type="text", not type="search".
     expect(container.querySelector('input[type="search"]')).toBeNull();
-  });
-
-  it("R2: the new pv-header-search-button is present and opens the ConversationSearchModal", async () => {
-    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-    render(
-      <PrettyConversationsPanel
-        variant="desktop"
-        onDeactivateRow={() => {}}
-        // Same gate as the pencil / more / global-files buttons — the search
-        // button lives inside the showPencilButton conditional per Plan 03.
-        onCreateSession={vi.fn()}
-      />,
-    );
-
-    // The plan-03 button is present with its documented testid.
-    const searchBtn = screen.getByTestId("pv-header-search-button");
-    expect(searchBtn).toBeTruthy();
-    expect(searchBtn.getAttribute("aria-label")).toBe("Search conversations");
-
-    // Clicking it mounts a role="dialog" (Radix DialogPrimitive.Content).
-    await act(async () => {
-      fireEvent.click(searchBtn);
-    });
-    await waitFor(() => {
-      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    });
   });
 });
 
@@ -4197,3 +4176,288 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// shape-sidebar-search-inline — integration coverage
+//
+// The pure-function contract for candidate-string extraction + substring
+// matching lives in sidebar-search-match.test.ts. This block covers the
+// panel's rendering behavior around the new sidebar-search input:
+//   S1: input row is present with the "Search" placeholder
+//   S2: typing filters middle rows by their visible label
+//   S3: typing matches HIDDEN candidates (identity displayName even when
+//       task takes the primary line)
+//   S4: sections with zero matches collapse entirely (Conversations header
+//       is gone when no middle rows match)
+//   S5: all-empty state → "no matches" fallback + everywhere CTA renders
+//   S6: everywhere-link fades in only when input has content
+//   S7: clicking everywhere-link opens ConversationSearchModal with the
+//       current query pre-populated into the search-store
+//   S8: pressing Enter in the input opens the modal (same escalation path)
+//   S9: pressing Escape clears the input value
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { _resetForTests as _resetSearchStoreForTests, useSearchState } from "@/state/search-store";
+
+describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search input row", () => {
+  beforeEach(() => {
+    _resetSearchStoreForTests();
+  });
+
+  it("S1: search input row renders with 'Search' placeholder", () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    expect(input).toBeTruthy();
+    expect(input.getAttribute("placeholder")).toBe("Search");
+    // Container also renders.
+    expect(screen.getByTestId("pv-sidebar-search-container")).toBeTruthy();
+  });
+
+  it("S2: typing filters the flat middle by row label (matching row stays, others disappear)", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({ id: "row-alpha", label: "alpha", targetTmuxSession: "alpha", host: hostA }),
+        makeConversationRow({ id: "row-bravo", label: "bravo", targetTmuxSession: "bravo", host: hostA }),
+      ],
+      rdpGroup: null,
+    });
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Both rows visible before any typing.
+    expect(container.querySelector('[data-conversation-id="row-alpha"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="row-bravo"]')).toBeTruthy();
+
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "alph" } });
+
+    // alpha survives; bravo filters out.
+    expect(container.querySelector('[data-conversation-id="row-alpha"]')).toBeTruthy();
+    expect(container.querySelector('[data-conversation-id="row-bravo"]')).toBeNull();
+  });
+
+  it("S3: typing matches HIDDEN candidates (identity displayName even when task frontmatter would be the primary line)", () => {
+    const hostA = makeHost("h1", "hostA");
+    // Identity's task is the primary-line render, BUT typing the displayName
+    // should still find the row — that's the shape's union-of-candidates rule.
+    mockIdentitiesByKey = new Map([
+      [
+        "samwise",
+        {
+          identityKey: "samwise",
+          displayName: "Samwise",
+          task: "Sidebar search redesign",
+        },
+      ],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "row-samwise",
+          // label is the low-level session id; task is what the user sees
+          // on the primary line when set. Neither should have to be typed
+          // exactly — the identity displayName is also a candidate.
+          label: "session-id-doesnt-matter",
+          targetTmuxSession: "samwise",
+          host: hostA,
+        }),
+      ],
+      rdpGroup: null,
+    });
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "samwise" } });
+    // Row survives — identity displayName matched even though the visible
+    // primary line was the task.
+    expect(container.querySelector('[data-conversation-id="row-samwise"]')).toBeTruthy();
+
+    // Different query — matches the task string that IS on the primary line.
+    fireEvent.change(input, { target: { value: "redesign" } });
+    expect(container.querySelector('[data-conversation-id="row-samwise"]')).toBeTruthy();
+  });
+
+  it("S4: sections with zero matches collapse entirely (Conversations section header hidden)", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({ id: "row-alpha", label: "alpha", targetTmuxSession: "alpha", host: hostA }),
+      ],
+      rdpGroup: null,
+    });
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Conversations section header visible before typing.
+    expect(container.querySelector('[data-testid="pv-flat-middle-section-header"]')).toBeTruthy();
+
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "zzz-no-match" } });
+
+    // Header now gone — the entire Conversations section is unrendered when
+    // no middle rows match under an active search.
+    expect(container.querySelector('[data-testid="pv-flat-middle-section-header"]')).toBeNull();
+    // Row also gone.
+    expect(container.querySelector('[data-conversation-id="row-alpha"]')).toBeNull();
+  });
+
+  it("S5: all-empty state → 'no matches' fallback + clickable everywhere CTA renders", () => {
+    const hostA = makeHost("h1", "hostA");
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({ id: "row-alpha", label: "alpha", targetTmuxSession: "alpha", host: hostA }),
+      ],
+      rdpGroup: null,
+    });
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    // Before typing — fallback absent.
+    expect(screen.queryByTestId("pv-sidebar-search-empty")).toBeNull();
+
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "zzz-no-match" } });
+
+    // Fallback renders with the query echoed back + CTA link.
+    const fallback = screen.getByTestId("pv-sidebar-search-empty");
+    expect(fallback).toBeTruthy();
+    expect(fallback.textContent).toContain("no matches");
+    expect(fallback.textContent).toContain("zzz-no-match");
+    // Clickable CTA (the "search everywhere ↗" button).
+    const cta = screen.getByTestId("pv-sidebar-search-everywhere-cta");
+    expect(cta).toBeTruthy();
+  });
+
+  it("S6: everywhere-link inside the input has .visible ONLY when input has content", () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const link = screen.getByTestId("pv-sidebar-search-everywhere-link");
+    // Empty state: .visible class NOT present (link fades-collapse via CSS).
+    expect(link.className).not.toContain("visible");
+    // Fires no-op click: tabIndex is -1 (hidden from keyboard) when hidden.
+    expect(link.getAttribute("tabindex")).toBe("-1");
+
+    // Type into input → link flips to visible.
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "anything" } });
+    expect(link.className).toContain("visible");
+    expect(link.getAttribute("tabindex")).toBe("0");
+
+    // Clear → hidden again.
+    fireEvent.change(input, { target: { value: "" } });
+    expect(link.className).not.toContain("visible");
+    expect(link.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("S7: clicking the everywhere-link opens ConversationSearchModal pre-populated with the current query", async () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCreateSession={vi.fn()}
+      />,
+    );
+
+    // Type a query — this seeds the panel-local sidebar-search state.
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "beta" } });
+
+    // Click the everywhere-link. The escalation pre-populates the search-store
+    // (checked below via useSearchState) and opens the modal.
+    const link = screen.getByTestId("pv-sidebar-search-everywhere-link");
+    await act(async () => {
+      fireEvent.click(link);
+    });
+
+    // Modal mounted (a role="dialog" appears in the DOM once the search modal
+    // opens; same signal the retired R2 test used).
+    await waitFor(() => {
+      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    });
+
+    // Search-store's query field was seeded to the trimmed sidebar query so
+    // the modal's controlled input opens with "beta" already filled in.
+    const state = _readSearchState();
+    expect(state.query).toBe("beta");
+  });
+
+  it("S8: pressing Enter in the input escalates to ConversationSearchModal with pre-populated query", async () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCreateSession={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "gamma" } });
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+
+    await waitFor(() => {
+      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    });
+
+    const state = _readSearchState();
+    expect(state.query).toBe("gamma");
+  });
+
+  it("S9: pressing Escape clears the input value and hides the everywhere-link", () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "something" } });
+    expect(input.value).toBe("something");
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    // Escape clears the input value; everywhere-link falls out of .visible
+    // as a natural consequence of the empty state.
+    expect(input.value).toBe("");
+    const link = screen.getByTestId("pv-sidebar-search-everywhere-link");
+    expect(link.className).not.toContain("visible");
+  });
+});
+
+// Helper — read search-store state OUTSIDE a React tree. useSearchState is
+// a hook so it needs to be invoked during render; for these tests the
+// non-React `getSearchStateSnapshot`-equivalent read is not exported, so we
+// hook into a headless render to inspect it. Kept next to the describe
+// block above to minimize scroll distance from the assertion.
+function _readSearchState() {
+  let captured: ReturnType<typeof useSearchState> | null = null;
+  function Probe() {
+    captured = useSearchState();
+    return null;
+  }
+  render(<Probe />);
+  if (captured === null) throw new Error("search-store probe did not capture state");
+  return captured;
+}

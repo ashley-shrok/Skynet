@@ -539,15 +539,9 @@ name, so she can find it without knowing the app's terminology.
 
 ### Header of the conversation list
 
-Six controls sit at the top of the conversation list:
-
-- **🔍 Magnifying glass — search conversations.** Opens a modal that
-  searches every conversation, active and archived. Clicking a result
-  opens that conversation.
-  *Agent-side: none.* Agents don't reference specific past conversations
-  by ID. If the user asks "find where we talked about X," point her at
-  the icon. To consult past agent work yourself, use § Reaching into
-  other agents' work.
+Five controls sit at the top of the conversation list (the previous magnifier
+search-button has been retired — search is now a dedicated input row directly
+below the header, see § The sidebar search input further down):
 
 - **✏️ Pencil-on-paper — new conversation (single agent).** Opens a
   role picker; the new agent is auto-named unless the user ticks "name
@@ -602,6 +596,48 @@ Six controls sit at the top of the conversation list:
     "propose + wait for greenlight" rule as role files, `AGENTS.md`, and
     the user-wide `CLAUDE.md`** — skills become standing behavior for
     every session, so they need user sign-off.
+
+### The sidebar search input
+
+Directly below the row of header icons — still in the sidebar's fixed top
+region, so it stays visible when the list is scrolled — is a single search
+input with a magnifier icon inside on the left and `Search` as the
+placeholder.
+
+**Typing filters the sidebar in place.** As the user types, every section
+(Apps / Pinned / Projects / Conversations) filters to just the rows whose
+text matches. The match is case-insensitive substring against every string
+that COULD render on either of a row's two lines — not just what's visible.
+That means typing an identity's name still finds it when the row is
+currently showing that identity's task frontmatter on the primary line,
+and typing a role name still finds every agent holding that role even when
+the secondary line is currently showing a project grouping.
+
+**Sections with zero matches disappear entirely** — header and rows both.
+Typing a project's display name reveals every conversation in that project.
+When EVERY section has zero matches, the sidebar's scroll area shows a
+centered `no matches — search everywhere ↗` message with the everywhere
+link as a large tappable target — always a visible next step, never a
+blank sidebar.
+
+**The `everywhere ↗` escalation.** Once the input has any content, a small
+`everywhere ↗` text link fades in on the right side of the input. Clicking
+it — or pressing Enter from anywhere in the input — opens the full search
+view (the same modal that used to live behind the retired magnifier icon)
+with the current query already filled in. The full view reaches into
+things the sidebar doesn't hold: archived conversations, message content
+across every conversation.
+
+**Escape clears + blurs.** Escape empties the input, the everywhere link
+fades back out, and focus leaves.
+
+**Same behavior on desktop and mobile.** No keyboard shortcut yet
+(⌘K / Ctrl-K is a candidate for later); the input has to be clicked to
+focus. Filter query does NOT persist across app reloads — it's a quick-find
+tool, not a saved view.
+
+*Agent-side: none.* The sidebar filter is the user's navigation shortcut,
+not something agents drive.
 
 ### Sidebar content (top to bottom)
 
