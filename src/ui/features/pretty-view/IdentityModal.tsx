@@ -1,49 +1,36 @@
 // IdentityModal — per-identity editor + record view.
 //
-// Modal-unification 2026-09-29:
+// Modal-unification 2026-09-29 (revised):
 //   - Shell: canonical <Modal hue={identity.colorHue ?? 220} blocking={false}
 //     container={container}>. Portal target stays the chat-region container
 //     so the composer + IdentityBadge stay visible/interactive underneath
-//     while the modal is open (design intent: user often opens an identity
-//     while drafting a reply to that identity).
-//   - Head: avatar + display name (with inline pencil) + role slug meta +
-//     task line (with inline pencil) + ⋯ menu (voice picker + boost
-//     response time + avatar upload) + close X. Coordinator watermark
-//     REMOVED (concept retired per Ashley 2026-09-29).
-//   - Section-tabs: MOVED from the bottom to directly under the head
-//     (IDE convention; matches Runbook/Skills translations). 3 tabs
-//     unchanged: Identity file / Wake-ups / Files.
-//   - Foot: canonical <ModalFoot> with a single Close button — chrome
-//     consistency across all editor-lg modals.
+//     while the modal is open.
+//   - Head: avatar + display name (no pencil — identities not renamable via
+//     UI) + role slug meta + task line (with inline pencil — task is a
+//     working note, not a rename) + voice chip pinned top-right + close X.
+//     The ⋯ menu is retired. Boost-response toggle retired (the
+//     .no-dormancy sentinel mechanism still exists on disk; only the UI
+//     toggle is gone). Identity avatar upload retired.
+//   - Section-tabs at top: 3 tabs unchanged (Identity file / Wake-ups /
+//     Files). Canonical <ModalFoot> with Close.
 //
-// Save flow — per-field inline (was batch pencil-drawer):
-//   - Display name pencil → text input → Enter/blur → updateIdentity
-//     with meta.displayName.
+// Save flow:
 //   - Task pencil → text input → Enter/blur → updateIdentity with
-//     meta.task (backend PUT gains meta.task overlay in this same commit).
-//   - Voice pick (⋯ menu) → onChange → updateIdentity with meta.voice.
-//   - Boost response time (⋯ menu) → toggle → setIdentityNoDormancy.
-//   - Avatar upload (⋯ menu) → file picker → updateIdentity with
-//     avatar File (multipart).
-//   Batch-save with per-field revert-to-role-default flags is REMOVED —
-//   users revert by hand-editing the identity file frontmatter in the
-//   Identity file tab (that surface hasn't changed).
+//     meta.task.
+//   - Voice chip → click opens picker popover → VoicePicker onChange →
+//     updateIdentity with meta.voice. Chip shows "default" (italic) when
+//     identity.voice is null (inherits identity.roleDefaults?.voice).
 //
 // AddWakeupDialog stacking: unchanged. AddWakeupDialog is a separate
-// canonical Modal that portals to document.body (default container),
-// stacks OVER IdentityModal like today. No swap-not-stack.
+// canonical Modal that portals to document.body, stacks OVER IdentityModal
+// like today. No swap-not-stack.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
-import { AlarmClock, Folder, MoreHorizontal, Pencil, Upload, User, X } from "lucide-react";
+import { AlarmClock, ChevronDown, Folder, Mic, Pencil, User, X } from "lucide-react";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
-import { Switch } from "@/components/switch";
-import {
-  updateIdentity,
-  getIdentityNoDormancy,
-  setIdentityNoDormancy,
-} from "@/api/identities-api";
+import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
 import { toast } from "sonner";
 import { VoicePicker } from "./pickers/VoicePicker";
@@ -158,22 +145,16 @@ export function IdentityModal({
 }): JSX.Element {
   const [activeTab, setActiveTab] = useState<string>("identity");
 
-  // Per-field inline edit state — display name + task pencils in the head.
-  const [editingDisplayName, setEditingDisplayName] = useState(false);
-  const [displayNameDraft, setDisplayNameDraft] = useState<string>(identity.displayName);
+  // Per-field inline edit state — task pencil only (displayName pencil
+  // retired 2026-09-29; identities not renamable via UI).
   const [editingTask, setEditingTask] = useState(false);
   const [taskDraft, setTaskDraft] = useState<string>(identity.task ?? "");
-  const [savingField, setSavingField] = useState<null | "displayName" | "task">(null);
+  const [savingField, setSavingField] = useState<null | "task">(null);
 
-  // ⋯ menu (voice + boost response time + avatar upload).
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [voiceDraft, setVoiceDraft] = useState<string>(
-    identity.voice ?? identity.roleDefaults?.voice ?? "",
-  );
-  const [staysAwake, setStaysAwake] = useState<boolean | null>(null);
-  const [staysAwakeSaving, setStaysAwakeSaving] = useState<boolean>(false);
-  const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  // Voice chip + popover (pinned top of head).
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false);
+  const [voiceDraft, setVoiceDraft] = useState<string>(identity.voice ?? "");
+  const voicePickerRef = useRef<HTMLDivElement | null>(null);
 
   // Tab data — same shape + WS-based fetches as the pre-unification impl.
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
@@ -291,54 +272,23 @@ export function IdentityModal({
   // Reset per-field draft state + close menu on open.
   useEffect(() => {
     if (!open) return;
-    setDisplayNameDraft(identity.displayName);
     setTaskDraft(identity.task ?? "");
-    setEditingDisplayName(false);
     setEditingTask(false);
-    setMenuOpen(false);
-    setVoiceDraft(identity.voice ?? identity.roleDefaults?.voice ?? "");
-  }, [
-    open,
-    identity.identityKey,
-    identity.displayName,
-    identity.task,
-    identity.voice,
-    identity.roleDefaults?.voice,
-  ]);
+    setVoicePickerOpen(false);
+    setVoiceDraft(identity.voice ?? "");
+  }, [open, identity.identityKey, identity.task, identity.voice]);
 
-  // Load the stays-awake sentinel state on modal open or identity/host change.
+  // Click-outside close on the voice picker popover.
   useEffect(() => {
-    if (!open || !identity.identityKey) return;
-    setStaysAwake(null);
-    setStaysAwakeSaving(false);
-    let cancelled = false;
-    getIdentityNoDormancy(identity.identityKey, hostId).then(
-      (present) => {
-        if (!cancelled) setStaysAwake(present);
-      },
-      () => {
-        if (!cancelled) {
-          setStaysAwake(null);
-          toast.error("Failed to read stays-awake state");
-        }
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [open, identity.identityKey, hostId]);
-
-  // Click-outside close on the ⋯ popover.
-  useEffect(() => {
-    if (!menuOpen) return;
+    if (!voicePickerOpen) return;
     function onDown(e: MouseEvent) {
-      if (!menuRef.current) return;
-      if (menuRef.current.contains(e.target as Node)) return;
-      setMenuOpen(false);
+      if (!voicePickerRef.current) return;
+      if (voicePickerRef.current.contains(e.target as Node)) return;
+      setVoicePickerOpen(false);
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [menuOpen]);
+  }, [voicePickerOpen]);
 
   // One-shot WS mutation helper (kept verbatim — used by every wake-up
   // handler + the identity file editor).
@@ -454,54 +404,6 @@ export function IdentityModal({
     setIdentityFileState({ status: "ready", data: res.markdown });
   }
 
-  async function onStaysAwakeToggle(next: boolean): Promise<void> {
-    const prev = staysAwake;
-    setStaysAwake(next);
-    setStaysAwakeSaving(true);
-    try {
-      const confirmed = await setIdentityNoDormancy(
-        identity.identityKey,
-        hostId,
-        next,
-      );
-      setStaysAwake(confirmed);
-    } catch {
-      setStaysAwake(prev);
-      toast.error("Failed to update stays-awake");
-    } finally {
-      setStaysAwakeSaving(false);
-    }
-  }
-
-  // Per-field inline save — displayName.
-  async function saveDisplayName(): Promise<void> {
-    const next = displayNameDraft.trim();
-    if (next.length === 0 || next === identity.displayName) {
-      setEditingDisplayName(false);
-      setDisplayNameDraft(identity.displayName);
-      return;
-    }
-    setSavingField("displayName");
-    try {
-      const updated = await updateIdentity(
-        identity.identityKey,
-        { displayName: next },
-        null,
-        hostId,
-      );
-      applyIdentityChange(updated);
-      setEditingDisplayName(false);
-    } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? `Save failed: ${err.message}`
-          : "Save failed",
-      );
-    } finally {
-      setSavingField(null);
-    }
-  }
-
   // Per-field inline save — task.
   async function saveTask(): Promise<void> {
     const next = taskDraft.trim();
@@ -549,32 +451,14 @@ export function IdentityModal({
           : "Voice save failed",
       );
       // Roll back the local draft on error
-      setVoiceDraft(identity.voice ?? identity.roleDefaults?.voice ?? "");
+      setVoiceDraft(identity.voice ?? "");
     }
   }
 
-  // Avatar upload — file picker in the ⋯ menu.
-  async function onAvatarPick(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // reset so re-picking the same file re-fires onChange
-    if (!file) return;
-    try {
-      const updated = await updateIdentity(
-        identity.identityKey,
-        {},
-        file,
-        hostId,
-      );
-      applyIdentityChange(updated);
-      setMenuOpen(false);
-    } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? `Avatar upload failed: ${err.message}`
-          : "Avatar upload failed",
-      );
-    }
-  }
+  // saveDisplayName / onStaysAwakeToggle / onAvatarPick retired 2026-09-29
+  // (identities not renamable via UI; Boost switch retired; identity avatar
+  // upload retired). The .no-dormancy sentinel mechanism still exists on
+  // disk — agents touch/rm the file per user request.
 
   const canJumpToRole = identity.role !== null;
   const jumpTargetLabel = identity.role ?? identity.displayName;
@@ -590,11 +474,10 @@ export function IdentityModal({
       className="max-h-[90vh] flex flex-col"
       data-testid="identity-modal"
     >
-      {/* Head — avatar + inline-editable name/task + ⋯ menu + close X.
-          Custom head shape (not <ModalHead>) because it holds inline edit
-          UI + a popover — the canonical head is optimized for
-          static-title-plus-actions rather than this multi-line inline-
-          edit layout. */}
+      {/* Head — avatar + display name (no pencil) + role slug + inline-
+          editable task + voice chip pinned top-right + close X. Custom
+          head shape (not <ModalHead>) because it holds inline-edit UI
+          and chip-triggered popovers. */}
       <div
         className="px-5 py-4 flex flex-row items-start gap-3 flex-shrink-0"
         style={{
@@ -618,37 +501,11 @@ export function IdentityModal({
           }}
         />
         <div className="flex flex-col flex-1 min-w-0 gap-1">
-          {/* Line 1: display name + inline pencil */}
+          {/* Line 1: display name (no pencil — identities not renamable
+              via UI 2026-09-29). Still supports the jump-to-role click
+              treatment when identity.role is set. */}
           <div className="flex items-center gap-2 min-w-0">
-            {editingDisplayName ? (
-              <input
-                type="text"
-                value={displayNameDraft}
-                onChange={(e) => setDisplayNameDraft(e.target.value)}
-                onBlur={() => {
-                  void saveDisplayName();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void saveDisplayName();
-                  } else if (e.key === "Escape") {
-                    e.preventDefault();
-                    setEditingDisplayName(false);
-                    setDisplayNameDraft(identity.displayName);
-                  }
-                }}
-                autoFocus
-                disabled={savingField === "displayName"}
-                data-testid="identity-modal-displayname-input"
-                className={cn(
-                  "flex-1 min-w-0 px-2 py-1 rounded-md text-[16px] font-semibold",
-                  "bg-black/25 border border-[hsla(var(--pv-id-hue),65%,55%,0.5)] text-[#f0ebe0]",
-                  "outline-none",
-                  "disabled:opacity-60",
-                )}
-              />
-            ) : canJumpToRole ? (
+            {canJumpToRole ? (
               <TitleLineJumpToRole
                 identity={identity}
                 text={identity.displayName}
@@ -663,21 +520,6 @@ export function IdentityModal({
               <span className="font-semibold text-[16px] text-[#f0ebe0] truncate leading-tight">
                 {identity.displayName}
               </span>
-            )}
-            {!editingDisplayName && (
-              <button
-                type="button"
-                aria-label="Edit display name"
-                title="Edit display name"
-                onClick={() => {
-                  setDisplayNameDraft(identity.displayName);
-                  setEditingDisplayName(true);
-                }}
-                data-testid="identity-modal-displayname-pencil"
-                className="shrink-0 cursor-pointer text-[hsla(var(--pv-id-hue),22%,88%,0.55)] hover:text-[#f0ebe0] transition-colors"
-              >
-                <Pencil size={12} />
-              </button>
             )}
           </div>
           {/* Role slug meta line */}
@@ -745,30 +587,42 @@ export function IdentityModal({
             )}
           </div>
         </div>
-        {/* ⋯ menu + close X — grouped tight at top-right. */}
-        <div className="flex items-start gap-1 shrink-0" ref={menuRef}>
-          <div className="relative">
+        {/* Voice chip + close X — pinned to the top of the header. */}
+        <div className="flex items-start gap-1 shrink-0">
+          <div className="relative" ref={voicePickerRef}>
             <button
               type="button"
-              aria-label="More settings"
-              title="More settings"
-              onClick={() => setMenuOpen((v) => !v)}
-              data-testid="identity-modal-menu-button"
+              aria-label="Voice — click to pick"
+              title={
+                identity.voice
+                  ? `Voice: ${identity.voice} — click to change`
+                  : "Voice — click to pick (currently inherits role default)"
+              }
+              onClick={() => setVoicePickerOpen((v) => !v)}
+              data-testid="identity-modal-voice-chip"
               className={cn(
-                "size-9 rounded-full flex items-center justify-center cursor-pointer",
-                "text-[hsla(var(--pv-id-hue),22%,88%,0.65)] hover:text-[#f0ebe0]",
-                "hover:bg-white/10 transition-colors",
-                menuOpen && "bg-white/10 text-[#f0ebe0]",
+                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium cursor-pointer",
+                "border transition-colors",
+                voicePickerOpen
+                  ? "bg-[hsla(var(--pv-id-hue),55%,45%,0.7)] border-[hsla(var(--pv-id-hue),65%,60%,0.55)] text-[#fbf5e8]"
+                  : "bg-[hsla(var(--pv-id-hue),55%,40%,0.55)] border-[hsla(var(--pv-id-hue),65%,55%,0.45)] text-[#fbf5e8] hover:bg-[hsla(var(--pv-id-hue),55%,45%,0.65)]",
               )}
             >
-              <MoreHorizontal size={16} />
+              <Mic size={12} className="opacity-85" />
+              {identity.voice ? (
+                <span>{identity.voice}</span>
+              ) : (
+                <span className="italic opacity-75">default</span>
+              )}
+              <ChevronDown size={12} className="opacity-70" />
             </button>
-            {menuOpen && (
+            {voicePickerOpen && (
               <div
-                role="menu"
-                data-testid="identity-modal-menu"
+                role="dialog"
+                aria-label="Voice picker"
+                data-testid="identity-modal-voice-popover"
                 className={cn(
-                  "absolute right-0 top-[calc(100%+6px)] z-20 min-w-[260px] p-3 rounded-lg flex flex-col gap-3",
+                  "absolute right-0 top-[calc(100%+6px)] z-20 min-w-[260px] p-3 rounded-lg flex flex-col gap-1.5",
                   "border border-[hsla(var(--pv-id-hue),60%,55%,0.32)]",
                 )}
                 style={{
@@ -776,52 +630,15 @@ export function IdentityModal({
                   boxShadow: "0 10px 32px rgba(0, 0, 0, 0.55)",
                 }}
               >
-                <div className="flex flex-col gap-1.5">
-                  <div className="text-[10.5px] font-medium tracking-[0.14em] uppercase text-[hsla(var(--pv-id-hue),30%,88%,0.72)]">
-                    Voice
-                  </div>
-                  <VoicePicker
-                    value={voiceDraft}
-                    onChange={(v) => {
-                      void saveVoice(v);
-                    }}
-                    ariaLabel="Voice"
-                  />
+                <div className="text-[10.5px] font-medium tracking-[0.14em] uppercase text-[hsla(var(--pv-id-hue),30%,88%,0.72)]">
+                  Voice
                 </div>
-                <label
-                  className="flex items-center gap-2.5 cursor-pointer"
-                  title="Toggle stays-awake sentinel for this identity"
-                >
-                  <Switch
-                    checked={staysAwake === true}
-                    onCheckedChange={onStaysAwakeToggle}
-                    disabled={staysAwake === null || staysAwakeSaving}
-                    aria-label={`Toggle stays-awake for ${identity.displayName}`}
-                  />
-                  <span className="text-[12.5px] text-[hsla(var(--pv-id-hue),22%,88%,0.85)]">
-                    Boost response time (uses more memory)
-                  </span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => avatarFileInputRef.current?.click()}
-                  data-testid="identity-modal-avatar-upload"
-                  className={cn(
-                    "flex items-center gap-2 px-2 py-1.5 rounded-md text-[12.5px] cursor-pointer",
-                    "bg-black/25 border border-white/10 text-[#e8e4d8]",
-                    "hover:bg-black/40",
-                  )}
-                >
-                  <Upload size={12} /> Upload new avatar…
-                </button>
-                <input
-                  ref={avatarFileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    void onAvatarPick(e);
+                <VoicePicker
+                  value={voiceDraft}
+                  onChange={(v) => {
+                    void saveVoice(v);
                   }}
+                  ariaLabel="Voice"
                 />
               </div>
             )}
