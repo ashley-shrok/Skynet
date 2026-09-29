@@ -699,6 +699,51 @@ describe("PrettyConversationsPanel: collapse state (D-13)", () => {
     fireEvent.click(header);
     expect(toggleSpy).toHaveBeenCalledWith("alpha");
   });
+
+  it("Test 4b: user-collapsed project force-expands when sidebar search is active and has matches", () => {
+    const hostA = makeHost("1", "hostA");
+    const rowA = makeRow({ id: "alpha-row", label: "needle-session", host: hostA, targetTmuxSession: "a-sess" });
+    setSnapshot({
+      projectSections: [
+        { slug: "alpha", displayName: "Alpha", rows: [rowA] },
+      ],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    mockCollapsed = new Set(["alpha"]);
+
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    // Baseline: collapsed section hides the row.
+    const section = container.querySelector('[data-testid="pv-project-section-alpha"]');
+    expect(section).not.toBeNull();
+    expect(section!.querySelector('[data-conversation-id="alpha-row"]')).toBeNull();
+
+    // Type into the sidebar search — matches the row's label.
+    const searchInput = container.querySelector('[data-testid="pv-sidebar-search-input"]') as HTMLInputElement;
+    expect(searchInput).not.toBeNull();
+    fireEvent.change(searchInput, { target: { value: "needle" } });
+
+    // The matching row is now visible even though the project is still
+    // marked collapsed in the persisted collapse set.
+    expect(mockCollapsed.has("alpha")).toBe(true);
+    const sectionAfter = container.querySelector('[data-testid="pv-project-section-alpha"]');
+    expect(sectionAfter).not.toBeNull();
+    expect(sectionAfter!.querySelector('[data-conversation-id="alpha-row"]')).not.toBeNull();
+
+    // Clearing the query restores the collapsed view.
+    fireEvent.change(searchInput, { target: { value: "" } });
+    const sectionCleared = container.querySelector('[data-testid="pv-project-section-alpha"]');
+    expect(sectionCleared!.querySelector('[data-conversation-id="alpha-row"]')).toBeNull();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

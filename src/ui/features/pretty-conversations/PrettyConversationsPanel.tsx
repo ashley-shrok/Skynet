@@ -3159,7 +3159,12 @@ export function PrettyConversationsPanel({
                 key={section.slug}
                 slug={section.slug}
                 displayName={section.displayName}
-                collapsed={collapsedProjectSlugs.has(section.slug)}
+                // Force-expand during sidebar search so matches inside a
+                // user-collapsed project are actually visible (mirrors the
+                // Apps section's `appsExpanded || sidebarSearchActive`
+                // pattern). Persisted collapse state is untouched — it
+                // reapplies when the search clears.
+                collapsed={sidebarSearchActive ? false : collapsedProjectSlugs.has(section.slug)}
                 onToggleCollapse={toggleProjectCollapse}
                 onNewConversationClick={handleNewConversationInProject}
                 onDropRow={handleProjectDrop}
