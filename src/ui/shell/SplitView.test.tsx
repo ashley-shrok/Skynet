@@ -1207,6 +1207,70 @@ describe("SplitView — Phase 64: center-drop replace-vs-swap", () => {
     expect(resolverLog).toBe(true);
   });
 
+  it("app-tile center-drop dispatches onCenterDropAppTile(parsedPayload, target) — mirror of Test 6b for app-tile drags", () => {
+    // Symmetric to Test 6b (row-mime center-drop → onCenterDropRow).
+    // AppTile drags emit application/x-skynet-app-tile with
+    // { hostId, slug, title }; center-drop opens a fresh app tab and
+    // replaces the target pane with it. Before this test's underlying
+    // fix the app-tile branch was deliberately absent and center-drops
+    // silently fell through to center-drop-unknown-mime — regression
+    // guarded here.
+    const centerAppTileSpy =
+      vi.fn<
+        (
+          payload: { hostId: number; slug: string; title: string },
+          targetTabId: string,
+        ) => void
+      >();
+    const centerRowSpy =
+      vi.fn<(payload: unknown, targetTabId: string) => void>();
+    const swapSpy = vi.fn<(a: string, b: string) => void>();
+    const replaceSpy =
+      vi.fn<(replacement: string, target: string) => void>();
+    const openSpy =
+      vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabTarget]}
+        onCenterDropAppTile={centerAppTileSpy}
+        onCenterDropRow={centerRowSpy}
+        onSwapInTree={swapSpy}
+        onReplaceInTree={replaceSpy}
+        onOpenSessionInTree={openSpy}
+      />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    const appTilePayload = { hostId: 7, slug: "todo-demo", title: "Todo Demo" };
+    dispatchDropAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-app-tile"],
+      getData: (k: string) =>
+        k === "application/x-skynet-app-tile"
+          ? JSON.stringify(appTilePayload)
+          : "",
+    });
+    expect(centerAppTileSpy).toHaveBeenCalledTimes(1);
+    expect(centerAppTileSpy).toHaveBeenCalledWith(appTilePayload, "target");
+    expect(centerRowSpy).not.toHaveBeenCalled();
+    expect(replaceSpy).not.toHaveBeenCalled();
+    expect(swapSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    // Regression: the pre-fix behavior emitted center-drop-unknown-mime
+    // via console.info fall-through. Assert it does NOT fire when the
+    // app-tile branch dispatches.
+    const unknownMimeLog = infoSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("[pv-split-drop] center-drop-unknown-mime"),
+      ),
+    );
+    expect(unknownMimeLog).toBe(false);
+  });
+
   it("Phase 64 Test 7: badge-mime self-drop (source === target) is silent — no handler called, structured log emitted", () => {
     const swapSpy =
       vi.fn<(a: string, b: string) => void>();

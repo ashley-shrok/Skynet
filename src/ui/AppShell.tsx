@@ -3037,6 +3037,36 @@ export function AppShell({
     [resolveRowPayloadTabId, replaceInTree],
   );
 
+  // Center-zone app-tile drop handler. AppTile counterpart to
+  // onCenterDropRow: fresh drag from the sidebar's app tile lands in a
+  // pane's center zone → open a new "app" tab (mirror of
+  // onDropAppTileInTree edge-drop path) then replaceInTree(newTabId,
+  // targetTabId) to swap the target pane's contents to the fresh app leaf.
+  // Displaced session stays live in tabs[] per the replaceLeaf contract
+  // (see comment at replaceInTree def). selectConversationDeferred focuses
+  // the newborn — parity with the edge-drop path.
+  const onCenterDropAppTile = useCallback(
+    (
+      payload: { hostId: number; slug: string; title: string },
+      targetTabId: string,
+    ) => {
+      systemLogger.info("pv-split-drop onCenterDropAppTile", {
+        operation: "pv_split_drop_on_center_drop_app_tile",
+        hostId: payload.hostId,
+        slug: payload.slug,
+        targetTabId,
+      });
+      const newTabId = openTab(null, "app", undefined, {
+        app: { hostId: payload.hostId, slug: payload.slug },
+        label: payload.title,
+        allowCreateTmux: false,
+      });
+      replaceInTree(newTabId, targetTabId);
+      selectConversationDeferred(newTabId);
+    },
+    [openTab, replaceInTree, selectConversationDeferred],
+  );
+
   // ─── Sidebar ─────────────────────────────────────────────────────────────
   // Phase 11 Plan 03: handleRailClick + editHostInManager RETIRED — the rail
   // is gone, HostsPanel is gone, no consumers remain.
@@ -4249,6 +4279,9 @@ export function AppShell({
                         targetTabId,
                       )
                     }
+                    // App-tile center-drop wiring — symmetric to onCenterDropRow
+                    // for AppTile drags. See onCenterDropAppTile useCallback def.
+                    onCenterDropAppTile={onCenterDropAppTile}
                     onSwapInTree={swapInTree}
                     onDropBadgeInTree={(payload, path, edge) =>
                       onDropBadgeInTree(

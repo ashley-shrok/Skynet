@@ -216,6 +216,7 @@ const Pane = memo(function Pane({
   onDropAppTileInTree,
   onReplaceInTree,
   onCenterDropRow,
+  onCenterDropAppTile,
   onSwapInTree,
   onDropBadgeInTree,
   onCenterDropBadge,
@@ -275,6 +276,15 @@ const Pane = memo(function Pane({
   // Falls back to onReplaceInTree when absent (keeps existing tests / any
   // legacy call sites unchanged).
   onCenterDropRow?: (payload: unknown, targetTabId: string) => void;
+  // App-tile center-drop dispatch. Symmetric to onCenterDropRow but for
+  // AppTile drags (application/x-skynet-app-tile mime). AppShell wires this
+  // to openTab(null, "app", …) + replaceInTree(newTabId, targetTabId) — the
+  // app-tile equivalent of the row center-drop replace-in-place. Falls
+  // through to the unknown-mime no-op when absent (legacy behavior).
+  onCenterDropAppTile?: (
+    payload: { hostId: number; slug: string; title: string },
+    targetTabId: string,
+  ) => void;
   // Phase 64 Plan 02 — center-drop-from-open-badge dispatch. AppShell wires
   // this to `swapInTree` (functional-updater around split-tree
   // `swapLeaves`). See
@@ -615,19 +625,39 @@ const Pane = memo(function Pane({
             // Fall through to text/plain / unknown-mime branches.
           }
         }
-        // Phase 120 D-07 — app-tile center-drops deliberately fall through
-        // to the unknown-mime no-op below. The center-drop dispatch signature
-        // (`payload, targetTabId`) doesn't map cleanly onto an app-tile fresh
-        // open: unlike badge (swap) or row (replace-in-place), an app-tile
-        // drop is ALWAYS a fresh open — center-drop for app-tile would need
-        // to `openTab(...) + replaceLeaf(newTabId, targetTabId)`, which is
-        // not currently wired. Users who want to open an app in a specific
-        // slot can drop on an edge instead (edge-drop path is fully wired
-        // via onDropAppTileInTree at :634+ above). Not a UX regression —
-        // center-drop for a fresh-open source has no natural semantic
-        // (there's no source leaf to swap-with). See CONTEXT.md § D-15 for
-        // the multi-instance discipline this preserves.
-        //
+        // App-tile center-drop dispatch. Symmetric to the row branch
+        // above: a fresh drag from the sidebar's app tile lands in the
+        // center zone of a target pane → open a new app leaf, replace
+        // target with it. AppShell wires onCenterDropAppTile to
+        // openTab(null, "app", ...) + replaceInTree(newTabId, targetTabId)
+        // + selectConversationDeferred(newTabId). Mirror of the row-source
+        // "replace what was here" semantic — user gesture is unambiguous
+        // (drop app on center of pane = replace pane with app).
+        const appTileJsonCenter =
+          e.dataTransfer?.getData("application/x-skynet-app-tile") ?? "";
+        if (appTileJsonCenter.length > 0 && onCenterDropAppTile) {
+          try {
+            const parsed = JSON.parse(appTileJsonCenter) as {
+              hostId: number;
+              slug: string;
+              title: string;
+            };
+            systemLogger.info("pv-split-drop center-drop dispatch=app-tile", {
+              operation: "pv_split_drop_center_app_tile",
+              hostId: typeof parsed?.hostId === "number" ? parsed.hostId : undefined,
+              slug: typeof parsed?.slug === "string" ? parsed.slug : undefined,
+              targetTabId: tabId,
+            });
+            onCenterDropAppTile(parsed, tabId);
+            return;
+          } catch (err) {
+            systemLogger.warn("pv-split-drop center-drop app-tile parse failed", {
+              operation: "pv_split_drop_center_app_tile_parse_failed",
+              error: (err as Error).message,
+            });
+            // Fall through to unknown-mime no-op below.
+          }
+        }
         // Phase 64 /close finding (Addition 2): text/plain-only fallback
         // path REMOVED. The shape strictly names two rich-payload sources
         // (row via application/x-skynet-row, badge via
@@ -766,6 +796,7 @@ const Pane = memo(function Pane({
     onOpenSessionInTree,
     onReplaceInTree,
     onCenterDropRow,
+    onCenterDropAppTile,
     onSwapInTree,
     onDropBadgeInTree,
     onCenterDropBadge,
@@ -901,6 +932,7 @@ function PaneTree({
   onDropAppTileInTree,
   onReplaceInTree,
   onCenterDropRow,
+  onCenterDropAppTile,
   onSwapInTree,
   onDropBadgeInTree,
   onCenterDropBadge,
@@ -936,6 +968,11 @@ function PaneTree({
   ) => void;
   // Row-source center-drop resolver (2026-09-18) — see Pane props.
   onCenterDropRow?: (payload: unknown, targetTabId: string) => void;
+  // App-tile center-drop dispatch — see Pane props for full JSDoc.
+  onCenterDropAppTile?: (
+    payload: { hostId: number; slug: string; title: string },
+    targetTabId: string,
+  ) => void;
   onSwapInTree?: (tabIdA: string, tabIdB: string) => void;
   onDropBadgeInTree?: (
     payload: unknown,
@@ -960,6 +997,7 @@ function PaneTree({
         onDropAppTileInTree={onDropAppTileInTree}
         onReplaceInTree={onReplaceInTree}
         onCenterDropRow={onCenterDropRow}
+        onCenterDropAppTile={onCenterDropAppTile}
         onSwapInTree={onSwapInTree}
         onDropBadgeInTree={onDropBadgeInTree}
         onCenterDropBadge={onCenterDropBadge}
@@ -990,6 +1028,7 @@ function PaneTree({
           onDropAppTileInTree={onDropAppTileInTree}
           onReplaceInTree={onReplaceInTree}
           onCenterDropRow={onCenterDropRow}
+          onCenterDropAppTile={onCenterDropAppTile}
           onSwapInTree={onSwapInTree}
           onDropBadgeInTree={onDropBadgeInTree}
           onCenterDropBadge={onCenterDropBadge}
@@ -1013,6 +1052,7 @@ function PaneTree({
           onDropAppTileInTree={onDropAppTileInTree}
           onReplaceInTree={onReplaceInTree}
           onCenterDropRow={onCenterDropRow}
+          onCenterDropAppTile={onCenterDropAppTile}
           onSwapInTree={onSwapInTree}
           onDropBadgeInTree={onDropBadgeInTree}
           onCenterDropBadge={onCenterDropBadge}
@@ -1038,6 +1078,7 @@ export const SplitView = memo(function SplitView({
   onDropAppTileInTree,
   onReplaceInTree,
   onCenterDropRow,
+  onCenterDropAppTile,
   onSwapInTree,
   onDropBadgeInTree,
   onCenterDropBadge,
@@ -1076,6 +1117,11 @@ export const SplitView = memo(function SplitView({
   ) => void;
   // Row-source center-drop resolver (2026-09-18) — see Pane props.
   onCenterDropRow?: (payload: unknown, targetTabId: string) => void;
+  // App-tile center-drop dispatch — see Pane props for full JSDoc.
+  onCenterDropAppTile?: (
+    payload: { hostId: number; slug: string; title: string },
+    targetTabId: string,
+  ) => void;
   // Phase 64 Plan 02 — center-drop-from-open-badge dispatch. Wired by
   // AppShell to `swapInTree` (functional-updater around split-tree
   // `swapLeaves` from Plan 64-01).
@@ -1116,6 +1162,7 @@ export const SplitView = memo(function SplitView({
         onDropAppTileInTree={onDropAppTileInTree}
         onReplaceInTree={onReplaceInTree}
         onCenterDropRow={onCenterDropRow}
+        onCenterDropAppTile={onCenterDropAppTile}
         onSwapInTree={onSwapInTree}
         onDropBadgeInTree={onDropBadgeInTree}
         onCenterDropBadge={onCenterDropBadge}
