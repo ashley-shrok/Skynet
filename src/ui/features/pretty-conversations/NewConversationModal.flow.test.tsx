@@ -315,7 +315,7 @@ async function openNewConversationModal() {
     fireEvent.click(menuItem);
   });
   // Wait for the modal portal to mount.
-  const dialog = await screen.findByRole("dialog", { name: /new conversation/i });
+  const dialog = await screen.findByRole("dialog", { name: /new group conversation/i });
   return dialog;
 }
 
@@ -418,7 +418,7 @@ describe("NewConversationModal — full user flow", () => {
     // Assert: modal is closed (no longer in DOM).
     await waitFor(() => {
       expect(
-        screen.queryByRole("dialog", { name: /new conversation/i }),
+        screen.queryByRole("dialog", { name: /new group conversation/i }),
       ).not.toBeInTheDocument();
     });
   });
@@ -576,7 +576,7 @@ describe("NewConversationModal — full user flow", () => {
     // Modal must STAY open after error.
     await waitFor(() => {
       expect(
-        screen.queryByRole("dialog", { name: /new conversation/i }),
+        screen.queryByRole("dialog", { name: /new group conversation/i }),
       ).toBeInTheDocument();
     });
 
@@ -603,7 +603,7 @@ describe("NewConversationModal — full user flow", () => {
 
     await waitFor(() => {
       expect(
-        screen.queryByRole("dialog", { name: /new conversation/i }),
+        screen.queryByRole("dialog", { name: /new group conversation/i }),
       ).not.toBeInTheDocument();
     });
   });

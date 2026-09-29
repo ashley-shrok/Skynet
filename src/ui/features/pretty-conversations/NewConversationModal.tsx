@@ -23,11 +23,9 @@
 //     not raw event or error serialization.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import { DialogHeader, DialogTitle, DialogClose } from "@/components/dialog";
 import { Button } from "@/components/button";
 import { cn } from "@/lib/utils";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import type { CreateRelayRoomResponse } from "./participant-types";
 import type { PickedParticipant } from "./participant-types";
 import { useNewConversationForm } from "./useNewConversationForm";
@@ -266,177 +264,88 @@ export function NewConversationModal({
   const hint = gateHint(form.gate);
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={true}>
-      <DialogPrimitive.Portal>
-        {/* Overlay — mirrors GlobalFilesModal.tsx L195-201 z-index ladder */}
-        <DialogPrimitive.Overlay
-          className={cn(
-            "absolute inset-0 z-[110] bg-black/40",
-            "supports-backdrop-filter:backdrop-blur-xs duration-100",
-            "data-open:animate-in data-open:fade-in-0",
-            "data-closed:animate-out data-closed:fade-out-0",
-          )}
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      hue={220}
+      size="xl"
+      dismissOnBackdrop={false}
+      className="max-h-[720px] flex flex-col"
+    >
+      <ModalHead title="New group conversation" />
+      <ModalBody className="overflow-y-auto flex flex-col gap-3">
+        {/* 1. Room name field — mandatory (Test 3 gate transition) */}
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="new-conversation-room-name"
+            className="text-[10.5px] font-medium tracking-[0.1em] uppercase text-[hsla(var(--pv-id-hue),30%,90%,0.65)]"
+          >
+            Room name
+          </label>
+          <input
+            id="new-conversation-room-name"
+            type="text"
+            value={form.roomName}
+            onChange={(e) => form.setRoomName(e.target.value)}
+            placeholder="e.g. Design review"
+            aria-required="true"
+            autoFocus
+            className={cn(
+              "w-full px-3 py-2 rounded-lg text-sm text-[#fbf5e8]",
+              "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)] outline-none",
+              "focus:border-[hsla(var(--pv-id-hue),70%,60%,0.5)] focus:bg-black/30",
+              "placeholder:text-[hsla(var(--pv-id-hue),22%,88%,0.55)]",
+              "transition-colors duration-150",
+            )}
+          />
+        </div>
+
+        {/* 2. Chips strip — selected participants */}
+        <ParticipantChipStrip picked={form.picked} onRemove={form.remove} />
+
+        {/* 3. Search input */}
+        <ParticipantSearchInput
+          value={form.searchQuery}
+          onChange={form.setSearchQuery}
         />
-        {/*
-         * Content — mobile: absolute inset-4 (fills viewport minus 16px margin).
-         * Desktop: centered at 560×720 max via left/top-1/2 + -translate-x/y-1/2.
-         * The prior anchored-both-vertical-edges pattern (see git log for the
-         * Phase 91 initial ship) produced a super-narrow full-height modal on
-         * 4K viewports — bounty new-conversation-modal-narrow-on-wide-viewport.
-         * CSS-only breakpoint — no dual component tree. Shape §Mobile-vs-Desktop.
-         */}
-        <DialogPrimitive.Content
-          onInteractOutside={(e) => {
-            // Patch #111f pattern: prevent modal from closing when clicking
-            // outside. X and Esc remain the only valid close paths (Test 11).
-            e.preventDefault();
-          }}
-          className={cn(
-            "absolute inset-4 z-[120] outline-none",
-            "flex flex-col overflow-hidden rounded-[24px]",
-            // Desktop refinement — centers at 560×720 max (Tests 18 + 19).
-            "md:max-w-[560px] md:max-h-[720px] md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
-            "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+
+        {/* 4. Participant list — sectioned (Humans / Agents) */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <ParticipantList
+            humans={form.availableHumans}
+            agents={form.availableAgents}
+            pickedMxids={new Set(form.picked.map((p) => p.mxid))}
+            onToggle={form.toggle}
+            filterActive={form.searchQuery.trim() !== ""}
+            humansTotal={humans.length}
+            agentsTotal={agents.length}
+          />
+        </div>
+      </ModalBody>
+      <ModalFoot>
+        <div className="flex flex-col gap-2 w-full">
+          <Button
+            type="button"
+            disabled={!form.gate.ok}
+            onClick={() => {
+              void handleSubmit();
+            }}
+            className="w-full"
+          >
+            Create
+          </Button>
+          {hint && (
+            <p className="text-xs text-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)]">
+              {hint}
+            </p>
           )}
-          style={{
-            background:
-              "linear-gradient(160deg, hsla(220, 45%, 25%, 0.82), hsla(220, 40%, 15%, 0.88))",
-            backdropFilter: "blur(28px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(28px) saturate(1.4)",
-            border: "1px solid hsla(220, 65%, 55%, 0.32)",
-            boxShadow:
-              "0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 80px hsla(220, 65%, 55%, 0.2)",
-            color: "#e8e4d8",
-          }}
-        >
-          {/* a11y: sr-only title for screen readers */}
-          <DialogTitle className="sr-only">New conversation</DialogTitle>
-
-          {/* ─── Header ───────────────────────────────────────────────────── */}
-          <DialogHeader
-            className="px-6 py-4 shrink-0 flex flex-row items-center gap-3"
-            style={{ borderBottom: "1px solid rgba(220, 225, 245, 0.10)" }}
-          >
-            <h2 className="text-[15px] font-semibold text-[#f0ebe0] flex-1">
-              New conversation
-            </h2>
-
-            {/* Glass X close button — verbatim from GlobalFilesModal.tsx L253-276 */}
-            <DialogClose asChild>
-              <button
-                type="button"
-                aria-label="Close"
-                title="Close"
-                className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color,box-shadow] duration-200"
-                style={{
-                  background: "rgba(255, 255, 255, 0.04)",
-                  border: "1px solid rgba(220, 225, 245, 0.10)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.10)";
-                  e.currentTarget.style.border =
-                    "1px solid rgba(220, 225, 245, 0.22)";
-                  e.currentTarget.style.boxShadow =
-                    "0 0 20px hsla(220, 60%, 50%, 0.25)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)";
-                  e.currentTarget.style.border =
-                    "1px solid rgba(220, 225, 245, 0.10)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-              >
-                <X className="size-4" />
-              </button>
-            </DialogClose>
-          </DialogHeader>
-
-          {/* ─── Body ─────────────────────────────────────────────────────── */}
-          <div className="flex flex-col flex-1 min-h-0 overflow-y-auto px-6 py-4 gap-3">
-            {/* 1. Room name field — mandatory (Test 3 gate transition) */}
-            <div className="flex flex-col gap-1">
-              <label
-                htmlFor="new-conversation-room-name"
-                className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]"
-              >
-                Room name
-              </label>
-              <input
-                id="new-conversation-room-name"
-                type="text"
-                value={form.roomName}
-                onChange={(e) => form.setRoomName(e.target.value)}
-                placeholder="e.g. Design review"
-                aria-required="true"
-                autoFocus
-                className={cn(
-                  "w-full px-3 py-2 rounded-lg text-sm text-[#e8e4d8]",
-                  "bg-black/20 border border-white/10 outline-none",
-                  "focus:border-[hsla(220,65%,55%,0.5)] focus:bg-black/30",
-                  "placeholder:text-[color:var(--color-pv-fg-dim)]",
-                  "transition-colors duration-150",
-                )}
-              />
-            </div>
-
-            {/* 2. Chips strip — selected participants */}
-            <ParticipantChipStrip
-              picked={form.picked}
-              onRemove={form.remove}
-            />
-
-            {/* 3. Search input */}
-            <ParticipantSearchInput
-              value={form.searchQuery}
-              onChange={form.setSearchQuery}
-            />
-
-            {/* 4. Participant list — sectioned (Humans / Agents) */}
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <ParticipantList
-                humans={form.availableHumans}
-                agents={form.availableAgents}
-                pickedMxids={new Set(form.picked.map((p) => p.mxid))}
-                onToggle={form.toggle}
-                filterActive={form.searchQuery.trim() !== ""}
-                humansTotal={humans.length}
-                agentsTotal={agents.length}
-              />
-            </div>
-          </div>
-
-          {/* ─── Footer (Create button + hint) ───────────────────────────── */}
-          <div
-            className="px-6 py-4 shrink-0 flex flex-col gap-2"
-            style={{ borderTop: "1px solid rgba(220, 225, 245, 0.10)" }}
-          >
-            <Button
-              type="button"
-              disabled={!form.gate.ok}
-              onClick={() => {
-                void handleSubmit();
-              }}
-              className="w-full"
-            >
-              Create
-            </Button>
-            {hint && (
-              <p className="text-xs text-center text-[color:var(--color-pv-fg-muted)]">
-                {hint}
-              </p>
-            )}
-            {form.error && (
-              <p
-                role="alert"
-                className="text-xs text-center text-red-400"
-              >
-                {form.error}
-              </p>
-            )}
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+          {form.error && (
+            <p role="alert" className="text-xs text-center text-red-400">
+              {form.error}
+            </p>
+          )}
+        </div>
+      </ModalFoot>
+    </Modal>
   );
 }

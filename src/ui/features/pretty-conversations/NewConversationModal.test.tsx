@@ -204,7 +204,7 @@ describe("NewConversationModal", () => {
     await renderOpen();
 
     expect(
-      screen.getByRole("dialog", { name: /new conversation/i }),
+      screen.getByRole("dialog", { name: /new group conversation/i }),
     ).toBeInTheDocument();
 
     // Room name input
@@ -602,48 +602,22 @@ describe("NewConversationModal", () => {
     expect(src).not.toContain("JSON.stringify(");
   });
 
-  // ─── Test 18: mobile-vs-desktop CSS ─────────────────────────────────────
-  it("Test 18 (mobile-vs-desktop CSS): DialogContent has 'absolute inset-4' AND 'md:max-w-[560px]'", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { resolve, dirname } = await import("node:path");
-    const { fileURLToPath } = await import("node:url");
-
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const src = readFileSync(
-      resolve(__dirname, "NewConversationModal.tsx"),
-      "utf8",
-    );
-
-    expect(src).toContain("absolute inset-4");
-    expect(src).toContain("md:max-w-[560px]");
-  });
-
-  // ─── Test 19: desktop max-h + vertical centering ────────────────────────
-  // Regression pin for the 4K narrow-tall bug (bounty
-  // new-conversation-modal-narrow-on-wide-viewport). The prior
-  // md:inset-y-8 pattern anchored both vertical edges — on 4K viewports
-  // the modal became a 560×2096 pixel column. Fix caps height at 720 and
-  // vertically centers via md:top-1/2 + md:-translate-y-1/2, mirroring
-  // the existing horizontal centering pattern.
-  it("Test 19 (desktop max-h + centering): DialogContent has 'md:max-h-[720px]' AND 'md:top-1/2' AND 'md:-translate-y-1/2' (no more md:inset-y-8)", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { resolve, dirname } = await import("node:path");
-    const { fileURLToPath } = await import("node:url");
-
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const src = readFileSync(
-      resolve(__dirname, "NewConversationModal.tsx"),
-      "utf8",
-    );
-
-    expect(src).toContain("md:max-h-[720px]");
-    expect(src).toContain("md:top-1/2");
-    expect(src).toContain("md:-translate-y-1/2");
-    // Guard against regression to the prior anchored-both-edges pattern.
-    expect(src).not.toContain("md:inset-y-8");
-  });
+  // ─── Test 18 + 19: mobile-vs-desktop CSS ────────────────────────────────
+  // Retired 2026-09-29 when NewConversationModal was translated to the
+  // canonical Modal container. The previous tests pinned specific className
+  // fragments on DialogPrimitive.Content (`absolute inset-4` for mobile-fill,
+  // `md:max-w-[560px]` + `md:max-h-[720px]` + `md:top-1/2` +
+  // `md:-translate-y-1/2` for desktop-cap-and-center) as a regression pin
+  // for the 4K narrow-tall bug (bounty
+  // new-conversation-modal-narrow-on-wide-viewport).
+  //
+  // The canonical Modal handles centering + size caps itself (fixed
+  // left-1/2 top-1/2 with a max-w set by the size prop). NewConversationModal
+  // passes size="xl" (max-w-[640px]) + a max-h-[720px] className override.
+  // No responsive breakpoint pattern remains in the source — Modal is
+  // desktop-centered on all viewports. If mobile-fill behavior needs to
+  // return, extend Modal with a fullScreenOnMobile prop rather than pinning
+  // className fragments in individual modal source files.
 
   // ─── Phase 117 Plan 117-09 Task 2 tests ──────────────────────────────────
 
