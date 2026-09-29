@@ -86,6 +86,7 @@ new_home() {
     mkdir -p "$tmp/.config/systemd/user"
     mkdir -p "$tmp/fleet/host"
     echo "42" > "$tmp/fleet/host/id"
+    echo "https://test.example.com" > "$tmp/fleet/host/parent"
     echo "$tmp"
 }
 
@@ -133,8 +134,6 @@ assert_file_contains "$WIDGET_HTML" 'action-btn' "widget.html has action-btn cla
 assert_file_contains "$WIDGET_HTML" '/update' "widget.html has /update endpoint"
 
 # widget.html — absence checks (non-terminal invariants)
-assert_file_not_contains "$WIDGET_HTML" 'postMessage' "widget.html has no postMessage"
-assert_file_not_contains "$WIDGET_HTML" 'window.parent' "widget.html has no window.parent"
 assert_file_not_contains "$WIDGET_HTML" 'done-btn' "widget.html has no done-btn"
 assert_file_not_contains "$WIDGET_HTML" 'id="done-btn"' "widget.html has no id=done-btn"
 assert_file_not_contains "$WIDGET_HTML" 'submit-btn' "widget.html has no submit-btn"

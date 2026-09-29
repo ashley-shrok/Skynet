@@ -1,0 +1,243 @@
+<!-- draft-terminal-on-submit template — do not edit installed copies; edit the substrate template only -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skynet widget</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+    }
+
+    body {
+      padding: 12px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      color: #111;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body { color: #e8e8e8; }
+    }
+
+    #prompt {
+      margin: 0 0 10px 0;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #prompt:empty {
+      display: none;
+    }
+
+    #draft {
+      display: block;
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 15px;
+      line-height: 1.45;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+      color: #111;
+      box-sizing: border-box;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 120px;
+      overflow-y: hidden;
+    }
+
+    #draft:focus {
+      outline: 2px solid #3b82f6;
+      outline-offset: 0;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #draft {
+        background: #2d2d2d;
+        color: #e8e8e8;
+        border-color: #555;
+      }
+      #draft:disabled {
+        background: #222;
+        color: #666;
+        border-color: #333;
+      }
+    }
+
+    #submit-btn {
+      display: block;
+      width: 100%;
+      padding: 10px 14px;
+      font-size: 15px;
+      font-family: inherit;
+      text-align: center;
+      cursor: pointer;
+      border: 1px solid #3b82f6;
+      border-radius: 6px;
+      background: #3b82f6;
+      color: #fff;
+      font-weight: 600;
+      margin-top: 10px;
+      min-height: 44px;
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    #submit-btn:hover:not(:disabled) {
+      background: #2563eb;
+      border-color: #2563eb;
+    }
+
+    #submit-btn:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #submit-btn {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+      }
+      #submit-btn:hover:not(:disabled) {
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+      }
+      #submit-btn:disabled {
+        background: #1e3a5f;
+        border-color: #1e3a5f;
+        color: #666;
+      }
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #555;
+      min-height: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #status { color: #aaa; }
+    }
+  </style>
+</head>
+<body>
+  <h2 id="prompt"></h2>
+  <textarea id="draft" rows="6" spellcheck="true"></textarea>
+  <button id="submit-btn" type="button"></button>
+  <div id="status"></div>
+
+  <script>
+    // Substitution points — the scaffold script replaces these inline literals.
+    var PROMPT       = __PROMPT_JSON__;
+    var DRAFT        = __DRAFT_JSON__;
+    var WIDGET_ID    = "__WIDGET_ID__";
+    var PANE_BASE    = "__PANE_BASE__";
+    var SUBMIT_LABEL = __SUBMIT_LABEL_JSON__;
+
+    function autoSizeTextarea(el) {
+      // Grow to fit content — no scrollbar inside the textarea itself.
+      // Outer WidgetBubble handles overflow via widget-resize postMessage.
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + "px";
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      var promptEl = document.getElementById("prompt");
+      promptEl.textContent = PROMPT;
+
+      var submitBtn = document.getElementById("submit-btn");
+      submitBtn.textContent = SUBMIT_LABEL;
+
+      var draftEl = document.getElementById("draft");
+      draftEl.value = DRAFT;
+      autoSizeTextarea(draftEl);
+      draftEl.addEventListener("input", function () {
+        autoSizeTextarea(draftEl);
+      });
+    });
+
+    function setStatus(msg) {
+      var el = document.getElementById("status");
+      if (el) el.textContent = msg;
+    }
+
+    function handleSubmit() {
+      var submitBtn = document.getElementById("submit-btn");
+      var draftEl   = document.getElementById("draft");
+
+      submitBtn.disabled = true;
+      draftEl.disabled   = true;
+
+      setStatus("Sending…");
+
+      var text = draftEl.value;
+      var submittedAt = new Date().toISOString();
+      var payload = {
+        text: text,
+        submitted_at: submittedAt
+      };
+
+      var submitUrl = PANE_BASE + "/submit";
+
+      fetch(submitUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(function (res) {
+        if (!res.ok && res.status !== 204) {
+          throw new Error("submit returned " + res.status);
+        }
+        submitBtn.textContent = "Sent.";
+        setStatus("Sent.");
+
+        window.parent.postMessage(
+          {
+            type: "widget-submit",
+            widgetId: WIDGET_ID,
+            value: { text: text }
+          },
+          window.location.origin
+        );
+      })
+      .catch(function (err) {
+        console.error("[widget] submit fetch failed:", err);
+        setStatus("Send failed — please try again.");
+        submitBtn.disabled = false;
+        draftEl.disabled   = false;
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      var submitBtn = document.getElementById("submit-btn");
+      submitBtn.addEventListener("click", handleSubmit);
+    });
+
+    // Report content height so WidgetBubble can auto-size the iframe.
+    function reportHeight() {
+      var h = Math.ceil(document.documentElement.scrollHeight);
+      try {
+        window.parent.postMessage(
+          { type: "widget-resize", widgetId: WIDGET_ID, height: h },
+          window.location.origin
+        );
+      } catch (e) { /* parent gone; harmless */ }
+    }
+    document.addEventListener("DOMContentLoaded", function () {
+      reportHeight();
+      if (typeof ResizeObserver !== "undefined") {
+        var ro = new ResizeObserver(reportHeight);
+        ro.observe(document.documentElement);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -88,6 +88,7 @@ new_home() {
     mkdir -p "$tmp/.config/systemd/user"
     mkdir -p "$tmp/fleet/host"
     echo "42" > "$tmp/fleet/host/id"
+    echo "https://test.example.com" > "$tmp/fleet/host/parent"
     echo "$tmp"
 }
 
@@ -134,15 +135,14 @@ assert_file_contains "$WIDGET_DIR/widget.html" 'type="radio"' 'widget.html: type
 assert_file_contains "$WIDGET_DIR/widget.html" '/update' 'widget.html: POSTs to /update'
 
 # widget.html: ZERO occurrences of the postMessage function call string
-POSTMSG_COUNT=$(grep -c 'postMessage' "$WIDGET_DIR/widget.html" || true)
+POSTMSG_COUNT=$(grep -c 'widget-submit' "$WIDGET_DIR/widget.html" || true)
 if [ "$POSTMSG_COUNT" -eq 0 ]; then
-    pass "widget.html: zero postMessage occurrences (non-terminal invariant)"
+    pass "widget.html: zero widget-submit occurrences (non-terminal invariant; widget-resize allowed)"
 else
-    fail "widget.html: found $POSTMSG_COUNT postMessage occurrences — must be 0"
+    fail "widget.html: found $POSTMSG_COUNT widget-submit occurrences — must be 0"
 fi
 
 # widget.html: no window.parent
-assert_file_not_contains "$WIDGET_DIR/widget.html" 'window.parent' 'widget.html: no window.parent (defense-in-depth)'
 
 # widget.html: no submit button
 assert_file_not_contains "$WIDGET_DIR/widget.html" 'submit-btn' 'widget.html: no submit-btn'
@@ -187,7 +187,7 @@ if printf '%s' "$out" | grep -q "^SLUG=pn-happy$"; then
 else
     fail "stdout: missing SLUG=pn-happy — got: $out"
 fi
-if printf '%s' "$out" | grep -q "^URL=/interactive/42/pn-happy/pane/$"; then
+if printf '%s' "$out" | grep -q "^URL=https://test.example.com/interactive/42/pn-happy/pane/$"; then
     pass "stdout: URL=/interactive/42/pn-happy/pane/"
 else
     fail "stdout: missing URL line — got: $out"

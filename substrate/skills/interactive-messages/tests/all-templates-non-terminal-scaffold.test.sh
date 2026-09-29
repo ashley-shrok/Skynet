@@ -8,8 +8,9 @@
 #     metadata.json discriminator correct, metadata.json mode "non-terminal",
 #     systemd unit in-range port.
 #   - Cross-cutting non-terminal invariants (arc-wide):
-#       * Zero postMessage across all six widget.html files
-#       * Zero window.parent across all six widget.html files
+#       * Zero widget-submit postMessages across all six widget.html files
+#         (widget-resize postMessages for iframe auto-sizing are allowed)
+#       * No window.parent usages outside the widget-resize height-reporter
 #       * /update present in all six server.py files
 #       * /submit ABSENT in all six server.py files
 #       * updated_at present in all six widget.html files
@@ -97,6 +98,7 @@ mkdir -p "$SHARED_HOME/fleet/interactive-messages"
 mkdir -p "$SHARED_HOME/.config/systemd/user"
 mkdir -p "$SHARED_HOME/fleet/host"
 echo "42" > "$SHARED_HOME/fleet/host/id"
+echo "https://test.example.com" > "$SHARED_HOME/fleet/host/parent"
 export HOME="$SHARED_HOME"
 
 # Cleanup on exit
@@ -412,24 +414,39 @@ else
     fail "cross: expected 6 widget folders, got $WIDGET_COUNT"
 fi
 
-# 4. Zero postMessage across all six widget.html files (non-terminal widgets never fire wakes)
-POSTMESSAGE_COUNT=$(find "$SHARED_HOME/fleet/interactive-messages" -name "widget.html" \
-                    -exec grep -c 'postMessage' {} + 2>/dev/null \
-                    | awk -F: '{sum+=$NF} END{print sum+0}')
-if [ "$POSTMESSAGE_COUNT" -eq 0 ]; then
-    pass "cross: zero postMessage across all 6 non-terminal widget.html files"
+# 4. Zero widget-submit postMessages across all six widget.html files
+# Non-terminal widgets do send widget-resize postMessages (Phase 143 iframe
+# auto-sizing), but MUST NOT send widget-submit — that would fire a wake and
+# break the "user's next text reply is the wake" contract.
+SUBMIT_MSG_COUNT=$(find "$SHARED_HOME/fleet/interactive-messages" -name "widget.html" \
+                   -exec grep -c 'widget-submit' {} + 2>/dev/null \
+                   | awk -F: '{sum+=$NF} END{print sum+0}')
+if [ "$SUBMIT_MSG_COUNT" -eq 0 ]; then
+    pass "cross: zero widget-submit messages across all 6 non-terminal widget.html files"
 else
-    fail "cross: found $POSTMESSAGE_COUNT postMessage occurrence(s) — non-terminal widgets must not fire wake signals"
+    fail "cross: found $SUBMIT_MSG_COUNT widget-submit occurrence(s) — non-terminal widgets must not fire wake signals"
 fi
 
-# 5. Zero window.parent across all six widget.html files
-WINDOW_PARENT_COUNT=$(find "$SHARED_HOME/fleet/interactive-messages" -name "widget.html" \
-                      -exec grep -c 'window\.parent' {} + 2>/dev/null \
-                      | awk -F: '{sum+=$NF} END{print sum+0}')
-if [ "$WINDOW_PARENT_COUNT" -eq 0 ]; then
-    pass "cross: zero window.parent across all 6 non-terminal widget.html files"
+# 5. Non-terminal templates may reference window.parent only inside the
+# widget-resize height-reporter — confirm no OTHER window.parent usages.
+# Simple check: every window.parent line must be inside a reportHeight()
+# function body that posts widget-resize. Approximation: count total
+# window.parent occurrences and total inside widget-resize context; they
+# must match. Uses per-file check to catch a stray parent call anywhere.
+STRAY_PARENT_COUNT=0
+for html in $(find "$SHARED_HOME/fleet/interactive-messages" -name "widget.html"); do
+    total_parent=$(grep -c 'window\.parent' "$html")
+    # window.parent occurrences that are part of the widget-resize height
+    # postMessage — same pattern used by every template.
+    resize_parent=$(grep -B1 'widget-resize' "$html" | grep -c 'window\.parent')
+    if [ "$total_parent" -ne "$resize_parent" ]; then
+        STRAY_PARENT_COUNT=$((STRAY_PARENT_COUNT + total_parent - resize_parent))
+    fi
+done
+if [ "$STRAY_PARENT_COUNT" -eq 0 ]; then
+    pass "cross: no window.parent usages outside widget-resize height-reporter across all 6 non-terminal widget.html files"
 else
-    fail "cross: found $WINDOW_PARENT_COUNT window.parent occurrence(s) — non-terminal widgets must not communicate with parent frame"
+    fail "cross: found $STRAY_PARENT_COUNT stray window.parent occurrence(s) outside widget-resize — non-terminal widgets must not communicate with parent frame beyond height reporting"
 fi
 
 # 6. /update present in all six server.py files

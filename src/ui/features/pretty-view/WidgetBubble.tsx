@@ -14,6 +14,15 @@
  * agent to send it again"). This is deliverable C of the lifecycle teardown
  * phase — ensures users see actionable messaging once a widget is torn down
  * by the seven-day backstop.
+ *
+ * Post-load liveness polling — after the iframe has loaded at least once, a
+ * lightweight interval probes the widget URL. Three consecutive failures flip
+ * the same expired state used by the initial-load branch. This catches the
+ * mid-conversation tear-down case (iterate-widget rekey, manual teardown)
+ * where the iframe has successfully loaded but its backend server later
+ * disappears — without a probe the iframe stays looking live indefinitely
+ * because nothing else triggers a re-fetch. Polling stops on unmount and once
+ * expired.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -30,6 +39,13 @@ const RETRY_DELAYS_MS = [2000, 4000, 8000];
 const INITIAL_HEIGHT_PX = 120;
 const MAX_HEIGHT_PX = 480;
 const MIN_HEIGHT_PX = 40;
+
+// Post-load liveness poll: after the iframe has loaded once, probe the widget
+// URL every POLL_INTERVAL_MS. POLL_FAIL_THRESHOLD consecutive failures flip
+// the component to expired. 500ms × 3 = ~1.5s detection after tear-down;
+// tolerates network blips up to ~1s.
+const POLL_INTERVAL_MS = 500;
+const POLL_FAIL_THRESHOLD = 3;
 
 export interface WidgetBubbleProps {
   /**
@@ -53,6 +69,7 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
   const [retryCount, setRetryCount] = useState(0);
   const [retrySrc, setRetrySrc] = useState(src);
   const [expired, setExpired] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
   const [isClamped, setIsClamped] = useState(false);
   const [thumb, setThumb] = useState<{ top: number; height: number } | null>(null);
@@ -88,6 +105,43 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
       if (timer) clearTimeout(timer);
     };
   }, [src, retryCount]);
+
+  // Post-load liveness poll — gated on hasLoaded so it doesn't race the
+  // initial-load retry sequence (backend proxy may return 502 briefly while
+  // the widget's systemd unit is starting). Once the iframe fires load at
+  // least once, poll `src` every POLL_INTERVAL_MS; POLL_FAIL_THRESHOLD
+  // consecutive non-2xx or network errors flip to the expired state.
+  useEffect(() => {
+    if (!hasLoaded || expired) return;
+
+    let failCount = 0;
+    let cancelled = false;
+
+    const probe = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(src, { method: "GET", cache: "no-store" });
+        if (cancelled) return;
+        if (res.ok) {
+          failCount = 0;
+        } else {
+          failCount += 1;
+        }
+      } catch {
+        if (cancelled) return;
+        failCount += 1;
+      }
+      if (!cancelled && failCount >= POLL_FAIL_THRESHOLD) {
+        setExpired(true);
+      }
+    };
+
+    const interval = setInterval(probe, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [hasLoaded, expired, src]);
 
   // postMessage listener effect: validates BOTH event.source (correct iframe)
   // AND event.origin (same-origin) before dispatching to the parent callback.
@@ -221,6 +275,7 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
           title="Interactive widget"
           referrerPolicy="no-referrer"
           loading="eager"
+          onLoad={() => setHasLoaded(true)}
           className="w-full border-0"
           style={{
             height: `${contentHeight ?? INITIAL_HEIGHT_PX}px`,

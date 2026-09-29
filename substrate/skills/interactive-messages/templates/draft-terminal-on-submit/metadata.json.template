@@ -1,0 +1,19 @@
+// SHAPE REFERENCE — the scaffold script constructs this via Python; DO NOT copy
+// this file verbatim as substitution is done in Python for correct JSON escaping.
+//
+// Source: substrate/skills/interactive-messages/templates/draft-terminal-on-submit/
+//
+// This file documents the exact shape written by create-widget.sh to
+// ~/fleet/interactive-messages/<slug>/metadata.json.
+{
+  "template": "draft",
+  "widget_id": "__SLUG__",
+  "message_id": "__MESSAGE_ID__",
+  "conversation_id": "__CONVERSATION_ID__",
+  "config": {
+    "prompt": "__PROMPT__",
+    "draft": "__DRAFT__",
+    "submit_label": "Send"
+  },
+  "created_at": "__ISO_TIMESTAMP__"
+}

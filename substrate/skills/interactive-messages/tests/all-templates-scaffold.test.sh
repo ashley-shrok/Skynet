@@ -2,10 +2,10 @@
 # all-templates-scaffold.test.sh — integrated Phase 138 scaffold test
 #
 # Scaffolds one instance of every template (poll, checklist, form, ranking,
-# list-actions, color-picker) in a SHARED temp HOME and asserts:
+# list-actions, color-picker, draft) in a SHARED temp HOME and asserts:
 #   - Per-template: exit 0, widget.html exists, server.py exists,
 #     metadata.json discriminator correct, systemd unit in-range port.
-#   - Cross-cutting: 6 distinct unit files, 6 distinct ports, all in 9601-9699,
+#   - Cross-cutting: 7 distinct unit files, 7 distinct ports, all in 9601-9699,
 #     zero type="radio" across all widget.html files, all widget.html files
 #     target window.location.origin (never "*") in postMessage.
 #
@@ -77,6 +77,7 @@ mkdir -p "$SHARED_HOME/fleet/interactive-messages"
 mkdir -p "$SHARED_HOME/.config/systemd/user"
 mkdir -p "$SHARED_HOME/fleet/host"
 echo "42" > "$SHARED_HOME/fleet/host/id"
+echo "https://test.example.com" > "$SHARED_HOME/fleet/host/parent"
 export HOME="$SHARED_HOME"
 
 # Cleanup on exit
@@ -347,27 +348,71 @@ assert_file_contains \
     'data\["template"\] *= *"color-picker"' \
     "cp-int server.py forces template discriminator"
 
+# ── Template 7: draft ─────────────────────────────────────────────────────────
+
+printf '\n=== Template 7: draft (terminal-on-submit) ===\n'
+
+run_script out err ec \
+    --slug draft-int \
+    --template draft \
+    --message-id "m-draft" \
+    --conversation-id "c-int" \
+    --prompt "Email to Bob" \
+    --draft "Hi Bob, quick note..."
+
+if [ "$ec" = "0" ]; then
+    pass "draft-int: exits 0"
+else
+    fail "draft-int: expected exit 0, got $ec — stderr: $err"
+fi
+
+assert_file_exists "$SHARED_HOME/fleet/interactive-messages/draft-int/widget.html"   "draft-int widget.html"
+assert_file_exists "$SHARED_HOME/fleet/interactive-messages/draft-int/server.py"     "draft-int server.py"
+assert_file_exists "$SHARED_HOME/fleet/interactive-messages/draft-int/metadata.json" "draft-int metadata.json"
+
+assert_file_contains \
+    "$SHARED_HOME/fleet/interactive-messages/draft-int/metadata.json" \
+    '"template": "draft"' \
+    "draft-int metadata.json discriminator"
+
+UNIT_DRAFT="$SHARED_HOME/.config/systemd/user/im-draft-int.service"
+assert_file_exists "$UNIT_DRAFT" "draft-int systemd unit"
+
+if [ -f "$UNIT_DRAFT" ]; then
+    PORT_DRAFT=$(grep '^Environment=PORT=' "$UNIT_DRAFT" | sed 's/^Environment=PORT=//')
+    if [ -n "$PORT_DRAFT" ] && [ "$PORT_DRAFT" -ge 9601 ] && [ "$PORT_DRAFT" -le 9699 ]; then
+        pass "draft-int: port $PORT_DRAFT in 9601-9699"
+    else
+        fail "draft-int: port '$PORT_DRAFT' NOT in 9601-9699"
+    fi
+fi
+
+assert_file_contains \
+    "$SHARED_HOME/fleet/interactive-messages/draft-int/server.py" \
+    'data\["template"\] *= *"draft"' \
+    "draft-int server.py forces template discriminator"
+
 # ── Cross-cutting assertions ──────────────────────────────────────────────────
 
 printf '\n=== Cross-cutting assertions ===\n'
 
-# 1. Exactly 6 distinct systemd unit files
+# 1. Exactly 7 distinct systemd unit files
 # Use find rather than a quoted glob — a quoted path+glob doesn't expand in bash.
 UNIT_COUNT=$(find "$SHARED_HOME/.config/systemd/user" -name "im-*.service" 2>/dev/null | wc -l)
-if [ "$UNIT_COUNT" -eq 6 ]; then
-    pass "cross: exactly 6 systemd unit files (got $UNIT_COUNT)"
+if [ "$UNIT_COUNT" -eq 7 ]; then
+    pass "cross: exactly 7 systemd unit files (got $UNIT_COUNT)"
 else
-    fail "cross: expected 6 systemd unit files, got $UNIT_COUNT"
+    fail "cross: expected 7 systemd unit files, got $UNIT_COUNT"
 fi
 
-# 2. All 6 ports are distinct
+# 2. All 7 ports are distinct
 ALL_PORTS=$(find "$SHARED_HOME/.config/systemd/user" -name "im-*.service" -exec grep '^Environment=PORT=' {} \; 2>/dev/null \
             | sed 's/^Environment=PORT=//' | sort -u)
 UNIQUE_PORT_COUNT=$(printf '%s\n' "$ALL_PORTS" | grep -c .)
-if [ "$UNIQUE_PORT_COUNT" -eq 6 ]; then
-    pass "cross: 6 distinct ports claimed ($(printf '%s' "$ALL_PORTS" | tr '\n' ' '))"
+if [ "$UNIQUE_PORT_COUNT" -eq 7 ]; then
+    pass "cross: 7 distinct ports claimed ($(printf '%s' "$ALL_PORTS" | tr '\n' ' '))"
 else
-    fail "cross: expected 6 distinct ports, got $UNIQUE_PORT_COUNT (ports: $(printf '%s' "$ALL_PORTS" | tr '\n' ' '))"
+    fail "cross: expected 7 distinct ports, got $UNIQUE_PORT_COUNT (ports: $(printf '%s' "$ALL_PORTS" | tr '\n' ' '))"
 fi
 
 # 3. All ports in 9601-9699
@@ -379,23 +424,23 @@ while IFS= read -r p; do
     fi
 done <<< "$ALL_PORTS"
 if [ "$PORT_RANGE_FAIL" = "0" ]; then
-    pass "cross: all 6 ports in range 9601-9699"
+    pass "cross: all 7 ports in range 9601-9699"
 fi
 
-# 4. All 6 widget folders are distinct (slug isolation)
+# 4. All 7 widget folders are distinct (slug isolation)
 # Use find rather than a quoted glob — a quoted path+glob with trailing / doesn't expand in bash.
 WIDGET_COUNT=$(find "$SHARED_HOME/fleet/interactive-messages" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-if [ "$WIDGET_COUNT" -eq 6 ]; then
-    pass "cross: exactly 6 widget folders (slug isolation confirmed)"
+if [ "$WIDGET_COUNT" -eq 7 ]; then
+    pass "cross: exactly 7 widget folders (slug isolation confirmed)"
 else
-    fail "cross: expected 6 widget folders, got $WIDGET_COUNT"
+    fail "cross: expected 7 widget folders, got $WIDGET_COUNT"
 fi
 
 # 5. Zero type="radio" across all widget.html files (arc-wide affordance invariant)
 RADIO_COUNT=$(find "$SHARED_HOME/fleet/interactive-messages" -name "widget.html" -exec grep -c 'type="radio"' {} + 2>/dev/null \
               | awk -F: '{sum+=$NF} END{print sum+0}')
 if [ "$RADIO_COUNT" -eq 0 ]; then
-    pass 'cross: zero type="radio" across all 6 widget.html files (affordance invariant)'
+    pass 'cross: zero type="radio" across all 7 widget.html files (affordance invariant)'
 else
     fail "cross: found $RADIO_COUNT occurrence(s) of type=\"radio\" across widget.html files — affordance violation"
 fi
@@ -413,10 +458,10 @@ fi
 
 ORIGIN_COUNT=$(find "$SHARED_HOME/fleet/interactive-messages" -name "widget.html" \
                -exec grep -l 'window.location.origin' {} \; 2>/dev/null | wc -l)
-if [ "$ORIGIN_COUNT" -eq 6 ]; then
-    pass "cross: all 6 widget.html files use window.location.origin in postMessage"
+if [ "$ORIGIN_COUNT" -eq 7 ]; then
+    pass "cross: all 7 widget.html files use window.location.origin in postMessage"
 else
-    fail "cross: expected 6 widget.html files with window.location.origin, found $ORIGIN_COUNT"
+    fail "cross: expected 7 widget.html files with window.location.origin, found $ORIGIN_COUNT"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

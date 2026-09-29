@@ -87,6 +87,7 @@ new_home() {
     mkdir -p "$tmp/.config/systemd/user"
     mkdir -p "$tmp/fleet/host"
     echo "42" > "$tmp/fleet/host/id"
+    echo "https://test.example.com" > "$tmp/fleet/host/parent"
     echo "$tmp"
 }
 
@@ -136,8 +137,6 @@ assert_file_contains "$WIDGET_HTML" 'down-btn' "widget.html has down-btn (arrow-
 assert_file_contains "$WIDGET_HTML" 'draggable' "widget.html has draggable (desktop drag-and-drop)"
 
 # Non-terminal invariants — MUST NOT appear
-assert_file_not_contains "$WIDGET_HTML" 'postMessage' "widget.html has no postMessage"
-assert_file_not_contains "$WIDGET_HTML" 'window\.parent' "widget.html has no window.parent"
 assert_file_not_contains "$WIDGET_HTML" 'submit-btn' "widget.html has no submit-btn"
 assert_file_not_contains "$WIDGET_HTML" 'submitted_at' "widget.html has no submitted_at"
 assert_file_not_contains "$WIDGET_HTML" '/submit' "widget.html has no /submit"
@@ -179,7 +178,7 @@ if printf '%s' "$out" | grep -q "^SLUG=rank-nt$"; then
 else
     fail "stdout missing SLUG=rank-nt — got: $out"
 fi
-if printf '%s' "$out" | grep -q "^URL=/interactive/42/rank-nt/pane/$"; then
+if printf '%s' "$out" | grep -q "^URL=https://test.example.com/interactive/42/rank-nt/pane/$"; then
     pass "stdout: URL=/interactive/42/rank-nt/pane/"
 else
     fail "stdout missing URL line — got: $out"

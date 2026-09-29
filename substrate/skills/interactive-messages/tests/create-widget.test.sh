@@ -88,6 +88,7 @@ new_home() {
     mkdir -p "$tmp/fleet/host"
     # Write a valid hostId
     echo "42" > "$tmp/fleet/host/id"
+    echo "https://test.example.com" > "$tmp/fleet/host/parent"
     echo "$tmp"
 }
 
@@ -150,7 +151,7 @@ if printf '%s' "$out" | grep -q "^SLUG=poll-abc$"; then
 else
     fail "stdout missing SLUG=poll-abc — got: $out"
 fi
-if printf '%s' "$out" | grep -q "^URL=/interactive/42/poll-abc/pane/$"; then
+if printf '%s' "$out" | grep -q "^URL=https://test.example.com/interactive/42/poll-abc/pane/$"; then
     pass "stdout: URL=/interactive/42/poll-abc/pane/"
 else
     fail "stdout missing URL line — got: $out"
@@ -433,7 +434,7 @@ if printf '%s' "$out" | grep -q "^SLUG=poll-flag$"; then
 else
     fail "flag-form: stdout missing SLUG=poll-flag — got: $out"
 fi
-if printf '%s' "$out" | grep -q "^URL=/interactive/42/poll-flag/pane/$"; then
+if printf '%s' "$out" | grep -q "^URL=https://test.example.com/interactive/42/poll-flag/pane/$"; then
     pass "flag-form: stdout has URL=/interactive/42/poll-flag/pane/"
 else
     fail "flag-form: stdout missing URL — got: $out"
@@ -473,7 +474,7 @@ if printf '%s' "$out" | grep -q "^SLUG=poll-positional$"; then
 else
     fail "positional back-compat: stdout missing SLUG=poll-positional — got: $out"
 fi
-if printf '%s' "$out" | grep -q "^URL=/interactive/42/poll-positional/pane/$"; then
+if printf '%s' "$out" | grep -q "^URL=https://test.example.com/interactive/42/poll-positional/pane/$"; then
     pass "positional back-compat: stdout has URL=/interactive/42/poll-positional/pane/"
 else
     fail "positional back-compat: stdout missing URL — got: $out"
@@ -514,7 +515,7 @@ if printf '%s' "$out" | grep -q "^SLUG=poll-mode-explicit$"; then
 else
     fail "--mode explicit: stdout missing SLUG= — got: $out"
 fi
-if printf '%s' "$out" | grep -q "^URL=/interactive/42/poll-mode-explicit/pane/$"; then
+if printf '%s' "$out" | grep -q "^URL=https://test.example.com/interactive/42/poll-mode-explicit/pane/$"; then
     pass "--mode explicit: stdout has URL="
 else
     fail "--mode explicit: stdout missing URL= — got: $out"

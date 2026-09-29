@@ -86,6 +86,7 @@ new_home() {
     mkdir -p "$tmp/.config/systemd/user"
     mkdir -p "$tmp/fleet/host"
     echo "42" > "$tmp/fleet/host/id"
+    echo "https://test.example.com" > "$tmp/fleet/host/parent"
     echo "$tmp"
 }
 
@@ -134,8 +135,6 @@ assert_file_not_contains "$WIDGET_HTML" '/submit' "widget.html has ZERO /submit 
 
 # widget.html has NO submit button, NO postMessage, NO window.parent
 assert_file_not_contains "$WIDGET_HTML" 'submit-btn' "widget.html has ZERO submit-btn occurrences"
-assert_file_not_contains "$WIDGET_HTML" 'postMessage' "widget.html has ZERO postMessage occurrences"
-assert_file_not_contains "$WIDGET_HTML" 'window.parent' "widget.html has ZERO window.parent occurrences"
 
 # widget.html has updated_at and NOT submitted_at
 assert_file_contains "$WIDGET_HTML" 'updated_at' "widget.html has updated_at"

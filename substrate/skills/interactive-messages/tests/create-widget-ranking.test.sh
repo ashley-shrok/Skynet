@@ -76,6 +76,7 @@ new_home() {
     mkdir -p "$tmp/.config/systemd/user"
     mkdir -p "$tmp/fleet/host"
     echo "42" > "$tmp/fleet/host/id"
+    echo "https://test.example.com" > "$tmp/fleet/host/parent"
     echo "$tmp"
 }
 
@@ -147,7 +148,7 @@ if printf '%s' "$out" | grep -q "^SLUG=rank-happy$"; then
 else
     fail "stdout missing SLUG=rank-happy — got: $out"
 fi
-if printf '%s' "$out" | grep -q "^URL=/interactive/42/rank-happy/pane/$"; then
+if printf '%s' "$out" | grep -q "^URL=https://test.example.com/interactive/42/rank-happy/pane/$"; then
     pass "stdout: URL=/interactive/42/rank-happy/pane/"
 else
     fail "stdout missing URL line — got: $out"

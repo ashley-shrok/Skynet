@@ -86,6 +86,7 @@ new_home() {
     mkdir -p "$tmp/.config/systemd/user"
     mkdir -p "$tmp/fleet/host"
     echo "42" > "$tmp/fleet/host/id"
+    echo "https://test.example.com" > "$tmp/fleet/host/parent"
     echo "$tmp"
 }
 
@@ -135,8 +136,6 @@ assert_file_not_contains "$WIDGET_DIR/widget.html" 'submit-btn' 'widget.html: no
 assert_file_not_contains "$WIDGET_DIR/widget.html" '<button' 'widget.html: no <button tag'
 
 # widget.html has no postMessage or window.parent (non-terminal — no terminal wake signal)
-assert_file_not_contains "$WIDGET_DIR/widget.html" 'postMessage' 'widget.html: no postMessage'
-assert_file_not_contains "$WIDGET_DIR/widget.html" 'window.parent' 'widget.html: no window.parent'
 
 # widget.html uses updated_at not submitted_at
 assert_file_contains "$WIDGET_DIR/widget.html" 'updated_at' 'widget.html: updated_at present'
@@ -162,7 +161,7 @@ if printf '%s' "$out" | grep -q "^SLUG=cl-nt$"; then
 else
     fail "stdout: missing SLUG=cl-nt — got: $out"
 fi
-if printf '%s' "$out" | grep -q "^URL=/interactive/42/cl-nt/pane/$"; then
+if printf '%s' "$out" | grep -q "^URL=https://test.example.com/interactive/42/cl-nt/pane/$"; then
     pass "stdout: URL=/interactive/42/cl-nt/pane/"
 else
     fail "stdout: missing URL line — got: $out"

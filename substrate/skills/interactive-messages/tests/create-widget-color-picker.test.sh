@@ -88,6 +88,7 @@ new_home() {
     mkdir -p "$tmp/fleet/host"
     # Write a valid hostId
     echo "42" > "$tmp/fleet/host/id"
+    echo "https://test.example.com" > "$tmp/fleet/host/parent"
     echo "$tmp"
 }
 
@@ -161,7 +162,7 @@ if printf '%s' "$out" | grep -q "^SLUG=cp-happy$"; then
 else
     fail "stdout missing SLUG=cp-happy — got: $out"
 fi
-if printf '%s' "$out" | grep -q "^URL=/interactive/42/cp-happy/pane/$"; then
+if printf '%s' "$out" | grep -q "^URL=https://test.example.com/interactive/42/cp-happy/pane/$"; then
     pass "stdout: URL=/interactive/42/cp-happy/pane/"
 else
     fail "stdout missing URL line — got: $out"

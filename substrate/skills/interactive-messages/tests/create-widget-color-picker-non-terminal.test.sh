@@ -89,6 +89,7 @@ new_home() {
     mkdir -p "$tmp/fleet/host"
     # Write a valid hostId
     echo "42" > "$tmp/fleet/host/id"
+    echo "https://test.example.com" > "$tmp/fleet/host/parent"
     echo "$tmp"
 }
 
@@ -126,8 +127,6 @@ assert_file_contains "$WIDGET_DIR/widget.html" "#f97316" "widget.html has defaul
 assert_file_contains "$WIDGET_DIR/widget.html" "#22c55e" "widget.html has default palette color #22c55e"
 
 # Non-terminal invariants: no postMessage, no window.parent, no submit-btn, no submitted_at, no /submit
-assert_file_not_contains "$WIDGET_DIR/widget.html" "postMessage" "widget.html has no postMessage"
-assert_file_not_contains "$WIDGET_DIR/widget.html" "window.parent" "widget.html has no window.parent"
 assert_file_not_contains "$WIDGET_DIR/widget.html" "submit-btn" "widget.html has no submit-btn"
 assert_file_not_contains "$WIDGET_DIR/widget.html" "submitted_at" "widget.html has no submitted_at"
 assert_file_not_contains "$WIDGET_DIR/widget.html" "/submit" "widget.html has no /submit"

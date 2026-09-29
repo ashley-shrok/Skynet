@@ -31,7 +31,7 @@
 #   the same behavior as before Phase 139):
 #     poll, color-picker          → terminal-on-click
 #     checklist, form, ranking,
-#     list-actions                → terminal-on-submit
+#     list-actions, draft         → terminal-on-submit
 #
 #   Supported (template, mode) combinations:
 #     poll:          terminal-on-click, non-terminal
@@ -40,6 +40,7 @@
 #     form:          terminal-on-submit, non-terminal
 #     ranking:       terminal-on-submit, non-terminal
 #     list-actions:  terminal-on-submit, non-terminal
+#     draft:         terminal-on-submit
 #
 #   --mode is a dispatcher-owned flag and is NEVER forwarded to template args.sh.
 #
@@ -176,10 +177,10 @@ fi
 [ -n "$TEMPLATE" ] || die "template is required"
 
 case "$TEMPLATE" in
-    poll|checklist|form|ranking|list-actions|color-picker)
+    poll|checklist|form|ranking|list-actions|color-picker|draft)
         ;;
     *)
-        die "unknown template '$TEMPLATE' — supported: poll, checklist, form, ranking, list-actions, color-picker" ;;
+        die "unknown template '$TEMPLATE' — supported: poll, checklist, form, ranking, list-actions, color-picker, draft" ;;
 esac
 
 # ── Per-template default mode + supported-combo helpers ──────────────────────
@@ -190,9 +191,9 @@ esac
 # for callers outside the allowlist check.
 default_mode_for_template() {
     case "$1" in
-        poll|color-picker)                    echo "terminal-on-click" ;;
-        checklist|form|ranking|list-actions)  echo "terminal-on-submit" ;;
-        *)                                    return 1 ;;
+        poll|color-picker)                          echo "terminal-on-click" ;;
+        checklist|form|ranking|list-actions|draft)  echo "terminal-on-submit" ;;
+        *)                                          return 1 ;;
     esac
 }
 
@@ -207,6 +208,7 @@ is_supported_combo() {
         ranking:terminal-on-submit|ranking:non-terminal)            return 0 ;;
         list-actions:terminal-on-submit|list-actions:non-terminal)  return 0 ;;
         color-picker:terminal-on-click|color-picker:non-terminal)   return 0 ;;
+        draft:terminal-on-submit)                                    return 0 ;;
         *)                                                           return 1 ;;
     esac
 }

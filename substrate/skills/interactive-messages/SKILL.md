@@ -2,7 +2,7 @@
 name: interactive-messages
 description: |
   Send an interactive widget inline in a message so users can respond by
-  clicking, ticking, dragging, or filling instead of typing. Six templates
+  clicking, ticking, dragging, or filling instead of typing. Seven templates
   across three submit modes (terminal-on-click, terminal-on-submit,
   non-terminal). Non-terminal mode lets the widget contribute to a text
   reply that hasn't happened yet — state persists on every interaction and
@@ -24,9 +24,10 @@ a chat bubble. The user interacts with it directly; when the interaction is
 terminal, a `<task-notification>` envelope is injected into your session as a
 wake ping and you read the result from `~/fleet/interactive-messages/<slug>/state.json`.
 
-Six templates are available across three submit modes: `poll`, `checklist`,
-`form`, `ranking`, `list-actions`, `color-picker`. Each template has a curated
-set of modes it supports; you choose the mode per widget instance via `--mode`.
+Seven templates are available across three submit modes: `poll`, `checklist`,
+`form`, `ranking`, `list-actions`, `color-picker`, `draft`. Each template has a
+curated set of modes it supports; you choose the mode per widget instance via
+`--mode`.
 
 **The rule: every widget must earn its interactivity over a plain text reply.**
 If the user could more easily type an answer, the widget is wrong. Apply this
@@ -45,6 +46,7 @@ than typing fails regardless of how polished it looks.
 | `ranking` | terminal-on-submit *(default)*, non-terminal | Elicit a preferred order among items | terminal-on-submit: clicking Submit order; non-terminal: none |
 | `list-actions` | terminal-on-submit *(default)*, non-terminal | Per-item review workflow — assign one of N actions to each item | terminal-on-submit: clicking Done; non-terminal: none |
 | `color-picker` | terminal-on-click *(default)*, non-terminal | Pick one color from a palette | terminal-on-click: clicking a swatch; non-terminal: none |
+| `draft` | terminal-on-submit *(default)* | Present an editable draft (email, message, doc snippet) the user can tweak inline before sending | terminal-on-submit: clicking Send |
 
 *(default)* denotes the mode used when `--mode` is omitted.
 
@@ -81,7 +83,7 @@ bash ~/.claude/skills/interactive-messages/create-widget.sh \
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--slug` | yes | Kebab-case identifier. Max 40 chars. Used in the URL and systemd unit name. |
-| `--template` | yes | One of: `poll`, `checklist`, `form`, `ranking`, `list-actions`, `color-picker` |
+| `--template` | yes | One of: `poll`, `checklist`, `form`, `ranking`, `list-actions`, `color-picker`, `draft` |
 | `--message-id` | yes | The eventId of the ChatMessage this widget is embedded in. |
 | `--conversation-id` | yes | The identity's tmux session id or equivalent. |
 | `--mode` | no | One of `terminal-on-click`, `terminal-on-submit`, `non-terminal`. If omitted, each template uses its default mode from the menu above. |
@@ -515,6 +517,85 @@ act IS the terminal act.
 
 ---
 
+### `draft` — terminal-on-submit
+
+**Reach for it when:**
+- You have written a draft (email, chat message, doc snippet, patch, note)
+  the user is likely to want to tweak before it goes out.
+- The user's natural response would otherwise be either "describe what to
+  change" (slow round-trip) or "copy the block into the compose box and edit
+  it there" (breaks their flow).
+- The draft is short-to-medium (a few sentences to ~30 lines). For a full
+  document, use the app-development skill instead.
+- Example: agent drafts an email reply to a colleague; user wants to soften
+  the tone in one sentence and send.
+
+**CLI shape:**
+
+```bash
+bash ~/.claude/skills/interactive-messages/create-widget.sh \
+  --slug draft-email-bob \
+  --template draft \
+  --message-id evt_abc123 \
+  --conversation-id session_xyz \
+  --prompt "Email to Bob about Thursday's meeting" \
+  --draft "Hi Bob,
+
+Quick heads up that Thursday's sync will run long — vendor review + roadmap check-in stacked back to back. If you can only make one, come to the roadmap piece (2:30-3:00).
+
+Thanks,
+Ashley"
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--prompt` | no | Optional heading shown above the textarea (e.g., "Email to Bob"). Omit for no header. |
+| `--draft` | yes | The initial draft text loaded into the textarea. Multi-line strings work — pass the whole draft in one `--draft` argument. |
+| `--submit-label` | no | Button label. Defaults to `Send`. |
+
+**Worked example stdout:**
+
+```
+SLUG=draft-email-bob
+URL=https://term.example.com/interactive/42/draft-email-bob/pane/
+```
+
+**State on submit** (`~/fleet/interactive-messages/draft-email-bob/state.json`):
+
+```json
+{
+  "template": "draft",
+  "text": "Hey Bob — heads up, Thursday's sync will run long ...",
+  "submitted_at": "2026-09-27T14:00:00.000Z"
+}
+```
+
+`text` is the FINAL textarea contents at the moment the user clicked Send —
+what they actually want to go out. Treat this as the authoritative version
+and discard your original draft.
+
+**Affordance rule:** Renders a resizable textarea prefilled with the draft,
+above a single Send button. The textarea auto-grows with content up to the
+bubble's height cap; past that, the bubble's own scroll takes over. No
+"Cancel" affordance — if the user doesn't want to send, they close the
+widget by responding with text.
+
+**Mobile:** Textarea and Send button render at ≥44px tap targets. The
+textarea's vertical resize handle works on desktop; on mobile the auto-grow
+handles it.
+
+**Do NOT use it when:**
+- The draft is more than a screen or two — the widget is meant to feel
+  in-line, not modal. For a long document, put the draft in a proper
+  editable surface (see the app-development skill).
+- The user needs to see multiple drafts side-by-side — send them as
+  separate messages with text between, not as one widget.
+- You want the user to describe changes rather than edit — just paste the
+  draft in a code block and let them reply with text. The widget's whole
+  point is the tweak-and-send lane.
+
+---
+
 ## Non-terminal mode
 
 Every template supports non-terminal mode via `--mode non-terminal`. In this mode:
@@ -579,9 +660,84 @@ The user picks actions on each and types their summary in the reply box. When th
 
 ## Lifecycle
 
-Widgets accumulate on the agent's box until they are torn down. Phase 140
-gives you two mechanisms: an agent-driven teardown command (primary) and a
-seven-day backstop sweep (safety net).
+Widgets accumulate on the agent's box until they are torn down. You have
+three mechanisms: an agent-driven teardown command (primary), an iterate
+helper for revising a widget mid-conversation, and a seven-day backstop
+sweep (safety net).
+
+### Iterating on a widget — DO NOT edit files in place
+
+The frontend keys each widget iframe on its URL. The URL only changes when
+the slug changes. Consequences:
+
+- **If you edit `widget.html` (or any file) in place under the SAME slug,
+  the user's existing widget bubble does NOT reflect your change.** The
+  iframe already loaded the old HTML. It has no way to notice the file
+  changed on disk. Telling the user to "refresh the widget" is not a
+  workflow — they have no visible affordance for it.
+- **The right pattern: rekey the widget to a new slug at a new URL, and
+  send that new URL in your next message.** The user sees the previous
+  bubble transition to expired on its own (Post-load liveness polling in
+  `WidgetBubble.tsx` detects the torn-down server within ~1.5s) and the
+  fresh widget appear at the bottom of the chat — no scroll-back required.
+
+Use the `iterate-widget.sh` helper — it does this in one command,
+preserving whatever edits you made to the widget's files:
+
+```bash
+bash ~/.claude/skills/interactive-messages/iterate-widget.sh \
+  <old-slug> \
+  --message-id <new-msg-id>
+```
+
+Or, flag form:
+
+```bash
+bash ~/.claude/skills/interactive-messages/iterate-widget.sh \
+  --slug <old-slug> \
+  --message-id <new-msg-id> \
+  [--new-slug <s>]
+```
+
+What it does (atomically):
+- Snapshots the old widget's `widget.html` + `server.py` (preserving your edits)
+- Runs teardown on the old slug — old URL 404s; old bubble expires within ~1.5s
+- Generates a new slug (`--new-slug` if provided; otherwise auto-suffix:
+  `<base>-i2`, `<base>-i3`, incrementing on subsequent iterations)
+- Claims a new port from the 9601-9699 range under the same lock create-widget uses
+- Writes the new widget dir from the snapshot, refreshes `metadata.json`
+  (new `widget_id`, new `message_id`, preserved `template` + `config` +
+  `conversation_id`, plus `iterated_from` naming the predecessor slug)
+- Installs and starts the new systemd unit
+
+**Stdout output** (machine-readable):
+
+```
+OLD_SLUG=<old-slug>
+NEW_SLUG=<new-slug>
+URL=https://.../interactive/<host>/<new-slug>/pane/
+```
+
+**When to invoke:**
+- You found a bug in the widget's `widget.html` or `server.py` and want
+  the user to see the fixed version.
+- You want to update the widget's initial state (e.g., different prompt
+  text) after the user has already seen v1.
+- Any case where you would otherwise say "I fixed it, refresh the widget."
+
+**When NOT to invoke:**
+- The widget is fine and you just want to send the SAME content again —
+  that's a no-op. If you need a fresh widget from scratch, run
+  `create-widget.sh` normally.
+- The user is mid-interaction with a non-terminal widget and their state
+  matters. Iterating discards `state.json` because it's tied to the old
+  widget instance.
+
+**What the user sees:** the old widget's bubble transitions to the
+"expired" placeholder card automatically once the liveness poll detects
+the torn-down server (~1.5s). The new URL you paste in your next message
+renders as a fresh widget bubble at the bottom of the chat. No manual
+refresh, no scroll-back.
 
 ### Agent-driven teardown (primary)
 
@@ -704,7 +860,7 @@ print(s['template'], s.get('choice') or s.get('checked') or s.get('fields') or s
 
 ## Buttons vs passive selectors
 
-The six templates split cleanly on the affordance axis:
+The seven templates split cleanly on the affordance axis:
 
 **terminal-on-click templates (poll, color-picker):**
 Both render entirely as active clickable elements — option buttons and color
@@ -712,12 +868,12 @@ swatch buttons respectively. There is no separate Submit. The click IS the
 submit. If a user sees a button, they must be able to assume the button takes
 an irreversible action on click; these templates guarantee that.
 
-**terminal-on-submit templates (checklist, form, ranking, list-actions):**
-All render passive selectors — checkboxes, form inputs, draggable rows, or
-per-row action buttons within a row — plus a single primary Submit or Done
-button. The passive selectors do NOT fire the widget on interaction. Only the
-primary button does. This lets the user review or change their selections before
-committing.
+**terminal-on-submit templates (checklist, form, ranking, list-actions, draft):**
+All render passive selectors — checkboxes, form inputs, draggable rows,
+per-row action buttons within a row, or an editable textarea — plus a single
+primary Submit or Send button. The passive selectors do NOT fire the widget
+on interaction. Only the primary button does. This lets the user review or
+change their selections before committing.
 
 **The arc-wide invariant:** affordance must match behavior. Passive-looking
 elements that submit on interaction, or button-looking elements that do not act
@@ -1039,9 +1195,9 @@ shipped widget files.
 
 ### Scaffolding a custom widget
 
-`create-widget.sh` has a hardcoded allowlist of six template names. Do NOT run
-it against a custom widget slug — it will error. Instead, scaffold the widget
-manually with the following sequence.
+`create-widget.sh` has a hardcoded allowlist of seven template names. Do NOT
+run it against a custom widget slug — it will error. Instead, scaffold the
+widget manually with the following sequence.
 
 Assume you have written your five source files in `~/my-widget-src/`:
 
