@@ -62,7 +62,7 @@ import { createPortal } from "react-dom";
 // (reverses the 2026-08-17 "pinned header should go away entirely" lock — the
 // Apps section landing above the flat middle re-introduced ambiguity between
 // Apps and pinned rows that the earlier design didn't have).
-import { AppWindow, ChevronDown, Clock, Drama, FolderOpen, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
+import { AppWindow, ChevronDown, Clock, Drama, FolderPlus, Loader2, MessageSquare, MessagesSquare, Monitor, MoreVertical, Pin, Search, Settings, SquarePen, X } from "lucide-react";
 import { Button } from "@/components/button";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
@@ -2777,7 +2777,7 @@ export function PrettyConversationsPanel({
                     setCreateProjectModalOpen(true);
                   }}
                 >
-                  <FolderOpen size={18} />
+                  <FolderPlus size={18} />
                 </button>
                 <button
                   type="button"
