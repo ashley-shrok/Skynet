@@ -19,17 +19,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   __resetBreakerRegistryForTests,
+  __resetExecBreakerRegistryForTests,
   BACKOFF_SCHEDULE_MS,
   CircuitBreakerOpenError,
   FAILURE_THRESHOLD,
   checkBreaker,
+  checkExecBreaker,
   getBreakerSnapshot,
+  getExecBreakerSnapshot,
+  recordExecFailure,
+  recordExecSuccess,
   recordFailure,
   recordSuccess,
 } from "./host-circuit-breaker.js";
 
 beforeEach(() => {
   __resetBreakerRegistryForTests();
+  __resetExecBreakerRegistryForTests();
   vi.useRealTimers();
 });
 
@@ -288,5 +294,161 @@ describe("host-circuit-breaker — defensive edge cases", () => {
     expect(snap.state).toBe("OPEN");
     expect(snap.backoffStep).toBe(0);
     expect(snap.nextAttemptAt).toBe(openAt + BACKOFF_SCHEDULE_MS[0]!);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EXEC breaker — parallel state machine, independent registry.
+// The tests below prove:
+//   (a) checkExec / recordExecFailure / recordExecSuccess drive the state
+//       machine with the same semantics as the connect breaker, and
+//   (b) exec and connect breakers on the SAME peer are INDEPENDENT — the
+//       whole point of the two-registry split (see module docblock).
+// ---------------------------------------------------------------------------
+
+describe("host-circuit-breaker EXEC — starting state", () => {
+  it("returns allowed=true for a fresh peer", () => {
+    expect(checkExecBreaker("1.2.3.4:22").allowed).toBe(true);
+  });
+
+  it("getExecBreakerSnapshot returns null for a never-touched peer", () => {
+    expect(getExecBreakerSnapshot("never-seen:22")).toBeNull();
+  });
+});
+
+describe("host-circuit-breaker EXEC — CLOSED failure counting", () => {
+  it("stays CLOSED under threshold, no allowed=false", () => {
+    const peer = "10.1.0.1:22";
+    for (let i = 0; i < FAILURE_THRESHOLD - 1; i++) {
+      recordExecFailure(peer);
+      expect(checkExecBreaker(peer).allowed).toBe(true);
+    }
+    const snap = getExecBreakerSnapshot(peer);
+    expect(snap?.state).toBe("CLOSED");
+    expect(snap?.consecutiveFailures).toBe(FAILURE_THRESHOLD - 1);
+  });
+
+  it("opens on the Nth consecutive failure with backoff step 0 (exact 30s window)", () => {
+    vi.useFakeTimers();
+    const t0 = new Date("2026-09-29T17:00:00Z").getTime();
+    vi.setSystemTime(t0);
+    const peer = "10.1.0.2:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordExecFailure(peer);
+    const snap = getExecBreakerSnapshot(peer);
+    expect(snap?.state).toBe("OPEN");
+    expect(snap?.backoffStep).toBe(0);
+    expect(snap?.nextAttemptAt).toBe(t0 + BACKOFF_SCHEDULE_MS[0]!);
+  });
+
+  it("recordExecSuccess resets consecutive failure count", () => {
+    const peer = "10.1.0.3:22";
+    recordExecFailure(peer);
+    recordExecFailure(peer);
+    recordExecSuccess(peer);
+    expect(getExecBreakerSnapshot(peer)?.consecutiveFailures).toBe(0);
+    expect(getExecBreakerSnapshot(peer)?.state).toBe("CLOSED");
+  });
+});
+
+describe("host-circuit-breaker EXEC — OPEN refusal + PROBING resolution", () => {
+  it("refuses attempts inside the backoff window with reason + nextAttemptAt", () => {
+    const peer = "10.1.0.4:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordExecFailure(peer);
+    const result = checkExecBreaker(peer);
+    expect(result.allowed).toBe(false);
+    if (result.allowed === false) {
+      expect(result.reason).toBe("backoff window active");
+      expect(result.nextAttemptAt).toBeGreaterThan(Date.now());
+    }
+  });
+
+  it("probe success closes the breaker and resets backoff step", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-29T17:00:00Z"));
+    const peer = "10.1.0.5:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordExecFailure(peer);
+    vi.advanceTimersByTime(BACKOFF_SCHEDULE_MS[0]! + 500);
+    checkExecBreaker(peer); // → PROBING
+
+    recordExecSuccess(peer);
+
+    const snap = getExecBreakerSnapshot(peer);
+    expect(snap?.state).toBe("CLOSED");
+    expect(snap?.consecutiveFailures).toBe(0);
+    expect(snap?.backoffStep).toBe(0);
+    expect(snap?.nextAttemptAt).toBe(0);
+  });
+
+  it("probe failure re-opens with escalated backoff step (exact 60s window)", () => {
+    vi.useFakeTimers();
+    const t0 = new Date("2026-09-29T17:00:00Z").getTime();
+    vi.setSystemTime(t0);
+    const peer = "10.1.0.6:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordExecFailure(peer);
+
+    vi.advanceTimersByTime(BACKOFF_SCHEDULE_MS[0]! + 500);
+    checkExecBreaker(peer); // → PROBING
+
+    const probeFailTime = Date.now();
+    recordExecFailure(peer); // probe fails
+
+    const snap = getExecBreakerSnapshot(peer);
+    expect(snap?.state).toBe("OPEN");
+    expect(snap?.backoffStep).toBe(1);
+    expect(snap?.nextAttemptAt).toBe(probeFailTime + BACKOFF_SCHEDULE_MS[1]!);
+  });
+});
+
+describe("host-circuit-breaker — connect and exec breakers are independent", () => {
+  it("exec breaker OPEN does not affect connect breaker on the same peer", () => {
+    const peer = "10.2.0.1:22";
+    // Trip the exec breaker.
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordExecFailure(peer);
+    expect(getExecBreakerSnapshot(peer)?.state).toBe("OPEN");
+    expect(checkExecBreaker(peer).allowed).toBe(false);
+
+    // Connect breaker on the same peer is untouched — allows the attempt,
+    // and after the check the connect entry exists but is CLOSED (default
+    // shape). No shared registry, no bleed-through.
+    expect(checkBreaker(peer).allowed).toBe(true);
+    const connectSnap = getBreakerSnapshot(peer);
+    expect(connectSnap?.state).toBe("CLOSED");
+    expect(connectSnap?.consecutiveFailures).toBe(0);
+  });
+
+  it("connect breaker OPEN does not affect exec breaker on the same peer", () => {
+    const peer = "10.2.0.2:22";
+    // Trip the connect breaker.
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
+    expect(getBreakerSnapshot(peer)?.state).toBe("OPEN");
+    expect(checkBreaker(peer).allowed).toBe(false);
+
+    // Exec breaker on the same peer is untouched — allows the attempt,
+    // and after the check the exec entry exists but is CLOSED.
+    expect(checkExecBreaker(peer).allowed).toBe(true);
+    const execSnap = getExecBreakerSnapshot(peer);
+    expect(execSnap?.state).toBe("CLOSED");
+    expect(execSnap?.consecutiveFailures).toBe(0);
+  });
+
+  it("connect success does NOT reset exec failure counter — the whole point of the split", () => {
+    // The observed workstation shape: fast connects, slow execs. If a
+    // successful connect reset the exec counter, the exec breaker would
+    // never open (identity-gate resolver's per-frame connectOneShot's
+    // recordSuccess would keep zeroing the exec counter). This test locks
+    // that guarantee.
+    const peer = "10.2.0.3:22";
+    recordExecFailure(peer);
+    recordExecFailure(peer);
+    expect(getExecBreakerSnapshot(peer)?.consecutiveFailures).toBe(2);
+
+    // A concurrent connect success MUST NOT touch the exec counter.
+    recordSuccess(peer);
+
+    expect(getExecBreakerSnapshot(peer)?.consecutiveFailures).toBe(2);
+    // One more exec failure → still opens at threshold, unaffected by
+    // the connect success above.
+    recordExecFailure(peer);
+    expect(getExecBreakerSnapshot(peer)?.state).toBe("OPEN");
   });
 });
