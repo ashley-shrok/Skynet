@@ -751,6 +751,16 @@ not something agents drive.
   workspace via the modal, you don't automatically notice — she'll
   tell you, or you re-read when relevant.
 
+- **Context meter (above the compose box).** Shows how full the agent's
+  context window is — the same "runway left" the agent's own
+  context-watch (§ Ambient plumbing) tracks. Next to it is a **reset
+  button** the user can click when now feels like a good moment to
+  cycle; clicking it just types `/id reset` into the harness — same
+  command, same effect (§ On `/id reset`).
+  *Agent-side: none.* If the user hits reset before your ~90% nudge
+  fires, it arrives as a real `/id reset` — save + recycle sentinel +
+  stop, same as always.
+
 ---
 
 ## Reaching the user by relay DM
