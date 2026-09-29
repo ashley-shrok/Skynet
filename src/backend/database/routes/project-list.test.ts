@@ -1003,7 +1003,54 @@ describe("PUT /projects/:slug/file", () => {
     expect(writeProjectFile).not.toHaveBeenCalled();
   });
 
-  it("Test G7: writeProjectFile throws → 500 generic (no err.message leak)", async () => {
+  it("Test G8: happy write → publishProjectListChanged fires with re-listed enriched projects (project.md displayName edits repaint the sidebar)", async () => {
+    (writeProjectFile as Mock).mockResolvedValue({ markdown: "" });
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "alpha", displayName: "New Name", users: null },
+    ]);
+
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/alpha/file",
+      body: { hostId: 5, contents: "---\ndisplayName: New Name\n---\n" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockPublishProjectListChanged).toHaveBeenCalledTimes(1);
+    const call = mockPublishProjectListChanged.mock.calls[0];
+    expect(call[0]).toBe("5");
+    expect(call[1]).toEqual([
+      {
+        slug: "alpha",
+        displayName: "New Name",
+        hostId: "5",
+        hostname: "myhost",
+        archived: false,
+        users: null,
+      },
+    ]);
+  });
+
+  it("Test G9 (null registry on write-file): publish skipped BUT a warning is logged (mirror M8 fix)", async () => {
+    mockRegistryIsNull = true;
+    (writeProjectFile as Mock).mockResolvedValue({ markdown: "" });
+
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/alpha/file",
+      body: { hostId: 5, contents: "body" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockPublishProjectListChanged).not.toHaveBeenCalled();
+    expect(databaseLogger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /subscription registry not initialized.*hostId=5.*slug=alpha.*op=write-file/,
+      ),
+    );
+  });
+
+  it("Test G10: writeProjectFile throws → 500 generic (no err.message leak)", async () => {
     (writeProjectFile as Mock).mockRejectedValue(
       new Error("ENOENT: /host/private/path leaked — sensitive info"),
     );

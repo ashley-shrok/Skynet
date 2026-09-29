@@ -721,6 +721,32 @@ router.put(
       databaseLogger.info(
         `project file written: userId=${userId} hostId=${hostId} slug=${slug} bytes=${contents.length}`,
       );
+
+      // Post-write wire event (D-37 mirror): a project.md edit can change
+      // the displayName in the frontmatter, so the sidebar's project
+      // section headers must re-render across all connected clients. Mirror
+      // the POST create + POST archive publish shape verbatim so the wire
+      // frame looks identical no matter which write path fired it. Publish
+      // failure MUST NOT roll back the file write — log and continue.
+      try {
+        const registry = getSubscriptionRegistry();
+        if (registry) {
+          const current = await listProjects(conn);
+          registry.publishProjectListChanged(
+            String(hostId),
+            enrichForWire(current, hostId, host.name ?? String(hostId)),
+          );
+        } else {
+          databaseLogger.warn(
+            `project-list-changed publish skipped: subscription registry not initialized (hostId=${hostId} slug=${slug} op=write-file)`,
+          );
+        }
+      } catch (publishErr) {
+        databaseLogger.warn(
+          `project-list-changed publish failed after write-file hostId=${hostId} slug=${slug}: ${publishErr instanceof Error ? publishErr.message : String(publishErr)}`,
+        );
+      }
+
       res.json({ markdown });
       return;
     } catch (err) {

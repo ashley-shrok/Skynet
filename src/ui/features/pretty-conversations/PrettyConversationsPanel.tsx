@@ -119,7 +119,11 @@ import { setSessionProject, setRelayRoomProject } from "@/api/session-project-ap
 // handleArchiveProject collects the section's members, presents the D-29
 // verbatim confirmation, fires Promise.allSettled across archiveIdentity +
 // setRelayRoomProject(null) member ops, then archiveProject as the folder-move.
-import { archiveProject } from "@/api/project-list-api";
+import {
+  archiveProject,
+  getProjectFile,
+  updateProjectFile,
+} from "@/api/project-list-api";
 // Phase 117 Plan 117-09 Task 2 (D-14) — reusable right-click / long-press
 // context menu chrome. The section header binds onContextMenu, which opens
 // this menu at the pointer coords with Edit + Archive items.
@@ -326,6 +330,38 @@ function collectHostsFromFolder(folder: HostFolder): Host[] {
 //                                                    cannot be constructed).
 // The panel only threads `onArchive` on rows whose gate returns non-null,
 // which the row component then renders as the "Archive" menu entry.
+// Rewrite the `displayName:` value inside the leading YAML frontmatter fence
+// of a project.md body. If the file has a `---` fence with a `displayName:`
+// key, that value is swapped; if the fence exists without the key, the key is
+// injected; if there is no fence at all, one is prepended. The new value is
+// YAML-quoted only when it contains a character that would break bare-string
+// parsing (colon, hash, leading dash, etc.) — matches the shape written by
+// writeProjectFile in identity-artifact-reader.ts.
+//
+// Exported for the frontend test suite; not called at runtime outside the
+// panel's handleRenameProject.
+export function rewriteDisplayNameInFrontmatter(
+  markdown: string,
+  nextDisplayName: string,
+): string {
+  const yamlValue = /[:#\-\[\]\{\},&*!|>'"%@`\n]/.test(nextDisplayName)
+    ? JSON.stringify(nextDisplayName)
+    : nextDisplayName;
+
+  const fenceMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/);
+  if (fenceMatch) {
+    const fmBody = fenceMatch[1];
+    const rest = markdown.slice(fenceMatch[0].length);
+    const dnLine = /^displayName:.*$/m;
+    const newFmBody = dnLine.test(fmBody)
+      ? fmBody.replace(dnLine, `displayName: ${yamlValue}`)
+      : `${fmBody}\ndisplayName: ${yamlValue}`;
+    return `---\n${newFmBody}\n---\n${rest}`;
+  }
+
+  return `---\ndisplayName: ${yamlValue}\n---\n${markdown}`;
+}
+
 function canonicalArchiveIdForRow(row: ConversationRowShape): string | null {
   if (row.rdpHostRow === true) return null;
   if (row.kind === "relay-room") return null;
@@ -2448,6 +2484,65 @@ export function PrettyConversationsPanel({
     [projectsList],
   );
 
+  // Rename via context menu: native window.prompt + frontmatter swap. Keeps the
+  // change tiny — no dedicated backend endpoint — by round-tripping through the
+  // existing GET/PUT /projects/:slug/file pair. The PUT handler publishes
+  // publishProjectListChanged, which fans out to every connected client and
+  // repaints the sidebar section header without a manual refresh.
+  //
+  // Frontmatter mutation strategy: match the FIRST `displayName:` line inside
+  // the leading `---` fence and rewrite its value. If no frontmatter or no
+  // displayName key is present, prepend a minimal `--- displayName: <n> ---`
+  // block — a fresh project.md that has never been edited has exactly that
+  // shape (writeProjectFile's initial write per identity-artifact-reader.ts).
+  const handleRenameProject = useCallback(
+    (slug: string, currentDisplayName: string) => {
+      const proj = projectsList.find((p) => p.slug === slug);
+      const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
+      if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
+        // eslint-disable-next-line no-console
+        console.warn({
+          operation: "rename_project_no_host",
+          slug,
+          reason: proj
+            ? "project host invalid"
+            : "project not found in projectsList",
+        });
+        return;
+      }
+
+      const raw = window.prompt("Rename project", currentDisplayName);
+      if (raw === null) return; // Cancel
+      const next = raw.trim();
+      if (next.length === 0) return;
+      if (next.length > 80) {
+        window.alert("Name must be 80 characters or fewer.");
+        return;
+      }
+      if (next === currentDisplayName) return; // No-op
+
+      void (async () => {
+        try {
+          const { markdown } = await getProjectFile(projHostIdNum, slug);
+          const rewritten = rewriteDisplayNameInFrontmatter(markdown, next);
+          await updateProjectFile(projHostIdNum, slug, rewritten);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn({
+            operation: "rename_project_failed",
+            slug,
+            hostId: projHostIdNum,
+            errMessage: err instanceof Error ? err.message : "unknown",
+          });
+          window.alert(
+            `Rename failed: ${err instanceof Error ? err.message : "unknown error"}`,
+          );
+        }
+      })();
+    },
+    [projectsList],
+  );
+
   // Phase 22 (SRIC-04): label for the `+ New role` launcher button.
   const newRoleLabel = t("nav.newRole", {
     defaultValue: "New role",
@@ -3576,6 +3671,14 @@ export function PrettyConversationsPanel({
           y={projectContextMenu.y}
           onClose={() => setProjectContextMenu(null)}
           items={[
+            {
+              label: "Rename project",
+              onClick: () =>
+                handleRenameProject(
+                  projectContextMenu.slug,
+                  projectContextMenu.displayName,
+                ),
+            },
             {
               label: "Edit project file",
               onClick: () => handleEditProjectFile(projectContextMenu.slug),

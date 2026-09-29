@@ -217,11 +217,21 @@ const createProjectSpy = vi.fn<
 const archiveProjectSpy = vi.fn<
   (hostId: number, slug: string) => Promise<{ ok: true }>
 >(async () => ({ ok: true as const }));
+const getProjectFileSpy = vi.fn<
+  (hostId: number, slug: string) => Promise<{ markdown: string }>
+>(async () => ({ markdown: "---\ndisplayName: Alpha\n---\n" }));
+const updateProjectFileSpy = vi.fn<
+  (hostId: number, slug: string, contents: string) => Promise<{ markdown: string }>
+>(async (_h, _s, contents) => ({ markdown: contents }));
 vi.mock("@/api/project-list-api", () => ({
   createProject: (hostId: number, displayName: string) =>
     createProjectSpy(hostId, displayName),
   archiveProject: (hostId: number, slug: string) =>
     archiveProjectSpy(hostId, slug),
+  getProjectFile: (hostId: number, slug: string) =>
+    getProjectFileSpy(hostId, slug),
+  updateProjectFile: (hostId: number, slug: string, contents: string) =>
+    updateProjectFileSpy(hostId, slug, contents),
   listProjects: vi.fn(async () => ({ projects: [] })),
   listRelayRoomProjectTags: vi.fn(async () => ({ assignments: [] })),
 }));
@@ -1580,7 +1590,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     consoleWarnSpy.mockRestore();
   });
 
-  it("A9 Test 6 (context menu items): right-click header shows BOTH 'Edit project file' and 'Archive project'", () => {
+  it("A9 Test 6 (context menu items): right-click header shows Rename + Edit project file + Archive project", () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
@@ -1599,8 +1609,149 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
     fireEvent.contextMenu(header);
 
+    expect(queryByText("Rename project")).not.toBeNull();
     expect(queryByText("Edit project file")).not.toBeNull();
     expect(queryByText("Archive project")).not.toBeNull();
+  });
+
+  it("A9 Test 7 (Rename flow): prompt with current name → getProjectFile → PUT rewritten markdown", async () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    getProjectFileSpy.mockResolvedValueOnce({
+      markdown: "---\ndisplayName: Alpha\n---\n\n# body\n",
+    });
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("Bravo");
+
+    const { container, getByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    fireEvent.contextMenu(header);
+    fireEvent.click(getByText("Rename project"));
+
+    // prompt is seeded with the current displayName so the user can edit it.
+    expect(promptSpy).toHaveBeenCalledWith("Rename project", "Alpha");
+
+    // Await microtasks so the async handler's fetch + PUT complete.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(getProjectFileSpy).toHaveBeenCalledWith(1, "alpha");
+    expect(updateProjectFileSpy).toHaveBeenCalledTimes(1);
+    const [hostId, slug, contents] = updateProjectFileSpy.mock.calls[0];
+    expect(hostId).toBe(1);
+    expect(slug).toBe("alpha");
+    expect(contents).toBe("---\ndisplayName: Bravo\n---\n\n# body\n");
+
+    promptSpy.mockRestore();
+  });
+
+  it("A9 Test 8 (Rename cancel): prompt returns null → no PUT", async () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue(null);
+
+    const { container, getByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    fireEvent.contextMenu(header);
+    fireEvent.click(getByText("Rename project"));
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(getProjectFileSpy).not.toHaveBeenCalled();
+    expect(updateProjectFileSpy).not.toHaveBeenCalled();
+
+    promptSpy.mockRestore();
+  });
+
+  it("A9 Test 9 (Rename empty / whitespace-only): no PUT", async () => {
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("   ");
+
+    const { container, getByText } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    const header = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    fireEvent.contextMenu(header);
+    fireEvent.click(getByText("Rename project"));
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(updateProjectFileSpy).not.toHaveBeenCalled();
+
+    promptSpy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// rewriteDisplayNameInFrontmatter helper — pure function tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("rewriteDisplayNameInFrontmatter", () => {
+  it("swaps the displayName value when the key exists inside the fence", async () => {
+    const { rewriteDisplayNameInFrontmatter } = await import(
+      "./PrettyConversationsPanel"
+    );
+    const input = "---\ndisplayName: Alpha\nother: keep\n---\n\nbody\n";
+    const out = rewriteDisplayNameInFrontmatter(input, "Bravo");
+    expect(out).toBe("---\ndisplayName: Bravo\nother: keep\n---\n\nbody\n");
+  });
+
+  it("injects displayName into an existing fence when the key is absent", async () => {
+    const { rewriteDisplayNameInFrontmatter } = await import(
+      "./PrettyConversationsPanel"
+    );
+    const input = "---\nother: keep\n---\n\nbody\n";
+    const out = rewriteDisplayNameInFrontmatter(input, "Bravo");
+    expect(out).toBe("---\nother: keep\ndisplayName: Bravo\n---\n\nbody\n");
+  });
+
+  it("prepends a fresh fence when the file has no frontmatter", async () => {
+    const { rewriteDisplayNameInFrontmatter } = await import(
+      "./PrettyConversationsPanel"
+    );
+    const input = "just body\n";
+    const out = rewriteDisplayNameInFrontmatter(input, "Bravo");
+    expect(out).toBe("---\ndisplayName: Bravo\n---\njust body\n");
+  });
+
+  it("YAML-quotes values with colon / special chars", async () => {
+    const { rewriteDisplayNameInFrontmatter } = await import(
+      "./PrettyConversationsPanel"
+    );
+    const input = "---\ndisplayName: Alpha\n---\n";
+    const out = rewriteDisplayNameInFrontmatter(input, "Team: East");
+    expect(out).toBe('---\ndisplayName: "Team: East"\n---\n');
   });
 });
 
