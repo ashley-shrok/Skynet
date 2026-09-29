@@ -64,6 +64,11 @@ interface ModalProps
   /** When false, backdrop click + ESC + close-X do NOT dismiss the modal.
    *  Reserved for required-shell modals like SkewLockModal. */
   dismissible?: boolean;
+  /** When false, backdrop click alone does NOT dismiss the modal (but ESC
+   *  and the close-X still work if `dismissible` is true). Used by forms
+   *  where accidentally clicking outside would trash user input —
+   *  CreateProjectModal, CreateRoleDialog, NewSessionDialog. */
+  dismissOnBackdrop?: boolean;
   /** Portal container. Defaults to document.body. */
   container?: HTMLElement | null;
   /** Extra class for the modal content shell. */
@@ -78,12 +83,15 @@ function Modal({
   hue = 190,
   size = "sm",
   dismissible = true,
+  dismissOnBackdrop = true,
   container,
   className,
   "data-testid": dataTestId,
   children,
   ...props
 }: ModalProps) {
+  const blockBackdrop = !dismissible || !dismissOnBackdrop;
+  const blockEsc = !dismissible;
   return (
     <DialogPrimitive.Root {...props} modal={true}>
       <DialogPrimitive.Portal container={container}>
@@ -116,13 +124,13 @@ function Modal({
             } as React.CSSProperties
           }
           onPointerDownOutside={
-            dismissible ? undefined : (e) => e.preventDefault()
+            blockBackdrop ? (e) => e.preventDefault() : undefined
           }
           onInteractOutside={
-            dismissible ? undefined : (e) => e.preventDefault()
+            blockBackdrop ? (e) => e.preventDefault() : undefined
           }
           onEscapeKeyDown={
-            dismissible ? undefined : (e) => e.preventDefault()
+            blockEsc ? (e) => e.preventDefault() : undefined
           }
           className={cn(
             "fixed left-1/2 top-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2",
@@ -215,7 +223,10 @@ function ModalHead({
         )}
         <DialogPrimitive.Title
           data-slot="modal-head-title"
-          id={titleId}
+          // Only pass `id` when the caller explicitly provided one — passing
+          // undefined here clobbers Radix's auto-generated id, which breaks
+          // the auto-wired aria-labelledby on DialogContent.
+          {...(titleId ? { id: titleId } : {})}
           className="m-0 text-[16px] font-semibold text-[#fbf5e8] tracking-[-0.01em] leading-[1.3]"
         >
           {title}
