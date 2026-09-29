@@ -60,14 +60,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Search, Loader2 } from "lucide-react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/dialog";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import type { Host, HostFolder } from "@/types/ui-types";
@@ -535,46 +528,43 @@ export function CreateRoleDialog({
   });
 
   return (
-    <Dialog
+    <Modal
       open={open}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
+      hue={190}
+      size="md"
+      dismissOnBackdrop={false}
+      className="max-h-[90vh] flex flex-col"
     >
-      <DialogContent
-        className="w-[calc(100vw-2rem)] sm:max-w-md max-h-[90vh] overflow-y-auto"
-        style={{ "--pv-hue": "190", "--color-pv-code-fg": "#92eafc" } as React.CSSProperties}
+      <div
+        style={{ "--color-pv-code-fg": "#92eafc" } as React.CSSProperties}
+        className="flex flex-col flex-1 min-h-0 overflow-hidden"
       >
-        <DialogHeader>
-          <DialogTitle>{startTitle}</DialogTitle>
-          {/*
-           * Phase 88 (paired-blurb revision — see
-           * .planning/phases/88-create-agent-modal-ux-pass-…/88-CONTEXT.md
-           * §Verbatim copy): revises the Phase 84 one-sentence blurb into a
-           * two-sentence form paired against the sibling create-agent blurb
-           * shipped in the same commit surface at
-           * NewSessionDialog.tsx `startDescription` defaultValue (rendered by
-           * that dialog's <DialogDescription>{startDescription}</DialogDescription>).
-           * The paired vocabulary anchor is the shared verb ADOPT; the role
-           * side says agents ADOPT expertise, the agent side says each agent
-           * ADOPTS a role. user greenlit the byte-exact text; see
-           * 88-CONTEXT.md for the LOCKED strings.
-           *
-           * The <DialogDescription> wrapper element is preserved per the
-           * Phase-84 origin invariant (Plan 84-01 §CHANGE F.1 landed 2026-09-07)
-           * so shadcn's Dialog primitive still emits `aria-describedby`
-           * a11y wiring. Do NOT swap for a bare <p> or <span>.
-           *
-           * Phase 84 (origin) rationale for stripping the earlier required-fields
-           * caption is retained: the fields themselves already signal required
-           * state, no separate caption needed.
-           */}
-          <DialogDescription>
-            Roles are the expertise your agents adopt. Every agent using this role inherits its goals, rules, and knowledge.
-          </DialogDescription>
-        </DialogHeader>
+        {/*
+         * Phase 88 (paired-blurb revision — see
+         * .planning/phases/88-create-agent-modal-ux-pass-…/88-CONTEXT.md
+         * §Verbatim copy): revises the Phase 84 one-sentence blurb into a
+         * two-sentence form paired against the sibling create-agent blurb
+         * shipped in the same commit surface. The paired vocabulary anchor
+         * is the shared verb ADOPT; the role side says agents ADOPT
+         * expertise, the agent side says each agent ADOPTS a role. user
+         * greenlit the byte-exact text; see 88-CONTEXT.md for the LOCKED
+         * strings.
+         *
+         * Translated to canonical Modal 2026-09-29: subtitle carries the
+         * paired-blurb text via ModalHead's DialogPrimitive.Description
+         * (which still emits aria-describedby a11y wiring per the Phase-84
+         * origin invariant, just via the new canonical instead of shadcn's
+         * DialogDescription wrapper). Do NOT drop the text.
+         */}
+        <ModalHead
+          title={startTitle}
+          subtitle="Roles are the expertise your agents adopt. Every agent using this role inherits its goals, rules, and knowledge."
+        />
 
-        <div className="flex flex-col gap-3">
+        <ModalBody className="overflow-y-auto flex flex-col gap-3">
           {/* Name field */}
           <label className="flex flex-col gap-1">
             <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
@@ -828,9 +818,9 @@ export function CreateRoleDialog({
               {submitError}
             </div>
           )}
-        </div>
+        </ModalBody>
 
-        <DialogFooter>
+        <ModalFoot>
           <Button
             onClick={handleSubmit}
             disabled={!canOpen}
@@ -838,8 +828,8 @@ export function CreateRoleDialog({
           >
             {openLabel}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ModalFoot>
+      </div>
+    </Modal>
   );
 }
