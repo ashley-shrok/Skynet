@@ -1529,34 +1529,29 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
           <div class="identity-head">
             <div class="avatar-lg">G</div>
             <div class="name-block">
-              <div class="identity-head-line-inline">
-                <p class="display-name">Gambit</p>
-                <span class="pencil" title="Edit display name">✎</span>
-              </div>
+              <p class="display-name">Gambit</p>
               <p class="role-meta">box-maintainer</p>
               <div class="identity-head-line-inline" style="margin-top: 6px;">
                 <p class="role-meta" style="margin: 0; font-size: 12px; letter-spacing: 0; text-transform: none; color: hsla(var(--pv-id-hue), 22%, 92%, 0.72); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Unify the look of all modals in Skynet</p>
                 <span class="pencil" title="Edit task">✎</span>
               </div>
             </div>
-            <div class="head-menu-anchor">
-              <button class="close" title="More settings" style="font-size: 18px; letter-spacing: 2px;">⋯</button>
-              <!-- Popover shown OPEN in this mock so Ashley can see what
-                   the ⋯ menu holds. Real UX: closed by default, click to
-                   open. Houses the couple of "settings-y" per-identity
-                   controls that don't earn a first-class header slot:
-                   Voice pick + the stays-awake toggle. -->
-              <div class="head-menu">
-                <div>
-                  <div class="head-menu-label" style="margin-bottom: 4px;">Voice</div>
-                  <select style="width: 100%; padding: 6px 10px;"><option>Matthew</option><option>Ruth</option><option>Danielle</option></select>
-                </div>
-                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                  <span class="toggle on" style="width: 30px; height: 18px; flex-shrink: 0;"></span>
-                  <span style="font-size: 12.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.85);">Boost response time (uses more memory)</span>
-                </label>
-              </div>
-            </div>
+            <!-- Voice chip pinned to the top of the header (flex-start),
+                 next to the close X. Click opens a picker popover. Shows
+                 "default" when the identity has no voice: override — clicking
+                 "default" lets the user pick a voice that overrides the role
+                 default. Boost-response toggle retired per Ashley
+                 2026-09-29. No ⋯ menu — voice is the only per-identity
+                 setting left, so it lives right in the head. -->
+            <button
+              class="chip"
+              title="Voice — click to pick (currently inherits role default)"
+              style="cursor: pointer;"
+            >
+              <span style="opacity: 0.85;">🎙</span>
+              <span style="opacity: 0.72; font-style: italic;">default</span>
+              <span style="opacity: 0.7;">▾</span>
+            </button>
             <button class="close">✕</button>
           </div>
           <div class="section-tabs">
@@ -1665,39 +1660,55 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
       <div class="modal-overlay">
         <div class="modal editor-lg" style="max-width: 560px; height: 560px;">
           <div class="identity-head">
-            <div class="avatar-lg">B</div>
-            <div class="name-block">
-              <p class="display-name">Box Maintainer</p>
+            <!-- Avatar carries a tiny pencil overlay (bottom-right) — the ONLY
+                 way to swap the role avatar. Click opens a file picker. -->
+            <div style="position: relative; flex-shrink: 0;">
+              <div class="avatar-lg">B</div>
+              <button
+                class="pencil"
+                title="Upload new role avatar"
+                style="position: absolute; bottom: -2px; right: -2px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,0.72); border: 1px solid hsla(var(--pv-id-hue), 65%, 55%, 0.55); display: flex; align-items: center; justify-content: center; font-size: 10px; color: #fbf5e8; cursor: pointer;"
+              >✎</button>
             </div>
+            <div class="name-block">
+              <!-- No pencil next to display name — roles are not renamable
+                   via UI. Auto-formatted from slug OR overridden by role.md
+                   `displayName:` frontmatter (edited in Role file tab). -->
+              <p class="display-name">Box Maintainer</p>
+              <p class="role-meta">box-maintainer</p>
+            </div>
+            <!-- Color chip pinned to the top of the header (flex-start).
+                 Wrapped in a chip container with swatch + "Color" label +
+                 caret to visually signal "this is a picker, click me"
+                 (per Ashley 2026-09-29 — a bare swatch dot didn't read as
+                 clickable). Click opens a hue picker popover. -->
+            <button
+              class="chip"
+              title="Role color — click to pick"
+              style="cursor: pointer;"
+            >
+              <span style="width: 14px; height: 14px; border-radius: 50%; background: hsl(324, 65%, 55%); border: 1px solid hsla(324, 75%, 70%, 0.65); display: inline-block; box-shadow: inset 0 1px 0 rgba(255,220,190,0.25);"></span>
+              <span>Color</span>
+              <span style="opacity: 0.7;">▾</span>
+            </button>
+            <!-- Voice chip — same shape as identity modal. Shows "default"
+                 when the role has no voice: set. Click opens picker. -->
+            <button
+              class="chip"
+              title="Voice — click to pick"
+              style="cursor: pointer;"
+            >
+              <span style="opacity: 0.85;">🎙</span>
+              <span style="opacity: 0.72; font-style: italic;">default</span>
+              <span style="opacity: 0.7;">▾</span>
+            </button>
             <button class="close">✕</button>
           </div>
           <div class="section-tabs">
-            <div class="tab on" data-section="cosmetics"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg> Cosmetics</div>
-            <div class="tab" data-section="role-file"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg> Role file</div>
+            <div class="tab on" data-section="role-file"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg> Role file</div>
             <div class="tab" data-section="runbooks"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg> Runbooks</div>
           </div>
-          <div class="body" style="overflow-y: auto; padding: 16px 20px;" data-section-body="cosmetics">
-            <div class="inline-edit">
-              <div class="row">
-                <span class="row-label">Display name</span>
-                <span class="row-value">Box Maintainer</span>
-                <span class="pencil">✎</span>
-              </div>
-              <div class="row">
-                <span class="row-label">Color</span>
-                <span class="row-value" style="display: flex; align-items: center; gap: 8px;">
-                  <span style="width: 20px; height: 20px; border-radius: 50%; background: hsl(324, 65%, 55%); border: 1px solid hsla(324, 75%, 70%, 0.5);"></span>
-                </span>
-                <span class="pencil">✎</span>
-              </div>
-              <div class="row">
-                <span class="row-label">Avatar</span>
-                <span class="row-value">box-maintainer.webp</span>
-                <span class="pencil">✎</span>
-              </div>
-            </div>
-          </div>
-          <div class="editor-pane" style="flex: 1; margin: 0;" data-section-body="role-file" hidden>
+          <div class="editor-pane" style="flex: 1; margin: 0;" data-section-body="role-file">
             <span style="color: hsla(var(--pv-id-hue), 22%, 92%, 0.5); font-style: italic;">— Real editor renders here. Placeholder below. —</span><br/>
             <br/>
             <span class="h"># Role</span><br/>
