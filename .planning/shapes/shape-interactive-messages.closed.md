@@ -106,7 +106,7 @@ Identity handoff: this shape was opened by corsair-box-maintainer on 2026-09-27.
 
 ## Post-launch refinements (2026-09-28)
 
-The v1 phases 138–142 shipped as designed. Two things surfaced during Ashley's first live use that shifted the shape enough to record here.
+The v1 phases 138–142 shipped as designed. Two things surfaced during the user's first live use that shifted the shape enough to record here.
 
 ### Submit envelope
 

@@ -33,7 +33,7 @@ const SAMPLE_B: SSHHostWithStatus = {
   name: "workstation",
   ip: "100.99.149.9",
   port: 22,
-  username: "ashley",
+  username: "operator",
   status: "offline",
 } as SSHHostWithStatus;
 
