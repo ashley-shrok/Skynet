@@ -200,10 +200,16 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
   // wrapper still scrolls via wheel/touch/keyboard — only the native
   // indicator is invisible.
   return (
-    <div className="relative w-full">
+    <div
+      className="relative w-full overflow-hidden rounded-lg"
+      style={{
+        border: "1px solid rgba(255,255,255,0.14)",
+        background: "rgba(255,255,255,0.04)",
+      }}
+    >
       <div
         ref={wrapperRef}
-        className={`w-full rounded-md ${isClamped ? "widget-scroll-wrapper" : ""}`}
+        className={`w-full ${isClamped ? "widget-scroll-wrapper" : ""}`}
         style={{
           maxHeight: `${MAX_HEIGHT_PX}px`,
           overflowY: isClamped ? "auto" : "hidden",
@@ -215,7 +221,7 @@ export function WidgetBubble({ src, onSubmit }: WidgetBubbleProps) {
           title="Interactive widget"
           referrerPolicy="no-referrer"
           loading="eager"
-          className="w-full border-0 rounded-md"
+          className="w-full border-0"
           style={{
             height: `${contentHeight ?? INITIAL_HEIGHT_PX}px`,
             transition: "height 120ms ease-out",
