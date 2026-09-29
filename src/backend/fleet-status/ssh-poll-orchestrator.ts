@@ -91,6 +91,86 @@ import type { PendingBirth } from "../spawn-requests/types.js";
 import { parseRequestBody } from "../spawn-requests/parse-request-body.js";
 
 // ---------------------------------------------------------------------------
+// Peer-keyed sweep-result cache
+//
+// Two orchestrators on the same Skynet process (one per subscribed user) that
+// both hold host rows pointing at the same physical box (same ip:port) would
+// otherwise each fire their own `fleet-status-sweep` exec independently every
+// poll tick. The sweep script is identity-and-user-agnostic — it reads the
+// box's on-disk state and emits JSONL that any orchestrator can consume; the
+// user-gating happens later in the pipeline (identity-visibility, host-access).
+// So sharing the raw sweep bytes across orchestrators is safe.
+//
+// This cache is a module-scope Map, so every orchestrator in the same Node
+// process sees the same entries. Keyed by peer (`ip:port`) which the sweep
+// call site already computes for the exec breaker; TTL is set below the
+// pollIntervalMs default so a caller polling on its own natural cadence
+// always finds a stale-enough entry to refetch on its own schedule, while a
+// second caller polling within the TTL of the first gets the cached bytes.
+//
+// Fallback shape: cache miss (empty, or expired) is INDISTINGUISHABLE from
+// the pre-existing behavior — a fresh channel.exec fires exactly as before.
+// If the cache breaks, worst-case is every orchestrator does its own exec
+// (i.e. today's behavior). Rollback is a single revert.
+//
+// Not cached: failure paths. Only successful sweeps get an entry so callers
+// don't inherit a peer's degraded state via cache retention. Timeouts, null
+// stdout, schema-mismatch, and empty-on-nonempty-box all skip caching so the
+// next tick's caller sees the real underlying signal.
+// ---------------------------------------------------------------------------
+
+interface SweepCacheEntry {
+  readonly result: string;
+  readonly expiresAt: number;
+}
+
+const sweepResultCache = new Map<string, SweepCacheEntry>();
+
+/**
+ * TTL for the peer-keyed sweep-result cache. Sized just under the default
+ * `pollIntervalMs` (2000ms) so a single orchestrator polling on its own
+ * cadence effectively always misses the cache and fires its own exec, while
+ * a second orchestrator polling the same peer inside the window gets the
+ * cached bytes.
+ */
+export const SWEEP_RESULT_CACHE_TTL_MS = 1500;
+
+/**
+ * Read a cached sweep result for `peer` — null if empty or expired. Exported
+ * for unit tests; production callers go through the pollOneHostBatch path.
+ */
+export function getCachedSweepResult(peer: string): string | null {
+  const entry = sweepResultCache.get(peer);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    sweepResultCache.delete(peer);
+    return null;
+  }
+  return entry.result;
+}
+
+/**
+ * Store a successful sweep result in the cache. Exported for unit tests;
+ * production callers go through the pollOneHostBatch path.
+ */
+export function cacheSweepResult(peer: string, result: string): void {
+  sweepResultCache.set(peer, {
+    result,
+    expiresAt: Date.now() + SWEEP_RESULT_CACHE_TTL_MS,
+  });
+}
+
+/**
+ * __resetSweepResultCacheForTests — clears the module-scope cache Map.
+ *
+ * TEST-ONLY. Call in beforeEach to prevent state leak between test cases.
+ * The __ prefix signals internal-only; do not call from production code.
+ */
+export function __resetSweepResultCacheForTests(): void {
+  sweepResultCache.clear();
+}
+
+// ---------------------------------------------------------------------------
 // Public interfaces
 // ---------------------------------------------------------------------------
 
@@ -2060,55 +2140,87 @@ export function createSshPollOrchestrator(
       }
     }
 
-    // Sweep exec — ONE call per host per poll (the whole point of Phase 92).
-    // Wrapped in Promise.race to bound wall time and prevent inFlight stacking
-    // on a stalled managed box.
+    // Peer-keyed sweep-result cache — short-circuit the SSH exec if another
+    // orchestrator in this Node process already polled the same peer within
+    // the TTL window. Safe because the sweep script is user-agnostic (reads
+    // box-local state); user-gating happens downstream. See the cache module
+    // block above for the full rationale.
+    //
+    // Cache-hit path skips the exec breaker's success/failure record entirely
+    // — no SSH activity happened, so there's nothing to report about this
+    // peer's exec health.
     let sweepRaw: string | null;
-    try {
-      sweepRaw = await Promise.race([
-        channel.exec("~/.local/bin/fleet-status-sweep 2>/dev/null"),
-        new Promise<string | null>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `pollOneHostBatch sweep-exec timeout after ${SWEEP_EXEC_TIMEOUT_MS}ms`,
+    const cached = peer ? getCachedSweepResult(peer) : null;
+    if (cached !== null) {
+      systemLogger.info(
+        "Fleet-status: sweep-exec cache hit (peer shared)",
+        {
+          operation: "fleet_status_sweep_exec_cache_hit",
+          fleetHostId: host.id,
+          peer,
+          bytes: cached.length,
+        },
+      );
+      sweepRaw = cached;
+    } else {
+      // Sweep exec — ONE call per host per poll (the whole point of Phase 92).
+      // Wrapped in Promise.race to bound wall time and prevent inFlight stacking
+      // on a stalled managed box.
+      try {
+        sweepRaw = await Promise.race([
+          channel.exec("~/.local/bin/fleet-status-sweep 2>/dev/null"),
+          new Promise<string | null>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `pollOneHostBatch sweep-exec timeout after ${SWEEP_EXEC_TIMEOUT_MS}ms`,
+                  ),
                 ),
-              ),
-            SWEEP_EXEC_TIMEOUT_MS,
+              SWEEP_EXEC_TIMEOUT_MS,
+            ),
           ),
-        ),
-      ]);
-    } catch (err) {
-      if (peer) recordExecFailure(peer);
-      systemLogger.warn("Fleet-status: sweep-exec timeout or throw", {
-        operation: "fleet_status_sweep_exec_null",
-        fleetHostId: host.id,
-        peer,
-        error: err instanceof Error ? err.message : "unknown",
-      });
-      return { ok: false, reason: "null-exec" };
-    }
+        ]);
+      } catch (err) {
+        if (peer) recordExecFailure(peer);
+        systemLogger.warn("Fleet-status: sweep-exec timeout or throw", {
+          operation: "fleet_status_sweep_exec_null",
+          fleetHostId: host.id,
+          peer,
+          error: err instanceof Error ? err.message : "unknown",
+        });
+        return { ok: false, reason: "null-exec" };
+      }
 
-    if (sweepRaw === null) {
-      // Null stdout from channel.exec means the SSH stream misbehaved (hiccup
-      // that swallowed stdout without a promise rejection). Same failure
-      // signal from the breaker's perspective as a timeout — the peer's
-      // exec channel is not delivering.
-      if (peer) recordExecFailure(peer);
-      systemLogger.warn("Fleet-status: sweep-exec returned null (SSH hiccup)", {
-        operation: "fleet_status_sweep_exec_null",
-        fleetHostId: host.id,
-        peer,
-      });
-      return { ok: false, reason: "null-exec" };
-    }
+      if (sweepRaw === null) {
+        // Null stdout from channel.exec means the SSH stream misbehaved (hiccup
+        // that swallowed stdout without a promise rejection). Same failure
+        // signal from the breaker's perspective as a timeout — the peer's
+        // exec channel is not delivering.
+        if (peer) recordExecFailure(peer);
+        systemLogger.warn("Fleet-status: sweep-exec returned null (SSH hiccup)", {
+          operation: "fleet_status_sweep_exec_null",
+          fleetHostId: host.id,
+          peer,
+        });
+        return { ok: false, reason: "null-exec" };
+      }
 
-    // Sweep exec returned real bytes → record success at the breaker layer.
-    // Downstream parse/schema checks may still fail (returning ok:false with
-    // schema-mismatch etc.), but those are content-correctness failures, not
-    // exec-channel-health failures — the breaker doesn't care about them.
-    if (peer) recordExecSuccess(peer);
+      // Sweep exec returned real bytes → record success at the breaker layer.
+      // Downstream parse/schema checks may still fail (returning ok:false with
+      // schema-mismatch etc.), but those are content-correctness failures, not
+      // exec-channel-health failures — the breaker doesn't care about them.
+      if (peer) recordExecSuccess(peer);
+
+      // Populate the peer cache so any orchestrator polling this peer within
+      // SWEEP_RESULT_CACHE_TTL_MS reads bytes instead of firing another exec.
+      // Only cache on the fresh-exec success path; if a downstream parse
+      // failure surfaces below (schema-mismatch, empty-on-nonempty-box) we
+      // don't invalidate — the cache holds the SAME raw bytes and downstream
+      // will draw the same conclusion, which is correct (the peer really did
+      // emit that content this tick).
+      if (peer) cacheSweepResult(peer, sweepRaw);
+    }
 
     const parsed = parseSweepJsonl(sweepRaw);
     if (parsed.schemaMismatch) {
