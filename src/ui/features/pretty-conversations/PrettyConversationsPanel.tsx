@@ -231,7 +231,6 @@ import { PrettyConversationRow } from "./PrettyConversationRow";
 import {
   rowMatchesSearchQuery,
   resolveIdentityForRow,
-  projectSectionTitleMatches,
   appTileMatches,
 } from "./sidebar-search-match";
 // shape-sidebar-search-inline: pre-populate the ConversationSearchModal's
@@ -1309,19 +1308,17 @@ export function PrettyConversationsPanel({
     ? displayedMiddle.filter(searchFilterRow)
     : displayedMiddle;
 
-  // Projects: if the section's user-authored displayName matches the query,
-  // ALL rows in the section pass through (typing a project name reveals
-  // every conversation inside it, not just an empty header). Otherwise rows
-  // filter individually.
+  // Projects: rows filter individually via searchFilterRow. Project
+  // display-name is deliberately NOT a match target (conversations already
+  // sit visually under the project header, so a "type project name → reveal
+  // its rows" shortcut adds no navigational value on top of scrolling to
+  // the section — /close review 2026-09-29).
   const searchedProjectSections = sidebarSearchActive
-    ? displayedProjectSections.map((s) => {
-        const titleHit = projectSectionTitleMatches(s.displayName, trimmedSidebarSearchQuery);
-        return {
-          slug: s.slug,
-          displayName: s.displayName,
-          rows: titleHit ? s.rows : s.rows.filter(searchFilterRow),
-        };
-      })
+    ? displayedProjectSections.map((s) => ({
+        slug: s.slug,
+        displayName: s.displayName,
+        rows: s.rows.filter(searchFilterRow),
+      }))
     : displayedProjectSections;
 
   // RDP group: hostname + username are match candidates on the row itself

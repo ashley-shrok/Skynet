@@ -8,7 +8,6 @@ import { describe, it, expect } from "vitest";
 import {
   getRowCandidateStrings,
   rowMatchesSearchQuery,
-  projectSectionTitleMatches,
   appTileMatches,
   resolveIdentityForRow,
 } from "./sidebar-search-match";
@@ -169,20 +168,6 @@ describe("rowMatchesSearchQuery", () => {
 
   it("trims the query before comparing", () => {
     expect(rowMatchesSearchQuery(row, identity, "  samwise  ")).toBe(true);
-  });
-});
-
-describe("projectSectionTitleMatches", () => {
-  it("returns true for empty query", () => {
-    expect(projectSectionTitleMatches("skynet beta", "")).toBe(true);
-  });
-  it("case-insensitive substring match", () => {
-    expect(projectSectionTitleMatches("Skynet Beta", "beta")).toBe(true);
-    expect(projectSectionTitleMatches("Skynet Beta", "BETA")).toBe(true);
-    expect(projectSectionTitleMatches("Skynet Beta", "skynet")).toBe(true);
-  });
-  it("returns false for non-match", () => {
-    expect(projectSectionTitleMatches("Skynet Beta", "aither")).toBe(false);
   });
 });
 

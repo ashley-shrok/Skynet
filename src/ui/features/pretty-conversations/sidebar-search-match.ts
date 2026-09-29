@@ -102,21 +102,6 @@ export function resolveIdentityForRow(
 }
 
 /**
- * True when a project section's own display name matches the query (case-
- * insensitive substring). When the section title matches, ALL of its rows
- * pass through the filter — typing a project name reveals every conversation
- * inside that project, not just an empty header.
- */
-export function projectSectionTitleMatches(
-  displayName: string,
-  rawQuery: string,
-): boolean {
-  const q = rawQuery.trim().toLowerCase();
-  if (q.length === 0) return true;
-  return displayName.toLowerCase().includes(q);
-}
-
-/**
  * True when an app tile's name matches the query. Same substring rule.
  */
 export function appTileMatches(name: string, rawQuery: string): boolean {
