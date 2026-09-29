@@ -1,0 +1,2652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Modal tasting · pass two</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ── pv token vocabulary ──────────────────────────────────── */
+  :root {
+    --pv-base: #141520;
+    --pv-base-mid: #101118;
+    --pv-base-end: #0a0b12;
+    --pv-surface-quiet: rgba(25, 26, 34, 0.5);
+    --pv-border-quiet: rgba(220, 225, 245, 0.06);
+    --pv-border-quiet-strong: rgba(220, 225, 245, 0.10);
+    --pv-fg: #e8e4d8;
+    --pv-fg-muted: #a89a80;
+    --pv-fg-dim: #7a6f60;
+    --pv-code-fg: #ffb896;
+    --pv-hue: 190;
+    --pv-id-hue: 35;
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --shadow-root: 0 30px 80px rgba(0, 0, 0, 0.7),
+                   0 0 0 1px rgba(255, 255, 255, 0.04),
+                   inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  html, body {
+    margin: 0; padding: 0;
+    background:
+      radial-gradient(ellipse at top left, rgba(120, 90, 50, 0.15), transparent 55%),
+      radial-gradient(ellipse at bottom right, rgba(30, 50, 100, 0.20), transparent 55%),
+      linear-gradient(to bottom, var(--pv-base) 0%, var(--pv-base-mid) 55%, var(--pv-base-end) 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    color: var(--pv-fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Page header ─────────────────────────────── */
+  .page-header {
+    padding: 64px 64px 40px;
+    max-width: 1500px;
+    margin: 0 auto;
+  }
+  .page-header .kicker {
+    font-size: 12px; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--pv-fg-dim); margin: 0 0 14px;
+  }
+  .page-header h1 {
+    font-size: 32px; font-weight: 600;
+    line-height: 1.25; letter-spacing: -0.01em;
+    color: var(--pv-fg); margin: 0 0 16px; max-width: 780px;
+  }
+  .page-header p {
+    font-size: 15px; color: var(--pv-fg-muted);
+    line-height: 1.65; max-width: 780px; margin: 0 0 12px;
+  }
+  .page-header em {
+    color: var(--pv-fg); font-style: normal; font-weight: 500;
+  }
+  .page-header .note {
+    font-size: 13px; color: var(--pv-fg-dim);
+    padding: 12px 16px; background: var(--pv-surface-quiet);
+    border: 1px solid var(--pv-border-quiet-strong);
+    border-radius: 10px; max-width: 780px; margin-top: 20px;
+  }
+
+  /* ── Category section ─────────────────────────────── */
+  .category {
+    padding: 48px 64px 32px;
+    max-width: 1500px;
+    margin: 0 auto;
+    border-top: 1px solid var(--pv-border-quiet);
+  }
+  .category-header { margin-bottom: 28px; max-width: 780px; }
+  .category-mark {
+    display: block; width: 40px; height: 3px;
+    background: linear-gradient(90deg, hsla(var(--pv-id-hue), 65%, 55%, 0.9), transparent);
+    margin-bottom: 14px; border-radius: 2px;
+  }
+  .category-kicker {
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: hsla(var(--pv-id-hue), 45%, 70%, 0.85);
+    margin: 0 0 4px;
+  }
+  .category-name {
+    font-size: 24px; font-weight: 600;
+    letter-spacing: -0.015em; color: var(--pv-fg); margin: 0 0 12px;
+  }
+  .category-body {
+    font-size: 14px; color: var(--pv-fg-muted);
+    line-height: 1.65; margin: 0;
+  }
+  .category-body em { color: var(--pv-fg); font-style: normal; font-weight: 500; }
+
+  /* ── Stage (per-modal display) ─────────────────────────── */
+  .stage-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 24px; }
+  .stage-row.single { grid-template-columns: 1fr; max-width: 800px; }
+  .stage {
+    position: relative;
+    background:
+      radial-gradient(ellipse at top left, rgba(120, 90, 50, 0.08), transparent 55%),
+      linear-gradient(to bottom, var(--pv-base), var(--pv-base-end));
+    border: 1px solid var(--pv-border-quiet);
+    border-radius: 14px;
+    height: 540px;
+    overflow: hidden;
+    box-shadow: 0 1px 0 rgba(220, 225, 245, 0.04) inset;
+  }
+  .stage.tall { height: 640px; }
+  .stage-label {
+    position: absolute; top: 14px; left: 18px;
+    font-size: 10px; font-weight: 500;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--pv-fg-dim); z-index: 3;
+  }
+  .stage-source {
+    position: absolute; top: 14px; right: 18px;
+    font-size: 10px; font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--pv-fg-dim); z-index: 3;
+  }
+
+  /* Mock pretty-view bubbles behind modal */
+  .mock-bubbles {
+    position: absolute; inset: 44px 20px 20px;
+    display: flex; flex-direction: column; gap: 8px; z-index: 1;
+  }
+  .mock-bubble {
+    max-width: 82%; padding: 8px 14px;
+    border-radius: 14px; font-size: 12.5px; line-height: 1.5;
+    color: #fbf5e8;
+    backdrop-filter: blur(20px) saturate(1.5);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5);
+    background: linear-gradient(160deg, hsla(35, 50%, 38%, 0.55), hsla(35, 45%, 24%, 0.6));
+    border: 1px solid hsla(35, 65%, 55%, 0.32);
+    box-shadow:
+      0 8px 24px rgba(0,0,0,0.4),
+      0 1px 0 rgba(255, 220, 170, 0.18) inset,
+      0 0 32px hsla(35, 70%, 55%, 0.2);
+  }
+  .mock-bubble.user {
+    align-self: flex-end;
+    background: linear-gradient(160deg, rgba(45, 55, 80, 0.55), rgba(28, 35, 55, 0.6));
+    border: 1px solid rgba(120, 140, 180, 0.22);
+    color: #dfe3ee;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 1px 0 rgba(255, 255, 255, 0.10) inset;
+  }
+
+  /* Modal underlay */
+  .modal-overlay {
+    position: absolute; inset: 0;
+    background: rgba(6, 7, 12, 0.55);
+    backdrop-filter: blur(4px) saturate(1.1);
+    -webkit-backdrop-filter: blur(4px) saturate(1.1);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; z-index: 2;
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     THE MODAL — Assistant Bubble aesthetic with head/foot separators.
+     One recipe, size + content varies.
+     ══════════════════════════════════════════════════════════════ */
+  .modal {
+    background: linear-gradient(160deg,
+                                hsla(var(--pv-id-hue), 50%, 38%, 0.60),
+                                hsla(var(--pv-id-hue), 45%, 22%, 0.68));
+    border: 1px solid hsla(var(--pv-id-hue), 65%, 55%, 0.35);
+    border-radius: 16px;
+    backdrop-filter: blur(24px) saturate(1.6);
+    -webkit-backdrop-filter: blur(24px) saturate(1.6);
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.5),
+      0 1px 0 rgba(255, 220, 190, 0.22) inset,
+      0 0 40px hsla(var(--pv-id-hue), 70%, 55%, 0.25);
+    color: #fbf5e8;
+    width: 100%; max-width: 340px; overflow: hidden;
+  }
+  .modal.mid { max-width: 400px; }
+  .modal.big { max-width: 520px; }
+  .modal.settings { max-width: 640px; height: 480px; display: flex; flex-direction: column; }
+  .modal.list { max-width: 440px; height: 520px; display: flex; flex-direction: column; }
+  .modal.shell {
+    max-width: 380px;
+    /* Slightly stronger halo — this modal is required action */
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.55),
+      0 1px 0 rgba(255, 220, 190, 0.25) inset,
+      0 0 56px hsla(var(--pv-id-hue), 70%, 55%, 0.35);
+  }
+
+  /* Head */
+  .modal .head {
+    padding: 14px 20px 12px;
+    border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22);
+    box-shadow: 0 1px 0 rgba(255, 220, 190, 0.05);
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  }
+  .modal .head-text .meta {
+    font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: hsla(var(--pv-id-hue), 30%, 88%, 0.72);
+    margin: 0 0 4px;
+  }
+  .modal .head-text .title {
+    font-size: 16px; font-weight: 600;
+    color: #fbf5e8; margin: 0;
+    letter-spacing: -0.01em; line-height: 1.3;
+  }
+  .modal .head-text .subtitle {
+    font-size: 12.5px; color: hsla(var(--pv-id-hue), 25%, 90%, 0.72);
+    margin: 3px 0 0; line-height: 1.4;
+  }
+  .modal .close {
+    background: transparent; border: none; cursor: pointer;
+    color: hsla(var(--pv-id-hue), 25%, 92%, 0.7);
+    font-size: 15px; padding: 2px 6px; line-height: 1;
+    border-radius: 6px;
+  }
+  .modal .close:hover { color: #fbf5e8; background: rgba(0,0,0,0.2); }
+
+  /* Body */
+  .modal .body {
+    padding: 14px 20px; font-size: 13.5px;
+    color: hsla(var(--pv-id-hue), 22%, 92%, 0.82); line-height: 1.6;
+  }
+
+  /* Foot */
+  .modal .foot {
+    padding: 12px 20px 14px;
+    display: flex; justify-content: flex-end; gap: 8px;
+    border-top: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22);
+    box-shadow: 0 -1px 0 rgba(255, 220, 190, 0.05);
+  }
+
+  /* Buttons */
+  .btn {
+    font-family: var(--font-sans); font-size: 13px; font-weight: 500;
+    padding: 7px 14px; border-radius: 9px; cursor: pointer;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: background 120ms ease;
+  }
+  .btn.secondary {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid hsla(var(--pv-id-hue), 70%, 70%, 0.28);
+    color: hsla(var(--pv-id-hue), 25%, 92%, 0.85);
+  }
+  .btn.primary {
+    background: hsla(var(--pv-id-hue), 65%, 55%, 0.40);
+    border: 1px solid hsla(var(--pv-id-hue), 75%, 70%, 0.55);
+    color: #fbf5e8;
+  }
+  .btn.destructive {
+    background: hsla(4, 65%, 50%, 0.55);
+    border: 1px solid hsla(4, 75%, 65%, 0.55);
+    color: #fbf5e8;
+  }
+
+  /* Fields */
+  .field { margin: 12px 0; }
+  .field:first-child { margin-top: 0; }
+  .field:last-child { margin-bottom: 0; }
+  .field label {
+    display: block; font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: hsla(var(--pv-id-hue), 30%, 90%, 0.65);
+    margin-bottom: 5px;
+  }
+  input, textarea, select {
+    width: 100%;
+    background: rgba(8, 10, 16, 0.5);
+    border: 1px solid hsla(var(--pv-id-hue), 65%, 55%, 0.22);
+    border-radius: 8px; padding: 8px 10px;
+    color: #fbf5e8; font-family: var(--font-sans); font-size: 13px;
+    outline: none;
+  }
+  textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
+  input:focus, textarea:focus, select:focus {
+    border-color: hsla(var(--pv-id-hue), 70%, 60%, 0.5);
+    box-shadow: 0 0 0 3px hsla(var(--pv-id-hue), 70%, 55%, 0.12);
+  }
+  select {
+    appearance: none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, hsla(var(--pv-id-hue), 25%, 92%, 0.7) 50%),
+      linear-gradient(135deg, hsla(var(--pv-id-hue), 25%, 92%, 0.7) 50%, transparent 50%);
+    background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 30px;
+  }
+
+  /* ── Multi-pane settings variant (Preferences) ────────── */
+  .modal .settings-body {
+    flex: 1; display: flex; overflow: hidden;
+  }
+  .modal .settings-nav {
+    width: 168px; padding: 12px 8px;
+    background: rgba(0, 0, 0, 0.28);
+    border-right: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .settings-nav .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 13.5px;
+    color: hsla(var(--pv-id-hue), 25%, 92%, 0.7);
+    transition: background 120ms ease;
+  }
+  .settings-nav .nav-item .icon {
+    width: 16px; height: 16px; opacity: 0.85;
+  }
+  .settings-nav .nav-item.on {
+    background: hsla(var(--pv-id-hue), 65%, 55%, 0.24);
+    color: #fbf5e8;
+  }
+  .settings-nav .nav-item:hover:not(.on) {
+    background: rgba(0, 0, 0, 0.25);
+  }
+  .modal .settings-pane {
+    flex: 1; padding: 18px 22px; overflow-y: auto;
+  }
+  .settings-pane h4 {
+    font-size: 13px; font-weight: 600;
+    color: hsla(var(--pv-id-hue), 30%, 90%, 0.9);
+    margin: 0 0 12px;
+  }
+  .settings-pane h4:not(:first-child) { margin-top: 22px; }
+  .settings-pane .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.12);
+  }
+  .settings-pane .row:last-child { border-bottom: none; }
+  .settings-pane .row-label {
+    font-size: 13px; color: hsla(var(--pv-id-hue), 25%, 92%, 0.85);
+  }
+  .settings-pane .row-sub {
+    font-size: 11.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.55);
+    margin-top: 2px;
+  }
+  /* Toggle */
+  .toggle {
+    position: relative; width: 34px; height: 20px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid hsla(var(--pv-id-hue), 65%, 55%, 0.24);
+    border-radius: 999px;
+    transition: background 200ms ease;
+  }
+  .toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 999px;
+    background: hsla(var(--pv-id-hue), 25%, 92%, 0.7);
+    transition: transform 200ms ease, background 200ms ease;
+  }
+  .toggle.on {
+    background: hsla(var(--pv-id-hue), 65%, 55%, 0.5);
+    border-color: hsla(var(--pv-id-hue), 75%, 70%, 0.55);
+  }
+  .toggle.on::after {
+    transform: translateX(14px); background: #fbf5e8;
+  }
+
+  /* ── List/manager variant (RolesList) ─────── */
+  .modal .list-body {
+    flex: 1; padding: 12px 12px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .list-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; border-radius: 14px;
+    background: linear-gradient(160deg,
+                                hsla(var(--row-hue, 190), 50%, 38%, 0.5),
+                                hsla(var(--row-hue, 190), 45%, 22%, 0.55));
+    border: 1px solid hsla(var(--row-hue, 190), 65%, 55%, 0.28);
+    box-shadow:
+      0 4px 12px rgba(0, 0, 0, 0.35),
+      0 1px 0 rgba(255, 220, 190, 0.12) inset,
+      0 0 18px hsla(var(--row-hue, 190), 70%, 55%, 0.15);
+    cursor: pointer;
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+  .list-row:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 6px 16px rgba(0, 0, 0, 0.4),
+      0 1px 0 rgba(255, 220, 190, 0.16) inset,
+      0 0 24px hsla(var(--row-hue, 190), 70%, 55%, 0.22);
+  }
+  .list-row .avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(160deg,
+                                hsla(var(--row-hue, 190), 70%, 50%, 0.8),
+                                hsla(var(--row-hue, 190), 65%, 35%, 0.8));
+    border: 1px solid hsla(var(--row-hue, 190), 75%, 70%, 0.5);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 600;
+    color: #fbf5e8; flex-shrink: 0;
+  }
+  .list-row .label {
+    flex: 1; font-size: 14px; font-weight: 500;
+    color: #fbf5e8;
+  }
+  .list-row .label-sub {
+    font-size: 11.5px; color: hsla(var(--row-hue, 190), 22%, 88%, 0.7);
+    margin-top: 2px;
+  }
+  .list-row .chevron {
+    color: hsla(var(--row-hue, 190), 25%, 92%, 0.55);
+    font-size: 13px;
+  }
+
+  /* ── Content editor variant (Runbook, Skills, EditableFile) ─── */
+  .modal.editor {
+    max-width: 640px; height: 500px; display: flex; flex-direction: column;
+  }
+  .modal.editor-lg { max-width: 720px; height: 560px; display: flex; flex-direction: column; }
+  .modal .editor-pane {
+    flex: 1; overflow-y: auto;
+    padding: 16px 22px;
+    background: rgba(8, 10, 16, 0.35);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12.5px; line-height: 1.7;
+    color: hsla(var(--pv-id-hue), 22%, 92%, 0.85);
+  }
+  .editor-pane .h { color: hsla(var(--pv-id-hue), 35%, 95%, 1); font-weight: 600; }
+  .editor-pane .num { color: hsla(var(--pv-id-hue), 20%, 88%, 0.5); }
+  .modal .editor-pane em { color: hsla(var(--pv-id-hue), 22%, 92%, 0.62); font-style: italic; }
+  /* File-tab strip (above editor pane — IDE convention) */
+  .modal .file-strip {
+    display: flex; align-items: stretch; gap: 2px;
+    padding: 6px 12px 0;
+    background: rgba(0, 0, 0, 0.22);
+    overflow-x: auto;
+    flex-shrink: 0;
+  }
+  .file-strip .tab {
+    padding: 6px 12px; font-size: 12px;
+    color: hsla(var(--pv-id-hue), 22%, 92%, 0.6);
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer; white-space: nowrap;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .file-strip .tab.on {
+    color: #fbf5e8;
+    background: hsla(var(--pv-id-hue), 50%, 38%, 0.5);
+    border-color: hsla(var(--pv-id-hue), 60%, 55%, 0.35);
+    border-bottom: none;
+  }
+  .file-strip .tab .close {
+    font-size: 12px; opacity: 0.6; margin-left: 2px;
+  }
+  .file-strip .plus {
+    padding: 6px 10px; font-size: 12px; font-weight: 500;
+    color: hsla(var(--pv-id-hue), 30%, 90%, 0.7);
+    cursor: pointer; align-self: center;
+  }
+
+  /* ── Section tabs (top nav within a modal — Identity, Role) ─── */
+  .modal .section-tabs {
+    display: flex; align-items: stretch; gap: 4px;
+    padding: 6px 16px 0;
+    background: rgba(0, 0, 0, 0.22);
+    border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22);
+    flex-shrink: 0;
+  }
+  .section-tabs .tab {
+    padding: 8px 14px; font-size: 13px; font-weight: 500;
+    color: hsla(var(--pv-id-hue), 22%, 92%, 0.6);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    display: flex; align-items: center; gap: 8px;
+    transition: color 120ms ease;
+  }
+  .section-tabs .tab.on {
+    color: #fbf5e8;
+    border-bottom-color: hsla(var(--pv-id-hue), 75%, 65%, 0.9);
+  }
+  .section-tabs .tab .icon { width: 15px; height: 15px; opacity: 0.85; }
+
+  /* ── Identity head variant (avatar + display name in head) ─── */
+  .modal .identity-head {
+    padding: 20px 22px 18px;
+    border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22);
+    box-shadow: 0 1px 0 rgba(255, 220, 190, 0.05);
+    display: flex; align-items: center; gap: 16px;
+  }
+  .identity-head .avatar-lg {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(160deg,
+                                hsla(var(--pv-id-hue), 70%, 50%, 0.85),
+                                hsla(var(--pv-id-hue), 65%, 32%, 0.9));
+    border: 1px solid hsla(var(--pv-id-hue), 75%, 70%, 0.55);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 600; color: #fbf5e8; flex-shrink: 0;
+    box-shadow:
+      0 4px 12px rgba(0, 0, 0, 0.35),
+      0 1px 0 rgba(255, 220, 190, 0.18) inset,
+      0 0 16px hsla(var(--pv-id-hue), 70%, 55%, 0.25);
+  }
+  .identity-head .name-block { flex: 1; min-width: 0; }
+  .identity-head .display-name {
+    font-size: 18px; font-weight: 600; color: #fbf5e8;
+    margin: 0; letter-spacing: -0.01em; line-height: 1.2;
+  }
+  .identity-head .role-meta {
+    font-size: 12px; font-weight: 500;
+    letter-spacing: 0.06em;
+    color: hsla(var(--pv-id-hue), 35%, 90%, 0.65);
+    margin: 4px 0 0;
+  }
+  .identity-head .close {
+    background: transparent; border: none; cursor: pointer;
+    color: hsla(var(--pv-id-hue), 25%, 92%, 0.7);
+    font-size: 15px; padding: 2px 6px; line-height: 1;
+    border-radius: 6px;
+  }
+
+  /* ── Inline editable block ─── */
+  .inline-edit {
+    padding: 12px 14px; border-radius: 10px;
+    background: rgba(8, 10, 16, 0.4);
+    border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.16);
+    margin-bottom: 12px;
+  }
+  .inline-edit .row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px;
+    padding: 6px 0;
+  }
+  .inline-edit .row-label {
+    font-size: 11px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: hsla(var(--pv-id-hue), 30%, 90%, 0.55);
+    flex-shrink: 0; min-width: 90px;
+  }
+  .inline-edit .row-value {
+    flex: 1; font-size: 13.5px; color: #fbf5e8;
+  }
+  .inline-edit .revert {
+    font-size: 11px;
+    color: hsla(var(--pv-id-hue), 30%, 90%, 0.55);
+    background: transparent; border: none; cursor: pointer;
+    padding: 3px 6px; border-radius: 6px;
+  }
+  .inline-edit .revert:hover { color: #fbf5e8; background: rgba(0,0,0,0.25); }
+  .inline-edit .pencil {
+    color: hsla(var(--pv-id-hue), 30%, 90%, 0.5);
+    font-size: 12px;
+  }
+
+  /* ── Code-display block (fingerprints, URLs) ─────────── */
+  .code-block {
+    padding: 10px 12px; border-radius: 8px;
+    background: rgba(8, 10, 16, 0.55);
+    border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px; line-height: 1.55;
+    color: hsla(var(--pv-id-hue), 22%, 92%, 0.9);
+    word-break: break-all;
+    position: relative;
+    margin: 8px 0;
+  }
+  .code-block .copy {
+    position: absolute; top: 6px; right: 6px;
+    background: rgba(0, 0, 0, 0.42);
+    border: 1px solid hsla(var(--pv-id-hue), 65%, 55%, 0.32);
+    border-radius: 6px; padding: 4px 9px;
+    font-size: 10.5px; font-weight: 500;
+    color: hsla(var(--pv-id-hue), 25%, 92%, 0.9);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    letter-spacing: 0.04em;
+  }
+  .code-block .copy:hover { background: rgba(0, 0, 0, 0.55); color: #fbf5e8; }
+
+  /* ── Choice row (menu-style — OIDC providers, tmux sessions) ── */
+  .choice-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border-radius: 10px;
+    background: rgba(8, 10, 16, 0.4);
+    border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.16);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+    margin-bottom: 6px;
+  }
+  .choice-row:hover {
+    background: rgba(8, 10, 16, 0.55);
+    border-color: hsla(var(--pv-id-hue), 65%, 55%, 0.35);
+    transform: translateX(2px);
+  }
+  .choice-row .provider-icon {
+    width: 28px; height: 28px; border-radius: 7px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 13px;
+    color: hsla(var(--pv-id-hue), 25%, 92%, 0.9);
+    flex-shrink: 0;
+  }
+  .choice-row .provider-name {
+    flex: 1; font-size: 13.5px; font-weight: 500;
+    color: hsla(var(--pv-id-hue), 25%, 92%, 0.9);
+  }
+  .choice-row .provider-sub {
+    font-size: 11.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.55);
+    margin-top: 2px;
+  }
+  .choice-row .arrow {
+    color: hsla(var(--pv-id-hue), 25%, 92%, 0.5);
+    font-size: 13px;
+  }
+
+  /* ── Big centered code input (TOTP) ─────────────── */
+  .code-input-lg {
+    width: 100%;
+    padding: 14px 16px; text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 24px; font-weight: 600;
+    letter-spacing: 0.36em;
+    background: rgba(8, 10, 16, 0.6);
+    border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.35);
+    border-radius: 12px;
+    color: #fbf5e8;
+    box-shadow: 0 0 0 4px hsla(var(--pv-id-hue), 65%, 55%, 0.08) inset;
+  }
+
+  /* ── Color spectrum picker (CreateRoleDialog) ─────────── */
+  .color-picker {
+    height: 28px; border-radius: 14px;
+    background: linear-gradient(to right,
+      hsl(0, 65%, 55%), hsl(35, 65%, 55%), hsl(60, 65%, 55%),
+      hsl(120, 65%, 55%), hsl(190, 65%, 55%), hsl(220, 65%, 55%),
+      hsl(280, 65%, 55%), hsl(324, 65%, 55%), hsl(360, 65%, 55%));
+    position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset;
+    cursor: pointer;
+  }
+  .color-picker .marker {
+    position: absolute; top: 50%; left: calc(35/360 * 100%);
+    transform: translate(-50%, -50%);
+    width: 22px; height: 22px; border-radius: 50%;
+    background: hsl(35, 65%, 55%);
+    border: 3px solid #fbf5e8;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Selected chip (for participant picker) */
+  .chip-strip {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 6px 8px; border-radius: 8px;
+    background: rgba(8, 10, 16, 0.4);
+    border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.16);
+    min-height: 40px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    background: hsla(var(--chip-hue, var(--pv-id-hue)), 55%, 40%, 0.55);
+    border: 1px solid hsla(var(--chip-hue, var(--pv-id-hue)), 65%, 55%, 0.45);
+    font-size: 12px; font-weight: 500;
+    color: #fbf5e8;
+  }
+  .chip .x {
+    opacity: 0.7; cursor: pointer; font-size: 12px;
+    line-height: 1;
+  }
+
+  /* Filter bar (ScheduledAgents, ConversationSearch) */
+  .filter-bar {
+    display: flex; gap: 8px;
+    padding: 10px 16px 8px;
+    background: rgba(0, 0, 0, 0.22);
+    border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.18);
+    flex-shrink: 0;
+  }
+  .filter-bar input, .filter-bar select {
+    padding: 5px 10px; font-size: 12.5px; border-radius: 7px;
+  }
+  .filter-bar input { flex: 1; }
+  .filter-bar select { min-width: 100px; }
+
+  /* Small compact row (ScheduledAgents list) */
+  .agent-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 10px;
+    background: linear-gradient(160deg,
+                                hsla(var(--row-hue, 190), 45%, 32%, 0.42),
+                                hsla(var(--row-hue, 190), 40%, 20%, 0.5));
+    border: 1px solid hsla(var(--row-hue, 190), 60%, 55%, 0.22);
+    box-shadow:
+      0 2px 8px rgba(0, 0, 0, 0.3),
+      0 1px 0 rgba(255, 220, 190, 0.1) inset;
+    margin-bottom: 6px;
+  }
+  .agent-row .avatar-sm {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: linear-gradient(160deg,
+                                hsla(var(--row-hue, 190), 70%, 50%, 0.8),
+                                hsla(var(--row-hue, 190), 65%, 32%, 0.85));
+    border: 1px solid hsla(var(--row-hue, 190), 75%, 70%, 0.4);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12.5px; font-weight: 600;
+    color: #fbf5e8; flex-shrink: 0;
+  }
+  .agent-row .agent-name {
+    flex: 1; min-width: 0;
+    font-size: 13px; font-weight: 500; color: #fbf5e8;
+  }
+  .agent-row .agent-sub {
+    font-size: 11px; color: hsla(var(--row-hue, 190), 22%, 88%, 0.62);
+    margin-top: 1px;
+  }
+  .agent-row .agent-when {
+    font-size: 11px;
+    color: hsla(var(--row-hue, 190), 30%, 88%, 0.65);
+    white-space: nowrap;
+  }
+
+  /* Search-result row (ConversationSearchModal) */
+  .search-row {
+    padding: 10px 12px; border-radius: 10px;
+    background: rgba(8, 10, 16, 0.4);
+    border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.14);
+    margin-bottom: 6px;
+    cursor: pointer;
+  }
+  .search-row .search-head {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; font-weight: 500;
+    color: hsla(var(--pv-id-hue), 25%, 92%, 0.9);
+    margin-bottom: 5px;
+  }
+  .search-row .sender-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: hsla(var(--sender-hue, 35), 65%, 55%, 0.9);
+    flex-shrink: 0;
+  }
+  .search-row .when {
+    margin-left: auto;
+    font-size: 10.5px;
+    color: hsla(var(--pv-id-hue), 22%, 88%, 0.55);
+  }
+  .search-row .snippet {
+    font-size: 12px;
+    color: hsla(var(--pv-id-hue), 22%, 88%, 0.75);
+    line-height: 1.5;
+  }
+  .search-row .highlight {
+    background: hsla(var(--pv-id-hue), 65%, 55%, 0.28);
+    padding: 0 2px; border-radius: 3px;
+    color: #fbf5e8;
+  }
+
+  /* ── Variant-tab strip (inline single-vs-multi variant switcher) ─── */
+  .variant-tabs {
+    display: flex; gap: 4px;
+    margin-bottom: 14px;
+    padding: 3px;
+    background: rgba(0, 0, 0, 0.32);
+    border-radius: 8px;
+    width: fit-content;
+    border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.14);
+  }
+  .variant-tab {
+    padding: 5px 11px; border-radius: 6px;
+    font-size: 11px; font-weight: 500;
+    color: hsla(var(--pv-id-hue), 22%, 88%, 0.6);
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+  .variant-tab.on {
+    background: hsla(var(--pv-id-hue), 65%, 55%, 0.42);
+    color: #fbf5e8;
+  }
+
+  /* ── Day-of-week chips (wake-up restrict-to-days) ─── */
+  .day-chips {
+    display: flex; gap: 5px; flex-wrap: wrap;
+  }
+  .day-chip {
+    padding: 5px 10px; border-radius: 7px;
+    font-size: 11.5px; font-weight: 500;
+    background: rgba(8, 10, 16, 0.5);
+    border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.18);
+    color: hsla(var(--pv-id-hue), 22%, 88%, 0.55);
+    cursor: pointer;
+    min-width: 32px; text-align: center;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .day-chip.on {
+    background: hsla(var(--pv-id-hue), 65%, 55%, 0.35);
+    border-color: hsla(var(--pv-id-hue), 75%, 65%, 0.55);
+    color: #fbf5e8;
+  }
+  .field-hint {
+    font-size: 11px; margin-top: 6px;
+    color: hsla(var(--pv-id-hue), 22%, 88%, 0.55);
+    font-weight: 400; letter-spacing: 0;
+    text-transform: none;
+  }
+
+  /* Delete-runbook style icon button in head */
+  .head-icon-btn {
+    background: transparent; border: none; cursor: pointer;
+    color: hsla(4, 60%, 65%, 0.7);
+    font-size: 15px; padding: 4px 6px; line-height: 1;
+    border-radius: 6px;
+  }
+  .head-icon-btn:hover { color: hsla(4, 75%, 70%, 1); background: rgba(0,0,0,0.2); }
+
+  /* Host picker in modal head */
+  .head-picker {
+    margin-top: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .head-picker select { flex: 1; }
+  .head-plus {
+    background: hsla(var(--pv-id-hue), 65%, 55%, 0.35);
+    border: 1px solid hsla(var(--pv-id-hue), 75%, 70%, 0.5);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer;
+    font-size: 12px; font-weight: 500;
+    color: #fbf5e8; white-space: nowrap;
+  }
+
+  /* End note */
+  .end-note {
+    padding: 48px 64px 96px; max-width: 1500px; margin: 0 auto;
+    border-top: 1px solid var(--pv-border-quiet);
+  }
+  .end-note h3 {
+    font-size: 12px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--pv-fg-dim); margin: 0 0 14px;
+  }
+  .end-note p, .end-note li {
+    color: var(--pv-fg-muted); font-size: 14px; line-height: 1.7;
+    max-width: 780px;
+  }
+  .end-note ul { padding-left: 20px; }
+  .end-note li { margin-bottom: 8px; }
+  .end-note strong { color: var(--pv-fg); font-weight: 500; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <p class="kicker">Modal tasting · pass two · comprehensive (25 modals · all categories)</p>
+  <h1>Assistant Bubble style, applied to real Skynet modals.</h1>
+  <p>Pass one settled the direction — hue-tinted body, warm cream text, head/foot separators. This page applies it to <em>six actual modals from the app</em>, spanning the categories that stretch the design hardest: small confirm · single-form · list-manager · multi-pane settings · required-shell reload.</p>
+  <p>If the pattern holds across these six, the remaining ~19 real modals follow by analogy and I'll build them in a batch. The <em>identity hue varies per modal</em> in this pass — warm gold for identity-scoped work, neutral blue-gray for app-level settings/feedback, warm amber for the reload-required "attention" case. Real modals will inherit whichever hue their context owns.</p>
+  <div class="note">The stages behind each modal show mocked pretty-view bubbles peeking through the dim, same as pass one. React to modal-in-context, not modal-in-isolation.</div>
+</div>
+
+<!-- ═══ CATEGORY 1 · SMALL CONFIRM ══════════════════════════════════ -->
+<section class="category" style="--pv-id-hue: 35;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · Small confirm</p>
+    <h2 class="category-name">Delete confirm (and its siblings)</h2>
+    <p class="category-body">Same-pattern confirms: <em>DeleteConfirmDialog</em> (delete a file, a runbook, a skill), <em>FeedbackModal</em> (general variant: send us your thoughts). Also covers the SSH auth family's simpler members (TOTP code, passphrase input) — one short field or one short confirmation, two buttons, done.</p>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage">
+      <div class="stage-label">Delete confirm</div>
+      <div class="stage-source">DeleteConfirmDialog</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble">Okay — I'll delete that runbook.</div>
+        <div class="mock-bubble user">delete the ship-cycle runbook</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">Delete runbook</p>
+              <p class="title">ship-cycle</p>
+              <p class="subtitle">Deletes the runbook and all its files.</p>
+            </div>
+          </div>
+          <div class="body">
+            Deleting this runbook removes it and all of its files.
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn destructive">Delete runbook</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage" style="--pv-id-hue: 220;">
+      <div class="stage-label">Send feedback</div>
+      <div class="stage-source">FeedbackModal (general)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble">Anything on your mind, just let us know.</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal mid">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">Send feedback</p>
+              <p class="subtitle">What's working, what's not, or what you'd change — every note shapes the beta.</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body" style="padding-top: 6px;">
+            <div class="field">
+              <textarea placeholder="What's on your mind?" style="min-height: 100px;"></textarea>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CATEGORY 2 · SINGLE FORM ═════════════════════════════════════ -->
+<section class="category" style="--pv-id-hue: 35;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · Single-form create / edit</p>
+    <h2 class="category-name">Add a wake-up (identity-scoped)</h2>
+    <p class="category-body">A short form for one thing. This one is the <em>identity/role wake-up</em> — nested inside IdentityModal → Wake-ups tab, fires an instruction into the already-running identity on the clock. Distinct from the fleet-wide <em>ScheduledAgentsModal</em> (which SPAWNS a fresh agent — that lives in category 10 with its own form view). Siblings in this pattern: <em>CreateRoleDialog</em>, <em>NewSessionDialog</em>, <em>NewConversationModal</em>, <em>CreateProjectModal</em>. A few fields, quiet layout, save / cancel.</p>
+  </div>
+
+  <div class="stage-row single">
+    <div class="stage tall">
+      <div class="stage-label">Add wake-up (identity-scoped)</div>
+      <div class="stage-source">AddWakeupDialog</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">add a wake-up for the morning standup</div>
+        <div class="mock-bubble">Sure — fill in the details below.</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal mid">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">Add a wake-up</p>
+              <p class="subtitle">Fires on the clock and prints its instruction into this identity's already-running session.</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body" style="padding-top: 6px;">
+            <div class="field">
+              <label>Name</label>
+              <input type="text" placeholder="e.g. morning-standup" value="standup-check" />
+            </div>
+            <div class="field">
+              <label>Schedule type</label>
+              <select>
+                <option>Daily</option>
+                <option>Interval</option>
+                <option>Weekly</option>
+                <option>One-shot</option>
+              </select>
+            </div>
+            <div class="field" style="display: flex; gap: 10px;">
+              <div style="flex: 1;">
+                <label>At</label>
+                <input type="text" value="09:00" />
+              </div>
+              <div style="flex: 2;">
+                <label>Timezone</label>
+                <input type="text" placeholder="box-local (leave blank)" />
+              </div>
+            </div>
+            <div class="field">
+              <label>Restrict to days</label>
+              <div class="day-chips">
+                <span class="day-chip on">Mon</span>
+                <span class="day-chip on">Tue</span>
+                <span class="day-chip on">Wed</span>
+                <span class="day-chip on">Thu</span>
+                <span class="day-chip on">Fri</span>
+                <span class="day-chip">Sat</span>
+                <span class="day-chip">Sun</span>
+              </div>
+              <p class="field-hint">Leave all unselected to fire every day.</p>
+            </div>
+            <div class="field">
+              <label>Instruction</label>
+              <textarea style="min-height: 60px;">Check the work Kanban for cards assigned to you and triage them.</textarea>
+            </div>
+            <div class="field">
+              <label style="display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 400; color: hsla(var(--pv-id-hue), 25%, 92%, 0.85); margin-bottom: 0;">
+                <div class="toggle on" style="width: 30px; height: 18px; flex-shrink: 0;"></div>
+                Enabled
+              </label>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Add wake-up</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CATEGORY 3 · MULTI-PANE SETTINGS ═════════════════════════════ -->
+<section class="category" style="--pv-id-hue: 220;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · Multi-pane settings</p>
+    <h2 class="category-name">Preferences</h2>
+    <p class="category-body">The one modal with a left-side nav. Neutral blue-gray hue because settings aren't identity-scoped — they're the user's own thing. Four tabs (General, Voice, Notifications, About you) share one modal shell; each tab renders its own pane in the main area. Head / foot separators frame the whole thing; the nav column is a slightly darker sub-surface.</p>
+  </div>
+
+  <div class="stage-row single">
+    <div class="stage tall">
+      <div class="stage-label">Preferences</div>
+      <div class="stage-source">PreferencesModal</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">open preferences</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal settings">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">Preferences</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="settings-body">
+            <div class="settings-nav">
+              <div class="nav-item on" data-pane="general">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+                General
+              </div>
+              <div class="nav-item" data-pane="voice">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                Voice
+              </div>
+              <div class="nav-item" data-pane="notifications">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+                Notifications
+              </div>
+              <div class="nav-item" data-pane="about-you">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/></svg>
+                About you
+              </div>
+            </div>
+            <div class="settings-pane" data-pane-body="general">
+              <div class="field">
+                <label>Avatar</label>
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <div style="width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(160deg, hsla(var(--pv-id-hue), 60%, 55%, 0.8), hsla(var(--pv-id-hue), 55%, 35%, 0.85)); border: 1px solid hsla(var(--pv-id-hue), 65%, 65%, 0.5); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 600; color: #fbf5e8;">A</div>
+                  <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <button class="btn secondary" style="font-size: 12px; padding: 5px 12px;">Choose image…</button>
+                    <button class="btn secondary" style="font-size: 12px; padding: 5px 12px;">Remove</button>
+                  </div>
+                </div>
+                <p class="field-hint">A circle next to your name on messages.</p>
+              </div>
+            </div>
+            <div class="settings-pane" data-pane-body="voice" hidden>
+              <div class="field">
+                <label>Voice</label>
+                <select><option>Matthew</option><option>Ivy</option><option>Joanna</option><option>Amy</option></select>
+                <p class="field-hint">The voice your agents use to speak.</p>
+              </div>
+            </div>
+            <div class="settings-pane" data-pane-body="notifications" hidden>
+              <div class="field">
+                <label style="display: flex; align-items: center; gap: 10px; text-transform: none; letter-spacing: 0; font-size: 13.5px; font-weight: 500; color: hsla(var(--pv-id-hue), 25%, 92%, 0.9); margin-bottom: 0;">
+                  <div class="toggle on" style="width: 34px; height: 20px; flex-shrink: 0;"></div>
+                  Notifications enabled
+                </label>
+                <p class="field-hint" style="margin-top: 10px;">You'll get push notifications on this device when new messages arrive. Click the toggle to turn them off — the toggle also serves as the indicator of the current permission state.</p>
+              </div>
+            </div>
+            <div class="settings-pane" data-pane-body="about-you" hidden>
+              <p style="font-size: 13px; color: hsla(var(--pv-id-hue), 25%, 92%, 0.85); margin: 0 0 12px; line-height: 1.55;">Tell your agents anything you want them to know about you — how you work, your preferences, anything.</p>
+              <div class="variant-tabs">
+                <div class="variant-tab on" data-variant="single">Single host</div>
+                <div class="variant-tab" data-variant="multi">Multi-host</div>
+              </div>
+              <div data-variant-body="single">
+                <textarea style="min-height: 180px; font-family: 'JetBrains Mono', monospace; font-size: 12px;">I work asynchronously across a fleet of agents, and I like being told what's happening rather than asked what to do. Give me a concrete recommendation, then let me redirect if needed.
+
+I'm a designer at heart — I care about the aesthetics of my tools as much as their function.</textarea>
+              </div>
+              <div data-variant-body="multi" hidden>
+                <div class="field">
+                  <label>Host</label>
+                  <select><option>t1000</option><option>thenasty</option><option>workstation</option></select>
+                </div>
+                <textarea style="min-height: 150px; font-family: 'JetBrains Mono', monospace; font-size: 12px;">I work asynchronously across a fleet of agents, and I like being told what's happening rather than asked what to do. Give me a concrete recommendation, then let me redirect if needed.
+
+I'm a designer at heart — I care about the aesthetics of my tools as much as their function.</textarea>
+              </div>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CATEGORY 4 · LIST / MANAGER ══════════════════════════════════ -->
+<section class="category" style="--pv-id-hue: 190;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · List / manager</p>
+    <h2 class="category-name">Roles list</h2>
+    <p class="category-body">A modal whose <em>content is other bubbles</em> — each row is a role, rendered in the role's own hue. The modal shell uses the app default hue (190, cool cyan); the rows inside carry their own identities. Siblings: <em>ScheduledAgentsModal</em>, <em>ConversationSearchModal</em>. Any list of hue-carrying entities uses this pattern.</p>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage tall">
+      <div class="stage-label">Roles list · multi-host</div>
+      <div class="stage-source">RolesListModal (many hosts)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">show me all roles</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal list">
+          <div class="head" style="flex-direction: column; align-items: stretch;">
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+              <div class="head-text">
+                <p class="title">Roles</p>
+              </div>
+              <button class="close">✕</button>
+            </div>
+            <div class="head-picker">
+              <select><option>t1000</option><option>thenasty</option></select>
+              <button class="head-plus">+ New role</button>
+            </div>
+          </div>
+          <div class="list-body">
+            <div class="list-row" style="--row-hue: 324;">
+              <div class="avatar">B</div>
+              <div class="label">
+                Box Maintainer
+              </div>
+              <span class="chevron">›</span>
+            </div>
+            <div class="list-row" style="--row-hue: 35;">
+              <div class="avatar">T</div>
+              <div class="label">
+                Tina
+              </div>
+              <span class="chevron">›</span>
+            </div>
+            <div class="list-row" style="--row-hue: 160;">
+              <div class="avatar">S</div>
+              <div class="label">
+                Stacy
+              </div>
+              <span class="chevron">›</span>
+            </div>
+            <div class="list-row" style="--row-hue: 280;">
+              <div class="avatar">R</div>
+              <div class="label">
+                Research
+              </div>
+              <span class="chevron">›</span>
+            </div>
+            <div class="list-row" style="--row-hue: 5;">
+              <div class="avatar">O</div>
+              <div class="label">
+                Onboarder
+              </div>
+              <span class="chevron">›</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage tall">
+      <div class="stage-label">Roles list · single-host</div>
+      <div class="stage-source">RolesListModal (only one host)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">show me all roles</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal list">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">Roles</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button class="head-plus" style="padding: 5px 10px;">+ New role</button>
+              <button class="close">✕</button>
+            </div>
+          </div>
+          <div class="list-body">
+            <div class="list-row" style="--row-hue: 324;">
+              <div class="avatar">B</div>
+              <div class="label">
+                Box Maintainer
+              </div>
+              <span class="chevron">›</span>
+            </div>
+            <div class="list-row" style="--row-hue: 35;">
+              <div class="avatar">T</div>
+              <div class="label">
+                Tina
+              </div>
+              <span class="chevron">›</span>
+            </div>
+            <div class="list-row" style="--row-hue: 280;">
+              <div class="avatar">R</div>
+              <div class="label">
+                Research
+              </div>
+              <span class="chevron">›</span>
+            </div>
+            <div class="list-row" style="--row-hue: 5;">
+              <div class="avatar">O</div>
+              <div class="label">
+                Onboarder
+              </div>
+              <span class="chevron">›</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CATEGORY 5 · REQUIRED SHELL ═════════════════════════════════ -->
+<section class="category" style="--pv-id-hue: 40;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · Required shell action</p>
+    <h2 class="category-name">Reload — client out of date</h2>
+    <p class="category-body">The reload-required modal — fires when the client build mismatches the server. Non-dismissible (no close X, no cancel, backdrop click does nothing). Warm amber hue (40°) instead of an identity or app default — <em>signals "attention needed"</em> without alarming red, and visually distinguishes it as a system-level thing rather than a chat-scoped thing. Halo is a touch stronger too — the whole point of this modal is to be seen.</p>
+  </div>
+
+  <div class="stage-row single">
+    <div class="stage">
+      <div class="stage-label">Reload required (skew lock)</div>
+      <div class="stage-source">SkewLockModal</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble">Working on the ship-cycle deploy.</div>
+        <div class="mock-bubble user">tail the logs</div>
+        <div class="mock-bubble">Tailing now…</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal shell">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">A newer version is available</p>
+            </div>
+          </div>
+          <div class="body">
+            Reload to pick up the new build.
+          </div>
+          <div class="foot" style="justify-content: center;">
+            <button class="btn primary" style="min-width: 140px;">Reload</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CATEGORY 6 · CONTENT EDITOR (multi-file) ═════════════════════ -->
+<section class="category" style="--pv-id-hue: 324;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · Content editor (multi-file)</p>
+    <h2 class="category-name">Runbook editor</h2>
+    <p class="category-body">Big surface. Body is <em>the editor pane itself</em> — the real editor widget (Monaco/CodeMirror) lives inside, so we're not designing that surface, only the container around it. Files are horizontally-tabbed <em>above</em> the editor (IDE convention: tabs sit atop the surface they select). Head carries the runbook name + a delete-runbook affordance. Sibling: <em>SkillsEditorModal</em> (same pattern + host-picker and skill-picker in the head).</p>
+  </div>
+
+  <div class="stage-row single">
+    <div class="stage tall">
+      <div class="stage-label">Runbook editor</div>
+      <div class="stage-source">RunbookEditorModal</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">open the ship-cycle runbook</div>
+        <div class="mock-bubble">Opening now.</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal editor">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">Runbook · box-maintainer</p>
+              <p class="title">ship-cycle</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <button class="head-icon-btn" title="Delete runbook">🗑</button>
+              <button class="close">✕</button>
+            </div>
+          </div>
+          <div class="file-strip">
+            <div class="tab on">📄 runbook.md</div>
+            <div class="tab">📄 checklist.md</div>
+            <div class="tab">📄 rollback.sh</div>
+            <div class="plus">+ Add file</div>
+          </div>
+          <div class="editor-pane">
+            <span style="color: hsla(var(--pv-id-hue), 22%, 92%, 0.5); font-style: italic;">— The real editor surface (Monaco/CodeMirror) renders here. Placeholder content below is not being designed. —</span><br/>
+            <br/>
+            <div class="h"># Ship-cycle runbook</div><br/>
+            <br/>
+            <span class="num">1.</span> <span class="h">Pre-ship gate</span> — full-suite green.<br/>
+            <span class="num">2.</span> <span class="h">Rebase</span> — `git pull --rebase origin feat/tab-title-from-tmux`.<br/>
+            <span class="num">3.</span> <span class="h">Coord check</span> — Ashley's greenlight in-hand.<br/>
+            <span class="num">4.</span> <span class="h">Build</span> — `docker compose build`.<br/>
+            <span class="num">5.</span> <span class="h">Deploy</span> — `docker compose up --force-recreate`.<br/>
+            <span class="num">6.</span> <span class="h">Verify</span> — HTTPS 200 + docker logs sanity-check.<br/>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Close</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-row" style="margin-top: 24px;">
+    <div class="stage tall" style="--pv-id-hue: 324;">
+      <div class="stage-label">Skills editor · multi-host</div>
+      <div class="stage-source">SkillsEditorModal (many hosts)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">open the app-development skill</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal editor">
+          <div class="head" style="flex-direction: column; align-items: stretch; gap: 10px;">
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+              <div class="head-text">
+                <p class="title">Skills</p>
+              </div>
+              <button class="close">✕</button>
+            </div>
+            <div class="head-picker" style="margin-top: 0;">
+              <select style="min-width: 120px;"><option>t1000</option><option>thenasty</option></select>
+              <select style="flex: 1;"><option>app-development</option><option>build</option><option>gsd-plan-phase</option></select>
+              <button class="head-icon-btn" title="Delete skill" style="align-self: center;">🗑</button>
+            </div>
+          </div>
+          <div class="file-strip">
+            <div class="tab on">📄 SKILL.md</div>
+            <div class="tab">📄 templates/app-starter/server.js</div>
+            <div class="tab">📄 templates/app-starter/src/hooks.ts</div>
+            <div class="plus">+ Add file</div>
+          </div>
+          <div class="editor-pane">
+            <span style="color: hsla(var(--pv-id-hue), 22%, 92%, 0.5); font-style: italic;">— Real editor (Monaco/CodeMirror) renders here. Placeholder below. —</span><br/>
+            <br/>
+            <div class="h">---</div>
+            <span class="h">name:</span> app-development<br/>
+            <span class="h">description:</span> Builds a new app, or edits an existing one.<br/>
+            <div class="h">---</div><br/>
+            <br/>
+            <div class="h"># App development</div><br/>
+            <br/>
+            <em>Skill for building or editing apps end-to-end.</em>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Close</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage tall" style="--pv-id-hue: 324;">
+      <div class="stage-label">Skills editor · single-host</div>
+      <div class="stage-source">SkillsEditorModal (only one host)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">open the app-development skill</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal editor">
+          <div class="head" style="flex-direction: column; align-items: stretch; gap: 10px;">
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+              <div class="head-text">
+                <p class="title">Skills</p>
+              </div>
+              <button class="close">✕</button>
+            </div>
+            <div class="head-picker" style="margin-top: 0;">
+              <select style="flex: 1;"><option>app-development</option><option>build</option><option>gsd-plan-phase</option></select>
+              <button class="head-icon-btn" title="Delete skill" style="align-self: center;">🗑</button>
+            </div>
+          </div>
+          <div class="file-strip">
+            <div class="tab on">📄 SKILL.md</div>
+            <div class="tab">📄 templates/app-starter/server.js</div>
+            <div class="tab">📄 templates/app-starter/src/hooks.ts</div>
+            <div class="plus">+ Add file</div>
+          </div>
+          <div class="editor-pane">
+            <span style="color: hsla(var(--pv-id-hue), 22%, 92%, 0.5); font-style: italic;">— Real editor (Monaco/CodeMirror) renders here. Placeholder below. —</span><br/>
+            <br/>
+            <div class="h">---</div>
+            <span class="h">name:</span> app-development<br/>
+            <span class="h">description:</span> Builds a new app, or edits an existing one.<br/>
+            <div class="h">---</div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Close</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CATEGORY 7 · CONTENT EDITOR (record with sections) ═══════════ -->
+<section class="category" style="--pv-id-hue: 35;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · Content editor (record with sections)</p>
+    <h2 class="category-name">Identity editor</h2>
+    <p class="category-body">Head is <em>the identity itself</em> — avatar disc + display name + role slug — so opening the modal feels like walking up to a portrait. Section tabs sit at the top of the body (Identity, Wakeups, Files). Inline editable rows inside each section, each with a subtle revert affordance. Sibling: <em>RoleModal</em> — same shape but hue-tinted to the role's color instead of the identity's, and the head shows the role's avatar.</p>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage tall">
+      <div class="stage-label">Identity editor</div>
+      <div class="stage-source">IdentityModal</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">open gambit's identity</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal editor-lg" style="max-width: 560px; height: 560px;">
+          <div class="identity-head">
+            <div class="avatar-lg">G</div>
+            <div class="name-block">
+              <p class="display-name">Gambit</p>
+              <p class="role-meta">box-maintainer</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="section-tabs">
+            <div class="tab on" data-section="cosmetics"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg> Cosmetics</div>
+            <div class="tab" data-section="identity-file"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg> Identity file</div>
+            <div class="tab" data-section="wakeups"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> Wake-ups</div>
+            <div class="tab" data-section="files"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Files</div>
+          </div>
+          <div class="body" style="overflow-y: auto; padding: 16px 20px;" data-section-body="cosmetics">
+            <div class="inline-edit">
+              <div class="row">
+                <span class="row-label">Display name</span>
+                <span class="row-value">Gambit</span>
+                <span class="pencil">✎</span>
+              </div>
+              <div class="row">
+                <span class="row-label">Task</span>
+                <span class="row-value" style="font-size: 12.5px; color: hsla(var(--pv-id-hue), 22%, 92%, 0.72);">Unify the look of all modals in Skynet</span>
+                <span class="pencil">✎</span>
+              </div>
+              <div class="row">
+                <span class="row-label">Color</span>
+                <span class="row-value" style="display: flex; align-items: center; gap: 8px;">
+                  <span style="width: 20px; height: 20px; border-radius: 50%; background: hsl(35, 65%, 55%); border: 1px solid hsla(35, 75%, 70%, 0.5);"></span>
+                </span>
+                <span class="pencil">✎</span>
+              </div>
+              <div class="row">
+                <span class="row-label">Voice</span>
+                <span class="row-value">Matthew</span>
+                <span class="pencil">✎</span>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 8px 2px 0;">
+              <div class="toggle on" style="width: 34px; height: 20px; flex-shrink: 0;"></div>
+              <span style="font-size: 12.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.75);">Boost response time (uses more memory)</span>
+            </div>
+          </div>
+          <div class="body" style="overflow-y: auto; padding: 12px 16px;" data-section-body="wakeups" hidden>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="padding: 10px 12px; border-radius: 10px; background: rgba(8, 10, 16, 0.4); border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.14); display: flex; align-items: center; gap: 12px;">
+                <div style="flex: 1;">
+                  <div style="font-size: 13px; font-weight: 500; color: #fbf5e8;">standup-check</div>
+                  <div style="font-size: 11.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.6); margin-top: 2px;">Daily at 09:00 · Mon–Fri</div>
+                </div>
+                <div class="toggle on" style="width: 30px; height: 18px; flex-shrink: 0;"></div>
+                <span class="pencil">✎</span>
+              </div>
+              <div style="padding: 10px 12px; border-radius: 10px; background: rgba(8, 10, 16, 0.4); border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.14); display: flex; align-items: center; gap: 12px;">
+                <div style="flex: 1;">
+                  <div style="font-size: 13px; font-weight: 500; color: #fbf5e8;">weekly-scan</div>
+                  <div style="font-size: 11.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.6); margin-top: 2px;">Every Monday at 08:00</div>
+                </div>
+                <div class="toggle on" style="width: 30px; height: 18px; flex-shrink: 0;"></div>
+                <span class="pencil">✎</span>
+              </div>
+              <button class="btn secondary" style="margin-top: 8px; width: 100%; text-align: center;">+ Add wake-up</button>
+            </div>
+          </div>
+          <div class="editor-pane" style="flex: 1; margin: 0;" data-section-body="identity-file" hidden>
+            <span style="color: hsla(var(--pv-id-hue), 22%, 92%, 0.5); font-style: italic;">— Real editor (Monaco/CodeMirror) renders here. Placeholder below. —</span><br/>
+            <br/>
+            <span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">---</span><br/>
+            <span class="h">role:</span> box-maintainer<br/>
+            <span class="h">displayName:</span> Gambit<br/>
+            <span class="h">task:</span> Unify the look of all modals in Skynet<br/>
+            <span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">---</span><br/>
+            <br/>
+            # gambit
+          </div>
+          <div class="body" style="overflow-y: auto; padding: 0;" data-section-body="files" hidden>
+            <div style="padding: 10px 16px 8px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.14); background: rgba(0, 0, 0, 0.18);">
+              <span style="font-size: 12px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.62);">
+                <span style="color: hsla(var(--pv-id-hue), 25%, 92%, 0.9);">workspace</span>
+                <span style="opacity: 0.4;"> / </span>
+                <span>notes</span>
+              </span>
+              <span style="margin-left: auto; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 500; background: hsla(var(--pv-id-hue), 55%, 40%, 0.35); border: 1px solid hsla(var(--pv-id-hue), 65%, 55%, 0.45); color: #fbf5e8;">t1000</span>
+              <button class="btn secondary" style="padding: 3px 8px; font-size: 11px;" title="Refresh">↻</button>
+            </div>
+            <div style="padding: 8px 16px; display: flex; gap: 6px; border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.10);">
+              <button class="btn secondary" style="padding: 4px 10px; font-size: 11.5px;">⬆ Upload</button>
+              <button class="btn secondary" style="padding: 4px 10px; font-size: 11.5px;">📁 New folder</button>
+              <button class="btn secondary" style="padding: 4px 10px; font-size: 11.5px;">📄 New file</button>
+            </div>
+            <div style="padding: 6px 16px 4px; display: grid; grid-template-columns: 1fr 60px 100px 20px; gap: 8px; font-size: 10.5px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: hsla(var(--pv-id-hue), 30%, 90%, 0.55); border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.08);">
+              <span style="cursor: pointer;">Name ↓</span>
+              <span style="cursor: pointer;">Size</span>
+              <span style="cursor: pointer;">Modified</span>
+              <span></span>
+            </div>
+            <div style="padding: 4px 8px;">
+              <div style="display: grid; grid-template-columns: 1fr 60px 100px 20px; gap: 8px; padding: 6px 8px; align-items: center; border-radius: 6px; font-size: 12.5px; cursor: pointer;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='transparent'">
+                <span style="display: flex; align-items: center; gap: 8px; color: #fbf5e8;"><span style="opacity: 0.75;">📁</span> archived/</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.55);">—</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.6);">2 days ago</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.4);">⋮</span>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 60px 100px 20px; gap: 8px; padding: 6px 8px; align-items: center; border-radius: 6px; font-size: 12.5px; cursor: pointer;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='transparent'">
+                <span style="display: flex; align-items: center; gap: 8px; color: #fbf5e8;"><span style="opacity: 0.75;">📄</span> groceries.md</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.55);">1.2 KB</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.6);">this morning</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.4);">⋮</span>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 60px 100px 20px; gap: 8px; padding: 6px 8px; align-items: center; border-radius: 6px; font-size: 12.5px; cursor: pointer;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='transparent'">
+                <span style="display: flex; align-items: center; gap: 8px; color: #fbf5e8;"><span style="opacity: 0.75;">📄</span> shape-modal-look.md</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.55);">4.8 KB</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.6);">15 min ago</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.4);">⋮</span>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 60px 100px 20px; gap: 8px; padding: 6px 8px; align-items: center; border-radius: 6px; font-size: 12.5px; cursor: pointer;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='transparent'">
+                <span style="display: flex; align-items: center; gap: 8px; color: #fbf5e8;"><span style="opacity: 0.75;">🖼</span> screenshot.png</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.55);">184 KB</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.6);">yesterday</span>
+                <span style="color: hsla(var(--pv-id-hue), 22%, 88%, 0.4);">⋮</span>
+              </div>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage tall" style="--pv-id-hue: 324;">
+      <div class="stage-label">Role editor</div>
+      <div class="stage-source">RoleModal</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">open the box-maintainer role</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal editor-lg" style="max-width: 560px; height: 560px;">
+          <div class="identity-head">
+            <div class="avatar-lg">B</div>
+            <div class="name-block">
+              <p class="display-name">Box Maintainer</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="section-tabs">
+            <div class="tab on" data-section="cosmetics"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg> Cosmetics</div>
+            <div class="tab" data-section="role-file"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg> Role file</div>
+            <div class="tab" data-section="runbooks"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg> Runbooks</div>
+          </div>
+          <div class="body" style="overflow-y: auto; padding: 16px 20px;" data-section-body="cosmetics">
+            <div class="inline-edit">
+              <div class="row">
+                <span class="row-label">Display name</span>
+                <span class="row-value">Box Maintainer</span>
+                <span class="pencil">✎</span>
+              </div>
+              <div class="row">
+                <span class="row-label">Color</span>
+                <span class="row-value" style="display: flex; align-items: center; gap: 8px;">
+                  <span style="width: 20px; height: 20px; border-radius: 50%; background: hsl(324, 65%, 55%); border: 1px solid hsla(324, 75%, 70%, 0.5);"></span>
+                </span>
+                <span class="pencil">✎</span>
+              </div>
+              <div class="row">
+                <span class="row-label">Avatar</span>
+                <span class="row-value">box-maintainer.webp</span>
+                <span class="pencil">✎</span>
+              </div>
+            </div>
+          </div>
+          <div class="editor-pane" style="flex: 1; margin: 0;" data-section-body="role-file" hidden>
+            <span style="color: hsla(var(--pv-id-hue), 22%, 92%, 0.5); font-style: italic;">— Real editor renders here. Placeholder below. —</span><br/>
+            <br/>
+            <span class="h"># Role</span><br/>
+            <br/>
+            Maintainer of the SKYNET app…
+          </div>
+          <div class="body" style="overflow-y: auto; padding: 12px 16px;" data-section-body="runbooks" hidden>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="padding: 10px 12px; border-radius: 10px; background: rgba(8, 10, 16, 0.4); border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.14); display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                <div style="flex: 1;">
+                  <div style="font-size: 13px; font-weight: 500; color: #fbf5e8;">ship-cycle</div>
+                  <div style="font-size: 11.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.6); margin-top: 2px;">3 files</div>
+                </div>
+                <span class="chevron">›</span>
+              </div>
+              <div style="padding: 10px 12px; border-radius: 10px; background: rgba(8, 10, 16, 0.4); border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.14); display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                <div style="flex: 1;">
+                  <div style="font-size: 13px; font-weight: 500; color: #fbf5e8;">skynet-admin</div>
+                  <div style="font-size: 11.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.6); margin-top: 2px;">2 files</div>
+                </div>
+                <span class="chevron">›</span>
+              </div>
+              <div style="padding: 10px 12px; border-radius: 10px; background: rgba(8, 10, 16, 0.4); border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.14); display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                <div style="flex: 1;">
+                  <div style="font-size: 13px; font-weight: 500; color: #fbf5e8;">frontend-testing</div>
+                  <div style="font-size: 11.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.6); margin-top: 2px;">1 file</div>
+                </div>
+                <span class="chevron">›</span>
+              </div>
+              <button class="btn secondary" style="margin-top: 8px; width: 100%; text-align: center;">+ New runbook</button>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-row" style="margin-top: 24px;">
+    <div class="stage" style="--pv-id-hue: 190;">
+      <div class="stage-label">Editable file</div>
+      <div class="stage-source">EditableFileModal</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble">Sharing the compose config — click to edit.</div>
+        <div class="mock-bubble user">open it</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal editor" style="max-width: 480px; height: 420px;">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">Editable file</p>
+              <p class="title">docker-compose.yml</p>
+              <p class="subtitle">edit and save sends back</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="editor-pane">
+            <span class="h">services:</span><br/>
+            &nbsp;&nbsp;<span class="h">skynet:</span><br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;image: skynet-patched:local<br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="h">build:</span><br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;context: .<br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;dockerfile: Dockerfile.patched<br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="h">ports:</span><br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- "8080:8080"<br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="h">volumes:</span><br/>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- skynet-data:/data<br/>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Close</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage" style="--pv-id-hue: 160;">
+      <div class="stage-label">Project file</div>
+      <div class="stage-source">ProjectFileModal</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">edit the project file for skynet-beta</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal editor" style="max-width: 480px; height: 420px;">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">Project · skynet-beta</p>
+              <p class="title">project.md</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="editor-pane">
+            <span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">---</span><br/>
+            <span class="h">displayName:</span> SKYNET BETA<br/>
+            <span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">---</span><br/>
+            <br/>
+            <em>The Skynet beta channel — this is where we redesign the modal look, unify the design system, and prepare for a broader refresh…</em>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Close</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CATEGORY 8 · AUTH-PROMPT FAMILY ═══════════════════════════ -->
+<section class="category" style="--pv-id-hue: 210;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · Auth-prompt family</p>
+    <h2 class="category-name">SSH auth, TOTP, host-key, OPKSSH, Warpgate, passphrase, tmux picker</h2>
+    <p class="category-body">The tightest sibling group in the app — seven modals that all appear <em>mid-flow, while connecting to something</em>. They should feel like one family. Cool-slate hue (210) because they're the app talking to the network layer, not identity-scoped. Shared vocabulary: short block of guidance, one focused input or choice, one primary "Connect / Verify / Accept" and one Cancel.</p>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage">
+      <div class="stage-label">SSH auth (two-tab)</div>
+      <div class="stage-source">SSHAuthDialog</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">connect to workstation</div>
+        <div class="mock-bubble">Connecting…</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal mid">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">SSH · workstation</p>
+              <p class="title">Authenticate</p>
+              <p class="subtitle">connecting as <span style="color: #fbf5e8; font-weight: 500;">ashley</span></p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="section-tabs" style="padding-top: 6px;">
+            <div class="tab on">Password</div>
+            <div class="tab">Key</div>
+          </div>
+          <div class="body" style="padding-top: 14px;">
+            <div class="field">
+              <label>Password</label>
+              <input type="password" value="••••••••••••" />
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Connect</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-label">Host key verify (unknown host)</div>
+      <div class="stage-source">HostKeyVerificationDialog</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">connect to a new host</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal mid">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">First connection · unknown host</p>
+              <p class="title">Verify host key</p>
+              <p class="subtitle">The host's identity hasn't been verified before.</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <p style="margin: 0 0 8px; font-size: 12.5px;">Check this fingerprint against a trusted source before accepting.</p>
+            <div class="code-block">
+              SHA256:hEXAmp1eF1nGeRpr1Nt/AbCdEfGhIjKlMnOpQrStUv/WxYzAbCdE
+              <button class="copy">Copy</button>
+            </div>
+            <p style="margin: 8px 0 0; font-size: 11.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.55);">Accepting adds this key to your known-hosts.</p>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Reject</button>
+            <button class="btn primary">Accept &amp; connect</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage">
+      <div class="stage-label">OPKSSH (provider chooser)</div>
+      <div class="stage-source">OPKSSHDialog · chooser stage</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">connect via OIDC</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal mid">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">OpenPubkey · SSH</p>
+              <p class="title">Choose a provider</p>
+              <p class="subtitle">Sign in to mint a short-lived SSH cert.</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <div class="choice-row">
+              <div class="provider-icon">G</div>
+              <div style="flex: 1;">
+                <div class="provider-name">Google</div>
+                <div class="provider-sub">ashley@… · last used yesterday</div>
+              </div>
+              <span class="arrow">›</span>
+            </div>
+            <div class="choice-row">
+              <div class="provider-icon">GH</div>
+              <div style="flex: 1;">
+                <div class="provider-name">GitHub</div>
+                <div class="provider-sub">ashley-shrok · last used 3 days ago</div>
+              </div>
+              <span class="arrow">›</span>
+            </div>
+            <div class="choice-row">
+              <div class="provider-icon">A</div>
+              <div style="flex: 1;">
+                <div class="provider-name">Anthropic</div>
+                <div class="provider-sub">First time · will open a browser tab</div>
+              </div>
+              <span class="arrow">›</span>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-label">Warpgate auth</div>
+      <div class="stage-source">WarpgateDialog</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">connect through warpgate</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal mid">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">Warpgate · SSH</p>
+              <p class="title">Complete authentication</p>
+              <p class="subtitle">Warpgate needs you to sign in through your browser.</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <div class="field">
+              <label>Sign-in URL</label>
+              <div class="code-block" style="margin: 0;">
+                https://warpgate.internal/@auth/ticket/e5f8a12c-93b7-4d2a-bfd0-1c9e0b7d
+                <button class="copy">Copy</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Security key</label>
+              <div class="code-block" style="margin: 0;">
+                9F2A · 7B4E · CD31
+                <button class="copy">Copy</button>
+              </div>
+              <p style="margin: 6px 0 0; font-size: 11px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.5);">Match this on the Warpgate page to confirm the request.</p>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Open in browser</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage">
+      <div class="stage-label">TOTP code</div>
+      <div class="stage-source">TOTPDialog</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">connect (MFA required)</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">SSH MFA</p>
+              <p class="title">Enter your code</p>
+              <p class="subtitle">Six-digit code from your authenticator app.</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <input class="code-input-lg" value="482 917" />
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Verify</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-label">Passphrase</div>
+      <div class="stage-source">PassphraseDialog</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">connect using my key</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">SSH key · encrypted</p>
+              <p class="title">Unlock your key</p>
+              <p class="subtitle">This key requires a passphrase.</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <div class="field">
+              <label>Passphrase</label>
+              <input type="password" value="••••••••••••••••" />
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Unlock</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-row single">
+    <div class="stage">
+      <div class="stage-label">Tmux session picker</div>
+      <div class="stage-source">TmuxSessionPicker</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">connect to workstation</div>
+        <div class="mock-bubble">You have three tmux sessions here already.</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal mid">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">Reconnecting · workstation</p>
+              <p class="title">Attach a session</p>
+              <p class="subtitle">Pick an existing tmux session, or start a fresh one.</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <div class="choice-row">
+              <div class="provider-icon" style="font-size: 11px;">T</div>
+              <div style="flex: 1;">
+                <div class="provider-name">gambit</div>
+                <div class="provider-sub">active · attached 12 minutes ago</div>
+              </div>
+              <span class="arrow">›</span>
+            </div>
+            <div class="choice-row">
+              <div class="provider-icon" style="font-size: 11px;">T</div>
+              <div style="flex: 1;">
+                <div class="provider-name">tina</div>
+                <div class="provider-sub">idle · last input 2 days ago</div>
+              </div>
+              <span class="arrow">›</span>
+            </div>
+            <div class="choice-row">
+              <div class="provider-icon" style="font-size: 11px;">T</div>
+              <div style="flex: 1;">
+                <div class="provider-name">stacy</div>
+                <div class="provider-sub">idle · last input yesterday</div>
+              </div>
+              <span class="arrow">›</span>
+            </div>
+            <div class="choice-row" style="background: transparent; border: 1px dashed hsla(var(--pv-id-hue), 60%, 55%, 0.28);">
+              <div class="provider-icon" style="background: transparent; border-color: transparent;">+</div>
+              <div style="flex: 1;">
+                <div class="provider-name">New session</div>
+                <div class="provider-sub">Start a fresh tmux</div>
+              </div>
+              <span class="arrow">›</span>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CATEGORY 9 · REMAINING SINGLE-FORMS ═══════════════════════════ -->
+<section class="category" style="--pv-id-hue: 190;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · Remaining single-forms</p>
+    <h2 class="category-name">Create role · new session · new conversation · new project</h2>
+    <p class="category-body">Same pattern as Add-wake-up, but each has its own <em>specialized widgets</em> — the role dialog carries a hue picker + avatar generator, the session dialog carries a host picker and optional identity/role selection, the conversation dialog carries a participant chip strip. These are the modals where "single-form" starts to stretch — worth seeing they still fit the shell without special treatment.</p>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage tall" style="--pv-id-hue: 280;">
+      <div class="stage-label">Create role</div>
+      <div class="stage-source">CreateRoleDialog</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">new role called research</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal mid">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">New role</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <div class="field">
+              <label>Name</label>
+              <input type="text" value="research" />
+            </div>
+            <div class="field">
+              <label>Description</label>
+              <textarea style="min-height: 50px;">Reads papers, drafts notes, keeps up with the field.</textarea>
+            </div>
+            <div class="field">
+              <label>Color hue</label>
+              <div class="color-picker" style="margin-top: 4px;">
+                <div class="marker" style="left: 78%; background: hsl(280, 65%, 55%);"></div>
+              </div>
+            </div>
+            <div class="field">
+              <label>Avatar</label>
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 8px;">
+                  <div style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(140deg, hsla(280, 70%, 55%, 0.9), hsla(280, 65%, 32%, 0.9)); border: 2px solid hsla(280, 85%, 78%, 0.9); box-shadow: 0 0 0 3px hsla(280, 70%, 55%, 0.25); display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; color: #fbf5e8; cursor: pointer;" title="Selected">R</div>
+                  <div style="width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(200deg, hsla(280, 60%, 48%, 0.85), hsla(280, 55%, 28%, 0.9)); border: 1px solid hsla(280, 75%, 70%, 0.35); display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; color: #fbf5e8; cursor: pointer;">◈</div>
+                  <div style="width: 44px; height: 44px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, hsla(280, 80%, 60%, 0.9), hsla(280, 55%, 25%, 0.9)); border: 1px solid hsla(280, 75%, 70%, 0.35); display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; color: #fbf5e8; cursor: pointer;">✦</div>
+                </div>
+                <button class="btn secondary" style="padding: 5px 12px; font-size: 12px;">Regenerate</button>
+                <button class="btn secondary" style="padding: 5px 12px; font-size: 12px;">Upload</button>
+              </div>
+              <p class="field-hint">Pick one, regenerate for another set, or upload your own.</p>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Create</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-label">New conversation · multi-host</div>
+      <div class="stage-source">NewSessionDialog (many hosts)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">new conversation on workstation</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal mid">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">New conversation</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <div class="field">
+              <label>Host</label>
+              <select><option>workstation</option><option>t1000</option><option>thenasty</option></select>
+            </div>
+            <div class="field">
+              <label>Session name</label>
+              <input type="text" placeholder="e.g. willow" value="willow" />
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Start</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage">
+      <div class="stage-label">New group conversation</div>
+      <div class="stage-source">NewConversationModal</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">start a group chat with tina and stacy</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal mid">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">New group conversation</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <div class="field">
+              <label>Name</label>
+              <input type="text" placeholder="e.g. Design review" />
+            </div>
+            <div class="field">
+              <label>Participants</label>
+              <div class="chip-strip" style="margin-bottom: 6px;">
+                <span class="chip" style="--chip-hue: 35;">Tina <span class="x">✕</span></span>
+                <span class="chip" style="--chip-hue: 160;">Stacy <span class="x">✕</span></span>
+              </div>
+              <input type="text" placeholder="Add another identity…" />
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Start</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage" style="--pv-id-hue: 160;">
+      <div class="stage-label">Create project · multi-host</div>
+      <div class="stage-source">CreateProjectModal (many hosts)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">new project called skynet-beta</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">New project</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <div class="field">
+              <label>Host</label>
+              <select><option>t1000</option><option>thenasty</option></select>
+            </div>
+            <div class="field">
+              <label>Name</label>
+              <input type="text" placeholder="e.g. skynet-beta" value="skynet-beta" />
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Create</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-row" style="margin-top: 24px;">
+    <div class="stage" style="--pv-id-hue: 160;">
+      <div class="stage-label">Create project · single-host</div>
+      <div class="stage-source">CreateProjectModal (only one host)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">new project called skynet-beta</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">New project</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <div class="field">
+              <label>Name</label>
+              <input type="text" placeholder="e.g. skynet-beta" value="skynet-beta" />
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Create</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-label">New conversation · single-host</div>
+      <div class="stage-source">NewSessionDialog (only one host)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">new conversation</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">New conversation</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body">
+            <div class="field">
+              <label>Session name</label>
+              <input type="text" placeholder="e.g. willow" value="willow" />
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Start</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CATEGORY 10 · REMAINING LIST-MANAGERS ═══════════════════════ -->
+<section class="category" style="--pv-id-hue: 190;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · Remaining list-managers</p>
+    <h2 class="category-name">Scheduled agents · conversation search</h2>
+    <p class="category-body">The other list-managers besides RolesList. Both add a <em>filter bar</em> just below the head — a small toolbar for search + filters that scopes the list below it. Same list-in-a-bubble pattern; the rows are more compact than roles-list rows since the content per row is denser.</p>
+  </div>
+
+  <div class="stage-row">
+    <div class="stage tall">
+      <div class="stage-label">Scheduled agents · multi-host</div>
+      <div class="stage-source">ScheduledAgentsModal (many hosts)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">show me the scheduled agents</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal list" style="max-width: 480px; height: 560px;">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">Scheduled Agents</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button class="head-plus" style="padding: 5px 10px;">+ New</button>
+              <button class="close">✕</button>
+            </div>
+          </div>
+          <div class="filter-bar">
+            <input type="text" placeholder="Search…" />
+            <select><option>All roles</option></select>
+            <select><option>All hosts</option></select>
+          </div>
+          <div class="list-body" style="padding: 10px 12px;">
+            <div class="agent-row" style="--row-hue: 35;">
+              <div class="avatar-sm">T</div>
+              <div style="flex: 1;">
+                <div class="agent-name">Tina · morning-scan</div>
+                <div class="agent-sub">daily at 09:00 UTC</div>
+              </div>
+              <span class="agent-when">in 12h</span>
+            </div>
+            <div class="agent-row" style="--row-hue: 160;">
+              <div class="avatar-sm">S</div>
+              <div style="flex: 1;">
+                <div class="agent-name">Stacy · deploy-check</div>
+                <div class="agent-sub">every 30m</div>
+              </div>
+              <span class="agent-when">in 8m</span>
+            </div>
+            <div class="agent-row" style="--row-hue: 324;">
+              <div class="avatar-sm">B</div>
+              <div style="flex: 1;">
+                <div class="agent-name">Box-maintainer · substrate-sweep</div>
+                <div class="agent-sub">every 6h</div>
+              </div>
+              <span class="agent-when">in 2h</span>
+            </div>
+            <div class="agent-row" style="--row-hue: 280;">
+              <div class="avatar-sm">R</div>
+              <div style="flex: 1;">
+                <div class="agent-name">Research · paper-digest</div>
+                <div class="agent-sub">Mondays at 08:00</div>
+              </div>
+              <span class="agent-when">4d</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage tall">
+      <div class="stage-label">Scheduled agents · single-host</div>
+      <div class="stage-source">ScheduledAgentsModal (only one host)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">show me the scheduled agents</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal list" style="max-width: 480px; height: 560px;">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">Scheduled Agents</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button class="head-plus" style="padding: 5px 10px;">+ New</button>
+              <button class="close">✕</button>
+            </div>
+          </div>
+          <div class="filter-bar">
+            <input type="text" placeholder="Search…" />
+            <select><option>All roles</option></select>
+          </div>
+          <div class="list-body" style="padding: 10px 12px;">
+            <div class="agent-row" style="--row-hue: 35;">
+              <div class="avatar-sm">T</div>
+              <div style="flex: 1;">
+                <div class="agent-name">Tina · morning-scan</div>
+                <div class="agent-sub">daily at 09:00 UTC</div>
+              </div>
+              <span class="agent-when">in 12h</span>
+            </div>
+            <div class="agent-row" style="--row-hue: 324;">
+              <div class="avatar-sm">B</div>
+              <div style="flex: 1;">
+                <div class="agent-name">Box-maintainer · substrate-sweep</div>
+                <div class="agent-sub">every 6h</div>
+              </div>
+              <span class="agent-when">in 2h</span>
+            </div>
+            <div class="agent-row" style="--row-hue: 280;">
+              <div class="avatar-sm">R</div>
+              <div style="flex: 1;">
+                <div class="agent-name">Research · paper-digest</div>
+                <div class="agent-sub">Mondays at 08:00</div>
+              </div>
+              <span class="agent-when">4d</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-row" style="margin-top: 24px;">
+    <div class="stage tall">
+      <div class="stage-label">New scheduled agent · multi-host</div>
+      <div class="stage-source">ScheduledAgentsModal · form state (many hosts)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">add a scheduled agent for the paper-digest</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal list" style="max-width: 480px; height: 560px;">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">New scheduled agent</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body" style="overflow-y: auto; padding: 14px 18px;">
+            <div class="field">
+              <label>Name</label>
+              <input type="text" placeholder="e.g. paper-digest" value="paper-digest" />
+            </div>
+            <div class="field">
+              <label>Prompt</label>
+              <textarea placeholder="What should this scheduled agent do?" style="min-height: 90px;">Read new papers since last week, draft a note summarizing what's worth reading, land it in the research capture folder.</textarea>
+              <p class="field-hint">This becomes the first user message to a freshly-born agent. Assume it starts with no memory — reference logs, role files, or bounties if continuity matters.</p>
+            </div>
+            <div class="field">
+              <label>Roles</label>
+              <div class="chip-strip" style="margin-bottom: 6px;">
+                <span class="chip" style="--chip-hue: 280;">research <span class="x">✕</span></span>
+              </div>
+              <input type="text" placeholder="Add another role…" />
+            </div>
+            <div class="field">
+              <label>Host</label>
+              <select><option>workstation</option><option>t1000</option><option>thenasty</option></select>
+            </div>
+            <div class="field">
+              <label>Schedule type</label>
+              <select><option>Weekly</option><option>Daily</option><option>Interval</option><option>One-shot</option></select>
+            </div>
+            <div class="field" style="display: flex; gap: 10px;">
+              <div style="flex: 1;">
+                <label>Day</label>
+                <select><option>Monday</option></select>
+              </div>
+              <div style="flex: 1;">
+                <label>At</label>
+                <input type="text" value="08:00" />
+              </div>
+              <div style="flex: 2;">
+                <label>Timezone</label>
+                <input type="text" placeholder="box-local" />
+              </div>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage tall">
+      <div class="stage-label">New scheduled agent · single-host</div>
+      <div class="stage-source">ScheduledAgentsModal · form state (only one host)</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">add a scheduled agent</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal list" style="max-width: 480px; height: 560px;">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">New scheduled agent</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="body" style="overflow-y: auto; padding: 14px 18px;">
+            <div class="field">
+              <label>Name</label>
+              <input type="text" placeholder="e.g. paper-digest" value="paper-digest" />
+            </div>
+            <div class="field">
+              <label>Prompt</label>
+              <textarea placeholder="What should this scheduled agent do?" style="min-height: 90px;">Read new papers since last week, draft a note summarizing what's worth reading, land it in the research capture folder.</textarea>
+              <p class="field-hint">This becomes the first user message to a freshly-born agent. Assume it starts with no memory — reference logs, role files, or bounties if continuity matters.</p>
+            </div>
+            <div class="field">
+              <label>Roles</label>
+              <div class="chip-strip" style="margin-bottom: 6px;">
+                <span class="chip" style="--chip-hue: 280;">research <span class="x">✕</span></span>
+              </div>
+              <input type="text" placeholder="Add another role…" />
+            </div>
+            <div class="field">
+              <label>Schedule type</label>
+              <select><option>Weekly</option><option>Daily</option><option>Interval</option><option>One-shot</option></select>
+            </div>
+            <div class="field" style="display: flex; gap: 10px;">
+              <div style="flex: 1;">
+                <label>Day</label>
+                <select><option>Monday</option></select>
+              </div>
+              <div style="flex: 1;">
+                <label>At</label>
+                <input type="text" value="08:00" />
+              </div>
+              <div style="flex: 2;">
+                <label>Timezone</label>
+                <input type="text" placeholder="box-local" />
+              </div>
+            </div>
+          </div>
+          <div class="foot">
+            <button class="btn secondary">Cancel</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div class="stage-row single" style="margin-top: 24px;">
+    <div class="stage tall">
+      <div class="stage-label">Conversation search</div>
+      <div class="stage-source">ConversationSearchModal</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble user">search my chats for modal design</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal list" style="max-width: 480px; height: 560px;">
+          <div class="head">
+            <div class="head-text">
+              <p class="title">Search conversations</p>
+            </div>
+            <button class="close">✕</button>
+          </div>
+          <div class="filter-bar">
+            <input type="text" value="modal design" />
+          </div>
+          <div class="list-body" style="padding: 10px 12px;">
+            <div class="search-row">
+              <div class="search-head">
+                <span class="sender-dot" style="--sender-hue: 324;"></span>
+                Gambit
+                <span class="when">2 min ago</span>
+              </div>
+              <div class="snippet">unify the look of the modals (ALL modals, even the reload because your <span class="highlight">client is out of date</span> one)</div>
+            </div>
+            <div class="search-row">
+              <div class="search-head">
+                <span class="sender-dot" style="--sender-hue: 35;"></span>
+                Tina
+                <span class="when">yesterday</span>
+              </div>
+              <div class="snippet">the phase 14B <span class="highlight">modal</span> primitive was supposed to be the canonical <span class="highlight">design</span>, but…</div>
+            </div>
+            <div class="search-row">
+              <div class="search-head">
+                <span class="sender-dot" style="--sender-hue: 160;"></span>
+                Stacy
+                <span class="when">3d ago</span>
+              </div>
+              <div class="snippet">production-side <span class="highlight">modal</span> chrome should track whatever pattern lands upstream</div>
+            </div>
+            <div style="text-align: center; margin-top: 12px;">
+              <button class="btn secondary" style="font-size: 12px;">Load more</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CATEGORY 11 · REQUIRED-SHELL SIBLING ═══════════════════════ -->
+<section class="category" style="--pv-id-hue: 40;">
+  <div class="category-header">
+    <span class="category-mark"></span>
+    <p class="category-kicker">Category · Required-shell sibling</p>
+    <h2 class="category-name">Electron version check</h2>
+    <p class="category-body">Twin of SkewLockModal — desktop-app-side version check. Same amber-attention hue, same non-dismissible-ish framing, but this one has a "later" option (the app still works with the current version; only new features require the update). Two-button variant of the required-shell pattern.</p>
+  </div>
+
+  <div class="stage-row single">
+    <div class="stage">
+      <div class="stage-label">Electron version check</div>
+      <div class="stage-source">ElectronVersionCheck</div>
+      <div class="mock-bubbles">
+        <div class="mock-bubble">Working on a background task.</div>
+      </div>
+      <div class="modal-overlay">
+        <div class="modal shell">
+          <div class="head">
+            <div class="head-text">
+              <p class="meta">Skynet desktop · update</p>
+              <p class="title">A new version is available</p>
+            </div>
+          </div>
+          <div class="body">
+            The current app keeps working — new features and fixes land in the update. Install now, or later from the menu.
+          </div>
+          <div class="foot" style="justify-content: space-between;">
+            <button class="btn secondary">Later</button>
+            <button class="btn primary" style="min-width: 130px;">Install now</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ END NOTES ═══════════════════════════════════════════════════ -->
+<section class="end-note">
+  <h3>Questions to react to</h3>
+  <ul>
+    <li><strong>Does the pattern hold across all six?</strong> The confirm, form, settings, list, and shell-required all use the same head-separator-body-separator-foot anatomy. Small confirms are compact; the settings modal is 640×480; the shell modal centers its lone button. Same recipe, different sizes.</li>
+    <li><strong>Neutral hue for app-level modals (Preferences, general Feedback) — right call?</strong> Alternative: they inherit whatever identity you're currently talking to. Neutral says "this is the app, not an agent"; inherited says "even the app wears the identity's clothing."</li>
+    <li><strong>The list-manager pattern — bubbles-inside-a-bubble.</strong> Rows are each their own hue-tinted mini-bubble, sitting inside the modal's own hue-tinted shell. Cool or too busy?</li>
+    <li><strong>The reload modal's amber hue.</strong> Warm-warning amber (40°) says "attention needed" without red. Alternative: keep it hue-neutral like Preferences (identity-agnostic). Alternative: give it the red-destructive treatment (the version drift IS blocking).</li>
+    <li><strong>Preferences nav-column treatment.</strong> Darker sub-surface with hue-tinted active row. Reads naturally, or too heavy against the hue-tinted body?</li>
+    <li><strong>Anything a size-class needs I haven't shown</strong> — remaining categories are content-editors (Runbook, Skills, Identity, Role, EditableFile, ProjectFile) and the auth-prompt family (SSH auth, host-key, OPKSSH, Warpgate). I have designs in mind for both; want to see either category before I mock the rest?</li>
+  </ul>
+  <p>Once you tell me the pattern holds (or where it needs adjustment), I'll build the remaining ~19 modals in a batch and hand you a comprehensive reference page.</p>
+</section>
+
+<script>
+  // Preferences pane tab-swap — click a nav item to show its pane.
+  document.querySelectorAll('.settings-nav').forEach(nav => {
+    nav.addEventListener('click', (e) => {
+      const item = e.target.closest('.nav-item[data-pane]');
+      if (!item) return;
+      const target = item.dataset.pane;
+      const body = nav.parentElement;
+      body.querySelectorAll('.nav-item[data-pane]').forEach(n => {
+        n.classList.toggle('on', n === item);
+      });
+      body.querySelectorAll('[data-pane-body]').forEach(p => {
+        p.hidden = (p.dataset.paneBody !== target);
+      });
+    });
+  });
+
+  // Day-of-week chip toggles in the wake-up modal
+  document.querySelectorAll('.day-chip').forEach(chip => {
+    chip.addEventListener('click', () => chip.classList.toggle('on'));
+  });
+
+  // Section tabs (Identity/Wake-ups/Files, Role-file/Runbooks in Identity + Role modals)
+  document.querySelectorAll('.section-tabs').forEach(st => {
+    st.addEventListener('click', (e) => {
+      const tab = e.target.closest('.tab[data-section]');
+      if (!tab) return;
+      const target = tab.dataset.section;
+      const modal = st.closest('.modal');
+      st.querySelectorAll('.tab[data-section]').forEach(t => {
+        t.classList.toggle('on', t === tab);
+      });
+      modal.querySelectorAll('[data-section-body]').forEach(p => {
+        p.hidden = (p.dataset.sectionBody !== target);
+      });
+    });
+  });
+
+  // Inline variant tabs (Single host vs Multi-host within About-you)
+  document.querySelectorAll('.variant-tabs').forEach(vt => {
+    vt.addEventListener('click', (e) => {
+      const tab = e.target.closest('.variant-tab[data-variant]');
+      if (!tab) return;
+      const target = tab.dataset.variant;
+      const pane = vt.parentElement;
+      pane.querySelectorAll('.variant-tab[data-variant]').forEach(t => {
+        t.classList.toggle('on', t === tab);
+      });
+      pane.querySelectorAll('[data-variant-body]').forEach(b => {
+        b.hidden = (b.dataset.variantBody !== target);
+      });
+    });
+  });
+</script>
+</body>
+</html>
