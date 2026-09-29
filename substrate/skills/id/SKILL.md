@@ -1130,6 +1130,13 @@ off with `prompt` as its first user turn. The newborn does the work and
 typically exits. No ⏰ line prints anywhere — there is no running harness
 to receive one.
 
+The newborn's `task:` frontmatter is set to the scheduled-agent spec's
+`name` with a leading clock glyph — `⏰ <name>` — so the user can tell
+at a glance in the sidebar (and in the open-conversation task line) that
+this conversation was clock-fired rather than manually spawned. The
+prefix is applied by the scheduler at spawn-request-drop time; nothing
+downstream re-writes it.
+
 ### Governance — user-reserved
 
 Same rule as wake-ups. An agent may **suggest** a scheduled agent, but

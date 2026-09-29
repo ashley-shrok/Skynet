@@ -218,8 +218,8 @@ elif '> hello' not in p:
     errors.append('prompt: original prompt not blockquoted verbatim; got=' + repr(p[:400]))
 if d.get('skills') != []:
     errors.append('skills: expected=[] got=' + repr(d.get('skills')))
-if d.get('task') != 't1':
-    errors.append('task: expected=\"t1\" (from spec name) got=' + repr(d.get('task')))
+if d.get('task') != '⏰ t1':
+    errors.append('task: expected=\"⏰ t1\" (clock-prefixed spec name) got=' + repr(d.get('task')))
 if not isinstance(d.get('requested_at'), str) or not d['requested_at'].endswith('Z'):
     errors.append('requested_at: expected ISO-Z string got=' + repr(d.get('requested_at')))
 if errors:
@@ -414,8 +414,8 @@ elif 'one-shot' not in p:
     errors.append('prompt: missing slug reference; got=' + repr(p[:200]))
 elif '> one-shot fire' not in p:
     errors.append('prompt: original prompt not blockquoted verbatim; got=' + repr(p[:400]))
-if d.get('task') != 'one-shot':
-    errors.append('task: expected=\"one-shot\" (from spec name) got=' + repr(d.get('task')))
+if d.get('task') != '⏰ one-shot':
+    errors.append('task: expected=\"⏰ one-shot\" (clock-prefixed spec name) got=' + repr(d.get('task')))
 if errors:
     print('FAIL: ' + '; '.join(errors))
 else:

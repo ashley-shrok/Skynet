@@ -328,7 +328,10 @@ def _drop_spawn_request(spec, state_dir):
         # frontmatter surfaces "what is this identity for?" in the UI on
         # birth (existing BirthOptions.task plumbing, Phase 80). Empty/absent
         # name → None → absent-⇒-omit at buildIdentityFileBody.
-        "task": spec.get("name") or None,
+        # Clock prefix (⏰ ) marks the identity as scheduled-agent-spawned in the
+        # sidebar row + open-conversation task line, so users can tell at a
+        # glance which conversations are clock-fired vs manually spawned.
+        "task": ("⏰ " + spec["name"]) if spec.get("name") else None,
         "requested_at": fired_at,
     }
     req_path = os.path.join(req_dir, req_id + ".json")
