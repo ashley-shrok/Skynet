@@ -68,6 +68,9 @@ interface ModalProps
   container?: HTMLElement | null;
   /** Extra class for the modal content shell. */
   className?: string;
+  /** Passed through to the modal content element — for test targeting and
+   *  legacy test-id continuity across the Dialog → Modal migration. */
+  "data-testid"?: string;
   children?: React.ReactNode;
 }
 
@@ -77,6 +80,7 @@ function Modal({
   dismissible = true,
   container,
   className,
+  "data-testid": dataTestId,
   children,
   ...props
 }: ModalProps) {
@@ -95,6 +99,7 @@ function Modal({
         />
         <DialogPrimitive.Content
           data-slot="modal-content"
+          data-testid={dataTestId}
           style={
             {
               // Both hue custom-properties scoped to the modal subtree.
@@ -162,6 +167,14 @@ interface ModalHeadProps {
   /** Rendered next to the close button (e.g. a delete icon on the
    *  Runbook editor for delete-runbook). */
   actions?: React.ReactNode;
+  /** Passed through to the close button — for test targeting. */
+  closeTestId?: string;
+  /** Override for the close button's aria-label. Defaults to "Close". */
+  closeAriaLabel?: string;
+  /** id attached to the underlying DialogPrimitive.Title. Consumers can
+   *  reference this id from aria-labelledby on form controls inside the
+   *  modal body to associate them with the heading. */
+  titleId?: string;
   className?: string;
   /** Rendered inside the head text block after title/subtitle — for
    *  head-embedded controls (like the RolesListModal's host picker). */
@@ -174,6 +187,9 @@ function ModalHead({
   meta,
   hideClose,
   actions,
+  closeTestId,
+  closeAriaLabel = "Close",
+  titleId,
   className,
   children,
 }: ModalHeadProps) {
@@ -199,6 +215,7 @@ function ModalHead({
         )}
         <DialogPrimitive.Title
           data-slot="modal-head-title"
+          id={titleId}
           className="m-0 text-[16px] font-semibold text-[#fbf5e8] tracking-[-0.01em] leading-[1.3]"
         >
           {title}
@@ -219,7 +236,8 @@ function ModalHead({
           <DialogPrimitive.Close asChild>
             <button
               type="button"
-              aria-label="Close"
+              aria-label={closeAriaLabel}
+              data-testid={closeTestId}
               className={cn(
                 "p-1.5 rounded-md bg-transparent border-none cursor-pointer",
                 "text-[hsla(var(--pv-id-hue),25%,92%,0.7)]",
