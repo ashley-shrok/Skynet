@@ -499,8 +499,32 @@
     padding: 20px 22px 18px;
     border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.22);
     box-shadow: 0 1px 0 rgba(255, 220, 190, 0.05);
-    display: flex; align-items: center; gap: 16px;
+    display: flex; align-items: flex-start; gap: 16px;
+    position: relative;
   }
+  .identity-head .head-menu-anchor { position: relative; }
+  .identity-head .head-menu {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
+    min-width: 240px; padding: 10px 12px; border-radius: 10px;
+    background: linear-gradient(160deg,
+                                hsla(var(--pv-id-hue), 40%, 22%, 0.96),
+                                hsla(var(--pv-id-hue), 40%, 15%, 0.96));
+    border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.25);
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .identity-head .head-menu-label {
+    font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: hsla(var(--pv-id-hue), 30%, 88%, 0.72);
+  }
+  .identity-head-line-inline {
+    display: flex; align-items: center; gap: 6px; min-width: 0;
+  }
+  .identity-head-line-inline .pencil {
+    opacity: 0.55; cursor: pointer; font-size: 12px; flex-shrink: 0;
+  }
+  .identity-head-line-inline .pencil:hover { opacity: 1; }
   .identity-head .avatar-lg {
     width: 56px; height: 56px; border-radius: 50%;
     background: linear-gradient(160deg,
@@ -1501,50 +1525,44 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
         <div class="mock-bubble user">open gambit's identity</div>
       </div>
       <div class="modal-overlay">
-        <div class="modal editor-lg" style="max-width: 560px; height: 560px;">
+        <div class="modal editor-lg" id="identity-modal" style="max-width: 560px; height: 560px;">
           <div class="identity-head">
             <div class="avatar-lg">G</div>
             <div class="name-block">
-              <p class="display-name">Gambit</p>
+              <div class="identity-head-line-inline">
+                <p class="display-name">Gambit</p>
+                <span class="pencil" title="Edit display name">✎</span>
+              </div>
               <p class="role-meta">box-maintainer</p>
+              <div class="identity-head-line-inline" style="margin-top: 6px;">
+                <p class="role-meta" style="margin: 0; font-size: 12px; letter-spacing: 0; text-transform: none; color: hsla(var(--pv-id-hue), 22%, 92%, 0.72); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Unify the look of all modals in Skynet</p>
+                <span class="pencil" title="Edit task">✎</span>
+              </div>
+            </div>
+            <div class="head-menu-anchor">
+              <button class="close" title="More settings" style="font-size: 18px; letter-spacing: 2px;">⋯</button>
+              <!-- Popover shown OPEN in this mock so Ashley can see what
+                   the ⋯ menu holds. Real UX: closed by default, click to
+                   open. Houses the couple of "settings-y" per-identity
+                   controls that don't earn a first-class header slot:
+                   Voice pick + the stays-awake toggle. -->
+              <div class="head-menu">
+                <div>
+                  <div class="head-menu-label" style="margin-bottom: 4px;">Voice</div>
+                  <select style="width: 100%; padding: 6px 10px;"><option>Matthew</option><option>Ruth</option><option>Danielle</option></select>
+                </div>
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                  <span class="toggle on" style="width: 30px; height: 18px; flex-shrink: 0;"></span>
+                  <span style="font-size: 12.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.85);">Boost response time (uses more memory)</span>
+                </label>
+              </div>
             </div>
             <button class="close">✕</button>
           </div>
           <div class="section-tabs">
-            <div class="tab on" data-section="cosmetics"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg> Cosmetics</div>
-            <div class="tab" data-section="identity-file"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg> Identity file</div>
+            <div class="tab on" data-section="identity-file"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg> Identity file</div>
             <div class="tab" data-section="wakeups"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> Wake-ups</div>
             <div class="tab" data-section="files"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> Files</div>
-          </div>
-          <div class="body" style="overflow-y: auto; padding: 16px 20px;" data-section-body="cosmetics">
-            <div class="inline-edit">
-              <div class="row">
-                <span class="row-label">Display name</span>
-                <span class="row-value">Gambit</span>
-                <span class="pencil">✎</span>
-              </div>
-              <div class="row">
-                <span class="row-label">Task</span>
-                <span class="row-value" style="font-size: 12.5px; color: hsla(var(--pv-id-hue), 22%, 92%, 0.72);">Unify the look of all modals in Skynet</span>
-                <span class="pencil">✎</span>
-              </div>
-              <div class="row">
-                <span class="row-label">Color</span>
-                <span class="row-value" style="display: flex; align-items: center; gap: 8px;">
-                  <span style="width: 20px; height: 20px; border-radius: 50%; background: hsl(35, 65%, 55%); border: 1px solid hsla(35, 75%, 70%, 0.5);"></span>
-                </span>
-                <span class="pencil">✎</span>
-              </div>
-              <div class="row">
-                <span class="row-label">Voice</span>
-                <span class="row-value">Matthew</span>
-                <span class="pencil">✎</span>
-              </div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 10px; padding: 8px 2px 0;">
-              <div class="toggle on" style="width: 34px; height: 20px; flex-shrink: 0;"></div>
-              <span style="font-size: 12.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.75);">Boost response time (uses more memory)</span>
-            </div>
           </div>
           <div class="body" style="overflow-y: auto; padding: 12px 16px;" data-section-body="wakeups" hidden>
             <div style="display: flex; flex-direction: column; gap: 6px;">
@@ -1567,7 +1585,7 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
               <button class="btn secondary" style="margin-top: 8px; width: 100%; text-align: center;">+ Add wake-up</button>
             </div>
           </div>
-          <div class="editor-pane" style="flex: 1; margin: 0;" data-section-body="identity-file" hidden>
+          <div class="editor-pane" style="flex: 1; margin: 0;" data-section-body="identity-file">
             <span style="color: hsla(var(--pv-id-hue), 22%, 92%, 0.5); font-style: italic;">— Real editor (Monaco/CodeMirror) renders here. Placeholder below. —</span><br/>
             <br/>
             <span style="color: hsla(var(--pv-id-hue), 20%, 88%, 0.4);">---</span><br/>
@@ -1585,13 +1603,18 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
                 <span style="opacity: 0.4;"> / </span>
                 <span>notes</span>
               </span>
-              <span style="margin-left: auto; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 500; background: hsla(var(--pv-id-hue), 55%, 40%, 0.35); border: 1px solid hsla(var(--pv-id-hue), 65%, 55%, 0.45); color: #fbf5e8;">t1000</span>
-              <button class="btn secondary" style="padding: 3px 8px; font-size: 11px;" title="Refresh">↻</button>
+              <button class="btn secondary" style="margin-left: auto; padding: 3px 8px; font-size: 11px;" title="Refresh">↻</button>
             </div>
             <div style="padding: 8px 16px; display: flex; gap: 6px; border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.10);">
               <button class="btn secondary" style="padding: 4px 10px; font-size: 11.5px;">⬆ Upload</button>
               <button class="btn secondary" style="padding: 4px 10px; font-size: 11.5px;">📁 New folder</button>
               <button class="btn secondary" style="padding: 4px 10px; font-size: 11.5px;">📄 New file</button>
+            </div>
+            <!-- First-encounter intro blurb, restored per Ashley 2026-09-29
+                 (dropped from an earlier tasting revision — belongs back).
+                 Copy is verbatim from WorkspaceTab.tsx:1219. -->
+            <div style="padding: 8px 16px; font-size: 11.5px; color: hsla(var(--pv-id-hue), 22%, 88%, 0.62); border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.08);">
+              This agent's file workspace. Anything you drop in, they can read; anything they save, you can grab from here.
             </div>
             <div style="padding: 6px 16px 4px; display: grid; grid-template-columns: 1fr 60px 100px 20px; gap: 8px; font-size: 10.5px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: hsla(var(--pv-id-hue), 30%, 90%, 0.55); border-bottom: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.08);">
               <span style="cursor: pointer;">Name ↓</span>
