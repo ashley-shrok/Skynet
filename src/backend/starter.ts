@@ -1005,6 +1005,32 @@ if (process.env.VITEST !== "true") {
             return acquireLocalChannel();
           }
           try {
+            // Read connDetails once — used to derive the `peer` string that
+            // keys the exec circuit breaker (host-circuit-breaker.ts). Same
+            // ip:port format connectOneShot uses to key the connect breaker,
+            // so both breakers agree on the peer identity.
+            //
+            // Missing connDetails is a caller error but not fatal here — the
+            // "existing" branch below can still work (client is already
+            // cached), just without a peer key. Consumers of the returned
+            // channel handle `peer === undefined` by skipping breaker
+            // consultation (graceful degradation).
+            const connDetails = (
+              host as unknown as { _connDetails?: Record<string, unknown> }
+            )._connDetails;
+            const peer =
+              connDetails &&
+              typeof (connDetails as { ip?: unknown }).ip === "string"
+                ? (() => {
+                    const d = connDetails as {
+                      ip: string;
+                      port?: number | null;
+                      sshPort?: number | null;
+                    };
+                    return `${d.ip}:${d.sshPort ?? d.port ?? 22}`;
+                  })()
+                : undefined;
+
             // Return existing live client if available
             const existing = hostClients.get(host.id);
             if (existing) {
@@ -1015,7 +1041,8 @@ if (process.env.VITEST !== "true") {
                 // the same host share a single pool. Cap history in
                 // host-semaphore-registry.ts docblock (48 slots as of 2026-09-24).
                 const sem = getHostSemaphore(host.id);
-                const channel = {
+                const channel: SshChannel = {
+                  peer,
                   exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
                     try {
                       return await sem.run(async () =>
@@ -1044,9 +1071,6 @@ if (process.env.VITEST !== "true") {
             }
 
             // Open a new long-lived connection
-            const connDetails = (
-              host as unknown as { _connDetails: Record<string, unknown> }
-            )._connDetails;
             if (!connDetails) {
               return null;
             }
@@ -1068,6 +1092,7 @@ if (process.env.VITEST !== "true") {
             // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
             const sem = getHostSemaphore(host.id);
             const channelAdapter: SshChannel = {
+              peer,
               exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
                 try {
                   return await sem.run(async () =>

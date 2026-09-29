@@ -70,6 +70,11 @@ import {
 // for byte-parallel consumers in `src/backend/database/routes/sessions.ts`
 // (D-08); only the in-file `derivedLastMessageAt` derivation retires from it.
 import { getIdentityLastSend } from "./identity-send-log-store.js";
+import {
+  checkExecBreaker,
+  recordExecFailure,
+  recordExecSuccess,
+} from "../ssh/host-circuit-breaker.js";
 // Phase 111 Plan 03 — single appearance merge authority. `appearanceFromIdentityLine`
 // (module-scope helper below) calls `resolveIdentityAppearance` exactly ONCE per
 // identity per tick; both source-A and source-B adapters share that one call site.
@@ -102,6 +107,16 @@ import { parseRequestBody } from "../spawn-requests/parse-request-body.js";
  */
 export interface SshChannel {
   exec(command: string, stdinBody?: Buffer): Promise<string | null>;
+  /**
+   * `ip:port` of the underlying SSH peer. Used as the exec-breaker key by
+   * fleet-status probe + batch paths — same peer-key format connectOneShot
+   * feeds the connect breaker (see host-circuit-breaker.ts).
+   *
+   * Optional so local-host channels (child_process-backed) and test mocks
+   * can omit it; consumers must handle undefined by skipping breaker
+   * consultation (graceful degradation).
+   */
+  peer?: string;
 }
 
 export interface OrchestratorDeps {
@@ -1707,41 +1722,85 @@ export function createSshPollOrchestrator(
     // because the batch dispatch guard requires `sweepScriptPresent` to be
     // truthy. Legacy has its own 30s bound.
     if (hostState.sweepScriptPresent === null) {
-      let probeRaw: string | null = null;
-      let probeTimedOut = false;
-      try {
-        probeRaw = await Promise.race([
-          channel.exec(
-            "test -x ~/.local/bin/fleet-status-sweep 2>/dev/null && echo yes || echo no",
-          ),
-          new Promise<string | null>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(
-                    `sweep-script presence probe timeout after ${PROBE_TIMEOUT_MS}ms`,
-                  ),
-                ),
-              PROBE_TIMEOUT_MS,
+      // Exec-breaker gate — if the peer has been failing execs consecutively,
+      // skip the probe entirely rather than burning another PROBE_TIMEOUT_MS
+      // budget on a peer we already know is stressed. `sweepScriptPresent`
+      // stays null so the next tick will re-consult the breaker; when the
+      // backoff window elapses the breaker allows a single probe through
+      // (PROBING state), which resolves the state machine.
+      //
+      // If channel.peer is undefined (local host, test mock), the breaker
+      // gate is skipped — graceful degradation, no behavior change.
+      const peer = channel.peer;
+      const execGate = peer ? checkExecBreaker(peer) : { allowed: true as const };
+      if (!execGate.allowed) {
+        // tsconfig.node.json has strict:false — TS can't narrow the
+        // discriminated union to the {allowed:false} branch. Cast to
+        // access reason / nextAttemptAt without an any-cast.
+        const gate = execGate as {
+          allowed: false;
+          reason: string;
+          nextAttemptAt: number;
+        };
+        systemLogger.warn(
+          "Fleet-status: sweep-script presence probe skipped (exec breaker OPEN)",
+          {
+            operation: "fleet_status_sweep_probe_breaker_open",
+            fleetHostId: host.id,
+            peer,
+            reason: gate.reason,
+            nextAttemptAt: gate.nextAttemptAt,
+          },
+        );
+      } else {
+        let probeRaw: string | null = null;
+        let probeTimedOut = false;
+        try {
+          probeRaw = await Promise.race([
+            channel.exec(
+              "test -x ~/.local/bin/fleet-status-sweep 2>/dev/null && echo yes || echo no",
             ),
-          ),
-        ]);
-      } catch (err) {
-        probeTimedOut = true;
-        systemLogger.warn("Fleet-status: sweep-script presence probe timeout", {
-          operation: "fleet_status_sweep_probe_timeout",
-          fleetHostId: host.id,
-          error: err instanceof Error ? err.message : "unknown",
-        });
-      }
-      if (!probeTimedOut) {
-        hostState.sweepScriptPresent =
-          probeRaw !== null && probeRaw.trim() === "yes";
-        systemLogger.info("Fleet-status: sweep-script presence probed", {
-          operation: "fleet_status_sweep_probe",
-          fleetHostId: host.id,
-          present: hostState.sweepScriptPresent,
-        });
+            new Promise<string | null>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `sweep-script presence probe timeout after ${PROBE_TIMEOUT_MS}ms`,
+                    ),
+                  ),
+                PROBE_TIMEOUT_MS,
+              ),
+            ),
+          ]);
+        } catch (err) {
+          probeTimedOut = true;
+          if (peer) recordExecFailure(peer);
+          systemLogger.warn("Fleet-status: sweep-script presence probe timeout", {
+            operation: "fleet_status_sweep_probe_timeout",
+            fleetHostId: host.id,
+            peer,
+            error: err instanceof Error ? err.message : "unknown",
+          });
+        }
+        if (!probeTimedOut) {
+          // The exec itself returned in time. A null result is still a signal
+          // the channel misbehaved (SSH hiccup swallowed stdout) — treat as
+          // exec failure. Any other return value = healthy exec.
+          if (peer) {
+            if (probeRaw === null) {
+              recordExecFailure(peer);
+            } else {
+              recordExecSuccess(peer);
+            }
+          }
+          hostState.sweepScriptPresent =
+            probeRaw !== null && probeRaw.trim() === "yes";
+          systemLogger.info("Fleet-status: sweep-script presence probed", {
+            operation: "fleet_status_sweep_probe",
+            fleetHostId: host.id,
+            present: hostState.sweepScriptPresent,
+          });
+        }
       }
     }
 
@@ -1970,6 +2029,36 @@ export function createSshPollOrchestrator(
     | { ok: false; reason: "null-exec" | "schema-mismatch" | "empty-output-on-nonempty-box" }
   > {
     const { host, channel } = hostState;
+    const peer = channel.peer;
+
+    // Exec-breaker gate — if the peer has been failing execs consecutively,
+    // skip the sweep exec entirely rather than burning SWEEP_EXEC_TIMEOUT_MS.
+    // Returns the same null-exec shape a natural timeout would, so the
+    // outer caller's fallback / re-probe logic is unchanged.
+    //
+    // If channel.peer is undefined (local host, test mock), gate is skipped.
+    if (peer) {
+      const execGate = checkExecBreaker(peer);
+      if (!execGate.allowed) {
+        // tsconfig.node.json strict:false — cast to access closed-shape fields.
+        const gate = execGate as {
+          allowed: false;
+          reason: string;
+          nextAttemptAt: number;
+        };
+        systemLogger.warn(
+          "Fleet-status: sweep-exec skipped (exec breaker OPEN)",
+          {
+            operation: "fleet_status_sweep_exec_breaker_open",
+            fleetHostId: host.id,
+            peer,
+            reason: gate.reason,
+            nextAttemptAt: gate.nextAttemptAt,
+          },
+        );
+        return { ok: false, reason: "null-exec" };
+      }
+    }
 
     // Sweep exec — ONE call per host per poll (the whole point of Phase 92).
     // Wrapped in Promise.race to bound wall time and prevent inFlight stacking
@@ -1991,21 +2080,35 @@ export function createSshPollOrchestrator(
         ),
       ]);
     } catch (err) {
+      if (peer) recordExecFailure(peer);
       systemLogger.warn("Fleet-status: sweep-exec timeout or throw", {
         operation: "fleet_status_sweep_exec_null",
         fleetHostId: host.id,
+        peer,
         error: err instanceof Error ? err.message : "unknown",
       });
       return { ok: false, reason: "null-exec" };
     }
 
     if (sweepRaw === null) {
+      // Null stdout from channel.exec means the SSH stream misbehaved (hiccup
+      // that swallowed stdout without a promise rejection). Same failure
+      // signal from the breaker's perspective as a timeout — the peer's
+      // exec channel is not delivering.
+      if (peer) recordExecFailure(peer);
       systemLogger.warn("Fleet-status: sweep-exec returned null (SSH hiccup)", {
         operation: "fleet_status_sweep_exec_null",
         fleetHostId: host.id,
+        peer,
       });
       return { ok: false, reason: "null-exec" };
     }
+
+    // Sweep exec returned real bytes → record success at the breaker layer.
+    // Downstream parse/schema checks may still fail (returning ok:false with
+    // schema-mismatch etc.), but those are content-correctness failures, not
+    // exec-channel-health failures — the breaker doesn't care about them.
+    if (peer) recordExecSuccess(peer);
 
     const parsed = parseSweepJsonl(sweepRaw);
     if (parsed.schemaMismatch) {
