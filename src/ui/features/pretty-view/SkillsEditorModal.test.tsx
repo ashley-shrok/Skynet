@@ -318,13 +318,14 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
 
     await selectSkill("build");
 
-    // Wait for the tab strip to render its "+ New file" action-tab (only
+    // Wait for the tab strip to render its "+ Add file" pill (only
     // present once a skill is picked and the file list resolves).
+    // Modal-unification 2026-09-29 relabeled New file → Add file.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /new file/i })).toBeTruthy(),
+      expect(screen.getByTestId("skills-editor-modal-add-file")).toBeTruthy(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /new file/i }));
+    fireEvent.click(screen.getByTestId("skills-editor-modal-add-file"));
 
     await waitFor(() => {
       expect(skillsApi.createSkillFile).toHaveBeenCalledWith(1, "build", "new.md");
@@ -551,7 +552,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
   //   (H) + New file tab renders in the empty-file-list state and the empty-
   //       state copy points at it (D-15, WARN 4 empty-file-list render).
 
-  it("+ New file tab is the LAST child of the tab strip", async () => {
+  it("+ Add file pill is the LAST child of the tab strip", async () => {
     render(
       <SkillsEditorModal
         open={true}
@@ -564,19 +565,22 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await selectSkill("build");
     await waitFor(() => expect(screen.queryByRole("textbox")).toBeTruthy());
 
-    // The tab strip contains the file tabs plus the "+ New file" action-tab.
-    // Filter to just those buttons (file paths + New file) and assert the last
-    // one is New file — regardless of file count, the New-file tab is pinned
-    // right (shrink-0 last-child).
-    const tabButtons = screen
-      .getAllByRole("button")
-      .filter((b) => /new file|SKILL\.md|tests\/basic\.py/i.test(b.textContent ?? ""));
-    expect(tabButtons.length).toBeGreaterThan(0);
-    const last = tabButtons[tabButtons.length - 1];
-    expect(last.textContent).toMatch(/new file/i);
+    // Modal-unification 2026-09-29 relabeled New file → Add file and moved
+    // the strip to the top of the modal. The Add-file pill is pinned as
+    // the last child of the strip regardless of file count (shrink-0
+    // last-child).
+    const strip = screen.getByTestId("skills-editor-modal-file-strip");
+    const stripButtons = Array.from(
+      strip.querySelectorAll("button"),
+    );
+    expect(stripButtons.length).toBeGreaterThan(0);
+    const last = stripButtons[stripButtons.length - 1];
+    expect(last.getAttribute("data-testid")).toBe(
+      "skills-editor-modal-add-file",
+    );
   });
 
-  it("+ New file tab click does NOT change activeTab (existing file tab stays selected)", async () => {
+  it("+ Add file pill click does NOT change activeTab (existing file tab stays selected)", async () => {
     const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("new-file.md");
 
     render(
@@ -591,14 +595,18 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await selectSkill("build");
     await waitFor(() => expect(screen.queryByRole("textbox")).toBeTruthy());
 
-    const newFileBtn = screen.getByRole("button", { name: /new file/i });
-    fireEvent.click(newFileBtn);
+    const addFileBtn = screen.getByTestId("skills-editor-modal-add-file");
+    // Capture the pre-click active tab's aria-pressed state to prove the
+    // Add-file click did NOT change activeTab.
+    const activeBefore = screen
+      .getByTestId("skills-editor-modal-tab-SKILL.md")
+      .getAttribute("aria-pressed");
+    expect(activeBefore).toBe("true");
 
-    // The click fires the createSkillFile flow (via handleAddFile), proving
-    // the handler ran — but the button itself is styled as an action-tab, not
-    // an active tab: no font-semibold, no selected-pill treatment.
+    fireEvent.click(addFileBtn);
     await waitFor(() => expect(skillsApi.createSkillFile).toHaveBeenCalled());
-    expect(newFileBtn.className).not.toMatch(/font-semibold/);
+    // The Add-file pill itself is never the selected tab (no aria-pressed=true).
+    expect(addFileBtn.getAttribute("aria-pressed")).not.toBe("true");
 
     promptSpy.mockRestore();
   });
@@ -686,11 +694,12 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
   });
 
-  it("+ New file tab renders in empty-file-list state and empty-state copy points at it", async () => {
-    // WARN 4 fix: override enumerateSkillFiles to return zero files for the
-    // picked skill. The empty-file-list body branch must render (a) the "no
-    // files" copy, (b) the repointed empty-state copy naming "+ New file",
-    // and (c) the "+ New file" tab itself (D-15 tab-strip hoist).
+  it("+ Add file pill: empty-file-list body copy points at it (strip is hidden in this state)", async () => {
+    // Modal-unification 2026-09-29: when the file list is empty, the strip
+    // is not rendered (the strip renders only when files.status === "ready"
+    // AND there are files to tab through). The empty-state body copy
+    // instead names the Add-file pill so users know where to look once
+    // they create a file.
     (skillsApi.enumerateSkillFiles as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce([]);
 
@@ -706,17 +715,13 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
 
     await selectSkill("build");
 
-    // Empty-file-list body copy: "This skill has no files." (D-15).
+    // Empty-file-list body copy: "This skill has no files."
     await waitFor(() =>
       expect(screen.getByText(/no files/i)).toBeInTheDocument(),
     );
-    // Empty-state copy is repointed at the new-file tab (D-15).
+    // Empty-state copy points at the Add-file pill (post-unification).
     expect(
-      screen.getByText(/Use the .+ New file. tab below/i),
-    ).toBeInTheDocument();
-    // The "+ New file" tab renders even with zero files (D-15 tab-strip hoist).
-    expect(
-      screen.getByRole("button", { name: /new file/i }),
+      screen.getByText(/Use the .+ Add file. tab above/i),
     ).toBeInTheDocument();
   });
 

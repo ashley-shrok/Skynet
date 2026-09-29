@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Plus, X, Trash2 } from "lucide-react";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import { DialogHeader, DialogTitle, DialogClose } from "@/components/dialog";
-import { Tabs, TabsContent } from "@/components/tabs";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FileText, Plus, Trash2 } from "lucide-react";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
@@ -24,36 +22,43 @@ import { slugifyRoleName } from "@/sidebar/CreateRoleDialog";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
 import type { TabState } from "./IdentityFileTab";
 
-// Phase 44 SKILLED-05: SkillsEditorModal — modal shell with host picker + skill
-// picker + dynamic per-file tabs (horizontal-scroll) + lazy per-tab SSH read +
-// save handler with 409 reload UX + add-file prompt + delete-file/delete-skill
-// modal-in-modal confirmations.
+// SkillsEditorModal — cross-host cross-skill multi-file editor.
 //
-// Byte-shape mirror of GlobalFilesModal.tsx (Phase 23 GEFM-05) with the skill
-// dimension threaded through every effect + a second <select> in the header +
-// add-file / delete-skill buttons + horizontal-scroll tab strip (D-06) +
-// two DeleteConfirmDialog mounts inside the same Portal.
+// Modal-unification 2026-09-29:
+//   - Shell: <Modal hue={324} blocking={false}> — matches sibling
+//     RunbookEditor (same "content editor multi-file" category, same
+//     read-and-type rationale for keeping composer interactive).
+//   - Head: two rows.
+//     Row 1: title="Skills" (static — this modal browses across skills,
+//     not scoped to one) + close X via <ModalHead>.
+//     Row 2 (picker bar sibling directly under head): host select
+//     (hidden on single-host installs), skill select, "+ New skill"
+//     button, delete-skill Trash (only when a skill is picked).
+//   - File strip MOVED from bottom to TOP (matches RunbookEditor
+//     translation — IDE convention: tabs atop the surface they select).
+//     "+ New file" pill pinned at the end of the strip.
+//   - Body: layered branches preserved (no-host / loading-skills /
+//     error-skills / no-skills / no-skill-picked / loading-files /
+//     error-files / no-files / editor). Active tab renders SkillFileTab
+//     directly (Radix Tabs dropped — matches Runbook).
+//   - Foot: canonical <ModalFoot> with Close (secondary) + Save
+//     (primary). Save dispatches to active tab's write. Per-tab draft
+//     state tracked at modal level via drafts Map + dirtySet.
 //
-// Phase 113 restructures: the header add-file button was replaced by a
-// New-skill button + a New-file action-tab pinned as the last child of the
-// tab strip (rendered on both empty-file-list and populated branches via the
-// shared newFileTabButton fragment); the host-picker <select> only renders
-// on multi-host installs (single-host installs hide the picker chrome
-// entirely — see the flatHosts conditional below).
+// SkillFileTab passes `hideSaveButton={true}` — outer foot owns save.
+// Delete-file affordance stays inside SkillFileTab (Trash next to the
+// hidden Save slot). Delete-skill lives in the header picker row.
 //
-// Controlled component: callers own `open` + `onOpenChange` state. Wave 3
-// mounts it and drives open state from the panel-header menu.
+// Close/draft-guard: any dirty tab AND !savingRef → window.confirm.
+// savingRef bypasses on save-success and delete-skill closes.
+//
+// All D-XX behaviors preserved: host auto-select, skill list refetch on
+// host change, file list refetch on skill change, per-tab lazy load,
+// mtime-409 conflict-reload, native window.confirm/prompt for
+// create/delete flows, Phase 113 New-skill / New-file split.
 
-// Chrome/Linux desktop <option> popup inherits browser defaults, not the parent
-// <select>'s Tailwind classes — reads near-black-on-black. Explicit inline
-// bg + fg on every <option> forces readable contrast in the dropdown popup.
-// Applied to the parallel <select> sites in GlobalFilesModal.tsx too.
 const OPTION_STYLE = { backgroundColor: "#1a1a1a", color: "#e8e4d8" } as const;
 
-// NOTE: duplicated from GlobalFilesModal.tsx L32-42 (which itself is the third
-// duplication instance from NewSessionDialog + CreateRoleDialog). Fourth
-// intentional duplication — keeps plan 44-02 diff scoped to net-new files.
-// Extracting a shared HostPickerList is Post-Planning-Gaps material.
 function isFolder(item: Host | HostFolder): item is HostFolder {
   return "children" in item;
 }
@@ -69,11 +74,8 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 export interface SkillsEditorModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Host tree from useHostTree() upstream — same source NewSessionDialog + GlobalFilesModal use. */
   hostTree: HostFolder | null;
-  /** Default host selection — the currently-focused session's host, if any. */
   defaultHostId: number | null;
-  /** Optional portal container to match parent modal-portal pattern (see GlobalFilesModal). */
   container?: HTMLElement | null;
 }
 
@@ -91,19 +93,20 @@ export default function SkillsEditorModal({
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [tabData, setTabData] = useState<Map<string, TabState<SkillFileTabData>>>(new Map());
 
-  // Delete flows use native window.confirm + window.alert (see handleDeleteFile /
-  // handleDeleteSkill below). No in-modal confirm state — the retired
-  // DeleteConfirmDialog was the ONLY nested app-modal in Skynet and the fleet
-  // convention is natives for nested destructive confirms.
+  // Per-tab draft state — SkillFileTab mirrors its internal draft here via
+  // onDraftContentChange so the foot Save can dispatch to the correct
+  // active tab. dirtySet drives the close-confirm draft-guard.
+  const [drafts, setDrafts] = useState<Map<string, string>>(new Map());
+  const [dirtySet, setDirtySet] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
-  // Pitfall 7: RDP-only hosts don't have SSH — filter them out. Verbatim from
-  // GlobalFilesModal.tsx L68 — this filter is load-bearing.
   const flatHosts = useMemo(
     () => collectAllHosts(hostTree?.children ?? []).filter((h) => h.enableRdp !== true),
     [hostTree],
   );
 
-  // Auto-select host on open; reset state on close. Mirrors GlobalFilesModal L73-88.
+  // Auto-select host on open; reset state on close.
   useEffect(() => {
     if (!open) {
       setSelectedHostId(null);
@@ -112,20 +115,20 @@ export default function SkillsEditorModal({
       setFiles({ status: "loading" });
       setActiveTab(null);
       setTabData(new Map());
+      setDrafts(new Map());
+      setDirtySet(new Set());
+      setSaving(false);
+      savingRef.current = false;
       return;
     }
-    // Prefer defaultHostId if it's in the fleet
     if (defaultHostId != null && flatHosts.some((h) => Number(h.id) === defaultHostId)) {
       setSelectedHostId(defaultHostId);
       return;
     }
-    // Auto-select sole host
     if (flatHosts.length === 1) setSelectedHostId(Number(flatHosts[0].id));
   }, [open, defaultHostId, flatHosts]);
 
-  // Fetch skills list when host changes. Also clears any downstream state
-  // (skill selection, files, active tab, tab data) so we don't render stale
-  // artifacts from the previous host.
+  // Fetch skills list when host changes.
   useEffect(() => {
     if (selectedHostId == null) return;
     let cancelled = false;
@@ -134,6 +137,8 @@ export default function SkillsEditorModal({
     setFiles({ status: "loading" });
     setActiveTab(null);
     setTabData(new Map());
+    setDrafts(new Map());
+    setDirtySet(new Set());
     listSkills(selectedHostId)
       .then((entries) => {
         if (cancelled) return;
@@ -157,12 +162,16 @@ export default function SkillsEditorModal({
       setFiles({ status: "loading" });
       setActiveTab(null);
       setTabData(new Map());
+      setDrafts(new Map());
+      setDirtySet(new Set());
       return;
     }
     let cancelled = false;
     setFiles({ status: "loading" });
     setActiveTab(null);
     setTabData(new Map());
+    setDrafts(new Map());
+    setDirtySet(new Set());
     enumerateSkillFiles(selectedHostId, selectedSkillName)
       .then((entries) => {
         if (cancelled) return;
@@ -181,12 +190,10 @@ export default function SkillsEditorModal({
     };
   }, [selectedHostId, selectedSkillName]);
 
-  // Lazy-load content for the active tab (one at a time to avoid burning SSH connections).
-  // Deps are [selectedHostId, selectedSkillName, activeTab] — NOT tabData — per
-  // Phase 23's quick-260805-7rq race fix (see load-bearing comment below).
+  // Lazy-load content for the active tab.
   useEffect(() => {
     if (selectedHostId == null || !selectedSkillName || !activeTab) return;
-    if (tabData.has(activeTab)) return; // already loaded
+    if (tabData.has(activeTab)) return;
     let cancelled = false;
     setTabData((prev) => new Map(prev).set(activeTab, { status: "loading" }));
     readSkillFile(selectedHostId, selectedSkillName, activeTab)
@@ -215,15 +222,37 @@ export default function SkillsEditorModal({
     return () => {
       cancelled = true;
     };
-    // Intentional exhaustive-deps violation: including `tabData` re-runs this effect after
-    // `setTabData({loading})`, whose cleanup sets `cancelled = true` on the still-in-flight
-    // `readSkillFile` (see plan 260805-7rq). The `tabData.has(activeTab)` gate inside the
-    // body is a deliberate stale-closure read — "if the currently-known map already tracks
-    // this tab, skip".
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedHostId, selectedSkillName, activeTab]);
 
-  // Save handler with 409 → confirm + reload UX (mirrors GlobalFilesModal L152-183).
+  // Per-tab draft callbacks — factory functions per active tab keep the
+  // callbacks referentially stable within a single tab's mount cycle.
+  const handleDraftContentChange = useCallback(
+    (path: string) => (draft: string) => {
+      setDrafts((prev) => {
+        if (prev.get(path) === draft) return prev;
+        const next = new Map(prev);
+        next.set(path, draft);
+        return next;
+      });
+    },
+    [],
+  );
+  const handleDraftDirtyChange = useCallback(
+    (path: string) => (dirty: boolean) => {
+      setDirtySet((prev) => {
+        const currentlyDirty = prev.has(path);
+        if (dirty === currentlyDirty) return prev;
+        const next = new Set(prev);
+        if (dirty) next.add(path);
+        else next.delete(path);
+        return next;
+      });
+    },
+    [],
+  );
+
+  // Save handler — SkillFileTab-facing signature. Also called by foot Save.
   const handleSave = useCallback(
     async (path: string, content: string, expectedMtime: number): Promise<void> => {
       if (selectedHostId == null || selectedSkillName == null) return;
@@ -235,8 +264,6 @@ export default function SkillsEditorModal({
           content,
           expectedMtime,
         });
-        // Update tab with server-authoritative mtime so next save doesn't spurious-409.
-        // Preserve isText from the previously-loaded state (text files stay text).
         setTabData((prev) => {
           const prevEntry = prev.get(path);
           const prevIsText =
@@ -275,7 +302,26 @@ export default function SkillsEditorModal({
     [selectedHostId, selectedSkillName],
   );
 
-  // Add-file handler — window.prompt per UI-SPEC L176, then refetch file list.
+  // Foot Save — dispatches to active tab's save with tracked draft.
+  const handleFootSave = useCallback(async () => {
+    if (saving) return;
+    if (!activeTab) return;
+    const tab = tabData.get(activeTab);
+    if (tab?.status !== "ready") return;
+    const draft = drafts.get(activeTab) ?? tab.data.content;
+    if (draft === tab.data.content) return;
+    setSaving(true);
+    savingRef.current = true;
+    try {
+      await handleSave(activeTab, draft, tab.data.mtime);
+    } catch (err) {
+      window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
+      savingRef.current = false;
+    } finally {
+      setSaving(false);
+    }
+  }, [saving, activeTab, tabData, drafts, handleSave]);
+
   const handleAddFile = useCallback(async (): Promise<void> => {
     if (selectedHostId == null || selectedSkillName == null) return;
     const raw = window.prompt("New file name (relative to skill root):", "");
@@ -284,16 +330,10 @@ export default function SkillsEditorModal({
     if (relPath.length === 0) return;
     try {
       await createSkillFile(selectedHostId, selectedSkillName, relPath);
-      // Refetch file list; auto-select the new tab on success.
       const entries = await enumerateSkillFiles(selectedHostId, selectedSkillName);
       setFiles({ status: "ready", data: entries });
       setActiveTab(relPath);
     } catch (err) {
-      // Surface as a transient prompt-style alert. Do NOT clobber `files`
-      // state — that would hide every existing tab and lose unsaved drafts
-      // until the user closes+reopens the modal (the exact "friction on the
-      // fast path" the shape flagged as the sole failure mode). Consistent
-      // with the existing window.prompt UX for the filename input.
       const msg =
         err instanceof SkillFileAlreadyExistsError
           ? `A file named "${relPath}" already exists in this skill.`
@@ -304,56 +344,46 @@ export default function SkillsEditorModal({
     }
   }, [selectedHostId, selectedSkillName]);
 
-  // New-skill handler — Phase 113 D-01..D-05, D-25. Chained window.prompt
-  // (name → description); slugify name client-side; empty slug reprompts name
-  // only; empty description reprompts description only while retaining the name
-  // via closure over the outer loop; on success refetch skills list + auto-select
-  // via setSelectedSkillName. The existing selectedSkillName-change effect at
-  // L156-183 then enumerates files and auto-selects SKILL.md (sorts first).
+  // New-skill handler — chained window.prompt (name → description); slugify
+  // client-side; empty slug reprompts name; empty description reprompts
+  // description only (name retained via closure). See prior comment history
+  // for D-01..D-05 rationale.
   const handleNewSkill = useCallback(async (): Promise<void> => {
     if (selectedHostId == null) return;
 
-    // Outer loop — re-prompts name until slugify yields non-empty (D-03).
-    // Hold the raw typed name for user-facing display; slug is machine-side only (D-03).
     let displayName: string | null = null;
     let slug: string | null = null;
     while (slug === null) {
       const rawName = window.prompt("New skill name:", "");
-      if (rawName == null) return; // D-02: cancel on name prompt aborts the whole flow
+      if (rawName == null) return;
       const trimmedRaw = rawName.trim();
       const candidate = slugifyRoleName(trimmedRaw);
       if (candidate.length === 0) {
         window.alert("Please pick a name with at least one letter or number.");
-        continue; // re-prompt name (do NOT proceed to description)
+        continue;
       }
       displayName = trimmedRaw;
       slug = candidate;
     }
 
-    // Inner loop — re-prompts description until non-empty (D-04). Raw typed
-    // name is preserved across re-prompts via the closure over `displayName`.
     let description: string | null = null;
     while (description === null) {
       const rawDesc = window.prompt(`Description for "${displayName}":`, "");
-      if (rawDesc == null) return; // D-02: cancel on description prompt aborts the whole flow
+      if (rawDesc == null) return;
       const trimmed = rawDesc.trim();
       if (trimmed.length === 0) {
         window.alert("A description is required.");
-        continue; // re-prompt description ONLY (name is retained per D-04)
+        continue;
       }
       description = trimmed;
     }
 
     try {
       const result = await createSkill(selectedHostId, slug, description);
-      // D-05: refetch skills list + auto-select new skill. The existing
-      // selectedSkillName-change effect (L156-183) then enumerates files and
-      // auto-selects the first file, which is SKILL.md (alphabetical sort).
       const entries = await listSkills(selectedHostId);
       setSkills({ status: "ready", data: entries });
       setSelectedSkillName(result.slug);
     } catch (err) {
-      // D-03: user-facing error messages show the raw typed name, NOT the slug.
       const msg =
         err instanceof SkillAlreadyExistsError
           ? `A skill named "${displayName}" already exists on this host.`
@@ -364,23 +394,30 @@ export default function SkillsEditorModal({
     }
   }, [selectedHostId]);
 
-  // Delete-file confirm handler.
   const handleDeleteFile = useCallback(
     async (doomedPath: string): Promise<void> => {
       if (selectedHostId == null || selectedSkillName == null) return;
       if (!window.confirm(`Delete "${selectedSkillName}/${doomedPath}"? This can't be undone.`)) return;
       try {
         await deleteSkillFile(selectedHostId, selectedSkillName, doomedPath);
-        // Refetch file list.
         const entries = await enumerateSkillFiles(selectedHostId, selectedSkillName);
         setFiles({ status: "ready", data: entries });
-        // Tab selection: if the deleted was active, grab the first remaining file or null.
         if (activeTab === doomedPath) {
           setActiveTab(entries.length > 0 ? entries[0].path : null);
         }
-        // Drop the tab data for the deleted file (frees the closure).
         setTabData((prev) => {
           const next = new Map(prev);
+          next.delete(doomedPath);
+          return next;
+        });
+        setDrafts((prev) => {
+          const next = new Map(prev);
+          next.delete(doomedPath);
+          return next;
+        });
+        setDirtySet((prev) => {
+          if (!prev.has(doomedPath)) return prev;
+          const next = new Set(prev);
           next.delete(doomedPath);
           return next;
         });
@@ -392,7 +429,6 @@ export default function SkillsEditorModal({
     [selectedHostId, selectedSkillName, activeTab],
   );
 
-  // Delete-skill handler — native window.confirm + delete + refetch. Error via window.alert.
   const handleDeleteSkill = useCallback(async (): Promise<void> => {
     if (selectedHostId == null || selectedSkillName == null) return;
     if (
@@ -402,343 +438,311 @@ export default function SkillsEditorModal({
     )
       return;
     try {
+      savingRef.current = true; // bypass draft-guard on the state clear
       await deleteSkill(selectedHostId, selectedSkillName);
-      // Refetch skills list, clear skill selection + tab list.
       const entries = await listSkills(selectedHostId);
       setSkills({ status: "ready", data: entries });
       setSelectedSkillName(null);
       setFiles({ status: "loading" });
       setActiveTab(null);
       setTabData(new Map());
+      setDrafts(new Map());
+      setDirtySet(new Set());
+      savingRef.current = false;
     } catch (err) {
+      savingRef.current = false;
       const msg = err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete";
       window.alert(msg);
     }
   }, [selectedHostId, selectedSkillName]);
 
-  // Phase 113 D-13/D-14/D-15/D-16: the + New file action-tab, factored as a
-  // shared fragment so both body branches (empty-file-list + populated-tabs)
-  // render exactly the same button as the LAST child of their tab-strip
-  // container. Styled to LOOK like a tab (icon + label, shrink-0 for the
-  // overflow-x-auto pinned-right treatment) but honestly a <button>: its
-  // onClick invokes handleAddFile() and RETURNS — it never calls setActiveTab
-  // (Pitfall 9), so the currently-selected file tab stays highlighted and
-  // the "+" tab never appears selected regardless of activeTab value.
-  const newFileTabButton = (
-    <button
-      key="__new_file_tab"
-      type="button"
-      onClick={() => { void handleAddFile(); }}
-      className={cn(
-        "flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-md text-[10px] cursor-pointer transition-colors shrink-0",
-        "text-[#a89a80] hover:text-[#e8e4d8]",
-      )}
-    >
-      <Plus size={18} />
-      <span className="text-center whitespace-nowrap">New file</span>
-    </button>
+  // Close/draft-guard.
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen && dirtySet.size > 0 && !savingRef.current) {
+        // eslint-disable-next-line no-alert
+        const confirmed = window.confirm("Discard unsaved changes?");
+        if (!confirmed) return;
+      }
+      onOpenChange(nextOpen);
+    },
+    [dirtySet, onOpenChange],
   );
 
+  const activeTabState =
+    activeTab != null ? tabData.get(activeTab) : undefined;
+  const canFootSave =
+    !saving &&
+    activeTab != null &&
+    activeTabState?.status === "ready" &&
+    dirtySet.has(activeTab);
+
+  const showHostSelect = flatHosts.length > 1;
+  const skillPickerDisabled = selectedHostId == null || skills.status !== "ready";
+
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={false}>
-      <DialogPrimitive.Portal container={container ?? undefined}>
-        {/* Overlay — same z-index ladder as GlobalFilesModal (patch #111) */}
-        <DialogPrimitive.Overlay
+    <Modal
+      open={open}
+      onOpenChange={handleOpenChange}
+      hue={324}
+      blocking={false}
+      size="xl"
+      container={container ?? undefined}
+      className="max-h-[80vh] flex flex-col"
+      data-testid="skills-editor-modal"
+    >
+      <ModalHead title="Skills" closeTestId="skills-editor-modal-close" />
+
+      {/* Picker row — sits directly under the head. Host select (multi-host
+          only), skill select, + New skill, delete-skill Trash (when a skill
+          is picked). */}
+      <div
+        className={cn(
+          "px-4 py-2.5 flex flex-row items-center gap-2 flex-shrink-0 flex-wrap",
+          "bg-black/25",
+          "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
+        )}
+      >
+        {showHostSelect && (
+          <select
+            aria-label="Host"
+            value={selectedHostId ?? ""}
+            onChange={(e) =>
+              setSelectedHostId(e.target.value ? Number(e.target.value) : null)
+            }
+            data-testid="skills-editor-modal-host-select"
+            className={cn(
+              "text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer min-w-[120px]",
+              "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
+              "text-[#fbf5e8]",
+            )}
+          >
+            <option value="" style={OPTION_STYLE}>
+              Pick a host…
+            </option>
+            {flatHosts.map((h) => (
+              <option key={h.id} value={h.id} style={OPTION_STYLE}>
+                {h.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <select
+          aria-label="Skill"
+          value={selectedSkillName ?? ""}
+          onChange={(e) =>
+            setSelectedSkillName(e.target.value ? e.target.value : null)
+          }
+          disabled={skillPickerDisabled}
+          data-testid="skills-editor-modal-skill-select"
           className={cn(
-            "absolute inset-0 z-[110] bg-black/15",
-            "supports-backdrop-filter:backdrop-blur-xs duration-100",
-            "data-open:animate-in data-open:fade-in-0",
-            "data-closed:animate-out data-closed:fade-out-0",
+            "flex-1 min-w-0 text-[12px] px-2 py-1 rounded-md outline-none cursor-pointer",
+            "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
+            "text-[#fbf5e8]",
+            "disabled:opacity-60 disabled:cursor-not-allowed",
           )}
-        />
-        <DialogPrimitive.Content
-          onInteractOutside={(e) => {
-            // Patch #111f pattern: prevent modal from closing when clicking
-            // outside (e.g. into the composer). X and Esc remain valid close paths.
-            e.preventDefault();
+        >
+          <option value="" style={OPTION_STYLE}>
+            {selectedHostId != null && skills.status === "loading"
+              ? "Loading skills…"
+              : selectedHostId != null && skills.status === "error"
+              ? "Couldn't load skills"
+              : "Pick a skill…"}
+          </option>
+          {skills.status === "ready" &&
+            skills.data.map((s) => (
+              <option key={s.name} value={s.name} style={OPTION_STYLE}>
+                {s.name}
+              </option>
+            ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => {
+            void handleNewSkill();
           }}
+          disabled={selectedHostId == null}
+          aria-label="+ New skill"
+          data-testid="skills-editor-modal-new-skill"
           className={cn(
-            "absolute inset-4 z-[120] outline-none",
-            "flex flex-col overflow-hidden rounded-[24px]",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
-            "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            "flex items-center gap-1 px-2.5 py-1 rounded-md text-[11.5px] cursor-pointer",
+            "bg-[hsla(var(--pv-id-hue),65%,55%,0.30)]",
+            "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.42)]",
+            "border border-[hsla(var(--pv-id-hue),75%,70%,0.45)]",
+            "text-[#fbf5e8]",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+          )}
+        >
+          <Plus size={12} /> New
+        </button>
+        {selectedSkillName != null && (
+          <button
+            type="button"
+            title="Delete this skill"
+            aria-label="Delete this skill"
+            onClick={() => {
+              void handleDeleteSkill();
+            }}
+            data-testid="skills-editor-modal-delete-skill"
+            className="size-8 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
+      </div>
+
+      {/* File strip — top-mounted, above the editor pane (matches Runbook
+          translation). Rendered only when the file list is ready. */}
+      {selectedSkillName != null && files.status === "ready" && (
+        <div
+          className={cn(
+            "shrink-0 flex items-stretch gap-1 px-2 py-1.5 border-b overflow-x-auto",
+            "border-b-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
+            "bg-black/25",
           )}
           style={{
-            background: "linear-gradient(160deg, hsla(220, 45%, 25%, 0.82), hsla(220, 40%, 15%, 0.88))",
-            backdropFilter: "blur(28px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(28px) saturate(1.4)",
-            border: "1px solid hsla(220, 65%, 55%, 0.32)",
-            boxShadow: "0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 80px hsla(220, 65%, 55%, 0.2)",
-            color: "#e8e4d8",
+            WebkitOverflowScrolling: "touch",
           }}
+          data-testid="skills-editor-modal-file-strip"
         >
-          {/* Header — mirrors GlobalFilesModal L221-271 chrome pattern with Phase 44 additions */}
-          <DialogHeader
-            className="px-6 py-4 shrink-0 flex flex-row items-center gap-2 flex-wrap"
-            style={{ borderBottom: "1px solid rgba(220, 225, 245, 0.10)" }}
+          {files.data.map((file) => {
+            const selected = activeTab === file.path;
+            return (
+              <button
+                key={file.path}
+                type="button"
+                onClick={() => setActiveTab(file.path)}
+                data-testid={`skills-editor-modal-tab-${file.path}`}
+                aria-pressed={selected}
+                className={cn(
+                  "shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11.5px] cursor-pointer",
+                  "transition-colors duration-150",
+                  selected
+                    ? "text-[#fbf5e8] bg-[hsla(var(--pv-id-hue),65%,55%,0.28)] border border-[hsla(var(--pv-id-hue),65%,60%,0.42)]"
+                    : "text-[hsla(var(--pv-id-hue),22%,88%,0.65)] hover:text-[#e8e4d8] hover:bg-white/[0.04] border border-transparent",
+                )}
+              >
+                <FileText size={12} />
+                <span className="whitespace-nowrap">{file.path}</span>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => {
+              void handleAddFile();
+            }}
+            data-testid="skills-editor-modal-add-file"
+            className={cn(
+              "shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11.5px] cursor-pointer",
+              "text-[hsla(var(--pv-id-hue),30%,90%,0.7)] hover:text-[#fbf5e8] hover:bg-white/[0.04]",
+              "transition-colors duration-150",
+            )}
           >
-            <DialogTitle className="text-[15px] font-semibold text-[#f0ebe0]">
-              Skills
-            </DialogTitle>
+            <Plus size={12} /> Add file
+          </button>
+        </div>
+      )}
 
-            {/* Host picker — verbatim shape from GlobalFilesModal L228-242.
-                Phase 113 D-17/D-18: hidden entirely when flatHosts.length === 1;
-                the auto-select effect above still picks the sole host so the
-                modal opens fully-functional with no picker chrome. */}
-            {flatHosts.length > 1 && (
-              <select
-                aria-label="Host"
-                value={selectedHostId ?? ""}
-                onChange={(e) =>
-                  setSelectedHostId(e.target.value ? Number(e.target.value) : null)
-                }
-                className="ml-2 px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-[#e8e4d8] text-sm outline-none cursor-pointer"
-              >
-                <option value="" style={OPTION_STYLE}>Pick a host…</option>
-                {flatHosts.map((h) => (
-                  <option key={h.id} value={h.id} style={OPTION_STYLE}>
-                    {h.name}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {/* Skill picker — single <select>, disabled until host + skills ready.
-                Placeholder stays "Pick a skill…" throughout so the copy doesn't
-                flicker; the disabled affordance carries the "not yet" signal
-                (user 2026-08-20 UAT of #469). Loading/error swap placeholder
-                copy only within the enabled-eligible window, so a slow load
-                still surfaces distinct signal. */}
-            <select
-              aria-label="Skill"
-              value={selectedSkillName ?? ""}
-              onChange={(e) =>
-                setSelectedSkillName(e.target.value ? e.target.value : null)
+      {/* Body — layered branches. */}
+      {selectedHostId == null ? (
+        <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
+          Pick a host to load its skills.
+        </ModalBody>
+      ) : skills.status === "loading" ? (
+        <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
+          Loading skills…
+        </ModalBody>
+      ) : skills.status === "error" ? (
+        <ModalBody className="flex items-center justify-center text-red-400 text-sm px-6 text-center">
+          Couldn&apos;t load skills: {skills.error}
+        </ModalBody>
+      ) : skills.data.length === 0 ? (
+        <ModalBody className="flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-2 text-sm text-center px-6">
+          <div>No skills on this host.</div>
+          <div className="text-xs opacity-70">
+            Skills live in{" "}
+            <code className="px-1 rounded bg-black/30">~/.claude/skills/</code>{" "}
+            on the host. Nothing to edit here yet.
+          </div>
+        </ModalBody>
+      ) : selectedSkillName == null ? (
+        <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
+          Pick a skill.
+        </ModalBody>
+      ) : files.status === "loading" ? (
+        <ModalBody className="flex items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] text-sm">
+          Loading files…
+        </ModalBody>
+      ) : files.status === "error" ? (
+        <ModalBody className="flex items-center justify-center text-red-400 text-sm px-6 text-center">
+          Couldn&apos;t load files: {files.error}
+        </ModalBody>
+      ) : files.data.length === 0 ? (
+        <ModalBody className="flex flex-col items-center justify-center text-[hsla(var(--pv-id-hue),22%,88%,0.65)] gap-2 text-sm text-center px-6">
+          <div>This skill has no files.</div>
+          <div className="text-xs opacity-70">
+            Use the &quot;+ Add file&quot; tab above to create one.
+          </div>
+        </ModalBody>
+      ) : (
+        <ModalBody
+          className="p-0 flex flex-col min-h-0 overflow-y-auto px-6 py-4"
+          data-testid="skills-editor-modal-body"
+        >
+          {activeTab != null && (
+            <SkillFileTab
+              state={tabData.get(activeTab) ?? { status: "loading" }}
+              onSave={(content, expectedMtime) =>
+                handleSave(activeTab, content, expectedMtime)
               }
-              disabled={selectedHostId == null || skills.status !== "ready"}
-              className="px-3 py-1.5 rounded-md bg-black/20 border border-white/10 text-sm outline-none text-[#e8e4d8] cursor-pointer disabled:text-[#a89a80] disabled:cursor-not-allowed"
-            >
-              <option value="" style={OPTION_STYLE}>
-                {selectedHostId != null && skills.status === "loading"
-                  ? "Loading skills…"
-                  : selectedHostId != null && skills.status === "error"
-                  ? "Couldn't load skills"
-                  : "Pick a skill…"}
-              </option>
-              {skills.status === "ready" &&
-                skills.data.map((s) => (
-                  <option key={s.name} value={s.name} style={OPTION_STYLE}>
-                    {s.name}
-                  </option>
-                ))}
-            </select>
-
-            {/* New-skill button — Phase 113 D-01. Same primary-accent style
-                as the retired add-file button (visual continuity for the
-                "add a thing" affordance shape). Enabled whenever a host is
-                picked; the header-level add-file button has been REMOVED
-                (D-12) — file creation moved to the new-file action-tab. */}
-            <button
-              type="button"
-              onClick={() => { void handleNewSkill(); }}
-              disabled={selectedHostId == null}
-              className="ml-2 px-3 py-1.5 rounded-md bg-[hsla(220,80%,60%,0.20)] hover:bg-[hsla(220,80%,60%,0.30)] text-[#e8e4d8] text-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              + New skill
-            </button>
-
-            {/* Delete-skill Trash2 — NEW for Phase 44. Only rendered when a
-                skill is picked (UI-SPEC L202). */}
-            {selectedSkillName && (
-              <button
-                type="button"
-                title="Delete this skill"
-                onClick={() => {
-                  void handleDeleteSkill();
-                }}
-                className="size-6 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
-              >
-                <Trash2 size={16} />
-              </button>
-            )}
-
-            <div className="flex-1" />
-
-            {/* Glass X close button — verbatim from GlobalFilesModal L247-270 */}
-            <DialogClose asChild>
-              <button
-                type="button"
-                aria-label="Close"
-                title="Close"
-                className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color,box-shadow] duration-200"
-                style={{
-                  background: "rgba(255, 255, 255, 0.04)",
-                  border: "1px solid rgba(220, 225, 245, 0.10)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.10)";
-                  e.currentTarget.style.border = "1px solid rgba(220, 225, 245, 0.22)";
-                  e.currentTarget.style.boxShadow = "0 0 20px hsla(220, 60%, 50%, 0.25)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)";
-                  e.currentTarget.style.border = "1px solid rgba(220, 225, 245, 0.10)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-              >
-                <X className="size-4" />
-              </button>
-            </DialogClose>
-          </DialogHeader>
-
-          {/* Body — layered branches per UI-SPEC Copywriting Contract */}
-          {selectedHostId == null ? (
-            <div className="flex-1 flex items-center justify-center text-[#a89a80] text-sm">
-              Pick a host to load its skills.
-            </div>
-          ) : skills.status === "loading" ? (
-            <div className="flex-1 flex items-center justify-center text-[#a89a80] text-sm">
-              Loading skills…
-            </div>
-          ) : skills.status === "error" ? (
-            <div className="flex-1 flex items-center justify-center text-red-400 text-sm px-6 text-center">
-              Couldn&apos;t load skills: {skills.error}
-            </div>
-          ) : skills.data.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-[#a89a80] gap-2 text-sm text-center px-6">
-              <div>No skills on this host.</div>
-              <div className="text-xs opacity-70">
-                Skills live in{" "}
-                <code className="px-1 rounded bg-black/30">~/.claude/skills/</code>{" "}
-                on the host. Nothing to edit here yet.
-              </div>
-            </div>
-          ) : selectedSkillName == null ? (
-            <div className="flex-1 flex items-center justify-center text-[#a89a80] text-sm">
-              Pick a skill.
-            </div>
-          ) : files.status === "loading" ? (
-            <div className="flex-1 flex items-center justify-center text-[#a89a80] text-sm">
-              Loading files…
-            </div>
-          ) : files.status === "error" ? (
-            <div className="flex-1 flex items-center justify-center text-red-400 text-sm px-6 text-center">
-              Couldn&apos;t load files: {files.error}
-            </div>
-          ) : files.data.length === 0 ? (
-            // Phase 113 D-15: empty-file-list body renders the copy AND the
-            // shared newFileTabButton (declared once above) so the + New file
-            // action-tab is present the moment a skill is picked. The tab-strip
-            // is a bare <div> (no Radix Tabs wiring) since there are no file
-            // tabs to activate; the button is action-only and never touches
-            // activeTab (D-14, D-16).
-            <div className="flex-1 min-h-0 flex flex-col">
-              <div className="flex-1 flex flex-col items-center justify-center text-[#a89a80] gap-2 text-sm text-center px-6">
-                <div>This skill has no files.</div>
-                <div className="text-xs opacity-70">
-                  Use the "+ New file" tab below to create one.
-                </div>
-              </div>
-              <div
-                className="shrink-0 flex items-stretch px-2 py-1 border-t overflow-x-auto"
-                style={{
-                  borderTopColor: "rgba(220, 225, 245, 0.10)",
-                  background:
-                    "linear-gradient(180deg, rgba(18,20,28,0.62), rgba(28,30,40,0.55))",
-                  backdropFilter: "blur(12px)",
-                  WebkitBackdropFilter: "blur(12px)",
-                  WebkitOverflowScrolling: "touch",
-                }}
-              >
-                {newFileTabButton}
-              </div>
-            </div>
-          ) : (
-            // Tabs — one TabsContent per file. Per-tab lazy load; horizontal-scroll tab strip.
-            <Tabs
-              value={activeTab ?? ""}
-              onValueChange={setActiveTab}
-              className="flex-1 min-h-0 flex flex-col"
-            >
-              {files.data.map((file) => (
-                <TabsContent
-                  key={file.path}
-                  value={file.path}
-                  className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-                >
-                  <SkillFileTab
-                    state={tabData.get(file.path) ?? { status: "loading" }}
-                    onSave={(content, expectedMtime) =>
-                      handleSave(file.path, content, expectedMtime)
-                    }
-                    onRequestDelete={() => {
-                      void handleDeleteFile(file.path);
-                    }}
-                    filename={file.path}
-                  />
-                </TabsContent>
-              ))}
-
-              {/* Bottom icon-bar section switcher — mirrors GlobalFilesModal L322-370
-                  with the Phase 44 D-06 additions: overflow-x-auto + iOS scroll
-                  momentum + intrinsic-width tabs (drop flex-1 + justify-around). */}
-              <div
-                className="shrink-0 flex items-stretch px-2 py-1 border-t overflow-x-auto"
-                style={{
-                  borderTopColor: "rgba(220, 225, 245, 0.10)",
-                  background:
-                    "linear-gradient(180deg, rgba(18,20,28,0.62), rgba(28,30,40,0.55))",
-                  backdropFilter: "blur(12px)",
-                  WebkitBackdropFilter: "blur(12px)",
-                  WebkitOverflowScrolling: "touch",
-                }}
-              >
-                {files.data.map((file) => {
-                  const selected = activeTab === file.path;
-                  return (
-                    <button
-                      key={file.path}
-                      type="button"
-                      onClick={() => setActiveTab(file.path)}
-                      className={cn(
-                        // Intrinsic width — no flex-1 — so many tabs trigger
-                        // horizontal scroll instead of squishing (D-06 fallback).
-                        "flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-md text-[10px] cursor-pointer transition-colors shrink-0",
-                        selected
-                          ? "text-[#f0ebe0] font-semibold"
-                          : "text-[#a89a80] hover:text-[#e8e4d8]",
-                      )}
-                      // Hue-tinted glassy pill matches GlobalFilesModal (hardcoded
-                      // hue 220 — no per-identity context in this menu-triggered modal).
-                      style={
-                        selected
-                          ? {
-                              background: "hsla(220, 80%, 60%, 0.18)",
-                              boxShadow:
-                                "inset 0 0 0 1px hsla(220, 80%, 70%, 0.28)",
-                            }
-                          : undefined
-                      }
-                    >
-                      <FileText size={18} />
-                      {/* D-05: tab label is the FULL path relative to skill root
-                          (e.g. `tests/basic.py`), NOT split("/").pop(). */}
-                      <span className="text-center whitespace-nowrap">
-                        {file.path}
-                      </span>
-                    </button>
-                  );
-                })}
-                {/* Phase 113 D-13: + New file pinned as the LAST child of the
-                    tab strip so overflow-x-auto scrolls the map'd tabs while
-                    this action-tab stays visible. Shared with the empty-file-list
-                    branch above via the newFileTabButton fragment. */}
-                {newFileTabButton}
-              </div>
-            </Tabs>
+              onRequestDelete={() => {
+                void handleDeleteFile(activeTab);
+              }}
+              filename={activeTab}
+              hideSaveButton={true}
+              onDraftContentChange={handleDraftContentChange(activeTab)}
+              onDraftChange={handleDraftDirtyChange(activeTab)}
+            />
           )}
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+        </ModalBody>
+      )}
+
+      <ModalFoot>
+        <button
+          type="button"
+          onClick={() => handleOpenChange(false)}
+          disabled={saving}
+          data-testid="skills-editor-modal-close-foot"
+          className={cn(
+            "px-3 py-1.5 rounded-md text-[12.5px] cursor-pointer",
+            "bg-black/20 border border-white/10",
+            "hover:bg-black/30",
+            "text-[#e8e4d8]",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
+          )}
+        >
+          Close
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            void handleFootSave();
+          }}
+          disabled={!canFootSave}
+          data-testid="skills-editor-modal-save"
+          className={cn(
+            "px-4 py-1.5 rounded-md text-[12.5px] font-medium cursor-pointer",
+            "bg-[hsla(var(--pv-id-hue),65%,45%,0.75)]",
+            "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.85)]",
+            "border border-[hsla(var(--pv-id-hue),65%,55%,0.7)]",
+            "text-[#f4f1e8]",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
+          )}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </ModalFoot>
+    </Modal>
   );
 }
