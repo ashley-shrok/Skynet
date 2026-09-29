@@ -234,10 +234,17 @@ import {
   appTileMatches,
 } from "./sidebar-search-match";
 // shape-sidebar-search-inline: pre-populate the ConversationSearchModal's
-// module-scoped query state so the modal opens with the sidebar-search
-// query already in place — the "everywhere ↗" escalation carries the user's
-// current query into the deeper view without a retype.
-import { setSearchQuery } from "@/state/search-store";
+// module-scoped query state AND kick off the initial fetch so the modal
+// opens already showing results (no second Enter needed). Same store
+// primitives the modal's own Enter handler uses (ConversationSearchModal
+// handleEnter), so the modal renders "Searching..." → results transition
+// naturally off the store's isFetching/results.
+import {
+  startNewSearch,
+  appendResults,
+  setError as setSearchStoreError,
+} from "@/state/search-store";
+import { searchConversations } from "@/api/conversation-search-api";
 // Phase 115 Plan 115-06 (Task 2): archive API client — invoked by row context
 // menu; archived identities are searchable via the Phase 122 modal.
 import { archiveIdentity } from "@/api/identity-archive-api";
@@ -1006,14 +1013,28 @@ export function PrettyConversationsPanel({
   // so Escape (task 6) can programmatically blur, and the all-empty fallback's
   // "search everywhere" CTA can pre-populate the modal from the current query.
   const sidebarSearchInputRef = useRef<HTMLInputElement | null>(null);
-  // shape-sidebar-search-inline: escalation helper. Pre-seeds the search-store
-  // with the trimmed sidebar-search query, then opens the ConversationSearchModal.
-  // Wired from (a) the everywhere-link inside the search input (task 5), (b)
-  // Enter-key-in-input (task 5), (c) the all-empty fallback CTA (task 4).
+  // shape-sidebar-search-inline: escalation helper. Fires the search on the
+  // store AND opens the ConversationSearchModal, so the modal renders already
+  // showing "Searching..." then results — no second Enter needed. Wired from
+  // (a) the everywhere-link inside the search input, (b) Enter-key-in-input,
+  // (c) the all-empty fallback CTA. Empty query = open modal only (nothing to
+  // fetch). Fetch/store logic mirrors ConversationSearchModal.handleEnter so
+  // the modal's UI transitions (isFetching/results/error) flow naturally off
+  // the store the same way as an in-modal Enter.
   const openSearchEverywhere = useCallback(() => {
     const q = sidebarSearchQuery.trim();
-    if (q.length > 0) setSearchQuery(q);
     setSearchModalOpen(true);
+    if (q.length === 0) return;
+    const reqId = startNewSearch(q);
+    void (async () => {
+      try {
+        const response = await searchConversations(q, 0, 20);
+        appendResults(response.results, response.hasMore, reqId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "unknown_error";
+        setSearchStoreError(msg, reqId);
+      }
+    })();
   }, [sidebarSearchQuery]);
   // Phase 44 SKILLED-01: SkillsEditorModal open/closed toggle (opened from menu item, sibling of GlobalFilesModal).
   const [skillsEditorModalOpen, setSkillsEditorModalOpen] = useState(false);
