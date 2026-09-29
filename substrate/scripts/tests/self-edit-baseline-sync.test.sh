@@ -17,6 +17,8 @@
 #          when the sync hook never ran)
 #   T-S8 — hostile role: value in identity frontmatter does NOT execute inside
 #          the sync hook's bash body (shell-injection defense)
+#   T-S9 — sync-script id-skill drift → atomic baseline overwrite + hash marker
+#          (the id skill is a fourth watched surface added 2026-09-29)
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
@@ -396,6 +398,59 @@ EOF
   fi
 }
 
+# ============================================================
+# T-S9: sync-script id-skill drift → atomic baseline overwrite + hash marker.
+# The id skill is user-wide (~/.claude/skills/id/SKILL.md), so this test seeds
+# a hermetic HOME with the skill file alongside the usual identity fixture.
+# ============================================================
+test_T_S9_sync_id_skill() {
+  local home_dir="$(make_tmpdir)"
+  local ident_dir="$home_dir/fleet/identities/s9name"
+  local state_dir="$ident_dir/role-file-watch"
+  local skill_dir="$home_dir/.claude/skills/id"
+  mkdir -p "$state_dir" "$skill_dir"
+
+  # Identity file (role frontmatter present so the sync script's ROLE parse
+  # succeeds; irrelevant to this test but exercises the full path).
+  printf -- '---\nrole: s9role\n---\n\n# s9name\n' > "$ident_dir/s9name.md"
+
+  local skill="$skill_dir/SKILL.md"
+  local baseline="$state_dir/last-snapshot.id-skill"
+
+  # Seed baseline with old content, then diverge the real skill file.
+  printf 'old id skill content\n' > "$baseline"
+  printf 'NEW id skill content — 2026-09-29 rename landed\n' > "$skill"
+
+  # Sanity: baseline and real now differ.
+  if cmp -s "$skill" "$baseline"; then
+    fail "T-S9: fixture broken — baseline already equals real"
+    return
+  fi
+
+  HOME="$home_dir" FLEET_IDENTITY="s9name" bash "$SYNC_SCRIPT" </dev/null
+
+  # Baseline must now match real.
+  if ! cmp -s "$skill" "$baseline"; then
+    fail "T-S9: id-skill baseline not refreshed after sync"
+    return
+  fi
+
+  # Marker must exist and hold sha256 of the new content.
+  local marker="$baseline.self-edit-hash"
+  if [ ! -f "$marker" ]; then
+    fail "T-S9: id-skill hash marker not written at $marker"
+    return
+  fi
+
+  local expected recorded
+  expected=$(sha256sum "$skill" | awk '{print $1}')
+  recorded=$(cat "$marker" | tr -d '\n')
+  if [ "$expected" != "$recorded" ]; then
+    fail "T-S9: id-skill marker hash mismatch (expected=$expected got=$recorded)"
+    return
+  fi
+}
+
 # ---- run ----
 
 run_test test_T_S1_sync_drift
@@ -406,6 +461,7 @@ run_test test_T_S5_watcher_matching_marker_silent
 run_test test_T_S6_watcher_mismatched_marker_fires
 run_test test_T_S7_watcher_no_marker_fires
 run_test test_T_S8_role_injection_defense
+run_test test_T_S9_sync_id_skill
 
 # ---- summary ----
 

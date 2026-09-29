@@ -24,6 +24,7 @@
 #      convention role-file-watch.py uses:
 #          last-snapshot.role         → ~/fleet/roles/<role>/<role>.md
 #          last-snapshot.identity     → ~/fleet/identities/<name>/<name>.md
+#          last-snapshot.id-skill     → ~/.claude/skills/id/SKILL.md
 #          last-snapshot.runbook.<X>  → ~/fleet/roles/<role>/runbooks/<X>/runbook.md
 #      where <role> is parsed from the identity file's YAML frontmatter.
 #   4. If real file != baseline, atomically overwrite the baseline (tmp +
@@ -120,6 +121,11 @@ timeout 2 bash -c '
 
     # (a) identity baseline — always syncable, no role needed.
     sync_one "$STATE_DIR/last-snapshot.identity" "$IDENTITY_FILE"
+
+    # (a2) id-skill baseline — user-wide skill file, no role needed. Missing
+    # target file (fresh box pre-distributor-sweep, or a hermetic test env)
+    # short-circuits via sync_one'"'"'s `[ -f "$real" ] || return 0` guard.
+    sync_one "$STATE_DIR/last-snapshot.id-skill" "$HOME/.claude/skills/id/SKILL.md"
 
     # (b) role + runbook baselines — need <role>. Skip if unresolved.
     if [ -n "$ROLE" ]; then

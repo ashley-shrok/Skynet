@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
-"""role-file-watch.py — fourth ambient monitor: watch for edits to an identity's role file, identity file, AND runbooks.
+"""role-file-watch.py — fourth ambient monitor: watch for edits to an identity's role file, identity file, id skill, AND runbooks.
 
 The sibling of the relay receiver, the wake-up scheduler, and the context-watch.
 The receiver wakes on a MESSAGE, the scheduler on the CLOCK, the context-watch on
-CONTEXT PRESSURE — this fourth monitor wakes on a ROLE-FILE, IDENTITY-FILE, OR
-RUNBOOK CHANGE, so mid-session edits become visible to a running identity without
-needing a full recycle.
+CONTEXT PRESSURE — this fourth monitor wakes on a ROLE-FILE, IDENTITY-FILE, ID-SKILL,
+OR RUNBOOK CHANGE, so mid-session edits become visible to a running identity
+without needing a full recycle.
 
 Why this exists: closes the mid-session gap where an agent's in-context copy of its
-role file, its own identity file, or a role-scope runbook has diverged from disk.
-For the role file, that's a peer identity of the same role editing it in another
-session. For the identity file, that's almost always user editing it directly
-(cosmetic frontmatter changes, an identity-scope `remember`) — peer sessions of the
-SAME identity are essentially impossible. For runbooks, the driver was the
-2026-09-19 canonical-deploy-command update: vision edited the skynet-ship runbook to
-include a load-bearing `-f` flag, and a peer identity deployed with the OLD command
-minutes later because the runbook edit fired no ambient event and stale memory of
-the command outweighed re-reading the updated runbook. Every fresh /id load STILL
-reads role + identity + enumerates runbooks; this is purely additive.
+role file, its own identity file, the id skill, or a role-scope runbook has
+diverged from disk. For the role file, that's a peer identity of the same role
+editing it in another session. For the identity file, that's almost always user
+editing it directly (cosmetic frontmatter changes, an identity-scope `remember`)
+— peer sessions of the SAME identity are essentially impossible. For the id skill
+(user-wide, distributed by fleet-substrate), the driver was the 2026-09-29
+incident where a workstation agent grepped the current on-disk SKILL.md but
+mis-read it against its in-context copy from a pre-rename version, spending
+turns chasing a mismatch that was purely stale-memory. For runbooks, the driver
+was the 2026-09-19 canonical-deploy-command update: vision edited the skynet-ship
+runbook to include a load-bearing `-f` flag, and a peer identity deployed with
+the OLD command minutes later because the runbook edit fired no ambient event
+and stale memory of the command outweighed re-reading the updated runbook. Every
+fresh /id load STILL reads role + identity + id skill + enumerates runbooks;
+this is purely additive.
 
 Runbook coverage extends to the sentinel file only — `~/fleet/roles/<role>/runbooks/<slug>/runbook.md`
 per the id skill's runbook convention. Companion files in the same subfolder
@@ -203,6 +208,8 @@ def _change_phrase(kind, label):
         return "your role file"
     if kind == "identity-file":
         return "your identity file"
+    if kind == "id-skill":
+        return "your id skill"
     if kind == "runbook":
         slug = label.split("/", 1)[-1]
         return "your %s runbook" % slug
@@ -584,7 +591,7 @@ def main():
         sys.exit(1)
 
     # Identity file path already resolved above (identity_file_path).
-    # Both targets: (kind, label-for-emit, source-file, per-file-baseline).
+    # Each target: (kind, label-for-emit, source-file, per-file-baseline).
     baseline_dir = os.path.join(ident_dir, "role-file-watch")
     role_baseline_path = os.path.join(baseline_dir, "last-snapshot.role")
     identity_baseline_path = os.path.join(baseline_dir, "last-snapshot.identity")
@@ -592,6 +599,19 @@ def main():
         ("role-file", role, role_file_path, role_baseline_path),
         ("identity-file", name, identity_file_path, identity_baseline_path),
     ]
+
+    # --- id skill target — user-wide, fleet-substrate-distributed. Watching
+    # `~/.claude/skills/id/SKILL.md` catches the mid-session "in-context copy
+    # drifted from disk" gap (2026-09-29 incident: workstation agent grepped
+    # current on-disk file while running against pre-rename in-context copy).
+    # Gated on file existence so a fresh box mid-distributor-install, or a
+    # hermetic test env, doesn't fatal — same posture as runbooks_watched.
+    # If the file lands later, the next watcher process pick it up on cold-start.
+    id_skill_path = os.path.expanduser("~/.claude/skills/id/SKILL.md")
+    id_skill_watched = os.path.isfile(id_skill_path)
+    if id_skill_watched:
+        id_skill_baseline_path = os.path.join(baseline_dir, "last-snapshot.id-skill")
+        targets.append(("id-skill", "id", id_skill_path, id_skill_baseline_path))
 
     # --- Runbooks tree — role-scope; empty or nonexistent is fine ---
     runbooks_dir = os.path.expanduser("~/fleet/roles/%s/runbooks" % role)
@@ -754,10 +774,11 @@ def main():
     if use_inotify:
         # inotifywait-based watch loop with `--format` output so we can route
         # events by path. Three watched surfaces:
-        #   1. role.md + identity.md — passed as explicit file arguments. Events
-        #      on these are dispatched to _diff_and_emit_all(targets, …); we
-        #      re-diff both fixed targets on any of their events (matches the
-        #      pre-runbook behavior — cheap, no per-file bookkeeping needed).
+        #   1. role.md + identity.md + id-skill SKILL.md — passed as explicit
+        #      file arguments (id skill conditionally, when present on box).
+        #      Events on any of these are dispatched to
+        #      _diff_and_emit_all(targets, …); we re-diff every fixed target on
+        #      any of their events (cheap, no per-file bookkeeping needed).
         #   2. runbooks/ (if it exists) — passed with `-r` so newly-created
         #      slug subfolders get their inotify watches added automatically.
         #      Per-event routing via _slug_from_event isolates runbook.md
@@ -778,8 +799,8 @@ def main():
         #   delete:      runbook.md removed OR slug subfolder removed
         #   create:      slug subfolder created OR runbook.md created
         #   moved_from:  runbook.md renamed out OR slug subfolder renamed out
-        role_id_paths = [t[2] for t in targets]
-        watched_args = list(role_id_paths)
+        fixed_target_paths = [t[2] for t in targets]
+        watched_args = list(fixed_target_paths)
         if runbooks_watched:
             watched_args.append(runbooks_dir)
         inotify_events = "close_write,move_self,delete_self,moved_to,delete,create,moved_from"
@@ -852,10 +873,10 @@ def main():
                     w_path, f_name, e_str = parts
                     events = set(e_str.split(","))
 
-                    # (A) Route fixed-target events (role.md / identity.md).
+                    # (A) Route fixed-target events (role.md / identity.md / id-skill SKILL.md).
                     # inotifywait emits `%w = <full file path>`, `%f = ""` when
                     # the watched target is a file argument (not a directory).
-                    if not f_name and w_path in role_id_paths:
+                    if not f_name and w_path in fixed_target_paths:
                         # MOVE_SELF: watched inode itself was renamed AWAY. New
                         # content may already be at the path (atomic-rename
                         # patterns overwriting the file), so emit any diff then
