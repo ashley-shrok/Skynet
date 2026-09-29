@@ -1930,22 +1930,29 @@
   font-size: 11px;
 }
 
-/* ─── Phase 122 Plan 03: search modal — result-row rules ─────────────────
+/* ─── Search modal — result-row rules ────────────────────────────────────
    Colocated with the other pv- rules so future edits to pretty-conversations
    styling stay in one place. The snippet highlight (.pv-search-hit) is the
    security-relevant piece: the modal splits snippet text into <span> around
    the hit indices from the backend (hitStart, hitLength) — NEVER via
    dangerouslySetInnerHTML. See ConversationSearchRow.tsx and
-   src/backend/database/routes/conversation-search.ts (T-122-FE-01). */
+   src/backend/database/routes/conversation-search.ts (T-122-FE-01).
+
+   Anatomy (2026-09-29 modal-unification pass): tasting `.search-row` shape.
+   Line 1 (`.pv-search-row-header`): sender-dot (hue = --pv-search-row-hue)
+   + name + right-aligned relative time. Line 2 (`.pv-search-row-snippet`):
+   snippet + hue-tinted highlight. hostName is intentionally NOT rendered
+   (tasting dropped it). See modal-tasting.html L2466-2515. */
 
 .pv-search-row {
+  --pv-search-row-hue: 190;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(220, 225, 245, 0.08);
+  border-radius: 10px;
+  background: rgba(8, 10, 16, 0.4);
+  border: 1px solid hsla(var(--pv-search-row-hue), 60%, 55%, 0.14);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -1953,36 +1960,45 @@
 }
 
 .pv-search-row:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(220, 225, 245, 0.16);
+  background: rgba(8, 10, 16, 0.6);
+  border-color: hsla(var(--pv-search-row-hue), 60%, 55%, 0.28);
 }
 
-.pv-search-row-title {
-  color: #f0ebe0;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.2;
+.pv-search-row-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: hsla(var(--pv-search-row-hue), 25%, 92%, 0.9);
+}
+
+.pv-search-row-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: hsla(var(--pv-search-row-hue), 65%, 55%, 0.9);
+  flex-shrink: 0;
+}
+
+.pv-search-row-name {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.pv-search-row-subtext {
-  color: #a89a80;
-  font-size: 11px;
-  line-height: 1.2;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.pv-search-row-when {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: hsla(var(--pv-search-row-hue), 22%, 88%, 0.55);
 }
 
 .pv-search-row-snippet {
-  color: #d9d1c0;
   font-size: 12px;
-  line-height: 1.35;
+  color: hsla(var(--pv-search-row-hue), 22%, 88%, 0.75);
+  line-height: 1.5;
   /* Snippet may span 2-3 lines; clip via -webkit-line-clamp to keep
      result rows compact. Modern browsers only; falls back to no clamp on
      old engines (still readable, just taller). */
@@ -1993,16 +2009,15 @@
 }
 
 .pv-search-hit {
-  background: rgba(255, 215, 100, 0.35);
-  color: inherit;
+  background: hsla(var(--pv-search-row-hue), 65%, 55%, 0.28);
+  color: #fbf5e8;
   padding: 0 2px;
-  border-radius: 2px;
+  border-radius: 3px;
   font-weight: 600;
 }
 
 .pv-search-archived-pill {
   display: inline-block;
-  margin-left: 8px;
   padding: 1px 6px;
   font-size: 10px;
   text-transform: uppercase;

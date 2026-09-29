@@ -56,6 +56,8 @@ describe("conversation-search-api: searchConversations", () => {
           hitLength: 5,
           isArchived: false,
           tmuxSessionName: "alice",
+          displayName: null,
+          colorHue: null,
         },
       ],
       hasMore: false,

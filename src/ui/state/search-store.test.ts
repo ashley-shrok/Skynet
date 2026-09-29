@@ -49,6 +49,8 @@ function makeRow(overrides: Partial<ConversationSearchResult> = {}): Conversatio
     hitLength: 5,
     isArchived: false,
     tmuxSessionName: "alice",
+    displayName: null,
+    colorHue: null,
     ...overrides,
   };
 }

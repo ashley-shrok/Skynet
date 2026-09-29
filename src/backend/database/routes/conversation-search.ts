@@ -222,6 +222,22 @@ export interface ConversationSearchResult {
    * Task 1 forward-patch.
    */
   tmuxSessionName: string | null;
+  /**
+   * Identity's resolved display name — `identity.displayName ??
+   * role.displayName ?? null`. Piggybacks on the visibility gate's
+   * frontmatter reads (see gateHostRows) — zero extra SSH cost. Null when
+   * callerUsername is null (defensive orphaned-userId path) or when
+   * frontmatter read failed. Frontend row uses `aiTitle ?? displayName ??
+   * identityKey` for the row-head title.
+   */
+  displayName: string | null;
+  /**
+   * Identity's resolved color hue — `identity.colorHue ??
+   * role.colorHue ?? null`. Same cascade + same read reuse as displayName.
+   * Frontend row uses this to color the sender-dot for at-a-glance
+   * identity recognition (modal-tasting.html § conversation search).
+   */
+  colorHue: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +481,16 @@ async function gateHostRows(
 
   const uniqueKeys = Array.from(new Set(rows.map((r) => r.identityKey)));
   const gateMap = new Map<string, boolean>();
+  // Per-key resolved appearance — piggybacks on the same identity+role
+  // frontmatter reads the gate does. Cascade shape mirrors
+  // resolveIdentityAppearance: identity value beats role value; null
+  // when both absent. Consumed after the gate to attach display fields
+  // onto each visible row (see visibleRows loop below).
+  interface ResolvedAppearance {
+    displayName: string | null;
+    colorHue: number | null;
+  }
+  const appearanceMap = new Map<string, ResolvedAppearance>();
   // Per-host role-cosmetics memo (mirror identities.ts L399-424 roleReadCache
   // pattern). Multiple identityKeys of the same role read the role file
   // AT MOST ONCE per gate pass. Storing the in-flight Promise (not the
@@ -510,6 +536,11 @@ async function gateHostRows(
           key,
           isIdentityVisibleToUser(identityCos, roleCos, callerUsername),
         );
+        appearanceMap.set(key, {
+          displayName:
+            identityCos.displayName ?? roleCos?.displayName ?? null,
+          colorHue: identityCos.colorHue ?? roleCos?.colorHue ?? null,
+        });
       } catch (err) {
         // FAIL-CLOSED: search hit for an identity we could not verify
         // visibility on MUST NOT be surfaced (Phase 129 exception per
@@ -533,7 +564,12 @@ async function gateHostRows(
     // === true (not !== false) is the fail-closed shape — unresolved keys
     // stay hidden. Do NOT drift to !== false; see gateHostRows docblock.
     if (gateMap.get(row.identityKey) === true) {
-      visibleRows.push(row);
+      const appearance = appearanceMap.get(row.identityKey);
+      visibleRows.push({
+        ...row,
+        displayName: appearance?.displayName ?? null,
+        colorHue: appearance?.colorHue ?? null,
+      });
     } else {
       systemLogger.debug("Phase 129: search hit hidden by visibility gate", {
         operation: "search_gate_hidden",
@@ -626,6 +662,13 @@ async function runOneHost(
       // and sessionMatchKey lowercases sessionName to derive identityKey.
       // So the inverse ("identityKey → tmux session") is identity here.
       tmuxSessionName: meta.key,
+      // Appearance fields — populated by gateHostRows (which already reads
+      // the frontmatter for the visibility gate). Null-initialized here so
+      // the defensive callerUsername===null short-circuit path still emits
+      // a well-shaped row; the frontend row falls back to identityKey /
+      // fallback hue when null.
+      displayName: null,
+      colorHue: null,
     });
   }
   return rows;

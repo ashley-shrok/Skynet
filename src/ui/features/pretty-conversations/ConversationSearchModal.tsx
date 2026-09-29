@@ -1,10 +1,5 @@
 /**
- * Phase 122 Plan 122-03 Task 2 — Conversation search modal.
- *
- * Radix DialogPrimitive shell lifted verbatim from NewConversationModal.tsx
- * (L268-441 — the glass-morphism chrome recipe). Body holds a search
- * input, results list, and a Load more button. Footer surfaces the result
- * count / error.
+ * Conversation search modal.
  *
  * Locked behaviors (see .planning/phases/122-conversation-search-modal/
  * 122-CONTEXT.md decisions):
@@ -42,11 +37,19 @@
  * responses (from a superseded query or an unmounted modal) are silently
  * dropped, preventing "typed foo, then bar, then foo's results overwrite
  * bar's results" and React duplicate-key warnings from load-more races.
+ *
+ * Chrome (2026-09-29 modal-unification pass): composes from the canonical
+ * <Modal> + <ModalHead> + <ModalBody> + conditional <ModalFoot>. Visible
+ * title in the head; the search input lives in a distinct filter-bar row
+ * BELOW the head (matches tasting anatomy — see modal-tasting.html
+ * L2466-2515). Load more is inline at the end of the results list; the
+ * foot is rendered ONLY when there's an error to surface. Backdrop click
+ * never dismisses (unified rule at the Modal layer — no per-modal opt-in).
  */
 
 import { useEffect, useState } from "react";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import { X, Search, Loader2 } from "lucide-react";
+import { Search, Loader2, X } from "lucide-react";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import {
   searchConversations,
@@ -62,15 +65,7 @@ import {
 } from "@/state/search-store";
 import { ConversationSearchRow } from "./ConversationSearchRow";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const PAGE_SIZE = 20; // D-12: 20 results per fetch
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
 
 export interface ConversationSearchModalProps {
   open: boolean;
@@ -83,10 +78,6 @@ export interface ConversationSearchModalProps {
    */
   onOpenActiveConversation: (result: ConversationSearchResult) => void;
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function ConversationSearchModal({
   open,
@@ -207,178 +198,143 @@ export function ConversationSearchModal({
     state.query.length > 0;
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={true}>
-      <DialogPrimitive.Portal>
-        {/* Overlay — same z-index ladder as NewConversationModal L272-278 */}
-        <DialogPrimitive.Overlay
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      hue={190}
+      size="list"
+      data-testid="conversation-search-modal"
+    >
+      <ModalHead title="Search conversations" />
+
+      {/* Filter bar — search input + optional clear button. Sits directly
+          below the head; tasting `.filter-bar` recipe (dark tint, hue-tinted
+          bottom border, flex-shrink-0). autoFocus so the input takes focus
+          on open. */}
+      <div
+        className={cn(
+          "px-4 py-2.5 flex flex-row items-center gap-2 flex-shrink-0",
+          "bg-black/25",
+          "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
+        )}
+      >
+        <Search size={16} className="shrink-0 text-[hsla(var(--pv-id-hue),22%,88%,0.6)]" />
+        <input
+          value={localValue}
+          onChange={(e) => setLocalValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleEnter();
+            }
+          }}
+          placeholder="Search conversations..."
+          data-testid="conversation-search-input"
+          /* eslint-disable-next-line jsx-a11y/no-autofocus */
+          autoFocus
           className={cn(
-            "absolute inset-0 z-[110] bg-black/40",
-            "supports-backdrop-filter:backdrop-blur-xs duration-100",
-            "data-open:animate-in data-open:fade-in-0",
-            "data-closed:animate-out data-closed:fade-out-0",
+            "flex-1 min-w-0 px-2 py-1 rounded-md text-[12.5px] outline-none",
+            "bg-black/20 border border-[hsla(var(--pv-id-hue),65%,55%,0.22)]",
+            "text-[#fbf5e8]",
+            "focus:border-[hsla(var(--pv-id-hue),70%,60%,0.5)]",
+            "placeholder:text-[hsla(var(--pv-id-hue),22%,88%,0.45)]",
+            "transition-colors duration-150",
           )}
         />
-        {/* Content — mobile inset-4, desktop centered 560×720 (same recipe) */}
-        <DialogPrimitive.Content
-          onInteractOutside={(e) => {
-            // Patch #111f pattern: X + Esc are the only close paths.
-            e.preventDefault();
-          }}
-          className={cn(
-            "absolute inset-4 z-[120] outline-none",
-            "flex flex-col overflow-hidden rounded-[24px]",
-            "md:max-w-[560px] md:max-h-[720px] md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
-            "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          )}
-          style={{
-            background:
-              "linear-gradient(160deg, hsla(220, 45%, 25%, 0.82), hsla(220, 40%, 15%, 0.88))",
-            backdropFilter: "blur(28px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(28px) saturate(1.4)",
-            border: "1px solid hsla(220, 65%, 55%, 0.32)",
-            boxShadow:
-              "0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 80px hsla(220, 65%, 55%, 0.2)",
-            color: "#e8e4d8",
-          }}
-        >
-          <DialogPrimitive.Title className="sr-only">
-            Search conversations
-          </DialogPrimitive.Title>
-
-          {/* ─── Header (search input + clear + close) ─────────────────── */}
-          <div
-            className="px-4 py-3 shrink-0 flex flex-row items-center gap-2"
-            style={{ borderBottom: "1px solid rgba(220, 225, 245, 0.10)" }}
-          >
-            <Search size={18} className="shrink-0 text-[#a89a80]" />
-            <input
-              value={localValue}
-              onChange={(e) => setLocalValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void handleEnter();
-                }
-              }}
-              placeholder="Search conversations..."
-              data-testid="conversation-search-input"
-              /* eslint-disable-next-line jsx-a11y/no-autofocus */
-              autoFocus
-              className={cn(
-                "flex-1 px-2 py-1.5 rounded-md text-sm text-[#e8e4d8]",
-                "bg-black/20 border border-white/10 outline-none",
-                "focus:border-[hsla(220,65%,55%,0.5)] focus:bg-black/30",
-                "placeholder:text-[color:var(--color-pv-fg-dim)]",
-                "transition-colors duration-150",
-              )}
-            />
-            {localValue.length > 0 && (
-              <button
-                type="button"
-                aria-label="Clear search"
-                title="Clear"
-                onClick={handleClear}
-                data-testid="conversation-search-clear-button"
-                className="shrink-0 cursor-pointer size-8 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-colors duration-150"
-                style={{
-                  background: "rgba(255, 255, 255, 0.04)",
-                  border: "1px solid rgba(220, 225, 245, 0.10)",
-                }}
-              >
-                <X className="size-3.5" />
-              </button>
+        {localValue.length > 0 && (
+          <button
+            type="button"
+            aria-label="Clear search"
+            title="Clear"
+            onClick={handleClear}
+            data-testid="conversation-search-clear-button"
+            className={cn(
+              "shrink-0 cursor-pointer size-7 rounded-md flex items-center justify-center",
+              "text-[hsla(var(--pv-id-hue),22%,88%,0.7)]",
+              "hover:text-[#fbf5e8] hover:bg-black/25",
+              "transition-colors duration-150",
             )}
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {/* Body — results list / empty / searching / no-results, and the
+          inline Load more anchor at the end of the list (tasting places
+          Load more inside the list body, not in a distinct foot). */}
+      <ModalBody
+        className="p-0 overflow-y-auto flex flex-col gap-1.5 px-3 py-2.5"
+        data-testid="conversation-search-body"
+      >
+        {showSearching && (
+          <div
+            className="flex items-center gap-2 px-2 py-4 text-[12.5px] text-[hsla(var(--pv-id-hue),22%,88%,0.7)]"
+            data-testid="conversation-search-searching"
+          >
+            <Loader2 className="size-4 animate-spin" />
+            Searching...
+          </div>
+        )}
+        {showEmptyState && !showSearching && (
+          <div
+            className="px-2 py-4 text-[12.5px] text-[hsla(var(--pv-id-hue),22%,88%,0.6)]"
+            data-testid="conversation-search-empty-state"
+          >
+            Type a query and press Enter
+          </div>
+        )}
+        {showNoResults && (
+          <div
+            className="px-2 py-4 text-[12.5px] text-[hsla(var(--pv-id-hue),22%,88%,0.6)]"
+            data-testid="conversation-search-no-results"
+          >
+            No results for &quot;{state.query}&quot;
+          </div>
+        )}
+        {state.results.map((r) => (
+          <ConversationSearchRow
+            key={r.transcriptPath}
+            result={r}
+            onClick={() => handleRowClick(r)}
+          />
+        ))}
+        {state.hasMore && (
+          <div className="flex justify-center pt-2 pb-1">
             <button
               type="button"
-              aria-label="Close"
-              title="Close"
-              onClick={() => onOpenChange(false)}
-              data-testid="conversation-search-close-button"
-              className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-colors duration-150"
-              style={{
-                background: "rgba(255, 255, 255, 0.04)",
-                border: "1px solid rgba(220, 225, 245, 0.10)",
-              }}
+              onClick={() => void handleLoadMore()}
+              disabled={state.isFetching}
+              data-testid="conversation-search-load-more"
+              className={cn(
+                "px-3 py-1.5 rounded-md text-[12px]",
+                "bg-[hsla(var(--pv-id-hue),65%,55%,0.20)]",
+                "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
+                "border border-[hsla(var(--pv-id-hue),65%,55%,0.30)]",
+                "text-[#fbf5e8]",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+                "transition-colors duration-150",
+              )}
             >
-              <X className="size-4" />
+              {state.isFetching ? "Loading..." : "Load more"}
             </button>
           </div>
+        )}
+      </ModalBody>
 
-          {/* ─── Body (results list / empty / searching) ─────────────── */}
+      {/* Foot — rendered ONLY when there's an error to surface. Tasting
+          shows no ambient foot for this modal. */}
+      {state.error && (
+        <ModalFoot className="justify-center">
           <div
-            className="flex flex-col flex-1 min-h-0 overflow-y-auto px-2 py-2 gap-1"
-            data-testid="conversation-search-body"
+            role="alert"
+            className="text-[11px] text-red-400"
+            data-testid="conversation-search-error"
           >
-            {showSearching && (
-              <div
-                className="flex items-center gap-2 px-4 py-6 text-sm text-[color:var(--color-pv-fg-muted)]"
-                data-testid="conversation-search-searching"
-              >
-                <Loader2 className="size-4 animate-spin" />
-                Searching...
-              </div>
-            )}
-            {showEmptyState && !showSearching && (
-              <div
-                className="px-4 py-6 text-sm text-[color:var(--color-pv-fg-muted)]"
-                data-testid="conversation-search-empty-state"
-              >
-                Type a query and press Enter
-              </div>
-            )}
-            {showNoResults && (
-              <div
-                className="px-4 py-6 text-sm text-[color:var(--color-pv-fg-muted)]"
-                data-testid="conversation-search-no-results"
-              >
-                No results for &quot;{state.query}&quot;
-              </div>
-            )}
-            {state.results.map((r) => (
-              <ConversationSearchRow
-                key={r.transcriptPath}
-                result={r}
-                onClick={() => handleRowClick(r)}
-              />
-            ))}
+            {state.error}
           </div>
-
-          {/* ─── Footer (Load more + error) ──────────────────────────── */}
-          {(state.hasMore || state.error) && (
-            <div
-              className="px-4 py-3 shrink-0 flex flex-col gap-2"
-              style={{ borderTop: "1px solid rgba(220, 225, 245, 0.10)" }}
-            >
-              {state.hasMore && (
-                <button
-                  type="button"
-                  onClick={() => void handleLoadMore()}
-                  disabled={state.isFetching}
-                  data-testid="conversation-search-load-more"
-                  className={cn(
-                    "w-full px-3 py-2 rounded-md text-sm",
-                    "bg-black/20 border border-white/10 outline-none",
-                    "text-[#e8e4d8] hover:bg-black/30 transition-colors duration-150",
-                    "disabled:opacity-50 disabled:cursor-not-allowed",
-                  )}
-                >
-                  {state.isFetching ? "Loading..." : "Load more"}
-                </button>
-              )}
-              {state.error && (
-                <div
-                  role="alert"
-                  className="text-xs text-center text-red-400"
-                  data-testid="conversation-search-error"
-                >
-                  {state.error}
-                </div>
-              )}
-            </div>
-          )}
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+        </ModalFoot>
+      )}
+    </Modal>
   );
 }

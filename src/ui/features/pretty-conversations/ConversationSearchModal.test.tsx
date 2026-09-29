@@ -67,6 +67,8 @@ function makeRow(overrides: Partial<ConversationSearchResult> = {}): Conversatio
     hitLength: 3,
     isArchived: false,
     tmuxSessionName: "alice",
+    displayName: null,
+    colorHue: null,
     ...overrides,
   };
 }
@@ -171,14 +173,15 @@ describe("ConversationSearchModal: D-01 (Enter-only fire)", () => {
 });
 
 describe("ConversationSearchModal: D-11 row rendering + highlight", () => {
-  it("T-05: renders title (aiTitle || identityKey), subtext, and snippet highlight span", async () => {
+  it("T-05: renders title (aiTitle ?? displayName ?? identityKey) and snippet highlight span", async () => {
     searchConversationsMock.mockResolvedValueOnce({
       results: [
         makeRow({
           transcriptPath: "/a.jsonl",
-          aiTitle: null, // falls back to identityKey
+          aiTitle: null, // falls back to displayName
           identityKey: "alice",
-          hostName: "host-a",
+          displayName: "Alice",
+          hostName: "host-a", // not rendered (tasting dropped it 2026-09-29)
           snippet: "hello world foo bar",
           hitStart: 12,
           hitLength: 3,
@@ -199,8 +202,9 @@ describe("ConversationSearchModal: D-11 row rendering + highlight", () => {
     await user.keyboard("{Enter}");
 
     const row = await screen.findByTestId("conversation-search-row-/a.jsonl");
-    expect(row).toHaveTextContent("alice"); // title = identityKey (aiTitle null)
-    expect(row).toHaveTextContent("host-a"); // subtext (hostName only — identityKey dropped as redundant per UAT feedback)
+    expect(row).toHaveTextContent("Alice"); // title = displayName (aiTitle null)
+    // hostName intentionally NOT asserted — tasting dropped the subtext line.
+    expect(row).not.toHaveTextContent("host-a");
 
     // Snippet highlight span exists and wraps exactly "foo"
     const hitSpan = within(row).getByText("foo", { selector: "span.pv-search-hit" });
