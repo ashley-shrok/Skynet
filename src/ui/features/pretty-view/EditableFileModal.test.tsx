@@ -169,8 +169,11 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     failFetch();
     const onOpenChange = vi.fn();
     render(<EditableFileModal {...DEFAULT_PROPS} onOpenChange={onOpenChange} />);
+    // Modal-unification 2026-09-29: the canonical <Modal> shell adds a
+    // head close X (aria-label "Close"), so /^close$/i is ambiguous.
+    // Target the in-body error Close via testid.
     const closeBtn = await waitFor(() =>
-      screen.getByRole("button", { name: /^close$/i }),
+      screen.getByTestId("editable-file-modal-error-close"),
     );
     fireEvent.click(closeBtn);
     expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -280,9 +283,9 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     fireEvent.change(ta, { target: { value: "hello world" } });
     // Wait for GlobalFileTab's onDraftChange effect to fire (draft !== content)
     await new Promise((r) => setTimeout(r, 20));
-    // Trigger a close via the header X button
-    const xBtn = screen.getByRole("button", { name: /^close$/i });
-    fireEvent.click(xBtn);
+    // Trigger a close via the foot Close button (canonical Modal foot; also
+    // routes through handleOpenChange the same as the head X).
+    fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
     // Confirm called with the exact copy per UI-SPEC L168
     expect(window.confirm).toHaveBeenCalledWith("Discard unsaved changes?");
     // Guard suppressed the close — no onOpenChange(false) call
@@ -300,8 +303,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     )) as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "hello world" } });
     await new Promise((r) => setTimeout(r, 20));
-    const xBtn = screen.getByRole("button", { name: /^close$/i });
-    fireEvent.click(xBtn);
+    fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
     expect(window.confirm).toHaveBeenCalledWith("Discard unsaved changes?");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -342,8 +344,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     await waitFor(() => screen.getByRole("textbox"));
     // Give the initial onDraftChange(false) time to fire
     await new Promise((r) => setTimeout(r, 20));
-    const xBtn = screen.getByRole("button", { name: /^close$/i });
-    fireEvent.click(xBtn);
+    fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
     expect(window.confirm).not.toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -430,10 +431,9 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
       try { fireEvent.click(saveBtn); } catch { /* expected */ }
     });
     // The save handler threw so onOpenChange(false) was never called; the
-    // modal is still open. Now close via X — draft is dirty, savingRef must
-    // be false, so window.confirm must fire.
-    const xBtn = screen.getByRole("button", { name: /^close$/i });
-    fireEvent.click(xBtn);
+    // modal is still open. Now close via the foot Close — draft is dirty,
+    // savingRef must be false, so window.confirm must fire.
+    fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
     expect(window.confirm).toHaveBeenCalledWith("Discard unsaved changes?");
   });
 

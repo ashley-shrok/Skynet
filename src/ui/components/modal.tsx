@@ -36,6 +36,15 @@ import { cn } from "@/lib/utils";
 // `dismissible={false}` additionally blocks Esc + close-X, reserved for
 // required-shell modals (SkewLockModal, ElectronVersionCheck) where the
 // user must resolve the modal before continuing.
+//
+// `blocking={false}` keeps the composer / UI underneath INTERACTIVE while
+// the modal is open. The overlay renders visually but is `pointer-events:
+// none` so clicks pass through. Radix's focus-trap is disabled via
+// `modal={false}` on Root. Reserved for read-and-type modals where
+// blocking the composer is a UX regression — EditableFileModal is the
+// canonical case (user may be reading a shared file AND typing a reply
+// at the same time). The backdrop-never-dismisses rule still holds; this
+// prop only controls whether the surrounding UI stays live.
 
 // ─── Size scale ──────────────────────────────────────────────────────────
 
@@ -69,6 +78,11 @@ interface ModalProps
    *  is ALWAYS blocked regardless of this flag (see file header). Reserved
    *  for required-shell modals (SkewLockModal, ElectronVersionCheck). */
   dismissible?: boolean;
+  /** When false, the composer / UI underneath stays interactive while the
+   *  modal is open. Overlay is `pointer-events: none`, Radix's focus-trap
+   *  is disabled. Backdrop-dismiss still blocked. Reserved for read-and-
+   *  type modals (EditableFileModal). Default: true. */
+  blocking?: boolean;
   /** Portal container. Defaults to document.body. */
   container?: HTMLElement | null;
   /** Extra class for the modal content shell. */
@@ -83,6 +97,7 @@ function Modal({
   hue = 190,
   size = "sm",
   dismissible = true,
+  blocking = true,
   container,
   className,
   "data-testid": dataTestId,
@@ -91,7 +106,7 @@ function Modal({
 }: ModalProps) {
   const blockEsc = !dismissible;
   return (
-    <DialogPrimitive.Root {...props} modal={true}>
+    <DialogPrimitive.Root {...props} modal={blocking}>
       <DialogPrimitive.Portal container={container}>
         <DialogPrimitive.Overlay
           data-slot="modal-overlay"
@@ -101,6 +116,9 @@ function Modal({
             "data-open:animate-in data-open:fade-in-0",
             "data-closed:animate-out data-closed:fade-out-0",
             "duration-100",
+            // When non-blocking, the overlay is visual dim only —
+            // clicks pass through to the composer / UI underneath.
+            !blocking && "pointer-events-none",
           )}
         />
         <DialogPrimitive.Content

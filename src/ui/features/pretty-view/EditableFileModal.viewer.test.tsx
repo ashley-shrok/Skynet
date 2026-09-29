@@ -155,10 +155,18 @@ describe("EditableFileModal — media viewer branches", () => {
       "https://term.example.com/file/t1000/home/ubuntu/logo.svg",
     );
     expect(mockedFetchFile).not.toHaveBeenCalled();
-    // The "Source" toggle button is present in the header for SVGs.
-    expect(
-      screen.getByRole("button", { name: /view source code/i }),
-    ).toBeTruthy();
+    // Modal-unification 2026-09-29: SVG toggle is a segmented [Rendered |
+    // Source] pill (role="tab") in the head actions slot — replaces the
+    // single button that flipped its label. In rendered mode, the
+    // "Rendered" tab is selected.
+    const renderedTab = screen.getByTestId(
+      "editable-file-modal-svg-toggle-rendered",
+    );
+    const sourceTab = screen.getByTestId(
+      "editable-file-modal-svg-toggle-source",
+    );
+    expect(renderedTab.getAttribute("aria-selected")).toBe("true");
+    expect(sourceTab.getAttribute("aria-selected")).toBe("false");
   });
 
   it("SVG toggle flips to code mode and fires the fetch", async () => {
@@ -174,8 +182,10 @@ describe("EditableFileModal — media viewer branches", () => {
     expect(await screen.findByAltText("logo.svg")).toBeTruthy();
     expect(mockedFetchFile).not.toHaveBeenCalled();
 
-    // Click the Source toggle in the header.
-    fireEvent.click(screen.getByRole("button", { name: /view source code/i }));
+    // Click the Source tab in the head's segmented control.
+    fireEvent.click(
+      screen.getByTestId("editable-file-modal-svg-toggle-source"),
+    );
 
     // Fetch fires now — modal has switched into text-editor path.
     await waitFor(() => {
@@ -183,8 +193,17 @@ describe("EditableFileModal — media viewer branches", () => {
         "https://term.example.com/file/t1000/home/ubuntu/logo.svg",
       );
     });
-    // The button's label flips to "View rendered" while in code mode.
-    expect(screen.getByRole("button", { name: /view rendered/i })).toBeTruthy();
+    // Now the "Source" tab is the selected one.
+    expect(
+      screen
+        .getByTestId("editable-file-modal-svg-toggle-source")
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByTestId("editable-file-modal-svg-toggle-rendered")
+        .getAttribute("aria-selected"),
+    ).toBe("false");
   });
 });
 

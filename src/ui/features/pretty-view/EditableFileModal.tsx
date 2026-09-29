@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Code2, Eye, X } from "lucide-react";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import {
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogClose,
-} from "@/components/dialog";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import {
   fetchTailnetUrl,
@@ -57,8 +50,7 @@ const FILE_URL_HOSTNAME_RE =
  *
  * Unmapped classes (including axios error paths that do NOT carry a
  * backend class, so the message becomes the generic ApiError text) fall
- * back to the "generic" entry. This keeps the failure UX predictable:
- * user always sees a clean sentence, never raw error internals.
+ * back to the "generic" entry.
  */
 type ErrorCopy = { heading: string; body: string };
 const FILE_URL_ERROR_COPY: Record<string, ErrorCopy> = {
@@ -112,29 +104,11 @@ const FILE_URL_ERROR_COPY: Record<string, ErrorCopy> = {
   },
 };
 
-/**
- * Phase 75 D-02: given a caught error and the original URL, return the
- * human-readable copy to render in the modal's error panel. The
- * `err.message` field carries the backend error-class string when the
- * error originates from `fetchHostFileUrl` (which throws `Error(class)`
- * on axios errors carrying `response.data.error === "<class>"`). For
- * `permission_denied` we splice in the hostname parsed from the URL to
- * make the sentence more actionable per the plan's suggested copy.
- *
- * For tailnet-URL errors (the Phase 40 flow), `err.message` is the raw
- * error text — none of the class keys match, so the "generic" fallback
- * renders. This preserves the Phase 40 in-body error UX. The Phase 40
- * error copy about "the agent's temporary server may have shut down"
- * is retained as the tailnet-specific override at the render site.
- */
 function classifyModalError(
   err: unknown,
   url: string,
 ): { heading: string; body: string } {
   const message = err instanceof Error ? err.message : "";
-  // Special case FIRST: permission_denied weaves in the hostname parsed
-  // from the URL for a more actionable sentence. Keeping this before the
-  // map lookup avoids the need for a placeholder map entry.
   if (message === "permission_denied") {
     const hostMatch = url.match(FILE_URL_HOSTNAME_RE);
     const host = hostMatch ? hostMatch[1] : "the host";
@@ -148,43 +122,43 @@ function classifyModalError(
 }
 
 /**
- * Phase 40 Plan 40-03 Task 2 — EditableFileModal.
+ * EditableFileModal — file preview + edit modal for chat-shared files.
  *
- * LOCKED decisions honored:
- *   - D-03 (additive edit affordance): the affordance opens THIS modal; the
- *     modal never wraps the anchor.
- *   - D-04 (fresh fetch + visible failure over silent stale): every open
- *     fires a fresh `fetchTailnetUrl(url)`. Cached bytes from
- *     `useEditableFileEligibility` are NEVER consulted here. Fetch failure
- *     opens the modal with an explicit in-body error copy — never silently
- *     fall back. (Rev-2 /close 2026-08-14: the parallel sonner toast that
- *     originally rode alongside the in-body error was removed as an
- *     unsanctioned addition — its bottom-right anchor occluded the
- *     composebox on mobile. In-body error copy alone satisfies "visible
- *     failure over silent stale".)
- *   - D-05 (chrome fork from GlobalFilesModal minus host picker + tabs bar,
- *     editor body reuses GlobalFileTab verbatim): Portal + Overlay + Content
- *     structure copied VERBATIM from GlobalFilesModal.tsx L189-217; the X
- *     close button copied VERBATIM from L246-270; the host <select> and
- *     bottom Tabs bar are stripped. GlobalFileTab is imported unmodified
- *     (rev-2 adds one optional callback prop; existing signature untouched).
- *   - D-06 (editor stateless — mtime sentinel captured once at open, save =
- *     fresh attachment): `initialMtimeRef` is set ONCE at fetch-success and
- *     never reassigned across the modal's open lifecycle (Pitfall 6 defense
- *     — reseeding the draft would blow away every keystroke).
+ * Modal-unification 2026-09-29: composes from the canonical <Modal> shell
+ * with `blocking={false}` so the composer / underlying UI stays interactive
+ * while the modal is open (design intent: user may be reading a shared
+ * file AND drafting a reply at the same time).
  *
- * rev-2 draft-guard confirm gate (UI-SPEC L167-169, user explicit
- *   greenlight 2026-08-14): the modal wraps `onOpenChange` in
- *   `handleOpenChange`. On close-transitions when the draft is dirty AND
- *   not mid-save, it fires `window.confirm("Discard unsaved changes?")`.
- *   Confirm → close; cancel → suppress. Save-success closes bypass the
- *   guard via `savingRef`.
+ * Head: title = filename. No meta, no subtitle, no "from <agentIdentityName>"
+ * attribution (Ashley 2026-09-29 — those were removed). For SVG kind, the
+ * head renders a Rendered ↔ Source segmented toggle (pv-variant-tabs) in
+ * the actions slot next to the close X.
  *
- * Portal target (Pitfall 7 defense): DialogPrimitive.Portal is deliberately
- *   used WITHOUT a `container` prop → radix renders it into document.body,
- *   so the `inset-4` backdrop covers the entire viewport including the
- *   composer per UI-SPEC L216. (This is the opposite of IdentityModal
- *   which portals to `chatRegionEl` to leave the composer visible.)
+ * Body branches:
+ *   - Media viewer (image / audio / video / svg-rendered): native browser
+ *     element sourced from the URL. Read-only. No fetch, no editor.
+ *   - Loading / ready (plain OR svg-code-mode): fetches the file bytes,
+ *     delegates the editor render to <GlobalFileTab> with
+ *     `hideSaveButton={true}`.
+ *   - Error: rich per-class copy (FILE_URL_ERROR_COPY) with a close button.
+ *
+ * Foot: rendered ONLY when `usesEditorFetch === true` (editable kinds).
+ * Media viewers get no foot — the head X is the only close path (Ashley
+ * 2026-09-29: "it should not show at all on file types that can't be
+ * edited"). Foot has Close (secondary) + Save (primary). Save calls the
+ * existing stage-and-close flow; Save is gated on `isDirty` (nothing to
+ * stage if the draft matches the fetched content).
+ *
+ * Locked D-XX behaviors:
+ *   D-03: additive edit affordance opens THIS modal; the modal never wraps
+ *         the anchor.
+ *   D-04: fresh fetch every open, visible in-body error on failure — never
+ *         silently fall back to stale bytes.
+ *   D-05: chrome forks from the canonical Modal (post-unification); the
+ *         editor body reuses GlobalFileTab verbatim (only new prop:
+ *         `hideSaveButton`).
+ *   D-06: editor stateless — mtime sentinel captured once at open, save =
+ *         fresh attachment. Draft-guard confirm on close if dirty.
  */
 
 export interface EditableFileModalProps {
@@ -197,9 +171,7 @@ export interface EditableFileModalProps {
   /**
    * Callback invoked on Save with the edited (filename, content) tuple.
    * Plan 40-04 wires this to `uploads.stageAttachments("primary", [File])`
-   * — depositing the edit as a chip in the ComposeBox attachment strip
-   * (D-06: every save = fresh attachment; there is no host file to
-   * conflict-check against).
+   * — depositing the edit as a chip in the ComposeBox attachment strip.
    */
   onStageEditedFile: (filename: string, content: string) => void;
 }
@@ -210,19 +182,22 @@ export default function EditableFileModal({
   messageEventId: _messageEventId,
   url,
   filename,
-  agentIdentityName,
+  agentIdentityName: _agentIdentityName,
   onStageEditedFile,
 }: EditableFileModalProps): JSX.Element {
   const [fetchState, setFetchState] = useState<TabState<GlobalFileTabData>>({
     status: "loading",
   });
   const [isDirty, setIsDirty] = useState(false);
+  // Local draft mirror — GlobalFileTab exposes it via `onDraftContentChange`
+  // so the modal's own foot Save button can hand it back to `handleSave`.
+  const [draft, setDraft] = useState<string>("");
 
-  // Shape (2026-09-28) — classify by filename to decide viewer vs. editor.
-  // Media kinds (image/audio/video and svg-in-rendered-mode) render a native
-  // browser viewer straight from the URL and skip the base64→text fetch that
-  // the editor needs. SVG can toggle to code mode, which flips the modal back
-  // into the text-editor fetch flow.
+  // Classify by filename to decide viewer vs. editor. Media kinds (image /
+  // audio / video and svg-in-rendered-mode) render a native browser viewer
+  // straight from the URL and skip the base64→text fetch that the editor
+  // needs. SVG can toggle to code mode, which flips the modal back into
+  // the text-editor fetch flow.
   const kind: FileChipKind = useMemo(
     () => classifyFileChipKind(filename),
     [filename],
@@ -237,20 +212,16 @@ export default function EditableFileModal({
   // Rev-2: bypass the draft-guard confirm on save-success closes.
   const savingRef = useRef<boolean>(false);
 
-  // D-04 fresh-fetch-on-open effect. `filename` IS included in the deps but
-  // is derivable from `url`, so it should never change independently — the
-  // extra dep is harmless (rev-3 M7: prior version's comment claimed it was
-  // excluded, but the array said otherwise; comment now matches reality).
-  //
-  // Shape (2026-09-28) — skips the fetch entirely for pure-media kinds
-  // (image/audio/video and svg-in-rendered-mode) since those render straight
-  // from the URL. Fires normally for plain text kinds and for SVG when the
-  // user has toggled to code mode.
+  // D-04 fresh-fetch-on-open effect. Skips the fetch entirely for pure-
+  // media kinds (image/audio/video and svg-in-rendered-mode) since those
+  // render straight from the URL. Fires normally for plain text kinds
+  // and for SVG when the user has toggled to code mode.
   useEffect(() => {
     if (!open) {
       // Reset state on close so re-open starts fresh (D-06 stateless).
       setFetchState({ status: "loading" });
       setIsDirty(false);
+      setDraft("");
       initialMtimeRef.current = 0;
       savingRef.current = false;
       setSvgViewMode("rendered");
@@ -258,20 +229,15 @@ export default function EditableFileModal({
     }
 
     if (!usesEditorFetch) {
-      // Media viewer path — no fetch needed; render the native element
-      // pointing at the URL. Leave fetchState untouched.
       return;
     }
 
-    // Open transition — begin fresh fetch.
     let cancelled = false;
     setFetchState({ status: "loading" });
     setIsDirty(false);
     savingRef.current = false;
 
-    // Phase 75 D-01: dispatch by URL shape. Both helpers return
-    // TailnetFetchResult so the .then() chain below is byte-identical
-    // for both. Uses a fresh non-global regex per RESEARCH Pitfall 6.
+    // Phase 75 D-01: dispatch by URL shape.
     const isFileUrl = FILE_URL_DISPATCH_RE.test(url);
     const fetchPromise = isFileUrl
       ? fetchHostFileUrl(url)
@@ -280,18 +246,10 @@ export default function EditableFileModal({
     fetchPromise
       .then((result) => {
         if (cancelled) return;
-        // Capture the mtime sentinel ONCE at success — stable across all
-        // subsequent renders of this modal's open lifecycle. Uses a module-
-        // scope monotonic counter (rev-3 M4) rather than Date.now() to avoid
-        // sub-ms collision between rapid opens seeding stale drafts.
         initialMtimeRef.current = ++mtimeCounter;
-        // Decode base64 -> UTF-8 (rev-3 2026-08-14 code-review B2). The prior
-        // `atob(...)` returned a Latin-1 "binary string" — non-ASCII content
-        // (emoji, CJK, accented Latin, Cyrillic, ...) became mojibake in the
-        // textarea, and saving without editing re-encoded that mojibake as
-        // UTF-8 into a different byte sequence than the original: silent
-        // destructive corruption. Two-step decode: base64 -> raw bytes ->
-        // UTF-8 string via TextDecoder is the standard fix.
+        // Decode base64 -> UTF-8 (rev-3 2026-08-14 code-review B2). Two-step
+        // decode: base64 -> raw bytes -> UTF-8 string via TextDecoder is the
+        // standard fix for non-ASCII content (mojibake otherwise).
         const rawBytes = Uint8Array.from(atob(result.contentBase64), (c) =>
           c.charCodeAt(0),
         );
@@ -322,8 +280,9 @@ export default function EditableFileModal({
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen && isDirty && !savingRef.current) {
+        // eslint-disable-next-line no-alert
         const confirmed = window.confirm("Discard unsaved changes?");
-        if (!confirmed) return; // suppress the close
+        if (!confirmed) return;
       }
       onOpenChange(nextOpen);
     },
@@ -333,18 +292,8 @@ export default function EditableFileModal({
   // Save handler — mtime is discarded (D-06: editor is stateless; there is
   // no host file to conflict-check against). Sets savingRef FIRST so the
   // subsequent onOpenChange(false) bypasses the draft-guard confirm.
-  // (Rev-2 /close 2026-08-14: the save-success sonner toast was removed as
-  // an unsanctioned addition — the shape never asked for ambient success
-  // feedback, and the bottom-right anchor occluded the composebox on
-  // mobile. The composebox chip appearing on save is confirmation enough.)
-  //
-  // Rev-3 M6: `try/finally` around the stage-and-close so that if
-  // `onStageEditedFile` throws (or `onOpenChange`), `savingRef` is reset. If
-  // savingRef stayed sticky-true after a failed save, the next close attempt
-  // would silently bypass the draft-guard even though the content was never
-  // stored anywhere and the user still has unsaved edits.
   const handleSave = useCallback(
-    async (content: string, _expectedMtime: number): Promise<void> => {
+    async (content: string): Promise<void> => {
       savingRef.current = true;
       try {
         onStageEditedFile(filename, content);
@@ -357,224 +306,171 @@ export default function EditableFileModal({
     [filename, onOpenChange, onStageEditedFile],
   );
 
+  // GlobalFileTab's onSave signature includes an expectedMtime we don't
+  // need; adapt to the local handleSave shape.
+  const onGlobalFileTabSave = useCallback(
+    async (content: string, _expectedMtime: number): Promise<void> => {
+      await handleSave(content);
+    },
+    [handleSave],
+  );
+
+  // Foot Save button — fires with the current draft, uses the same
+  // handleSave path as GlobalFileTab's internal save would.
+  // Catch here (rather than let it become an unhandled rejection) since
+  // there's no in-modal error surface for foot-save failures today —
+  // handleSave already resets savingRef on throw so the next close will
+  // fire the draft-guard confirm correctly.
+  const onFootSave = useCallback(() => {
+    handleSave(draft).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn("EditableFileModal foot save failed:", err);
+    });
+  }, [handleSave, draft]);
+
+  const isFileUrl = FILE_URL_DISPATCH_RE.test(url);
+  const errorHeading =
+    fetchState.status === "error"
+      ? isFileUrl
+        ? classifyModalError(new Error(fetchState.error), url).heading
+        : "Can't fetch the current file."
+      : "";
+  const errorBody =
+    fetchState.status === "error"
+      ? isFileUrl
+        ? classifyModalError(new Error(fetchState.error), url).body
+        : "The agent's temporary server may have shut down (they auto-kill after 30 minutes) or the network is unreachable. Ask the agent to re-share the file if you still want to edit it."
+      : "";
+
+  const showFoot = usesEditorFetch && fetchState.status !== "error";
+
   return (
-    <DialogPrimitive.Root
+    <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      modal={false}
+      hue={190}
+      blocking={false}
+      size="lg"
+      className="max-h-[500px] flex flex-col"
+      data-testid="editable-file-modal"
     >
-      {/* Pitfall 7: intentionally NO `container` prop — portals to document.body
-          so the inset-4 backdrop covers the composer per UI-SPEC L216. */}
-      <DialogPrimitive.Portal>
-        {/* Overlay — verbatim from GlobalFilesModal.tsx L189-196 */}
-        <DialogPrimitive.Overlay
-          className={cn(
-            "absolute inset-0 z-[110] bg-black/15",
-            "supports-backdrop-filter:backdrop-blur-xs duration-100",
-            "data-open:animate-in data-open:fade-in-0",
-            "data-closed:animate-out data-closed:fade-out-0",
-          )}
-        />
-        {/* Content — verbatim structure from GlobalFilesModal.tsx L197-217 */}
-        <DialogPrimitive.Content
-          onInteractOutside={(e) => {
-            // Verbatim from GlobalFilesModal.tsx L198-202: prevent modal
-            // from closing when clicking outside (e.g. into the composer).
-            // X and Esc remain valid close paths (routed via handleOpenChange).
-            e.preventDefault();
-          }}
-          className={cn(
-            "absolute inset-4 z-[120] outline-none",
-            "flex flex-col overflow-hidden rounded-[24px]",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
-            "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          )}
-          style={{
-            background:
-              "linear-gradient(160deg, hsla(220, 45%, 25%, 0.82), hsla(220, 40%, 15%, 0.88))",
-            backdropFilter: "blur(28px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(28px) saturate(1.4)",
-            border: "1px solid hsla(220, 65%, 55%, 0.32)",
-            boxShadow:
-              "0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 80px hsla(220, 65%, 55%, 0.2)",
-            color: "#e8e4d8",
-          }}
-        >
-          {/* a11y: sr-only title + description. Radix Dialog v1+ warns to
-              console on every mount if no DialogDescription is present
-              (aria-describedby target). Both are visually hidden — the
-              in-body header carries the visible label; these serve screen
-              readers and satisfy Radix's a11y contract. (Rev-3 M5.) */}
-          <DialogTitle className="sr-only">
-            {usesEditorFetch ? `Edit ${filename}` : `View ${filename}`}
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            {usesEditorFetch
-              ? "Textarea to edit the file's contents and save the result as an attachment on your next reply."
-              : "Native browser viewer for the file's contents."}
-          </DialogDescription>
-
-          {/* Header — filename + optional "from {agentIdentityName}" muted
-              sub-header + optional SVG view/code toggle + glass X close. */}
-          <DialogHeader
-            className="px-6 py-4 shrink-0 flex flex-row items-center gap-3"
-            style={{ borderBottom: "1px solid rgba(220, 225, 245, 0.10)" }}
-          >
+      <ModalHead
+        title={filename}
+        actions={
+          kind === "svg" ? (
             <div
-              className="text-[15px] font-semibold text-[#f0ebe0] truncate"
-              title={filename}
+              className="pv-variant-tabs"
+              role="tablist"
+              aria-label="SVG view mode"
             >
-              {filename}
-            </div>
-            {agentIdentityName ? (
-              <div className="text-xs text-[#a89a80]">
-                from {agentIdentityName}
-              </div>
-            ) : null}
-            <div className="flex-1" />
-            {/* SVG view/code toggle — only rendered for .svg files. Default
-                view is "rendered"; toggle flips to "code" which triggers the
-                text-editor fetch and shows the source in the code editor. */}
-            {kind === "svg" ? (
               <button
                 type="button"
-                onClick={() =>
-                  setSvgViewMode((m) => (m === "rendered" ? "code" : "rendered"))
-                }
-                aria-label={
-                  svgViewMode === "rendered" ? "View source code" : "View rendered"
-                }
-                title={
-                  svgViewMode === "rendered" ? "View source code" : "View rendered"
-                }
-                className="shrink-0 cursor-pointer inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-xs text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color] duration-200"
-                style={{
-                  background: "rgba(255, 255, 255, 0.04)",
-                  border: "1px solid rgba(220, 225, 245, 0.10)",
-                }}
-              >
-                {svgViewMode === "rendered" ? (
-                  <>
-                    <Code2 className="size-3.5" aria-hidden />
-                    <span>Source</span>
-                  </>
-                ) : (
-                  <>
-                    <Eye className="size-3.5" aria-hidden />
-                    <span>Rendered</span>
-                  </>
+                role="tab"
+                aria-selected={svgViewMode === "rendered"}
+                onClick={() => setSvgViewMode("rendered")}
+                data-testid="editable-file-modal-svg-toggle-rendered"
+                className={cn(
+                  "pv-variant-tab",
+                  svgViewMode === "rendered" && "on",
                 )}
+              >
+                Rendered
               </button>
-            ) : null}
-            {/* Glass X close button — verbatim from GlobalFilesModal.tsx L246-270 */}
-            <DialogClose asChild>
               <button
                 type="button"
-                aria-label="Close"
-                title="Close"
-                className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color,box-shadow] duration-200"
-                style={{
-                  background: "rgba(255, 255, 255, 0.04)",
-                  border: "1px solid rgba(220, 225, 245, 0.10)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.10)";
-                  e.currentTarget.style.border =
-                    "1px solid rgba(220, 225, 245, 0.22)";
-                  e.currentTarget.style.boxShadow =
-                    "0 0 20px hsla(220, 60%, 50%, 0.25)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)";
-                  e.currentTarget.style.border =
-                    "1px solid rgba(220, 225, 245, 0.10)";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
+                role="tab"
+                aria-selected={svgViewMode === "code"}
+                onClick={() => setSvgViewMode("code")}
+                data-testid="editable-file-modal-svg-toggle-source"
+                className={cn(
+                  "pv-variant-tab",
+                  svgViewMode === "code" && "on",
+                )}
               >
-                <X className="size-4" />
+                Source
               </button>
-            </DialogClose>
-          </DialogHeader>
+            </div>
+          ) : undefined
+        }
+      />
 
-          {/* Body branches — media viewer / loading / error / ready.
-              Media kinds (image/audio/video and svg-in-rendered-mode) render
-              a native browser viewer directly from the URL; no fetch, no
-              text editor. Text kinds and svg-in-code-mode fall through to
-              the existing loading/error/ready flow.
-              Phase 40 UI-SPEC L110 tailnet copy kept verbatim as the
-              tailnet-URL default (agent-server auto-kill guidance).
-              Phase 75 D-02 layers per-class human copy on top for file
-              URLs — see FILE_URL_ERROR_COPY + classifyModalError above.
-              We do NOT delegate to GlobalFileTab's error branch here
-              because the copy is Phase-40/75-specific. */}
-          {!usesEditorFetch ? (
-            <MediaViewer kind={kind} url={url} filename={filename} />
-          ) : fetchState.status === "error" ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-8 text-center">
-              <div className="text-lg font-semibold text-[#f0ebe0]">
-                {FILE_URL_DISPATCH_RE.test(url)
-                  ? classifyModalError(new Error(fetchState.error), url).heading
-                  : "Can't fetch the current file."}
-              </div>
-              <div className="text-sm text-[#a89a80] max-w-md">
-                {/* UI-SPEC L110 verbatim tailnet copy — kept intact via
-                    the fallback branch below (the literal apostrophe is
-                    required by an existing grep gate so we render it as
-                    a JS string expression rather than JSX text to avoid
-                    the react/no-unescaped-entities lint rule). */}
-                {FILE_URL_DISPATCH_RE.test(url)
-                  ? classifyModalError(new Error(fetchState.error), url).body
-                  : "The agent's temporary server may have shut down (they auto-kill after 30 minutes) or the network is unreachable. Ask the agent to re-share the file if you still want to edit it."}
-              </div>
-              <button
-                type="button"
-                onClick={() => onOpenChange(false)}
-                className="mt-2 px-4 py-2 rounded-md text-[#e8e4d8] cursor-pointer text-sm transition-[background-color,border-color,box-shadow] duration-200"
-                style={{
-                  background: "rgba(255, 255, 255, 0.04)",
-                  border: "1px solid rgba(220, 225, 245, 0.10)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.10)";
-                  e.currentTarget.style.border =
-                    "1px solid rgba(220, 225, 245, 0.22)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)";
-                  e.currentTarget.style.border =
-                    "1px solid rgba(220, 225, 245, 0.10)";
-                }}
-              >
-                Close
-              </button>
-            </div>
-          ) : (
-            // Loading + ready branches: delegate to GlobalFileTab which
-            // handles both natively. Wrap in the same overflow-y-auto
-            // container GlobalFilesModal uses at L310.
-            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
-              <GlobalFileTab
-                state={fetchState}
-                onSave={handleSave}
-                onDraftChange={setIsDirty}
-                filename={filename}
-              />
-            </div>
-          )}
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+      {!usesEditorFetch ? (
+        <MediaViewer kind={kind} url={url} filename={filename} />
+      ) : fetchState.status === "error" ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-8 text-center">
+          <div className="text-lg font-semibold text-[#f0ebe0]">
+            {errorHeading}
+          </div>
+          <div className="text-sm text-[hsla(var(--pv-id-hue),22%,88%,0.7)] max-w-md">
+            {errorBody}
+          </div>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            data-testid="editable-file-modal-error-close"
+            className={cn(
+              "mt-2 px-4 py-2 rounded-md text-sm cursor-pointer",
+              "bg-black/20 border border-white/10",
+              "hover:bg-black/30",
+              "text-[#e8e4d8]",
+            )}
+          >
+            Close
+          </button>
+        </div>
+      ) : (
+        <ModalBody className="p-0 overflow-y-auto flex flex-col px-6 py-4">
+          <GlobalFileTab
+            state={fetchState}
+            onSave={onGlobalFileTabSave}
+            onDraftChange={setIsDirty}
+            onDraftContentChange={setDraft}
+            filename={filename}
+            hideSaveButton={true}
+          />
+        </ModalBody>
+      )}
+
+      {showFoot && (
+        <ModalFoot>
+          <button
+            type="button"
+            onClick={() => handleOpenChange(false)}
+            data-testid="editable-file-modal-close-foot"
+            className={cn(
+              "px-3 py-1.5 rounded-md text-[12.5px] cursor-pointer",
+              "bg-black/20 border border-white/10",
+              "hover:bg-black/30",
+              "text-[#e8e4d8]",
+            )}
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            onClick={onFootSave}
+            disabled={!isDirty || fetchState.status !== "ready"}
+            data-testid="editable-file-modal-save"
+            className={cn(
+              "px-4 py-1.5 rounded-md text-[12.5px] font-medium cursor-pointer",
+              "bg-[hsla(var(--pv-id-hue),65%,45%,0.75)]",
+              "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.85)]",
+              "border border-[hsla(var(--pv-id-hue),65%,55%,0.7)]",
+              "text-[#f4f1e8]",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+            )}
+          >
+            Save
+          </button>
+        </ModalFoot>
+      )}
+    </Modal>
   );
 }
 
 /**
  * Native browser viewer for media kinds (image, audio, video, and svg in
- * rendered mode). All four kinds source directly from the file URL — the
- * browser fetches with the current Skynet session cookies and renders
- * inline. Image / SVG cap at max-height so a tall picture doesn't blow out
- * the modal; audio is a single row of native controls in the middle of the
- * body; video renders with native controls and no autoplay (per shape
- * philosophy). Read-only — no save button, no draft state, no download
+ * rendered mode). Read-only — no save button, no draft state, no download
  * here (the chip's own download button handles save-to-disk).
  */
 function MediaViewer({

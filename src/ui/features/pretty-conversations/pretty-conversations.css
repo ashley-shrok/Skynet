@@ -2275,3 +2275,40 @@
 .pv-agent-list-error-dismiss:hover {
   opacity: 1;
 }
+
+/* ─── Variant-tabs — segmented pill toggle inside a modal head ──────────
+   Modal-unification 2026-09-29. Ported from modal-tasting.html
+   .variant-tabs. First consumer: EditableFileModal's SVG Rendered ↔
+   Source toggle. Reusable for any 2-way state switch inside a modal head
+   or body (Preferences About-you single/multi-host is the next expected
+   consumer). Uses `--pv-id-hue` cascaded from the parent <Modal>. */
+
+.pv-variant-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.32);
+  border-radius: 8px;
+  border: 1px solid hsla(var(--pv-id-hue), 60%, 55%, 0.14);
+}
+
+.pv-variant-tab {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: hsla(var(--pv-id-hue), 22%, 88%, 0.6);
+  letter-spacing: 0.02em;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.pv-variant-tab.on {
+  background: hsla(var(--pv-id-hue), 65%, 55%, 0.42);
+  color: #fbf5e8;
+}
+
+.pv-variant-tab:hover:not(.on) {
+  color: hsla(var(--pv-id-hue), 22%, 92%, 0.85);
+}
