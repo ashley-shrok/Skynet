@@ -36,9 +36,9 @@
  * `docker.ts`, `file-manager.ts`, `credential-deploy-routes.ts`,
  * `snippets.ts`, `jump-host-chain.ts`, `terminal-jump-hosts.ts`. During a
  * real host degradation the breaker will hold back POLLING load, but
- * these direct-Client paths keep pushing at the host. Follow-up bounty:
- * extract a `withPeerBreaker(peer, factory)` helper that any `new Client()`
- * site can wrap so coverage is uniform.
+ * these direct-Client paths keep pushing at the host. Uniform coverage
+ * would need a shared `withPeerBreaker(peer, factory)` helper that any
+ * `new Client()` site could wrap — not scoped to this change.
  *
  * ⚠️ **Credential errors do NOT trip the breaker.** ssh2 auth failures
  * (bad password, wrong key, key-passphrase mismatch) and sync config
