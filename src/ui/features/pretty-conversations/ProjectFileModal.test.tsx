@@ -120,8 +120,10 @@ describe("ProjectFileModal — smoke", () => {
 
     // Header: displayName visible.
     expect(screen.getByText("Banana Project")).toBeInTheDocument();
-    // project.md subheader.
-    expect(screen.getByText("project.md")).toBeInTheDocument();
+    // Modal-unification 2026-09-29: "project.md" sub-line dropped from the
+    // head (Ashley: every project file has that name — surfacing it in the
+    // head is noise).
+    expect(screen.queryByText("project.md")).toBeNull();
     // Close X.
     expect(screen.getByTestId("project-file-modal-close")).toBeInTheDocument();
 
@@ -132,37 +134,37 @@ describe("ProjectFileModal — smoke", () => {
     expect(getProjectFileSpy).toHaveBeenCalledWith(42, "banana-project");
   });
 
-  it("Test 3: after load resolves → markdown preview shows content + Edit button appears", async () => {
+  it("Test 3: after load resolves → MDXEditor is seeded with loaded content (always-edit mode)", async () => {
+    // Modal-unification 2026-09-29: the pre-unification view/edit toggle
+    // is gone — opening the modal drops straight into edit mode.
     getProjectFileSpy.mockResolvedValueOnce({
       markdown: "---\ndisplayName: 'Alpha'\n---\n\n# The trip plan",
     });
     renderModal();
 
-    // Rendered markdown heading proves the preview branch fired.
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /the trip plan/i })).toBeInTheDocument();
-    });
-    // Edit button visible.
-    expect(screen.getByRole("button", { name: /edit/i })).toBeInTheDocument();
+    const textarea = (await screen.findByTestId(
+      "mdxeditor",
+    )) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("---\ndisplayName: 'Alpha'\n---\n\n# The trip plan");
+    // No Edit button — always in edit mode.
+    expect(screen.queryByRole("button", { name: /^edit$/i })).toBeNull();
   });
 
-  it("Test 4: Edit → change → Save calls updateProjectFile with (hostId, slug, draft)", async () => {
+  it("Test 4: change → Save calls updateProjectFile with (hostId, slug, draft)", async () => {
     getProjectFileSpy.mockResolvedValueOnce({ markdown: "old body" });
     updateProjectFileSpy.mockResolvedValueOnce({ markdown: "new body" });
     renderModal({ hostId: 9, slug: "alpha" });
 
-    // Wait for the loaded state, then click Edit.
-    const editBtn = await screen.findByRole("button", { name: /edit/i });
-    fireEvent.click(editBtn);
+    // MDXEditor mock renders a textarea seeded with the loaded body —
+    // always in edit mode (no Edit-button gate).
+    const textarea = (await screen.findByTestId(
+      "mdxeditor",
+    )) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("old body");
 
-    // MDXEditor mock renders a textarea seeded with the loaded body.
-    const textarea = await screen.findByTestId("mdxeditor");
-    expect((textarea as HTMLTextAreaElement).value).toBe("old body");
-
-    // Type a change and click Save.
+    // Type a change and click Save (foot Save button).
     fireEvent.change(textarea, { target: { value: "new body" } });
-    const saveBtn = screen.getByRole("button", { name: /^save$/i });
-    fireEvent.click(saveBtn);
+    fireEvent.click(screen.getByTestId("project-file-modal-save"));
 
     await waitFor(() => {
       expect(updateProjectFileSpy).toHaveBeenCalledTimes(1);
