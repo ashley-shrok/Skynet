@@ -4427,6 +4427,30 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
     expect(state.query).toBe("gamma");
   });
 
+  it("S8b: pressing Enter with EMPTY input does NOT open the modal — /close code-review", async () => {
+    // Enter-escalation must follow the same "no content = no escalation" rule
+    // as the visible everywhere-link. Firing Enter on an empty input is a
+    // no-op — the modal does not mount.
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+        onCreateSession={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    expect(input.value).toBe("");
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+
+    // No modal opened.
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it("S9: pressing Escape clears the input value and hides the everywhere-link", () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     render(

@@ -2822,7 +2822,14 @@ export function PrettyConversationsPanel({
           the row's two lines. The everywhere-link + Escape + filter apply
           land in follow-up tasks; task 2 wires the input surface only. */}
       <div className="pv-sidebar-search shrink-0" data-testid="pv-sidebar-search-container">
-        <label className="pv-sidebar-search-wrap">
+        {/* /close code-review 2026-09-29: outer wrap changed from <label> to
+            <div> — HTML spec prohibits interactive content (the everywhere
+            <button>) inside <label>. Click-anywhere-to-focus-input behavior
+            is preserved via the explicit onClick on the wrap. */}
+        <div
+          className="pv-sidebar-search-wrap"
+          onClick={() => sidebarSearchInputRef.current?.focus()}
+        >
           <Search size={14} className="pv-sidebar-search-icon" aria-hidden="true" />
           <input
             ref={sidebarSearchInputRef}
@@ -2832,7 +2839,11 @@ export function PrettyConversationsPanel({
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                openSearchEverywhere();
+                // /close code-review 2026-09-29: gate Enter-escalation on
+                // sidebarSearchActive — the everywhere affordance only
+                // materializes when the input has content, and Enter must
+                // follow the same "no content = no escalation" rule.
+                if (sidebarSearchActive) openSearchEverywhere();
               } else if (e.key === "Escape") {
                 // shape-sidebar-search-inline task 6: Escape clears + blurs.
                 setSidebarSearchQuery("");
@@ -2860,7 +2871,7 @@ export function PrettyConversationsPanel({
           >
             everywhere ↗
           </button>
-        </label>
+        </div>
       </div>
 
       {/* Scroll region: safe-area padding lives on outer container (patch #131)

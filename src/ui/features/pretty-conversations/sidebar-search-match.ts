@@ -43,6 +43,12 @@ export function getRowCandidateStrings(
   push(row.host?.name);
   push(row.host?.username);
   push(row.role);
+  // /close code-review 2026-09-29: also push the DISPLAY form of the row's
+  // raw role slug so a query typed as the human-readable role name (e.g.
+  // "Box Maintainer") matches rows whose identity has NOT yet resolved
+  // from the identities-store — otherwise there's a resolution-race window
+  // in which the raw kebab slug is the only candidate for role match.
+  if (row.role) push(roleDisplayName(row.role, undefined));
   // Identity-carried candidates (harness rows with a resolved identity)
   if (identity) {
     push(identity.displayName);

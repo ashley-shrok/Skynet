@@ -109,6 +109,17 @@ describe("getRowCandidateStrings", () => {
     expect(out).toContain("planning discussion");
   });
 
+  it("includes the DISPLAY form of row.role (title-cased) even when identity is null — /close code-review", () => {
+    // Rows whose identity hasn't yet resolved from the store carry the raw
+    // role slug on row.role but no Identity. A user typing the human-readable
+    // role name ("Box Maintainer") must still hit — the display form is a
+    // candidate too, not just the raw slug.
+    const row = makeRow({ role: "box-maintainer" });
+    const out = getRowCandidateStrings(row, null);
+    expect(out).toContain("box-maintainer");
+    expect(out).toContain("Box Maintainer");
+  });
+
   it("skips null / undefined / empty-string fields silently", () => {
     const row = makeRow({ label: "samwise", role: null });
     const identity = makeIdentity({ task: null, title: null });
@@ -168,6 +179,16 @@ describe("rowMatchesSearchQuery", () => {
 
   it("trims the query before comparing", () => {
     expect(rowMatchesSearchQuery(row, identity, "  samwise  ")).toBe(true);
+  });
+
+  it("matches the display form of a row's role even without a resolved identity — /close code-review", () => {
+    // Identity has not resolved yet from the store; row still carries the
+    // raw role slug on row.role. Typing "Box Maintainer" must hit via the
+    // display-form candidate (getRowCandidateStrings pushes roleDisplayName
+    // of row.role even when identity is null).
+    const rowOnly = makeRow({ role: "box-maintainer" });
+    expect(rowMatchesSearchQuery(rowOnly, null, "Box Maintainer")).toBe(true);
+    expect(rowMatchesSearchQuery(rowOnly, null, "box maintainer")).toBe(true);
   });
 });
 
