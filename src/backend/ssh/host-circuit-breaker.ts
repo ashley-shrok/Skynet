@@ -22,9 +22,31 @@
  * probe success, breaker closes and normal cadence resumes. On probe failure,
  * backoff escalates.
  *
- * Wired at connectOneShot (ssh-one-shot.ts) so every consumer (all five
- * polling orchestrators, plus any ad-hoc SSH work) inherits protection at
- * one point.
+ * Wired at connectOneShot (ssh-one-shot.ts) so every consumer of that
+ * function inherits protection at one point. That covers all five polling
+ * orchestrators (fleet-status, distributor/substrate, spawn-scan,
+ * image-gen-scan, phone-call-scan) plus any callers that route through
+ * connectOneShot for one-shot exec work.
+ *
+ * ⚠️ **Not yet covered — direct-Client callers.** Several SSH consumers
+ * instantiate `new ssh2.Client()` directly and bypass connectOneShot
+ * entirely: `terminal.ts` (browser terminal reconnects), `tunnel.ts` +
+ * `tunnel-ssh-primitives.ts` (serve-URL / forward tunnels), `server-stats.ts`
+ * + `-jump-hosts` variants, `guacamole/routes.ts` (RDP/VNC bootstrap),
+ * `docker.ts`, `file-manager.ts`, `credential-deploy-routes.ts`,
+ * `snippets.ts`, `jump-host-chain.ts`, `terminal-jump-hosts.ts`. During a
+ * real host degradation the breaker will hold back POLLING load, but
+ * these direct-Client paths keep pushing at the host. Follow-up bounty:
+ * extract a `withPeerBreaker(peer, factory)` helper that any `new Client()`
+ * site can wrap so coverage is uniform.
+ *
+ * ⚠️ **Credential errors do NOT trip the breaker.** ssh2 auth failures
+ * (bad password, wrong key, key-passphrase mismatch) and sync config
+ * errors (invalid key material, unsupported authType) short-circuit
+ * before or bypass `recordFailure`. Retrying with the same bad
+ * credentials against a healthy host would just reproduce the failure
+ * three times and open the breaker system-wide for that peer, blocking
+ * every legitimate other caller. See `isCredentialError` in ssh-one-shot.ts.
  *
  * ---
  *

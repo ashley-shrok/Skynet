@@ -11,6 +11,28 @@ import {
 const { Client } = ssh2Pkg;
 
 /**
+ * Classify a connect-side error as a credential problem vs a
+ * host-availability problem. Credential problems (auth failure, malformed
+ * key, unsupported authType) do NOT trip the circuit breaker — retrying
+ * with the same bad credentials against a healthy host would just repeat
+ * the failure and open the breaker system-wide for that peer, blocking
+ * every other legitimate caller.
+ *
+ * ssh2 tags authentication failures with `err.level === "client-authentication"`
+ * (see ssh2/lib/client.js — emitted when the "None"/"password"/"publickey"
+ * auth loop exhausts all methods). The sync config-error paths in
+ * connectOneShot below never route through this classifier because they
+ * short-circuit before the breaker gate.
+ *
+ * Exported for unit tests; not for other callers to consume.
+ */
+export function isCredentialError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const level = (err as { level?: unknown }).level;
+  return level === "client-authentication";
+}
+
+/**
  * Open a fresh ssh2 Client to a host for one-shot exec usage.
  *
  * Intentionally minimal: only supports password and key auth. Skips
@@ -67,16 +89,53 @@ export function connectOneShot(
 
     const conn = new Client();
     let settled = false;
+
+    /**
+     * finishAsConfigError — sync exit path for credential/config errors
+     * (invalid key parse, unsupported authType). These never reach the
+     * network, so they must NOT count against the breaker or the
+     * connect-failed log stream (which is scoped to host-availability
+     * signals, not caller misconfiguration).
+     */
+    const finishAsConfigError = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      sshLogger.warn(
+        `[ssh-one-shot] config-error peer=${peer} err="${err.message}"`,
+        { operation: "ssh_one_shot_config_error", peer, error: err.message },
+      );
+      try {
+        conn.end();
+      } catch {
+        /* ignore */
+      }
+      reject(err);
+    };
+
     const finish = (err?: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       const durationMs = Date.now() - tStart;
       if (err) {
-        recordFailure(peer);
+        // Auth failures (bad password, wrong key, key passphrase mismatch)
+        // are credential problems, not host-availability problems. Do NOT
+        // trip the breaker — that would open it for every other caller of
+        // this peer when the only fix is to update credentials.
+        const isCredErr = isCredentialError(err);
+        if (!isCredErr) {
+          recordFailure(peer);
+        }
         sshLogger.warn(
-          `[ssh-one-shot] connect-failed peer=${peer} durationMs=${durationMs} err="${err.message}"`,
-          { operation: "ssh_one_shot_connect_failed", peer, durationMs, error: err.message },
+          `[ssh-one-shot] connect-failed peer=${peer} durationMs=${durationMs} err="${err.message}" credentialError=${isCredErr}`,
+          {
+            operation: "ssh_one_shot_connect_failed",
+            peer,
+            durationMs,
+            error: err.message,
+            credentialError: isCredErr,
+          },
         );
         try {
           conn.end();
@@ -143,20 +202,30 @@ export function connectOneShot(
         cfg.privateKey = Buffer.from(cleanKey, "utf8");
         if (host.keyPassword) cfg.passphrase = host.keyPassword;
       } catch (e) {
-        finish(e instanceof Error ? e : new Error("Invalid key"));
+        // Config error (invalid key material) — never touched the network,
+        // must not trip the breaker.
+        finishAsConfigError(e instanceof Error ? e : new Error("Invalid key"));
         return;
       }
     } else if (host.authType === "password" && host.password) {
       cfg.password = host.password;
     } else {
-      finish(new Error(`Unsupported authType: ${host.authType ?? "none"}`));
+      // Config error (unsupported authType) — never touched the network,
+      // must not trip the breaker.
+      finishAsConfigError(
+        new Error(`Unsupported authType: ${host.authType ?? "none"}`),
+      );
       return;
     }
 
     try {
       conn.connect(cfg);
     } catch (e) {
-      finish(e instanceof Error ? e : new Error("Connect failed"));
+      // Sync throws from ssh2's connect() are config-validation failures
+      // (invalid config shape) — never touched the network, so route
+      // through finishAsConfigError so the breaker doesn't trip on a
+      // caller's malformed input.
+      finishAsConfigError(e instanceof Error ? e : new Error("Connect failed"));
     }
   });
 }
