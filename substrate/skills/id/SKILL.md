@@ -678,6 +678,9 @@ Six controls sit at the top of the conversation list:
     the user makes in **About you** land as edits to that file, and the
     § User-wide file (`~/.claude/CLAUDE.md`) rules apply to agent-side
     changes (propose + wait for greenlight).
+  - **Log out** — signs the user out of Skynet. Pinned to the bottom of
+    the modal's left nav (below a divider) so it's reachable from any
+    section. Confirms before signing out.
 
 ### Conversation view
 

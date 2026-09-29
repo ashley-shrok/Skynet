@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { X, User, Volume2, Bell, Sparkles } from "lucide-react";
+import { X, User, Volume2, Bell, Sparkles, LogOut } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { DialogTitle, DialogClose } from "@/components/dialog";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,7 @@ import { PreferencesGeneralPane } from "./PreferencesGeneralPane";
 import { PreferencesVoicePane } from "./PreferencesVoicePane";
 import { PreferencesNotificationsPane } from "./PreferencesNotificationsPane";
 import { PreferencesAboutYouPane } from "./PreferencesAboutYouPane";
+import { logoutUser } from "@/main-axios";
 import type { UserPreferences } from "@/api/open-tabs-api";
 import type { HostFolder } from "@/types/ui-types";
 
@@ -191,6 +192,36 @@ export default function PreferencesModal({
                   </button>
                 );
               })}
+
+              {/* Log out — pinned to bottom of nav, visible on every tab.
+                  Divider separates it from the section tabs so it doesn't
+                  read as another section. Handler byte-copied from the
+                  retired sidebar-footer button so behavior is identical. */}
+              <div
+                className="mt-auto pt-2"
+                style={{ borderTop: "1px solid rgba(220, 225, 245, 0.08)" }}
+              >
+                <button
+                  type="button"
+                  data-testid="preferences-nav-logout"
+                  aria-label="Log out"
+                  onClick={() => {
+                    if (!window.confirm("Log out?")) return;
+                    void logoutUser()
+                      .catch(() => {})
+                      .finally(() => {
+                        window.dispatchEvent(new Event("skynet:logout"));
+                      });
+                  }}
+                  className={cn(
+                    "flex items-center gap-2.5 px-4 py-2 mx-2 mt-2 rounded-lg text-[13px] cursor-pointer transition-[background-color,color] duration-150 text-left w-[calc(100%-1rem)]",
+                    "text-[#a89a80] hover:text-[#f0ebe0] hover:bg-white/5",
+                  )}
+                >
+                  <LogOut size={16} className="shrink-0" />
+                  <span>Log out</span>
+                </button>
+              </div>
             </nav>
 
             {/* Right pane — renders the active section */}
