@@ -51,7 +51,7 @@
 // NO diagnostic spew — Patch #111e F3-diag scoped to the old panel is being
 // retired in Wave 4 and NOT ported forward here.
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
@@ -424,6 +424,15 @@ function PrettyConversationRowLive(props: {
     />
   );
 }
+
+// Module-scoped scrollTop cache for the conversation-list scroll region.
+// On mobile the panel unmounts when the user opens a conversation (only the
+// list-screen wrapper mounts it — the view-screen path doesn't), so React
+// state on the panel is destroyed across the list→view→list cycle. Persisting
+// scrollTop at module scope survives that unmount so the restore below lands
+// at the position the user last scrolled to. On desktop the panel stays
+// mounted and the save/restore reduces to a no-op.
+let savedListScrollTop = 0;
 
 export function PrettyConversationsPanel({
   variant,
@@ -918,6 +927,22 @@ export function PrettyConversationsPanel({
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // Scroll region ref for save/restore across unmount — see savedListScrollTop
+  // at module scope for why. Attached to the .pv-panel-scroll div below.
+  const scrollRegionRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = scrollRegionRef.current;
+    if (!el) return;
+    el.scrollTop = savedListScrollTop;
+    const onScroll = () => {
+      savedListScrollTop = el.scrollTop;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      savedListScrollTop = el.scrollTop;
+      el.removeEventListener("scroll", onScroll);
+    };
+  }, []);
   // Phase 122 Plan 03 Task 3 — ConversationSearchModal open/closed toggle.
   // Opened via the new magnifying-glass button in the header cluster
   // (first child of .pv-header-actions below). Query + accumulated results
@@ -2646,7 +2671,7 @@ export function PrettyConversationsPanel({
           one-shot cold-load scroll-hide have all been retired. Search is now
           the pv-header-search-button in the header-actions cluster which
           opens ConversationSearchModal (portal-mounted below). */}
-      <div className="pv-panel-scroll min-h-0">
+      <div ref={scrollRegionRef} className="pv-panel-scroll min-h-0">
         {/* Load-in-flight affordance. Renders at the top of the scroll region
             while the fleet enumeration is still in flight; disappears once
             useFleetSessionsLoaded() flips true. RDP and openTab rows tend to
