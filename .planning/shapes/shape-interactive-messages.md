@@ -103,3 +103,38 @@ Proposed phase breakdown:
 4. **Custom-widget authoring + mobile audit.** Skill instructions for agents to author custom widgets (persistence discipline, mobile-first-class discipline, affordance-matches-behavior discipline). Responsive verification across every template. Ranking's arrow-button touch fallback confirmed. May fold into phase 3 if scope allows.
 
 Identity handoff: this shape was opened by corsair-box-maintainer on 2026-09-27. Any identity picking up any of the phases should read this shape file first — it's the settled design contract the phases execute against. Close-out via `/close interactive-messages` after the last phase ships.
+
+## Post-launch refinements (2026-09-28)
+
+The v1 phases 138–142 shipped as designed. Two things surfaced during Ashley's first live use that shifted the shape enough to record here.
+
+### Submit envelope
+
+The initial submit-message routing (shape §"Submit routing") described "fires a signal out of its frame [...] translates that into a message written into the conversation, flagged to the existing invisible-message blacklist." At ship time this landed as a `/widget-submit <id> <val>` slash-command shape written into the session — which Claude Code's slash-command handler ate as an unknown command and dropped.
+
+Fix: the submit signal is now a `<task-notification>` envelope wrapping the wake ping, matching the ambient-monitor's existing envelope shape that Claude Code recognizes natively. `sendInput` gained a `skipTagNeutralize` param so the envelope tag survives to CC intact. The parser gained `isWidgetSubmitEnvelope` so wrapper-only user turns for widget submits are labeled/passed-through instead of skipped; the send-watchdog gained a `bodyKind: "compose" | "envelope"` field so the FIFO walks past head-of-queue entries with the wrong kind. This fixed a double-wake bug where the envelope arrived, parser skipped it, watchdog full-resend duplicated the wake 5.5s later.
+
+Regression coverage: 4 tests in `pv-send-watchdog.test.ts` covering envelope-doesn't-clear-compose, compose-doesn't-clear-envelope, envelope-clears-envelope, and mixed-queue walk-past-head.
+
+### Widget viewport model
+
+The original shape didn't specify how a widget's iframe should size itself. v1 rendered every widget at a fixed 200px iframe height, which silently clipped taller content (4-option polls showed only 3 options with no scroll affordance). The container's overflow-indication story was also unspecified.
+
+Refined model, owned entirely by the parent `WidgetBubble`:
+
+- **Iframe auto-sizes to content.** Widget reports its `document.documentElement.scrollHeight` via a `widget-resize` postMessage (initial + on ResizeObserver ticks). Parent listens, clamps into [40, 480]px, applies the height with a 120ms ease-out transition. Widgets shorter than 480px render at their natural size; nothing wasted.
+- **Cap at 480px + parent-side scroll thumb.** When reported height exceeds 480, the parent's outer wrapper caps at max-height 480 and scrolls its iframe child. Modern Chromium's overlay-scrollbar mode auto-hides native scrollbars even under aggressive `::-webkit-scrollbar` styling (confirmed via live `!important` override), so the parent hides the native scrollbar entirely (`widget-scroll-wrapper` utility class) and paints a DOM-based always-visible thumb on the wrapper's right edge that tracks scrollTop on scroll + ResizeObserver.
+- **Carded frame** on the outer container: 1px `rgba(255,255,255,0.14)` border + `rgba(255,255,255,0.04)` background + `rounded-lg` + `overflow-hidden`. Widgets read as embedded controls, not as detached iframes.
+- **Widget bodies are transparent.** `html, body { background: transparent }`; content sits directly on the card's bg tint. Removes the "widget is its own opaque box floating in the bubble" feel — widget flows into the bubble color.
+- **Widget authors touch zero overflow-UI code.** Templates only need transparent bg + resize reporter (both trivial). Cap, thumb, card, and scrolling all live in the parent — custom widgets get the same UX for free by adopting the two primitives.
+
+### Ancillary polish
+
+- **Expired-widget HTML.** The pane router's 404-JSON response body ("widget is not currently serving on a port") used to render as raw JSON in the iframe — no error event fires on a 404 with a body, so `WidgetBubble`'s retry+expired path never ran. The router now returns a small styled HTML expired-message that renders inside the parent's carded frame and auto-reports its own height.
+- **No-cache on proxy responses.** `/interactive/*` and `/apps/*` proxy responses set `Cache-Control: no-store, must-revalidate` so agents editing a widget's or app's files are reflected on the user's next iframe reload without a hard-refresh. Widgets are small; the fetch cost is negligible.
+- **Post-click ✓ confirmation.** Terminal-on-click templates (poll, color-picker) now show an explicit "you're done" state on successful `/submit` fetch resolve: checkmark on the selected button/swatch + success-colored status text. The button-turning-blue-and-disabling signal was too subtle on its own.
+
+### Deferred (not in v1, not in this refinement pass)
+
+- **Live-reload signal from server → frontend.** No-store cache handles agent-edit propagation on next reload, but doesn't push updates. A websocket/SSE notify-on-change would be cleaner UX but is a separate phase.
+- **id-skill update covering the widget UX.** Role directive says user-facing app changes require matching `substrate/skills/id/SKILL.md` edits. The interactive-messages arc IS user-facing and id skill doesn't cover it yet. Own phase.
