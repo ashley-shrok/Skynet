@@ -81,6 +81,24 @@
       .btn.selected { background: #1e3a5f; border-color: #3b82f6; color: #93c5fd; }
     }
 
+    /* Phase 143: post-submit visual — the selected button gets a leading
+       checkmark once the /submit fetch resolves OK. Makes "your click was
+       received and persisted" unambiguous. */
+    .btn.submitted { position: relative; padding-left: 32px; }
+    .btn.submitted::before {
+      content: "✓";
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-weight: 700;
+      color: #16a34a;
+      opacity: 1;
+    }
+    @media (prefers-color-scheme: dark) {
+      .btn.submitted::before { color: #4ade80; }
+    }
+
     #status {
       margin-top: 10px;
       font-size: 13px;
@@ -88,8 +106,11 @@
       min-height: 18px;
     }
 
+    #status.success { color: #16a34a; font-weight: 500; }
+
     @media (prefers-color-scheme: dark) {
       #status { color: #aaa; }
+      #status.success { color: #4ade80; }
     }
   </style>
 </head>
@@ -183,7 +204,14 @@
         if (!res.ok && res.status !== 204) {
           throw new Error("submit returned " + res.status);
         }
-        setStatus("Submitted.");
+        // Phase 143: explicit "you're done" state — checkmark on the picked
+        // button + success-colored status text.
+        setStatus("✓ Submitted");
+        var statusEl = document.getElementById("status");
+        if (statusEl) statusEl.classList.add("success");
+        buttons.forEach(function (b) {
+          if (b.classList.contains("selected")) b.classList.add("submitted");
+        });
 
         // Step 3: fire postMessage AFTER fetch resolves OK
         // This guarantees state.json is written before the agent wakes.

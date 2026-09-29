@@ -70,6 +70,23 @@
       cursor: default;
     }
 
+    /* Phase 143: submitted swatch shows a bold checkmark overlay so the
+       "you picked this and it landed" state reads at a glance. */
+    .swatch.submitted { opacity: 1; }
+    .swatch.submitted::after {
+      content: "✓";
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 800;
+      font-size: 22px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.55);
+      pointer-events: none;
+    }
+
     @media (prefers-color-scheme: dark) {
       .swatch { border-color: rgba(255,255,255,0.15); }
       .swatch:hover:not(:disabled) { border-color: rgba(255,255,255,0.5); }
@@ -83,8 +100,11 @@
       min-height: 18px;
     }
 
+    #status.success { color: #16a34a; font-weight: 500; }
+
     @media (prefers-color-scheme: dark) {
       #status { color: #aaa; }
+      #status.success { color: #4ade80; }
     }
   </style>
 </head>
@@ -162,7 +182,14 @@
         if (!res.ok && res.status !== 204) {
           throw new Error("submit returned " + res.status);
         }
-        setStatus("Submitted.");
+        // Phase 143: explicit "you're done" state — checkmark overlay on the
+        // picked swatch + success-colored status text.
+        setStatus("✓ Submitted");
+        var statusEl = document.getElementById("status");
+        if (statusEl) statusEl.classList.add("success");
+        swatches.forEach(function (s) {
+          if (s.classList.contains("selected")) s.classList.add("submitted");
+        });
 
         // Step 3: fire postMessage AFTER fetch resolves OK
         // This guarantees state.json is written before the agent wakes.
