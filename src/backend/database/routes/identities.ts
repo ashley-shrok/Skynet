@@ -97,6 +97,11 @@ type IdentityMetadata = {
   title?: string | null;
   colorHue?: number | null;
   voice?: string | null;
+  /** Phase modal-unification 2026-09-29: task is now editable via the
+   *  IdentityModal head inline-pencil (Ashley call). Same absent/null/set
+   *  semantics as title above. Relaxes the pre-existing "write-once at
+   *  birth" property — both agents and the user can now update task. */
+  task?: string | null;
   /** 260909-dls: avatar-revert wire. null = delete the identity's avatar
    *  frontmatter key + hard-delete sibling file (see null-delete overlay
    *  branch below). Absent = leave alone. Non-null string values via this
@@ -752,6 +757,16 @@ router.put(
       if (meta.title !== undefined) {
         if (meta.title === null) delete overlaid.title;
         else overlaid.title = String(meta.title);
+      }
+      // Phase modal-unification 2026-09-29: task is editable via the
+      // IdentityModal head inline-pencil (Ashley call). Mirrors the title
+      // overlay above: absent → leave alone, null → REMOVE, present → set.
+      // This relaxes the pre-existing "write-once at birth" property of
+      // task (D-05 origin), which is fine — the identity's frontmatter is
+      // the source of truth and both agents and the user can now update it.
+      if (meta.task !== undefined) {
+        if (meta.task === null) delete overlaid.task;
+        else overlaid.task = String(meta.task);
       }
       if (meta.colorHue !== undefined) {
         if (meta.colorHue === null) delete overlaid.colorHue;

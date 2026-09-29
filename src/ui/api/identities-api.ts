@@ -83,6 +83,11 @@ export interface IdentityInput {
   title?: string | null;
   colorHue?: number | null;
   voice?: string | null;
+  /** Modal-unification 2026-09-29: task is editable via the IdentityModal
+   *  head inline-pencil. absent → leave alone; null → REMOVE the task key;
+   *  present → set. Backend PUT /identities/:key overlays task through the
+   *  same shape as title. */
+  task?: string | null;
 }
 
 function buildFormData(meta: IdentityInput, avatar: File | null): FormData {

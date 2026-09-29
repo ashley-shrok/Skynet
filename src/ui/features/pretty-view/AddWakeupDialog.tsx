@@ -20,7 +20,7 @@
 // on rejection surfaces err.message inline and keeps the dialog open.
 
 import { useState } from "react";
-import { Dialog as DialogPrimitive } from "radix-ui";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/button";
 import { Switch } from "@/components/switch";
@@ -134,39 +134,25 @@ export function AddWakeupDialog({
     onOpenChange(false);
   }
 
-  // Guard: only render the DOM tree when `open`. Radix Dialog would also
-  // handle this via its open prop, but we hard-guard to keep testid queries
-  // simple (Test A queries for absence when open=false).
+  // Guard: only render the DOM tree when `open`. Kept from pre-unification
+  // for test symmetry (Test A queries for absence when open=false).
   if (!open) return <></>;
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay
-          className="fixed inset-0 z-[130] bg-black/60 backdrop-blur-sm"
-        />
-        <DialogPrimitive.Content
-          data-testid="add-wakeup-dialog"
-          onInteractOutside={(e) => e.preventDefault()}
-          onPointerDownOutside={(e) => e.preventDefault()}
-          className={cn(
-            "fixed top-1/2 left-1/2 z-[131] -translate-x-1/2 -translate-y-1/2",
-            "w-full max-w-lg max-h-[90vh] overflow-y-auto",
-            "rounded-[20px] px-5 py-4 flex flex-col gap-3",
-            "text-[#e8e4d8]",
-          )}
-          style={{
-            background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.82), hsla(${hue}, 40%, 15%, 0.88))`,
-            backdropFilter: "blur(28px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(28px) saturate(1.4)",
-            border: `1px solid hsla(${hue}, 65%, 55%, 0.32)`,
-            boxShadow: `0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 80px hsla(${hue}, 65%, 55%, 0.2)`,
-          }}
-        >
-          <DialogPrimitive.Title className="font-heading text-sm font-semibold text-[#f0ebe0]">
-            {scope === "role" ? "Add role-scope wakeup" : "Add identity-scope wakeup"}
-          </DialogPrimitive.Title>
-
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      hue={hue}
+      size="lg"
+      className="max-h-[90vh] flex flex-col"
+      data-testid="add-wakeup-dialog"
+    >
+      <ModalHead
+        title={
+          scope === "role" ? "Add role-scope wakeup" : "Add identity-scope wakeup"
+        }
+      />
+      <ModalBody className="overflow-y-auto flex flex-col gap-3">
           {/* Field 1: Name */}
           <div className="flex flex-col gap-1">
             <label
@@ -444,49 +430,48 @@ export function AddWakeupDialog({
             </label>
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-2 flex-wrap pt-1">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              data-testid="add-wakeup-save"
-              onClick={handleSave}
-              disabled={saveDisabled}
-              className="cursor-pointer h-7"
-              style={{
-                background: `hsla(${hue}, 55%, 40%, 0.55)`,
-                borderColor: `hsla(${hue}, 60%, 55%, 0.55)`,
-                color: "#f0ebe0",
-              }}
-            >
-              {saving ? "Saving…" : "Save"}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              data-testid="add-wakeup-cancel"
-              onClick={handleCancel}
-              disabled={saving}
-              className="cursor-pointer h-7"
-            >
-              Cancel
-            </Button>
-            {validationError && nameDraft.trim() !== "" && (
-              <span className="text-[10px] text-rose-300 font-mono">
-                {validationError}
-              </span>
-            )}
-          </div>
+          {validationError && nameDraft.trim() !== "" && (
+            <span className="text-[10px] text-rose-300 font-mono">
+              {validationError}
+            </span>
+          )}
 
           {error && (
             <div className="text-xs text-rose-300 whitespace-pre-wrap">
               {error}
             </div>
           )}
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+      </ModalBody>
+
+      <ModalFoot>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          data-testid="add-wakeup-cancel"
+          onClick={handleCancel}
+          disabled={saving}
+          className="cursor-pointer h-7"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          data-testid="add-wakeup-save"
+          onClick={handleSave}
+          disabled={saveDisabled}
+          className="cursor-pointer h-7"
+          style={{
+            background: `hsla(${hue}, 55%, 40%, 0.55)`,
+            borderColor: `hsla(${hue}, 60%, 55%, 0.55)`,
+            color: "#f0ebe0",
+          }}
+        >
+          {saving ? "Saving…" : "Save"}
+        </Button>
+      </ModalFoot>
+    </Modal>
   );
 }

@@ -26,7 +26,7 @@ import {
   afterEach,
   afterAll,
 } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act, within } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
 
 // ── WS stub with scriptable message queue ────────────────────────────────────
@@ -225,14 +225,13 @@ function deliverIdentityWakeups(): void {
 // — role-scope wakeups moved to RoleModal (Plan 90-04). Coverage lives in
 // RoleModal.test.tsx.
 
-// Click the Wakeups nav button in the currently-visible bottom bar.
+// Click the Wake-ups nav button (modal-unification 2026-09-29: nav-tabs
+// moved from bottom to top and every nav button has a stable testid).
 function clickWakeupsNav(): void {
-  const btn = Array.from(
-    document.querySelectorAll(".shrink-0.flex.items-stretch button"),
-  ).find((b) => b.textContent?.includes("Wakeups")) as
-    | HTMLButtonElement
-    | undefined;
-  expect(btn).toBeDefined();
+  const btn = document.querySelector(
+    '[data-testid="identity-modal-nav-identity-wakeups"]',
+  ) as HTMLButtonElement | null;
+  expect(btn).not.toBeNull();
   fireEvent.click(btn!);
 }
 
@@ -271,7 +270,11 @@ describe("IdentityModal wakeup CRUD — identity scope (Phase 90 Plan 90-06)", (
     // Fill Name + Instruction (default schedule=daily @ 09:00 covers spec.schedule).
     // Phase 112 Plan 03: Instruction field is MarkdownEditor — drive input via
     // the mocked <textarea data-testid="mdxeditor">.
-    fireEvent.change(screen.getByLabelText(/Name/i), {
+    // Phase 134 close-loop-fix: scope Name query to the AddWakeupDialog — the
+    // canonical IdentityModal head now carries a "display name"-related label
+    // that collides with the dialog's Name form field.
+    const addWakeupDialog = await screen.findByTestId("add-wakeup-dialog");
+    fireEvent.change(within(addWakeupDialog).getByLabelText(/Name/i), {
       target: { value: "test-wake" },
     });
     fireEvent.change(await screen.findByTestId("mdxeditor"), {

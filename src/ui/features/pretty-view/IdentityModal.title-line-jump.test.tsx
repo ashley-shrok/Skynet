@@ -274,12 +274,16 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
-    // NAV_SECTIONS nav-bar buttons are plain <button>s labelled by text.
-    // Count buttons whose text is exactly "Wakeups" — exactly ONE post-refactor.
-    const wakeupsButtons = Array.from(
-      document.querySelectorAll(".shrink-0.flex.items-stretch button"),
-    ).filter((b) => b.textContent?.trim() === "Wakeups");
+    // NAV_SECTIONS nav-bar buttons carry a stable testid per section value.
+    // Exactly one identity-scope wake-ups nav button post-refactor.
+    const wakeupsButtons = document.querySelectorAll(
+      '[data-testid="identity-modal-nav-identity-wakeups"]',
+    );
     expect(wakeupsButtons.length).toBe(1);
+    // Belt-and-suspenders: NO role-wakeups nav button exists.
+    expect(
+      document.querySelector('[data-testid="identity-modal-nav-role-wakeups"]'),
+    ).toBeNull();
     // Also verify there is NO role-wakeups tabpanel in the DOM.
     const roleWakeupsPanel = Array.from(
       document.querySelectorAll('[role="tabpanel"]'),
@@ -385,12 +389,15 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
-    // No jump element renders — the defensive branch keeps title as a plain span
+    // No jump element renders — the defensive branch keeps displayName as a
+    // plain span (post-Phase-134 head: identity.title is no longer a
+    // separately-rendered head element; displayName is the head's primary
+    // line and gets the jump treatment when role is present).
     expect(
       document.querySelector('[data-testid="identity-modal-title-line-jump"]'),
     ).toBeNull();
-    // The title text still renders inside the header column
-    expect(screen.getByText("Skynet")).toBeTruthy();
+    // The displayName text still renders inside the header column.
+    expect(screen.getByText("Tabitha")).toBeTruthy();
   });
 });
 
