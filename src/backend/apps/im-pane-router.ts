@@ -103,6 +103,61 @@ const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
 /**
+ * Phase 143: when a widget's port lookup misses (torn down, GC'd, or never
+ * came up), the pane endpoint used to return a 404 with a JSON error body.
+ * Iframes rendered the raw JSON to the user — no error event fires on 404
+ * with a response body, so WidgetBubble's retry+expired path never ran.
+ *
+ * Send small HTML the iframe can render inline instead. Transparent body
+ * lets the parent's carded frame supply the surface; reports height so
+ * the parent auto-sizes to fit.
+ */
+function sendExpiredHtml(res: Response, slug: string): Response {
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  const safeSlug = JSON.stringify(slug);
+  return res.status(404).send(`<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expired interactive message</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body {
+    padding: 12px 14px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    color: rgba(255,255,255,0.7);
+  }
+  .row { display: flex; align-items: flex-start; gap: 8px; }
+  .icon { opacity: 0.7; }
+  .title { font-weight: 500; color: rgba(255,255,255,0.85); margin-bottom: 2px; }
+  .sub { color: rgba(255,255,255,0.6); font-size: 13px; }
+</style>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    try {
+      window.parent.postMessage(
+        { type: "widget-resize", widgetId: ${safeSlug}, height: Math.ceil(document.documentElement.scrollHeight) },
+        window.location.origin
+      );
+    } catch (e) {}
+  });
+</script>
+</head><body>
+<div class="row" role="status" aria-label="Expired interactive message">
+  <span class="icon" aria-hidden="true">⏱</span>
+  <div>
+    <div class="title">This interactive message expired.</div>
+    <div class="sub">Ask the agent to send it again if you still need it.</div>
+  </div>
+</div>
+</body></html>`);
+}
+
+/**
  * Path-shape regex for `/interactive/:hostId/:slug/pane/*` — used by the
  * WebSocket upgrade dispatcher below. Mirrors PANE_UPGRADE_PATH_RE in
  * app-pane-router.ts with the /interactive/ prefix.
@@ -191,18 +246,14 @@ router.all(
       .getWidgetSnapshot()
       .find((w) => w.hostId === hostIdStr && w.slug === slug);
     if (!widget) {
-      return res
-        .status(404)
-        .json({ error: "widget is not currently serving on a port" });
+      return sendExpiredHtml(res, slug);
     }
     if (
       widget.port === null ||
       !Number.isFinite(widget.port) ||
       widget.port <= 0
     ) {
-      return res
-        .status(404)
-        .json({ error: "widget is not currently serving on a port" });
+      return sendExpiredHtml(res, slug);
     }
     const port = widget.port;
 

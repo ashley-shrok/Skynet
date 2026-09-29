@@ -463,15 +463,17 @@ describe("im-pane-router", () => {
   /* -------- Test 7: getWidgetSnapshot returns no match → 404 ----------- */
 
   describe("Test 7 — widget port lookup miss", () => {
-    it("getWidgetSnapshot returns [] → 404 with 'widget is not currently serving on a port'", async () => {
+    it("getWidgetSnapshot returns [] → 404 with expired-message HTML (Phase 143 fix)", async () => {
       mocks.getWidgetSnapshot.mockReturnValueOnce([]);
       const { port, close } = await makeServer(false);
       try {
         const res = await sendHttp(port, "GET", "/interactive/3/poll-abc/pane/");
         expect(res.status).toBe(404);
-        expect(JSON.parse(res.body).error).toBe(
-          "widget is not currently serving on a port",
-        );
+        // Phase 143: expired body is HTML, not JSON — iframes render the
+        // message inline instead of showing raw JSON to the user.
+        expect(res.headers["content-type"] ?? res.headers["Content-Type"]).toMatch(/text\/html/);
+        expect(res.body).toContain("This interactive message expired.");
+        expect(res.body).toContain('widgetId: "poll-abc"');
         expect(mocks.getOrCreateAppPaneProxyForTarget).not.toHaveBeenCalled();
       } finally {
         await close();
@@ -482,7 +484,7 @@ describe("im-pane-router", () => {
   /* -------- Test 8: port === null → same 404 as Test 7 ----------------- */
 
   describe("Test 8 — widget port null", () => {
-    it("registry entry with port null → 404 (nullable port treated as not-serving)", async () => {
+    it("registry entry with port null → 404 with expired-message HTML", async () => {
       mocks.getWidgetSnapshot.mockReturnValueOnce([
         { ...HAPPY_WIDGET, port: null, isHealthy: false },
       ]);
@@ -490,9 +492,8 @@ describe("im-pane-router", () => {
       try {
         const res = await sendHttp(port, "GET", "/interactive/3/poll-abc/pane/");
         expect(res.status).toBe(404);
-        expect(JSON.parse(res.body).error).toBe(
-          "widget is not currently serving on a port",
-        );
+        expect(res.headers["content-type"] ?? res.headers["Content-Type"]).toMatch(/text\/html/);
+        expect(res.body).toContain("This interactive message expired.");
       } finally {
         await close();
       }
