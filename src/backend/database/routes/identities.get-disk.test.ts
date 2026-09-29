@@ -34,7 +34,7 @@
  *   Fanout (e)  empty identityHosts map → []
  *   Fanout (f)  host reachable but empty folder (listIdentityKeysOnHost returns []) → 0 identities
  *
- *   Avatar (1)  happy path: 200 + Content-Type + body bytes + ETag + Cache-Control: no-cache
+ *   Avatar (1)  happy path: 200 + Content-Type + body bytes + ETag + Cache-Control: SWR
  *   Avatar (2)  readAvatarSiblingFile returns null → 404
  *   Avatar (3)  readAvatarSiblingFile throws → 502
  *   Avatar (4)  missing hostId → 400
@@ -730,7 +730,7 @@ describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", ()
 
 describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
 
-  it("Avatar-1: identityKey=tina + hostId=1 → 200 + Content-Type + bytes + ETag + Cache-Control: no-cache", async () => {
+  it("Avatar-1: identityKey=tina + hostId=1 → 200 + Content-Type + bytes + ETag + Cache-Control: SWR", async () => {
     isLocalHostIdMock.mockReturnValue(false);
     const pngBytes = Buffer.from("PNGDATA");
     readAvatarSiblingFileMock.mockResolvedValue({ bytes: pngBytes, mime: "image/png", ext: "png" });
@@ -740,16 +740,18 @@ describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toBe("image/png");
     expect(res.rawBody.equals(pngBytes)).toBe(true);
-    // Cache-until-source-changes: browser may store bytes, must revalidate via
-    // If-None-Match on every request. Unchanged bytes → 304 short-circuit
-    // (Avatar-6); changed bytes → fresh body with new ETag.
-    expect(res.headers["cache-control"]).toBe("no-cache");
+    // stale-while-revalidate: browser paints cached bytes instantly on next
+    // load AND fires revalidation in the background. max-age=0 forces the SWR
+    // path on every request; the 24h SWR window covers any realistic app
+    // usage. Unchanged bytes → 304 (Avatar-6); changed → fresh body + new
+    // ETag, next paint uses it (Avatar-7).
+    expect(res.headers["cache-control"]).toBe("max-age=0, stale-while-revalidate=86400");
     expect(res.headers["etag"]).toMatch(/^"disk-[a-f0-9]{32}"$/);
     // readAvatarSiblingFile was called with identityKey="tina" (the URL param)
     expect(readAvatarSiblingFileMock.mock.calls[0][1]).toBe("tina");
   });
 
-  it("Avatar-6: If-None-Match matches current bytes → 304 + no body + ETag + Cache-Control: no-cache", async () => {
+  it("Avatar-6: If-None-Match matches current bytes → 304 + no body + ETag + Cache-Control: SWR", async () => {
     isLocalHostIdMock.mockReturnValue(false);
     const pngBytes = Buffer.from("PNGDATA");
     readAvatarSiblingFileMock.mockResolvedValue({ bytes: pngBytes, mime: "image/png", ext: "png" });
@@ -770,7 +772,7 @@ describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
     // 304 must carry ETag + Cache-Control so the browser refreshes its
     // revalidation timestamp and keeps the cached body live.
     expect(second.headers["etag"]).toBe(etag);
-    expect(second.headers["cache-control"]).toBe("no-cache");
+    expect(second.headers["cache-control"]).toBe("max-age=0, stale-while-revalidate=86400");
     expect(second.rawBody.length).toBe(0);
   });
 
@@ -789,7 +791,7 @@ describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
     expect(res.rawBody.equals(pngBytes)).toBe(true);
     expect(res.headers["etag"]).toMatch(/^"disk-[a-f0-9]{32}"$/);
     expect(res.headers["etag"]).not.toBe(`"disk-deadbeefdeadbeefdeadbeefdeadbeef"`);
-    expect(res.headers["cache-control"]).toBe("no-cache");
+    expect(res.headers["cache-control"]).toBe("max-age=0, stale-while-revalidate=86400");
   });
 
   it("Avatar-2: readAvatarSiblingFile returns null → 404 with 'no avatar' error", async () => {

@@ -1017,23 +1017,26 @@ router.get(
           .json({ error: "no avatar on disk for this identity" });
       }
 
-      // ETag identifies the current disk bytes; `no-cache` tells the browser
-      // it may store the bytes but MUST revalidate on every request via
-      // If-None-Match. When unchanged we return 304 (no body) — instant paint
-      // from the browser's disk cache. When the avatar changes at source, the
-      // ETag differs and we send fresh bytes. Cache-until-source-changes:
-      // instant paint + correct freshness on edit.
+      // stale-while-revalidate: browser paints cached bytes instantly (no
+      // network wait) AND fires an If-None-Match revalidation in the
+      // background. Unchanged → 304 keeps cache fresh; changed → 200 body
+      // lands and NEXT paint uses it. max-age=0 forces the SWR path on every
+      // request (never "fresh, skip revalidation"). Prior `no-cache` blocked
+      // every paint on the network round-trip, which surfaced as slow avatar
+      // load on every app open. Trade-off: one stale paint after an avatar
+      // edit before the fresh bytes swap in — acceptable for avatars that
+      // change rarely.
       const etag = `"disk-${createHash("md5").update(readResult.bytes).digest("hex")}"`;
       const ifNoneMatch = req.headers["if-none-match"];
       if (ifNoneMatch && ifNoneMatch === etag) {
         res.setHeader("ETag", etag);
-        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Cache-Control", "max-age=0, stale-while-revalidate=86400");
         return res.status(304).end();
       }
       res.setHeader("Content-Type", readResult.mime);
       res.setHeader("Content-Length", String(readResult.bytes.byteLength));
       res.setHeader("ETag", etag);
-      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Cache-Control", "max-age=0, stale-while-revalidate=86400");
       return res.send(readResult.bytes);
     } catch {
       // SSH-layer / SFTP error → 502 with canned message (T-68-02-01);
