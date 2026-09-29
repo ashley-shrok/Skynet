@@ -114,6 +114,14 @@ import {
   setIdentityProjectAssignments,
 } from "@/state/conversation-store";
 import type { ProjectRow } from "@/state/conversation-store";
+// Cold-boot paint hint for the host tree — seeds hostsFlat so
+// projectForRow() resolves identity carriers on first render and
+// sidebar project sections + RDP rows paint immediately. See module
+// block-comment at src/ui/state/host-tree-cache.ts.
+import {
+  readHostTreeCache,
+  writeHostTreeCache,
+} from "@/state/host-tree-cache";
 // Phase 117 Plan 117-07 (Fix 1 gate): boot-time hydration API — listProjects
 // per host (project list) + listRelayRoomProjectTags per host (u.project.<slug>
 // account_data enumeration for relay-room membership). Feeds setProjects +
@@ -425,9 +433,23 @@ export function AppShell({
     () => new Set(collectTabIds(splitTree)),
     [splitTree],
   );
-  const [realHostTree, setRealHostTree] = useState<HostFolder | null>(null);
+  // Cold-boot paint hint: seed both realHostTree and allHosts from the
+  // localStorage cache so hostsFlat is populated at first render. Without
+  // this, projectForRow() in conversation-store cannot resolve identity
+  // rows into project sections (host is undefined on cold seed) — every
+  // pinned-in-project row briefly leaks into the top-level pinned zone,
+  // and the RDP synthetic rows at the bottom of the sidebar don't paint
+  // until getSSHHosts() lands. Fresh fetch below overwrites wholesale;
+  // cache is a paint hint, not a source of truth. See
+  // src/ui/state/host-tree-cache.ts.
+  const [realHostTree, setRealHostTree] = useState<HostFolder | null>(() => {
+    const cached = readHostTreeCache();
+    return cached.length > 0 ? buildHostTree(cached) : null;
+  });
   const [hostsLoading, setHostsLoading] = useState(true);
-  const [allHosts, setAllHosts] = useState<Host[]>([]);
+  const [allHosts, setAllHosts] = useState<Host[]>(() =>
+    readHostTreeCache().map(sshHostToHost),
+  );
   const [isAdmin, setIsAdmin] = useState(false);
   // Sidebar-footer "you" anchor: current username from /users/me. Held here
   // alongside isAdmin because both come from the same fetch and both feed
@@ -1449,6 +1471,12 @@ export function AppShell({
       const converted = raw.map(sshHostToHost);
       setAllHosts(converted);
       setRealHostTree(buildHostTree(raw));
+      // Persist the fresh snapshot so the next cold refresh seeds hostsFlat
+      // immediately (see readHostTreeCache seed above). Silent on write
+      // failure — cache is a paint hint. Cache deliberately NOT touched on
+      // fetch failure so the last known-good snapshot survives a network
+      // blip (mirrors writeFleetSessionsCache's T-07-01-04 discipline).
+      writeHostTreeCache(raw);
     } catch {
       // Keep empty state on error
     } finally {
