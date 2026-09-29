@@ -58,7 +58,7 @@ Load-bearing invariants:
 ## Scope edges
 
 **In:**
-- 25 app modals (see modal-tasting.html for the full list across categories 1-11)
+- ~24 app modals (see modal-tasting.html for the full list across categories 1-11)
 - The 2 hand-rolled shell modals (SkewLockModal, ElectronVersionCheck)
 - Canonical `<Modal>` container as the shared foundation
 - Convention updates in the id skill + box-maintainer role file naming the canonical
@@ -67,7 +67,10 @@ Load-bearing invariants:
 - All native browser primitives (`window.confirm`/`alert`/`prompt`) — stay as-is
 - The internal surface of content editors (Monaco/CodeMirror handles that)
 - The multi-file About-you concept in PreferencesModal — the tasting drops it deliberately per Ashley
-- Any modal-in-modal composition rules beyond ensuring the canonical works nested (DeleteConfirmDialog inside RunbookEditorModal, AddWakeupDialog inside IdentityModal)
+- Nested modals used for simple destructive confirms (Ashley 2026-09-29: switch these to natives instead of stacking)
+
+**Retired 2026-09-29:**
+- **DeleteConfirmDialog** — the only nested app-modal in Skynet, used inside RunbookEditorModal + SkillsEditorModal for delete-file / delete-runbook / delete-skill. Replaced with `window.confirm()` + `window.alert()` for errors, matching the fleet convention already used across ~30 destructive confirms in the app. The component file was deleted; the tasting no longer carries a mockup for it.
 
 ## Vehicle notes
 

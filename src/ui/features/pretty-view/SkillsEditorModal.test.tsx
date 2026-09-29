@@ -720,7 +720,11 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     ).toBeInTheDocument();
   });
 
-  it("delete-file confirm dialog opens and DELETE fires on confirm", async () => {
+  it("delete-file fires deleteSkillFile after native confirm accepts", async () => {
+    // Retired DeleteConfirmDialog (2026-09-29) in favor of native window.confirm.
+    // Auto-accept the confirm so the delete flow proceeds.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
     render(
       <SkillsEditorModal
         open={true}
@@ -746,24 +750,21 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       expect(screen.queryByTitle(/delete this file/i)).toBeTruthy(),
     );
 
-    // Click the delete-file Trash2 trigger (title="Delete this file") inside the tab pane.
+    // Click the delete-file Trash2 trigger — the native confirm auto-accepts
+    // via the spy, so the delete API fires immediately.
     fireEvent.click(screen.getByTitle(/delete this file/i));
-
-    // Confirmation dialog appears with heading "Delete file?".
-    await waitFor(() => {
-      expect(screen.queryByText(/delete file\?/i)).toBeTruthy();
-    });
-
-    // Click the primary destructive button ("Delete").
-    const primary = screen.getByRole("button", { name: /^delete$/i });
-    fireEvent.click(primary);
 
     await waitFor(() => {
       expect(skillsApi.deleteSkillFile).toHaveBeenCalledWith(1, "build", "tests/basic.py");
     });
+    expect(confirmSpy).toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 
-  it("delete-skill confirm dialog opens and DELETE fires on confirm", async () => {
+  it("delete-skill fires deleteSkill after native confirm accepts", async () => {
+    // Retired DeleteConfirmDialog (2026-09-29) in favor of native window.confirm.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
     render(
       <SkillsEditorModal
         open={true}
@@ -782,18 +783,11 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     });
     fireEvent.click(screen.getByTitle(/delete this skill/i));
 
-    // Dialog heading "Delete skill?" appears.
-    await waitFor(() => {
-      expect(screen.queryByText(/delete skill\?/i)).toBeTruthy();
-    });
-
-    // Click the primary destructive button ("Delete skill").
-    const primary = screen.getByRole("button", { name: /^delete skill$/i });
-    fireEvent.click(primary);
-
     await waitFor(() => {
       expect(skillsApi.deleteSkill).toHaveBeenCalledWith(1, "build");
     });
+    expect(confirmSpy).toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 
   it("RDP-only hosts are filtered from the host <select>", async () => {

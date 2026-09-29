@@ -16,7 +16,6 @@ import {
   type RunbookFileEntry,
 } from "@/api/runbooks-api";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
-import DeleteConfirmDialog from "./DeleteConfirmDialog";
 import type { TabState } from "./IdentityFileTab";
 
 // Phase 89 Plan 04: RunbookEditorModal — byte-shape clone of SkillsEditorModal.tsx
@@ -68,14 +67,10 @@ export default function RunbookEditorModal({
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [tabData, setTabData] = useState<Map<string, TabState<SkillFileTabData>>>(new Map());
 
-  // Delete confirmation state — per-dialog so a stale error / in-flight flag
-  // from one dialog can't bleed into the other (mirrors SkillsEditorModal L86-92).
-  const [deleteFileConfirm, setDeleteFileConfirm] = useState<{ path: string } | null>(null);
-  const [deleteFileInFlight, setDeleteFileInFlight] = useState<boolean>(false);
-  const [deleteFileError, setDeleteFileError] = useState<string | null>(null);
-  const [deleteRunbookConfirm, setDeleteRunbookConfirm] = useState<boolean>(false);
-  const [deleteRunbookInFlight, setDeleteRunbookInFlight] = useState<boolean>(false);
-  const [deleteRunbookError, setDeleteRunbookError] = useState<string | null>(null);
+  // Delete flows use native window.confirm + window.alert (see handleDeleteFile /
+  // handleDeleteRunbook below). No in-modal confirm state because the retired
+  // DeleteConfirmDialog was the ONLY nested app-modal in Skynet and the fleet
+  // convention is natives for nested destructive confirms.
 
   // useMemo reference kept for structural parity with SkillsEditorModal — this
   // modal has no flatHosts derived state, but the import of useMemo is preserved
@@ -91,12 +86,6 @@ export default function RunbookEditorModal({
       setFiles({ status: "loading" });
       setActiveTab(null);
       setTabData(new Map());
-      setDeleteFileConfirm(null);
-      setDeleteFileInFlight(false);
-      setDeleteFileError(null);
-      setDeleteRunbookConfirm(false);
-      setDeleteRunbookInFlight(false);
-      setDeleteRunbookError(null);
     }
   }, [open]);
 
@@ -256,67 +245,55 @@ export default function RunbookEditorModal({
     }
   }, [hostId, roleName, runbookName]);
 
-  // Delete-file confirm handler (mirrors SkillsEditorModal L309-344).
-  const handleDeleteFile = useCallback(async (): Promise<void> => {
-    if (deleteFileConfirm == null) return;
-    const doomedPath = deleteFileConfirm.path;
-    setDeleteFileInFlight(true);
-    setDeleteFileError(null);
-    try {
-      console.debug("[RunbookEditorModal] delete-file", { path: doomedPath });
-      await deleteRunbookFile(hostId, roleName, runbookName, doomedPath);
-      // Refetch file list.
-      const entries = await enumerateRunbookFiles(hostId, roleName, runbookName);
-      setFiles({ status: "ready", data: entries });
-      // Tab selection: if the deleted was active, pick first remaining file, else none.
-      // (Same "first-tab default matches skill-load" heuristic as SkillsEditorModal L327.)
-      if (activeTab === doomedPath) {
-        setActiveTab(entries.length > 0 ? entries[0].path : null);
+  // Delete-file handler — native window.confirm gate + delete + refetch. Error
+  // surfaces via window.alert to match the fleet convention.
+  const handleDeleteFile = useCallback(
+    async (doomedPath: string): Promise<void> => {
+      if (!window.confirm(`Delete "${runbookName}/${doomedPath}"? This can't be undone.`)) return;
+      try {
+        console.debug("[RunbookEditorModal] delete-file", { path: doomedPath });
+        await deleteRunbookFile(hostId, roleName, runbookName, doomedPath);
+        // Refetch file list.
+        const entries = await enumerateRunbookFiles(hostId, roleName, runbookName);
+        setFiles({ status: "ready", data: entries });
+        // Tab selection: if the deleted was active, pick first remaining file, else none.
+        if (activeTab === doomedPath) {
+          setActiveTab(entries.length > 0 ? entries[0].path : null);
+        }
+        // Drop the tab data for the deleted file (frees the closure).
+        setTabData((prev) => {
+          const next = new Map(prev);
+          next.delete(doomedPath);
+          return next;
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete";
+        console.debug("[RunbookEditorModal] delete-file-error", { path: doomedPath, msg });
+        window.alert(msg);
       }
-      // Drop the tab data for the deleted file (frees the closure).
-      setTabData((prev) => {
-        const next = new Map(prev);
-        next.delete(doomedPath);
-        return next;
-      });
-      setDeleteFileConfirm(null);
-    } catch (err) {
-      // Dialog stays open; error surfaces below the body.
-      setDeleteFileError(
-        err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete",
-      );
-    } finally {
-      setDeleteFileInFlight(false);
-    }
-  }, [hostId, roleName, runbookName, deleteFileConfirm, activeTab]);
+    },
+    [hostId, roleName, runbookName, activeTab],
+  );
 
-  // Delete-runbook confirm handler. On success, close the modal (onOpenChange(false))
-  // per D-06 swap-not-stack — no runbook-picker in the header so there's nothing to
-  // fall back to. The parent (Wave 6 PrettyView) receives the close signal and does NOT
-  // attempt to re-open the identity modal. NOTE: SkillsEditorModal doesn't call
-  // onOpenChange(false) on delete-skill because it stays open to pick another skill;
-  // the runbook modal DOES close since it opens on a specific runbook.
+  // Delete-runbook handler. On success, close the modal (onOpenChange(false))
+  // per D-06 swap-not-stack — no runbook-picker in the header so there's nothing
+  // to fall back to. Error surfaces via window.alert.
   const handleDeleteRunbook = useCallback(async (): Promise<void> => {
-    setDeleteRunbookInFlight(true);
-    setDeleteRunbookError(null);
+    if (
+      !window.confirm(
+        `Delete runbook "${runbookName}"? This removes the runbook folder and every file inside it. This can't be undone.`,
+      )
+    )
+      return;
     try {
       console.debug("[RunbookEditorModal] delete-runbook", { runbookName });
       await deleteRunbook(hostId, roleName, runbookName);
-      // No runbook-picker per D-02; modal closes on successful delete.
-      // Ordering matters: clear in-flight BEFORE the onOpenChange(false) that unmounts
-      // this component (PrettyView gates <RunbookEditorModal> render on runbookEditorOpenState).
-      // A finally{} that sets state after unmount is silently swallowed by React 18 but is
-      // still a subtle correctness bug — an early return sidesteps the unmount race entirely.
-      setDeleteRunbookConfirm(false);
-      setDeleteRunbookInFlight(false);
       onOpenChange(false);
-      return;
     } catch (err) {
-      setDeleteRunbookError(
-        err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete",
-      );
+      const msg = err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete";
+      console.debug("[RunbookEditorModal] delete-runbook-error", { runbookName, msg });
+      window.alert(msg);
     }
-    setDeleteRunbookInFlight(false);
   }, [hostId, roleName, runbookName, onOpenChange]);
 
   return (
@@ -382,8 +359,7 @@ export default function RunbookEditorModal({
               type="button"
               title="Delete this runbook"
               onClick={() => {
-                setDeleteRunbookError(null);
-                setDeleteRunbookConfirm(true);
+                void handleDeleteRunbook();
               }}
               className="size-6 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
             >
@@ -459,8 +435,7 @@ export default function RunbookEditorModal({
                       handleSave(file.path, content, expectedMtime)
                     }
                     onRequestDelete={() => {
-                      setDeleteFileError(null);
-                      setDeleteFileConfirm({ path: file.path });
+                      void handleDeleteFile(file.path);
                     }}
                     filename={file.path}
                   />
@@ -523,67 +498,6 @@ export default function RunbookEditorModal({
             </Tabs>
           )}
         </DialogPrimitive.Content>
-
-        {/* Delete-file confirmation (modal-in-modal) — mirrors SkillsEditorModal L638-663.
-            Heading "Delete file?". Body shows runbook/path code block + "This can't be undone."
-            Both mounts inside the same Portal so the overlay's `inset-4` is anchored to the
-            same container box as the parent modal (per DeleteConfirmDialog L17). */}
-        <DeleteConfirmDialog
-          open={deleteFileConfirm !== null}
-          onOpenChange={(o) => {
-            if (!o) {
-              setDeleteFileConfirm(null);
-              setDeleteFileError(null);
-            }
-          }}
-          heading="Delete file?"
-          body={
-            <>
-              <div>
-                <code className="px-1 rounded bg-black/30 font-mono">
-                  {runbookName}/{deleteFileConfirm?.path ?? ""}
-                </code>
-              </div>
-              <div className="mt-2">This can&apos;t be undone.</div>
-            </>
-          }
-          primaryLabel="Delete"
-          onConfirm={() => { void handleDeleteFile(); }}
-          inFlight={deleteFileInFlight}
-          error={deleteFileError}
-          container={container ?? undefined}
-        />
-
-        {/* Delete-runbook confirmation (modal-in-modal) — mirrors SkillsEditorModal L665-692.
-            Heading "Delete runbook?". Body shows runbook code block + D-05 exact blast-radius
-            copy (same framing as delete-skill: folder + every file inside). */}
-        <DeleteConfirmDialog
-          open={deleteRunbookConfirm}
-          onOpenChange={(o) => {
-            if (!o) {
-              setDeleteRunbookConfirm(false);
-              setDeleteRunbookError(null);
-            }
-          }}
-          heading="Delete runbook?"
-          body={
-            <>
-              <div>
-                <code className="px-1 rounded bg-black/30 font-mono">
-                  {runbookName}
-                </code>
-              </div>
-              <div className="mt-2">
-                This removes the runbook folder and every file inside it. This can&apos;t be undone.
-              </div>
-            </>
-          }
-          primaryLabel="Delete runbook"
-          onConfirm={() => { void handleDeleteRunbook(); }}
-          inFlight={deleteRunbookInFlight}
-          error={deleteRunbookError}
-          container={container ?? undefined}
-        />
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );

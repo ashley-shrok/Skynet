@@ -874,38 +874,11 @@
   <div class="category-header">
     <span class="category-mark"></span>
     <p class="category-kicker">Category · Small confirm</p>
-    <h2 class="category-name">Delete confirm (and its siblings)</h2>
-    <p class="category-body">Same-pattern confirms: <em>DeleteConfirmDialog</em> (delete a file, a runbook, a skill), <em>FeedbackModal</em> (general variant: send us your thoughts). Also covers the SSH auth family's simpler members (TOTP code, passphrase input) — one short field or one short confirmation, two buttons, done.</p>
+    <h2 class="category-name">Small confirms (Feedback, TOTP, Passphrase)</h2>
+    <p class="category-body">Small single-field or single-action confirms. <em>Send feedback</em> (general variant), <em>TOTPDialog</em>, <em>PassphraseDialog</em>. <br/><br/><strong>Note (2026-09-29):</strong> <em>DeleteConfirmDialog</em> — previously nested inside RunbookEditor + SkillsEditor for delete-file / delete-runbook / delete-skill confirms — was retired in favor of native <code>window.confirm()</code>. That aligns with the fleet convention (most destructive confirms in Skynet already use natives) and avoids the modal-in-modal composition entirely.</p>
   </div>
 
-  <div class="stage-row">
-    <div class="stage">
-      <div class="stage-label">Delete confirm</div>
-      <div class="stage-source">DeleteConfirmDialog</div>
-      <div class="mock-bubbles">
-        <div class="mock-bubble">Okay — I'll delete that runbook.</div>
-        <div class="mock-bubble user">delete the ship-cycle runbook</div>
-      </div>
-      <div class="modal-overlay">
-        <div class="modal">
-          <div class="head">
-            <div class="head-text">
-              <p class="meta">Delete runbook</p>
-              <p class="title">ship-cycle</p>
-              <p class="subtitle">Deletes the runbook and all its files.</p>
-            </div>
-          </div>
-          <div class="body">
-            Deleting this runbook removes it and all of its files.
-          </div>
-          <div class="foot">
-            <button class="btn secondary">Cancel</button>
-            <button class="btn destructive">Delete runbook</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
+  <div class="stage-row single">
     <div class="stage" style="--pv-id-hue: 220;">
       <div class="stage-label">Send feedback</div>
       <div class="stage-source">FeedbackModal (general)</div>

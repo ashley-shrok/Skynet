@@ -22,7 +22,6 @@ import {
 } from "@/api/skills-api";
 import { slugifyRoleName } from "@/sidebar/CreateRoleDialog";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
-import DeleteConfirmDialog from "./DeleteConfirmDialog";
 import type { TabState } from "./IdentityFileTab";
 
 // Phase 44 SKILLED-05: SkillsEditorModal — modal shell with host picker + skill
@@ -92,14 +91,10 @@ export default function SkillsEditorModal({
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [tabData, setTabData] = useState<Map<string, TabState<SkillFileTabData>>>(new Map());
 
-  // Delete confirmation state — per-dialog so a stale error / in-flight flag
-  // from one dialog can't bleed into the other.
-  const [deleteFileConfirm, setDeleteFileConfirm] = useState<{ path: string } | null>(null);
-  const [deleteFileInFlight, setDeleteFileInFlight] = useState<boolean>(false);
-  const [deleteFileError, setDeleteFileError] = useState<string | null>(null);
-  const [deleteSkillConfirm, setDeleteSkillConfirm] = useState<boolean>(false);
-  const [deleteSkillInFlight, setDeleteSkillInFlight] = useState<boolean>(false);
-  const [deleteSkillError, setDeleteSkillError] = useState<string | null>(null);
+  // Delete flows use native window.confirm + window.alert (see handleDeleteFile /
+  // handleDeleteSkill below). No in-modal confirm state — the retired
+  // DeleteConfirmDialog was the ONLY nested app-modal in Skynet and the fleet
+  // convention is natives for nested destructive confirms.
 
   // Pitfall 7: RDP-only hosts don't have SSH — filter them out. Verbatim from
   // GlobalFilesModal.tsx L68 — this filter is load-bearing.
@@ -117,12 +112,6 @@ export default function SkillsEditorModal({
       setFiles({ status: "loading" });
       setActiveTab(null);
       setTabData(new Map());
-      setDeleteFileConfirm(null);
-      setDeleteFileInFlight(false);
-      setDeleteFileError(null);
-      setDeleteSkillConfirm(false);
-      setDeleteSkillInFlight(false);
-      setDeleteSkillError(null);
       return;
     }
     // Prefer defaultHostId if it's in the fleet
@@ -376,48 +365,42 @@ export default function SkillsEditorModal({
   }, [selectedHostId]);
 
   // Delete-file confirm handler.
-  const handleDeleteFile = useCallback(async (): Promise<void> => {
-    if (selectedHostId == null || selectedSkillName == null || deleteFileConfirm == null) return;
-    const doomedPath = deleteFileConfirm.path;
-    setDeleteFileInFlight(true);
-    setDeleteFileError(null);
-    try {
-      await deleteSkillFile(selectedHostId, selectedSkillName, doomedPath);
-      // Refetch file list.
-      const entries = await enumerateSkillFiles(selectedHostId, selectedSkillName);
-      setFiles({ status: "ready", data: entries });
-      // Tab selection: if the deleted was active, pick next-right, else previous, else none.
-      // Use the PREVIOUS file list to find the position, then map into the NEW list.
-      if (activeTab === doomedPath) {
-        // Simplest correct heuristic: pick the first file in the refetched list, or null.
-        // (Preserving strict "next-right, then previous" order would require caching the
-        // pre-delete list; the plan says "next-right or previous or none" but the fetched
-        // list is post-delete, so grab the first remaining file — user's fast-path bias
-        // says any-remaining-tab is fine, and the first-tab default matches skill-load.)
-        setActiveTab(entries.length > 0 ? entries[0].path : null);
+  const handleDeleteFile = useCallback(
+    async (doomedPath: string): Promise<void> => {
+      if (selectedHostId == null || selectedSkillName == null) return;
+      if (!window.confirm(`Delete "${selectedSkillName}/${doomedPath}"? This can't be undone.`)) return;
+      try {
+        await deleteSkillFile(selectedHostId, selectedSkillName, doomedPath);
+        // Refetch file list.
+        const entries = await enumerateSkillFiles(selectedHostId, selectedSkillName);
+        setFiles({ status: "ready", data: entries });
+        // Tab selection: if the deleted was active, grab the first remaining file or null.
+        if (activeTab === doomedPath) {
+          setActiveTab(entries.length > 0 ? entries[0].path : null);
+        }
+        // Drop the tab data for the deleted file (frees the closure).
+        setTabData((prev) => {
+          const next = new Map(prev);
+          next.delete(doomedPath);
+          return next;
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete";
+        window.alert(msg);
       }
-      // Drop the tab data for the deleted file (frees the closure).
-      setTabData((prev) => {
-        const next = new Map(prev);
-        next.delete(doomedPath);
-        return next;
-      });
-      setDeleteFileConfirm(null);
-    } catch (err) {
-      // Dialog stays open per UI-SPEC L195; error surfaces below the body.
-      setDeleteFileError(
-        err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete",
-      );
-    } finally {
-      setDeleteFileInFlight(false);
-    }
-  }, [selectedHostId, selectedSkillName, deleteFileConfirm, activeTab]);
+    },
+    [selectedHostId, selectedSkillName, activeTab],
+  );
 
-  // Delete-skill confirm handler.
+  // Delete-skill handler — native window.confirm + delete + refetch. Error via window.alert.
   const handleDeleteSkill = useCallback(async (): Promise<void> => {
     if (selectedHostId == null || selectedSkillName == null) return;
-    setDeleteSkillInFlight(true);
-    setDeleteSkillError(null);
+    if (
+      !window.confirm(
+        `Delete skill "${selectedSkillName}"? This removes the skill folder and every file inside it. This can't be undone.`,
+      )
+    )
+      return;
     try {
       await deleteSkill(selectedHostId, selectedSkillName);
       // Refetch skills list, clear skill selection + tab list.
@@ -427,13 +410,9 @@ export default function SkillsEditorModal({
       setFiles({ status: "loading" });
       setActiveTab(null);
       setTabData(new Map());
-      setDeleteSkillConfirm(false);
     } catch (err) {
-      setDeleteSkillError(
-        err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete",
-      );
-    } finally {
-      setDeleteSkillInFlight(false);
+      const msg = err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete";
+      window.alert(msg);
     }
   }, [selectedHostId, selectedSkillName]);
 
@@ -575,8 +554,7 @@ export default function SkillsEditorModal({
                 type="button"
                 title="Delete this skill"
                 onClick={() => {
-                  setDeleteSkillError(null);
-                  setDeleteSkillConfirm(true);
+                  void handleDeleteSkill();
                 }}
                 className="size-6 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
               >
@@ -694,8 +672,7 @@ export default function SkillsEditorModal({
                       handleSave(file.path, content, expectedMtime)
                     }
                     onRequestDelete={() => {
-                      setDeleteFileError(null);
-                      setDeleteFileConfirm({ path: file.path });
+                      void handleDeleteFile(file.path);
                     }}
                     filename={file.path}
                   />
@@ -761,62 +738,6 @@ export default function SkillsEditorModal({
             </Tabs>
           )}
         </DialogPrimitive.Content>
-
-        {/* Delete-file confirmation (modal-in-modal) */}
-        <DeleteConfirmDialog
-          open={deleteFileConfirm !== null}
-          onOpenChange={(o) => {
-            if (!o) {
-              setDeleteFileConfirm(null);
-              setDeleteFileError(null);
-            }
-          }}
-          heading="Delete file?"
-          body={
-            <>
-              <div>
-                <code className="px-1 rounded bg-black/30 font-mono">
-                  {selectedSkillName}/{deleteFileConfirm?.path ?? ""}
-                </code>
-              </div>
-              <div className="mt-2">This can&apos;t be undone.</div>
-            </>
-          }
-          primaryLabel="Delete"
-          onConfirm={() => { void handleDeleteFile(); }}
-          inFlight={deleteFileInFlight}
-          error={deleteFileError}
-          container={container ?? undefined}
-        />
-
-        {/* Delete-skill confirmation (modal-in-modal) */}
-        <DeleteConfirmDialog
-          open={deleteSkillConfirm}
-          onOpenChange={(o) => {
-            if (!o) {
-              setDeleteSkillConfirm(false);
-              setDeleteSkillError(null);
-            }
-          }}
-          heading="Delete skill?"
-          body={
-            <>
-              <div>
-                <code className="px-1 rounded bg-black/30 font-mono">
-                  {selectedSkillName}
-                </code>
-              </div>
-              <div className="mt-2">
-                This removes the skill folder and every file inside it. This can&apos;t be undone.
-              </div>
-            </>
-          }
-          primaryLabel="Delete skill"
-          onConfirm={() => { void handleDeleteSkill(); }}
-          inFlight={deleteSkillInFlight}
-          error={deleteSkillError}
-          container={container ?? undefined}
-        />
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
