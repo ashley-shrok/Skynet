@@ -697,10 +697,12 @@
   .filter-bar input { flex: 1; }
   .filter-bar select { min-width: 100px; }
 
-  /* Small compact row (ScheduledAgents list) */
+  /* ScheduledAgents list row — revised 2026-09-29: reintegrates prompt
+     clamp + role/skill chips + right-side toggle & kebab from the real
+     implementation, in the tasting aesthetic. */
   .agent-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 14px; border-radius: 10px;
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 12px; border-radius: 10px;
     background: linear-gradient(160deg,
                                 hsla(var(--row-hue, 190), 45%, 32%, 0.42),
                                 hsla(var(--row-hue, 190), 40%, 20%, 0.5));
@@ -719,20 +721,95 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 12.5px; font-weight: 600;
     color: #fbf5e8; flex-shrink: 0;
+    margin-top: 1px; /* nudge to align with agent-name baseline */
+  }
+  .agent-row .agent-body {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 3px;
   }
   .agent-row .agent-name {
-    flex: 1; min-width: 0;
     font-size: 13px; font-weight: 500; color: #fbf5e8;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .agent-row .agent-sub {
     font-size: 11px; color: hsla(var(--row-hue, 190), 22%, 88%, 0.62);
-    margin-top: 1px;
   }
-  .agent-row .agent-when {
-    font-size: 11px;
-    color: hsla(var(--row-hue, 190), 30%, 88%, 0.65);
-    white-space: nowrap;
+  .agent-row .agent-prompt {
+    font-size: 12px;
+    color: hsla(var(--row-hue, 190), 22%, 92%, 0.72);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-top: 2px;
   }
+  .agent-row .agent-chips {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-top: 4px;
+  }
+  .agent-row .agent-chip {
+    display: inline-flex; align-items: center;
+    padding: 1px 8px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 500; line-height: 15px;
+  }
+  .agent-row .agent-chip.role {
+    background: hsla(285, 55%, 55%, 0.16);
+    border: 1px solid hsla(285, 55%, 60%, 0.32);
+    color: hsla(285, 60%, 84%, 1);
+  }
+  .agent-row .agent-chip.skill {
+    background: hsla(200, 55%, 55%, 0.14);
+    border: 1px solid hsla(200, 55%, 60%, 0.30);
+    color: hsla(200, 60%, 84%, 1);
+  }
+  .agent-row .agent-actions-bar {
+    display: flex; align-items: center; gap: 6px;
+    flex-shrink: 0;
+    margin-top: 3px; /* nudge to align optically with agent-name baseline */
+  }
+  .agent-row .agent-kebab {
+    width: 22px; height: 22px; border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(220, 225, 245, 0.10);
+    color: hsla(var(--row-hue, 190), 22%, 88%, 0.75);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; line-height: 1; cursor: pointer;
+  }
+  .agent-row .agent-toggle {
+    /* Local toggle variant — a bit smaller than the settings-pane toggle. */
+    position: relative; width: 30px; height: 17px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid hsla(var(--row-hue, 190), 65%, 55%, 0.28);
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .agent-row .agent-toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 11px; height: 11px; border-radius: 999px;
+    background: hsla(var(--row-hue, 190), 25%, 92%, 0.75);
+    transition: transform 200ms ease, background 200ms ease;
+  }
+  .agent-row .agent-toggle.on {
+    background: hsla(var(--row-hue, 190), 65%, 55%, 0.5);
+    border-color: hsla(var(--row-hue, 190), 75%, 70%, 0.55);
+  }
+  .agent-row .agent-toggle.on::after {
+    transform: translateX(13px); background: #fbf5e8;
+  }
+  .agent-row.disabled { opacity: 0.55; }
+
+  /* Compact error banner (top of scheduled-agents list-body). */
+  .agent-list-error {
+    margin: 6px 0 10px;
+    padding: 6px 10px; border-radius: 8px;
+    background: hsla(4, 60%, 40%, 0.16);
+    border: 1px solid hsla(4, 60%, 55%, 0.32);
+    color: hsla(4, 60%, 88%, 1);
+    font-size: 11.5px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .agent-list-error .x { opacity: 0.7; cursor: pointer; font-size: 11px; }
 
   /* Search-result row (ConversationSearchModal) */
   .search-row {
@@ -2220,7 +2297,7 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
 </section>
 
 <!-- ═══ CATEGORY 10 · REMAINING LIST-MANAGERS ═══════════════════════ -->
-<section class="category" style="--pv-id-hue: 190;">
+<section id="scheduled-agents" class="category" style="--pv-id-hue: 190;">
   <div class="category-header">
     <span class="category-mark"></span>
     <p class="category-kicker">Category · Remaining list-managers</p>
@@ -2247,42 +2324,75 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
             </div>
           </div>
           <div class="filter-bar">
-            <input type="text" placeholder="Search…" />
+            <input type="text" placeholder="Search name or prompt…" />
             <select><option>All roles</option></select>
             <select><option>All hosts</option></select>
           </div>
           <div class="list-body" style="padding: 10px 12px;">
+            <div class="agent-list-error">
+              <span style="flex: 1;">Couldn't reach thenasty — showing cached rows.</span>
+              <span class="x">✕</span>
+            </div>
             <div class="agent-row" style="--row-hue: 35;">
-              <div class="avatar-sm">T</div>
-              <div style="flex: 1;">
-                <div class="agent-name">Tina · morning-scan</div>
-                <div class="agent-sub">daily at 09:00 UTC</div>
+              <div class="avatar-sm">W</div>
+              <div class="agent-body">
+                <div class="agent-name">daily-digest</div>
+                <div class="agent-sub">daily at 07:00 UTC</div>
+                <div class="agent-prompt">Read yesterday's news, draft a short brief about what's worth knowing today, land it in the digest capture folder.</div>
+                <div class="agent-chips">
+                  <span class="agent-chip role">writer</span>
+                </div>
               </div>
-              <span class="agent-when">in 12h</span>
+              <div class="agent-actions-bar">
+                <span class="agent-toggle on"></span>
+                <button class="agent-kebab">⋯</button>
+              </div>
             </div>
             <div class="agent-row" style="--row-hue: 160;">
-              <div class="avatar-sm">S</div>
-              <div style="flex: 1;">
-                <div class="agent-name">Stacy · deploy-check</div>
+              <div class="avatar-sm">A</div>
+              <div class="agent-body">
+                <div class="agent-name">metrics-review</div>
                 <div class="agent-sub">every 30m</div>
+                <div class="agent-prompt">Check the aither production deploy — pull the last hour of logs, look for any 5xx spikes or degraded latency, ping me if something is off.</div>
+                <div class="agent-chips">
+                  <span class="agent-chip role">analyst</span>
+                </div>
               </div>
-              <span class="agent-when">in 8m</span>
+              <div class="agent-actions-bar">
+                <span class="agent-toggle on"></span>
+                <button class="agent-kebab">⋯</button>
+              </div>
             </div>
-            <div class="agent-row" style="--row-hue: 324;">
+            <div class="agent-row disabled" style="--row-hue: 324;">
               <div class="avatar-sm">B</div>
-              <div style="flex: 1;">
-                <div class="agent-name">Box-maintainer · substrate-sweep</div>
+              <div class="agent-body">
+                <div class="agent-name">substrate-sweep</div>
                 <div class="agent-sub">every 6h</div>
+                <div class="agent-prompt">Refresh the substrate distributor catalog, sweep managed hosts for drift, land a report in the substrate log.</div>
+                <div class="agent-chips">
+                  <span class="agent-chip role">box-maintainer</span>
+                  <span class="agent-chip skill">distributor</span>
+                </div>
               </div>
-              <span class="agent-when">in 2h</span>
+              <div class="agent-actions-bar">
+                <span class="agent-toggle"></span>
+                <button class="agent-kebab">⋯</button>
+              </div>
             </div>
             <div class="agent-row" style="--row-hue: 280;">
               <div class="avatar-sm">R</div>
-              <div style="flex: 1;">
-                <div class="agent-name">Research · paper-digest</div>
+              <div class="agent-body">
+                <div class="agent-name">paper-digest</div>
                 <div class="agent-sub">Mondays at 08:00</div>
+                <div class="agent-prompt">Read new papers since last week, draft a note summarizing what's worth reading, land it in the research capture folder.</div>
+                <div class="agent-chips">
+                  <span class="agent-chip role">research</span>
+                </div>
               </div>
-              <span class="agent-when">4d</span>
+              <div class="agent-actions-bar">
+                <span class="agent-toggle on"></span>
+                <button class="agent-kebab">⋯</button>
+              </div>
             </div>
           </div>
         </div>
@@ -2307,33 +2417,55 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
             </div>
           </div>
           <div class="filter-bar">
-            <input type="text" placeholder="Search…" />
+            <input type="text" placeholder="Search name or prompt…" />
             <select><option>All roles</option></select>
           </div>
           <div class="list-body" style="padding: 10px 12px;">
             <div class="agent-row" style="--row-hue: 35;">
-              <div class="avatar-sm">T</div>
-              <div style="flex: 1;">
-                <div class="agent-name">Tina · morning-scan</div>
-                <div class="agent-sub">daily at 09:00 UTC</div>
+              <div class="avatar-sm">W</div>
+              <div class="agent-body">
+                <div class="agent-name">daily-digest</div>
+                <div class="agent-sub">daily at 07:00 UTC</div>
+                <div class="agent-prompt">Read yesterday's news, draft a short brief about what's worth knowing today, land it in the digest capture folder.</div>
+                <div class="agent-chips">
+                  <span class="agent-chip role">writer</span>
+                </div>
               </div>
-              <span class="agent-when">in 12h</span>
+              <div class="agent-actions-bar">
+                <span class="agent-toggle on"></span>
+                <button class="agent-kebab">⋯</button>
+              </div>
             </div>
             <div class="agent-row" style="--row-hue: 324;">
               <div class="avatar-sm">B</div>
-              <div style="flex: 1;">
-                <div class="agent-name">Box-maintainer · substrate-sweep</div>
+              <div class="agent-body">
+                <div class="agent-name">substrate-sweep</div>
                 <div class="agent-sub">every 6h</div>
+                <div class="agent-prompt">Refresh the substrate distributor catalog, sweep managed hosts for drift, land a report in the substrate log.</div>
+                <div class="agent-chips">
+                  <span class="agent-chip role">box-maintainer</span>
+                  <span class="agent-chip skill">distributor</span>
+                </div>
               </div>
-              <span class="agent-when">in 2h</span>
+              <div class="agent-actions-bar">
+                <span class="agent-toggle on"></span>
+                <button class="agent-kebab">⋯</button>
+              </div>
             </div>
             <div class="agent-row" style="--row-hue: 280;">
               <div class="avatar-sm">R</div>
-              <div style="flex: 1;">
-                <div class="agent-name">Research · paper-digest</div>
+              <div class="agent-body">
+                <div class="agent-name">paper-digest</div>
                 <div class="agent-sub">Mondays at 08:00</div>
+                <div class="agent-prompt">Read new papers since last week, draft a note summarizing what's worth reading, land it in the research capture folder.</div>
+                <div class="agent-chips">
+                  <span class="agent-chip role">research</span>
+                </div>
               </div>
-              <span class="agent-when">4d</span>
+              <div class="agent-actions-bar">
+                <span class="agent-toggle on"></span>
+                <button class="agent-kebab">⋯</button>
+              </div>
             </div>
           </div>
         </div>
@@ -2364,7 +2496,7 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
             <div class="field">
               <label>Prompt</label>
               <textarea placeholder="What should this scheduled agent do?" style="min-height: 90px;">Read new papers since last week, draft a note summarizing what's worth reading, land it in the research capture folder.</textarea>
-              <p class="field-hint">This becomes the first user message to a freshly-born agent. Assume it starts with no memory — reference logs, role files, or bounties if continuity matters.</p>
+              <p class="field-hint">This becomes the first user message to a freshly-born agent. Assume it starts with no memory — reference logs, role files, or prior handoffs if continuity matters.</p>
             </div>
             <div class="field">
               <label>Roles</label>
@@ -2426,7 +2558,7 @@ I'm a designer at heart — I care about the aesthetics of my tools as much as t
             <div class="field">
               <label>Prompt</label>
               <textarea placeholder="What should this scheduled agent do?" style="min-height: 90px;">Read new papers since last week, draft a note summarizing what's worth reading, land it in the research capture folder.</textarea>
-              <p class="field-hint">This becomes the first user message to a freshly-born agent. Assume it starts with no memory — reference logs, role files, or bounties if continuity matters.</p>
+              <p class="field-hint">This becomes the first user message to a freshly-born agent. Assume it starts with no memory — reference logs, role files, or prior handoffs if continuity matters.</p>
             </div>
             <div class="field">
               <label>Roles</label>
