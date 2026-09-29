@@ -1,15 +1,27 @@
-// ─── SkewLockModal (Phase 111 Plan 02) ───────────────────────────────────────
+// SkewLockModal — shell-level, non-dismissible, framework-owned modal that
+// renders when the skew-lock store transitions to `locked = true`. Mounted
+// at App root as a sibling of <Toaster> at src/main.tsx so it paints above
+// every app surface regardless of which lane fired the lock (axios
+// interceptor, WS handshake refusal, WS message tag mismatch).
 //
-// Shell-level, non-dismissible, framework-owned modal that renders when the
-// skew-lock store transitions to `locked = true`. Mounted at App root (as a
-// sibling of <Toaster> at src/main.tsx:243) so it paints above every app
-// surface regardless of which lane fired the lock (axios interceptor, WS
-// handshake refusal, WS message tag mismatch).
+// Modal-unification 2026-09-29:
+//   - Shell: canonical <Modal hue={40} size="md" dismissible={false}>.
+//     Warm amber hue (40°) per tasting — signals "attention needed"
+//     without alarming red, and visually distinguishes this as a
+//     system-level thing rather than chat-scoped.
+//   - Head: canonical <ModalHead title="..." hideClose /> — non-dismissible
+//     shells drop the close X.
+//   - Foot: canonical <ModalFoot> with centered Reload button (or fatal-
+//     mode: no button, contact-support message).
+//   - Portal via Radix defaults to document.body — the modal sits OUTSIDE
+//     #root so the `inert` attribute we set on #root (to freeze pointer +
+//     keyboard events on the app subtree) doesn't also freeze the modal.
 //
-// D-11 through D-14 (CONTEXT.md):
+// D-11 through D-14 preserved:
 //   - D-11: pure firm modal — no in-between state.
-//   - D-12: non-dismissible — no X, no escape, no click-outside. Single
-//     [Reload] button.
+//   - D-12: non-dismissible — no X, no Esc, no click-outside (canonical
+//     Modal blocks backdrop always; dismissible={false} + hideClose block
+//     Esc + close-X).
 //   - D-13: [Reload] calls window.location.reload() — no state carryover.
 //   - D-14: fresh page fetches current shell → current assets → user is
 //     approximately back at the same view.
@@ -17,20 +29,10 @@
 // Reload-loop defense (RESEARCH.md §Pitfall 4): if `shouldSuppressReload()`
 // returns true (>3 reload attempts within 60s), the modal renders a fatal-
 // mode variant with a contact-support message and NO Reload button.
-//
-// Palette: existing `--color-pv-*` tokens used with direct `var()` (not
-// `hsl(var(...))`, because Skynet's tokens are raw hex/rgba, not HSL
-// triplets — see src/ui/index.css:143-159). Never the generic shadcn
-// bg/fg tokens per role-file palette-authority rule.
-//
-// `inert` attribute on #root freezes underlying UI to pointer + keyboard
-// events per D-12 non-dismissibility. The modal is portalled to
-// document.body so it sits OUTSIDE #root — otherwise `inert` on #root
-// would also freeze the modal itself, including its Reload button.
 
 import { useSyncExternalStore, useEffect } from "react";
-import { createPortal } from "react-dom";
 
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import {
   getSkewLockedSnapshot,
   subscribeSkewLock,
@@ -55,14 +57,15 @@ export function SkewLockModal() {
     if (!snapshot.locked) return;
     // Freeze the rest of the app from pointer / keyboard events. The `inert`
     // attribute is a browser-native gate on interaction into the subtree.
+    // Radix's focus-trap handles keyboard escape; `inert` is belt-and-
+    // suspenders for pointer events on the shell (mouse-clicks on #root
+    // shouldn't do anything even if the backdrop somehow lets them through).
     const root = document.getElementById("root");
     root?.setAttribute("inert", "");
     return () => {
       root?.removeAttribute("inert");
     };
   }, [snapshot.locked]);
-
-  if (!snapshot.locked) return null;
 
   // Re-check on every render (cheap sessionStorage read). This is called
   // both for the top-level fatal-mode split AND inside the click handler
@@ -80,57 +83,42 @@ export function SkewLockModal() {
     window.location.reload();
   };
 
-  return createPortal(
-    <div
-      className="skynet-skew-lock-backdrop fixed inset-0 z-[9999] flex items-center justify-center"
-      style={{
-        // Dark full-viewport backdrop above every surface. Palette-authority
-        // rule (role file § Palette authority): pv tokens only — no
-        // Skynet --background / --foreground / hardcoded hex. 92% opacity of
-        // the darkest base-end token composited over transparent.
-        backgroundColor:
-          "color-mix(in srgb, var(--color-pv-base-end) 92%, transparent)",
+  return (
+    <Modal
+      open={snapshot.locked}
+      onOpenChange={() => {
+        /* non-dismissible — canonical Modal blocks the paths here anyway */
       }}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="skynet-skew-lock-title"
+      hue={40}
+      size="md"
+      dismissible={false}
+      data-testid="skew-lock-modal"
     >
-      <div
-        className="skynet-skew-lock-dialog max-w-md rounded-lg p-8"
-        style={{
-          backgroundColor: "var(--color-pv-base)",
-          border: "1px solid var(--color-pv-border-quiet-strong)",
-          boxShadow: "var(--shadow-pv-root)",
-        }}
-      >
-        <h2
-          id="skynet-skew-lock-title"
-          className="skynet-skew-lock-title mb-4 text-lg font-semibold"
-          style={{ color: "var(--color-pv-fg)" }}
-        >
-          {fatal ? "Something is wrong" : "A newer version is available"}
-        </h2>
-        <p
-          className="skynet-skew-lock-body mb-6 text-sm"
-          style={{ color: "var(--color-pv-fg-muted)" }}
-        >
-          {fatal ? "Please contact support." : "Reload to continue."}
-        </p>
-        {!fatal && (
+      <ModalHead
+        title={fatal ? "Something is wrong" : "A newer version is available"}
+        hideClose
+      />
+      <ModalBody>
+        {fatal ? "Please contact support." : "Reload to pick up the new build."}
+      </ModalBody>
+      {!fatal && (
+        <ModalFoot className="justify-center">
           <button
             type="button"
-            className="skynet-skew-lock-reload rounded-md px-4 py-2 text-sm font-medium"
-            style={{
-              backgroundColor: "var(--color-pv-fg)",
-              color: "var(--color-pv-base)",
-            }}
             onClick={handleReload}
+            data-testid="skew-lock-reload"
+            className={
+              "px-5 py-2 rounded-md text-[13px] font-medium cursor-pointer " +
+              "bg-[hsla(var(--pv-id-hue),65%,55%,0.8)] text-[#fbf5e8] " +
+              "border border-[hsla(var(--pv-id-hue),75%,65%,0.55)] " +
+              "hover:bg-[hsla(var(--pv-id-hue),65%,55%,0.95)] transition-colors " +
+              "min-w-[140px]"
+            }
           >
             Reload
           </button>
-        )}
-      </div>
-    </div>,
-    document.body,
+        </ModalFoot>
+      )}
+    </Modal>
   );
 }

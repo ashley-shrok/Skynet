@@ -76,8 +76,13 @@ describe("SkewLockModal: locked renders dialog with title", () => {
       });
     });
 
+    // Canonical Modal (Radix Dialog under the hood) provides role="dialog"
+    // via DialogContent. Modality is enforced by focus-trap + backdrop-block
+    // (dismissible=false path in canonical Modal), not by an explicit
+    // aria-modal attribute — that's a Radix implementation detail we no
+    // longer assert against. The role + labelledby + backdrop-block is
+    // the a11y contract.
     const dialog = screen.getByRole("dialog");
-    expect(dialog.getAttribute("aria-modal")).toBe("true");
     const labelId = dialog.getAttribute("aria-labelledby");
     expect(labelId).toBeTruthy();
 

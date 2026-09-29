@@ -1,9 +1,28 @@
-import React, { useState, useEffect, useCallback } from "react";
+// ElectronVersionCheck — required-shell modal that gates the app on
+// launch when running under Electron until either (a) version-check
+// completes with the running version up-to-date, or (b) the user
+// dismisses the update-required notice via Continue.
+//
+// Modal-unification 2026-09-29:
+//   - Shell: canonical <Modal hue={40} size="md" dismissible={false}>.
+//     Same "required-shell" pattern as SkewLockModal — warm amber hue,
+//     non-dismissible (only path forward is the Continue button OR a
+//     completed up-to-date check auto-firing onContinue).
+//   - Head: canonical <ModalHead title="..." hideClose />.
+//   - Foot: canonical <ModalFoot> with Continue button (or checking-
+//     state: no foot, spinner in body).
+//
+// This modal was not sketched in the tasting reference, but the identity
+// file lists it as arc scope paired with SkewLockModal ("required-shell
+// pair"). It inherits SkewLockModal's shell shape.
+
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/button.tsx";
 import { VersionAlert } from "@/components/version-alert.tsx";
 import { useTranslation } from "react-i18next";
 import { isElectron } from "@/lib/electron";
 import { checkElectronUpdate } from "@/main-axios.ts";
+import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 
 interface VersionCheckModalProps {
   onContinue: () => void;
@@ -99,56 +118,71 @@ export function ElectronVersionCheck({ onContinue }: VersionCheckModalProps) {
     return null;
   }
 
+  // Checking state — spinner, no foot.
   if (versionChecking && !versionInfo) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] p-6 z-50">
-        <div className="flex flex-col gap-5 p-6 border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-base)] max-w-md w-full items-center">
-          <div className="w-5 h-5 border-2 border-[hsla(var(--pv-hue,35),65%,55%,0.6)] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-[color:var(--color-pv-fg-muted)]">
-            {t("versionCheck.checkingUpdates")}
-          </p>
-        </div>
-      </div>
+      <Modal
+        open={true}
+        onOpenChange={() => {
+          /* non-dismissible */
+        }}
+        hue={40}
+        size="md"
+        dismissible={false}
+        data-testid="electron-version-check-modal"
+      >
+        <ModalHead title={t("versionCheck.checkingUpdates")} hideClose />
+        <ModalBody className="flex items-center justify-center py-8">
+          <div className="w-5 h-5 border-2 border-[hsla(var(--pv-id-hue),65%,55%,0.6)] border-t-transparent rounded-full animate-spin" />
+        </ModalBody>
+      </Modal>
     );
   }
 
-  if (!versionInfo || versionDismissed) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] p-6 z-50">
-        <div className="flex flex-col gap-5 p-6 border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-base)] max-w-md w-full">
-          <p className="font-bold">{t("versionCheck.checkUpdates")}</p>
-          {versionInfo && !versionDismissed && (
-            <VersionAlert
-              updateInfo={versionInfo}
-              onDownload={handleDownloadUpdate}
-            />
-          )}
-          <Button
-            onClick={handleContinue}
-            className="w-full font-bold"
-          >
-            {t("common.continue")}
-          </Button>
-        </div>
-      </div>
+  const bodyContent =
+    !versionInfo || versionDismissed ? (
+      <>
+        {versionInfo && !versionDismissed && (
+          <VersionAlert
+            updateInfo={versionInfo}
+            onDownload={handleDownloadUpdate}
+          />
+        )}
+      </>
+    ) : (
+      <VersionAlert
+        updateInfo={versionInfo}
+        onDownload={handleDownloadUpdate}
+      />
     );
-  }
+
+  const title =
+    !versionInfo || versionDismissed
+      ? t("versionCheck.checkUpdates")
+      : versionModalTitle;
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-[color:var(--color-pv-base)] p-6 z-50">
-      <div className="flex flex-col gap-5 p-6 border border-[color:var(--color-pv-border-quiet-strong)] bg-[color:var(--color-pv-base)] max-w-md w-full">
-        <p className="font-bold">{versionModalTitle}</p>
-        <VersionAlert
-          updateInfo={versionInfo}
-          onDownload={handleDownloadUpdate}
-        />
+    <Modal
+      open={true}
+      onOpenChange={() => {
+        /* non-dismissible */
+      }}
+      hue={40}
+      size="md"
+      dismissible={false}
+      data-testid="electron-version-check-modal"
+    >
+      <ModalHead title={title} hideClose />
+      <ModalBody>{bodyContent}</ModalBody>
+      <ModalFoot className="justify-center">
         <Button
           onClick={handleContinue}
           className="w-full font-bold"
+          data-testid="electron-version-check-continue"
         >
           {t("common.continue")}
         </Button>
-      </div>
-    </div>
+      </ModalFoot>
+    </Modal>
   );
 }
