@@ -179,18 +179,19 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
     expect(activePanels[0].getAttribute("id")).toMatch(/content-role$/);
   });
 
-  it("Test B: hue chrome applied — DialogContent inline style contains hsla(320, ...) when colorHue=320", () => {
+  it("Test B: hue chrome applied — --pv-id-hue CSS var is 320 when colorHue=320", () => {
     renderModal();
 
+    // Canonical Modal wears the hue via a --pv-id-hue CSS custom property
+    // on the modal content element; all backgrounds/borders reference
+    // hsla(var(--pv-id-hue), ...). Assert the CSS var carries the source
+    // hue we passed.
     const content = document.querySelector(
-      '[data-slot="role-modal-content"]',
+      '[data-testid="role-modal"]',
     ) as HTMLElement | null;
     expect(content).toBeTruthy();
-    // jsdom serializes computed `element.style.background` after color-
-    // parsing (hsla → rgba). To assert the SOURCE hue we set inline, read
-    // the raw style attribute — that preserves the exact string we wrote.
     const styleAttr = content!.getAttribute("style") ?? "";
-    expect(styleAttr).toContain("hsla(320,");
+    expect(styleAttr).toContain("--pv-id-hue: 320");
   });
 
   it("Test C: fallback hue — colorHue undefined → hue 190 (D-05 fallback)", () => {
@@ -202,11 +203,11 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
     });
 
     const content = document.querySelector(
-      '[data-slot="role-modal-content"]',
+      '[data-testid="role-modal"]',
     ) as HTMLElement | null;
     expect(content).toBeTruthy();
     const styleAttr = content!.getAttribute("style") ?? "";
-    expect(styleAttr).toContain("hsla(190,");
+    expect(styleAttr).toContain("--pv-id-hue: 190");
   });
 
   it("Test D: no scope switch — role=group aria-label=Scope is absent", () => {
@@ -295,22 +296,13 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
 
   it("Test H: portal to body — no container prop threaded", () => {
     renderModal();
-    // The parent of DialogPrimitive.Content is the Portal target. With no
-    // container prop threaded, Radix defaults to document.body. Assert the
-    // portalled content is a direct child of document.body (Radix wraps in
-    // an empty div by default).
+    // With no container prop threaded, canonical Modal defaults to
+    // document.body. Assert the modal content is contained by body (and
+    // NOT confined to the react-testing-library render container).
     const content = document.querySelector(
-      '[data-slot="role-modal-content"]',
+      '[data-testid="role-modal"]',
     );
     expect(content).toBeTruthy();
-    // Walk up from content — no ancestor should be the react-testing-library
-    // container div (which is where the render() output goes by default).
-    // If portal fell into a container prop, `content` would be inside that
-    // container's subtree. Instead, content should be inside document.body
-    // directly (not inside the test-render container).
-    // A simple assertion: content is not contained by any ancestor that has
-    // the react-testing-library data-* markers.
-    // Simpler approach: `document.body` contains `content`.
     expect(document.body.contains(content)).toBe(true);
   });
 
@@ -346,10 +338,12 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
     const onOpenChange = vi.fn();
     renderModal({ onOpenChange });
 
-    const closeBtn = screen.getByRole("button", { name: /^close$/i });
+    // Canonical Modal now renders TWO Close buttons (head X + foot pill),
+    // both with aria-label/text "Close". Target the head X by testid to
+    // disambiguate.
+    const closeBtn = screen.getByTestId("role-modal-close");
     fireEvent.click(closeBtn);
 
-    // Radix DialogClose fires onOpenChange(false) on click.
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -438,71 +432,21 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
     });
   });
 
-  it("Test L (Plan 90-10 MEDIUM): clearing a title deletes the frontmatter key at save time", async () => {
-    // Role file has a title on disk.
-    mockGetRoleFileByName.mockResolvedValueOnce({
-      markdown:
-        "---\ntitle: Skynet\ncolorHue: 320\nvoice: alloy\navatar: old.webp\n---\n\n# Box Maintainer\n\nBody.\n",
-    });
-    let capturedMarkdown = "";
-    mockUpdateRoleFileByName.mockImplementationOnce(
-      async (_roleName: string, _hostId: number, markdown: string) => {
-        capturedMarkdown = markdown;
-        return { markdown };
-      },
-    );
-
-    renderModal();
-    await waitFor(() => {
-      expect(mockGetRoleFileByName).toHaveBeenCalled();
-    });
-
-    // Clear the cosmetic title (RoleCosmeticEditBlock emits cleared: "title"
-    // when a set title transitions to empty).
-    const titleInput = screen.getByLabelText(/title/i) as HTMLInputElement;
-    fireEvent.change(titleInput, { target: { value: "" } });
-
-    // Enter edit mode and save.
-    const editBtn = await screen.findByRole("button", { name: /^edit$/i });
-    fireEvent.click(editBtn);
-    // Phase 112 / Plan 02b: see the vi.mock('@mdxeditor/editor') block above —
-    // the raw textarea is replaced by MarkdownEditor's mocked child.
-    const textarea = (await waitFor(() => {
-      const el = document.querySelector(
-        '[data-testid="mdxeditor"]',
-      ) as HTMLTextAreaElement | null;
-      if (!el) throw new Error("RoleFileTab MarkdownEditor not yet present");
-      return el;
-    })) as HTMLTextAreaElement;
-    // Perturb body so Save enables.
-    fireEvent.change(textarea, {
-      target: {
-        value:
-          "---\ntitle: Skynet\ncolorHue: 320\nvoice: alloy\navatar: old.webp\n---\n\n# Box Maintainer\n\nEDITED.\n",
-      },
-    });
-    const saveBtn = await screen.findByRole("button", {
-      name: /^save$|^saving/i,
-    });
-    fireEvent.click(saveBtn);
-
-    await waitFor(() => {
-      expect(mockUpdateRoleFileByName).toHaveBeenCalled();
-    });
-
-    // Frontmatter no longer carries the title key.
-    expect(capturedMarkdown).not.toMatch(/^title:\s*Skynet$/m);
-    expect(capturedMarkdown).not.toMatch(/^title:/m);
-  });
+  // Test L RETIRED 2026-09-29: title-clearing was tied to the
+  // RoleCosmeticEditBlock UI (a Title <input> that emitted a `cleared: "title"`
+  // signal). That block was retired when the Cosmetics tab collapsed into
+  // head chips + avatar pencil overlay. Title is no longer a UI-editable
+  // cosmetic — users edit `title:` (and other never-rendered frontmatter
+  // keys) by hand in the Role file tab. The mergeCosmeticsIntoMarkdown
+  // clearedKeys semantic still exists and is exported for direct testing if
+  // needed later.
 
   it("Test M (Plan 90-10 D-08.3): the modal accepts no identity-shim prop", () => {
-    // Type-level assertion via runtime — the props TS interface no longer
-    // carries the identity-shim prop. Passing one would fail type-check.
-    // Runtime assertion: the source file must not contain the prop name in
-    // its exported interface. We inspect the JSX contract implicitly by NOT
-    // threading the prop in renderModal — the tests above prove the modal
-    // still functions with roleName + hostId alone.
+    // Type-level assertion via runtime — the props TS interface carries only
+    // roleName + hostId + roleCosmetics + open/onOpenChange + onOpenRunbook +
+    // container (post-2026-09-29 canonical Modal). The tests above prove the
+    // modal functions with those props alone.
     renderModal();
-    expect(document.querySelector('[data-slot="role-modal-content"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="role-modal"]')).toBeTruthy();
   });
 });

@@ -1,62 +1,51 @@
-/**
- * Phase 90 Plan 90-04 Task 3 — RoleModal (Plan 90-10 shim-removal refactor)
- *
- * D-03 (LOCKED — user 2026-09-09): the role modal is a GLOBAL modal —
- *   portals to `document.body`, no chat-region target, no portal-target
- *   prop threading. Matches GlobalFilesModal + SkillsEditorModal chrome
- *   pattern. Swap-not-stack transitions from RolesListModal + identity-modal
- *   title-line jump both close their surface first, then open this modal.
- *
- * D-06 (LOCKED — user 2026-09-09): the DialogContent wears the role's own
- *   hue (roleCosmetics.colorHue ?? 190 fallback per D-05), mirroring the
- *   IdentityModal L1614-1621 pattern keyed on the role's hue instead of an
- *   identity's.
- *
- * D-09 (LOCKED SEMANTICS): RoleModal is a NEW component, not a re-
- *   parameterized IdentityModal. IdentityModal keeps identity-scope tabs
- *   only (post-Phase-90-06); RoleModal owns role-scope tabs (role file /
- *   runbooks). Phase 134 Plan 134-02 retired the role-scope wakeups tab
- *   top-to-bottom (see D-09 in 128-CONTEXT.md); Phase 136 retired the
- *   bounties tab alongside the wider bounty-concept retirement.
- *
- * D-08.3 (LOCKED — CONTEXT.md rejects the identity indirection): every
- *   read/write path on this modal is addressed BY ROLE NAME. Callers pass
- *   `roleName` + `hostId`; that pair fully identifies every artifact the
- *   modal touches. (Plan 90-10 dropped the earlier Wave-2 identity prop
- *   after Plan 90-09 shipped the 6 role-name-keyed helpers in
- *   claude-session-api.ts.)
- *
- * Save path (Plan 90-10 additions):
- *   1. If cosmeticDraft carries an `avatarFile` (raw File bytes from a
- *      manual upload or a picked generated candidate), upload via
- *      updateRoleAvatarByName BEFORE writing the markdown. On success, use
- *      the server-returned filename as the frontmatter's `avatar:` value
- *      (overwriting the local draft value if they differ). On failure,
- *      ABORT the markdown write and surface the error to the user — the
- *      modal stays open so the draft is preserved.
- *   2. mergeCosmeticsIntoMarkdown now accepts a `clearedKeys` set. Keys in
- *      that set are DELETED from the frontmatter (regardless of draft value),
- *      matching the semantic "user cleared this field in-session". Prior to
- *      Plan 90-10, an empty draft was indistinguishable from "field never
- *      touched" — the merge preserved the stale value and the user could
- *      not clear a title/voice/avatar once set.
- *   3. updateRoleFileByName (Plan 90-03, unchanged — already role-name-keyed).
- */
+// RoleModal — per-role editor + record view.
+//
+// Modal-unification 2026-09-29:
+//   - Shell: canonical <Modal hue={roleCosmetics.colorHue ?? 190}
+//     blocking={false}>. Global portal target (document.body via canonical
+//     Modal's default) — D-03 (LOCKED user 2026-09-09) preserved via
+//     canonical shell.
+//   - Head: role avatar with a pencil overlay (bottom-right; opens file
+//     picker for avatar upload) + display name (no pencil — roles are not
+//     renamable via UI 2026-09-29) + role slug meta + color chip pinned
+//     top-right + voice chip pinned top-right + close X.
+//   - Two section-tabs at TOP: Role file / Runbooks. Cosmetics tab
+//     retired entirely — cosmetic edits happen via the head chips + the
+//     avatar pencil overlay. RoleCosmeticEditBlock retired.
+//   - Foot: canonical <ModalFoot> with a single Close button.
+//
+// Save flow — per-field cosmetic saves via frontmatter merge:
+//   - Voice chip → popover → VoicePicker onChange → merge {voice: X}
+//     into current server-echoed markdown → updateRoleFileByName.
+//   - Color chip → popover → ColorPicker onChange updates local
+//     colorHueDraft (visual) → on picker close, merge {colorHue: X}
+//     into current server-echoed markdown → updateRoleFileByName.
+//     (Draft-then-commit avoids spamming the backend on every slider
+//     tick during a drag.)
+//   - Avatar pencil overlay → file picker → updateRoleAvatarByName
+//     (upload bytes) → merge {avatar: <server filename>} into current
+//     markdown → updateRoleFileByName.
+//   - Role file tab Save → updateRoleFileByName directly (no merge —
+//     cosmetics are their own save-path now).
+//
+// Chip interactions no-op when the initial file fetch hasn't completed
+// (roleFileState.status !== "ready") — the merge needs server-echoed
+// body to work from.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type React from "react";
 import {
   BookOpen,
+  ChevronDown,
+  Mic,
+  Pencil,
   Users,
   X,
 } from "lucide-react";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import {
-  DialogHeader,
-  DialogTitle,
-  DialogClose,
-} from "@/components/dialog";
+import { Modal, ModalFoot } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { roleAvatarUrl, updateRoleAvatarByName } from "@/api/identities-api";
 import {
   updateRoleFileByName,
@@ -65,48 +54,30 @@ import {
 import type { TabState } from "./IdentityFileTab";
 import { RoleFileTab } from "./RoleFileTab";
 import { RunbooksTab } from "./RunbooksTab";
-import { RoleCosmeticEditBlock } from "./RoleCosmeticEditBlock";
+import { VoicePicker } from "./pickers/VoicePicker";
+import { ColorPicker } from "./pickers/ColorPicker";
 import { roleDisplayName } from "@/lib/role-display-name";
 
 // D-05 fallback hue (app accent) — used when the role has no colorHue key.
 const FALLBACK_HUE = 190;
 
-// Bottom-nav icon bar entries. Order + labels mirror IdentityModal
-// NAV_SECTIONS_ROLE (L351-361) but restated here to keep the file
-// standalone. Default landing tab = "role" (D-CONTEXT §UX rules).
-// Phase 134 Plan 134-02 retired the `role-wakeups` entry alongside the
-// per-role wake-up CRUD retirement (D-09); Phase 136 retired the
-// `bounties` entry alongside the bounty-concept retirement.
 const NAV_SECTIONS = [
   { value: "role", label: "Role file", Icon: Users },
   { value: "runbooks", label: "Runbooks", Icon: BookOpen },
 ] as const;
 
 /**
- * Merge the cosmetic drafts into the frontmatter block of the current
- * role file markdown. Full-overwrite semantics per Plan 90-03: we don't
- * try to preserve arbitrary YAML formatting, but we DO preserve any
- * existing keys we don't own (like `description`).
+ * Merge cosmetic drafts into the frontmatter block of the current role
+ * file markdown. Full-overwrite semantics: preserve any keys we don't own
+ * (like `description`), upsert keys the caller passes, and delete keys in
+ * `clearedKeys`.
  *
- * Rules:
- *   - If the body starts with a `---\n...\n---\n` block, splice inside.
- *   - Otherwise, prepend a fresh frontmatter block.
- *   - For each cosmetic key present in the draft AND non-empty, upsert.
- *   - For each key in `clearedKeys`, DELETE from the frontmatter regardless
- *     of the draft value. This is how the user clears a title/voice/avatar
- *     that was set on disk (Plan 90-10 MEDIUM fix).
- *   - For keys the draft doesn't touch and are NOT in clearedKeys, leave
- *     any existing value untouched (never-touched fields survive).
- *
- * `clearedKeys` is exported alongside via the RoleCosmeticEditBlock's
- * `cleared: "title" | "voice" | "avatar"` signal — the parent (this file)
- * accumulates the set and passes it here at save time.
- *
- * Exported for tests in RoleModal.test.tsx.
+ * Exported for tests.
  */
 export function mergeCosmeticsIntoMarkdown(
   currentBody: string,
   cosmetics: {
+    displayName?: string;
     title?: string;
     colorHue?: number;
     voice?: string;
@@ -114,9 +85,8 @@ export function mergeCosmeticsIntoMarkdown(
   },
   clearedKeys?: ReadonlySet<string>,
 ): string {
-  const cosmeticKeys = ["title", "colorHue", "voice", "avatar"] as const;
+  const cosmeticKeys = ["displayName", "title", "colorHue", "voice", "avatar"] as const;
   const cleared = clearedKeys ?? new Set<string>();
-  // Detect a leading `---\n...\n---\n` frontmatter block.
   const fmRe = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
   const match = currentBody.match(fmRe);
   let existingLines: string[] = [];
@@ -126,7 +96,6 @@ export function mergeCosmeticsIntoMarkdown(
     restBody = currentBody.slice(match[0].length);
   }
 
-  // Build a new-lines list by upserting each draft key.
   const newLines: string[] = [];
   const seenKeys = new Set<string>();
   for (const line of existingLines) {
@@ -134,11 +103,9 @@ export function mergeCosmeticsIntoMarkdown(
     if (keyMatch) {
       const key = keyMatch[1];
       seenKeys.add(key);
-      // Plan 90-10: cleared keys are DELETED (skip the line entirely).
       if (cleared.has(key)) {
         continue;
       }
-      // Overwrite value if the caller passed a non-empty draft.
       if (cosmeticKeys.includes(key as typeof cosmeticKeys[number])) {
         const draftVal = cosmetics[key as keyof typeof cosmetics];
         if (draftVal !== undefined && draftVal !== "") {
@@ -149,9 +116,6 @@ export function mergeCosmeticsIntoMarkdown(
     }
     newLines.push(line);
   }
-  // Append any draft keys the existing block didn't have. Cleared keys skip
-  // the append too — a cleared key that had no existing line to delete is a
-  // no-op (user pressed "clear" on a field that was never set).
   for (const key of cosmeticKeys) {
     if (seenKeys.has(key)) continue;
     if (cleared.has(key)) continue;
@@ -166,45 +130,17 @@ export function mergeCosmeticsIntoMarkdown(
 }
 
 function yamlScalar(value: string | number): string {
-  // Numeric cosmetics (only colorHue among the current cosmeticKeys) get
-  // single-quoted so on-disk shape matches MDXEditor's frontmatter-dialog
-  // output. Bare numbers and quoted numeric strings both round-trip through
-  // extractCosmeticsFromFrontmatter, but standardizing on the quoted form
-  // keeps frontmatter byte-shape-consistent whether Skynet or an MDXEditor
-  // edit was the last writer.
   if (typeof value === "number") return `'${String(value)}'`;
-  // Quote strings that contain colons or start with special chars to keep
-  // YAML happy. Simple heuristic — the pickers restrict input to safe
-  // ASCII so this is defense-in-depth.
   if (/[:#\-\[\]{}&*!|>'"%@`]/.test(value) || /\s/.test(value)) {
     return JSON.stringify(value);
   }
   return value;
 }
 
-// Phase 90 Plan 90-10: openOneShot + sendMutation helpers deleted. The
-// role-name-keyed API helpers from Plan 90-09 (getRoleFileByName,
-// updateRoleFileByName) all return Promises with the same connection
-// lifecycle baked in, so the modal-local WS plumbing was pure duplication of
-// what claude-session-api.ts already owns. Phase 134 Plan 134-02: the four
-// role-scope wakeup helpers that once shared this pattern have been retired
-// top-to-bottom (see 128-CONTEXT.md D-12).
-
 export interface RoleModalProps {
-  /** Controlled — true = modal open. */
   open: boolean;
-  /** Fires with `false` when the close X or Esc is triggered. Swap-not-stack
-   *  callers (RolesListModal, PrettyView identity-title jump) hook this to
-   *  clean up their own state. */
   onOpenChange: (open: boolean) => void;
-  /** Role slug (kebab-case). Addresses ALL of: header avatar, role-file
-   *  fetch/write, runbooks scoping, avatar upload. Phase 90 Plan 90-10:
-   *  this is the ONLY addressing prop for role-scope reads/writes — the
-   *  earlier Wave-2 identity prop was removed after Plan 90-09 shipped
-   *  the role-name-keyed API helpers (D-08.3 lock). Phase 134 Plan 134-02
-   *  retired role-wakeups scoping; Phase 136 retired bounty scoping. */
   roleName: string;
-  /** Role cosmetics from Plan 90-01's RoleSummary. All keys optional. */
   roleCosmetics: {
     title?: string;
     displayName?: string;
@@ -212,13 +148,9 @@ export interface RoleModalProps {
     voice?: string;
     avatar?: string;
   };
-  /** SSH host id — pane's active host. Threaded through every role-name-keyed
-   *  helper as `hostId`. */
   hostId: number;
-  /** Fired when a Runbooks tab row is clicked. Parent (PrettyView in Plan
-   *  90-06) owns swap-not-stack coordination — closes this RoleModal and
-   *  opens RunbookEditorModal for {roleName, runbookName}. */
   onOpenRunbook: (runbookName: string) => void;
+  container?: HTMLElement | null;
 }
 
 export function RoleModal({
@@ -228,8 +160,11 @@ export function RoleModal({
   roleCosmetics,
   hostId,
   onOpenRunbook,
+  container,
 }: RoleModalProps): JSX.Element {
-  const hue = roleCosmetics.colorHue ?? FALLBACK_HUE;
+  const initialHue = roleCosmetics.colorHue ?? FALLBACK_HUE;
+  const [colorHueDraft, setColorHueDraft] = useState<number>(initialHue);
+  const hue = colorHueDraft;
   const displayName = roleDisplayName(roleName, roleCosmetics.displayName);
 
   const [activeTab, setActiveTab] = useState<string>("role");
@@ -237,49 +172,39 @@ export function RoleModal({
     status: "loading",
   });
 
-  // Cosmetic-edit-block draft. Accumulates onDraftChange patches so we can
-  // splice them into the frontmatter at save time. Reset on modal close.
-  const [cosmeticDraft, setCosmeticDraft] = useState<{
-    title?: string;
-    colorHue?: number;
-    voice?: string;
-    avatar?: string;
-  }>({});
-  // Phase 90 Plan 90-10 HIGH fix: retain the picked avatar File so we can
-  // POST it to the backend via updateRoleAvatarByName BEFORE writing the
-  // role markdown. Prior to this plan the file was discarded and the
-  // frontmatter pointed at a filename with no bytes behind it.
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  // Phase 90 Plan 90-10 MEDIUM fix: track which cosmetic keys the user has
-  // cleared in-session. mergeCosmeticsIntoMarkdown DELETES these keys from
-  // the frontmatter regardless of draft value — otherwise an empty draft is
-  // indistinguishable from "field never touched" and the merge preserves
-  // stale on-disk values. The RoleCosmeticEditBlock signals via
-  // `cleared: "title" | "voice" | "avatar"` on onDraftChange emissions.
-  const [clearedKeys, setClearedKeys] = useState<Set<string>>(new Set());
-  // Save-side errors are reported by throwing from handleRoleFileSave — the
-  // RoleFileTab's own onSave promise handler catches the throw and renders
-  // its saveError UI. The modal stays open so the draft is preserved. No
-  // separate error state needed here.
+  // Chip state
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false);
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const [voiceDraft, setVoiceDraft] = useState<string>(
+    roleCosmetics.voice ?? "",
+  );
+  // Committed hue — what's currently persisted on disk (updated on save
+  // success). `colorHueDraft` may lead this during a drag; on picker
+  // close we save the draft and this state catches up.
+  const [committedHue, setCommittedHue] = useState<number>(initialHue);
+  const voicePickerRef = useRef<HTMLDivElement | null>(null);
+  const colorPickerRef = useRef<HTMLDivElement | null>(null);
+  const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // ── Fetch role file on open ───────────────────────────────────────────────
-  //
-  // Plan 90-10 shim removal: reads route through the role-name-keyed helper
-  // from claude-session-api.ts (Plan 90-09). Phase 134 Plan 134-02: the
-  // role-wakeups fetch that once ran here alongside the role-file read has
-  // been retired.
+  const roleFileStateRef = useRef(roleFileState);
+  roleFileStateRef.current = roleFileState;
+
+  // Reset on open.
   useEffect(() => {
     if (!open) return;
-
     setRoleFileState({ status: "loading" });
-    setCosmeticDraft({});
-    setAvatarFile(null);
-    setClearedKeys(new Set());
-    // (Errors surface via the throw path — RoleFileTab renders its own UI.)
     setActiveTab("role");
+    setVoicePickerOpen(false);
+    setColorPickerOpen(false);
+    setVoiceDraft(roleCosmetics.voice ?? "");
+    setColorHueDraft(roleCosmetics.colorHue ?? FALLBACK_HUE);
+    setCommittedHue(roleCosmetics.colorHue ?? FALLBACK_HUE);
+  }, [open, roleName, roleCosmetics.voice, roleCosmetics.colorHue]);
 
+  // Fetch role file on open.
+  useEffect(() => {
+    if (!open) return;
     let cancelled = false;
-
     void (async () => {
       try {
         const { markdown } = await getRoleFileByName({ roleName, hostId });
@@ -295,310 +220,415 @@ export function RoleModal({
         }
       }
     })();
-
     return () => {
       cancelled = true;
     };
   }, [open, roleName, hostId]);
 
-  // ── Role-file save handler ────────────────────────────────────────────────
-  //
-  // Plan 90-10 additions:
-  //   1. If cosmeticDraft carries an avatarFile, POST it via
-  //      updateRoleAvatarByName BEFORE writing the markdown. On success,
-  //      use the server-returned filename in the frontmatter's avatar field.
-  //      On failure, ABORT the markdown write and surface the error.
-  //   2. Pass clearedKeys through to mergeCosmeticsIntoMarkdown so cleared
-  //      fields are DELETED (not preserved).
+  // Click-outside for voice popover.
+  useEffect(() => {
+    if (!voicePickerOpen) return;
+    function onDown(e: MouseEvent) {
+      if (!voicePickerRef.current) return;
+      if (voicePickerRef.current.contains(e.target as Node)) return;
+      setVoicePickerOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [voicePickerOpen]);
+
+  // Click-outside for color popover — commits the drafted hue on close.
+  useEffect(() => {
+    if (!colorPickerOpen) return;
+    function onDown(e: MouseEvent) {
+      if (!colorPickerRef.current) return;
+      if (colorPickerRef.current.contains(e.target as Node)) return;
+      setColorPickerOpen(false);
+      // Commit the drafted hue on close if it differs from committed.
+      if (colorHueDraft !== committedHue) {
+        void saveColorHue(colorHueDraft);
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [colorPickerOpen, colorHueDraft, committedHue]);
+
+  // ── Save handlers ────────────────────────────────────────────────────────
+
+  const saveCosmeticField = useCallback(
+    async (
+      patch: {
+        displayName?: string;
+        title?: string;
+        colorHue?: number;
+        voice?: string;
+        avatar?: string;
+      },
+      clearedField?: string,
+    ): Promise<void> => {
+      const current = roleFileStateRef.current;
+      if (current.status !== "ready") {
+        toast.error("Role file not loaded yet — try again in a moment.");
+        return;
+      }
+      const merged = mergeCosmeticsIntoMarkdown(
+        current.data,
+        patch,
+        clearedField ? new Set([clearedField]) : undefined,
+      );
+      const res = await updateRoleFileByName(roleName, hostId, merged);
+      setRoleFileState({ status: "ready", data: res.markdown });
+    },
+    [roleName, hostId],
+  );
+
+  async function saveVoice(nextVoice: string): Promise<void> {
+    const prev = voiceDraft;
+    setVoiceDraft(nextVoice);
+    try {
+      await saveCosmeticField(
+        { voice: nextVoice === "" ? undefined : nextVoice },
+        nextVoice === "" ? "voice" : undefined,
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? `Voice save failed: ${err.message}`
+          : "Voice save failed",
+      );
+      setVoiceDraft(prev);
+    }
+  }
+
+  async function saveColorHue(nextHue: number): Promise<void> {
+    const prev = committedHue;
+    setCommittedHue(nextHue);
+    try {
+      await saveCosmeticField({ colorHue: nextHue });
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? `Color save failed: ${err.message}`
+          : "Color save failed",
+      );
+      setColorHueDraft(prev);
+      setCommittedHue(prev);
+    }
+  }
+
+  async function onAvatarPick(
+    e: React.ChangeEvent<HTMLInputElement>,
+  ): Promise<void> {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (roleFileStateRef.current.status !== "ready") {
+      toast.error("Role file not loaded yet — try again in a moment.");
+      return;
+    }
+    try {
+      const { filename } = await updateRoleAvatarByName(hostId, roleName, file);
+      await saveCosmeticField({ avatar: filename });
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? `Avatar upload failed: ${err.message}`
+          : "Avatar upload failed",
+      );
+    }
+  }
+
+  // Role-file tab save — plain overwrite (cosmetics don't merge here
+  // anymore; they own their own save path via chips + avatar pencil).
   const handleRoleFileSave = useCallback(
     async (fileBody: string): Promise<void> => {
-      // (Errors surface via the throw path — RoleFileTab renders its own UI.)
-
-      // Local copy of the cosmetic draft — we may overwrite `avatar` from
-      // the server response before merging.
-      let effectiveDraft = { ...cosmeticDraft };
-
-      // Step 1: upload avatar bytes if the user picked / uploaded a File.
-      // On failure, throw — RoleFileTab's onSave promise handler catches and
-      // renders its own saveError UI. Modal stays open; drafts are preserved.
-      if (avatarFile) {
-        const { filename } = await updateRoleAvatarByName(
-          hostId,
-          roleName,
-          avatarFile,
-        );
-        // Server owns the on-disk filename — overwrite the draft to match.
-        effectiveDraft = { ...effectiveDraft, avatar: filename };
-      }
-
-      // Step 2: merge cosmetics (with any avatar overwrite from step 1) into
-      // the frontmatter and write the markdown. updateRoleFileByName rejects
-      // with Error(env.error) on write failure — that reject propagates to
-      // the RoleFileTab which catches and renders the save-failed UI.
-      const mergedMarkdown = mergeCosmeticsIntoMarkdown(
-        fileBody,
-        effectiveDraft,
-        clearedKeys,
-      );
-      const res = await updateRoleFileByName(
-        roleName,
-        hostId,
-        mergedMarkdown,
-      );
-      // Server-echo becomes the new source of truth.
+      const res = await updateRoleFileByName(roleName, hostId, fileBody);
       setRoleFileState({ status: "ready", data: res.markdown });
-      setCosmeticDraft({});
-      setAvatarFile(null);
-      setClearedKeys(new Set());
     },
-    [roleName, hostId, cosmeticDraft, clearedKeys, avatarFile],
+    [roleName, hostId],
   );
 
-  // ── Cosmetic-block onDraftChange handler ──────────────────────────────────
-  //
-  // Plan 90-10: also accumulates clearedKeys from the block's `cleared` signal.
-  const onCosmeticDraftChange = useCallback(
-    (patch: {
-      title?: string;
-      colorHue?: number;
-      voice?: string;
-      avatar?: string;
-      avatarFile?: File;
-      cleared?: "title" | "voice" | "avatar";
-    }) => {
-      const { avatarFile: nextFile, cleared, ...cosmeticPatch } = patch;
-      if (nextFile !== undefined) setAvatarFile(nextFile);
-      setCosmeticDraft((prev) => ({ ...prev, ...cosmeticPatch }));
-      if (cleared) {
-        setClearedKeys((prev) => {
-          const next = new Set(prev);
-          next.add(cleared);
-          return next;
-        });
-      } else if (cosmeticPatch.title !== undefined) {
-        // Typing a non-empty title after a clear removes the "cleared" mark.
-        // Same logic applies to voice via the else-if below.
-        if (cosmeticPatch.title.trim().length > 0) {
-          setClearedKeys((prev) => {
-            if (!prev.has("title")) return prev;
-            const next = new Set(prev);
-            next.delete("title");
-            return next;
-          });
-        }
-      } else if (cosmeticPatch.voice !== undefined) {
-        if (cosmeticPatch.voice.length > 0) {
-          setClearedKeys((prev) => {
-            if (!prev.has("voice")) return prev;
-            const next = new Set(prev);
-            next.delete("voice");
-            return next;
-          });
-        }
-      }
-    },
-    [],
-  );
-
-  // ── Initial cosmetics for the edit block (merge server frontmatter into
-  // the RoleSummary passed in as a prop). Server-echo overrides the prop
-  // once the read fetch resolves — but the block's local state was seeded
-  // from `initial` on mount, so we rely on the prop-driven initial.
-  const cosmeticEditInitial = useMemo(
-    () => ({
-      title: roleCosmetics.title,
-      colorHue: roleCosmetics.colorHue,
-      voice: roleCosmetics.voice,
-      avatar: roleCosmetics.avatar,
-    }),
-    [roleCosmetics.title, roleCosmetics.colorHue, roleCosmetics.voice, roleCosmetics.avatar],
-  );
+  const chipsDisabled = roleFileState.status !== "ready";
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={false}>
-      {/* D-03: Portal receives no portal-target prop — defaults to document.body. */}
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay
-          className={cn(
-            "fixed inset-0 z-[110] bg-black/40",
-            "supports-backdrop-filter:backdrop-blur-xs duration-100",
-            "data-open:animate-in data-open:fade-in-0",
-            "data-closed:animate-out data-closed:fade-out-0",
-          )}
-        />
-        <DialogPrimitive.Content
-          data-slot="role-modal-content"
-          onInteractOutside={(e) => {
-            // Same pattern as GlobalFilesModal / IdentityModal: prevent
-            // click-outside from closing. X + Esc remain valid dismissal.
-            e.preventDefault();
-          }}
-          className={cn(
-            "fixed inset-4 z-[120] outline-none",
-            "flex flex-col overflow-hidden rounded-[24px]",
-            "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
-            "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          )}
-          style={{
-            // D-06 hue chrome keyed on the role's hue.
-            background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.82), hsla(${hue}, 40%, 15%, 0.88))`,
-            backdropFilter: "blur(28px) saturate(1.4)",
-            WebkitBackdropFilter: "blur(28px) saturate(1.4)",
-            border: `1px solid hsla(${hue}, 65%, 55%, 0.32)`,
-            boxShadow: `0 24px 64px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,220,170,0.15), 0 0 80px hsla(${hue}, 65%, 55%, 0.2)`,
-            color: "#e8e4d8",
-          }}
-        >
-          <DialogTitle className="sr-only">Role: {displayName}</DialogTitle>
-
-          {/* Header — role avatar + display name + close button. NO scope
-              switch (D-01, D-09). NO identity chip. NO coord watermark. NO
-              stays-awake switch. NO pencil-toggle — those are identity-
-              scope surfaces from IdentityModal that don't belong here. */}
-          <DialogHeader
-            className="shrink-0"
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      hue={hue}
+      blocking={false}
+      container={container ?? undefined}
+      size="xl"
+      className="max-h-[90vh] flex flex-col"
+      data-testid="role-modal"
+    >
+      {/* Head — avatar (with pencil overlay) + display name + role slug +
+          color chip + voice chip + close X. Custom head shape (not
+          <ModalHead>) because it holds chip-triggered popovers + an
+          avatar-with-overlay layout. */}
+      <div
+        className="px-5 py-4 flex flex-row items-start gap-3 flex-shrink-0"
+        style={{
+          borderBottom: `1px solid hsla(${hue}, 50%, 50%, 0.22)`,
+        }}
+      >
+        {/* Avatar with pencil overlay */}
+        <div className="relative shrink-0">
+          <img
+            src={roleAvatarUrl(hostId, roleName)}
+            alt=""
+            draggable={false}
+            data-testid="role-modal-header-avatar"
+            className="shrink-0 object-cover"
             style={{
-              position: "relative",
-              overflow: "hidden",
-              borderBottom: `1px solid hsla(${hue}, 50%, 50%, 0.2)`,
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              boxShadow: `0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,220,190,0.25), 0 0 20px hsla(${hue}, 65%, 55%, 0.35)`,
+            }}
+          />
+          <button
+            type="button"
+            aria-label="Upload new role avatar"
+            title="Upload new role avatar"
+            onClick={() => avatarFileInputRef.current?.click()}
+            data-testid="role-modal-avatar-pencil"
+            className={cn(
+              "absolute -bottom-0.5 -right-0.5 size-5 rounded-full",
+              "flex items-center justify-center cursor-pointer",
+              "border transition-colors",
+            )}
+            style={{
+              background: "rgba(0,0,0,0.72)",
+              borderColor: `hsla(${hue}, 65%, 55%, 0.55)`,
+              color: "#fbf5e8",
             }}
           >
-            <div className="px-6 py-4 flex flex-row items-center gap-3 overflow-x-auto">
-              <img
-                src={roleAvatarUrl(hostId, roleName)}
-                alt=""
-                data-testid="role-modal-header-avatar"
-                className="shrink-0 object-cover"
+            <Pencil size={10} />
+          </button>
+          <input
+            ref={avatarFileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              void onAvatarPick(e);
+            }}
+          />
+        </div>
+        <div className="flex flex-col flex-1 min-w-0 gap-1">
+          <span className="font-semibold text-[16px] text-[#f0ebe0] truncate leading-tight">
+            {displayName}
+          </span>
+          <div className="text-[11.5px] font-medium tracking-[0.06em] text-[hsla(var(--pv-id-hue),35%,90%,0.65)]">
+            {roleName}
+          </div>
+        </div>
+        {/* Chips + close X — pinned to top-right. */}
+        <div className="flex items-start gap-1 shrink-0">
+          {/* Color chip */}
+          <div className="relative" ref={colorPickerRef}>
+            <button
+              type="button"
+              aria-label="Role color — click to pick"
+              title="Role color — click to pick"
+              disabled={chipsDisabled}
+              onClick={() => setColorPickerOpen((v) => !v)}
+              data-testid="role-modal-color-chip"
+              className={cn(
+                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium cursor-pointer",
+                "border transition-colors",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+                colorPickerOpen
+                  ? "bg-[hsla(var(--pv-id-hue),55%,45%,0.7)] border-[hsla(var(--pv-id-hue),65%,60%,0.55)] text-[#fbf5e8]"
+                  : "bg-[hsla(var(--pv-id-hue),55%,40%,0.55)] border-[hsla(var(--pv-id-hue),65%,55%,0.45)] text-[#fbf5e8] hover:bg-[hsla(var(--pv-id-hue),55%,45%,0.65)]",
+              )}
+            >
+              <span
+                className="inline-block shrink-0"
                 style={{
-                  position: "relative",
-                  zIndex: 1,
-                  width: 40,
-                  height: 40,
+                  width: 14,
+                  height: 14,
                   borderRadius: "50%",
-                  boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(${hue}, 65%, 55%, 0.4)`,
+                  background: `hsl(${colorHueDraft}, 65%, 55%)`,
+                  border: `1px solid hsla(${colorHueDraft}, 75%, 70%, 0.65)`,
+                  boxShadow: "inset 0 1px 0 rgba(255,220,190,0.25)",
                 }}
-                draggable={false}
               />
+              <span>Color</span>
+              <ChevronDown size={12} className="opacity-70" />
+            </button>
+            {colorPickerOpen && (
               <div
-                className="flex flex-col min-w-0 flex-1"
-                style={{ position: "relative", zIndex: 1 }}
-              >
-                <span className="font-semibold text-base text-[#f0ebe0] truncate leading-tight">
-                  {displayName}
-                </span>
-                {roleCosmetics.title && (
-                  <span className="text-xs text-[#a89a80] truncate leading-tight">
-                    {roleCosmetics.title}
-                  </span>
+                role="dialog"
+                aria-label="Color picker"
+                data-testid="role-modal-color-popover"
+                className={cn(
+                  "absolute right-0 top-[calc(100%+6px)] z-20 min-w-[280px] p-3 rounded-lg flex flex-col gap-2",
+                  "border border-[hsla(var(--pv-id-hue),60%,55%,0.32)]",
                 )}
+                style={{
+                  background: `linear-gradient(160deg, hsla(${hue}, 40%, 22%, 0.98), hsla(${hue}, 40%, 15%, 0.98))`,
+                  boxShadow: "0 10px 32px rgba(0, 0, 0, 0.55)",
+                }}
+              >
+                <div className="text-[10.5px] font-medium tracking-[0.14em] uppercase text-[hsla(var(--pv-id-hue),30%,88%,0.72)]">
+                  Color
+                </div>
+                <ColorPicker
+                  value={colorHueDraft}
+                  onChange={(next) => setColorHueDraft(next)}
+                />
               </div>
-              <DialogClose asChild>
-                <button
-                  type="button"
-                  aria-label="Close"
-                  title="Close"
-                  className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color,box-shadow] duration-200"
-                  style={{
-                    position: "relative",
-                    zIndex: 1,
-                    background: "rgba(255, 255, 255, 0.04)",
-                    border: "1px solid rgba(220, 225, 245, 0.10)",
+            )}
+          </div>
+          {/* Voice chip */}
+          <div className="relative" ref={voicePickerRef}>
+            <button
+              type="button"
+              aria-label="Voice — click to pick"
+              title={
+                voiceDraft
+                  ? `Voice: ${voiceDraft} — click to change`
+                  : "Voice — click to pick"
+              }
+              disabled={chipsDisabled}
+              onClick={() => setVoicePickerOpen((v) => !v)}
+              data-testid="role-modal-voice-chip"
+              className={cn(
+                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium cursor-pointer",
+                "border transition-colors",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+                voicePickerOpen
+                  ? "bg-[hsla(var(--pv-id-hue),55%,45%,0.7)] border-[hsla(var(--pv-id-hue),65%,60%,0.55)] text-[#fbf5e8]"
+                  : "bg-[hsla(var(--pv-id-hue),55%,40%,0.55)] border-[hsla(var(--pv-id-hue),65%,55%,0.45)] text-[#fbf5e8] hover:bg-[hsla(var(--pv-id-hue),55%,45%,0.65)]",
+              )}
+            >
+              <Mic size={12} className="opacity-85" />
+              {voiceDraft ? (
+                <span>{voiceDraft}</span>
+              ) : (
+                <span className="italic opacity-75">default</span>
+              )}
+              <ChevronDown size={12} className="opacity-70" />
+            </button>
+            {voicePickerOpen && (
+              <div
+                role="dialog"
+                aria-label="Voice picker"
+                data-testid="role-modal-voice-popover"
+                className={cn(
+                  "absolute right-0 top-[calc(100%+6px)] z-20 min-w-[260px] p-3 rounded-lg flex flex-col gap-1.5",
+                  "border border-[hsla(var(--pv-id-hue),60%,55%,0.32)]",
+                )}
+                style={{
+                  background: `linear-gradient(160deg, hsla(${hue}, 40%, 22%, 0.98), hsla(${hue}, 40%, 15%, 0.98))`,
+                  boxShadow: "0 10px 32px rgba(0, 0, 0, 0.55)",
+                }}
+              >
+                <div className="text-[10.5px] font-medium tracking-[0.14em] uppercase text-[hsla(var(--pv-id-hue),30%,88%,0.72)]">
+                  Voice
+                </div>
+                <VoicePicker
+                  value={voiceDraft}
+                  onChange={(v) => {
+                    void saveVoice(v);
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.10)";
-                    e.currentTarget.style.border = "1px solid rgba(220, 225, 245, 0.22)";
-                    e.currentTarget.style.boxShadow = `0 0 20px hsla(${hue}, 60%, 50%, 0.25)`;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.04)";
-                    e.currentTarget.style.border = "1px solid rgba(220, 225, 245, 0.10)";
-                    e.currentTarget.style.boxShadow = "none";
-                  }}
-                >
-                  <X className="size-4" />
-                </button>
-              </DialogClose>
-            </div>
-          </DialogHeader>
-
-          <Tabs
-            value={activeTab}
-            onValueChange={setActiveTab}
-            className="flex-1 min-h-0 flex flex-col"
+                  ariaLabel="Voice"
+                />
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            aria-label="Close"
+            title="Close"
+            onClick={() => onOpenChange(false)}
+            data-testid="role-modal-close"
+            className={cn(
+              "size-9 rounded-full flex items-center justify-center cursor-pointer",
+              "text-[hsla(var(--pv-id-hue),22%,88%,0.65)] hover:text-[#f0ebe0]",
+              "hover:bg-white/10 transition-colors",
+            )}
           >
-            <TabsContent
-              value="role"
-              className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-            >
-              <RoleCosmeticEditBlock
-                roleName={roleName}
-                hostId={hostId}
-                initial={cosmeticEditInitial}
-                onDraftChange={onCosmeticDraftChange}
-                saving={false}
-              />
-              <RoleFileTab
-                state={roleFileState}
-                onSave={handleRoleFileSave}
-              />
-            </TabsContent>
+            <X size={16} />
+          </button>
+        </div>
+      </div>
 
-            <TabsContent
-              value="runbooks"
-              className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-            >
-              <RunbooksTab
-                hostId={hostId}
-                roleName={roleName}
-                onOpenRunbook={onOpenRunbook}
-              />
-            </TabsContent>
+      {/* Section tabs — top. Two tabs. */}
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex-1 min-h-0 flex flex-col"
+      >
+        <div
+          className={cn(
+            "shrink-0 flex items-stretch gap-1 px-2 py-1.5",
+            "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.18)]",
+            "bg-black/25",
+          )}
+          data-testid="role-modal-nav"
+        >
+          {NAV_SECTIONS.map(({ value, label, Icon }) => {
+            const selected = activeTab === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setActiveTab(value)}
+                aria-pressed={selected}
+                data-testid={`role-modal-nav-${value}`}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] cursor-pointer",
+                  "transition-colors duration-150",
+                  selected
+                    ? "text-[#fbf5e8] bg-[hsla(var(--pv-id-hue),65%,55%,0.28)] border border-[hsla(var(--pv-id-hue),65%,60%,0.42)]"
+                    : "text-[hsla(var(--pv-id-hue),22%,88%,0.65)] hover:text-[#e8e4d8] hover:bg-white/[0.04] border border-transparent",
+                )}
+              >
+                <Icon size={13} /> {label}
+              </button>
+            );
+          })}
+        </div>
 
-            {/* Bottom icon-bar nav — mirrors IdentityModal L2557-2597
-                shape. 2 items keyed off NAV_SECTIONS above (role/runbooks).
-                Phase 134 Plan 134-02 retired the role-wakeups tab; Phase
-                136 retired the bounties tab. */}
-            <div
-              className="shrink-0 flex items-stretch justify-around px-2 py-1 border-t"
-              style={{
-                borderTopColor: "rgba(220, 225, 245, 0.10)",
-                background:
-                  "linear-gradient(180deg, rgba(18,20,28,0.62), rgba(28,30,40,0.55))",
-                backdropFilter: "blur(12px)",
-                WebkitBackdropFilter: "blur(12px)",
-              }}
-            >
-              {NAV_SECTIONS.map(({ value, label, Icon }) => {
-                const selected = activeTab === value;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setActiveTab(value)}
-                    className={cn(
-                      "flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-md text-[10px] cursor-pointer transition-colors flex-1",
-                      selected
-                        ? "text-[#f0ebe0] font-semibold"
-                        : "text-[#a89a80] hover:text-[#e8e4d8]",
-                    )}
-                    style={
-                      selected
-                        ? {
-                            background: `hsla(${hue}, 80%, 60%, 0.18)`,
-                            boxShadow: `inset 0 0 0 1px hsla(${hue}, 80%, 70%, 0.28)`,
-                          }
-                        : undefined
-                    }
-                  >
-                    <Icon size={18} />
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </Tabs>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+        <TabsContent
+          value="role"
+          className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+        >
+          <RoleFileTab
+            state={roleFileState}
+            onSave={handleRoleFileSave}
+          />
+        </TabsContent>
+
+        <TabsContent
+          value="runbooks"
+          className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+        >
+          <RunbooksTab
+            hostId={hostId}
+            roleName={roleName}
+            onOpenRunbook={onOpenRunbook}
+          />
+        </TabsContent>
+      </Tabs>
+
+      <ModalFoot>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          data-testid="role-modal-close-foot"
+          className={cn(
+            "px-3 py-1.5 rounded-md text-[12.5px] cursor-pointer",
+            "bg-black/20 border border-white/10",
+            "hover:bg-black/30",
+            "text-[#e8e4d8]",
+          )}
+        >
+          Close
+        </button>
+      </ModalFoot>
+    </Modal>
   );
 }
